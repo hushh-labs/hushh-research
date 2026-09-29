@@ -393,7 +393,7 @@ function WelcomeRadar() {
           data-one-welcome-core
         >
           <MapPin
-            className="h-6 w-6 fill-[#087ff5]/16 stroke-[#087ff5]"
+            className="h-6 w-6 text-[color:var(--app-accent)]"
             strokeWidth={2.7}
           />
         </span>
@@ -499,7 +499,7 @@ function WelcomeScreen({
           </div>
           {/* Centered measure like the feature-screen CTA below: full-width
               here stretched edge to edge on desktop and read as a bar. */}
-          <div className="mx-auto w-full max-w-[430px] shrink-0">
+          <div className="mx-auto w-full max-w-[244px] shrink-0">
             <PrimaryButton inverse onClick={onStart}>
               Get started
             </PrimaryButton>
@@ -619,11 +619,11 @@ const SHARE_LOCATION_AVATARS = [
   },
 ] as const;
 
-function TwoLineFeatureTitle({
+function FeatureTitle({
   lines,
   className,
 }: {
-  lines: readonly [string, string];
+  lines: readonly string[];
   className?: string;
 }) {
   return (
@@ -668,7 +668,7 @@ function ShareLocationFeatureCard() {
         >
           Share location
         </span>
-        <TwoLineFeatureTitle
+        <FeatureTitle
           lines={["Can’t explain", "where you are?"]}
           className="font-[family-name:var(--font-app-display)] text-[21px]"
         />
@@ -744,8 +744,8 @@ function CheckInFeatureCard() {
         >
           Check in
         </span>
-        <TwoLineFeatureTitle
-          lines={["Stuck waiting", "in line?"]}
+        <FeatureTitle
+          lines={["At the venue,", "but can't find", "each other?"]}
           className="text-[19px]"
         />
         <p
@@ -807,7 +807,7 @@ function SaveMySoulFeatureCard() {
         >
           SMS · Save My Soul
         </span>
-        <TwoLineFeatureTitle
+        <FeatureTitle
           lines={["Need help but", "can’t talk?"]}
           className="text-[19px]"
         />
@@ -957,7 +957,7 @@ function FeaturesScreen({
         </p>
       </div>
       <div
-        className="mx-auto w-full max-w-[430px] shrink-0 pt-5"
+        className="mx-auto w-full max-w-[244px] shrink-0 pt-5"
         data-one-feature-cta
       >
         <PrimaryButton

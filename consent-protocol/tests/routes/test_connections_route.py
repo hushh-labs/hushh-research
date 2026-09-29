@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from api.middleware import require_firebase_auth
 from api.routes.one.connections import router
 from hushh_mcp.services.connections_service import ConnectionsError
+from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 
 
 def _client():
@@ -60,6 +61,20 @@ def test_directory_lists_items():
         resp = client.get("/api/one/connections/directory?query=bo")
     assert resp.status_code == 200
     assert resp.json() == {"items": [], "page": 1, "hasMore": False}
+
+
+def test_directory_identity_outage_returns_retryable_503():
+    client = _client()
+    with patch("api.routes.one.connections.ConnectionsService") as svc_cls:
+        svc_cls.return_value.search_directory.side_effect = DirectoryIdentityUnavailableError()
+        resp = client.get("/api/one/connections/directory?query=divya")
+    assert resp.status_code == 503
+    assert resp.json() == {
+        "detail": {
+            "code": "DIRECTORY_IDENTITY_UNAVAILABLE",
+            "message": "People search is temporarily unavailable. Try again.",
+        }
+    }
 
 
 def test_connections_no_params_preserves_legacy_complete_shape():

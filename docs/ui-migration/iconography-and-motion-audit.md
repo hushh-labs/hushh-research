@@ -51,7 +51,7 @@ do not acquire filled backplates.
 | `Copy` | `Copy` | `CopyIcon` | `duotone` | ✅ Migrated |
 | `Send` | `PaperPlaneRight` | `SendIcon` | `duotone` | ✅ Migrated |
 | `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `duotone` | ✅ Migrated |
-| `Sparkles` | `Sparkle` | `SparkleIcon` | `duotone` | ✅ Migrated |
+| `Sparkles` | none (removed) | none | n/a | Banned 2026-09-28: draw the concept's glyph |
 | `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `duotone` | ✅ Migrated |
 | `Sliders` | `Sliders` | `SlidersIcon` | `duotone` | ✅ Migrated |
 | `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `duotone` | ✅ Migrated |
@@ -239,3 +239,55 @@ evidence; entire authenticated pages are not captured.
 The previous migration census found 309 files with Lucide imports. The application
 source pass now uses the registry facade across all runtime files; reproduce with
 `rg -l 'from ["\\x27]lucide-react' hushh-webapp/{app,components,lib} | wc -l`.
+
+## Nested Profile iconography sweep: 2026-09-28
+
+The Profile menu moved to the /one launcher treatment on 2026-09-27, but the
+screens one tap deeper still drew legacy glyphs on coloured or gray iOS tiles.
+Account, Preferences, Vault methods, Mail, Referrals, Trusted devices, the
+sharing rows on My data, Connected Systems, Shared with you, Live voice and the
+wallet card screens now use `iconTone="capability"` with a registry glyph in its
+own colour. New concepts live in `hushh-webapp/components/icons/agents/row-icons.tsx`;
+recurring concepts reuse one export (email, security, devices, invitations,
+memory). The Account tile CSS now excludes capability rows, which also fixes the
+Wallet card row that had been painted onto a tile at 17px.
+
+Outside Profile, Connect's invite, requestable-detail and no-access rows, and the
+circle create/join/add/invite-code rows in Connect and Location, now match.
+The chat history sidebar and Connect search clear no longer pass `strokeWidth`,
+which the registry ignores. Kai, RIA, KYC, onboarding and research
+`SettingsRow` tiles are not yet migrated.
+
+`__tests__/components/iconography-motion.contract.test.ts` guards both rules with
+negative controls: no direct glyph-library import outside `components/icons`, and
+no tiled row on Profile surfaces.
+
+## Sparkle ban and consent card sweep: 2026-09-28
+
+Founder directive: no sparkle glyph, and follow the /one iconography always.
+The registry no longer exports `Sparkles`, `SparkleIcon` or a sparkle-based
+row icon, and every former use draws its concept instead: a capture preview is
+`PreviewRowIcon` (row) and `Eye` (button), a draft that still needs details is
+`FilePenLine`, the Mail assistant is `GmailAgentIcon`, "Use an agent" is a
+`ChatCircle` (the glyph of the control that opens One), and the untyped toast
+defaults to `InfoIcon`. The streaming accordion's unused `"sparkles"` option is
+gone.
+
+Consent cards now draw their header as /one draws its launcher: the Consent
+capability glyph (`ConsentAgentIcon`, Phosphor `LockKey`, `#F97316`) bare on a
+transparent well, never a filled tile with a white glyph. That covers the
+requester card, the scope-discovery and ask cards, and the specialist
+consent-required and manage-access cards. The requester card's status lines
+use registry duotone glyphs in semantic tones: `CheckCircle2` in the success
+role for Shared, `MinusCircle` and `Clock` in the neutral role for Not shared
+and Access ends. Consent Center rows draw a person as their face or initials
+(the Feed's primitive) and an advisor or app as its registry glyph; the
+decision buttons keep their registry `X` and `Check` in the neutral and
+success roles.
+
+Not yet migrated: Feed history rows without a person still draw a utility
+glyph in a gray circle, across every domain.
+
+The contract test now also fails on any sparkle reference (registry included,
+case-insensitive) and on a consent card element that paints a background
+behind a sole glyph, each with a negative control.

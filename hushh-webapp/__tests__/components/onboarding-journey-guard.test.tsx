@@ -27,6 +27,7 @@ const {
   authState,
   retrySessionVerification,
   signOut,
+  hasFinanceIntentMock,
 } = vi.hoisted(() => ({
   push: vi.fn(),
   replace: vi.fn(),
@@ -41,6 +42,7 @@ const {
   },
   retrySessionVerification: vi.fn(),
   signOut: vi.fn(),
+  hasFinanceIntentMock: vi.fn(),
 }));
 
 let pathnameValue = "/one/setup";
@@ -76,7 +78,8 @@ vi.mock("@/lib/morphy-ux/button", () => ({
   }) => <button onClick={onClick}>{children}</button>,
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/navigation/routes")>(),
   ROUTES: {
     HOME: "/",
     ONE_SETUP: "/one/setup",
@@ -128,6 +131,10 @@ vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
   },
 }));
 
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
+  PreVaultSensitiveDraftService: { hasFinanceIntent: hasFinanceIntentMock },
+}));
+
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
 function read(relativePath: string) {
@@ -165,6 +172,7 @@ describe("OnboardingJourneyGuard", () => {
     authState.sessionVerificationRequired = false;
     retrySessionVerification.mockReset();
     signOut.mockReset();
+    hasFinanceIntentMock.mockReset().mockReturnValue(false);
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
     clearSetupIntent();
@@ -233,6 +241,31 @@ describe("OnboardingJourneyGuard", () => {
       expect(replace).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
     });
     expect(screen.getByText("Returning to setup...")).toBeTruthy();
+  });
+
+  it.each(["/one/setup", "/one/setup/connections"])("returns a completed invite journey to its destination from %s", async (setupRoute) => {
+    pathnameValue = setupRoute;
+    const destination = "/circle/join?code=23456789ABCD";
+    window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent(destination));
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    render(<OnboardingJourneyGuard><div>setup</div></OnboardingJourneyGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(destination));
+    expect(replace).not.toHaveBeenCalledWith("/");
+  });
+
+  it.each(["/one/setup", "/one/setup/connections"])("prioritizes pending Finance when completion ejects %s before its child finishes", async (setupRoute) => {
+    pathnameValue = setupRoute;
+    const destination = "/circle/join?code=23456789ABCD";
+    window.history.replaceState(null, "", setupRoute + "?return_to=" + encodeURIComponent(destination));
+    isPersistentSetupResolvedMock.mockReturnValue(true);
+    hasFinanceIntentMock.mockReturnValue(true);
+    render(<OnboardingJourneyGuard><div>setup child</div></OnboardingJourneyGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith(
+      "/one/setup/finance/import?return_to=" + encodeURIComponent(destination),
+    ));
+    expect(hasFinanceIntentMock).toHaveBeenCalledWith("journey-user");
+    expect(screen.queryByText("setup child")).toBeNull();
+    expect(replace).not.toHaveBeenCalledWith(destination);
   });
 
   it("ejects a dismissed user who reaches a setup surface", async () => {

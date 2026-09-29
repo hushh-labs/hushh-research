@@ -474,14 +474,16 @@ describe("Top app bar responsive contract", () => {
     expect(chrome).toContain("TOP_SHELL_DROPDOWN_COLLISION_PADDING = 12");
     // Lean header treatment: icon controls have no background chip and carry
     // the muted eyebrow tone on the stroke; only the pill variant keeps the
-    // translucent track. The blue ripple stays shared across both.
+    // translucent track. The blue ripple stays shared across both, glass by
+    // default; a solid-fill control (Send) opts into the fill tint.
     expect(shellActionSurface).toContain(
       "text-muted-foreground hover:text-foreground",
     );
     expect(shellActionSurface).toContain("bg-black/[0.05]");
-    expect(shellActionSurface).toContain(
-      '<MaterialRipple variant="blue" effect="glass"',
+    expect(shellActionSurface).toMatch(
+      /<MaterialRipple\s+variant="blue"\s+effect=\{rippleEffect\}/,
     );
+    expect(shellActionSurface).toContain('rippleEffect = "glass"');
   });
 
   it("clears every selection-driving consent detail param when the panel closes", () => {

@@ -61,10 +61,14 @@ managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
 Morphy adopts the Apple web design principles as enforceable grammar
 (`npm run verify:accent-tokens` fails violations):
 
-1. **Press physics.** Every control carries the same tactile weight: the
-   `.press-scale` utility (`transform: scale(var(--motion-press-scale))` on
-   active, reduced-motion aware) layered WITH the md-ripple. Button and all
-   segmented primitives ship it; never write per-component press styles.
+1. **Press physics.** A press is flat: a colour or opacity state change plus
+   the md-ripple from the pointerdown point, clipped to the control's shape.
+   No press scale, spring, or bounce anywhere (`active:scale-*` included).
+   Both Buttons (`components/ui/button.tsx`, `lib/morphy-ux/button.tsx`) ship
+   the ripple on by default; a plain `<button>` adds `<MaterialRipple />` and
+   `relative`. Under `prefers-reduced-motion` the ripple becomes an
+   opacity-only press layer. The legacy `.press-scale` utility is now a flat
+   opacity dim. Guarded by `__tests__/components/press-ripple.contract.test.tsx`.
 2. **Radius grammar.** `--app-radius-pill` = action signal and direct-entry
    field geometry through `--app-input-radius`; `--app-radius-lg` = compact
    utility cards; `--app-radius-sm` = compact utility rects. The shipped

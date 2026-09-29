@@ -1,17 +1,16 @@
 "use client";
 
-import {
-  Suspense,
-  useCallback,
-  useEffect,
-  useState,
-  type CSSProperties,
-} from "react";
+import { Suspense, useEffect, useRef, useState, type CSSProperties } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import { Loader2, Users } from "@/components/icons";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import OneLocationCircleInvitePageClient from "@/app/one/location/invite/[token]/page-client";
+import { GuestPreview } from "@/components/onboarding/guest-preview";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   CaptionText,
@@ -22,13 +21,15 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import {
   CIRCLE_JOIN_CODE_PARAM,
+  ONE_INVITE_TOKEN_PARAM,
+  buildOneInviteLandingPath,
   formatCircleCodeForDisplay,
 } from "@/lib/one-location/circle-join-url";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
-import { rememberPendingCircleJoin } from "@/lib/one-location/pending-circle-join";
-import { ROUTES } from "@/lib/navigation/routes";
-import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import { INVITE_TO_ONE_PATH, ROUTES } from "@/lib/navigation/routes";
+import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
+import { ApiError } from "@/lib/services/api-client";
 
 /**
  * An invitation is one short column. `width="reading"` (54rem) stretches it
@@ -60,6 +61,68 @@ function loginHref(code: string): string {
   return `/login?redirect=${encodeURIComponent(here)}`;
 }
 
+function GuestCirclePreview({ code }: { code: string }) {
+  const router = useRouter();
+  const [preview, setPreview] = useState<{
+    name: string;
+    ownerDisplayName: string;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    if (!code) {
+      setLoading(false);
+      setUnavailable(true);
+      setError("This invitation is missing its code. Ask for a new link.");
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setPreview(null);
+    setError(null);
+    setUnavailable(false);
+    void OneLocationService.previewPublicCircleCode(code)
+      .then((value) => {
+        if (active) setPreview(value);
+      })
+      .catch((failure: unknown) => {
+        if (active) {
+          const invalid =
+            failure instanceof ApiError &&
+            [400, 404, 410, 422].includes(failure.status);
+          setUnavailable(invalid);
+          setError(
+            invalid
+              ? "This invitation is unavailable. Try again or ask for a new link."
+              : "Preview is temporarily unavailable. You can still sign in to check this invitation.",
+          );
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [code, attempt]);
+  return (
+    <GuestPreview
+      invitation={{
+        kind: "circle",
+        name: preview?.name,
+        ownerName: preview?.ownerDisplayName,
+        loading,
+        error,
+        unavailable,
+        onRetry: () => setAttempt((value) => value + 1),
+      }}
+      onStart={() => router.push(loginHref(code))}
+    />
+  );
+}
+
 // The API types these as required, but the backend coerces a missing owner to a
 // placeholder and an unnamed Circle to "". Render what a person can read.
 function circleName(preview: OneLocationCircleInvitePreview): string {
@@ -77,22 +140,11 @@ function memberSummary(preview: OneLocationCircleInvitePreview): string {
 /**
  * Recipient landing for a shared Circle join link (`/circle/join?code=…`).
  *
- * This used to render nothing and redirect immediately. For a signed-in person
- * that was invisible and fine; for everyone else it was a bounce to a login
- * wall with no explanation of what they had tapped, and the invitation was the
- * only context they had. Someone deciding whether to share live location
- * deserves to see whose Circle it is first -- which is the one thing every
- * comparable product shows at this exact moment.
- *
- * Layout note: this route renders INSIDE the signed-in shell. Its contract
- * entry says `mode: "redirect"`, but only "flow", "hidden" and
- * `persistentChrome: "none"` change chrome, so the top bar and the bottom
- * "Talk to One" composer are both drawn here. The shell already reserves both
- * edges -- a spacer sized to `--app-top-content-offset` precedes this page and
- * the scroll root carries `--app-scroll-bottom-pad`. A viewport height here
- * therefore double-counts that reservation: it pushed the invitation into the
- * header and left a dead scroll region above the composer. `AppPageShell` with
- * `fitContent` is the primitive that measures to its content instead.
+ * Guests get the same three-screen introduction as Invite to One. Only the
+ * public metadata allowlist is loaded before authentication. Signed-in people
+ * retain the membership-aware preview and explicit, protected Connect handoff.
+ * The route contract removes persistent chrome, leaving the guest flow in
+ * charge of its viewport and the signed-in preview sized to its content.
  */
 function CircleJoinLanding() {
   const router = useRouter();
@@ -100,46 +152,56 @@ function CircleJoinLanding() {
   const auth = useAuth();
 
   const code = (searchParams.get(CIRCLE_JOIN_CODE_PARAM) ?? "").trim();
-  const [preview, setPreview] =
-    useState<OneLocationCircleInvitePreview | null>(null);
+  const [preview, setPreview] = useState<OneLocationCircleInvitePreview | null>(
+    null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [continuing, setContinuing] = useState(false);
+  const continuationScope = useRef({ active: true });
+  useEffect(() => {
+    const scope = { active: true };
+    continuationScope.current = scope;
+    setContinuing(false);
+    return () => { scope.active = false; };
+  }, [auth.user?.uid, code]);
 
-  const loadPreview = useCallback(async () => {
+  useEffect(() => {
+    let active = true;
+    setPreview(null);
     if (!code || !auth.user) return;
     setLoading(true);
     setError(null);
-    try {
-      const idToken = await auth.user.getIdToken();
-      setPreview(
-        await OneLocationService.previewOnboardingCircleCode({ idToken, code }),
-      );
-    } catch (caught) {
-      // The service rethrows the transport error untouched, so `caught.message`
-      // can be "Request failed: 422", "Rate limit exceeded: 10 per 1 minute" or
-      // "Invalid Firebase ID token". None of that is readable, and none of it
-      // tells the person what to do. Keep the detail in the console for
-      // diagnostics and show one sentence they can act on.
-      console.error("[circle-join] preview failed", caught);
-      setError("That code didn't work. Ask for a new link.");
-    } finally {
-      setLoading(false);
-    }
+    void (async () => {
+      try {
+        const idToken = await auth.user!.getIdToken();
+        const result = await OneLocationService.previewOnboardingCircleCode({
+          idToken,
+          code,
+        });
+        if (active) setPreview(result);
+      } catch (caught) {
+        if (!active) return;
+        console.error("[circle-join] preview failed", caught);
+        setError("That code didn't work. Ask for a new link.");
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [auth.user, code]);
 
+  // A signed-in person can enter a missing code in Connect. Guests still get
+  // the introduction first, not an accidental immediate login redirect.
   useEffect(() => {
-    void loadPreview();
-  }, [loadPreview]);
+    if (!code && auth.user && !auth.loading) router.replace(joinPath(""));
+  }, [auth.loading, auth.user, code, router]);
 
-  // No code at all means the link was mangled in transit. Send them to the
-  // hub, where they can type one, rather than showing an empty invitation.
-  useEffect(() => {
-    if (!code) router.replace(joinPath(""));
-  }, [code, router]);
+  if (auth.loading) return <HushhLoader label="Checking your account" />;
 
-  // Effects run after paint, so rendering the invitation here would commit a
-  // codeless "You're invited" -- and a sign-in link carrying an empty code --
-  // for one frame before the redirect above fires.
+  if (!auth.user) return <GuestCirclePreview key={code} code={code} />;
   if (!code) return null;
 
   const showPreview = auth.isAuthenticated && !auth.loading;
@@ -235,19 +297,23 @@ function CircleJoinLanding() {
           type="button"
           size="lg"
           className="mt-6 w-full"
-          onClick={() => {
-            const userId = auth.user?.uid;
-            // Joining needs a vault, which exists only once /one/setup
-            // finishes -- and /one/location itself is gated for a mid-setup
-            // user, so the query-string code below would otherwise be
-            // dropped by that redirect. Parking it here reuses the same
-            // mechanism /one/location already redeems from the moment a
-            // vault token exists, resolved or not, so the join survives an
-            // unresolved bootstrap read too.
-            if (userId && !OneSetupCompletionHintService.isResolved(userId)) {
-              rememberPendingCircleJoin(userId, code);
+          disabled={continuing}
+          onClick={async () => {
+            if (!auth.user || continuing) return;
+            const scope = continuationScope.current;
+            setContinuing(true);
+            try {
+              const next = await PostAuthRouteService.resolveAfterLogin({
+                userId: auth.user.uid,
+                idToken: await auth.user.getIdToken(),
+                redirectPath: joinPath(code),
+              });
+              if (scope.active) router.replace(next);
+            } catch {
+              if (scope.active) toast.error("Could not continue. Please try again.");
+            } finally {
+              if (scope.active) setContinuing(false);
             }
-            router.replace(joinPath(code));
           }}
           data-testid="circle-join-continue"
         >
@@ -277,10 +343,61 @@ function CircleJoinLanding() {
   );
 }
 
+function InvitationLanding() {
+  const params = useSearchParams();
+  const auth = useAuth();
+  // Auth may settle before this streamed Suspense boundary hydrates. Keep
+  // both the page and its native readiness marker identical on the first paint.
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
+  const tokens = params.getAll(ONE_INVITE_TOKEN_PARAM);
+  const codes = params.getAll(CIRCLE_JOIN_CODE_PARAM);
+  const token = tokens[0] ?? "";
+  // A link must identify one invitation, never silently choose between two.
+  const invalid =
+    codes.length > 1 ||
+    (tokens.length > 0 &&
+      (tokens.length !== 1 ||
+        !/^[A-Za-z0-9_-]+$/.test(token) ||
+        codes.length > 0));
+  if (!hydrated) return <HushhLoader label="Checking your account" />;
+  return (
+    <>
+      <NativeTestBeacon
+        routeId={ROUTES.CIRCLE_JOIN}
+        marker="native-route-circle-join"
+        authState={
+          auth.loading ? "pending" : auth.user ? "authenticated" : "anonymous"
+        }
+        dataState={invalid ? "unavailable-valid" : "loaded"}
+      />
+      {invalid ? (
+        <AppPageShell as="main" width="reading" fitContent>
+          <PageHeader
+            title="Invitation unavailable"
+            description="Ask the sender for a new invitation link."
+          />
+          <Button asChild className="mt-6">
+            <Link href={INVITE_TO_ONE_PATH}>Explore One</Link>
+          </Button>
+        </AppPageShell>
+      ) : token ? (
+        <OneLocationCircleInvitePageClient
+          key={token}
+          token={token}
+          returnTo={buildOneInviteLandingPath(token)}
+        />
+      ) : (
+        <CircleJoinLanding />
+      )}
+    </>
+  );
+}
+
 export default function CircleJoinPage() {
   return (
     <Suspense fallback={null}>
-      <CircleJoinLanding />
+      <InvitationLanding />
     </Suspense>
   );
 }

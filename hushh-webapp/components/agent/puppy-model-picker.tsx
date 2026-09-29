@@ -16,6 +16,7 @@ import {
   type PuppyModelOptions,
 } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /**
  * Pick the model and reasoning effort Puppy One answers with.
@@ -152,13 +153,14 @@ export function PuppyModelPicker({
         <button
           type="button"
           className={cn(
-            "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground",
+            "relative inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground",
             className,
           )}
           title="Choose the model and reasoning effort"
         >
           {label}
           <ChevronDown className="size-3" aria-hidden />
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-80 p-0">
@@ -215,7 +217,7 @@ export function PuppyModelPicker({
                         )
                       }
                       className={cn(
-                        "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
+                        "relative flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors",
                         "hover:bg-muted disabled:opacity-60",
                         selected && "bg-muted",
                       )}
@@ -231,6 +233,7 @@ export function PuppyModelPicker({
                         {shortModelName(model.id)}
                       </span>
                       <ModelBuild model={model} />
+                      <MaterialRipple variant="none" effect="glass" disabled={Boolean(applying)} />
                     </button>
                   );
                 })}
@@ -259,13 +262,14 @@ export function PuppyModelPicker({
                   onClick={() => setEffort(option)}
                   aria-pressed={effort === option}
                   className={cn(
-                    "rounded-full px-2 py-0.5 text-[11px] transition-colors",
+                    "relative rounded-full px-2 py-0.5 text-[11px] transition-colors",
                     effort === option
                       ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
                   {option}
+                  <MaterialRipple variant="none" effect="glass" />
                 </button>
               ),
             )}

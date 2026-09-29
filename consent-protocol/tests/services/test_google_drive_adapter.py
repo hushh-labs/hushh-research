@@ -186,7 +186,7 @@ async def test_transport_never_falls_back_redirects_or_discloses_provider_errors
         return httpx.Response(
             status,
             headers={"Location": "https://attacker.invalid"},
-            json={"error": "private provider message"},
+            stream=httpx.ByteStream(json.dumps({"error": "private provider message"}).encode()),
         )
 
     monkeypatch.setattr(
@@ -201,6 +201,94 @@ async def test_transport_never_falls_back_redirects_or_discloses_provider_errors
     assert "synthetic-token" not in str(seen[0].url)
     assert "private provider" not in str(caught.value)
     assert caught.value.retryable == retryable
+
+
+@pytest.mark.parametrize("operation", ["file", "list"])
+@pytest.mark.parametrize(
+    "reason,retryable",
+    [
+        ("rateLimitExceeded", True),
+        ("userRateLimitExceeded", True),
+        ("insufficientFilePermissions", False),
+    ],
+)
+async def test_rest_403_rate_limits_are_retryable_without_marking_sources_unavailable(
+    adapter, monkeypatch, operation, reason, retryable
+):
+    original = httpx.AsyncClient
+    requests = []
+
+    def handler(request):
+        requests.append(request)
+        body = {"error": {"code": 403, "errors": [{"reason": reason}], "message": "private"}}
+        return httpx.Response(403, stream=httpx.ByteStream(json.dumps(body).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    with pytest.raises(drive.DriveReadError) as caught:
+        if operation == "file":
+            await adapter.get_file_facts(file_id="selected-file", access_token="synthetic-token")
+        else:
+            await adapter.list_files(
+                access_token="synthetic-token", query="trashed = false", page_size=25
+            )
+    assert str(caught.value) == ("provider_unavailable" if retryable else "source_unavailable")
+    assert caught.value.retryable is retryable
+    assert len(requests) == 1 and requests[0].method == "GET"
+
+
+async def test_resource_keys_are_exact_headers_for_target_and_folder_reads(adapter, monkeypatch):
+    seen = []
+    original = httpx.AsyncClient
+
+    def handler(request):
+        seen.append(request)
+        if request.url.path.endswith("/files/selected-file"):
+            payload = metadata(createdTime="2026-09-21T00:00:00Z", resourceKey="target-key")
+        else:
+            payload = {"files": []}
+        return httpx.Response(200, stream=httpx.ByteStream(json.dumps(payload).encode()))
+
+    monkeypatch.setattr(
+        httpx, "AsyncClient", lambda **kw: original(**kw, transport=httpx.MockTransport(handler))
+    )
+    facts = await adapter.get_file_facts(
+        file_id="selected-file", access_token="synthetic-token", resource_key="target-key"
+    )
+    assert facts["createdTime"] == "2026-09-21T00:00:00Z" and facts["resourceKey"] == "target-key"
+    await adapter.list_files(
+        access_token="synthetic-token",
+        query="'selected-folder' in parents and trashed = false",
+        page_size=25,
+        resource_keys={"selected-folder": "folder-key"},
+    )
+    assert [request.headers["X-Goog-Drive-Resource-Keys"] for request in seen] == [
+        "selected-file/target-key",
+        "selected-folder/folder-key",
+    ]
+    assert "target-key" not in str(seen[0].url) and "folder-key" not in str(seen[1].url)
+    assert all(request.content == b"" for request in seen)
+
+
+@pytest.mark.parametrize("key", ["", "header\r\nvalue", "a/b", "x" * 201, 123])
+async def test_invalid_resource_key_never_reaches_network(adapter, key):
+    adapter._get = AsyncMock()
+    with pytest.raises(drive.DriveReadError, match="invalid_argument"):
+        await adapter.get_file_facts(
+            file_id="selected-file", access_token="synthetic-token", resource_key=key
+        )
+    adapter._get.assert_not_awaited()
+
+
+async def test_resource_key_header_cannot_be_bound_to_an_unrelated_list_target(adapter):
+    with pytest.raises(drive.DriveReadError, match="operation_not_allowed"):
+        await adapter.list_files(
+            access_token="synthetic-token",
+            query="'selected-folder' in parents",
+            page_size=25,
+            resource_keys={"unrelated-folder": "folder-key"},
+        )
 
 
 @pytest.mark.asyncio

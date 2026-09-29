@@ -295,10 +295,8 @@ steps:
           secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
         fi
 
-        # `hushh-mail-api` key for One's lifecycle mail. Optional on purpose, the
-        # same way backend.cloudbuild.yaml treats its add-on secrets: binding a
-        # secret that does not exist yet would fail the whole deploy. While it is
-        # absent the webapp reports `not_configured` and sign-in is unaffected.
+        # `hushh-mail-api` key for user-requested SOS mail only. Keep optional:
+        # binding a missing secret would fail the whole frontend deploy.
         if gcloud secrets describe MAIL_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
           secrets="${secrets},MAIL_API_KEY=MAIL_API_KEY:latest"
         else

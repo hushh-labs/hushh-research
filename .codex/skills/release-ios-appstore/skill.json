@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "repo-operations",
   "primary_scope": "release-ios-appstore-scope",
-  "description": "Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main — Apple-managed signing with an Admin ASC API key, a UAT-backend/UAT-Firebase binary, per-version \"What's New\" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).",
+  "description": "Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main: Apple-managed signing with an Admin ASC API key, a binary whose backend is chosen by `backend_target` (default UAT, or production), per-version \"What's New\" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).",
   "owned_paths": [
     ".github/workflows/release-ios-appstore.yml",
     "scripts/release/dispatch-ios-appstore.mjs"

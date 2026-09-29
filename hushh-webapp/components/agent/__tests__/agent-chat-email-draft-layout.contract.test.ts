@@ -66,12 +66,9 @@ describe("Agent Chat email draft layout contract", () => {
       expect(from).toBeGreaterThan(-1);
       return source.slice(from, source.indexOf(end, from));
     };
-    // The composer, its textarea and its expand control stay usable.
+    // The composer and its textarea stay usable.
     expect(block("const canSend =", ";")).not.toContain("emailDraftOpen");
     expect(block('aria-label={composerExpanded ? "Expanded message One"', "placeholder=")).not.toContain(
-      "emailDraftOpen",
-    );
-    expect(block('aria-label={composerExpanded ? "Collapse message editor"', "onClick=")).not.toContain(
       "emailDraftOpen",
     );
     // Voice turns do not carry the draft, so voice still waits on the card.

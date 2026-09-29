@@ -1,12 +1,14 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { OneLocationCircleInvitePreview } from "@/lib/one-location/types";
+import { ApiError } from "@/lib/services/api-client";
 
 const mockReplace = vi.fn();
 const mockPreview = vi.fn();
-const mockRememberPendingCircleJoin = vi.fn();
-const mockIsResolved = vi.fn();
+const mockPublicPreview = vi.fn();
+const mockPostAuth = vi.fn();
+const mockPush = vi.fn();
 let searchParams = new URLSearchParams();
 let authState: {
   user: { uid: string; getIdToken: () => Promise<string> } | null;
@@ -17,7 +19,7 @@ let authState: {
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     replace: mockReplace,
-    push: vi.fn(),
+    push: mockPush,
     prefetch: vi.fn(),
     back: vi.fn(),
     refresh: vi.fn(),
@@ -29,22 +31,21 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => authState,
 }));
 
+vi.mock("@/app/one/location/invite/[token]/page-client", () => ({
+  default: ({ token, returnTo }: { token: string; returnTo: string }) =>
+    <div data-testid="token-invitation" data-token={token} data-return-to={returnTo} />,
+}));
+
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
+    previewPublicCircleCode: (code: string) => mockPublicPreview(code),
     previewOnboardingCircleCode: (params: { idToken: string; code: string }) =>
       mockPreview(params),
   },
 }));
 
-vi.mock("@/lib/one-location/pending-circle-join", () => ({
-  rememberPendingCircleJoin: (userId: string, code: string) =>
-    mockRememberPendingCircleJoin(userId, code),
-}));
-
-vi.mock("@/lib/services/one-setup-completion-hint-service", () => ({
-  OneSetupCompletionHintService: {
-    isResolved: (userId: string) => mockIsResolved(userId),
-  },
+vi.mock("@/lib/services/post-auth-route-service", () => ({
+  PostAuthRouteService: { resolveAfterLogin: (params: unknown) => mockPostAuth(params) },
 }));
 
 import CircleJoinPage from "@/app/circle/join/page";
@@ -80,40 +81,109 @@ beforeEach(() => {
   authState = { user: null, isAuthenticated: false, loading: false };
   // Resolved (setup already finished) unless a test says otherwise -- the
   // parking behaviour under test is the exception, not the default.
-  mockIsResolved.mockReturnValue(true);
+  mockPublicPreview.mockResolvedValue({ name: "Family Circle", ownerDisplayName: "Alex" });
+  mockPostAuth.mockImplementation(async ({ redirectPath }) => redirectPath);
+  Element.prototype.scrollIntoView = vi.fn();
 });
 
 describe("/circle/join landing", () => {
-  it("shows the invitation and the code to a signed-out recipient", async () => {
+  it("does not let an old Continue lookup overwrite a newly opened invite", async () => {
+    signedIn();
+    mockPreview.mockResolvedValue(preview());
+    let finish!: (path: string) => void;
+    mockPostAuth.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = render(<CircleJoinPage />);
+    await screen.findByTestId("circle-join-preview");
+    fireEvent.click(screen.getByTestId("circle-join-continue"));
+    await waitFor(() => expect(mockPostAuth).toHaveBeenCalledOnce());
+    searchParams = new URLSearchParams({ code: "SECOND-CODE" });
+    view.rerender(<CircleJoinPage />);
+    await act(async () => finish("/one/connect?tab=circles&action=join-circle&code=" + CODE));
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.getByTestId("circle-join-continue")).toBeEnabled();
+  });
+  it("hands a native token alias to the existing invitation owner", () => {
+    searchParams = new URLSearchParams({ invite: "real_token-123" });
     render(<CircleJoinPage />);
-
-    expect(await screen.findByTestId("circle-join-code")).toHaveTextContent(
-      /SWDX/,
-    );
-    expect(screen.getByTestId("circle-join-sign-in")).toBeInTheDocument();
-    // The trust statement is what someone weighs before signing in.
-    expect(
-      screen.getByText(
-        "Your location stays private until you choose to share it.",
-      ),
-    ).toBeInTheDocument();
-    // Nothing about the Circle is claimed before it has been looked up.
-    expect(screen.queryByTestId("circle-join-preview")).toBeNull();
-    expect(mockPreview).not.toHaveBeenCalled();
+    expect(screen.getByTestId("token-invitation")).toHaveAttribute("data-token", "real_token-123");
+    expect(screen.getByTestId("token-invitation")).toHaveAttribute("data-return-to", "/circle/join?invite=real_token-123");
+    expect(mockPublicPreview).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
-  it("renders nothing and redirects when the link carries no code", async () => {
+  it.each(["invite=one&invite=two", "invite=one&code=two", "invite=", "invite=%2Fevil", "code=first&code=second", "code=first&code=first"])("rejects ambiguous or malformed invitation %s", (query) => {
+    searchParams = new URLSearchParams(query);
+    render(<CircleJoinPage />);
+    expect(screen.getByText("Invitation unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("token-invitation")).not.toBeInTheDocument();
+    expect(mockPublicPreview).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Explore One" })).toHaveAttribute("href", "/?invite=one");
+  });
+  it("lets a guest explore three screens before signing in with the same code", async () => {
+    render(<CircleJoinPage />);
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    expect(await screen.findByRole("heading", { name: "Family Circle", level: 2 })).toBeInTheDocument();
+    expect(screen.getByText("Invited by Alex")).toBeInTheDocument();
+    expect(mockPreview).not.toHaveBeenCalled();
+    expect(mockPostAuth).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Join this Circle" }));
+    expect(mockPush).toHaveBeenCalledWith("/login?redirect=" + encodeURIComponent("/circle/join?code=" + CODE));
+  });
+
+  it("keeps an unavailable invitation recoverable without claiming membership", async () => {
+    mockPublicPreview.mockRejectedValueOnce(new ApiError("expired", 404));
+    render(<CircleJoinPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    expect(await screen.findByText(/This invitation is unavailable/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Join this Circle" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { name: "Family Circle", level: 2 })).toBeInTheDocument();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
+
+  it("does not block soft-launch sign-in when anonymous previews are rate limited", async () => {
+    mockPublicPreview.mockRejectedValueOnce(new ApiError("Too many requests", 429));
+    render(<CircleJoinPage />);
+    expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    expect(await screen.findByText(/Preview is temporarily unavailable/)).toBeInTheDocument();
+    const action = screen.getByRole("button", { name: "Join this Circle" });
+    expect(action).toBeEnabled();
+    fireEvent.click(action);
+    expect(mockPush).toHaveBeenCalledWith("/login?redirect=" + encodeURIComponent("/circle/join?code=" + CODE));
+    expect(mockPostAuth).not.toHaveBeenCalled();
+  });
+
+  it("does not send a guest straight to login when the link is missing its code", async () => {
     searchParams = new URLSearchParams();
+    render(<CircleJoinPage />);
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    expect(await screen.findByText(/missing its code/)).toBeInTheDocument();
+    expect(mockPublicPreview).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
+    expect(mockPush).not.toHaveBeenCalled();
+  });
 
-    const { container } = render(<CircleJoinPage />);
-
-    // Effects run after paint: a codeless "You're invited" must never commit.
-    expect(container.textContent).toBe("");
-    await waitFor(() =>
-      expect(mockReplace).toHaveBeenCalledWith(
-        "/one/connect?tab=circles&action=join-circle",
-      ),
-    );
+  it("waits for restored auth instead of flashing a guest preview or losing the code", async () => {
+    authState.loading = true;
+    const view = render(<CircleJoinPage />);
+    expect(screen.queryByTestId("guest-preview")).not.toBeInTheDocument();
+    signedIn();
+    mockPreview.mockResolvedValue(preview({ alreadyMember: true }));
+    view.rerender(<CircleJoinPage />);
+    expect(await screen.findByText("You're already in this Circle.")).toBeInTheDocument();
+    expect(screen.queryByTestId("guest-preview")).not.toBeInTheDocument();
+    expect(mockPostAuth).not.toHaveBeenCalled();
+    expect(mockReplace).not.toHaveBeenCalled();
   });
 
   it("names the Circle and offers to join it once the preview resolves", async () => {
@@ -233,42 +303,21 @@ describe("/circle/join landing", () => {
     );
   });
 
-  // #5307: /circle/join renders for a mid-setup recipient (it is exempt from
-  // OnboardingJourneyGuard -- see routes.test.ts), but the surface it hands
-  // off to is not. Without parking the code here first, that redirect into
-  // /one/setup drops it silently.
-  //
-  // #5458 repointed the handoff from /one/location to Connect: the Location
-  // agent runs a first-run onboarding takeover that no query parameter
-  // bypasses, so a recipient who had never used Location was shown "Share your
-  // location easily with anyone" instead of the code they had been handed.
-  it("parks the code before handing off when setup has not resolved (#5307)", async () => {
+  it("carries the exact Connect join destination through setup admission", async () => {
     signedIn();
-    mockIsResolved.mockReturnValue(false);
     mockPreview.mockResolvedValue(preview());
-
+    mockPostAuth.mockResolvedValue("/one/setup?return_to=encoded-circle");
     render(<CircleJoinPage />);
-
     fireEvent.click(await screen.findByTestId("circle-join-continue"));
-
-    expect(mockRememberPendingCircleJoin).toHaveBeenCalledWith(USER_ID, CODE);
-    expect(mockReplace).toHaveBeenCalledWith(
-      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
-    );
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/one/setup?return_to=encoded-circle"));
+    expect(mockPostAuth).toHaveBeenCalledWith({ userId: USER_ID, idToken: "id-token", redirectPath: "/one/connect?tab=circles&action=join-circle&code=" + CODE });
   });
 
-  it("does not park the code once setup has already resolved", async () => {
+  it("opens Connect for an account whose prerequisites are already satisfied", async () => {
     signedIn();
-    mockIsResolved.mockReturnValue(true);
     mockPreview.mockResolvedValue(preview());
-
     render(<CircleJoinPage />);
-
     fireEvent.click(await screen.findByTestId("circle-join-continue"));
-
-    expect(mockRememberPendingCircleJoin).not.toHaveBeenCalled();
-    expect(mockReplace).toHaveBeenCalledWith(
-      `/one/connect?tab=circles&action=join-circle&code=${CODE}`,
-    );
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith("/one/connect?tab=circles&action=join-circle&code=" + CODE));
   });
 });

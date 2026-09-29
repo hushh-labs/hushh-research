@@ -21,7 +21,8 @@
  * finance lane has no tools and would invent numbers), stock analysis (leaves
  * chat), outbound sharing (consent is request-and-approve) and location
  * sharing (needs setup and a circle). Connect and setup actions for those
- * live on the first-run action surface instead.
+ * live in One's chat onboarding ("What should I help with first?") and the
+ * connectors drawer instead.
  */
 export type AgentWelcomePrompt = string;
 

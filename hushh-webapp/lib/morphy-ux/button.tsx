@@ -172,13 +172,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         <StockButton
           ref={ref}
           asChild
+          showRipple={false}
           variant={stockVariant}
           size={stockSize}
           disabled={isDisabled}
           data-loading={loading || undefined}
           aria-busy={loading || undefined}
           className={cn(
-            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
+            "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
             variantStyles,
             effect === "fill" && variant !== "none" && variant !== "link"
               ? "border border-transparent"
@@ -204,13 +205,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       <StockButton
         ref={ref}
         asChild={asChild}
+        showRipple={false}
         variant={stockVariant}
         size={stockSize}
         disabled={isDisabled}
         data-loading={loading || undefined}
         aria-busy={loading || undefined}
         className={cn(
-          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
+          "relative overflow-hidden transition-[border-color,box-shadow,background-color,opacity] duration-100 ease-out",
           variantStyles,
           effect === "fill" && variant !== "none" && variant !== "link"
             ? "border border-transparent"

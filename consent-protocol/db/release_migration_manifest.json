@@ -228,7 +228,11 @@
     "253_kai_run_state.sql",
     "254_drive_bulk_shares.sql",
     "255_account_legal_acceptances.sql",
-    "256_drive_request_bulk_search.sql"
+    "256_drive_request_bulk_search.sql",
+    "257_one_chat_onboarding_state.sql",
+    "258_one_attention_ledger.sql",
+    "259_drive_progressive_request_batches.sql",
+    "260_consent_outcome_delivery.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -378,7 +382,10 @@
       "237_gmail_personal_information_request_incremental_backfill.sql",
       "238_gmail_personal_information_request_classifier_policy_version.sql",
       "252_calendar_mail_feed_projection.sql",
-      "255_account_legal_acceptances.sql"
+      "255_account_legal_acceptances.sql",
+      "257_one_chat_onboarding_state.sql",
+      "258_one_attention_ledger.sql",
+      "260_consent_outcome_delivery.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -473,6 +480,10 @@
     "248_adk_chat_action_authority.sql": "rollback/248_adk_chat_action_authority.rollback.sql",
     "249_public_profile_bridge.sql": "rollback/249_public_profile_bridge.rollback.sql",
     "251_drive_owner_search_jobs.sql": "rollback/251_drive_owner_search_jobs.rollback.sql",
-    "254_drive_bulk_shares.sql": "rollback/254_drive_bulk_shares.rollback.sql"
+    "254_drive_bulk_shares.sql": "rollback/254_drive_bulk_shares.rollback.sql",
+    "257_one_chat_onboarding_state.sql": "rollback/257_one_chat_onboarding_state.rollback.sql",
+    "258_one_attention_ledger.sql": "rollback/258_one_attention_ledger.rollback.sql",
+    "259_drive_progressive_request_batches.sql": "rollback/259_drive_progressive_request_batches.rollback.sql",
+    "260_consent_outcome_delivery.sql": "rollback/260_consent_outcome_delivery.rollback.sql"
   }
 }

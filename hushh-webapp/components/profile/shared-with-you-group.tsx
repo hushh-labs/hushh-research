@@ -4,9 +4,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
-  ShareNetworkIcon as SharedIcon,
-  TreeStructureIcon as MemoryIcon,
-} from "@/components/icons";
+  MemoryAgentIcon,
+  ShareRowIcon,
+  SyncRowIcon,
+} from "@/components/icons/agents";
+import { SharedWithYouCard } from "@/components/agent/consent/shared-with-you-card";
+import { humanSharedLabel, type SharedWithMeCardItem } from "@/lib/agent/agui-structured-experiences";
+import { parseSharedFieldSensitivities } from "@/lib/consent/field-sensitivity";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { HelperText } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
@@ -23,9 +27,34 @@ type PersonShares = {
   person: string;
   profilePath: string | null;
   labels: string[];
+  /** The same items the chat's secure card opens (CONTRACT-2 C6 shape). */
+  items: SharedWithMeCardItem[];
 };
 
-/** One row per person who currently shares with you, their items underneath. */
+/** A share-list entry as a secure-card item: names, dates and refs, never values. */
+export function sharedWithMeCardItem(share: SharedWithMeEntry): SharedWithMeCardItem {
+  // C7 per field: an identifier inside a standard item stays marked sensitive.
+  const fields = parseSharedFieldSensitivities(share.fields);
+  return {
+    key: share.requestId,
+    grantRef: null,
+    bundleId: share.bundleId,
+    requestId: share.requestId,
+    label: humanSharedLabel(share.label) ?? "Shared information",
+    // Missing reads as sensitive in the card (C7 deny by default).
+    sensitivity: share.sensitivity === "standard" ? "standard" : share.sensitivity ? "sensitive" : null,
+    domain: null,
+    fieldOutline: [],
+    ...(fields.length ? { fields } : {}),
+    sharedAt: null,
+    accessEndsAt: typeof share.expiresAt === "number" && share.expiresAt > 0
+      ? new Date(share.expiresAt).toISOString() : null,
+    purpose: share.purpose?.trim() || null,
+    status: "granted",
+  };
+}
+
+/** One card per person who currently shares with you, their items inside it. */
 export function groupSharesByPerson(shares: SharedWithMeEntry[]): PersonShares[] {
   const byPerson = new Map<string, PersonShares>();
   for (const share of shares) {
@@ -35,8 +64,10 @@ export function groupSharesByPerson(shares: SharedWithMeEntry[]): PersonShares[]
       person: share.person,
       profilePath: share.profilePath,
       labels: [],
+      items: [],
     };
     if (!entry.labels.includes(share.label)) entry.labels.push(share.label);
+    if (!entry.items.some((item) => item.requestId === share.requestId)) entry.items.push(sharedWithMeCardItem(share));
     byPerson.set(key, entry);
   }
   return [...byPerson.values()].sort((left, right) => left.person.localeCompare(right.person));
@@ -45,13 +76,14 @@ export function groupSharesByPerson(shares: SharedWithMeEntry[]): PersonShares[]
 /**
  * Profile's view of memory beyond the categories list: the full, nested
  * Memory browser for what One remembers about you, and what other people
- * currently share with you. The list shows names and item labels only; the
- * shared values open on each person's page, decrypted on this device.
+ * currently share with you. Each person's items open in the same secure card
+ * the chat shows, decrypted on this device.
  */
 export function SharedWithYouGroup({ vaultOwnerToken }: { vaultOwnerToken: string | null }) {
   const router = useRouter();
   const [shares, setShares] = useState<SharedWithMeEntry[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
 
   useEffect(() => {
     if (!vaultOwnerToken) return;
@@ -67,7 +99,7 @@ export function SharedWithYouGroup({ vaultOwnerToken }: { vaultOwnerToken: strin
     return () => {
       active = false;
     };
-  }, [vaultOwnerToken]);
+  }, [vaultOwnerToken, retry]);
 
   const people = useMemo(() => groupSharesByPerson(shares ?? []), [shares]);
 
@@ -75,8 +107,8 @@ export function SharedWithYouGroup({ vaultOwnerToken }: { vaultOwnerToken: strin
     <>
       <SettingsGroup separatorInset testId="memory-browse-group">
         <SettingsRow
-          icon={MemoryIcon}
-          iconTone="purple"
+          icon={MemoryAgentIcon}
+          iconTone="capability"
           title="Browse all memory"
           description="Every category, down to each saved detail."
           onClick={() => router.push(ROUTES.PKM)}
@@ -84,38 +116,37 @@ export function SharedWithYouGroup({ vaultOwnerToken }: { vaultOwnerToken: strin
           testId="memory-browse-row"
         />
       </SettingsGroup>
-      <SettingsGroup title="Shared with you" separatorInset testId="shared-with-you-group">
-        {failed ? (
-          <SettingsRow
-            icon={SharedIcon}
-            iconTone="gray"
-            title="Shared information couldn’t load"
-            description="Refresh to try again."
-          />
-        ) : shares === null ? (
-          <SettingsRow icon={SharedIcon} iconTone="gray" title="Checking what others share…" />
-        ) : people.length === 0 ? (
-          <SettingsRow
-            icon={SharedIcon}
-            iconTone="gray"
-            title="Nothing shared with you right now"
-            description="When someone approves your request, it appears here."
-          />
-        ) : (
-          people.map((entry) => (
+      {failed || shares === null || people.length === 0 ? (
+        <SettingsGroup title="Shared with you" separatorInset testId="shared-with-you-group">
+          {failed ? (
+            <div className="space-y-2 px-4 py-3">
+              <HelperText role="status">Shared information couldn’t load.</HelperText>
+              <Button type="button" variant="muted" size="compact" onClick={() => setRetry((value) => value + 1)}>Try again</Button>
+            </div>
+          ) : shares === null ? (
+            <SettingsRow icon={SyncRowIcon} iconTone="capability" title="Checking what others share…" />
+          ) : (
             <SettingsRow
-              key={entry.personRef || entry.person}
-              icon={SharedIcon}
-              iconTone="indigo"
-              title={entry.person}
-              description={`${entry.labels.length} ${entry.labels.length === 1 ? "item" : "items"} · ${entry.labels.slice(0, 3).join(", ")}${entry.labels.length > 3 ? "…" : ""}`}
-              onClick={entry.profilePath ? () => router.push(entry.profilePath!) : undefined}
-              chevron={Boolean(entry.profilePath)}
-              testId="shared-with-you-person"
+              icon={ShareRowIcon}
+              iconTone="capability"
+              title="Nothing shared with you right now"
+              description="When someone approves your request, it appears here."
             />
-          ))
-        )}
-      </SettingsGroup>
+          )}
+        </SettingsGroup>
+      ) : (
+        <SettingsGroup title="Shared with you" separatorInset testId="shared-with-you-group"
+          shellClassName="overflow-visible bg-transparent shadow-none" contentClassName="space-y-3">
+          {people.map((entry) => (
+            <SharedWithYouCard
+              key={entry.personRef || entry.person}
+              person={{ personRef: entry.personRef, displayName: entry.person }}
+              items={entry.items}
+              variant="profile"
+            />
+          ))}
+        </SettingsGroup>
+      )}
       <ReceivedDriveShares vaultOwnerToken={vaultOwnerToken} />
     </>
   );
@@ -145,8 +176,8 @@ function ReceivedDriveShares({ vaultOwnerToken }: { vaultOwnerToken: string | nu
   return <SettingsGroup title="Drive files shared with you" separatorInset testId="received-drive-files-group">
     {failed ? <div className="space-y-2 px-4 py-3"><HelperText role="status">Couldn’t load Drive files.</HelperText>
       <Button type="button" variant="muted" size="compact" onClick={() => setRetry(value => value + 1)}>Try again</Button></div>
-      : shares === null ? <SettingsRow icon={SharedIcon} iconTone="gray" title="Checking Drive shares…" />
-        : shares.length === 0 ? <SettingsRow icon={SharedIcon} iconTone="gray" title="No Drive files shared yet" />
+      : shares === null ? <SettingsRow icon={SyncRowIcon} iconTone="capability" title="Checking Drive shares…" />
+        : shares.length === 0 ? <SettingsRow icon={ShareRowIcon} iconTone="capability" title="No Drive files shared yet" />
           : shares.map(share => <ReceivedDriveShare key={share.shareId} share={share} token={vaultOwnerToken} />)}
   </SettingsGroup>;
 }

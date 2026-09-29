@@ -45,7 +45,12 @@ import { consumeCanonicalKaiStream } from "@/lib/streaming/kai-stream-client";
 import { KaiProfileSyncService } from "@/lib/services/kai-profile-sync-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { setOnboardingFlowActiveCookie } from "@/lib/services/onboarding-route-cookie";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildOneSetupRoute,
+  resolveOneSetupReturnTo,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
@@ -759,6 +764,12 @@ export function KaiFlow({
   });
   const [, setError] = useState<string | null>(null);
   const isDashboardMode = mode === "dashboard";
+  const setupReturnTo =
+    mode === "import" && deferSensitiveActionsUntilSetupFinalized
+      ? resolveOneSetupReturnTo(searchParams?.get("return_to"))
+      : null;
+  const hasSetupContinuation = Boolean(setupReturnTo);
+  const setupRecoveryRoute = buildOneSetupRoute({ returnTo: setupReturnTo });
   const stateRef = useRef<FlowState>("checking");
   const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
   const [pendingImportFile, setPendingImportFile] = useState<File | null>(null);
@@ -1876,7 +1887,7 @@ export function KaiFlow({
           toast.info(
             "Your statement will import after you finish setting up your private vault.",
           );
-          router.push(ROUTES.ONE_SETUP);
+          router.push(setupRecoveryRoute);
           return;
         }
         setPendingImportFile(file);
@@ -3102,6 +3113,7 @@ export function KaiFlow({
       vaultKey,
       effectiveVaultOwnerToken,
       deferSensitiveActionsUntilSetupFinalized,
+      setupRecoveryRoute,
       mode,
       router,
       tokenExpiresAt,
@@ -3225,13 +3237,14 @@ export function KaiFlow({
     setBusyOperation("portfolio_import_stream", false);
     setState(flowData.portfolioData ? "dashboard" : "import_required");
     setStreaming(createInitialStreamingState());
-    if (mode === "import" && flowData.portfolioData) {
+    if (mode === "import" && flowData.portfolioData && !hasSetupContinuation) {
       router.push(ROUTES.KAI_DASHBOARD);
       return;
     }
   }, [
     effectiveVaultOwnerToken,
     flowData.portfolioData,
+    hasSetupContinuation,
     mode,
     router,
     setBusyOperation,
@@ -3441,7 +3454,7 @@ export function KaiFlow({
           toast.info(
             "Plaid will open after you finish setting up your private vault.",
           );
-          router.push(ROUTES.ONE_SETUP);
+          router.push(setupRecoveryRoute);
           return;
         }
         setPendingPlaidConnection(true);
@@ -3560,7 +3573,11 @@ export function KaiFlow({
                       "Set up or open your private vault to save Plaid details.",
                     );
                   } else if (mode === "import") {
-                    if (onSetupSourceSettled && !shouldSettleSetupSource) {
+                    if (
+                      onSetupSourceSettled &&
+                      !shouldSettleSetupSource &&
+                      !hasSetupContinuation
+                    ) {
                       setOnboardingFlowActiveCookie(false);
                       router.push(ROUTES.KAI_DASHBOARD);
                     } else {
@@ -3653,6 +3670,8 @@ export function KaiFlow({
     [
       effectiveVaultOwnerToken,
       deferSensitiveActionsUntilSetupFinalized,
+      hasSetupContinuation,
+      setupRecoveryRoute,
       finishFinanceSetupIfActive,
       loadPlaidStatusSnapshot,
       mode,
@@ -3931,7 +3950,7 @@ export function KaiFlow({
             deferSensitiveActionsUntilSetupFinalized && mode === "import"
               ? async () => {
                   if (await finishFinanceSetupIfActive("statement")) return;
-                  router.push(ROUTES.ONE_SETUP);
+                  router.push(setupRecoveryRoute);
                 }
               : undefined
           }

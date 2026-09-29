@@ -47,3 +47,23 @@ class TestFeedMetadataAllowlist:
         # truncated rather than passed through to every Feed reader.
         safe = _safe_feed_metadata({"counterpart_label": "x" * 5000})
         assert len(safe["counterpart_label"]) < 5000
+
+    def test_a_request_bundle_item_keeps_who_what_and_why(self):
+        # CONTRACT C5: one Feed item per request, readable without a lookup.
+        safe = _safe_feed_metadata(
+            {
+                "bundle_id": "0f0e0d0c-0b0a-4908-8706-050403020100",
+                "requested_labels": "Food preferences, Allergies",
+                "requested_count": 2,
+                "counterpart_label": "Kushal",
+                "reason": "dinner planning",
+                "connector_public_key": "must-not-cross",
+            }
+        )
+        assert safe == {
+            "bundle_id": "0f0e0d0c-0b0a-4908-8706-050403020100",
+            "requested_labels": "Food preferences, Allergies",
+            "requested_count": 2,
+            "counterpart_label": "Kushal",
+            "reason": "dinner planning",
+        }

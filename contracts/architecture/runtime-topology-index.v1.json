@@ -704,7 +704,7 @@
       "id": "account_legal_acceptance",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance at sign-in and after the Terms of Use or Privacy Policy version changes; reads return the latest acceptance of each document."
+      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance of the served Terms of Use and Privacy Policy versions silently at each successful sign-in (the sign-in screen links both documents); there is no in-app re-acceptance prompt. Reads return the latest acceptance of each document."
     },
     {
       "data_class": "personal_metadata",
@@ -797,6 +797,16 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "consent issuance, revocation, notification, and internal access review"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "consent_event_deliveries"
+      ],
+      "id": "consent_event_deliveries",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "The consent NOTIFY listener claims one key per consent_audit id (and per request notification sequence and TIMEOUT emission) with INSERT ... ON CONFLICT DO NOTHING RETURNING before sending a push, writing a delivery record, or ringing the requester's information_request_updated doorbell; the claim that returns a row owns the side effect across every worker and instance."
     },
     {
       "data_class": "workflow_state",
@@ -1222,6 +1232,16 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_attention_ledger"
+      ],
+      "id": "one_attention_ledger",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "POST /api/one/first-connect-insights claims one row per connected source before generating the picked-up card; the feed attention sweep claims one row per notable feed_events id and counts sent rows for the daily push cap; agent-chat admission of a feedAttention turn reads the sent row."
     },
     {
       "data_class": "workflow_state",
@@ -1946,8 +1966,8 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "unknown"
         ]
@@ -1957,7 +1977,7 @@
       "native_surface_id": null,
       "page_file": "app/circle/join/page.tsx",
       "pathname": "/circle/join",
-      "route_mode": "redirect",
+      "route_mode": "hidden",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -2454,7 +2474,6 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
-          "auth.close_legal",
           "auth.open_privacy",
           "auth.open_terms",
           "auth.sign_in_apple",
@@ -6022,21 +6041,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "6bdd1868b2422e4935394b43af8f4b652aade187bf431668fdd2bac842ab98ef",
-    "agent_registry": "9f3cd73f3fed5400eef16bc5bb1fd1446dfeb2cb28bd3b7eb8dcaa881d1a112d",
-    "cache_manifest": "46b3ec1151b475071939229eba73640c58fa7ab8a4dc0118b3caa98b66929cf2",
-    "data_plane": "1250c0966d14e599fefe6fb20be6a4def10d82586bcfe5dbb5171b4f9c63bbac",
+    "action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
+    "agent_registry": "c0eef8304280bc315b11c4735a09b15da816699f07f1470356600abd9fc56cf2",
+    "cache_manifest": "0889819bf4d42919ea84318ccb92b53f978dd8db392f09ae06cea0b349ea6407",
+    "data_plane": "09ffac18647c6498ef681481e46c5da963b046d76d7d395dbfe62d96fc84f45c",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "b45ead2e5bd8c7c60a1564e6bc91e37adeb18b2d102e95861026f728ec41e1db",
-    "route_index": "7e54efc7e04b69501246d95d1debc4b26632a88c354f4812e5751846c11e94d9",
-    "route_layout": "0d023460867def981243b27af09ba4abee8bd35e9a423601985fc97d10dd6cee",
-    "surface_map": "2e538d2fc0190276ef2d88d39d1cf3c23ee3abc1a38c6052d1efc12ad091f132",
+    "one_specialist_tools": "cbf35129e44e7f09116289df140d3b3ca3a5203cb99013c593be42163707036b",
+    "route_index": "abb1005133f320075b2eb2c66d60891691d8ada23f97f80f646dc79499f7dff8",
+    "route_layout": "41d604d79779023d812b4d32b556071c1881b1aa8d93f16ccad9f286685835cc",
+    "surface_map": "490a1bf7636d5fb63b7fe9b7d93a51ff5b499a12c18da465ce2f8340caf04454",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 233,
+    "actions": 232,
     "agents": 20,
     "aliases": 4,
     "decision_required": 2,
@@ -6044,6 +6063,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 85
+    "table_families": 87
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
@@ -22,7 +22,7 @@ import {
   snapshotValidatedAuthSessionOwner,
 } from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupRoute, resolveOneSetupReturnTo, ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -52,6 +52,7 @@ function OwnerRuntimeConfigurationPage({
   auth,
 }: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { user, loading: authLoading } = auth;
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -141,15 +142,18 @@ function OwnerRuntimeConfigurationPage({
     !setupMode && Boolean(user && !isVaultUnlocked && hasVault === true);
   const returnToSetupHub = useCallback(() => {
     setFinishing(true);
+    const href = buildOneSetupRoute({
+      returnTo: resolveOneSetupReturnTo(searchParams.get("return_to")),
+    });
     const requested = requestInternalAppNavigation({
-      href: ROUTES.ONE_SETUP,
+      href,
       replace: true,
       scroll: false,
       source: "programmatic",
       transitionMode: "full",
     });
-    if (!requested) router.replace(ROUTES.ONE_SETUP);
-  }, [router]);
+    if (!requested) router.replace(href);
+  }, [router, searchParams]);
 
   const finishConnections = useCallback(async () => {
     if (!canContinue) {

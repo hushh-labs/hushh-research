@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Copy } from "@/components/icons";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 export async function copyTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -87,7 +88,7 @@ export function ChatMarkdownLink({
         onClick={handleCopy}
         aria-label={copied ? "Link copied" : "Copy link"}
         title={copied ? "Copied" : "Copy link"}
-        className="relative inline-flex h-5 w-5 shrink-0 translate-y-[3px] cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 after:absolute after:-inset-2.5 after:content-[''] hover:bg-muted hover:text-foreground active:scale-95"
+        className="relative relative inline-flex h-5 w-5 shrink-0 translate-y-[3px] cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 after:absolute after:-inset-2.5 after:content-[''] hover:bg-muted hover:text-foreground"
       >
         {copied ? (
           <Check aria-hidden className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
@@ -97,6 +98,7 @@ export function ChatMarkdownLink({
         <span aria-live="polite" className="sr-only">
           {copied ? "Link copied to clipboard" : ""}
         </span>
+        <MaterialRipple variant="none" effect="glass" />
       </button>
     </span>
   );

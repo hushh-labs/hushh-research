@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 256,
+  "expected_migration_version": 260,
   "migration_version_policy": "exact",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -353,6 +353,10 @@
       "issued_at",
       "poll_timeout_at"
     ],
+    "consent_event_deliveries": [
+      "delivery_key",
+      "claimed_at"
+    ],
     "consent_export_refresh_jobs": [
       "id",
       "user_id",
@@ -608,6 +612,7 @@
       "position",
       "source_job_id",
       "source_position",
+      "origin_request_id",
       "file_digest",
       "metadata_envelope"
     ],
@@ -632,6 +637,8 @@
       "share_id",
       "user_id",
       "search_job_id",
+      "progressive_batch",
+      "approval_source",
       "client_request_id",
       "request_digest",
       "connection_generation",
@@ -1300,6 +1307,14 @@
       "conversation_ref",
       "message_ref",
       "rating",
+      "created_at",
+      "updated_at"
+    ],
+    "one_attention_ledger": [
+      "user_id",
+      "kind",
+      "subject_ref",
+      "outcome",
       "created_at",
       "updated_at"
     ],
@@ -2310,6 +2325,7 @@
       "recovery_salt",
       "recovery_iv",
       "one_runtime_setup_choice",
+      "one_chat_onboarding",
       "onboarding_journey_version",
       "onboarding_phase",
       "onboarding_active_capability",

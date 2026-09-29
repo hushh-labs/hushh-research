@@ -544,7 +544,7 @@ export function KaiAnalysisPreviewView() {
             <button
               type="button"
               onClick={() => setNotificationsOpen(true)}
-              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform active:scale-90"
+              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform"
               aria-label="Notifications"
             >
               <span className="absolute right-2 top-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--one-down)] shadow-[0_0_0_2px_var(--one-surface)]" />
@@ -624,7 +624,7 @@ export function KaiAnalysisPreviewView() {
           <button
             type="button"
             onClick={() => setKaiOpen(true)}
-            className={cn(analysisGlassClassName, "mt-3 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-2.5 text-left transition-transform active:scale-[0.99]")}
+            className={cn(analysisGlassClassName, "mt-3 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-2.5 text-left transition-transform")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white">
               <Bot className="h-4 w-4" />

@@ -18,6 +18,9 @@ vi.mock("@/lib/kai/kai-market-news-resource", () => ({
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
   UnlockWarmOrchestrator: { invalidateForUser: vi.fn() },
 }));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { apiFetch: vi.fn() },
+}));
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
@@ -33,6 +36,9 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
 import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
+import { CONSENT_READ_AFTER_WRITE_WINDOW_MS } from "@/lib/cache/consent-read-after-write";
+import { ApiService } from "@/lib/services/api-service";
+import { ConsentCenterService } from "@/lib/services/consent-center-service";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -84,6 +90,44 @@ describe("CacheSyncService mutation cascades", () => {
     expect(patternArgs).toContain(`ria_clients_${userId}_`);
     expect(patternArgs).toContain(`ria_client_detail_${userId}_`);
     expect(patternArgs).toContain(`ria_workspace_${userId}_`);
+  });
+
+  // Regression (localhost 2026-09-28): after Stop sharing, the refetch came
+  // back in 17ms from the web proxy's hot copy of the pre-stop Active list.
+  it("onConsentMutated makes the next Consent Center reads revalidate past the proxy", async () => {
+    const reader = "consent-reader";
+    const apiFetch = vi.mocked(ApiService.apiFetch).mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({ items: [], total: 0, page: 1, limit: 20, has_more: false }),
+          { status: 200 },
+        ),
+    );
+    const readActive = async () => {
+      await ConsentCenterService.listEntries({
+        idToken: "id-token",
+        userId: reader,
+        surface: "active",
+        force: true,
+      });
+      const init = apiFetch.mock.calls.at(-1)?.[1] as RequestInit;
+      return (init.headers as Record<string, string>)["Cache-Control"];
+    };
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(1_000_000);
+      // Negative control: with no change of the person's own, polls keep the
+      // proxy's hot copy.
+      expect(await readActive()).toBeUndefined();
+
+      CacheSyncService.onConsentMutated(reader);
+      expect(await readActive()).toBe("no-cache");
+
+      vi.setSystemTime(1_000_000 + CONSENT_READ_AFTER_WRITE_WINDOW_MS);
+      expect(await readActive()).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("onConnectionCapabilityMutated uses the same consent, RIA, and Market invalidation contract", () => {

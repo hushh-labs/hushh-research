@@ -3,7 +3,10 @@ from unittest.mock import patch
 
 import pytest
 
-from hushh_mcp.services.person_profile_service import PersonProfileService
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
 
 
 class _Connections:
@@ -390,3 +393,167 @@ async def test_viewer_request_history_reports_a_withdrawn_request_as_cancelled()
         "req-denied": "denied",
         "req-pending": "pending",
     }
+
+
+@pytest.mark.asyncio
+async def test_scope_catalog_search_finds_food_for_restaurant_and_pages_the_rest(monkeypatch):
+    """Contract C4: the Change picker searches on the server, with synonyms.
+
+    UAT 2026-09-28: "restaurant" matched nothing because search covered only the
+    100 loaded rows, and rows read "Preferences Entities Entities Summary".
+    """
+    from hushh_mcp.services.person_profile_service import _scope_ref
+
+    person_ref = "11111111-1111-4111-8111-111111111111"
+    entries = [
+        {
+            "scope": "attr.food.preferences.entities.entities.summary",
+            "domain": "food",
+            "label": "Preferences Entities Entities Summary",
+        },
+        {"scope": "attr.health.fitness_goals.*", "domain": "health", "label": "Fitness Goals"},
+        {"scope": "attr.food.*", "domain": "food", "label": "Food Domain", "wildcard": True},
+    ] + [
+        {
+            "scope": f"attr.professional.field_{index:02d}",
+            "domain": "professional",
+            "label": f"Project {index:02d}",
+        }
+        for index in range(25)
+    ]
+    service = PersonProfileService(
+        connections=SimpleNamespace(get_exact_requestable_scope_entries=lambda *_args: entries),
+        consent_db=_Consent(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_profile_row",
+        lambda _ref: {"user_id": "subject", "public_person_ref": person_ref, "display_name": "K"},
+    )
+
+    found = await service.search_scope_catalog(
+        viewer_user_id="viewer", public_person_ref=person_ref, query="favorite restaurant"
+    )
+    assert [item["label"] for item in found["items"]] == [
+        "Food preferences",
+        "Food & dining information",
+    ]
+    assert found["items"][0]["why"] == '"restaurant" relates to food & dining'
+    assert found["items"][0]["scopeRef"] == _scope_ref(
+        person_ref, "attr.food.preferences.entities.entities.summary"
+    )
+    # ``scope`` is the same opaque ref; the raw scope never leaves the server.
+    assert found["items"][0]["scope"] == found["items"][0]["scopeRef"]
+    assert "attr." not in str(found)
+    assert found["totalCount"] == 2
+
+    pages, page, revision = [], 1, ""
+    while page:
+        result = await service.search_scope_catalog(
+            viewer_user_id="viewer",
+            public_person_ref=person_ref,
+            page=page,
+            limit=10,
+            catalog_revision=revision,
+        )
+        pages.append(result)
+        revision, page = result["catalogRevision"], result["nextPage"]
+    assert [len(result["items"]) for result in pages] == [10, 10, 8]
+    assert [result["hasMore"] for result in pages] == [True, True, False]
+    assert len({item["scopeRef"] for result in pages for item in result["items"]}) == 28
+    assert {"domain": "food", "count": 2, "label": "Food & dining"} in pages[0]["domains"]
+
+    # A person cannot open their own catalog as a viewer.
+    with pytest.raises(PersonProfileNotFoundError):
+        await service.search_scope_catalog(viewer_user_id="subject", public_person_ref=person_ref)
+
+
+@pytest.mark.asyncio
+async def test_the_catalog_a_person_reads_has_no_schema_fields_app_state_or_duplicates(
+    monkeypatch,
+):
+    """Localhost run 2026-09-28: "restaurant" listed Kind, Food status, Observations,
+    "Food preferences" twice, and elsewhere "Canonical V2 parse fallback".
+
+    Presentation only: every hidden row stays requestable by reference, so an
+    earlier request naming one still validates.
+    """
+    from hushh_mcp.consent.scope_labels import human_scope_label
+    from hushh_mcp.services.person_profile_service import _scope_ref
+
+    person_ref = "11111111-1111-4111-8111-111111111111"
+    stored = "Preferences Entities Entities {}"
+    entries = [
+        {"scope": "attr.food.*", "domain": "food", "label": "Food Domain", "wildcard": True},
+        {
+            "scope": "attr.food.preferences.*",
+            "domain": "food",
+            "label": "Preferences",
+            "wildcard": True,
+        },
+        *(
+            {
+                "scope": f"attr.food.preferences.entities._entities.{field}",
+                "domain": "food",
+                "label": stored.format(field.title()),
+            }
+            for field in ("kind", "status", "summary")
+        ),
+        {
+            "scope": "attr.food.preferences.observations._items",
+            "domain": "food",
+            "label": "Observations",
+        },
+        {
+            "scope": "attr.food.dietary_constraints.*",
+            "domain": "food",
+            "label": "Dietary Constraints",
+            "wildcard": True,
+        },
+        {
+            "scope": "attr.financial.canonical_v2.parse_fallback",
+            "domain": "financial",
+            "label": "Canonical V2 Parse Fallback",
+        },
+    ]
+    # Negative control: the stored catalog alone repeats a label.
+    raw_labels = [
+        human_scope_label(entry["scope"], entry["label"])
+        for entry in entries
+        if entry["domain"] == "food"
+    ]
+    assert raw_labels.count("Food preferences") == 3
+
+    service = PersonProfileService(
+        connections=SimpleNamespace(get_exact_requestable_scope_entries=lambda *_args: entries),
+        consent_db=_Consent(),
+    )
+    monkeypatch.setattr(
+        service,
+        "_profile_row",
+        lambda _ref: {"user_id": "subject", "public_person_ref": person_ref, "display_name": "K"},
+    )
+    catalog = await service.get_requestable_catalog(
+        viewer_user_id="viewer", public_person_ref=person_ref
+    )
+    found = await service.search_scope_catalog(
+        viewer_user_id="viewer", public_person_ref=person_ref, query="favorite restaurant"
+    )
+    for labels in (
+        [item["label"] for item in catalog["requestableScopes"]],
+        [item["label"] for item in found["items"]],
+    ):
+        assert len(labels) == len(set(labels))
+        assert not any(
+            word in label.lower()
+            for label in labels
+            for word in ("kind", "status", "observations", "fallback")
+        )
+    assert found["items"][0]["label"] == "Food preferences"
+    assert found["items"][0]["scopeRef"] == _scope_ref(person_ref, "attr.food.preferences.*")
+
+    hidden = _scope_ref(person_ref, "attr.food.preferences.entities._entities.kind")
+    _row, resolved = service.resolve_scope_refs(
+        viewer_user_id="viewer", public_person_ref=person_ref, scope_refs=[hidden]
+    )
+    assert resolved[0]["scope"] == "attr.food.preferences.entities._entities.kind"

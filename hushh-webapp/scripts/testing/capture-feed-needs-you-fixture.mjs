@@ -30,7 +30,44 @@ import { afterEach, it, vi } from "vitest";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { FeedRow } from "@/components/feed/feed-row";
 import { SettingsGroup, SettingsPresentationProvider } from "@/components/app-ui/settings-ui";
-import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
+import {
+  ownerConsentRequestActionable,
+  type FeedActionable,
+} from "@/lib/feed/use-feed-actionables";
+import { groupPendingConsentRequests } from "@/lib/consent/owner-consent-request";
+
+/**
+ * The owner's consent request, built by the same projection the Feed uses: a
+ * three-item ask from one person folds into ONE row with Details, Don't allow
+ * and Allow. Three inline actions is the widest a Needs you row gets.
+ */
+const CONSENT_REQUEST_ROW: FeedActionable = ownerConsentRequestActionable(
+  groupPendingConsentRequests(
+    ["attr.food.preferences.*", "attr.food.dietary_restrictions.*", "attr.travel.preferences.*"].map(
+      (scope, index) => ({
+        id: "req-" + index,
+        request_id: "req-" + index,
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        scope,
+        counterpart_type: "person",
+        counterpart_id: "kushal",
+        counterpart_label: "Kushal Trivedi",
+        reason: "Picking a place for our dinner together",
+        issued_at: "1786964640000",
+        metadata: { bundle_id: "bundle-dinner", expiry_hours: 168 },
+      }),
+    ),
+  )[0]!,
+  {
+    allow: async () => true,
+    deny: async () => true,
+    openDetails: () => {},
+    onDecided: () => {},
+    sortAt: 1786964640000,
+  },
+);
 
 /**
  * The three rows the tester reported, with the widest action label in the set.
@@ -38,6 +75,7 @@ import type { FeedActionable } from "@/lib/feed/use-feed-actionables";
  * looked fine in a wide screenshot and collides on every phone.
  */
 const ROWS: FeedActionable[] = [
+  CONSENT_REQUEST_ROW,
   {
     id: "extend",
     person: { displayName: "JHUMMA KUMARI", photoUrl: null },

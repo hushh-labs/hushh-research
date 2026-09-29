@@ -508,10 +508,10 @@ function SearchFieldButtons({
 }
 
 const commandItemClass =
-  "gap-4 rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+  "gap-4 rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
 const mobileResultRowClass =
-  "flex min-h-11 w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[15px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] active:scale-[0.99] disabled:opacity-45";
+  "flex min-h-11 w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left text-[15px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-45";
 
 const noteClass = "px-3 py-6 text-center text-sm text-muted-foreground";
 

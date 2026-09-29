@@ -208,6 +208,17 @@ class VaultBootstrapStateRequest(BaseModel):
     userId: str | None = None
 
 
+class OneChatOnboardingState(BaseModel):
+    """Bounded chat-onboarding progress. Deliberately has no free-form field."""
+
+    version: Literal[1] = 1
+    status: Literal["in_progress", "completed"]
+    answered: list[Literal["name", "focus", "tone"]] = Field(default_factory=list, max_length=3)
+    skipped: list[Literal["name", "focus", "tone"]] = Field(default_factory=list, max_length=3)
+    completedOn: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    tipDismissedOn: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+
+
 class VaultBootstrapStateResponse(BaseModel):
     userId: str
     hasVault: bool
@@ -229,6 +240,9 @@ class VaultBootstrapStateResponse(BaseModel):
     # Distinct from setupCapabilityIds, which only ever records completions.
     setupCapabilityDeclinedIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
+    # One's chat onboarding progress: question ids answered/skipped and two
+    # calendar dates. Never an answer value; those live in encrypted memory.
+    oneChatOnboarding: OneChatOnboardingState | None = None
     setupStateUpdatedAt: int | None = None
     # A strict, non-secret Connections preference. BYOK remains pending until
     # the person finishes setup and stores the actual key in their vault.
@@ -263,6 +277,8 @@ class VaultPreStateUpdateRequest(BaseModel):
     setupCapabilityIds: list[str] | None = None
     # Replace the stored declined-capability set. None leaves it unchanged.
     setupCapabilityDeclinedIds: list[str] | None = None
+    # Replace the chat onboarding progress record. None leaves it unchanged.
+    oneChatOnboarding: OneChatOnboardingState | None = None
     oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
     onboardingPhase: str | None = Field(default=None, max_length=32)
@@ -458,6 +474,7 @@ async def vault_bootstrap_state(
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
+            oneChatOnboarding=state.get("oneChatOnboarding"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
@@ -509,6 +526,11 @@ async def vault_pre_vault_state(
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
             setup_capability_declined_ids=request.setupCapabilityDeclinedIds,
+            one_chat_onboarding=(
+                request.oneChatOnboarding.model_dump()
+                if request.oneChatOnboarding is not None
+                else None
+            ),
             one_runtime_setup_choice=request.oneRuntimeSetupChoice,
             onboarding_journey_version=request.onboardingJourneyVersion,
             onboarding_phase=request.onboardingPhase,
@@ -535,6 +557,7 @@ async def vault_pre_vault_state(
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
+            oneChatOnboarding=state.get("oneChatOnboarding"),
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),

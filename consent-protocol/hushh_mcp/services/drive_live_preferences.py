@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sqlalchemy import text
+
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_document_store import DriveDocumentStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
@@ -109,6 +111,29 @@ class DriveLivePreferences(DriveDocumentStore):
                     "enabled": enabled,
                 },
             )
+            if enabled:
+                # A trusted request awaiting this one-time owner setting can
+                # retry immediately. Only the auto worker writes this code;
+                # no old manual request is turned into auto sharing here.
+                connection.execute(
+                    text("""WITH resumed AS (
+                      UPDATE drive_share_requests
+                      SET preparation_error_code=CASE
+                        WHEN bulk_search_started_at IS NULL THEN 'trusted_auto_queued'
+                        ELSE 'trusted_auto_active' END,
+                        preparation_next_at=clock_timestamp(),
+                        updated_at=clock_timestamp()
+                      WHERE user_id=:user AND status='pending'
+                        AND preparation_error_code='background_preparation_required'
+                      RETURNING request_id
+                    )
+                    UPDATE drive_owner_search_jobs j
+                    SET next_at=clock_timestamp(),updated_at=clock_timestamp()
+                    FROM resumed r
+                    WHERE j.user_id=:user AND j.client_request_id=r.request_id
+                      AND j.status='queued' AND j.next_at=j.expires_at"""),
+                    {"user": user_id},
+                )
             return {"enabled": enabled, "revision": result["revision"]}
 
         result = await self._transaction(operation)

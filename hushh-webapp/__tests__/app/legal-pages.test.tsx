@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import { render, screen, within } from "@testing-library/react";
@@ -6,7 +6,6 @@ import { describe, expect, it } from "vitest";
 
 import PrivacyPolicyPage from "@/app/privacy/page";
 import TermsOfUsePage from "@/app/terms/page";
-import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import {
   LEGAL_DOCUMENTS,
@@ -135,16 +134,23 @@ describe("Privacy Policy and Terms of Use pages", () => {
     }
   });
 
-  it("is what the sign-in sheet shows, with a link to the full page", () => {
-    render(<AuthLegalDialog docType="privacy" onOpenChange={() => {}} />);
-    expect(screen.getByText(LEGAL_DOCUMENTS.privacy.summary)).toBeTruthy();
+  it("are reachable from sign-in as plain links, never an in-app popup", () => {
+    const auth = read("components/onboarding/AuthStep.tsx");
+    expect(auth).toContain("href={ROUTES.TERMS}");
+    expect(auth).toContain("href={ROUTES.PRIVACY}");
+    // The inline sign-in sheet is gone; the pages are the only presentation.
+    expect(existsSync(path.join(REPO, "components/onboarding/AuthLegalDialog.tsx"))).toBe(false);
+  });
+
+  it("never re-prompt a signed-in person to accept them", () => {
+    // Acceptance is the sign-in agreement, recorded silently at sign-in. There
+    // is no app-wide acceptance dialog mounted over signed-in screens.
     expect(
-      screen.getByRole("link", { name: "Open full page" }).getAttribute("href"),
-    ).toBe(ROUTES.PRIVACY);
-    // The sheet no longer points at a separate document on another site.
-    expect(read("components/onboarding/AuthLegalDialog.tsx")).not.toContain(
-      "hushh.ai/privacy",
-    );
+      existsSync(path.join(REPO, "components/onboarding/LegalAcceptanceGate.tsx")),
+    ).toBe(false);
+    expect(read("app/providers.tsx")).not.toContain("LegalAcceptanceGate");
+    const auth = read("components/onboarding/AuthStep.tsx");
+    expect(auth).toContain("LegalAcceptanceService.recordSignInAcceptance(");
   });
 
   it("are reachable from Profile", () => {

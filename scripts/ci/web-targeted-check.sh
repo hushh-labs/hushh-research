@@ -7,6 +7,48 @@ WEB_DIR="$REPO_ROOT/hushh-webapp"
 # shellcheck source=scripts/ci/web-common.sh
 source "$REPO_ROOT/scripts/ci/web-common.sh"
 
+# Which half of the matched packs this invocation runs.
+#
+#   all      every matched pack (the default, and what a local run does)
+#   node     only packs that never start a browser
+#   browser  only packs whose npm script reaches `playwright`
+#
+# PR Validation runs `node` and `browser` as two parallel legs of Web Targeted
+# Contracts. The browser packs were ~11 of the lane's ~13 minutes, and the node
+# leg needs neither the Playwright download nor its apt dependencies. Each pack
+# is classified by one pure rule, so the two legs partition the matched set:
+# every pack runs in exactly one leg, and together they run what `all` runs.
+# Guarded by scripts/ci/test_web_ci_lane_partition.py.
+WEB_TARGETED_PART="${WEB_TARGETED_PART:-all}"
+case "$WEB_TARGETED_PART" in
+  all|node|browser) ;;
+  *)
+    echo "Unknown WEB_TARGETED_PART '$WEB_TARGETED_PART' (expected all, node or browser)." >&2
+    exit 2
+    ;;
+esac
+
+# Prints "browser" when the command is `npm run <script>` and that script, or
+# any script it reaches through `npm run`, invokes playwright; "node" otherwise.
+check_part() {
+  if [ "${1:-}" != "npm" ] || [ "${2:-}" != "run" ] || [ -z "${3:-}" ]; then
+    echo node
+    return 0
+  fi
+  node -e '
+    const scripts = require(process.argv[1]).scripts || {};
+    const seen = new Set();
+    const reaches = (name) => {
+      if (seen.has(name) || !scripts[name]) return false;
+      seen.add(name);
+      const body = scripts[name];
+      if (/\bplaywright\b/.test(body)) return true;
+      return [...body.matchAll(/npm run ([\w:.-]+)/g)].some((m) => reaches(m[1]));
+    };
+    process.stdout.write(reaches(process.argv[2]) ? "browser\n" : "node\n");
+  ' "$WEB_DIR/package.json" "$3"
+}
+
 web_ci_preflight
 web_ci_install
 
@@ -31,6 +73,14 @@ failed_checks=()
 run_check() {
   local name="$1"
   shift
+  if [ "$WEB_TARGETED_PART" != "all" ]; then
+    local part
+    part="$(check_part "$@")"
+    if [ "$part" != "$WEB_TARGETED_PART" ]; then
+      echo "-- Targeted web check: $name runs in the $part leg"
+      return 0
+    fi
+  fi
   echo "== Targeted web check: $name =="
   if ! (cd "$WEB_DIR" && "$@"); then
     echo "!! Targeted web check failed: $name"
@@ -92,7 +142,7 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
-if has_match '^hushh-webapp/(components/consent/|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|fixtures/document-share-)|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
+if has_match '^hushh-webapp/(components/consent/|components/agent/(drive-background-search|drive-read-memory-action|first-connect-insights-card)\.tsx|lib/agent/(connector-memory-review|drive-sharing-card-preferences|first-connect-insights)\.ts|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|drive-sharing-card\.layout\.spec\.ts|fixtures/(document-share-|drive-sharing-card|drive-memory-boundaries))|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
   run_full_suite_check "Drive exact-file review boundary" npm run test:drive-sharing-web
   run_check "Drive mounted review layout" npm run test:drive-sharing-layout
   ran=1
@@ -342,7 +392,7 @@ fi
 # globals.css changes -- which is what those specs are pinned to. The browsers
 # are installed in the workflow step, not here, so a local run of this script
 # uses whatever is already on the machine.
-if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html)|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html|fixtures/guest-preview\.tsx)|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/onboarding/(guest-preview|IntroStep)|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
 fi

@@ -17,6 +17,7 @@ import {
   type VoiceCardRequest,
   type VoiceDisambiguationCandidate,
 } from "@/lib/voice/voice-action-card";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /** The row treatment shared by both shapes: avatar, name, detail beneath. */
 function SubjectRow({
@@ -224,9 +225,10 @@ export function VoiceActionCard() {
             type="button"
             disabled={busy}
             onClick={() => clearVoiceCard()}
-            className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+            className="relative h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
           >
             Cancel
+            <MaterialRipple variant="none" effect="glass" disabled={busy} />
           </button>
           <button
             type="button"
@@ -236,9 +238,10 @@ export function VoiceActionCard() {
             // primary thing to press, and the safe choice should not have to
             // compete with it. Red text on a red-tinted ground says "this one
             // is the dangerous one" while leaving Cancel equally easy to hit.
-            className="h-12 rounded-full bg-destructive/10 text-[15px] font-semibold text-destructive ring-1 ring-inset ring-destructive/35 transition-colors hover:bg-destructive/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 dark:bg-destructive/[0.18] dark:ring-destructive/45 dark:hover:bg-destructive/25"
+            className="relative h-12 rounded-full bg-destructive/10 text-[15px] font-semibold text-destructive ring-1 ring-inset ring-destructive/35 transition-colors hover:bg-destructive/[0.16] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive disabled:opacity-50 dark:bg-destructive/[0.18] dark:ring-destructive/45 dark:hover:bg-destructive/25"
           >
             {busy ? "Working…" : confirm.confirmLabel}
+            <MaterialRipple variant="none" effect="glass" disabled={busy} />
           </button>
         </div>
       </div>
@@ -259,9 +262,10 @@ export function VoiceActionCard() {
             type="button"
             onClick={() => clearVoiceCard()}
             aria-label="Dismiss"
-            className="-m-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
+            className="relative -m-1 shrink-0 rounded-full p-1 text-muted-foreground transition-colors hover:bg-black/[0.05] hover:text-foreground dark:hover:bg-white/[0.08]"
           >
             <X className="size-4" />
+            <MaterialRipple variant="none" effect="glass" />
           </button>
         </div>
 
@@ -369,7 +373,7 @@ export function VoiceActionCard() {
                 // give this the full 48px the decision buttons get without the
                 // list growing taller than the card, but it must not be the
                 // 32px inline control this started as.
-                className="h-11 min-w-[92px] shrink-0 rounded-full bg-black/[0.05] px-4 text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+                className="relative h-11 min-w-[92px] shrink-0 rounded-full bg-black/[0.05] px-4 text-[14px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-45 dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
                 // Two rows share a name, so the name alone cannot say which
                 // button this is. Screen readers get the detail too.
                 aria-label={`${candidate.actionLabel} ${candidate.name}${
@@ -377,6 +381,7 @@ export function VoiceActionCard() {
                 }`}
               >
                 {isRunning ? "Working…" : candidate.actionLabel}
+                <MaterialRipple variant="none" effect="glass" disabled={isDisabled || isRunning} />
               </button>
             </li>
           );
@@ -399,9 +404,10 @@ export function VoiceActionCard() {
         <button
           type="button"
           onClick={() => clearVoiceCard()}
-          className="h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
+          className="relative h-12 rounded-full bg-black/[0.05] text-[15px] font-semibold ring-1 ring-inset ring-black/10 transition-colors hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-white/[0.08] dark:ring-white/15 dark:hover:bg-white/[0.12]"
         >
           Cancel
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       </div>
     </div>

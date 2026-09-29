@@ -1,6 +1,7 @@
 import * as React from "react"
 import { Slot } from "@radix-ui/react-slot"
 import { Loader2 } from "@/components/icons"
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
 import { cn } from "@/lib/utils"
 import {
   buttonVariants,
@@ -12,6 +13,21 @@ export interface ButtonProps
     ButtonVariantProps {
   asChild?: boolean
   isLoading?: boolean
+  /**
+   * The press ripple is on by default, from the pointerdown point and clipped
+   * to the button's shape. Pass `false` only when the caller renders its own
+   * ripple (the Morphy Button does), so a press never paints two layers.
+   */
+  showRipple?: boolean
+}
+
+type ButtonVariantName = NonNullable<ButtonVariantProps["variant"]>
+
+// Solid fills take a currentColor ripple so the press reads against the
+// fill; every other variant takes the lighter glass ripple.
+function rippleEffectFor(variant: ButtonVariantProps["variant"]) {
+  const filled: ReadonlyArray<ButtonVariantName> = ["default", "destructive"]
+  return filled.includes(variant ?? "default") ? "fill" : "glass"
 }
 
 const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
@@ -22,6 +38,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       size,
       asChild = false,
       isLoading = false,
+      showRipple = true,
       children,
       disabled,
       ...props
@@ -29,6 +46,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     ref,
   ) => {
     const Comp = asChild ? Slot : "button"
+    const isDisabled = Boolean(disabled || isLoading)
+    const ripple = showRipple ? (
+      <MaterialRipple
+        variant="none"
+        effect={rippleEffectFor(variant)}
+        disabled={isDisabled}
+      />
+    ) : null
 
     // When using asChild, we must ensure only one child is passed to Slot.
     // If loading, we handle the content inside a single span.
@@ -55,16 +80,41 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       children
     )
 
+    // Slot takes exactly one child, so under asChild the ripple rides inside
+    // that child rather than beside it.
+    const slotted = (() => {
+      if (!asChild) return null
+      const child = React.Children.only(children) as React.ReactElement<{
+        children?: React.ReactNode
+      }>
+      if (!ripple || !React.isValidElement(child)) return child
+      return React.cloneElement(child, {
+        children: (
+          <>
+            {child.props.children}
+            {ripple}
+          </>
+        ),
+      })
+    })()
+
     return (
       <Comp
         type={asChild ? undefined : "button"}
         className={cn(buttonVariants({ variant, size, className }))}
         ref={ref}
         aria-busy={isLoading || undefined}
-        disabled={disabled || isLoading}
+        disabled={isDisabled}
         {...props}
       >
-        {asChild ? React.Children.only(children) : content}
+        {asChild ? (
+          slotted
+        ) : (
+          <>
+            {content}
+            {ripple}
+          </>
+        )}
       </Comp>
     )
   },

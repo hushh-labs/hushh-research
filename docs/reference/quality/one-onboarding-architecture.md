@@ -18,6 +18,88 @@ gated, reset, resumed, and skipped across the app.
 > the orchestrator above every surface, and each surface owns its own
 > setup the way each sub‑agent owns its own job.
 
+## Visual Context
+
+Canonical visual owner: [Quality and Design System Index](README.md). The setup
+journey's detailed visual map follows the guest invitation contract below.
+
+## Guest introduction and invitation continuity
+
+Before sign-in, `/?invite=one`, `/circle/join?code=…`, and
+`/one/location/invite/[token]` share `GuestPreview`: three short screens for
+Circles, the enabled public agent catalog, and asking One by voice or text.
+Circles and agent selections are examples only. They do not create an account,
+join a Circle, connect a provider, or grant access. Guests advance through all
+three screens before sign-in controls appear; progress dots revisit only seen
+screens. The final account action opens sign-in with the original invitation
+as its internal redirect target. Already-authenticated recipients skip this
+introduction and use the existing invitation confirmation and prerequisites.
+An ordinary signed-out visit to `/` goes to `/login`, without the guest tour.
+The generic Invite to One share URL carries `invite=one` only as a presentation
+marker; it is not an invite token and grants no connection or Circle authority.
+
+The Circle and agent tours repeat their selections every 2.5 seconds. Hover or
+keyboard focus holds a selection; hidden pages and reduced-motion preferences
+suspend the timers. The chat preview illustrates Calendar free-time lookup and
+two-hour Location sharing with the live chat's presentation components. These
+examples make no connector or sharing requests.
+
+Named Circle previews use the anonymous, rate-limited
+`POST /api/one/location/circle-codes/public-preview` metadata allowlist (Circle
+name and owner display name only). Invalid, expired, disabled, exhausted, and
+system-Circle codes remain unavailable. Authenticated previews and joining keep
+their existing Firebase and vault-owner boundaries.
+The One API mounts this presentation endpoint on Location's separate public
+router, outside the protected workflow catalog; existing setup semantics and
+in-progress workflow revision compatibility remain unchanged.
+Public metadata is optional presentation, not admission: a slow response, 429,
+or temporary outage never blocks the final sign-in action. Definite invalid or
+expired responses disable the invitation CTA and offer recovery. This matters
+for launch traffic where anonymous web requests can share a proxy IP bucket;
+the authenticated confirmation still validates the code before joining.
+
+The existing post-auth route service carries invitation intent through phone
+verification, setup, and Profile unlock. Setup links preserve a sanitized
+`return_to`; completing AI choice and the outer setup guard use that same
+destination. The final Connect join/Invite to One confirmation remains explicit:
+opening a link or completing the guest introduction never grants membership.
+
+A pending memory-only Finance source takes precedence over that return target.
+Both root-completion paths resume `/one/setup/finance/import?return_to=…`; the
+source chooser retains the validated continuation until its existing explicit
+Finish or skip succeeds. A source result does not revive the completed root
+journey, and extraction cancellation still returns to the chooser. Failed
+capability persistence cannot navigate to the invitation; unsafe or setup-loop
+return targets fall back to the normal Finance destination.
+
+Guest routes own their viewport without persistent app chrome. The shared UI
+uses existing typography, icons, motion, and safe-area tokens; enlarged text and
+short landscape viewports may scroll to keep actions reachable.
+
+The existing native link handler admits the shared HTTPS root with its
+`invite=one` query (generic Invite
+to One), `/circle/join?code=…`, and legacy `/one/location/invite/<token>` links.
+The legacy token becomes `/circle/join?invite=…` inside the native app: a static
+export cannot emit every future token. The same client owns both token entry
+points, including phone, setup and unlock return paths. A delayed launch URL
+cannot overwrite a newer live link. No custom-scheme invitation or auto-join
+authority is introduced. The generic root invite has no inviter or code and
+therefore cannot create a connection; signed-in people reach their usual home.
+
+Release sequencing is required: ship and test the rebuilt iOS/Android bundle
+before enabling `NATIVE_INVITATION_LINKS_ENABLED=true` on the hosted web domain.
+Association files cannot select an installed app version: publishing a new
+binary alone does not upgrade existing installations. Keep the switch off
+until the supported installed versions can handle these links, or an enforced
+update path has been verified.
+It defaults off so a web rollout cannot strand older iOS installations on an
+unexported token route. iOS already declares the associated domains; Android's
+new path filters require a new binary. Verify served AASA/team/bundle identity
+and Android signing association, plus cold/warm taps from another app, on each
+release domain. Same-domain Safari navigation may remain in Safari by OS policy.
+Installing the app later is not deferred-link recovery: reopen the original
+message link; no cross-install tracking or token persistence is added.
+
 ## Visual Map
 
 The end‑to‑end setup journey stays inside static setup workspaces. Feature bodies

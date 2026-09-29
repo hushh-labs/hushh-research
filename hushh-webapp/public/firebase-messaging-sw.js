@@ -30,7 +30,7 @@ const DOCUMENT_REQUEST_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
-  body: "Open One to review.",
+  body: "Open One for next steps.",
 };
 // Fixed words per reviewed type; keep aligned with
 // lib/consent/document-share-consent.ts and the backend worker.

@@ -308,7 +308,7 @@ export function CircleDiscoveryCard({
                   <span
                     data-circle-starter-icon={item.id}
                     className={cn(
-                      "relative flex size-12 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-sm transition-[transform,box-shadow,border-color] duration-200 group-hover:scale-105 group-active:scale-95 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
+                      "relative flex size-12 items-center justify-center rounded-full border bg-[color:var(--circle-tint)] text-[color:var(--circle-ink)] shadow-sm transition-[transform,box-shadow,border-color] duration-200 motion-reduce:transform-none motion-reduce:transition-none sm:size-11",
                       active
                         ? "scale-105 border-[color:var(--app-accent)] ring-[3px] ring-[color:var(--app-accent-ring)]"
                         : "border-[color:color-mix(in_oklab,var(--circle-ink)_14%,transparent)]",

@@ -27,6 +27,7 @@ import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 import { isNativePlaidLinkOpen } from "@/lib/kai/brokerage/native-plaid-session";
 import { ROUTES } from "@/lib/navigation/routes";
 import { markDriveChatRecoveryReturned } from "@/lib/agent/drive-oauth-chat-recovery";
+import { buildOneInviteLandingPath } from "@/lib/one-location/circle-join-url";
 
 export const NATIVE_CONNECTOR_RETURN_EVENT = "hushh:native-connector-return";
 export const NATIVE_DRIVE_PICKER_RETURN_EVENT =
@@ -86,10 +87,17 @@ export function resolveDeepLinkPath(rawUrl: string): string | null {
     return null;
   }
 
-  if (parsed.protocol !== "https:") return null;
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password) return null;
 
   const origin = `${parsed.protocol}//${parsed.host}`;
   if (!knownOrigins().includes(origin)) return null;
+
+  // Never route a real invite token to a dynamic page that the native static
+  // export did not emit. This is only a transport alias, not an acceptance.
+  if (parsed.pathname.startsWith("/one/location/invite/")) {
+    const match = /^\/one\/location\/invite\/([A-Za-z0-9_-]+)\/?$/.exec(parsed.pathname);
+    return match?.[1] ? buildOneInviteLandingPath(match[1]) : null;
+  }
 
   // Preserve the query and hash: an OAuth return carries its state there, and
   // dropping it would strand the flow just as surely as opening a browser.
@@ -201,6 +209,7 @@ export function useDeepLinkReturn(): void {
     let remove: (() => void) | undefined;
     let latestConnectorReturn = "";
     let latestPickerReturn = "";
+    let receivedLiveUrl = false;
 
     void (async () => {
       const { Capacitor } = await import("@capacitor/core");
@@ -253,9 +262,10 @@ export function useDeepLinkReturn(): void {
 
       // Register the listener before reading the cold URL so an early OAuth
       // return cannot race generic navigation during app bootstrap.
-      const handle = await App.addListener("appUrlOpen", (event) =>
-        consume(event.url),
-      );
+      const handle = await App.addListener("appUrlOpen", (event) => {
+        receivedLiveUrl = true;
+        consume(event.url);
+      });
       if (disposed) {
         void handle.remove();
         return;
@@ -266,7 +276,9 @@ export function useDeepLinkReturn(): void {
       // fired before the web runtime mounted. Ask for it after subscribing.
       try {
         const launch = await App.getLaunchUrl();
-        if (launch?.url) consume(launch.url);
+        // A delayed cold-start read must not overwrite a newer tap (or replay
+        // the same arrival already delivered by appUrlOpen).
+        if (launch?.url && !receivedLiveUrl) consume(launch.url);
       } catch {
         // A missing launch URL is the normal case, not a failure.
       }

@@ -33,6 +33,8 @@ import {
   isOneSetupSurfaceRoute,
   normalizeInternalRouteHref,
   ROUTES,
+  buildOneSetupConnectionsRoute,
+  buildOneSetupFinanceImportRoute,
   buildPhoneMandateRoute,
 } from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
@@ -370,9 +372,9 @@ export function OneSetupHub() {
   const resolveFinalizedSetupTarget = useCallback(
     () =>
       user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
-        ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+        ? buildOneSetupFinanceImportRoute(returnTo)
         : completionTarget,
-    [completionTarget, user?.uid],
+    [completionTarget, returnTo, user?.uid],
   );
 
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
@@ -644,7 +646,7 @@ export function OneSetupHub() {
         toast.info("Choose your AI first.", {
           action: {
             label: "Choose",
-            onClick: () => router.push(ROUTES.ONE_SETUP_CONNECTIONS),
+            onClick: () => router.push(buildOneSetupConnectionsRoute(returnTo)),
           },
         });
         return {
@@ -856,7 +858,7 @@ export function OneSetupHub() {
                           ? "Verify your phone first, then choose."
                           : "Choose where your agent lives first, then choose."
                   }
-                  href={ROUTES.ONE_SETUP_CONNECTIONS}
+                  href={buildOneSetupConnectionsRoute(returnTo)}
                   voiceControlId="one_setup_tile_connections"
                   icon={lucideCapabilityIcon(PlugZap)}
                   tone="connected"

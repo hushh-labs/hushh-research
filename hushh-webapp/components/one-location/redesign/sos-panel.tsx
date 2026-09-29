@@ -472,7 +472,7 @@ export function SosPanel({
           <div className="mt-5 sm:mt-6">
             <RowLabel as="p">Choose a message</RowLabel>
             <RowDescription className="mt-1">
-              Pick a quick message or write your own.
+              Pick a quick message.
             </RowDescription>
           </div>
 
@@ -503,7 +503,7 @@ export function SosPanel({
           </div>
 
           <div className="mt-4 sm:mt-5">
-            <label htmlFor="sos-short-message" className="ui-text-row-label block">
+            <label htmlFor="sos-short-message" className="sr-only">
               Or write your own
             </label>
             <div

@@ -5,6 +5,9 @@
 
 export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids";
 
+/** Presentation-only guest entry. It grants no connection or Circle access. */
+export const INVITE_TO_ONE_PATH = "/?invite=one";
+
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
 /** Browser-only Firebase handoff; never part of signed-in app navigation. */
@@ -259,8 +262,15 @@ export function buildPhoneMandateRoute(redirect?: string | null) {
  * missing or unsafe value resolves to the canonical root route.
  */
 export function buildWelcomeRoute(redirect?: string | null) {
+  const safeRedirect = normalizeInternalRouteHref(redirect);
+  if (
+    safeRedirect &&
+    (safeRedirect === INVITE_TO_ONE_PATH ||
+      isInvitationPreviewRoute(safeRedirect.split(/[?#]/, 1)[0] ?? ""))
+  )
+    return safeRedirect;
   return withQuery(ROUTES.HOME, {
-    redirect: normalizeInternalRouteHref(redirect),
+    redirect: safeRedirect,
   });
 }
 
@@ -522,7 +532,7 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith("/people/") ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
     normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
-    normalizedPathname === ROUTES.CIRCLE_JOIN
+    isInvitationPreviewRoute(normalizedPathname)
   );
 }
 
@@ -548,6 +558,41 @@ export function buildOneSetupRoute(entries?: {
     from: normalizeInternalRouteHref(entries?.from),
     return_to: normalizeInternalRouteHref(entries?.returnTo),
   });
+}
+
+/** A setup return target is navigation intent, never completion authority. */
+export function resolveOneSetupReturnTo(
+  value: string | null | undefined,
+): string | null {
+  const safe = normalizeInternalRouteHref(value);
+  return safe && !isOneSetupSurfaceRoute(safe.split(/[?#]/, 1)[0] ?? "")
+    ? safe
+    : null;
+}
+
+export function buildOneSetupConnectionsRoute(
+  returnTo?: string | null,
+): string {
+  return withQuery(ROUTES.ONE_SETUP_CONNECTIONS, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
+/** Resume the memory-only Finance selection without losing its later return. */
+export function buildOneSetupFinanceImportRoute(returnTo?: string | null): string {
+  return withQuery(ROUTES.ONE_SETUP_FINANCE_IMPORT, {
+    return_to: resolveOneSetupReturnTo(returnTo),
+  });
+}
+
+/** Shared by the root terminal and its admission guard during cache settlement. */
+export function resolveOneSetupCompletionTarget(
+  returnTo: string | null | undefined,
+  hasFinanceIntent: boolean,
+): string {
+  return hasFinanceIntent
+    ? buildOneSetupFinanceImportRoute(returnTo)
+    : resolveOneSetupReturnTo(returnTo) ?? ROUTES.HOME;
 }
 
 export function buildProfileVaultRoute(returnTo?: string | null) {
@@ -751,6 +796,27 @@ export function isOneSetupSurfaceRoute(pathname: string): boolean {
  */
 const WALLET_CARD_PUBLIC_PREFIX = "/c";
 
+/** Only invitation presentation is public; neighboring Location routes are not. */
+export function isInvitationPreviewRoute(pathname: string): boolean {
+  const path = normalizeStaticExportPathname(pathname);
+  return (
+    path === ROUTES.CIRCLE_JOIN || /^\/one\/location\/invite\/[^/]+$/.test(path)
+  );
+}
+
+/** Exact, sanitized invitation destinations admitted by the Profile lock flow. */
+export function normalizeInvitationReturnTo(
+  value: string | null | undefined,
+): string | null {
+  const safe = normalizeInternalRouteHref(value);
+  if (!safe) return null;
+  const url = new URL(safe, "https://one.local");
+  const isCircleJoin =
+    normalizeStaticExportPathname(url.pathname) === ROUTES.CONNECT &&
+    url.searchParams.get("action") === "join-circle";
+  return isInvitationPreviewRoute(url.pathname) || isCircleJoin ? safe : null;
+}
+
 export function isPublicRoute(pathname: string): boolean {
   const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
@@ -769,6 +835,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
     normalizedPathname === ROUTES.MANISH_SAINANI ||
+    isInvitationPreviewRoute(normalizedPathname) ||
     // Both prefixes. `/view/` is where public live-location links point now;
     // `/request/` is what every link minted before the rename carries, and it
     // has to stay public or those land on /login instead of on the forwarder

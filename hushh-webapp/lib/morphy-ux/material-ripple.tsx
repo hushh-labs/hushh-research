@@ -11,6 +11,7 @@
  * - Morphy-UX variant color mapping
  * - Effect-based opacity control (glass/fade = subtle, fill = standard)
  * - Dark mode: Silver accents for Hussh brand
+ * - Reduced motion: an opacity-only press layer replaces the growing ripple
  */
 
 import React, { useEffect, useRef, useState } from "react";
@@ -46,6 +47,45 @@ const INTERACTIVE_CONTROL_SELECTOR = [
 // gesture. This is deliberately longer than a normal synthesized click, so the
 // regular Material 3 release animation remains untouched.
 const MISSING_TOUCH_CLICK_RESET_MS = 700;
+
+const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)";
+
+// The flat press layer's fade. Kept inside the 150ms press budget so a
+// reduced-motion press still reads as immediate.
+const FLAT_PRESS_FADE_MS = 100;
+
+/**
+ * The reduced-motion query list, or null where the host has none. Some
+ * embedded engines and test doubles return nothing from matchMedia; the
+ * ripple must degrade to its full-motion default there, never throw.
+ */
+function reducedMotionQuery(): MediaQueryList | null {
+  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+    return null;
+  }
+  return window.matchMedia(REDUCED_MOTION_QUERY) ?? null;
+}
+
+/**
+ * md-ripple grows a radial layer with a transform animation and has no
+ * reduced-motion mode of its own. People who ask the system for less motion
+ * get a flat, opacity-only press layer instead; everyone else keeps the
+ * Material ripple from the pointerdown point.
+ */
+function usePrefersReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(false);
+
+  useEffect(() => {
+    const query = reducedMotionQuery();
+    if (!query) return;
+    const onChange = () => setReduced(Boolean(query.matches));
+    onChange();
+    query.addEventListener?.("change", onChange);
+    return () => query.removeEventListener?.("change", onChange);
+  }, []);
+
+  return reduced;
+}
 
 function resolveRippleControl(container: HTMLDivElement): HTMLElement {
   return (
@@ -189,6 +229,8 @@ export const MaterialRipple = ({
   const rippleRef = useRef<MdRipple>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [isRippleReady, setIsRippleReady] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
+  const [flatPressed, setFlatPressed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -223,7 +265,14 @@ export const MaterialRipple = ({
   }, []);
 
   useEffect(() => {
-    if (!isRippleReady || !containerRef.current || rippleRef.current) return;
+    if (
+      reducedMotion ||
+      !isRippleReady ||
+      !containerRef.current ||
+      rippleRef.current
+    ) {
+      return;
+    }
 
     const rippleElement = document.createElement("md-ripple") as MdRipple;
     rippleElement.className = "morphy-md-ripple";
@@ -239,7 +288,47 @@ export const MaterialRipple = ({
       }
       rippleElement.remove();
     };
-  }, [disabled, isRippleReady]);
+  }, [disabled, isRippleReady, reducedMotion]);
+
+  // Reduced motion: a flat state layer that fades in on pointerdown and out on
+  // release. No transform, no growth, no origin point.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!reducedMotion || disabled || !container) {
+      setFlatPressed(false);
+      return;
+    }
+    const control = resolveRippleControl(container);
+    const press = (event: PointerEvent) => {
+      // Only an explicit secondary pointer or a non-primary mouse button is
+      // ignored; engines that omit the field still press.
+      if (event.isPrimary === false) return;
+      if (event.pointerType === "mouse" && event.button > 0) return;
+      setFlatPressed(true);
+    };
+    const release = () => setFlatPressed(false);
+    const releaseEvents = [
+      "pointerup",
+      "pointercancel",
+      "pointerleave",
+      "touchcancel",
+      "dragstart",
+    ] as const;
+
+    control.addEventListener("pointerdown", press);
+    for (const type of releaseEvents) {
+      control.addEventListener(type, release);
+    }
+    window.addEventListener("blur", release);
+
+    return () => {
+      control.removeEventListener("pointerdown", press);
+      for (const type of releaseEvents) {
+        control.removeEventListener(type, release);
+      }
+      window.removeEventListener("blur", release);
+    };
+  }, [disabled, reducedMotion]);
 
   useEffect(() => {
     if (rippleRef.current) {
@@ -381,6 +470,7 @@ export const MaterialRipple = ({
   return (
     <div
       ref={containerRef}
+      data-ripple-mode={reducedMotion ? "flat" : "material"}
       className={`morphy-ripple-host pointer-events-none absolute inset-0 isolate overflow-hidden ${className}`}
       // Let the ripple host own the clip boundary for rounded actionables.
       // pointer-events:none is critical: the host overlays the actionable's
@@ -393,7 +483,26 @@ export const MaterialRipple = ({
         contain: "paint",
         pointerEvents: "none",
       }}
-    />
+    >
+      {reducedMotion ? (
+        <span
+          aria-hidden="true"
+          data-ripple-flat=""
+          data-pressed={flatPressed ? "true" : undefined}
+          style={{
+            position: "absolute",
+            inset: 0,
+            borderRadius: "inherit",
+            pointerEvents: "none",
+            backgroundColor: "var(--md-ripple-pressed-color, currentColor)",
+            opacity: flatPressed
+              ? "var(--md-ripple-pressed-opacity, 0.12)"
+              : 0,
+            transition: `opacity ${FLAT_PRESS_FADE_MS}ms linear`,
+          }}
+        />
+      ) : null}
+    </div>
   );
 };
 

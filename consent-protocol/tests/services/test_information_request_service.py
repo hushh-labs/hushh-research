@@ -67,12 +67,22 @@ class _Consent:
         self.events: dict[str, dict[str, Any]] = {}
         self.ledger: list[dict[str, Any]] = []
         self.exports: dict[str, dict[str, Any]] = {}
+        self.notifications: list[dict[str, Any]] = []
 
     async def get_request_status(self, _user_id: str, request_id: str):
         return self.events.get(request_id)
 
     async def get_consent_export(self, token_id: str):
         return self.exports.get(token_id)
+
+    async def list_internal_request_events(self, request_ids, *, actions=None, user_id=None):
+        return [
+            row
+            for row in self.notifications
+            if row["request_id"] in request_ids
+            and (not actions or row["action"] in actions)
+            and (user_id is None or row.get("user_id") == user_id)
+        ]
 
     async def record_export_read_once(self, **event):
         now = int(time.time() * 1000)
@@ -155,6 +165,14 @@ class _Service(InformationRequestService):
                     }
                 )
             return [{"request_id": params["request"]}]
+        if "FROM consent_audit" in sql and "request_id = ANY(:request_ids)" in sql:
+            return [
+                row
+                for row in self.consent.ledger
+                if row.get("request_id") in params["request_ids"]
+                and row.get("user_id") == params["subject"]
+                and row["action"] != "EXPORT_READ"
+            ]
         return []
 
     async def _bundle(self, requester_user_id: str, _bundle_id: str):
@@ -214,7 +232,11 @@ async def _granted_service() -> tuple[_Service, str, str]:
         "token_id": "tok_granted",
         # Approval replaces the request deadline with the grant's access expiry.
         "expires_at": 1_900_000_000_000,
+        "poll_timeout_at": None,
     }
+    # The ledger holds every row, as the real one does: the requester's poll
+    # reads each item's state from its latest transition there.
+    service.consent.ledger.append(service.consent.events[request_id])
     metadata = service.consent.events[request_id]["metadata"]
     service.consent.exports["tok_granted"] = {
         **_CURRENT_STRICT_EXPORT,
@@ -400,6 +422,124 @@ async def test_expired_grant_is_not_reported_as_current_access() -> None:
     service.consent.events[request_id].update({"action": "CONSENT_GRANTED", "expires_at": 1})
     refreshed = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
     assert refreshed["items"][0]["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_progress_reports_each_stage_and_keeps_revoked_apart_from_expired() -> None:
+    """CONTRACT C1: delivered and seen from the delivery records, never collapsed states."""
+    service = _Service()
+    created = await service.create(**_CREATE)
+    bundle_id = created["bundleId"]
+    request_id = created["items"][0]["requestId"]
+    assert created["progress"]["outcome"] == "pending"
+    assert created["progress"]["delivered_at"] is None
+    assert created["progress"]["fields"] == [
+        {
+            "scope": "attr.identity.legal_name",
+            "label": "Legal name",
+            # C7: identity is a deny-by-default sensitive domain.
+            "sensitivity": "sensitive",
+            "status": "pending",
+        }
+    ]
+
+    service.consent.notifications += [
+        {
+            "request_id": request_id,
+            "user_id": "subject",
+            "action": "NOTIFICATION_SENT",
+            "issued_at": 1_000,
+        },
+        {
+            "request_id": request_id,
+            "user_id": "subject",
+            "action": "NOTIFICATION_SENT",
+            "issued_at": 5_000,
+        },
+        {
+            "request_id": request_id,
+            "user_id": "subject",
+            "action": "NOTIFICATION_OPENED",
+            "issued_at": 9_000,
+        },
+        # Another owner's record for the same id never counts.
+        {
+            "request_id": request_id,
+            "user_id": "someone-else",
+            "action": "NOTIFICATION_OPENED",
+            "issued_at": 1,
+        },
+    ]
+    far = int(time.time() * 1000) + 3_600_000
+    await service.consent.insert_event(
+        user_id="subject", request_id=request_id, action="CONSENT_GRANTED", expires_at=far
+    )
+    granted = (await service.get(requester_user_id="viewer", bundle_id=bundle_id))["progress"]
+    assert granted["outcome"] == "granted"
+    assert granted["delivered_at"] == "1970-01-01T00:00:01+00:00"
+    assert granted["seen_at"] == "1970-01-01T00:00:09+00:00"
+    assert granted["decided_at"] is not None and granted["access_ends_at"] is not None
+    assert granted["ended_at"] is None
+
+    await service.consent.insert_event(user_id="subject", request_id=request_id, action="REVOKED")
+    revoked = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
+    assert revoked["progress"]["outcome"] == "revoked"
+    assert revoked["progress"]["fields"][0]["status"] == "revoked"
+    assert revoked["progress"]["ended_at"] is not None
+    assert revoked["progress"]["access_ends_at"] is None
+    # Existing fields stay for older clients.
+    assert revoked["items"][0]["status"] == "revoked"
+
+
+@pytest.mark.asyncio
+async def test_a_request_that_ran_out_before_a_decision_is_expired_with_no_ended_access() -> None:
+    service = _Service()
+    created = await service.create(**_CREATE)
+    request_id = created["items"][0]["requestId"]
+    await service.consent.insert_event(user_id="subject", request_id=request_id, action="TIMEOUT")
+    progress = (await service.get(requester_user_id="viewer", bundle_id=created["bundleId"]))[
+        "progress"
+    ]
+    assert (progress["outcome"], progress["ended_at"], progress["decided_at"]) == (
+        "expired",
+        None,
+        None,
+    )
+
+
+def test_bundle_outcome_names_partial_answers() -> None:
+    outcome = information_request_module.bundle_outcome_from_statuses
+    assert outcome(["granted", "denied"]) == "partially_granted"
+    assert outcome(["granted", "revoked"]) == "partially_granted"
+    assert outcome(["granted", "pending"]) == "pending"
+    assert outcome(["denied", "expired"]) == "denied"
+    assert outcome(["revoked", "expired"]) == "revoked"
+    assert outcome(["granted"], cancelled=True) == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_credential_scopes_are_refused_at_creation_even_past_the_catalog() -> None:
+    """P0 deny-list, second enforcement point: no catalog adapter can nominate a secret."""
+
+    class _SecretResolvingProfiles:
+        def resolve_scope_refs(self, **_kwargs):
+            return {"user_id": "subject"}, [
+                {
+                    "scopeRef": "psr_secret",
+                    "scope": "attr.runtime_secrets.*",
+                    "label": "Runtime Secrets",
+                }
+            ]
+
+    service = _Service()
+    service._profiles = _SecretResolvingProfiles()
+    with pytest.raises(InformationRequestError) as refused:
+        await service.create(**{**_CREATE, "scope_refs": ["psr_secret"]})
+    assert refused.value.status_code == 403
+    assert service.consent.ledger == [] and service.items == []
+    # Negative control: the same path with an ordinary field creates the request.
+    service._profiles = _Profiles()
+    assert (await service.create(**_CREATE))["items"]
 
 
 @pytest.mark.asyncio
@@ -744,7 +884,10 @@ async def test_export_read_notify_is_not_pushed_to_the_owner(monkeypatch) -> Non
     dispatch = AsyncMock()
     monkeypatch.setattr(consent_listener, "_enrich_notify_payload", enrich)
     monkeypatch.setattr(consent_listener, "_push_to_developer_consent_queues", developer_queue)
-    monkeypatch.setattr(consent_listener, "_dispatch_notification_for_user", dispatch)
+    monkeypatch.setattr(consent_listener, "_push_to_consent_queue", dispatch)
+    monkeypatch.setattr(consent_listener, "_send_fcm_for_user", AsyncMock())
+    monkeypatch.setattr(consent_listener, "_information_requester_doorbell", AsyncMock())
+    monkeypatch.setattr(consent_listener, "claim_delivery", AsyncMock(return_value=True))
 
     base = {"user_id": "subject", "request_id": "req_1", "scope": "attr.identity.legal_name"}
     await consent_listener._handle_notify(json.dumps({**base, "action": "EXPORT_READ"}))

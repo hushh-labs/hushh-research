@@ -532,7 +532,7 @@ function AgentGridItem({
       className={cn(
         "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
         "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100",
+        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
         className,
       )}
     >

@@ -660,6 +660,16 @@ Rules:
 10. Passive background work should only surface after a short threshold and
     autoclear after success. Failed passive work must promote into the primary
     list and remain visible until dismissed.
+11. A request for the owner's information is one "Needs you" row per request,
+    never one per item: "<Name> wants your <items>", the reason beneath, then
+    Details, Don't allow (armed) and Allow. The Feed, the decision sheet, the
+    Active row and the owner's chat card word it through
+    `lib/consent/consent-owner-copy.ts` and decide it through the one shared
+    approve path (`useOwnerConsentDecision` over `useConsentActions`). An inline
+    Allow on a locked vault opens the unlock first and then runs the same
+    decision; closing the unlock sends nothing. The sheet previews what an
+    Allow shares as labels and counts computed on the device, never values and
+    never sent to the server.
 
 ## Scroll Stability Contract
 

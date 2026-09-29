@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Laptop, Loader2, ShieldCheck } from "@/components/icons";
+import { Loader2 } from "@/components/icons";
+import { DevicesProfileIcon, SecurityProfileIcon } from "@/components/icons/agents";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { Button } from "@/components/ui/button";
@@ -199,8 +200,8 @@ export default function TrustedDeviceAuthorizePage() {
         dataState="loaded"
       />
       <section className="w-full rounded-3xl border bg-card p-8 shadow-sm">
-        <div className="mb-6 flex size-12 items-center justify-center rounded-2xl bg-primary/10">
-          <Laptop className="size-6 text-primary" aria-hidden />
+        <div className="mb-6 flex size-12 items-center justify-center">
+          <DevicesProfileIcon className="size-10" aria-hidden />
         </div>
         <h1 className="text-2xl font-semibold tracking-tight">
           Connect this Hermes device
@@ -231,8 +232,8 @@ export default function TrustedDeviceAuthorizePage() {
         </dl>
 
         <div className="mt-6 flex items-start gap-3 text-sm text-muted-foreground">
-          <ShieldCheck
-            className="mt-0.5 size-4 shrink-0 text-emerald-600"
+          <SecurityProfileIcon
+            className="mt-0.5 size-4 shrink-0"
             aria-hidden
           />
           <p>You can revoke it anytime in Profile → Security → Devices.</p>

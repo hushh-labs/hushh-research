@@ -10,6 +10,10 @@ import {
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
+const CONNECTOR_OAUTH_START_TIMEOUT_MS = resolveSlowRequestTimeoutMs(25_000, {
+  developmentFloorMs: 25_000,
+  overrideEnvKey: "HUSHH_CONNECTOR_OAUTH_START_TIMEOUT_MS",
+});
 // Owner-initiated Drive work that runs synchronously in the request: document
 // preparation, and an allowed question's single bounded search (~160 s).
 const LONG_DRIVE_SHARING_POST =
@@ -118,6 +122,12 @@ export async function proxyExternalConnectorRequest(
     request.method === "POST" && DRIVE_PREPARE_STREAM.test(joinedPath);
   const isOwnerCompileStream =
     request.method === "POST" && joinedPath === DRIVE_OWNER_COMPILE_STREAM;
+  const isOAuthStart =
+    request.method === "POST" &&
+    path.length === 4 &&
+    path[1] === "connect" &&
+    path[2] === "oauth" &&
+    path[3] === "start";
   if (isPrepareStream || isOwnerCompileStream) headers.set("Accept", "text/event-stream");
 
   let body: BodyInit | undefined;
@@ -162,6 +172,11 @@ export async function proxyExternalConnectorRequest(
             request.signal,
             AbortSignal.timeout(DRIVE_OWNER_COMPILE_STREAM_TIMEOUT_MS),
           ])
+        : isOAuthStart
+          ? AbortSignal.any([
+              request.signal,
+              AbortSignal.timeout(CONNECTOR_OAUTH_START_TIMEOUT_MS),
+            ])
         : AbortSignal.timeout(
             isPrepareStream
               ? DRIVE_PREPARE_STREAM_TIMEOUT_MS
@@ -206,6 +221,12 @@ export async function proxyExternalConnectorRequest(
       headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
     });
   } catch (error) {
+    if (request.signal.aborted) {
+      return new Response(null, {
+        status: 499,
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+      });
+    }
     console.error(`[Connectors API] request_id=${requestId} proxy_error`, {
       path: connectorPath(path),
       errorClass: error instanceof Error ? error.name : "unknown",

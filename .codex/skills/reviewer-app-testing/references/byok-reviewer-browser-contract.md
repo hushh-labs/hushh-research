@@ -72,6 +72,31 @@ completed browser rehearsal, and a save acknowledgment proves neither readback
 nor preservation. Never retain snapshots, expected private values, keys or tokens
 in diagnostic artifacts.
 
+## App-side read-only posture
+
+The guard is not widened for writes the app makes on its own. The app withholds
+them instead, behind the single shared signal
+`shouldSkipReviewerBackgroundWritesForAutomation()` in
+`hushh-webapp/lib/testing/native-test.ts` (the harness bridge with `enabled`,
+`autoReviewerLogin` and a `read_only`, `preparation_only` or `bounded_mutation`
+policy). A `mutation_authorized` run keeps ordinary behavior.
+
+Read-only reviewer sessions never write Terms and Privacy acceptance.
+`LegalAcceptanceService.recordSignInAcceptance` returns before any request under
+that signal. This defers the record, it does not drop it: the fixture's next
+ordinary sign-in still finds the served version missing and records it. For
+everyone else the write is version-aware: it reads
+`GET /api/account/legal-acceptance` and posts only when the served Terms or
+Privacy version is not already the latest acceptance.
+
+Evidence (2026-09-29): both BYOK rehearsals that ran after acceptance shipped
+(UAT runs 36372988279 and 36518015330) reported
+`POST /api/account/legal-acceptance` from the reviewer sign-in. The lane is
+advisory in the UAT verdict, so it warned rather than blocked, and it arms only
+when a vault or test-posture path changes, so most deploys skipped it. The
+served legal version (2.1) was the same in both runs. The cause was that sign-in
+posted on every sign-in, whatever was already on file.
+
 ## Failure classification
 
 Fail closed and classify the first broken boundary:

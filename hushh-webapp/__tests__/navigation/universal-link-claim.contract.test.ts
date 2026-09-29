@@ -1,13 +1,29 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
+
+const native = vi.hoisted(() => ({
+  isNativePlatform: vi.fn(),
+  addListener: vi.fn(),
+  getLaunchUrl: vi.fn(),
+  remove: vi.fn(),
+  router: { replace: vi.fn() },
+}));
+vi.mock("next/navigation", () => ({ useRouter: () => native.router }));
+vi.mock("@capacitor/core", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@capacitor/core")>(),
+  Capacitor: { isNativePlatform: native.isNativePlatform },
+}));
+vi.mock("@capacitor/app", () => ({ App: native }));
 
 import { UNIVERSAL_LINK_PATHS } from "@/app/.well-known/apple-app-site-association/route";
 import {
   resolveDeepLinkPath,
   resolveNativeConnectorReturn,
   resolveNativeDrivePickerReturn,
+  useDeepLinkReturn,
 } from "@/lib/navigation/use-deep-link-return";
 
 /**
@@ -33,7 +49,7 @@ describe("Universal Link / App Link claim", () => {
     // If a new provider flow is added, its return path belongs here. A return
     // path that is not claimed is a person stranded in a browser.
     expect(UNIVERSAL_LINK_PATHS.length).toBeGreaterThan(0);
-    for (const claimed of UNIVERSAL_LINK_PATHS) {
+    for (const claimed of UNIVERSAL_LINK_PATHS.filter((path) => path.includes("/oauth/return"))) {
       expect(claimed.startsWith("/")).toBe(true);
       expect(claimed).toContain("/oauth/return");
     }
@@ -67,8 +83,10 @@ describe("Universal Link / App Link claim", () => {
     for (const [variant, manifest] of Object.entries(manifests)) {
       expect(manifest).toContain('android:autoVerify="true"');
       for (const claimed of UNIVERSAL_LINK_PATHS) {
+        const prefix = claimed.endsWith("*") ? claimed.slice(0, -1) : claimed;
+        const matcher = claimed.includes("/oauth/return") || claimed.endsWith("*") ? "pathPrefix" : "path";
         expect(manifest, `${variant} manifest must claim ${claimed}`).toContain(
-          `android:pathPrefix="${claimed}"`,
+          `android:${matcher}="${prefix}"`,
         );
       }
     }
@@ -78,6 +96,29 @@ describe("Universal Link / App Link claim", () => {
       expect(manifests.debug.includes(claim) || manifests.release.includes(claim)).toBe(true);
       expect(manifests.release.includes(claim), `release claim for ${origin}`).toBe(!debugOnly);
     }
+  });
+
+  it("claims shared invitations without claiming every page on the domain", () => {
+    expect(UNIVERSAL_LINK_PATHS).toEqual(expect.arrayContaining([
+      "/", "/circle/join", "/circle/join/", "/one/location/invite/*",
+    ]));
+    expect(UNIVERSAL_LINK_PATHS).not.toContain("*");
+    expect(UNIVERSAL_LINK_PATHS).not.toContain("/*");
+  });
+
+  it("keeps a real invitation token on a bundled, query-backed native page", () => {
+    for (const origin of ORIGINS) {
+      expect(resolveDeepLinkPath(`https://${origin}/`)).toBe("/");
+      expect(resolveDeepLinkPath(`https://${origin}/circle/join?code=ABCD-EFGH`)).toBe("/circle/join?code=ABCD-EFGH");
+      expect(resolveDeepLinkPath(`https://${origin}/one/location/invite/real_token-123/`)).toBe("/circle/join?invite=real_token-123");
+    }
+    for (const invalid of [
+      "https://one.hushh.ai/one/location/invite/bad/nested",
+      "https://one.hushh.ai/one/location/invite/%2Fredirect",
+      "https://user@one.hushh.ai/circle/join?code=ABCD",
+      "https://one.hushh.ai.evil.example/circle/join?code=ABCD",
+      "https://one.hushh.ai:444/circle/join?code=ABCD",
+    ]) expect(resolveDeepLinkPath(invalid)).toBeNull();
   });
 
   it("routes a claimed return URL back into the app, and refuses a foreign one", () => {
@@ -140,9 +181,18 @@ describe("Universal Link / App Link claim", () => {
     const androidAuth = read(
       "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
     );
+    const androidDriveFence = read(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/NativeDriveAuthorizationFence.kt",
+    );
     const iosAuth = read("ios/App/App/Plugins/HushhAuthPlugin.swift");
     expect(androidAuth).toContain("uri.userInfo != null || uri.port != -1");
     expect(androidAuth).toContain("scheduleDriveFallbackCancellation(operation)");
+    expect(androidAuth).toContain(
+      "NativeDriveOAuthPolicy.FALLBACK_RETURN_GRACE_MS",
+    );
+    expect(androidDriveFence).toContain(
+      "const val FALLBACK_RETURN_GRACE_MS = 5_000L",
+    );
     expect(iosAuth).toContain(
       "url.user == nil, url.password == nil, url.port == nil",
     );
@@ -200,5 +250,59 @@ describe("Universal Link / App Link claim", () => {
     expect(vaultSync).toContain("mergePlaidCallbackQuery(session.redirectUri, params.currentUrl)");
     expect(page).not.toContain("receivedRedirectUri: window.location.href");
     expect(vaultSync).not.toContain("receivedRedirectUri: window.location.href");
+  });
+});
+
+describe("native invitation arrivals", () => {
+  let open: (event: { url: string }) => void;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    native.isNativePlatform.mockReturnValue(true);
+    native.getLaunchUrl.mockResolvedValue(undefined);
+    native.addListener.mockImplementation(async (_event, listener) => {
+      open = listener;
+      return { remove: native.remove };
+    });
+  });
+  afterEach(cleanup);
+
+  it("subscribes before reading the cold URL and routes a real token to the static landing", async () => {
+    native.getLaunchUrl.mockImplementation(async () => {
+      expect(native.addListener).toHaveBeenCalledWith("appUrlOpen", expect.any(Function));
+      return { url: "https://one.hushh.ai/one/location/invite/cold_token" };
+    });
+    renderHook(useDeepLinkReturn);
+    await waitFor(() => expect(native.router.replace).toHaveBeenCalledWith("/circle/join?invite=cold_token"));
+  });
+
+  it("keeps the newest warm invitation when the cold URL resolves late", async () => {
+    let settle!: (value: { url: string }) => void;
+    native.getLaunchUrl.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+    renderHook(useDeepLinkReturn);
+    await waitFor(() => expect(native.getLaunchUrl).toHaveBeenCalled());
+    act(() => open({ url: "https://one.hushh.ai/circle/join?code=NEW-CODE" }));
+    await act(async () => settle({ url: "https://one.hushh.ai/one/location/invite/old_token" }));
+    expect(native.router.replace.mock.calls).toEqual([["/circle/join?code=NEW-CODE"]]);
+    act(() => open({ url: "https://one.hushh.ai/one/location/invite/another_token" }));
+    expect(native.router.replace).toHaveBeenLastCalledWith("/circle/join?invite=another_token");
+  });
+
+  it("does not replay a link after its owner unmounts", async () => {
+    let settle!: (value: { url: string }) => void;
+    native.getLaunchUrl.mockReturnValue(new Promise((resolve) => { settle = resolve; }));
+    const view = renderHook(useDeepLinkReturn);
+    await waitFor(() => expect(native.getLaunchUrl).toHaveBeenCalled());
+    view.unmount();
+    await act(async () => settle({ url: "https://one.hushh.ai/circle/join?code=OLD" }));
+    expect(native.remove).toHaveBeenCalledOnce();
+    expect(native.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("leaves browser navigation to the web app", async () => {
+    native.isNativePlatform.mockReturnValue(false);
+    renderHook(useDeepLinkReturn);
+    await act(async () => {});
+    expect(native.addListener).not.toHaveBeenCalled();
+    expect(native.getLaunchUrl).not.toHaveBeenCalled();
   });
 });

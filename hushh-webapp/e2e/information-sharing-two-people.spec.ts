@@ -961,7 +961,7 @@ test.describe("Information sharing between two people (real backend, no push)", 
       "specialist-pending-consent-request-card",
     );
     await expect(card).toHaveCount(1, { timeout: 30_000 });
-    await expect(card).toContainText("wants to see");
+    await expect(card).toContainText("wants your");
     const approveButton = ownerChat.getByTestId(
       "specialist-pending-consent-approve",
     );
@@ -976,7 +976,7 @@ test.describe("Information sharing between two people (real backend, no push)", 
     expect((await approved).status(), "POST /api/consent/pending/approve").toBe(
       200,
     );
-    await expect(card).toContainText("Approved");
+    await expect(card).toContainText("Allowed");
     await expect(approveButton).toHaveCount(0);
 
     await expectCenterStatus(
@@ -1033,7 +1033,7 @@ test.describe("Information sharing between two people (real backend, no push)", 
       request_id: third.requestId,
       action: "CONSENT_DENIED",
     });
-    await expect(card).toContainText("Denied");
+    await expect(card).toContainText("Not allowed");
     await expect(
       ownerChat.getByTestId("specialist-pending-consent-approve"),
     ).toHaveCount(0);

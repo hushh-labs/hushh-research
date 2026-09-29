@@ -101,6 +101,8 @@ export type PersonRequestHistoryPage = {
     createdAt: string;
     cancelled: boolean;
     itemCount: number;
+    /** Human labels of the bundle's items, deduplicated, in request order. */
+    itemLabels?: string[];
   }>;
   nextCursor: string | null;
 };
@@ -124,6 +126,11 @@ export type InformationRequestBundle = {
       | "revoked"
       | "cancelled";
   }>;
+  /**
+   * Contract C1 request progress. Untrusted until parsed by
+   * `parseRequestProgress`; absent on older servers.
+   */
+  progress?: unknown;
 };
 
 export type SharedWithMeEntry = {
@@ -135,7 +142,65 @@ export type SharedWithMeEntry = {
   label: string;
   purpose: string | null;
   expiresAt: number | null;
+  /** C7: the server's reading; absent on an older server, which reads as sensitive. */
+  sensitivity?: string | null;
+  /** C7 per field, names only; untrusted until parsed by `parseSharedFieldSensitivities`. */
+  fields?: unknown;
 };
+
+export type PersonScopeCatalogPage = {
+  scopes: RequestablePersonScope[];
+  page: number;
+  hasMore: boolean;
+  nextPage: number | null;
+  totalCount: number | null;
+};
+
+function catalogText(value: unknown, max: number): string | null {
+  return typeof value === "string" && value.trim() && value.trim().length <= max ? value.trim() : null;
+}
+
+function catalogPathSegments(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length > 12) return null;
+  const parts = value.map((part) => catalogText(part, 80));
+  return parts.every((part): part is string => part !== null) ? parts : null;
+}
+
+/** Accepts camelCase or snake_case; drops any entry without a ref and a human label. */
+export function parseScopeCatalogPage(payload: Record<string, unknown>, requestedPage: number): PersonScopeCatalogPage {
+  const rawList = [payload.scopes, payload.items, payload.requestableScopes, payload.requestable_scopes]
+    .find(Array.isArray) as unknown[] | undefined;
+  const seen = new Set<string>();
+  const scopes = (rawList ?? []).slice(0, 100).flatMap<RequestablePersonScope>((raw) => {
+    const entry = raw && typeof raw === "object" ? raw as Record<string, unknown> : null;
+    const scopeRef = catalogText(entry?.scopeRef ?? entry?.scope_ref ?? entry?.scope, 180);
+    const label = catalogText(entry?.label, 120);
+    if (!entry || !scopeRef || !label || seen.has(scopeRef)) return [];
+    seen.add(scopeRef);
+    const pathSegments = catalogPathSegments(entry.pathSegments ?? entry.path_segments);
+    return [{
+      scopeRef, label,
+      description: catalogText(entry.description, 280),
+      domain: catalogText(entry.domain, 80),
+      sensitivity: catalogText(entry.sensitivity, 32),
+      wildcard: entry.wildcard === true,
+      // Kept so a search hit can nest under the broad item that covers it.
+      ...(pathSegments ? { pathSegments } : {}),
+    }];
+  });
+  const page = Number(payload.page);
+  const hasMore = (payload.hasMore ?? payload.has_more) === true;
+  const next = Number(payload.nextPage ?? payload.next_page);
+  const total = Number(payload.totalCount ?? payload.total_count);
+  const currentPage = Number.isInteger(page) && page > 0 ? page : requestedPage;
+  return {
+    scopes,
+    page: currentPage,
+    hasMore,
+    nextPage: hasMore ? (Number.isInteger(next) && next > currentPage ? next : currentPage + 1) : null,
+    totalCount: Number.isInteger(total) && total >= 0 ? total : null,
+  };
+}
 
 async function jsonOrThrow<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as T & {
@@ -244,6 +309,28 @@ export class PersonProfileService {
     );
     if (result.personRef !== personRef) throw new Error("The selected person could not be verified.");
     return result;
+  }
+
+  /**
+   * Server-side search over a person's requestable information by human label
+   * and synonym ("restaurant" finds Food). Contract C4's picker behind Change.
+   * Labels only; never values.
+   */
+  static async searchScopeCatalog(input: {
+    personRef: string;
+    idToken: string;
+    query?: string;
+    page?: number;
+    signal?: AbortSignal;
+  }): Promise<PersonScopeCatalogPage> {
+    const query = new URLSearchParams({ query: (input.query ?? "").trim().slice(0, 120), page: String(input.page ?? 1) });
+    const payload = await jsonOrThrow<Record<string, unknown>>(
+      await ApiService.apiFetch(
+        `/api/one/people/${encodeURIComponent(input.personRef)}/scope-catalog?${query}`,
+        { cache: "no-store", signal: input.signal, headers: { Authorization: `Bearer ${input.idToken}` } },
+      ),
+    );
+    return parseScopeCatalogPage(payload, input.page ?? 1);
   }
 
   static async createInformationRequest(input: {

@@ -26,7 +26,10 @@ const SETTLE_MS = 150;
 const SETTLE_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
 
 const WORKSPACE = '.agent-chat-workspace[data-agent-chat-route="root"]';
-const DRAWER = `${WORKSPACE} [role="dialog"][aria-label="Agent chat history"]`;
+// The drawer is portalled to <body> so it can stack above the bottom bar
+// (2026-09-28); it is found by its own marker, and only while the chat
+// workspace it belongs to is on screen.
+const DRAWER = '[role="dialog"][aria-label="Agent chat history"][data-agent-history-drawer]';
 const TOGGLE = 'button[aria-label="Open chat history"]';
 
 type GestureInput = "pointer" | "touch";
@@ -100,6 +103,7 @@ export function AppChatHistoryEdgeGesture({ enabled }: { enabled: boolean }) {
     };
 
     const begin = (params: Omit<DrawerGesture, "axis" | "drawer" | "overlay" | "width">) => {
+      if (!document.querySelector(WORKSPACE)) return;
       const drawer = document.querySelector<HTMLElement>(DRAWER);
       if (!drawer || drawer.getAttribute("aria-hidden") !== "true") return;
       const overlay = drawer.previousElementSibling instanceof HTMLElement ? drawer.previousElementSibling : null;

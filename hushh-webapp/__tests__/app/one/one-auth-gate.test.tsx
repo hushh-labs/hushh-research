@@ -183,7 +183,7 @@ describe("OneAuthGate", () => {
     },
   );
 
-  it("keeps circle-invite claim links guarded because claiming needs an account", () => {
+  it("admits public invite presentation; the page and API guard the actual claim", () => {
     mocks.pathname = "/one/location/invite/circle-token";
 
     render(
@@ -192,7 +192,7 @@ describe("OneAuthGate", () => {
       </OneAuthGate>,
     );
 
-    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
-    expect(screen.getByTestId("phone-mandate-guard")).toBeTruthy();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
   });
 });

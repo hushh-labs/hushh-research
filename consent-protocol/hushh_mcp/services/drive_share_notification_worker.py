@@ -29,7 +29,7 @@ PUSH_TIMEOUT_SECONDS = 20
 # The three question types come from drive_query_events (migration 244);
 # their request_id is a Drive question, not a document share request.
 DOCUMENT_SHARE_NOTIFICATION_COPY = {
-    "document_share_request": ("Document request", "Open One to review."),
+    "document_share_request": ("Document request", "Open One for next steps."),
     "document_share_review_ready": ("Files ready to review", "Open One to choose what to share."),
     "document_share_decided": ("Drive sharing update", "Open One to see the latest."),
     "document_share_outcome": ("Drive sharing finished", "Open One to see the shared files."),

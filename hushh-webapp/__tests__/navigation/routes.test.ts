@@ -10,6 +10,9 @@ import {
   buildOneSetupCapabilityRoute,
   buildPersonProfileRoute,
   buildWelcomeRoute,
+  buildOneSetupConnectionsRoute,
+  normalizeInvitationReturnTo,
+  resolveOneSetupReturnTo,
   isAnalyticsExemptRoute,
   isCapabilityHandoffTarget,
   isCompletedLocationWorkspaceRoute,
@@ -37,6 +40,22 @@ import {
 } from "@/lib/navigation/route-scope";
 
 describe("navigation routes", () => {
+  it.each(["/circle/join?code=23456789ABCD", "/one/connect?tab=circles&action=join-circle&code=23456789ABCD", "/one/location/invite/public-token"])("preserves a bounded invite destination through vault/setup: %s", (destination) => {
+    expect(normalizeInvitationReturnTo(destination)).toBe(destination);
+    expect(resolveOneSetupReturnTo(destination)).toBe(destination);
+    expect(buildOneSetupConnectionsRoute(destination)).toBe("/one/setup/connections?return_to=" + encodeURIComponent(destination));
+  });
+  it.each(["https://evil.example", "//evil.example", "/\\evil.example", "/one/location/invite/token/private", "/one/connect?action=delete-circle", "/one/location"])("rejects unrelated or unsafe vault invitation returns: %s", (destination) => {
+    expect(normalizeInvitationReturnTo(destination)).toBeNull();
+  });
+  it("returns login cancellation to the original invitation and rejects setup loops", () => {
+    const invite = "/circle/join?code=23456789ABCD";
+    expect(buildWelcomeRoute(invite)).toBe(invite);
+    expect(resolveOneSetupReturnTo("/one/setup/connections?return_to=%2F")).toBeNull();
+    expect(isPublicRoute(invite.split("?")[0]!)).toBe(true);
+    expect(isPublicRoute("/one/location/invite/token")).toBe(true);
+    expect(isPublicRoute("/one/location/invite/token/private")).toBe(false);
+  });
   it("builds Finance URLs with one explicit canonical tab", () => {
     expect(buildKaiMarketRoute("market")).toBe("/one/kai?tab=market");
     expect(buildKaiMarketRoute("analysis", { ticker: "AAPL" })).toBe(
@@ -58,6 +77,7 @@ describe("navigation routes", () => {
 
   it("returns Login to the canonical welcome parent without accepting an external redirect", () => {
     expect(buildWelcomeRoute()).toBe(ROUTES.HOME);
+    expect(buildWelcomeRoute("/?invite=one")).toBe("/?invite=one");
     expect(buildWelcomeRoute(ROUTES.ONE_SETUP)).toBe(
       "/?redirect=%2Fone%2Fsetup",
     );

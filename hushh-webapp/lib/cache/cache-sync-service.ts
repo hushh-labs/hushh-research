@@ -9,6 +9,7 @@ import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 import {
   dispatchLocalPkmDomainChanged,
   dispatchPkmDomainChanged,
@@ -655,6 +656,9 @@ export class CacheSyncService {
 
   static onConsentMutated(userId: string): void {
     const cache = CacheService.getInstance();
+    // Reads right after this change must not take the web proxy's hot copy
+    // from before it (see consent-read-after-write.ts).
+    noteConsentMutated(userId);
     // Consent changes alter which lifecycle cards and safe descriptors are
     // authoritative. The Chat-history owner clears its own snapshot without
     // making this cache owner import native-capacitor modules.

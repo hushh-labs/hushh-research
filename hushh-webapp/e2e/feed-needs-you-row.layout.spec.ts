@@ -10,7 +10,7 @@ import {
 } from "./fixtures/product-font";
 
 // Captured from the current real components by verify:feed, never handwritten DOM.
-const WIDTHS = [320, 375, 390, 430, 1280] as const;
+const WIDTHS = [320, 375, 390, 393, 430, 1280] as const;
 async function buildFixture(dark: boolean): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
@@ -100,7 +100,7 @@ for (const dark of [false, true]) {
         await awaitProductFont(page);
         const rows = page.locator('[data-row-layout="person"]');
         // A missing selector used to silently pass this entire suite.
-        await expect(rows).toHaveCount(6);
+        await expect(rows).toHaveCount(7);
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
@@ -123,8 +123,17 @@ for (const dark of [false, true]) {
             const a = avatar.getBoundingClientRect();
             const d = desc.getBoundingClientRect();
             const stamp = time.getBoundingClientRect();
+            // Only the row's decisions, never the row itself. The row's own
+            // tap target is a full-bleed overlay button that labels itself
+            // by reference and so no longer contains the title; counting it
+            // made the three-decision rows read as four (skipping the
+            // one-line check) and the two-decision rows read as three.
+            // Only rendered buttons: a phone-hidden action has no box.
             const actions = [...row.querySelectorAll("button")].filter(
-              (button) => !button.contains(title),
+              (button) =>
+                button.getAttribute("data-slot") !== "settings-row-action" &&
+                !button.contains(title) &&
+                button.getBoundingClientRect().width > 0,
             );
             return {
               title: title.textContent,
@@ -169,6 +178,8 @@ for (const dark of [false, true]) {
           expect.soft(row.overflow, row.title ?? "").toBe(false);
           for (const action of row.actions)
             expect(action.height).toBeGreaterThanOrEqual(44);
+          // Below 375px the consent row's Details icon steps aside (the row
+          // itself opens Details), leaving the same two-decision pair.
           if (width < 640 && row.actions.length === 2) {
             expect
               .soft(Math.abs(row.actions[0].top - row.actions[1].top))
@@ -182,11 +193,20 @@ for (const dark of [false, true]) {
           if (width < 640 && row.actions.length === 1) {
             expect.soft(row.actions[0].width).toBeLessThanOrEqual(180);
           }
+          // The owner's consent request carries Details, Don't allow and
+          // Allow. From 375px up (iPhone 16 is 393) they share one line, in
+          // that order, with Allow last.
+          if (row.actions.length === 3 && width >= 375) {
+            const [first, second, third] = row.actions;
+            expect.soft(Math.abs(first.top - third.top)).toBeLessThanOrEqual(1);
+            expect.soft(second.left).toBeGreaterThanOrEqual(first.left + first.width - 1);
+            expect.soft(third.left).toBeGreaterThanOrEqual(second.left + second.width - 1);
+          }
         }
         await expect(
           page.locator("button button, button a, a button"),
         ).toHaveCount(0);
-        if (width === 390 || width === 1280) {
+        if (width === 393 || width === 1280) {
           await page.screenshot({
             path: testInfo.outputPath("feed-person-rows.png"),
             fullPage: true,

@@ -58,9 +58,9 @@ describe("Consent Center history event labels", () => {
   it("still humanises the transitions the fallback already reads well", () => {
     expect(
       formatLifecycleEventLabel({ action: "CONSENT_GRANTED" } as never),
-    ).toBe("Consent granted");
+    ).toBe("Allowed");
     expect(formatLifecycleEventLabel({ action: "REVOKED" } as never)).toBe(
-      "Revoked",
+      "Stopped sharing",
     );
     expect(
       formatLifecycleEventLabel({ action: null, status: "approved" } as never),
@@ -99,7 +99,7 @@ describe("HandshakeTimeline action labels", () => {
     render(<HandshakeTimeline counterpartId="agent-1" counterpartLabel="Sharu" />);
 
     await waitFor(() => expect(screen.getByText("Opened")).toBeTruthy());
-    expect(screen.getByText("Consent granted")).toBeTruthy();
+    expect(screen.getByText("Allowed")).toBeTruthy();
     expect(screen.queryByText(/export/i)).toBeNull();
   });
 });

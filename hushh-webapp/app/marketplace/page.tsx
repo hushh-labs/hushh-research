@@ -1206,7 +1206,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150",
                   searchOpen &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
@@ -1229,7 +1229,7 @@ export default function MarketplacePage() {
               </Button>
               <button
                 type="button"
-                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95 disabled:opacity-70"
+                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 disabled:opacity-70"
                 aria-label="Refresh contacts"
                 aria-busy={contactMatchLoading}
                 disabled={contactMatchLoading}
@@ -1245,7 +1245,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150",
                   view === "swipe" &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
@@ -1259,7 +1259,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150",
                   view === "list" &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"

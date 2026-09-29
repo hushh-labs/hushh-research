@@ -10,7 +10,8 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, MessageCircle, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
+import { Briefcase, ChevronRight, Heart, MapPin, MessageCircle, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
+import { InviteCodeRowIcon, PeopleRowIcon } from "@/components/icons/agents";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -966,8 +967,8 @@ export function ConnectCirclesTab({
       {vaultOwnerToken && !showingStarter ? (
         <SettingsGroup separatorInset>
           <SettingsRow
-            icon={Plus}
-            iconTone="indigo"
+            icon={PeopleRowIcon}
+            iconTone="capability"
             title="New circle"
             description="Create a group for your connections."
             density="compact"
@@ -977,8 +978,8 @@ export function ConnectCirclesTab({
             testId="connect-circle-create"
           />
           <SettingsRow
-            icon={KeyRound}
-            iconTone="gray"
+            icon={InviteCodeRowIcon}
+            iconTone="capability"
             title="Join with code"
             description="Enter a shared 12-character code."
             density="compact"

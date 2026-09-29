@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
@@ -77,6 +77,51 @@ function invitePayload() {
 }
 
 describe("OneLocationCircleInvitePageClient", () => {
+  it("does not let a late accepted invite replace a newer invitation screen", async () => {
+    let finish!: (result: unknown) => void;
+    mockClaimCircleInvite.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const view = render(<OneLocationCircleInvitePageClient token="first_invite" />);
+    fireEvent.click(await screen.findByRole("button", { name: /Accept Invite/i }));
+    await waitFor(() => expect(mockClaimCircleInvite).toHaveBeenCalledOnce());
+    view.rerender(<OneLocationCircleInvitePageClient token="second_invite" />);
+    await waitFor(() => expect(mockResolveCircleInvite).toHaveBeenCalledWith("second_invite"));
+    await act(async () => finish({ invite: invitePayload() }));
+    expect(mockRouterPush).not.toHaveBeenCalled();
+    expect(await screen.findByRole("button", { name: /Accept Invite/i })).toBeEnabled();
+  });
+  it("keeps the native query-backed invitation through anonymous sign-in", async () => {
+    mockUseAuth.mockReturnValue({ loading: false, isAuthenticated: false, userId: null, user: null });
+    mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
+    render(<OneLocationCircleInvitePageClient token="real_token" returnTo="/circle/join?invite=real_token" />);
+    expect(mockResolveCircleInvite).toHaveBeenCalledWith("real_token");
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    await screen.findByText("Invited by hushh Social");
+    fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
+    expect(mockRouterPush).toHaveBeenCalledWith("/login?redirect=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
+    expect(mockClaimCircleInvite).not.toHaveBeenCalled();
+  });
+
+  it("skips guest screens for a signed-in native recipient and retains the token through unlock", async () => {
+    mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
+    render(<OneLocationCircleInvitePageClient token="real_token" returnTo="/circle/join?invite=real_token" />);
+    expect(await screen.findByRole("link", { name: /Continue to Vault/i })).toHaveAttribute("href", "/one/profile/security?unlock_vault=1&return_to=%2Fcircle%2Fjoin%3Finvite%3Dreal_token");
+    expect(screen.queryByTestId("guest-preview")).not.toBeInTheDocument();
+    expect(mockClaimCircleInvite).not.toHaveBeenCalled();
+  });
+  it("previews an anonymous token invitation without claiming or bootstrapping keys", async () => {
+    mockUseAuth.mockReturnValue({ loading: false, isAuthenticated: false, userId: null, user: null });
+    mockUseVault.mockReturnValue({ isVaultUnlocked: false, vaultOwnerToken: null });
+    render(<OneLocationCircleInvitePageClient />);
+    fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
+    fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
+    expect(await screen.findByText("Invited by hushh Social")).toBeInTheDocument();
+    expect(mockClaimCircleInvite).not.toHaveBeenCalled();
+    expect(mockBootstrapKey).not.toHaveBeenCalled();
+    expect(mockSyncCurrentUser).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Accept invitation" }));
+    expect(mockRouterPush).toHaveBeenCalledWith("/login?redirect=%2Fone%2Flocation%2Finvite%2Finvite_token_123");
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     mockUseParams.mockReturnValue({ token: "invite_token_123" });

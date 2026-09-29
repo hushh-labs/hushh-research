@@ -73,6 +73,32 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     );
   });
 
+  it("forwards cancellation to the web OAuth-start request", async () => {
+    const signal = new AbortController().signal;
+    apiFetch.mockResolvedValue(
+      Response.json({
+        authorizeUrl:
+          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
+        expiresAt: "2026-09-23T12:00:00+00:00",
+        attemptId: "attempt_123456789012",
+        connectorId: "google_drive",
+      }),
+    );
+
+    await ExternalConnectorService.startOAuthConnect({
+      vaultOwnerToken: "owner-token",
+      connectorId: "google_drive",
+      redirectUri: "https://app.test/one/profile/connectors/oauth/return",
+      flow: "web",
+      signal,
+    });
+
+    expect(apiFetch).toHaveBeenCalledWith(
+      "/api/connectors/google_drive/connect/oauth/start",
+      expect.objectContaining({ signal, method: "POST" }),
+    );
+  });
+
   it("reconciles only the opaque pending reference before finalization", async () => {
     const isEffectCurrent = vi.fn(() => true);
     apiFetch

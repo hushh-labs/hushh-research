@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronDown } from "@/components/icons";
 import { useLocationCommand } from "./location-command-provider";
 import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /** Only real choices and required actions expand; no modal or page-wide backdrop. */
 export function LocationCommandCard() {
@@ -30,16 +31,17 @@ export function LocationCommandCard() {
       <button
         type="button"
         aria-label="Collapse command"
-        className="float-right rounded-full p-2"
+        className="relative float-right rounded-full p-2"
         onClick={() => setCollapsed(true)}
       >
         <ChevronDown className="h-4 w-4" />
+        <MaterialRipple variant="none" effect="glass" />
       </button>
       {view.gate?.choices?.map((choice) => (
         <button
           key={choice.id}
           type="button"
-          className="my-1 block w-full rounded-xl border p-3 text-left"
+          className="relative my-1 block w-full rounded-xl border p-3 text-left"
           onClick={(event) =>
             run(command.chooseResource(choice.id, event.nativeEvent.isTrusted))
           }
@@ -50,6 +52,7 @@ export function LocationCommandCard() {
               {choice.detail}
             </span>
           ) : null}
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       ))}
       {view.transcript ? (
@@ -83,9 +86,10 @@ export function LocationCommandCard() {
           />
           <button
             type="submit"
-            className="rounded-xl bg-primary px-3 text-primary-foreground"
+            className="relative rounded-xl bg-primary px-3 text-primary-foreground"
           >
             Continue
+            <MaterialRipple variant="none" effect="fill" />
           </button>
         </form>
       ) : null}
@@ -93,21 +97,23 @@ export function LocationCommandCard() {
       ["confirmation", "permission", "navigation"].includes(view.gate.kind) ? (
         <button
           type="button"
-          className="mt-3 w-full rounded-full bg-primary py-3 text-primary-foreground"
+          className="relative mt-3 w-full rounded-full bg-primary py-3 text-primary-foreground"
           onClick={(event) =>
             run(command.continueGate(event.nativeEvent.isTrusted))
           }
         >
           {view.gate.kind === "confirmation" ? "Confirm" : "Continue"}
+          <MaterialRipple variant="none" effect="fill" />
         </button>
       ) : null}
       {view.gate?.kind === "unavailable" && command.hasActiveCheckpoint ? (
         <button
           type="button"
-          className="mt-3 w-full rounded-full bg-primary py-3 text-primary-foreground"
+          className="relative mt-3 w-full rounded-full bg-primary py-3 text-primary-foreground"
           onClick={() => run(command.refresh())}
         >
           Refresh / Resume
+          <MaterialRipple variant="none" effect="fill" />
         </button>
       ) : null}
       {view.recoverable?.map((pending) => (
@@ -120,9 +126,10 @@ export function LocationCommandCard() {
           </span>
           <button
             onClick={() => run(command.resume(pending))}
-            className="rounded-full bg-primary px-4 py-2 text-primary-foreground"
+            className="relative rounded-full bg-primary px-4 py-2 text-primary-foreground"
           >
             Resume
+            <MaterialRipple variant="none" effect="fill" />
           </button>
           <button onClick={() => run(command.cancel(pending))}>Cancel</button>
         </div>

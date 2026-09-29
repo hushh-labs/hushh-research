@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   toastPromise: vi.fn(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  toastLoading: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -16,6 +18,8 @@ vi.mock("sonner", () => ({
     promise: mocks.toastPromise,
     error: mocks.toastError,
     info: mocks.toastInfo,
+    loading: mocks.toastLoading,
+    success: mocks.toastSuccess,
   },
 }));
 
@@ -58,6 +62,7 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 }));
 
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
+import { BUNDLE_DECISION_CONCURRENCY } from "@/lib/consent/use-consent-actions";
 
 function deferredResponse() {
   let resolve!: (response: Response) => void;
@@ -195,6 +200,114 @@ function renderSuccess(options: ToastPromiseOptions, value: unknown): string {
 function renderError(options: ToastPromiseOptions, error: Error): string {
   return typeof options.error === "function" ? options.error(error) : options.error;
 }
+
+describe("useConsentActions grouped decisions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // A grouped request used to be decided strictly one item after another. It
+  // now runs at most BUNDLE_DECISION_CONCURRENCY at once, settles every item,
+  // and says how many went through when some did not.
+  it("allows every item with bounded concurrency and one progress state", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mocks.approvePendingConsent.mockImplementation(async (input: { requestId: string }) => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return input.requestId === "req-4"
+        ? new Response("{}", { status: 500 })
+        : new Response(JSON.stringify({ ok: true }), { status: 200 });
+    });
+
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+    const consents = ["req-1", "req-2", "req-3", "req-4", "req-5"].map(consent);
+
+    let error: unknown;
+    await act(async () => {
+      await result.current
+        .handleApproveBundle(consents, { bundleId: "bundle-1", quiet: true })
+        .catch((caught: unknown) => {
+          error = caught;
+        });
+    });
+
+    expect(mocks.approvePendingConsent).toHaveBeenCalledTimes(5);
+    expect(maxInFlight).toBeGreaterThan(1);
+    expect(maxInFlight).toBeLessThanOrEqual(BUNDLE_DECISION_CONCURRENCY);
+    expect((error as Error).message).toBe("Shared 4 of 5. Try the rest again.");
+    expect(result.current.bundleProgress).toBeNull();
+    // Quiet callers own the reporting.
+    expect(mocks.toastLoading).not.toHaveBeenCalled();
+    expect(mocks.toastError).not.toHaveBeenCalled();
+  });
+
+  it("names the outcome it was given once every item went through", async () => {
+    mocks.approvePendingConsent.mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+
+    await act(async () => {
+      await result.current.handleApproveBundle([consent("req-a"), consent("req-b")], {
+        bundleId: "bundle-2",
+        successMessage: "Kushal can now see your Food preferences.",
+      });
+    });
+
+    expect(mocks.toastLoading).toHaveBeenCalledWith(
+      expect.stringMatching(/^Allowing \d of 2\.\.\.$/),
+      { id: "bundle-2" },
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Kushal can now see your Food preferences.",
+      expect.objectContaining({ id: "bundle-2" }),
+    );
+  });
+});
+
+describe("useConsentActions partial decisions", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  // Localhost run 4 (R5): the owner could only allow or decline a whole
+  // request. Allowing part of it approves the chosen items and declines the
+  // rest, each through its own per-item call, under the same bound.
+  it("approves the chosen items and declines the rest, bounded, in one progress state", async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const settle = async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      inFlight -= 1;
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    };
+    mocks.approvePendingConsent.mockImplementation(settle);
+    mocks.denyPendingConsent.mockImplementation(settle);
+    const { result } = renderHook(() => useConsentActions({ userId: "user-1" }));
+
+    await act(async () => {
+      await result.current.handleDecideBundle(
+        [consent("req-food"), consent("req-diet")],
+        ["req-events", "req-tax"],
+        { bundleId: "bundle-mixed", successMessage: "Kushal can now see your Food preferences and Diet. Events and Tax weren't shared." },
+      );
+    });
+
+    expect(mocks.approvePendingConsent.mock.calls.map(([input]) => input.requestId).sort()).toEqual(["req-diet", "req-food"]);
+    expect(mocks.denyPendingConsent.mock.calls.map(([input]) => input.requestId).sort()).toEqual(["req-events", "req-tax"]);
+    expect(maxInFlight).toBeLessThanOrEqual(BUNDLE_DECISION_CONCURRENCY);
+    expect(result.current.bundleProgress).toBeNull();
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      "Kushal can now see your Food preferences and Diet. Events and Tax weren't shared.",
+      expect.objectContaining({ id: "bundle-mixed" }),
+    );
+  });
+});
 
 describe("useConsentActions owner-facing toasts", () => {
   beforeEach(() => {

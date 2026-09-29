@@ -880,7 +880,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the inline Terms document on the Login screen without leaving sign-in.",
+      "description": "Opens the full Terms of Use page. Back returns to sign-in.",
       "execution": {
         "binding_ref": "semantic_action:auth.open_terms",
         "executor": {
@@ -1018,7 +1018,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
+      "description": "Opens the full Privacy Policy page. Back returns to sign-in.",
       "execution": {
         "binding_ref": "semantic_action:auth.open_privacy",
         "executor": {
@@ -1108,145 +1108,6 @@
       "search_keywords": [
         "privacy",
         "policy",
-        "legal"
-      ],
-      "settlement_proof": "directive_ledger_settlement",
-      "side_effect": {
-        "classification": "client_semantic_action"
-      },
-      "supported_entrypoints": [
-        "voice",
-        "chat",
-        "typed_search",
-        "command_bar",
-        "ui"
-      ],
-      "technical_interaction": {
-        "allowed_types": [
-          "oauth",
-          "native_permission"
-        ],
-        "policy": "platform_required_only",
-        "requires_user_interaction": false
-      },
-      "telemetry_event": "app_intelligence.action",
-      "version": 1
-    },
-    {
-      "aliases": [
-        "Close legal document",
-        "close terms",
-        "close privacy policy",
-        "close legal document"
-      ],
-      "authorization": {
-        "guard_ids": [],
-        "ownership": "server_resolved_for_target_entity",
-        "predicates": [],
-        "server_revalidation": "identity_consent_and_domain_service"
-      },
-      "availability": {
-        "feature_flags": [],
-        "product_available": true
-      },
-      "capability_id": "auth.close_legal",
-      "confirmation": {
-        "mode": "none",
-        "required": false,
-        "requires_trusted_tap": false,
-        "surface": null
-      },
-      "description": "Closes the inline legal document and returns to the Login screen.",
-      "execution": {
-        "binding_ref": "semantic_action:auth.close_legal",
-        "executor": {
-          "kind": "existing_ui_semantic_action",
-          "settlement": "directive_ledger_settlement"
-        },
-        "mode": "client_directive",
-        "outcome": "EXECUTE",
-        "target": {
-          "path": "local_handler",
-          "status": "wired",
-          "target": "auth.close_legal"
-        }
-      },
-      "goal_id": "goal.auth.close_legal",
-      "idempotency": {
-        "scope": "action_and_normalized_slots",
-        "strategy": "action_directive_ledger"
-      },
-      "inputSchema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "input_schema": {
-        "additionalProperties": false,
-        "properties": {},
-        "required": [],
-        "type": "object"
-      },
-      "kind": "action",
-      "label": "Close legal document",
-      "navigation": {
-        "fallback": "auth.close_legal",
-        "routes": [
-          "/login"
-        ],
-        "screens": [
-          "login"
-        ]
-      },
-      "outputSchema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "output_schema": {
-        "additionalProperties": false,
-        "properties": {
-          "action_id": {
-            "type": "string"
-          },
-          "message": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "status"
-        ],
-        "type": "object"
-      },
-      "preconditions": {
-        "guard_ids": [],
-        "mounted_surface_required": true,
-        "requires_signed_in": false,
-        "requires_vault": false
-      },
-      "render_surface": null,
-      "required_entities": [],
-      "search_keywords": [
-        "close",
-        "terms",
-        "privacy",
         "legal"
       ],
       "settlement_proof": "directive_ledger_settlement",
@@ -29667,7 +29528,7 @@
     },
     {
       "aliases": [
-        "Revoke a grant",
+        "Stop sharing access",
         "revoke that access",
         "stop sharing that",
         "take back access"
@@ -29727,7 +29588,7 @@
         "additionalProperties": false,
         "properties": {
           "request_id": {
-            "description": "Which grant should I revoke?",
+            "description": "Which shared access should I end?",
             "type": "string",
             "x-hushh-resolver": "opaque_request_id"
           }
@@ -29741,7 +29602,7 @@
         "additionalProperties": false,
         "properties": {
           "request_id": {
-            "description": "Which grant should I revoke?",
+            "description": "Which shared access should I end?",
             "type": "string",
             "x-hushh-resolver": "opaque_request_id"
           }
@@ -29752,7 +29613,7 @@
         "type": "object"
       },
       "kind": "action",
-      "label": "Revoke a grant",
+      "label": "Stop sharing access",
       "navigation": {
         "fallback": "consent.revoke",
         "routes": [
@@ -38545,7 +38406,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "15d901b5c6455057375b882df29dfea26aeccce0fe5c8b92272faf31e5c12732",
+      "projection_digest": "2c55dd4a446524c246e31d1df198be45c638c809aae75e505bc331bb9eff3d5f",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38555,7 +38416,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "e257b431b28b0627263d1c0bb853319a1e9027724f3f63546c33fac6cc476433",
+        "capability_graph_evolution": "5e31e46ba0a13cb945ad5595bda36699c3336d2613e9544545d4af4d73163332",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -38564,7 +38425,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6f950cea1eb3814c",
+      "source_revision": "069b08792c1cf452",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -40082,7 +39943,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6f950cea1eb3814c",
+    "source_revision": "069b08792c1cf452",
     "web": {
       "actions": [
         {
@@ -40125,7 +39986,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "d513ba2f4fe5ac82f86ec2a08b1e5d1c04b39cce0c2f5161359bfc236096b547",
+      "projection_digest": "4b8f413ef7741a80388dc870c08651fc50772dfe86650fe8f0a5d19c72cd0f9d",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40135,7 +39996,7 @@
       ],
       "schema_version": "one.capability_platform_projection.v1",
       "source_digests": {
-        "capability_graph_evolution": "e257b431b28b0627263d1c0bb853319a1e9027724f3f63546c33fac6cc476433",
+        "capability_graph_evolution": "5e31e46ba0a13cb945ad5595bda36699c3336d2613e9544545d4af4d73163332",
         "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
         "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
         "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
@@ -40144,7 +40005,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "6f950cea1eb3814c",
+      "source_revision": "069b08792c1cf452",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41701,7 +41562,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6f950cea1eb3814c",
+  "revision": "069b08792c1cf452",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -41932,7 +41793,6 @@
     },
     {
       "action_ids": [
-        "auth.close_legal",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -43469,13 +43329,24 @@
     ],
     "breaking": [],
     "changed": [
+      "actions:auth.open_privacy",
+      "actions:auth.open_terms",
+      "actions:consent.revoke",
+      "screens:screen:/login",
       "screens:screen:/one/setup"
     ],
     "compatible": [],
-    "deprecated": [],
+    "deprecated": [
+      "actions:auth.close_legal",
+      "actions:auth.open_privacy",
+      "actions:auth.open_terms",
+      "actions:consent.revoke"
+    ],
     "from_revision": "d4b2dd7b65a583c6",
     "migrated": [],
-    "removed": []
+    "removed": [
+      "actions:auth.close_legal"
+    ]
   },
   "services": [
     {
@@ -46006,21 +45877,21 @@
     }
   ],
   "source_digests": {
-    "capability_graph_evolution": "e257b431b28b0627263d1c0bb853319a1e9027724f3f63546c33fac6cc476433",
+    "capability_graph_evolution": "5e31e46ba0a13cb945ad5595bda36699c3336d2613e9544545d4af4d73163332",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "6bdd1868b2422e4935394b43af8f4b652aade187bf431668fdd2bac842ab98ef",
+    "kai_action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
-    "product_agent_registry": "9f3cd73f3fed5400eef16bc5bb1fd1446dfeb2cb28bd3b7eb8dcaa881d1a112d",
-    "route_orchestration_index": "7e54efc7e04b69501246d95d1debc4b26632a88c354f4812e5751846c11e94d9",
+    "product_agent_registry": "c0eef8304280bc315b11c4735a09b15da816699f07f1470356600abd9fc56cf2",
+    "route_orchestration_index": "abb1005133f320075b2eb2c66d60891691d8ada23f97f80f646dc79499f7dff8",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "6f950cea1eb3814c",
+  "source_revision": "069b08792c1cf452",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6f950cea1eb3814c",
+    "current_graph_revision": "069b08792c1cf452",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

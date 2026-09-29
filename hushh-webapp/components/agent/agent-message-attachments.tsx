@@ -8,6 +8,7 @@ import {
   formatTextAttachmentSize,
   type AgentTextAttachment,
 } from "@/lib/agent/large-text-attachment";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /**
  * Pasted text sent with a user turn, shown as a compact chip inside the user
@@ -42,7 +43,7 @@ function AgentMessageAttachmentChip({ attachment }: { attachment: AgentTextAttac
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="flex min-h-11 w-full min-w-0 items-center gap-2 rounded-2xl border border-white/25 bg-white/15 px-3 py-2 text-left transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
+        className="relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-2xl border border-white/25 bg-white/15 px-3 py-2 text-left transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
       >
         <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 flex-1">
@@ -50,6 +51,7 @@ function AgentMessageAttachmentChip({ attachment }: { attachment: AgentTextAttac
           <span className="block text-xs opacity-80">{formatTextAttachmentSize(attachment)}</span>
         </span>
         <ChevronRight className="h-4 w-4 shrink-0 opacity-80" aria-hidden="true" />
+        <MaterialRipple variant="none" effect="glass" />
       </button>
       <AgentTextAttachmentViewer
         open={open}

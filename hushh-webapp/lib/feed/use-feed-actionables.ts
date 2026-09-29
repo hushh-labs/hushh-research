@@ -2,21 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { ComponentType } from "react";
 import type { LucideIcon } from "@/components/icons";
+import { Info } from "@/components/icons";
 import {
-  MapPin,
   Download,
-  ShieldCheck,
-  Siren,
-  TrendingUp,
-  UserRound,
-  Users,
 } from "@/components/icons";
+import {
+  ConsentAgentIcon,
+  EmergencyRowIcon,
+  FinanceAgentIcon,
+  JoinRowIcon,
+  LocationAgentIcon,
+  PeopleRowIcon,
+} from "@/components/icons/agents";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
-import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { useFeedLiveRefresh, useFeedPendingConsentRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -50,8 +54,19 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
 import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
+import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
+import {
+  groupPendingConsentRequests,
+  isOwnerConsentQueueEntry,
+  type OwnerConsentRequest,
+} from "@/lib/consent/owner-consent-request";
+import {
+  useOwnerConsentDecision,
+  type OwnerConsentUnlockPrompt,
+} from "@/lib/consent/use-owner-consent-decision";
 import {
   isLocationConsent,
   locationConsentSummary,
@@ -74,9 +89,16 @@ import { ApiService } from "@/lib/services/api-service";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { updateActivityLabel, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 
-/** Subset of SettingsRow's icon-well tones (that type is not exported). */
+/**
+ * Subset of SettingsRow's icon-well tones (that type is not exported). Feed
+ * rows use "capability": a bare duotone registry glyph, the same one Profile
+ * uses for the same concept, never a coloured tile (hushh-icon-theme).
+ */
 export type FeedIconTone =
-  "accent" | "blue" | "purple" | "green" | "orange" | "red" | "gray";
+  "capability" | "accent" | "blue" | "purple" | "green" | "orange" | "red" | "gray";
+
+/** A registry glyph (`@/components/icons/agents`) or a legacy line icon. */
+export type FeedIcon = ComponentType<{ className?: string }>;
 
 export type FeedActionTone = "primary" | "ghost" | "danger";
 
@@ -88,6 +110,12 @@ export interface FeedActionButton {
   disabled?: boolean;
   /** Irreversible action — the row requires a second confirming tap. */
   confirm?: boolean;
+  /**
+   * Show only this icon on a phone (the label stays the accessible name and
+   * returns from `sm` up). Used for a row's quiet Details action, so the two
+   * decision buttons keep one line at 375px and up.
+   */
+  phoneIcon?: LucideIcon;
 }
 
 /**
@@ -98,7 +126,7 @@ export interface FeedActionButton {
  */
 export interface FeedActionable {
   id: string;
-  icon: LucideIcon;
+  icon: FeedIcon;
   iconTone: FeedIconTone;
   /** Person identity to render before falling back to the domain icon. */
   person?: {
@@ -135,6 +163,11 @@ export interface FeedActionable {
 
 export interface UseFeedActionablesResult {
   actionables: FeedActionable[];
+  /** Passive Trusted Circle work, separate from tasks that need an answer. */
+  inProgress: FeedDriveProgress[];
+  progressOverflow: Array<{ label: string; href: string }>;
+  progressLoading: boolean;
+  progressError: string | null;
   count: number;
   loading: boolean;
   error: string | null;
@@ -145,6 +178,90 @@ export interface UseFeedActionablesResult {
   /** Dismisses every revoked/expired SOS card currently shown. Wired into the
    * Feed page's existing Clear button so it clears SOS notifications too. */
   clearSmsEmergencies: () => void;
+  /** Open while an inline Allow or Don't allow waits for the vault. */
+  consentUnlockPrompt: OwnerConsentUnlockPrompt;
+}
+
+/** The server owns whether an incoming Drive request needs the owner's help. */
+export function isConsentFeedActionable(entry: ConsentCenterEntry): boolean {
+  if (entry.kind === "connection_request" || entry.kind === "outgoing_request") {
+    return false;
+  }
+  if (!isDriveSharingEntry(entry)) return true;
+  return (
+    entry.metadata?.direction === "incoming" &&
+    entry.metadata?.owner_attention_required !== false
+  );
+}
+
+/**
+ * The Feed row for one owner request: the headline, the reason, and the three
+ * things a person can do about it. Exported so the row's wording and its
+ * actions are testable without mounting the whole hook.
+ */
+export function ownerConsentRequestActionable(
+  request: OwnerConsentRequest,
+  handlers: {
+    allow: (request: OwnerConsentRequest) => Promise<boolean>;
+    deny: (request: OwnerConsentRequest) => Promise<boolean>;
+    openDetails: () => void;
+    onDecided: (key: string) => void;
+    sortAt: number;
+  },
+): FeedActionable {
+  // The reason stands alone on its own line here, so it keeps its capital.
+  const reason = String(request.reason || "").trim();
+  const decisionActions: FeedActionButton[] = request.complete
+    ? [
+        {
+          // One tap: the decline waits behind a five-second Undo toast
+          // (lib/consent/deferred-consent-decline.ts), which replaces the old
+          // armed second tap, the same as the Consent Center's ✗.
+          key: "deny",
+          label: "Don't allow",
+          tone: "ghost",
+          run: async () => {
+            if (await handlers.deny(request)) handlers.onDecided(request.key);
+          },
+        },
+        {
+          key: "allow",
+          label: "Allow",
+          tone: "primary",
+          run: async () => {
+            if (await handlers.allow(request)) handlers.onDecided(request.key);
+          },
+        },
+      ]
+    : [];
+  return {
+    id: `consent:${request.key}`,
+    icon: ConsentAgentIcon,
+    iconTone: "capability",
+    person: request.isPerson
+      ? {
+          displayName: request.requesterLabel,
+          photoUrl: request.requesterPhotoUrl,
+        }
+      : null,
+    title: request.headline,
+    description: request.complete
+      ? reason || "Waiting for your answer"
+      : "Still arriving. Open Details to review it.",
+    onSelect: handlers.openDetails,
+    actions: [
+      {
+        key: "details",
+        label: "Details",
+        tone: "ghost",
+        phoneIcon: Info,
+        run: handlers.openDetails,
+      },
+      ...decisionActions,
+    ],
+    sortAt: handlers.sortAt,
+    displayTimestamp: request.requestedAt,
+  };
 }
 
 function toTimestamp(value?: string | number | null): number {
@@ -297,6 +414,41 @@ export function useFeedActionables(): UseFeedActionablesResult {
     Set<string>
   >(() => new Set());
   const cache = useMemo(() => CacheService.getInstance(), []);
+  const consentDecision = useOwnerConsentDecision({ userId });
+  // Requests answered from this row disappear the moment the answer lands,
+  // before the refetch that confirms it; the refetch then simply agrees.
+  const [settledConsentKeys, setSettledConsentKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const markConsentSettled = useCallback((key: string) => {
+    setSettledConsentKeys((current) => {
+      if (current.has(key)) return current;
+      const next = new Set(current);
+      next.add(key);
+      return next;
+    });
+  }, []);
+  const unmarkConsentSettled = useCallback((key: string) => {
+    setSettledConsentKeys((current) => {
+      if (!current.has(key)) return current;
+      const next = new Set(current);
+      next.delete(key);
+      return next;
+    });
+  }, []);
+  const { declineWithUndo: declineConsentWithUndo } = consentDecision;
+  // Don't allow hides the row at once; Undo or a failed deny brings it back.
+  const declineConsentRequest = useCallback(
+    (request: OwnerConsentRequest) =>
+      declineConsentWithUndo(request, {
+        onHide: () => markConsentSettled(request.key),
+        onRestore: () => unmarkConsentSettled(request.key),
+      }),
+    [declineConsentWithUndo, markConsentSettled, unmarkConsentSettled],
+  );
+  useEffect(() => {
+    setSettledConsentKeys(new Set());
+  }, [userId]);
 
   // Revoked/expired SOS cards stay in the feed as a historical alert until the
   // recipient explicitly clears them (see the Clear action below); the
@@ -363,6 +515,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const pendingConsentCount =
     consentSummaryResource.data?.counts.pending ?? null;
 
+  const listedPendingCountRef = useRef<number | null>(null);
   const consentListResource = useStaleResource({
     cacheKey: userId
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
@@ -379,6 +532,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
     load: async (options) => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) throw new Error("Sign in to review consents");
+      // A new pending count means a request arrived or left: the service's own
+      // cached page predates it, so read past it.
+      const countChanged = listedPendingCountRef.current !== pendingConsentCount;
+      listedPendingCountRef.current = pendingConsentCount;
       return ConsentCenterService.listEntries({
         idToken,
         userId: user.uid,
@@ -386,6 +543,64 @@ export function useFeedActionables(): UseFeedActionablesResult {
         surface: "pending",
         page: 1,
         limit: CONSENT_CENTER_PAGE_SIZE,
+        force: consentTick > 0 || Boolean(options?.force) || countChanged,
+      });
+    },
+  });
+
+  // The owner queue above stays at 20 for fast decisions. Progress reads a
+  // separate bounded first page so its discovery does not depend on the
+  // actionable summary count (which only describes requests needing action).
+  const progressPageSize = 100;
+  const receivedOverflowResource = useStaleResource({
+    cacheKey: userId
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents", "pending", "", 1, progressPageSize)
+      : "feed_received_progress_guest",
+    refreshKey: `one:consents:progress:${consentTick}:${pendingConsentCount ?? "?"}`,
+    enabled: Boolean(userId),
+    load: async (options) => {
+      const idToken = await user?.getIdToken();
+      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      return ConsentCenterService.listEntries({
+        idToken, userId: user.uid, mode: "consents", surface: "pending",
+        page: 1, limit: progressPageSize,
+        force: consentTick > 0 || Boolean(options?.force),
+      });
+    },
+  });
+  // B's sent requests are absent from A's received count and list. Fetching
+  // this lane independently is necessary even when Needs you is empty.
+  const sentProgressResource = useStaleResource({
+    cacheKey: userId
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents:sent", "pending", "", 1, progressPageSize)
+      : "feed_sent_progress_guest",
+    refreshKey: `one:consents:sent:progress:${consentTick}`,
+    enabled: Boolean(userId),
+    load: async (options) => {
+      const idToken = await user?.getIdToken();
+      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      return ConsentCenterService.listEntries({
+        idToken, userId: user.uid, mode: "consents", surface: "pending",
+        requestView: "sent", page: 1, limit: progressPageSize,
+        force: consentTick > 0 || Boolean(options?.force),
+      });
+    },
+  });
+  // A first confirmed file promotes the same pending request into Active for
+  // access management. Keep the live status through the remaining background
+  // search without changing that bucket or displaying unconfirmed file data.
+  const activeProgressResource = useStaleResource({
+    cacheKey: userId
+      ? CACHE_KEYS.CONSENT_CENTER_LIST(userId, "one:consents", "active", "", 1, progressPageSize)
+      : "feed_active_progress_guest",
+    refreshKey: `one:consents:active:progress:${consentTick}`,
+    enabled: Boolean(userId),
+    load: async (options) => {
+      const idToken = await user?.getIdToken();
+      if (!user?.uid || !idToken) throw new Error("Sign in to view requests");
+      return ConsentCenterService.listEntries({
+        idToken, userId: user.uid, mode: "consents", surface: "active",
+        page: 1, limit: progressPageSize,
         force: consentTick > 0 || Boolean(options?.force),
       });
     },
@@ -463,8 +678,46 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const connectionRequests = connectionsResource.data;
   const connectionsRefresh = connectionsResource.refresh;
   const consentItems = consentListResource.data?.items;
+  const receivedOverflowItems = receivedOverflowResource.data?.items;
+  const sentProgressItems = sentProgressResource.data?.items;
+  const activeProgressItems = activeProgressResource.data?.items;
   const consentSummaryRefresh = consentSummaryResource.refresh;
   const consentListRefresh = consentListResource.refresh;
+  const receivedOverflowRefresh = receivedOverflowResource.refresh;
+  const sentProgressRefresh = sentProgressResource.refresh;
+  const activeProgressRefresh = activeProgressResource.refresh;
+
+  const receivedProgress = useMemo(() => {
+    return projectFeedDriveProgress(receivedOverflowItems ?? []);
+  }, [receivedOverflowItems]);
+  const sentProgress = useMemo(
+    () => projectFeedDriveProgress(sentProgressItems ?? []),
+    [sentProgressItems],
+  );
+  const activeProgress = useMemo(
+    () => projectFeedDriveProgress(activeProgressItems ?? []),
+    [activeProgressItems],
+  );
+  const inProgress = useMemo(() => {
+    const byRequest = new Map<string, FeedDriveProgress>();
+    for (const row of [...receivedProgress, ...sentProgress, ...activeProgress]) {
+      byRequest.set(row.id, row);
+    }
+    return [...byRequest.values()].sort((a, b) => (b.requestedAt ?? 0) - (a.requestedAt ?? 0));
+  }, [receivedProgress, sentProgress, activeProgress]);
+  const progressOverflow = useMemo(() => {
+    const links: Array<{ label: string; href: string }> = [];
+    if (receivedOverflowResource.data?.has_more) {
+      links.push({ label: "View all received requests", href: buildConsentCenterHref("pending", { from: "/one/feed" }) });
+    }
+    if (sentProgressResource.data?.has_more) {
+      links.push({ label: "View all sent requests", href: buildConsentCenterHref("pending", { requestView: "sent", from: "/one/feed" }) });
+    }
+    if (activeProgressResource.data?.has_more) {
+      links.push({ label: "View all active requests", href: buildConsentCenterHref("active", { from: "/one/feed" }) });
+    }
+    return links;
+  }, [receivedOverflowResource.data?.has_more, sentProgressResource.data?.has_more, activeProgressResource.data?.has_more]);
 
   // When a row genuinely has no arrival time, remember when it was first seen.
   //
@@ -494,6 +747,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     await Promise.all([
       consentSummaryRefresh({ force: true }),
       consentListRefresh({ force: true }),
+      receivedOverflowRefresh({ force: true }),
+      sentProgressRefresh({ force: true }),
+      activeProgressRefresh({ force: true }),
       locationRefresh({ force: true }),
       connectionsRefresh({ force: true }),
     ]);
@@ -501,6 +757,9 @@ export function useFeedActionables(): UseFeedActionablesResult {
     connectionsRefresh,
     consentListRefresh,
     consentSummaryRefresh,
+    receivedOverflowRefresh,
+    sentProgressRefresh,
+    activeProgressRefresh,
     locationRefresh,
   ]);
 
@@ -509,6 +768,32 @@ export function useFeedActionables(): UseFeedActionablesResult {
       void refreshActionables();
     }, [refreshActionables]),
     Boolean(userId),
+  );
+
+  // Requests waiting on this person reach "Needs you" within about 10s while
+  // the Feed is on screen, through the same cached resources as above. The
+  // list only loads while the summary counts something pending.
+  useFeedPendingConsentRefresh(
+    useCallback(
+      () => Promise.all([
+        consentSummaryRefresh({ force: true }),
+        consentListRefresh({ force: true }),
+      ]),
+      [consentListRefresh, consentSummaryRefresh],
+    ),
+    Boolean(userId),
+  );
+
+  // Discovery happens on mount/focus and the 45s Feed cadence. Only a request
+  // already doing automatic work earns a 10s status refresh; idle accounts do
+  // not fetch three broad pages every 10s.
+  useFeedPendingConsentRefresh(
+    useCallback(() => Promise.all([
+      receivedOverflowRefresh({ force: true }),
+      sentProgressRefresh({ force: true }),
+      activeProgressRefresh({ force: true }),
+    ]), [receivedOverflowRefresh, sentProgressRefresh, activeProgressRefresh]),
+    Boolean(userId) && inProgress.length > 0,
   );
 
   // Revoked/expired SOS cards stay in the feed as a historical alert instead
@@ -601,7 +886,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // Consent — Review deep-link (approve needs the BYOK export ceremony that
     // lives in the consent manager, so the feed routes there rather than
     // one-tap approving; mirrors the prior consent inbox).
+    // Consent. A request someone sent the owner is ONE row however many
+    // items it names ("Kushal wants your Food preferences · dinner"), with
+    // Allow and Don't allow inline. Both go through the shared approve and
+    // deny path (`useOwnerConsentDecision` -> `useConsentActions`), which
+    // builds the encrypted export on this device; a locked vault opens the
+    // unlock prompt first and the same decision runs once it is open.
+    // Requests with their own ceremony (location, Mail, marketplace, Drive,
+    // invitations) keep routing to it.
     if ((pendingConsentCount ?? 0) > 0) {
+      const queueEntries: ConsentCenterEntry[] = [];
       for (const entry of consentItems ?? []) {
         // Incoming connection requests reach this lane too — the Consent
         // Center folds them into its `pending` surface from the very same
@@ -609,8 +903,11 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // put one request in "Needs you" twice (a chevron-only consent row and
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
-        if (entry.kind === "connection_request") continue;
-        if (entry.kind === "outgoing_request" || (isDriveSharingEntry(entry) && entry.metadata?.direction !== "incoming")) continue;
+        if (!isConsentFeedActionable(entry)) continue;
+        if (isOwnerConsentQueueEntry(entry)) {
+          queueEntries.push(entry);
+          continue;
+        }
         const requesterLabel = resolveConsentRequesterLabel({
           counterpartLabel: entry.counterpart_label,
           counterpartEmail: entry.counterpart_email,
@@ -619,8 +916,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         });
         items.push({
           id: `consent:${entry.id}`,
-          icon: ShieldCheck,
-          iconTone: "accent",
+          icon: ConsentAgentIcon,
+          iconTone: "capability",
           person:
             ["ria", "investor", "person"].includes(entry.counterpart_type) &&
             (entry.counterpart_id || entry.counterpart_image_url)
@@ -641,11 +938,26 @@ export function useFeedActionables(): UseFeedActionablesResult {
           // is in the future and would sort this above everything. Otherwise
           // when it was first seen, so it holds its place across refreshes.
           sortAt:
-            toTimestamp(entry.issued_at) || firstSeenAt(`consent:${entry.id}`),
+            (parseConsentInstant(entry.issued_at) ?? 0) ||
+            firstSeenAt(`consent:${entry.id}`),
           // Real only when the backend happened to populate issued_at — never
           // fabricate a "just now" time label for this type.
-          displayTimestamp: toDisplayTimestamp(entry.issued_at),
+          displayTimestamp: parseConsentInstant(entry.issued_at),
         });
+      }
+
+      for (const request of groupPendingConsentRequests(queueEntries)) {
+        if (settledConsentKeys.has(request.key)) continue;
+        items.push(
+          ownerConsentRequestActionable(request, {
+            allow: consentDecision.allow,
+            deny: declineConsentRequest,
+            openDetails: () => router.push(request.detailsHref),
+            onDecided: markConsentSettled,
+            sortAt:
+              request.requestedAt ?? firstSeenAt(`consent:${request.key}`),
+          }),
+        );
       }
 
       // The Feed intentionally loads only the first Consent Center page. When
@@ -658,8 +970,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       if (consentItems && remainingConsentCount > 0) {
         items.push({
           id: "consent:overflow",
-          icon: ShieldCheck,
-          iconTone: "accent",
+          icon: ConsentAgentIcon,
+          iconTone: "capability",
           title: "View all pending requests",
           description: `${remainingConsentCount} more pending ${remainingConsentCount === 1 ? "request is" : "requests are"} waiting in Consent Center.`,
           href: buildConsentCenterHref("pending", { from: "/one/feed" }),
@@ -699,8 +1011,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
         : toTimestamp(grant.createdAt);
       items.push({
         id: `sms-emergency:${grant.id}`,
-        icon: Siren,
-        iconTone: "red",
+        icon: EmergencyRowIcon,
+        iconTone: "capability",
         person:
           label !== "A contact"
             ? {
@@ -710,8 +1022,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
             : null,
         // Only a still-live alert gets the pinned "Live" emergency treatment.
         // A revoked/expired one renders as a plain "Needs you" row (see
-        // feed-page.tsx) — Siren icon + red icon-well tint are all that's
-        // left as the "this was an emergency" signal.
+        // feed-page.tsx); the red siren glyph is all that's left as the
+        // "this was an emergency" signal.
         emphasis: isRevoked ? undefined : "emergency",
         // "sent an SMS", not "triggered an SOS". SMS is Save my Soul, this
         // product's own name for the lane, and the rule that recipient-facing
@@ -746,8 +1058,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const label = request.requesterDisplayName?.trim() || "Someone";
       items.push({
         id: `location:${request.id}`,
-        icon: MapPin,
-        iconTone: "blue",
+        icon: LocationAgentIcon,
+        iconTone: "capability",
         person:
           label !== "Someone"
             ? {
@@ -818,8 +1130,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       const circleName = invite.circleName?.trim() || "a Circle";
       items.push({
         id: `circle-invite:${invite.id}`,
-        icon: Users,
-        iconTone: "blue",
+        icon: PeopleRowIcon,
+        iconTone: "capability",
         person:
           label !== "Someone"
             ? {
@@ -885,8 +1197,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
       items.push({
         id: `connection:${request.id}`,
-        icon: UserRound,
-        iconTone: "green",
+        icon: JoinRowIcon,
+        iconTone: "capability",
         person:
           label !== "Someone"
             ? {
@@ -1052,8 +1364,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
       items.push({
         id: `debate:${task.runId}`,
-        icon: TrendingUp,
-        iconTone: "accent",
+        icon: FinanceAgentIcon,
+        iconTone: "capability",
         spinning: running || task.persistenceState === "pending",
         title: task.ticker || "Analysis",
         description: statusText,
@@ -1105,8 +1417,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
       }
       items.push({
         id: `task:${task.taskId}`,
-        icon: TrendingUp,
-        iconTone: running ? "gray" : "orange",
+        icon: FinanceAgentIcon,
+        iconTone: "capability",
         spinning: running,
         title: task.title,
         description: running
@@ -1137,6 +1449,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
   }, [
     appTaskState.tasks,
     agentUpdate,
+    consentDecision.allow,
+    declineConsentRequest,
+    markConsentSettled,
+    settledConsentKeys,
     connectionRequests,
     connectionsRefresh,
     consentItems,
@@ -1172,11 +1488,18 @@ export function useFeedActionables(): UseFeedActionablesResult {
 
   return {
     actionables,
+    inProgress,
+    progressOverflow,
+    progressLoading: sentProgressResource.loading || activeProgressResource.loading || receivedOverflowResource.loading,
+    progressError: [sentProgressResource.error, activeProgressResource.error, receivedOverflowResource.error].some(Boolean)
+      ? "Some request updates couldn't refresh."
+      : null,
     count: actionables.length,
     loading,
     error,
     retry: refreshActionables,
     hasClearableSmsEmergencies: clearableSmsEmergencyIds.length > 0,
     clearSmsEmergencies,
+    consentUnlockPrompt: consentDecision.unlockPrompt,
   };
 }

@@ -27,16 +27,16 @@ import re
 
 logger = logging.getLogger(__name__)
 
-_UUID_LIKE_PATTERN = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-    re.IGNORECASE,
+UUID_LIKE_LABEL_PATTERN = (
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 )
+_UUID_LIKE_PATTERN = re.compile(UUID_LIKE_LABEL_PATTERN, re.IGNORECASE)
 
 # A Firebase uid is 28 characters with no spaces and no "@". Anything that long
 # and that opaque is an identifier somebody stored in a name column, not a name.
 # Mirrors the >=20 rule in lib/consent/consent-display.ts so the two surfaces
 # reject the same strings.
-_OPAQUE_TOKEN_MIN_LENGTH = 20
+OPAQUE_LABEL_MIN_LENGTH = 20
 
 
 def looks_technical_label(value: object | None, *, user_id: str | None = None) -> bool:
@@ -53,7 +53,7 @@ def looks_technical_label(value: object | None, *, user_id: str | None = None) -
     if (
         "@" not in normalized
         and " " not in normalized
-        and len(normalized) >= _OPAQUE_TOKEN_MIN_LENGTH
+        and len(normalized) >= OPAQUE_LABEL_MIN_LENGTH
     ):
         return True
     return False

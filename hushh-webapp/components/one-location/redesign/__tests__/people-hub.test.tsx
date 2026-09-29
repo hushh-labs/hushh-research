@@ -248,7 +248,7 @@ describe("PeopleHub requests sent manage surface", () => {
     expect(peopleList.querySelector("button button")).toBeNull();
   });
 
-  it("places the Circles +N counter outside the two-circle identity stack", () => {
+  it("keeps the Circles summary free of stacked system identity icons", () => {
     renderPeopleHub({
       viewModel: vm({
         circles: [
@@ -261,19 +261,10 @@ describe("PeopleHub requests sent manage surface", () => {
     });
 
     const summary = screen.getByTestId("one-location-circles-summary");
-    const stack = summary.querySelector("[data-circle-identity-stack]");
-    const counter = summary.querySelector("[data-circle-overflow-count]");
-    expect(stack?.children).toHaveLength(2);
-    expect(counter?.textContent).toBe("+2");
-    expect(counter?.parentElement).toBe(stack?.parentElement);
-    expect(stack?.contains(counter)).toBe(false);
-    expect(counter).not.toHaveClass(
-      "h-9",
-      "min-w-10",
-      "rounded-full",
-      "bg-[color:var(--app-accent-tint)]",
-      "px-2",
-    );
+    expect(summary.querySelector("[data-circle-identity-stack]")).toBeNull();
+    expect(summary.querySelector("[data-circle-overflow-count]")).toBeNull();
+    expect(within(summary).getByText("Circles")).toBeTruthy();
+    expect(within(summary).getByText("3 created · 1 joined")).toBeTruthy();
   });
 
   it("keeps the mobile add-people sheet named without a visible People header", async () => {

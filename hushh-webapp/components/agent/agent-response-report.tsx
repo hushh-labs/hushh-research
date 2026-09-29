@@ -4,6 +4,7 @@ import { useId, useState } from "react";
 
 import { Flag } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import {
   Dialog,
   DialogContent,
@@ -76,7 +77,7 @@ export function AgentResponseReportButton({
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+          "relative grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
           reported
             ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
             : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
@@ -86,6 +87,7 @@ export function AgentResponseReportButton({
         data-testid="agent-response-report"
       >
         <Flag className="h-3.5 w-3.5" weight={reported ? "fill" : "regular"} />
+        <MaterialRipple variant="none" effect="glass" />
       </button>
       <Dialog open={open} onOpenChange={close}>
         <DialogContent className="sm:max-w-md">

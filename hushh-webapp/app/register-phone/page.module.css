@@ -197,7 +197,7 @@
   font-weight: 600 !important;
   letter-spacing: -0.2px !important;
   line-height: 22px !important;
-  transition: opacity 0.2s ease, transform 0.1s ease !important;
+  transition: opacity 0.12s ease !important;
 }
 
 .primaryAction:hover {
@@ -205,7 +205,7 @@
 }
 
 .primaryAction:active {
-  transform: scale(0.98) !important;
+  opacity: 0.84 !important;
 }
 
 .phoneForm :global([data-slot="field-set"]) > :global(p) {

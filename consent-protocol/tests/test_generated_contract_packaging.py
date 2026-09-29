@@ -52,6 +52,10 @@ RUNTIME_CONTRACTS = (
     # pkm_manifests.externalizable_paths, 500ing /api/one/people/{person_ref}
     # in UAT while every local checkout worked.
     ("pkm", "internal-path-keys.v1.json"),
+    # Field-level sensitivity and human field names (2026-09-29): read by the
+    # continuation strip and the Shared with you card on every request.
+    ("consent", "field-sensitivity.v1.json"),
+    ("consent", "field-labels.v1.json"),
 )
 
 

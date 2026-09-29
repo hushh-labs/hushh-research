@@ -19,7 +19,7 @@ const shellActionSurfaceVariants = cva(
   // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
   // top-bar back/close controls feel like they needed a second tap. Kept on the
   // base so every shell control (back, close, theme, profile) gets it.
-  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
@@ -35,20 +35,23 @@ const shellActionSurfaceVariants = cva(
   }
 );
 
-export const SHELL_ICON_BUTTON_CLASSNAME = cn(
-  shellActionSurfaceVariants({ variant: "icon" }),
-  "active:scale-90",
-);
-export const SHELL_PILL_TRIGGER_CLASSNAME = cn(
-  shellActionSurfaceVariants({ variant: "pill" }),
-  "active:scale-[0.97]",
-);
+// A press is flat: the ripple plus the hover fill, never a scale.
+export const SHELL_ICON_BUTTON_CLASSNAME = shellActionSurfaceVariants({
+  variant: "icon",
+});
+export const SHELL_PILL_TRIGGER_CLASSNAME = shellActionSurfaceVariants({
+  variant: "pill",
+});
 
 interface ShellActionSurfaceProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof shellActionSurfaceVariants> {
-  /** Keep ripple feedback while opting out of the shell's press-scale motion. */
-  pressScale?: boolean;
+  /**
+   * Ripple tint. The glass default reads on the translucent track; a control
+   * painted with a solid fill (the composer's Send) passes "fill" so the
+   * ripple takes the label colour and stays visible on that fill.
+   */
+  rippleEffect?: "glass" | "fill";
   badge?: React.ReactNode;
   badgeClassName?: string;
   contentClassName?: string;
@@ -70,7 +73,7 @@ export const ShellActionSurface = React.forwardRef<
     badgeClassName,
     children,
     type = "button",
-    pressScale = true,
+    rippleEffect = "glass",
     ...props
   },
   ref
@@ -82,7 +85,6 @@ export const ShellActionSurface = React.forwardRef<
         type={type}
         className={cn(
           shellActionSurfaceVariants({ variant }),
-          pressScale && (variant === "icon" ? "active:scale-90" : "active:scale-[0.97]"),
           className,
         )}
         {...props}
@@ -96,7 +98,12 @@ export const ShellActionSurface = React.forwardRef<
         >
           {children}
         </span>
-        <MaterialRipple variant="blue" effect="glass" className={cn("z-10", rippleClassName)} />
+        <MaterialRipple
+          variant="blue"
+          effect={rippleEffect}
+          disabled={props.disabled}
+          className={cn("z-10", rippleClassName)}
+        />
       </button>
       {badge ? (
         <span

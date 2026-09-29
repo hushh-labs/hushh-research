@@ -2,8 +2,10 @@
 
 # ruff: noqa: F811 -- imported isolated PostgreSQL fixtures
 
+import asyncio
 import base64
 import json
+import threading
 from pathlib import Path
 from uuid import uuid4
 
@@ -31,8 +33,8 @@ def bulk(lifecycle, monkeypatch):
     with lifecycle.db.engine.begin() as connection:
         connection.execute(text((MIGRATIONS / "251_drive_owner_search_jobs.sql").read_text()))
         connection.execute(text((MIGRATIONS / "254_drive_bulk_shares.sql").read_text()))
-        # Migration 256 also needs share-request tables absent from this generic
-        # bulk fixture. Mirror only its columns used by the generic runtime.
+        # Migrations 256 and 259 also need share-request tables absent from this
+        # generic bulk fixture. Mirror only their columns used without an origin.
         connection.execute(
             text("""ALTER TABLE drive_owner_search_jobs
             ADD COLUMN unshareable_count INTEGER NOT NULL DEFAULT 0
@@ -44,6 +46,17 @@ def bulk(lifecycle, monkeypatch):
             ADD COLUMN origin_request_revision BIGINT,
             ADD CONSTRAINT drive_bulk_origin_request_revision_check
               CHECK ((origin_request_id IS NULL) = (origin_request_revision IS NULL))""")
+        )
+        connection.execute(
+            text("""ALTER TABLE drive_bulk_shares
+            ADD COLUMN progressive_batch BOOLEAN NOT NULL DEFAULT FALSE,
+            ADD COLUMN approval_source TEXT,
+            ADD CONSTRAINT drive_bulk_approval_source_check
+              CHECK ((approved_at IS NULL AND approval_source IS NULL)
+                OR (approved_at IS NOT NULL AND approval_source IN ('owner','trusted_auto')))""")
+        )
+        connection.execute(
+            text("ALTER TABLE drive_bulk_share_files ADD COLUMN origin_request_id UUID")
         )
         connection.execute(
             text("""UPDATE external_mcp_connectors SET transport_kind='google_drive_rest',
@@ -302,3 +315,120 @@ async def test_second_search_share_waits_for_stopped_inflight_grant(bulk):
         )
     third = await approve(reviews[2])
     assert third["status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_receipt(
+    bulk, monkeypatch
+):
+    review = await bulk.create_review(
+        user_id="owner",
+        search_job_id=_seed_completed_search(bulk, count=3),
+        client_request_id=str(uuid4()),
+        recipients=[
+            {
+                "userId": "recipient-1",
+                "name": "Recipient 1",
+                "email": "recipient1@example.com",
+                "subject": "subject-1",
+                "kind": "verified_email",
+            }
+        ],
+        excluded=[],
+    )
+    await bulk.approve(
+        user_id="owner",
+        share_id=review["shareId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+    )
+    jobs = [
+        await bulk.claim(
+            user_id="owner",
+            share_id=review["shareId"],
+            position=position,
+            recipient_user_id="recipient-1",
+        )
+        for position in (1, 2)
+    ]
+    assert all(jobs)
+    await bulk.mark_dispatching(jobs[1])
+
+    stopper = DriveBulkShareStore(db=bulk.db, cipher=bulk.cipher)
+    parent_held, let_stop_finish, release_started = (
+        threading.Event(),
+        threading.Event(),
+        threading.Event(),
+    )
+    stop_pid, release_pid = [], []
+    stop_owned, release_owned = stopper._owned, bulk._owned
+
+    def hold_stop_parent(connection, *args, **kwargs):
+        row = stop_owned(connection, *args, **kwargs)
+        stop_pid.append(connection.execute(text("SELECT pg_backend_pid()")).scalar_one())
+        parent_held.set()
+        assert let_stop_finish.wait(4), "stop barrier was not released"
+        return row
+
+    def observe_release(connection, *args, **kwargs):
+        release_pid.append(connection.execute(text("SELECT pg_backend_pid()")).scalar_one())
+        release_started.set()
+        return release_owned(connection, *args, **kwargs)
+
+    monkeypatch.setattr(stopper, "_owned", hold_stop_parent)
+    monkeypatch.setattr(bulk, "_owned", observe_release)
+    stop_task = asyncio.create_task(stopper.stop(user_id="owner", share_id=review["shareId"]))
+    release_task = None
+    try:
+        assert await asyncio.to_thread(parent_held.wait, 2)
+        release_task = asyncio.create_task(
+            bulk.release(jobs[0], error="provider_unavailable", retryable=True)
+        )
+        assert await asyncio.to_thread(release_started.wait, 2)
+        # Observe real PostgreSQL blocking before Stop advances. With the old
+        # effect-first release, Stop would then wait on that effect while release
+        # waited on Stop's parent lock, forming a deterministic deadlock.
+        deadline = asyncio.get_running_loop().time() + 1
+        while True:
+            with bulk.db.engine.connect() as connection:
+                blocked = connection.execute(
+                    text("SELECT :holder = ANY(pg_blocking_pids(:waiter))"),
+                    {"holder": stop_pid[0], "waiter": release_pid[0]},
+                ).scalar_one()
+            if blocked:
+                break
+            assert asyncio.get_running_loop().time() < deadline, "release did not wait on Stop"
+            await asyncio.sleep(0.01)
+    finally:
+        let_stop_finish.set()
+        outcomes = await asyncio.wait_for(
+            asyncio.gather(
+                *([stop_task, release_task] if release_task else [stop_task]),
+                return_exceptions=True,
+            ),
+            6,
+        )
+    assert not any(isinstance(outcome, BaseException) for outcome in outcomes)
+    assert outcomes[0]["status"] == "stopped"
+    assert outcomes[1] in {"skipped", "failed", "superseded"}
+
+    # Stop cannot erase a confirmed Google receipt from a dispatched write.
+    assert await bulk.settle(
+        jobs[1],
+        state="succeeded",
+        receipt={"managed": True, "permission_id": "synthetic-confirmed-permission"},
+    )
+    final = await bulk.review(user_id="owner", share_id=review["shareId"])
+    assert final["status"] == "stopped"
+    assert final["counts"]["total"] == final["counts"]["processed"] == 3
+    assert final["counts"]["shared"] == 1
+    assert final["counts"]["skipped"] + final["counts"]["failed"] == 2
+    assert final["counts"]["pending"] == final["counts"]["unknown"] == 0
+    delivered = await bulk.recipient_files(
+        recipient_user_id="recipient-1",
+        recipient_subject="subject-1",
+        recipient_email="recipient1@example.com",
+        share_id=review["shareId"],
+    )
+    assert delivered["sharedCount"] == 1
+    assert [item["name"] for item in delivered["files"]] == ["Financial document 2"]

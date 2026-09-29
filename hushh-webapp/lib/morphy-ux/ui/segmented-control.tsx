@@ -198,13 +198,11 @@ export function SegmentedControl({
             onClick={() => onValueChange(option.value)}
             className={cn(
               // Base styles
-              "press-scale relative flex items-center justify-center gap-1.5 rounded-full select-none",
-              // `transform` stays in the list, and the duration comes off the
-              // motion scale. `transition-[transform]` at 150ms covered the transform
-              // that `.press-scale` drives on :active, so the button sagged
-              // for half a second under the thumb against a 120ms press token,
-              // and 500ms is off the scale entirely.
-              "transition-[color,background-color,box-shadow,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
+              "relative flex items-center justify-center gap-1.5 rounded-full select-none",
+              // A press is flat: colour and the ripple, never a scale. The
+              // duration comes off the motion scale (a 500ms transition once
+              // left the segment sagging under the thumb).
+              "transition-[color,background-color,box-shadow] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "overflow-hidden font-normal tracking-tight",
               config.segment,

@@ -1,13 +1,13 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Unplug as PlugIcon,
   CheckIcon as Check,
+  Download as DownloadIcon,
   MessageSquareIcon as MessageSquare,
   DotsThreeIcon as MoreHorizontal,
   Loader2Icon as Loader2,
-  PanelLeftCloseIcon as PanelLeftClose,
   PanelLeftOpenIcon as PanelLeftOpen,
   PencilIcon as Pencil,
   PlusIcon as Plus,
@@ -37,6 +37,7 @@ import { Input } from "@/components/ui/input";
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
+import { parseChatTimestamp } from "@/lib/agent/chat-time-separators";
 import { cn } from "@/lib/utils";
 
 type AgentHistorySidebarProps = {
@@ -65,6 +66,12 @@ type AgentHistorySidebarProps = {
   onClose?: () => void;
   onToggleCollapsed?: () => void;
   onOpenConnectors?: (trigger: HTMLButtonElement) => void;
+  /** Opens the Get the app prompt. Omitted inside the installed app. */
+  onGetApp?: (trigger: HTMLButtonElement) => void;
+  /** Whether the Get the app prompt is showing, for its control's state. */
+  getAppOpen?: boolean;
+  /** Feed-style background activity, kept separate from conversation search. */
+  driveActivity?: ReactNode;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -90,14 +97,14 @@ function displayConversationLabel(conversation: AgentChatConversation): string {
 }
 
 function conversationTimestamp(conversation: AgentChatConversation): number {
+  // ADK session times are epoch seconds; `Date.parse` read them as NaN, so
+  // every chat grouped as "Older" with no time beside it.
   const candidate =
-    conversation.last_message_at ||
-    conversation.updated_at ||
-    conversation.created_at ||
+    conversation.last_message_at ??
+    conversation.updated_at ??
+    conversation.created_at ??
     null;
-  if (!candidate) return 0;
-  const parsed = Date.parse(candidate);
-  return Number.isNaN(parsed) ? 0 : parsed;
+  return parseChatTimestamp(candidate)?.getTime() ?? 0;
 }
 
 function formatRelativeTime(timestamp: number): string {
@@ -173,6 +180,9 @@ export function AgentHistorySidebar({
   onClose,
   onToggleCollapsed,
   onOpenConnectors,
+  onGetApp,
+  getAppOpen = false,
+  driveActivity,
   onCreateNew,
   onSelectConversation,
   onRenameConversation,
@@ -286,11 +296,7 @@ export function AgentHistorySidebar({
             aria-current={active ? "page" : undefined}
             title={title}
           >
-            <MessageSquare
-              className="h-4 w-4"
-              strokeWidth={active ? 2 : 1.8}
-              aria-hidden="true"
-            />
+            <MessageSquare className="h-4 w-4" aria-hidden="true" />
           </button>
         </div>
       );
@@ -301,16 +307,16 @@ export function AgentHistorySidebar({
         key={conversation.id}
         role="listitem"
         className={cn(
-          "group relative rounded-xl transition-[transform,opacity] motion-reduce:transition-none duration-150",
+          "group relative rounded-[12px] transition-colors motion-reduce:transition-none duration-150",
           active
-            ? "bg-[color:var(--app-accent)] text-white shadow-sm"
-            : "text-foreground/80 hover:bg-foreground/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
+            ? "bg-[color:var(--one-chat-row-active)] text-foreground"
+            : "text-foreground/80 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground"
         )}
       >
         {isRenaming ? (
           <form
             onSubmit={submitRename}
-            className="flex items-center gap-1 rounded-xl bg-background/90 p-1 ring-1 ring-black/10 dark:bg-[#141720] dark:ring-white/15"
+            className="flex items-center gap-1 rounded-[12px] bg-[color:var(--one-chat-raised)] p-1 ring-1 ring-[color:var(--one-chat-divider)]"
           >
             <Input
               value={renameValue}
@@ -347,30 +353,35 @@ export function AgentHistorySidebar({
             </Button>
           </form>
         ) : (
-          <div className="relative flex items-center min-w-0">
+          // Title, time and the actions control sit on one line, as in the
+          // reference: the time stays put and the dots appear beside it.
+          <div className={cn("relative flex min-w-0 items-center", isMobileMode ? "pr-1" : "group-hover:pr-1 group-focus-within:pr-1")}>
             <button
               type="button"
               className={cn(
-                "flex min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60",
+                "flex min-w-0 flex-1 items-center gap-2 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
                 // 44px rows in the touch drawer (Apple's minimum hit target).
-                isMobileMode ? "h-11 pr-8" : "h-9 pr-7",
-                active ? "font-semibold text-white" : "font-medium text-foreground/80 group-hover:text-foreground"
+                isMobileMode ? "h-11" : "h-9",
+                active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
               )}
               onClick={() => onSelectConversation(conversation.id)}
               disabled={disabled || pending}
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className={cn("flex-1 truncate leading-tight", isMobileMode ? "text-[15px]" : "text-[13px]")}>
+              <span className={cn("flex-1 truncate leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
                 {title}
               </span>
 
               {timeLabel ? (
                 <span
                   className={cn(
-                    "shrink-0 text-[11px] tabular-nums font-normal transition-opacity duration-150",
-                    active ? "text-white/80" : "text-muted-foreground/50",
-                    !isMobileMode && "group-hover:opacity-0 group-focus-within:opacity-0"
+                    "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
+                    // Desktop shows a row's age only on hover or focus (and
+                    // while its menu is open), and until then it takes no
+                    // room, so the title runs the full row. Touch keeps it.
+                    !isMobileMode &&
+                      "hidden group-hover:inline group-focus-within:inline group-has-[[data-state=open]]:inline",
                   )}
                 >
                   {timeLabel}
@@ -380,13 +391,16 @@ export function AgentHistorySidebar({
 
             <div
               className={cn(
-                "absolute right-1 top-1/2 -translate-y-1/2",
-                !isMobileMode && !pending && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
-                isMobileMode && "opacity-100"
+                "shrink-0",
+                // Touch keeps it visible; desktop reveals it with the time,
+                // on hover or keyboard focus (focusing the row shows it before
+                // Tab reaches it), and holds it while the menu is open.
+                !isMobileMode && !pending &&
+                  "hidden group-hover:block group-focus-within:block group-has-[[data-state=open]]:block",
               )}
             >
               {pending ? (
-                <span role="status" aria-label={`Deleting ${title}`} className="grid h-7 w-7 place-items-center text-muted-foreground">
+                <span role="status" aria-label={`Deleting ${title}`} className="grid h-8 w-8 place-items-center text-muted-foreground">
                   <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 </span>
               ) : <DropdownMenu>
@@ -395,34 +409,42 @@ export function AgentHistorySidebar({
                     type="button"
                     variant="ghost"
                     size="icon-xs"
-                    className={cn(
-                      "h-7 w-7 rounded-lg focus-visible:opacity-100",
-                      active
-                        ? "text-white/80 hover:bg-white/20 hover:text-white"
-                        : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground dark:hover:bg-white/[0.1]"
-                    )}
+                    className="h-8 w-8 rounded-full text-foreground/70 hover:bg-[color:var(--one-chat-row-active)] hover:text-foreground focus-visible:opacity-100 data-[state=open]:bg-[color:var(--one-chat-row-active)] data-[state=open]:text-foreground"
                     disabled={disabled || pending}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}
                   >
-                    <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
+                    <MoreHorizontal className="size-[18px]" weight="bold" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6} className="z-[560]">
+                <DropdownMenuContent
+                  data-one-chat-surface
+                  // Beside the row on desktop, as in the reference; in the
+                  // phone drawer there is no room to the right, so below it.
+                  side={isMobileMode ? "bottom" : "right"}
+                  align={isMobileMode ? "end" : "start"}
+                  sideOffset={isMobileMode ? 6 : 10}
+                  alignOffset={isMobileMode ? 0 : -6}
+                  collisionPadding={12}
+                  // Opaque and borderless, lifted by a soft shadow only, as in
+                  // the reference. The fallback keeps it opaque even if the
+                  // chat tokens are missing, so rows can never show through.
+                  className="min-w-[12.5rem] rounded-[20px] border-0 bg-[color:var(--one-chat-menu,var(--popover))] p-1.5 text-foreground shadow-[0_16px_44px_-10px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_18px_48px_-8px_rgba(0,0,0,0.75),0_2px_8px_rgba(0,0,0,0.4)]"
+                >
                   <DropdownMenuItem
-                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)]"
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] focus:!text-foreground [&_svg]:!size-[18px]"
                     onSelect={() => startRename(conversation)}
                   >
-                    <Pencil className="h-4 w-4" aria-hidden="true" />
-                    Rename chat
+                    <Pencil aria-hidden="true" />
+                    Rename
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
-                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)]"
+                    className="h-11 cursor-pointer gap-3 rounded-[14px] px-3 text-[15px] focus:!bg-[color:var(--one-chat-row-active)] [&_svg]:!size-[18px]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
-                    <Trash2 className="h-4 w-4" aria-hidden="true" />
-                    Delete chat
+                    <Trash2 aria-hidden="true" />
+                    Delete
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>}
@@ -433,23 +455,68 @@ export function AgentHistorySidebar({
     );
   };
 
+  const railMode = collapsed && !isMobileMode;
+  const searchField = (
+    <div className="relative min-w-0 flex-1">
+      <Search
+        className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--one-chat-meta)]"
+        aria-hidden="true"
+      />
+      <Input
+        type="search"
+        value={searchQuery}
+        onChange={(event) => setSearchQuery(event.target.value)}
+        // Short, as in the reference: "Search chats" was cut to "Search ch"
+        // in the narrower column. The accessible name keeps the full phrase.
+        placeholder="Search"
+        aria-label="Search chats"
+        autoComplete="off"
+        autoCorrect="off"
+        spellCheck={false}
+        className={cn(
+          "rounded-full border border-[color:var(--one-chat-search-border)] bg-[color:var(--one-chat-search-bg)] pl-9 pr-9 text-[14px] text-foreground shadow-none placeholder:text-[color:var(--one-chat-meta)] focus-visible:border-[color:var(--app-accent)]/50 focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/25",
+          isMobileMode ? "h-11" : "h-9",
+        )}
+      />
+      <SearchClearButton
+        visible={searchQuery.length > 0}
+        label="Clear chat search"
+        onClear={() => setSearchQuery("")}
+      />
+    </div>
+  );
+  // Quiet list rows, as in the reference: no pill outline or glass, only a
+  // hover fill. The shared control keeps its focus ring and ripple.
+  const footerButtonClassName = cn(
+    "h-11 min-h-11 w-full rounded-[12px] border-transparent bg-transparent text-[14px] font-medium text-foreground shadow-none hover:bg-[color:var(--one-chat-row-hover)] sm:text-[14px]",
+    railMode ? "justify-center px-0 sm:px-0" : "justify-start gap-3 px-3 sm:gap-3 sm:px-3",
+  );
+
   return (
     <>
       <aside
+        data-one-chat-surface
         className={cn(
           "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           // Opaque in the drawer: the panel slides with a transform, and WebKit
           // (iOS WKWebView) takes that transformed panel as the backdrop root, so
           // a translucent glass surface blurred nothing and showed the chat
           // through the drawer on iOS while Chromium's blur hid it on web.
+          // The drawer runs the full viewport height, flush to the leading edge
+          // (founder direction, 2026-09-28), so only the trailing corners round
+          // and the surface pads the safe areas itself: under the status bar and
+          // home indicator it is panel, never a gap.
           isMobileMode
-            ? "rounded-[24px] border border-black/[0.07] bg-background shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:border-white/[0.09] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
-            : "border-r border-black/[0.06] bg-background/90 backdrop-blur-2xl dark:border-white/[0.08]",
-          collapsed && !isMobileMode ? "w-16" : "w-72",
+            ? "rounded-r-[24px] border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)] pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] shadow-[0_24px_56px_-16px_rgba(0,0,0,0.22),0_2px_8px_rgba(0,0,0,0.06)] dark:shadow-[0_24px_56px_-16px_rgba(0,0,0,0.7)]"
+            // Persistent desktop column (Muse-style two-column layout): one
+            // surface with the chat, separated by a hairline, never a scrim.
+            : "border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]",
+          railMode ? "w-16" : "w-60",
           className
         )}
         aria-label="Agent chat history"
         data-collapsed={collapsed ? "true" : "false"}
+        data-agent-history-sidebar={isMobileMode ? "drawer" : "persistent"}
       >
         {isMobileMode ? (
           <div className="px-4 pb-1 pt-4">
@@ -459,7 +526,7 @@ export function AgentHistorySidebar({
                   {listTitle}
                 </h2>
                 {conversations.length > 0 ? (
-                  <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-muted-foreground dark:bg-white/[0.08]">
+                  <span className="rounded-full bg-[color:var(--one-chat-field)] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
                     {conversations.length}
                   </span>
                 ) : null}
@@ -469,7 +536,8 @@ export function AgentHistorySidebar({
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                  // 32px glyph well, 44px hit area (the ::after extends it 6px each side).
+                  className="relative h-8 w-8 rounded-lg text-muted-foreground after:absolute after:-inset-1.5 hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground"
                   onClick={onClose}
                   aria-label="Close chat history"
                   title="Close chats"
@@ -484,155 +552,82 @@ export function AgentHistorySidebar({
               variant="outline"
               size="sm"
               data-chat-new-button
-              className="mt-3 flex h-10 w-full items-center justify-between rounded-[12px] border-transparent bg-foreground/[0.05] px-3 text-[14px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-foreground/[0.08] active:scale-[0.98] dark:border-transparent dark:bg-white/[0.07] dark:hover:bg-white/[0.1]"
+              className="mt-3 flex h-11 w-full items-center justify-start gap-2 rounded-[12px] border-transparent bg-[color:var(--one-chat-field)] px-3 text-[15px] font-medium text-foreground shadow-none transition-[transform,background-color] motion-reduce:transition-none duration-150 hover:bg-[color:var(--one-chat-field-strong)] dark:border-transparent dark:bg-[color:var(--one-chat-field)] dark:hover:bg-[color:var(--one-chat-field-strong)]"
               onClick={onCreateNew}
               disabled={disabled}
               aria-label="Create new chat"
               title="Create new chat"
             >
-              <div className="flex items-center gap-2">
-                <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
-                <span className="font-medium text-[13px]">New chat</span>
-              </div>
+              <Plus className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+              <span>New chat</span>
+            </Button>
+          </div>
+        ) : railMode ? (
+          <div className="flex w-full flex-col items-center gap-2 p-3">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              onClick={onToggleCollapsed}
+              aria-label="Expand chat history"
+              title="Expand chat history"
+            >
+              <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 rounded-xl text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              onClick={onCreateNew}
+              disabled={disabled}
+              aria-label="Create new chat"
+              title="New chat"
+            >
+              <Plus className="h-4 w-4" aria-hidden="true" />
             </Button>
           </div>
         ) : (
-          <div className="border-b border-black/[0.05] p-3 dark:border-white/[0.06]">
-            {collapsed && !isMobileMode ? (
-              <div className="flex w-full flex-col items-center gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-xl border border-black/10 bg-black/[0.035] text-muted-foreground hover:bg-black/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
-                  onClick={onToggleCollapsed}
-                  aria-label="Expand chat history"
-                  title="Expand chat history"
-                >
-                  <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="h-9 w-9 rounded-xl bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/20 focus-visible:ring-2 focus-visible:ring-primary/60"
-                  onClick={onCreateNew}
-                  disabled={disabled}
-                  aria-label="Create new chat"
-                  title="New chat"
-                >
-                  <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <h2 className="text-[13.5px] font-semibold tracking-tight text-foreground">
-                      {listTitle}
-                    </h2>
-                    {conversations.length > 0 ? (
-                      <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-muted-foreground dark:bg-white/[0.08]">
-                        {conversations.length}
-                      </span>
-                    ) : null}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    {onToggleCollapsed ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="hidden h-8 w-8 rounded-lg text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-white/[0.08] lg:inline-flex"
-                        onClick={onToggleCollapsed}
-                        aria-label="Collapse chat history"
-                        title="Collapse chat history"
-                      >
-                        <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                    {onClose ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
-                        onClick={onClose}
-                        aria-label="Close chat history"
-                        title="Close chat history"
-                      >
-                        <X className="h-4 w-4" aria-hidden="true" />
-                      </Button>
-                    ) : null}
-                  </div>
-                </div>
-                {puppyFootnote}
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  data-chat-new-button
-                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
-                  onClick={onCreateNew}
-                  disabled={disabled}
-                  aria-label="Create new chat"
-                  title="Create new chat"
-                >
-                  <div className="flex items-center gap-2">
-                    <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
-                    <span className="font-medium text-[13px]">New chat</span>
-                  </div>
-                  <kbd className="rounded border border-black/10 bg-background/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 dark:border-white/10 dark:bg-black/40">
-                    ⌘N
-                  </kbd>
-                </Button>
-              </div>
-            )}
+          // Search first, level with the chat header, then New chat beside it.
+          <div className="flex h-[var(--agent-chat-header-height,4rem)] shrink-0 items-center gap-2 px-3 pt-[var(--agent-chat-header-safe-top,0px)]">
+            {searchField}
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              data-chat-new-button
+              className="h-10 w-10 shrink-0 rounded-full text-muted-foreground hover:bg-[color:var(--one-chat-row-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              onClick={onCreateNew}
+              disabled={disabled}
+              aria-label="Create new chat"
+              title="New chat"
+            >
+              <Plus className="h-[18px] w-[18px]" aria-hidden="true" />
+            </Button>
           </div>
         )}
 
-        {!collapsed ? (
-          <div className={cn(isMobileMode ? "px-4 pb-1 pt-2" : "px-3 pb-1 pt-2.5")}>
-            <div className="relative">
-              <Search
-                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70"
-                aria-hidden="true"
-              />
-              <Input
-                type="search"
-                value={searchQuery}
-                onChange={(event) => setSearchQuery(event.target.value)}
-                placeholder="Search chats"
-                aria-label="Search chats"
-                autoComplete="off"
-                autoCorrect="off"
-                spellCheck={false}
-                className="h-9 rounded-xl border border-black/[0.06] bg-foreground/[0.035] pl-8 pr-8 text-[13px] text-foreground placeholder:text-muted-foreground/60 focus-visible:border-[color:var(--app-accent)]/50 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-[color:var(--app-accent)]/30 dark:border-white/[0.07] dark:bg-white/[0.04] dark:focus-visible:bg-[#0c0c0e]"
-              />
-              <SearchClearButton
-                visible={searchQuery.length > 0}
-                label="Clear chat search"
-                onClear={() => setSearchQuery("")}
-              />
-            </div>
-          </div>
-        ) : null}
+        {isMobileMode ? <div className="px-4 pb-1 pt-2">{searchField}</div> : null}
+        {!isMobileMode && !railMode && puppyFootnote ? <div className="px-4">{puppyFootnote}</div> : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-3 pt-1.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
-          {collapsed ? <div className="h-2" aria-hidden="true" /> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2.5 pb-3 pt-0.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
+          {railMode ? <div className="h-2" aria-hidden="true" /> : null}
+
+          {!railMode && surface === "one" ? driveActivity : null}
 
           {loading ? (
-            <div className="space-y-2 py-2">
-              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
-              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
-              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
+            <div className="space-y-2 py-2" aria-label="Loading chats" role="status">
+              <div className="h-10 w-full animate-pulse rounded-[12px] bg-[color:var(--one-chat-field)] motion-reduce:animate-none" />
+              <div className="h-10 w-full animate-pulse rounded-[12px] bg-[color:var(--one-chat-field)] motion-reduce:animate-none" />
+              <div className="h-10 w-full animate-pulse rounded-[12px] bg-[color:var(--one-chat-field)] motion-reduce:animate-none" />
             </div>
           ) : null}
 
-          {!collapsed && !loading && conversations.length === 0 ? (
-            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-foreground/[0.015] px-4 py-8 text-center dark:border-white/10 dark:bg-white/[0.02]">
-              <div className="mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
-                <MessageSquare className="h-5 w-5 opacity-70" strokeWidth={1.8} aria-hidden="true" />
+          {!railMode && !loading && conversations.length === 0 ? (
+            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[color:var(--one-chat-divider)] px-4 py-8 text-center">
+              <div className="mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-[color:var(--one-chat-field)] text-muted-foreground">
+                <MessageSquare className="h-5 w-5 opacity-70" aria-hidden="true" />
               </div>
               <p className="text-[13px] font-semibold text-foreground/80">No chats yet</p>
               <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
@@ -642,7 +637,7 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="outline"
                 size="sm"
-                className="mt-3.5 h-8 gap-1.5 rounded-lg border-black/10 bg-background/50 text-xs font-medium hover:bg-foreground/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/[0.08]"
+                className="mt-3.5 h-9 gap-1.5 rounded-full border-[color:var(--one-chat-divider)] bg-transparent px-3.5 text-xs font-medium hover:bg-[color:var(--one-chat-row-hover)] dark:border-[color:var(--one-chat-divider)] dark:bg-transparent"
                 onClick={onCreateNew}
                 disabled={disabled}
               >
@@ -652,12 +647,12 @@ export function AgentHistorySidebar({
             </div>
           ) : null}
 
-          {!collapsed &&
+          {!railMode &&
           !loading &&
           conversations.length > 0 &&
           filteredConversations.length === 0 ? (
-            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-foreground/[0.015] px-4 py-7 text-center dark:border-white/10 dark:bg-white/[0.02]">
-              <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
+            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-[color:var(--one-chat-divider)] px-4 py-7 text-center">
+              <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl bg-[color:var(--one-chat-field)] text-muted-foreground">
                 <Search className="h-4 w-4 opacity-70" aria-hidden="true" />
               </div>
               <p className="text-[13px] font-semibold text-foreground/80">No matches found</p>
@@ -668,7 +663,7 @@ export function AgentHistorySidebar({
                 type="button"
                 variant="ghost"
                 size="sm"
-                className="mt-2 h-7 text-xs text-muted-foreground hover:text-foreground"
+                className="mt-2 h-8 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => setSearchQuery("")}
               >
                 Clear search
@@ -676,7 +671,7 @@ export function AgentHistorySidebar({
             </div>
           ) : null}
 
-          {collapsed ? (
+          {railMode ? (
             <div
               className="space-y-1"
               role="list"
@@ -687,21 +682,19 @@ export function AgentHistorySidebar({
               )}
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
                   <div
                     className={cn(
-                      "px-2 pb-1 pt-2",
-                      isMobileMode
-                        ? "text-[13px] font-semibold text-muted-foreground"
-                        : "text-[11px] font-medium tracking-wide text-muted-foreground/70",
+                      "px-3 pb-1 pt-1.5 font-normal text-[color:var(--one-chat-meta)]",
+                      isMobileMode ? "text-[14px]" : "text-[13.5px]",
                     )}
                   >
                     {group.label}
                   </div>
                   <div
-                    className="space-y-0.5"
+                    className="space-y-px"
                     role="list"
                     aria-label={`${group.label} conversations`}
                   >
@@ -714,23 +707,44 @@ export function AgentHistorySidebar({
             </div>
           )}
         </div>
-        {onOpenConnectors ? (
-          <ShellActionSurface
-            variant="pill"
-            type="button"
-            pressScale={false}
-            wrapperClassName="w-full shrink-0 border-t border-black/[0.06] px-3 py-2 pb-[max(0.5rem,calc(env(safe-area-inset-bottom,0px)-var(--app-bottom-shell-height,0px)))] dark:border-white/[0.08]"
-            className={cn(
-              "h-11 min-h-11 w-full justify-start rounded-xl px-3 text-[13px] font-medium text-foreground",
-              collapsed && !isMobileMode ? "justify-center px-0" : "justify-start px-3",
-            )}
-            onClick={(event) => onOpenConnectors(event.currentTarget)}
-            aria-label="Open Connectors"
-            title={collapsed && !isMobileMode ? "Connectors" : undefined}
+        {onGetApp || onOpenConnectors ? (
+          // Pinned below the list: it scrolls, these never do.
+          <div
+            data-agent-history-footer
+            className="shrink-0 space-y-0.5 border-t border-[color:var(--one-chat-divider)] px-2.5 py-2"
           >
-            <PlugIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            {collapsed && !isMobileMode ? null : <span className="truncate">Connectors</span>}
-          </ShellActionSurface>
+            {onGetApp ? (
+              <ShellActionSurface
+                variant="pill"
+                type="button"
+                wrapperClassName="w-full"
+                data-testid="agent-history-get-app"
+                className={footerButtonClassName}
+                onClick={(event) => onGetApp(event.currentTarget)}
+                aria-label="Get the app"
+                aria-haspopup="dialog"
+                aria-expanded={getAppOpen}
+                title={railMode ? "Get the app" : undefined}
+              >
+                <DownloadIcon className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
+                {railMode ? null : <span className="truncate">Get the app</span>}
+              </ShellActionSurface>
+            ) : null}
+            {onOpenConnectors ? (
+              <ShellActionSurface
+                variant="pill"
+                type="button"
+                wrapperClassName="w-full"
+                className={footerButtonClassName}
+                onClick={(event) => onOpenConnectors(event.currentTarget)}
+                aria-label="Open Connectors"
+                title={railMode ? "Connectors" : undefined}
+              >
+                <PlugIcon className="size-[18px] shrink-0 text-muted-foreground" aria-hidden="true" />
+                {railMode ? null : <span className="truncate">Connectors</span>}
+              </ShellActionSurface>
+            ) : null}
+          </div>
         ) : null}
       </aside>
 

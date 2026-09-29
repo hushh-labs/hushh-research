@@ -1,9 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
+  push: vi.fn(),
   resolveAfterLogin: vi.fn(),
   getIdToken: vi.fn(),
   getIdTokenWithRetry: vi.fn(),
@@ -18,7 +19,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace: mocks.replace, push: vi.fn() }),
+  useRouter: () => ({ replace: mocks.replace, push: mocks.push }),
   useSearchParams: () => new URLSearchParams(mocks.search),
 }));
 
@@ -49,7 +50,9 @@ vi.mock("@/lib/services/auth-service", () => ({
 }));
 
 vi.mock("@/components/onboarding/IntroStep", () => ({
-  IntroStep: () => <div>Welcome</div>,
+  IntroStep: ({ onLogin }: { onLogin: () => void }) => (
+    <button onClick={onLogin}>Welcome</button>
+  ),
 }));
 vi.mock("@/components/seo/json-ld", () => ({ JsonLd: () => null }));
 vi.mock("@/lib/seo/structured-data", () => ({ buildFaqGraph: () => ({}) }));
@@ -87,6 +90,7 @@ import Home from "@/app/page";
 describe("authenticated root entry", () => {
   beforeEach(() => {
     mocks.replace.mockReset();
+    mocks.push.mockReset();
     mocks.resolveAfterLogin.mockReset();
     mocks.getIdToken.mockReset();
     mocks.getIdTokenWithRetry.mockReset();
@@ -103,10 +107,61 @@ describe("authenticated root entry", () => {
     mocks.resolveAfterLogin.mockResolvedValue("/");
   });
 
+  it("opens the guest intro only for a signed-out One invitation and continues to login", async () => {
+    mocks.user = null;
+    mocks.search = "invite=one";
+    render(<Home />);
+    screen.getByRole("button", { name: "Welcome" }).click();
+    expect(mocks.push).toHaveBeenCalledWith("/login?redirect=%2F%3Finvite%3Done");
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "",
+    "invite=other",
+    "invite=one&invite=one",
+    "redirect=%2Fone%2Fcalendar",
+    "invite=one&redirect=%2Fcircle%2Fjoin%3Fcode%3DCIRCLE1",
+  ])(
+    "keeps ordinary, ambiguous, and redirected signed-out entries out of the intro (%s)",
+    async (search) => {
+      mocks.user = null;
+      mocks.search = search;
+      render(<Home />);
+      const redirect = new URLSearchParams(search).get("redirect");
+      await waitFor(() =>
+        expect(mocks.replace).toHaveBeenCalledWith(
+          redirect
+            ? `/login?redirect=${encodeURIComponent(redirect)}`
+            : "/login",
+        ),
+      );
+      expect(screen.queryByText("Welcome")).toBeNull();
+    },
+  );
+
+  it("does not flash the guest intro while restoring an invited session", () => {
+    mocks.user = null;
+    mocks.loading = true;
+    mocks.search = "invite=one";
+    render(<Home />);
+    expect(screen.queryByText("Welcome")).toBeNull();
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
+  it("bypasses the guest intro for an already signed-in One invitation", async () => {
+    mocks.search = "invite=one";
+    render(<Home />);
+    await screen.findByText("Chat workspace");
+    expect(screen.queryByText("Welcome")).toBeNull();
+  });
+
   it("enters the authenticated Chat workspace at the canonical root", async () => {
     const view = render(<Home />);
 
-    await waitFor(() => expect(screen.getByText("Chat workspace")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Chat workspace")).toBeTruthy(),
+    );
     expect(mocks.resolveAfterLogin).toHaveBeenCalledTimes(1);
     expect(mocks.resolveAfterLogin).toHaveBeenCalledWith({
       userId: "returning_user",
@@ -124,9 +179,29 @@ describe("authenticated root entry", () => {
   });
 
   it("settles entry when StrictMode replays the admission effect", async () => {
-    render(<StrictMode><Home /></StrictMode>);
+    render(
+      <StrictMode>
+        <Home />
+      </StrictMode>,
+    );
     expect(await screen.findByText("Chat workspace")).toBeTruthy();
     expect(screen.queryByText("Opening chat…")).toBeNull();
+  });
+
+  it("does not overwrite an invitation arrival after the home route unmounts", async () => {
+    let settle!: (path: string) => void;
+    mocks.resolveAfterLogin.mockReturnValue(
+      new Promise((resolve) => {
+        settle = resolve;
+      }),
+    );
+    const view = render(<Home />);
+    await waitFor(() => expect(mocks.resolveAfterLogin).toHaveBeenCalledOnce());
+    // Committing an app-link route removes Home while its account lookup may
+    // still be in flight. The old result must not steal the new destination.
+    view.unmount();
+    await act(async () => settle("/one/setup/connections"));
+    expect(mocks.replace).not.toHaveBeenCalled();
   });
 
   it("honors a changed explicit destination for the same owner", async () => {
@@ -135,7 +210,9 @@ describe("authenticated root entry", () => {
     mocks.search = "redirect=%2Fone%2Fcalendar";
     mocks.resolveAfterLogin.mockResolvedValue("/one/calendar");
     view.rerender(<Home />);
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/calendar"));
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith("/one/calendar"),
+    );
   });
 
   it("uses the bounded-retry token fetch, not a single-shot read, for a deep link (e.g. a referral redirect)", async () => {
@@ -191,8 +268,11 @@ describe("authenticated root entry", () => {
   it("offers recovery when a native cold read cannot identify the account", async () => {
     mocks.user = null;
     mocks.sessionVerificationRequired = true;
+    mocks.search = "invite=one";
     render(<Home />);
-    expect(await screen.findByText(/reconnect to continue securely/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/reconnect to continue securely/i),
+    ).toBeTruthy();
     expect(screen.queryByText("Welcome")).toBeNull();
     screen.getByRole("button", { name: "Sign out" }).click();
     expect(mocks.signOut).toHaveBeenCalledTimes(1);

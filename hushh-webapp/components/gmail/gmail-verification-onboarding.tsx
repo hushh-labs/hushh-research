@@ -241,7 +241,7 @@ export function GmailVerificationOnboarding({
           </p>
         </div>
       </div>
-      <div className="mx-auto flex w-full max-w-xs flex-col items-center gap-1">
+      <div className="mx-auto flex w-full max-w-[244px] flex-col items-center gap-1">
         <Button
           type="button"
           size="prominent"

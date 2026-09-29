@@ -238,6 +238,23 @@ describe("ApiService.apiFetch", () => {
     expect(await b).toEqual({ token: "synthetic-token-b" });
   });
 
+  it("never asks for or mints a review session from a production build", async () => {
+    // Negative control: a UAT build asks the backend and honours its answer.
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ enabled: true }));
+    expect(await ApiService.getAppReviewModeConfig()).toEqual({ enabled: true });
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+
+    mockFetch.mockReset();
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "production");
+    mockFetch.mockResolvedValue(jsonResponse({ enabled: true, token: "synthetic-token" }));
+    expect(await ApiService.getAppReviewModeConfig()).toEqual({ enabled: false });
+    await expect(ApiService.createAppReviewModeSession("reviewer")).rejects.toThrow(
+      "Reviewer login unavailable",
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 

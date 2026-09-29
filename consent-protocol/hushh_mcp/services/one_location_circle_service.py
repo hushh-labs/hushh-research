@@ -2723,6 +2723,14 @@ class OneLocationCircleService:
         user_id: str,
         code: str,
     ) -> dict[str, Any]:
+        return self._preview_invite_code(user_id=user_id, code=code)
+
+    def preview_public_invite_code(self, *, code: str) -> dict[str, str]:
+        """Link-holder presentation only; never membership or sharing authority."""
+        preview = self._preview_invite_code(user_id=None, code=code)
+        return {"name": preview["name"], "ownerDisplayName": preview["ownerDisplayName"]}
+
+    def _preview_invite_code(self, *, user_id: str | None, code: str) -> dict[str, Any]:
         normalized_code = normalize_circle_code(code)
         code_hash = self._code_hash(normalized_code)
         try:
@@ -2750,6 +2758,8 @@ class OneLocationCircleService:
                   AND code.status = 'active'
                   AND code.expires_at > NOW()
                   AND code.use_count < code.max_uses
+                  AND NOT circle.is_system
+                  AND circle.system_kind IS NULL
                 GROUP BY
                   circle.id, circle.name, circle.kind, code.expires_at,
                   circle.owner_user_id, identity.display_name

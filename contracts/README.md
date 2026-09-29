@@ -31,8 +31,15 @@ safe as the review it gets.
 | --- | --- | --- |
 | `pkm/internal-path-keys.v1.json` | Which stored keys are plumbing rather than a person's record, so they never become requestable | `hushh-webapp/lib/pkm/internal-path-keys.ts` and `consent-protocol/hushh_mcp/consent/internal_path_keys.py` |
 | `pkm/segment-humanization.v1.json` | How one path segment is spelled for a person | `hushh-webapp/lib/pkm/humanize-segment.ts` and `consent-protocol/hushh_mcp/consent/segment_labels.py` |
+| `consent/field-sensitivity.v1.json` | Which FIELDS are sensitive in any domain (identifier keys such as an EIN, and identifier-shaped values), so they never reach the model even inside a standard item | `consent-protocol/hushh_mcp/consent/field_sensitivity.py` and `hushh-webapp/lib/consent/field-sensitivity.ts` (the continuation builder and the secure card) |
+| `consent/field-labels.v1.json` | Human names for field keys and enum values ("Fein" is "Federal EIN", "C_CORP" is "C corporation") | `consent-protocol/hushh_mcp/consent/field_labels.py` and `hushh-webapp/lib/consent/field-labels.ts` (names a field the device withholds); the secure card's own label table has not moved onto it yet |
 
-Both are hand-edited on purpose. Changing either changes what the product will
+All four are hand-edited on purpose. The two `consent/` tables are read by the
+backend at runtime, so each also has an in-context copy under
+`consent-protocol/contracts/consent/` that must match this one
+(`consent-protocol/tests/test_generated_contract_packaging.py`), and a copy under
+`hushh-webapp/contracts/consent/` that the webapp imports
+(`hushh-webapp/__tests__/lib/consent/field-sensitivity-contract.test.ts`, which also runs every case). Changing either changes what the product will
 offer to share, so the two implementations must be re-run together.
 
 ## Duplication rule

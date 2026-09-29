@@ -207,31 +207,251 @@ vault key, connector credential, scope payload, or decrypted value is stored.
 
 #### Continuing the asking chat after an answer
 
-When the other person approves, declines, or lets a chat-sent request expire,
-the requester's app opens one follow-up turn in the same conversation with
+When the other person approves, declines, lets a chat-sent request expire, or
+later ends access, the requester's app opens one follow-up turn in the same
+conversation with
 `forwardedProps.consentContinuation = {bundleId, outcome, sharedInformation?}`
-and the fixed message `Consent approved`, `Request declined` or `Request
-expired`. `POST /api/one/agent-chat` admits it only with the requester's
-VAULT_OWNER token and chat key, only in the conversation that recorded the
-submission, only when the ledger's current outcome for that bundle (read as the
-requester) equals `outcome`, and only once per bundle (`409` otherwise). No tool
-runs in that turn. `sharedInformation` is accepted only for
-an approval (≤ 12,000 characters), is the text the requester's device decrypted
-from the approved export, and is held as a 10-minute in-memory request secret;
-session state carries only its reference. Anything else returns `400`/`409`.
+and the fixed message for that outcome:
+
+| `outcome` | Fixed message |
+| --- | --- |
+| `granted` | `Consent approved` |
+| `partially_granted` | `Partly approved` |
+| `denied` | `Request declined` |
+| `expired` | `Request expired` |
+| `revoked` | `Access ended` |
+
+`POST /api/one/agent-chat` admits it only with the requester's VAULT_OWNER token
+and chat key, only in the conversation that recorded the submission, only when
+the ledger's current outcome for that bundle (`progress.outcome`, read as the
+requester) equals `outcome`, and only once per bundle (`409` otherwise). The one
+exception: a bundle continued with `granted` or `partially_granted` may be
+continued once more with `expired` or `revoked`. A client that sends `granted`
+for a partial answer is admitted and recorded as `partially_granted`. The model
+is told which fields were shared and which were not. No tool runs in that turn
+(tool calling mode `NONE`) and it runs at the lowest thinking level the model
+accepts. `sharedInformation` is accepted only for `granted`/`partially_granted`
+(≤ 12,000 characters), is the text the requester's device decrypted from the
+approved export, and is held as a 10-minute in-memory request secret; session
+state carries only its reference. Anything else returns `400`/`409`.
+**Sensitive values never reach the model (CONTRACT-2 C7).** The device sends a
+sensitive item's field-name outline instead of its values. Admission enforces
+it again before the text is stored: each line of an item whose
+`sensitivity` is `sensitive` (or missing) becomes
+`- <label>: N fields (<names>). Sensitive: shown to the person in the secure card on their device; the values are not shared with you.`,
+built from key names only, and a line no `standard` item claims is dropped.
+**Field level (2026-09-29).** A `standard` item is checked line by line with
+`hushh_mcp/consent/field_sensitivity.py` `field_sensitivity(key_path, value)`:
+an identifier-class key on the line's path (SSN, SIN, national id, tax id, TIN,
+EIN, FEIN, ITIN, passport, driver license, account or routing number, IBAN, card
+number, CVV, date of birth, government id numbers, security answers, anything
+secret-shaped) or an identifier-shaped value (an SSN, an EIN, a Luhn-valid card
+number, an IBAN, a credential string) removes that line and names the field in
+`- <label>: sensitive field(s) (<names>). Shown to the person in the secure card on their device; the values are not shared with you.`
+The rest of the item still reaches the model. Unknown keys in a standard item
+stay standard. The words, phrases and value patterns live in
+`contracts/consent/field-sensitivity.v1.json` (backend copy under
+`consent-protocol/contracts/consent/`), so the client applies the same rule
+before it builds `sharedInformation`. Measured cause: in localhost acceptance
+run 4 the same EIN was sensitive under "Tax record" and standard as "Fein" under
+"Legal entity information".
+It logs `one.consent_sensitive_stripped count=<lines>` (a count only). The
+turn's instruction names those items and tells One the values are in the secure
+card above, never to guess or restate them. Every outline the model's block
+carries is also listed in the instruction as shared but hidden
+(`Shared with the person but hidden from you, with values only in the secure card above: Tax record (Filing year, Refund).`),
+and One is told to answer the rest from the values and say those parts are in
+the secure card, never that they were not shared. A declined request's turn
+offers exactly one concrete alternative (a narrower item, or asking later).
 `GET /api/one/agent-chat/history/{conversation_id}` returns `consentOutcomes`
-(`{bundleId: outcome}` for bundles already continued) and restores the follow-up
-message as a `selection` chip.
+(`{bundleId: outcome}` for bundles already continued), `consentAccessEnded`
+(`{bundleId: "revoked"|"expired"}`), and restores the follow-up message as a
+`selection` chip.
+
+**Redaction after access ends (CONTRACT C3).** Every turn that ran while a
+bundle's shared information was live in the conversation (the answer turn and
+later turns until access ends) is recorded against the bundle in sealed session
+state. Before each later model call the server re-reads the bundle as the
+requester; once access has ended (`revoked`, `expired`, or `progress.ended_at`
+set) it replaces those turns' model-side content in the model request with
+`Access to <labels> from <name> ended; do not use or repeat it.` Turns are
+located by identity: the person's own messages in the request are aligned in
+order with the sealed session's user events, and everything else between two
+of them belongs to that turn. If a tagged turn cannot be located, that bundle
+fails closed and every model-side content from its first tagged turn onward is
+replaced. A fenced shared block, or a tool payload naming an ended bundle, is
+replaced wherever it appears. Each model call logs
+`one.consent_redaction bundles=… tagged_turns=… replaced=… mode=identity|fail_closed`
+(bundle ids and counts only). Stored sealed events are not modified.
+
+The continuation record (`temp:hussh:consent_continuation`) belongs to its
+answer turn only. The encrypted session store never seals `temp:` state and
+drops any it finds in an older row; a shared continuation record seen in any
+later invocation is refused (`one.consent_continuation_stale`), and a fenced
+shared block is stripped from any other turn's instruction. Measured
+2026-09-28: before this, the sealed record re-rendered the shared block into
+every later turn for its 10-minute lifetime, blocked their tools, and skipped
+the revoke check. In the history response, those turns' assistant
+messages carry `metadata.consentBundleId` and
+`metadata.consentAccess = {bundleId, state: "live"|"ended", outcome, personName, labels}`;
+once ended the message's `content` is `""`, its cards and activity are dropped,
+`metadata.consentAccessEnded` is `true`, and only one such message is returned
+per turn. The status chip carries `consentBundleId` (and `consentAccessEnded`).
+
+#### Request progress (CONTRACT C1)
+
+`GET /api/one/information-requests/{bundle_id}` (VAULT_OWNER, requester-bound)
+is polled while a request is open, so it reads three indexed queries whatever
+the item count: the bundle joined with its items, the items' state transitions
+(each item's status is its latest transition, the same rows `progress` is built
+from), and the owner-scoped delivery records (`internal_access_events` by
+`(user_id, action)`). It loads no catalog, profile or export. Measured
+2026-09-29 against UAT through the local proxy: 5 to 6 round trips (growing with
+item count) and 1.29 s to 1.73 s median before; 3 round trips and 0.84 s after.
+It keeps `bundleId, personRef, purpose, durationSeconds, cancelled, items` and adds:
+
+```json
+"progress": {
+  "requested_at": "iso",
+  "delivered_at": "iso|null",
+  "seen_at": "iso|null",
+  "decided_at": "iso|null",
+  "outcome": "pending|granted|partially_granted|denied|expired|revoked|cancelled",
+  "access_ends_at": "iso|null",
+  "ended_at": "iso|null",
+  "fields": [{"scope": "attr.food.preferences.*", "label": "Food preferences", "sensitivity": "sensitive|standard", "status": "pending|granted|denied|expired|revoked|cancelled"}]
+}
+```
+
+`delivered_at` is the first `NOTIFICATION_SENT` and `seen_at` the first
+`NOTIFICATION_OPENED` for any field. `decided_at` is set once no field is
+pending. `access_ends_at` is when current access ends. `ended_at` is when access
+that was granted ended (revoked or ran out); it stays `null` for a request that
+expired before a decision. `revoked` (the owner ended it) is never reported as
+`expired` (time ended it). `cancelled` means the requester withdrew. Labels come
+from `hushh_mcp/consent/scope_labels.py`. A field in a credential domain is
+refused at creation with `403` even if a catalog offered it.
+
+`sensitivity` (on `items[]`, `progress.fields[]`, catalog items, viewer-profile
+grants and the shared-with-me card) comes from one server function,
+`hushh_mcp/consent/scope_sensitivity.py` `scope_sensitivity(scope, pkm_tags)`.
+It is `sensitive` for the tax, financial or banking, identity or government-id,
+health or medical, and credentials domains (by registry key or by the words of
+a dynamic domain or path), for any scope a PKM tag (`restricted`,
+`confidential`, `sensitive`) marks, including a wildcard over a tagged branch,
+for any scope whose path holds an identifier-class key (`attr.legal_entity.entity.fein`),
+and for anything that is not a well-formed `attr.<domain>` scope. Everything
+else is `standard`. A stored `standard` never downgrades it.
+
+Labels: a stored label that is mechanical ("Tax Record Domain", "Fein",
+"Naics code") is replaced. A whole dynamic domain whose name is already a
+specific thing reads as that thing ("Tax record", "Legal entity"); a registry
+domain reads "Food & dining information". Field keys and enum values with a
+fixed human name ("Federal EIN", "Industry code (NAICS)", "C corporation") come
+from `contracts/consent/field-labels.v1.json`, which the secure card should
+read too. The requester-facing catalog drops record-keeping rows ("Schema",
+"Last updated", "Holdings is editable", "Connection count") the way it drops a
+record's schema fields, and "tax", "tax return", "refund", "irs" and "filing"
+reach a tax record by synonym; a question that says any of them never reaches
+a financial row by synonym alone (a tax question proposes the tax record, never
+Portfolio).
+
+#### Outcome doorbell: `information_request_updated` (CONTRACT C2)
+
+This is the single, canonical event a requester (and later the requester's pod
+agent) consumes: `(requester_user_id, bundle_id, outcome, at)`. The consent
+listener emits it to the requester over FCM data and the authenticated consent
+SSE stream for `CONSENT_GRANTED`, `CONSENT_DENIED`, `TIMEOUT`, `REVOKED` and
+`CANCELLED` rows of a person-to-person bundle, including each field of a
+partial answer. Payload (identifiers and words only, never a scope, label or
+value):
+
+```json
+{"type": "information_request_updated", "bundle_id": "uuid", "request_id": "one_person_…",
+ "action": "CONSENT_GRANTED|CONSENT_DENIED|TIMEOUT|REVOKED|CANCELLED",
+ "outcome": "pending|granted|partially_granted|denied|expired|revoked|cancelled",
+ "at": "iso", "message_id": "information-request:<bundle>:<request>:<action>:<issued_at>"}
+```
+
+`outcome` is the bundle's `progress.outcome` after this event (omitted only if
+that read failed; the client rereads the bundle anyway). TIMEOUT rows carry
+`bundle_id` since 2026-09-28. Delivery is exactly once per event per device:
+each consent event is claimed by its `consent_audit` id in
+`consent_event_deliveries` (migration 259) before the push, the owner's
+`NOTIFICATION_SENT` record or the requester's doorbell push is sent, so the
+many workers that receive the same PostgreSQL NOTIFY cannot repeat it. Each SSE
+stream lives in one worker and receives the event once. The visible push stays
+bare (see `consent-protocol/docs/reference/fcm-notifications.md`).
 
 `GET /api/one/agent-chat/information-requests/{bundle_id}/conversation`
 (VAULT_OWNER + chat key) returns `{conversationId}` for the requester's own
 conversation that recorded the submission, or `404`. It exists because the
 answer push carries only the bundle id; the conversation lives in sealed history.
 
+#### One's own attention moments
+
+`POST /api/one/first-connect-insights` (VAULT_OWNER + chat key, the same gate as
+a chat turn) offers the "Here's what I picked up" card for one Gmail, Calendar
+or Drive source first connected within the last seven days and not yet offered.
+It returns `{status: "none"|"empty"|"unavailable"}` or `{status: "offered",
+source, sourceLabel, items: [{id, kind, label, memory_text, evidence}]}` (at most
+five). The items come from the manifest gene `one_first_connect_insights` over
+that source's metadata only, and are not stored: `one_attention_ledger`
+(migration 257) records only that the source was offered. Keep saves one item
+through the client's owner-confirmed encrypted PKM writer; nothing else writes
+memory.
+
+A `one_feed_attention` push (see `consent-protocol/docs/reference/fcm-notifications.md`)
+opens `/?feedAttention=<feed row id>`. After unlock the app starts a fresh chat
+whose first turn is the fixed message `Opened an update from your feed` with
+`forwardedProps.feedAttention = {itemId}`. `POST /api/one/agent-chat` admits it
+only for the VAULT_OWNER's own feed row that the server actually pushed
+(`404` otherwise), only once per row per conversation (`409`), and only with
+that exact message and payload shape (`400`). The row's Feed projection is held
+as a 10-minute in-memory request secret for the turn; no tool runs in it; the
+history restores the message as a `selection` chip.
+
 `GET /api/one/information-requests/shared-with-me` (VAULT_OWNER) lists the
 current approvals other people gave this person: display names, item labels,
-bundle and request ids, purpose and expiry. It never returns values; those stay
-in each encrypted export and open on the person's own device.
+bundle and request ids, purpose and expiry, plus `grantRef` (the request id),
+`sensitivity`, `fieldOutline` (field names from the owner's catalog, never
+values), `fields` (`[{name, sensitivity}]`: every field of a sensitive item is
+sensitive, and an identifier field such as "Federal EIN" is sensitive inside a
+standard item), `sharedAt`, `accessEndsAt` and `decryptable`. A grant whose
+scope another live, openable grant from the same person covers is not listed
+separately (a request that asked for `attr.legal_entity.*` and
+`attr.legal_entity.entity.*` lists one item), and items sort by person, then
+label, then when shared, the same order the person page's `grants` use. The
+outline leaves out a record's schema fields ("Events kind") and record-keeping
+rows. The consent ledger decides
+what is current, so an item approved before its request was withdrawn is still
+listed, and an active grant that no request row names is swept in from the
+ledger with `bundleId: null, decryptable: false` (no existing path can open it).
+It never returns values; those stay in each encrypted export and open on the
+person's own device.
+
+**"Shared with you" card in chat (CONTRACT-2 C6).** One's
+`list_information_shared_with_me` tool returns the same shares as
+`cards: [card]` (plus `card` when exactly one person), each:
+
+```json
+{
+  "kind": "one.shared_with_me_card.v1",
+  "person": {"personRef": "...", "displayName": "Manish Sainani", "profilePath": "/people/<ref>"},
+  "items": [{"grantRef": "<request id>", "requestId": "<request id>", "bundleId": "<uuid>|null",
+             "label": "Tax record", "sensitivity": "sensitive|standard",
+             "fieldOutline": ["Filing year", "Refund"],
+             "fields": [{"name": "Filing year", "sensitivity": "sensitive"}], "sharedAt": "iso|null",
+             "accessEndsAt": "iso|null", "purpose": "...", "decryptable": true}],
+  "decryptVia": "information_request_exports"
+}
+```
+
+`decryptVia` names the existing path: `GET /api/one/information-requests/{bundleId}`
+then `/exports`, matched by `requestId`. The model reads the same result, so it
+holds labels and field names only. History restores it as the structured
+experience `one.shared_with_me_card.v1` with content `{cards: [...]}`, each card
+re-validated field by field.
 
 `GET /api/one/people/{person_ref}/request-history` requires the authenticated
 Firebase user. It reads only bundles that user requested from the active person
@@ -244,8 +464,10 @@ continuation value from `nextCursor`. Invalid or cross-person cursors return
 `400`; out-of-range limits return `422`. Results order by bundle creation time
 descending, then bundle UUID descending, so tied timestamps remain stable.
 Each response has `bundles` and `nextCursor` (`null` at the end). A bundle has
-`bundleId`, `purpose`, `durationSeconds`, `createdAt`, `cancelled`, and
-`itemCount`. The count covers all stored items in that bundle, including bundles
+`bundleId`, `purpose`, `durationSeconds`, `createdAt`, `cancelled`,
+`itemCount`, and `itemLabels` (the items' human labels in request order, so the
+page names what was asked for instead of "2 information items"). The viewer
+profile's `requestHistory[].label` is the same human label. The count covers all stored items in that bundle, including bundles
 with more than 100 items. This is request correlation metadata, not consent or
 grant authority; individual grant status remains governed by the consent ledger.
 Concurrent inserts can appear ahead of an existing cursor and require a fresh
@@ -255,6 +477,21 @@ Active `grants` in that viewer profile include a viewer/subject-bound `bundleId`
 when the grant belongs to a person request. Clients use it to fetch current
 bundle status and encrypted exports even after the recent `requestHistory`
 projection is truncated; it is a locator, not decryption authority.
+
+`GET /api/one/people/{person_ref}/scope-catalog?query=&page=&limit=&catalog_revision=`
+is the server-side search behind the request card's Change picker (consent
+lifecycle Contract C4). Same authentication, `404` and `private, no-store` rules
+as above. It searches human labels plus a small synonym table
+(`hushh_mcp/consent/scope_matcher.py`), so "restaurant" finds food; an empty
+`query` lists everything grouped by domain. `limit` is 1–100 (default 20) and
+`page` is 1–1000. The response is
+`{person:{personRef,displayName}, query, items:[{scope,scopeRef,label,description,domain,domainLabel,sensitivity,wildcard,pathSegments,why?}], page, limit, hasMore, nextPage, totalCount, catalogRevision, paginationReset, catalogTruncated, domains:[{domain,label,count}]}`.
+Items carry an opaque `scopeRef` (repeated as `scope`, matching the proposal card), never a raw `attr.*` scope or a value.
+`why` explains a search hit in plain words. Labels come from
+`hushh_mcp/consent/scope_labels.py`. Scopes that
+`hushh_mcp/consent/requestable_scope_policy.py` refuses (runtime secrets,
+credentials, keys, tokens, protocol namespaces) never appear, here or in any
+other person-to-person catalog, and are refused again at request creation.
 
 ### One Runtime Configuration
 
@@ -287,6 +524,16 @@ managed Gemini or `byok_pending_vault`; a Gemini key is never accepted by this
 pre-vault contract. A selected setup credential is process-memory-only: it may
 be request-validated before the vault but is encrypted through the existing
 vault-owner PKM mutation path only at Finish setup.
+
+The same two routes carry `oneChatOnboarding`, the durable progress of One's
+conversational onboarding (migration 257, `vault_keys.one_chat_onboarding`):
+`{version: 1, status: in_progress|completed, answered, skipped, completedOn,
+tipDismissedOn}`, where `answered` and `skipped` hold only the question ids
+`name`, `focus` and `tone`, and the two dates are `YYYY-MM-DD`. The backend
+re-normalizes it (`normalize_one_chat_onboarding`) and drops any other key, so
+the plaintext row can never hold an answer. A person's preferred name and
+reply style are written only to encrypted memory, client-side, after they
+confirm. Omitting the field leaves the stored record unchanged.
 
 ### One Model Preference
 
@@ -615,6 +862,8 @@ not the product owner for live location.
 | POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
 | DELETE | `/api/one/location/circle-member-invites/{invite_id}` | VAULT_OWNER Bearer | Circle owner/inviter cancellation of a pending targeted Circle invitation |
 | POST | `/api/one/location/circle-codes/resolve` | VAULT_OWNER Bearer | Resolve safe Circle preview metadata for a bounded human-entered code |
+| POST | `/api/one/location/circle-codes/public-preview` | Public link holder | Read-only, no-store `{circle: {name, ownerDisplayName}}` for an active, unexpired, unexhausted ordinary Circle code. No membership, roster, account IDs, keys or grants. Uses the existing Circle join rate limit; anonymous web requests may share the proxy's IP bucket. |
+| POST | `/api/one/location/circle-codes/preview` | Firebase Bearer | Viewer-specific pre-vault preview, including member count and `alreadyMember`; unchanged for existing clients. |
 | POST | `/api/one/location/circle-codes/join` | VAULT_OWNER Bearer | Treat the signed-in user's confirmed Join action as membership consent; atomically joins and creates source-aware canonical connection origins with active members, but no trusted edge, SMS selection, location grant, envelope, or capability token |
 | DELETE | `/api/one/location/circles/{circle_id}/members/me` | VAULT_OWNER Bearer | Leave a member role, revoke the shared bearer code and that member's pending authored invitations, revoke matching Circle origins/grants, and preserve direct and other-Circle origins |
 | DELETE | `/api/one/location/circles/{circle_id}/members/{member_user_id}` | VAULT_OWNER Bearer | Owner-only member removal with the same shared-code, authored-invitation, source-aware connection, grant, and SMS cleanup |
@@ -686,7 +935,7 @@ auth-required response.
 | GET    | `/api/ria/picks`                                           | Read the signed-in advisor's encrypted-PKM-backed Picks bootstrap; legacy uploads are intentionally unavailable                                                                                        |
 | POST   | `/api/ria/picks`                                           | Sync the owner PKM-derived `ria.advisor_package`, including its bounded investor debate thesis, to currently authorized explicit Picks share artifacts; the thesis is available only to a selected investor source during a live debate run |
 | GET    | `/api/kai/market/insights/{user_id}`                       | Investor market home payload with rights-gated `pick_sources[]` and RIA feed share metadata                                                                                                            |
-| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over profiles, including people without a verified phone and verified RIAs in the `all` audience. Explicit discoverability opt-outs are respected for strangers; email and phone labels stay masked. The `ria` audience narrows to verified advisers. |
+| GET    | `/api/one/connections/directory`                           | Paginated Connect directory over named, active profiles whose Firebase accounts still exist and are enabled, including people without a verified phone and verified RIAs in the `all` audience. Strangers are listed only when they finished signing up in this environment (a `vault_keys` row with `vault_status = 'active'`); people with no vault row or only a `placeholder` one appear only to a viewer who already has a relationship with them (an active connection, a pending connection request, or an active trusted-connection edge, in either direction). The directory-bounded `context` and `scope-catalog` lookups below apply the same rule. Account, vault and relationship eligibility are resolved before logical pagination; nameless placeholders, strangers without an active vault, and deleted or disabled accounts do not consume result slots. Short cached account checks may take up to 60 seconds to reflect an external auth change; an unavailable auth provider returns a retryable error. Explicit discoverability opt-outs are respected for strangers; email and phone labels stay masked. Distinct accounts with the same name remain separate. The `ria` audience narrows to verified advisers. |
 | GET    | `/api/one/connections/{counterpart_user_id}/context`       | Firebase-authenticated, directory-bounded person lookup with current connection state and the latest participant-pair request. An accepted historical request does not establish current Location eligibility. This read grants no action or information-sharing authority. |
 | GET    | `/api/one/connections/{counterpart_user_id}/scope-catalog` | Server-authorized metadata and opaque handles available for a bilateral proposal                                                                                                                       |
 | POST   | `/api/one/connections/requests`                            | Create a connection request with `requested_scope_handles[]` and `offered_scope_handles[]`                                                                                                             |
@@ -1442,6 +1691,30 @@ server completion. Other management routes retain their vault gates. The officia
 receives an in-memory short-lived token only, and selection needs a separate explicit owner
 confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
 
+Connecting Mail, Drive or Calendar from the chat drawer never navigates the chat window, so
+the memory-only vault key, the chat and the open drawer survive. All three open their consent
+window through one opener (`lib/connections/oauth-window.ts`): a sized popup, or a new tab
+when the popup is refused, synchronously inside the click. Both settle through the same
+contract: the existing callback page posts a redacted outcome to its exact same-origin opener,
+and writes a same-origin storage hint for when Google's opener policy severs the opener. The
+drawer accepts only the exact origin, the exact window and the exact attempt, before the
+attempt expires, and then re-reads owner status; the settlement itself is never proof. When
+both popup and tab are refused, Mail and Calendar stay in place and ask the person to allow
+pop-ups. Drive may use its encrypted one-use recovery capsule for a full-page return, and fails
+closed if the capsule cannot be saved. Native uses the platform Google sign-in sheet (Mail,
+Calendar) or the system authentication browser with an app-link return (Drive); the WebView
+does not reload. Callback URIs and scopes are unchanged.
+
+The in-chat cards use the same path through `lib/connections/google-connect-in-place.ts`:
+the Gmail send upgrade on a failed delivery, the Gmail modify card and the Calendar card One
+shows. Each opens Google's window inside the click, stays cancellable while it is open, and
+decides success only from an owner status read that checks the requested permission. A
+successful send upgrade reopens the reviewed draft, and nothing is sent until the person sends
+it again. The Gmail modify and Calendar cards clear with a confirmation, as the old redirect
+return did. Native Gmail modify is still web-only. `/one/calendar` settles through the same
+handler and no longer reads `popup.closed`, which Google's opener policy makes unreliable. It
+ends on the callback, an explicit Cancel sign-in, or a bounded expiry.
+
 Native Drive authorization and native file selection use separate fixed registered backend HTTPS
 callbacks. The One Picker path requests **only** `drive.file`; Google does not return OIDC identity
 in that flow, so it never claims to identify the callback account. Its callback credential is
@@ -1581,8 +1854,9 @@ only opaque job/share IDs, never a list of Drive IDs or recipient emails.
 | --- | --- |
 | `POST /` | `{searchJobId,clientRequestId,audience:"trusted_circle"}`. Idempotently freezes the completed result IDs and currently eligible, verified recipient identities under an exact review digest. No Google permission or recipient message is created. |
 | `GET /` and `GET /{id}` | Owner's recent review and durable share status: file/recipient counts, exclusions, review revision/digest, and separate queued, confirmed, already-present, skipped, failed, and uncertain effect counts. An uncertain provider write requires review; a queued approval is never called delivered. |
-| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest for inspection before approval. No content downloads. |
+| `GET /{id}/files?cursor=…` | Owner-only, 25-file pages from the frozen encrypted manifest before and after approval. Each file includes bounded per-recipient `outcomes` with recorded status and allowlisted `reasonCode`; original links remain available. No content downloads. |
 | `POST /{id}/approve` | `{revision,reviewDigest,confirmed:true}` from the current exact-set review. HTTP 202 queues file-by-recipient Viewer grants; it does not mean Google access or notification has succeeded. |
+| `POST /{id}/retry` | `{revision,reviewDigest,confirmed:true}` explicitly requeues only a pre-POST `skipped/provider_unavailable` effect with no receipt or lease, in the same frozen manifest. Requires a current owner, exact revision/digest, live connection generation, current recipient relationship and unexpired originating request. Confirmed, stopped, and uncertain effects are never replayed. Returns HTTP 202. |
 | `POST /{id}/stop` | Empty body; fences remaining grants. Already confirmed Google permissions remain and are reported honestly. |
 | `GET /received` and `GET /received/{id}/files?cursor=…` | Current recipient's collection and 25-file pages of *confirmed* original-file links only. The recipient needs a current verified email, not a Drive connector. A changed identity cannot read the old collection. |
 
@@ -1601,6 +1875,17 @@ Only one bulk share can be prepared for a saved search, including across chats o
 repeated requests with different client IDs; reopening recovers the same review
 or progress rather than queueing duplicate grants.
 
+Owner status includes `issues: [{reasonCode,count}]`, `retryableCount` and `canRetry`.
+The displayed partition is `shared + alreadyShared + skipped + failed + needsReview
++ unknown + pending = total`; `processed` counts terminal effects, including failures,
+and is never used as a delivered count. After explicit approval, request delivery
+includes `bulkStatus`, the same recipient-scoped `counts`, and aggregate safe `issues`.
+B receives no failed candidate names or private search metadata. A stopped job keeps
+its stopped status while in-flight effects settle; the originating request then moves
+out of approved and publishes its final outcome. Stop, settlement and retry lock the
+bulk parent before its effects. A retry emits a new request revision without changing
+the reviewed file/recipient manifest.
+
 #### Complete search for a document request
 
 An incoming document request can use the same checkpointed Drive REST search and
@@ -1616,7 +1901,7 @@ file reviews retain their original selection.
 | Method / suffix under `/sharing/requests/{id}` | Contract |
 | --- | --- |
 | `POST /search` | Start or resume the request-bound metadata search. The request ID is the idempotency key; no content or permission is read or written. |
-| `GET /search` | Owner-only checkpoint status, including matched count, pages scanned, incomplete flag, and terminal error. A running or incomplete search cannot be approved as the full set. |
+| `GET /search` | Owner-only checkpoint status, including matched count, unavailable shortcut count, pages scanned, incomplete flag, terminal error and optional `coverage` describing corpus, file kind, frozen date range/basis, scan/exclusion counts and provider page exhaustion. A running or incomplete search cannot be approved as the full set. |
 | `GET /search/files?cursor=…` | Owner-only pages of matching file metadata with stable positions for review. The list may grow until the search completes. |
 | `POST /bulk` | Freeze the completed search for this request's verified recipient, omitting owner-deselected and unavailable shortcut positions. Returns the exact review digest and selected count; no permission is created. |
 
@@ -1630,6 +1915,21 @@ search and sharing. Search results are Drive metadata matches for owner review,
 not proof that every document's contents cover a requested period. The existing
 owner search operational cache uses server-held encryption and is not strict
 client-key zero knowledge, as described above.
+
+Request searches preserve shortcut target metadata through the actual REST projection,
+resolve targets and folder shortcuts, and traverse matching meeting-folder descendants
+with durable encrypted cursors. Document-like note formats include Google Docs, PDF,
+plain text and Word documents; recordings are excluded from a notes request. Topic
+matching uses Drive's file search and existing meeting-note eligibility. The period
+uses a date in the file title first, then creation/modification metadata; it is not a
+content-date verification. Provider pagination is exhausted across the user corpus
+and each member shared drive, including empty pages with continuation tokens; folder
+or result bounds and `incompleteSearch` prevent an exhausted-coverage claim. Every
+selected result is an original file deduplicated by ID. Link-shared originals use
+Google's resource-key header for metadata and permission operations; keys remain
+inside encrypted operational metadata. Only documented rate-limit reason codes on
+a bounded 403 response are treated as transient. An uncertain permission POST is
+reconciled with reads rather than automatically repeated.
 
 ### Exact-file Drive sharing (default-off)
 

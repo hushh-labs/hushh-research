@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { CHAT_USER_BUBBLE_CLASSNAME } from "@/components/agent/chat-message-styles";
+
 const root = process.cwd();
 
 function read(relativePath: string) {
@@ -54,7 +56,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
     expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
-    expect(history).toContain("bg-background/90 backdrop-blur-2xl");
+    // Persistent desktop column (2026-09-29): one solid chat-scoped surface
+    // beside the conversation, separated by a hairline, never glass.
+    expect(history).toContain('"border-r border-[color:var(--one-chat-divider)] bg-[color:var(--one-chat-sidebar)]"');
     expect(history).toContain("ShellActionSurface");
     expect(history).not.toContain('"border-r border-border/70');
   });
@@ -80,10 +84,16 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("keeps one composer and lets auto-expanded drafts return to compact size", () => {
+  it("keeps one composer that grows line by line, with no resize control", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
-    expect(workspace).toContain("agent-chat-composer-expand");
+    // Founder direction (2026-09-29): no expand/collapse icon, and a second
+    // line no longer jumps into the tall editor. The tall editor remains only
+    // for opening a pasted-text attachment from its chip.
+    expect(workspace).not.toContain('"agent-chat-composer-expand"');
+    expect(workspace).not.toContain("Expand message editor");
+    expect(workspace).not.toContain("shouldAutoExpand");
+    expect(workspace).not.toContain("manuallyCollapsedComposerDraftsRef");
     expect(workspace).toContain("agent-chat-composer-expanded");
     expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
@@ -96,14 +106,13 @@ describe("private-agent chat shell contract", () => {
     // One text box serves both sizes: two separate ones were swapped when a
     // long draft auto-expanded and keystrokes in that frame were lost.
     expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
-    expect(workspace).toContain("max-h-28");
-    expect(workspace).toContain("sm:max-h-36");
+    expect(workspace).toContain("max-h-40");
+    expect(workspace).toContain("sm:max-h-44");
+    // The transcript's bottom band follows the composer's measured height.
+    expect(workspace).toContain("--agent-chat-composer-stack-height");
     expect(workspace).toContain("h-[30dvh]");
     expect(workspace).toContain("{ duration: 120, easing, fill: \"none\" }");
     expect(workspace).toContain("transformOrigin: \"left bottom\"");
-    expect(workspace).toContain("manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey)");
-    expect(workspace).toContain("!manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey)");
-    expect(workspace).toContain("onClick={composerExpanded ? collapseComposer : expandComposer}");
     // `composerLong` was removed from this file some time ago; the expanded
     // editor is driven by `composerExpanded` now. The stale name had left this
     // whole case red, which is how a red suite stops being read at all.
@@ -152,12 +161,21 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("renderAsPlainAssistantMessage: true,");
   });
 
-  it("uses the canonical self avatar and removes idle status chrome", () => {
+  it("keeps the header profile control, drops per-message avatars, and removes idle status chrome", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
+    // The top-right profile control stays, with the canonical avatar source.
     expect(workspace).toContain("useEffectiveAvatarUrl");
-    expect(workspace).toContain('data-testid="agent-chat-self-avatar"');
-    expect(workspace).toContain("<AvatarBubble");
+    expect(workspace).toContain('data-testid="profile-open-button"');
+    expect(workspace).toContain('onClick={() => requestProfilePaneOpen("tap")}');
+    expect(workspace).toContain("<AvatarImage src={userAvatarUrl}");
+    // No avatar beside individual user bubbles (founder direction, 2026-09-29).
+    expect(workspace).not.toContain('data-testid="agent-chat-self-avatar"');
+    expect(workspace).not.toContain("<AvatarBubble");
+    // Real times move to centered separators above each group of messages.
+    expect(workspace).toContain("computeChatTimeSeparators(timelineItems)");
+    expect(workspace).toContain("<ChatTimeSeparatorRow separator=");
+    expect(workspace).not.toContain("<span>{message.timestamp}</span>");
     expect(workspace).not.toContain('return "Ready";');
     // Status belongs below One, not beside the profile avatar. The subtitle
     // crossfades without moving the right-hand controls.
@@ -269,5 +287,19 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height");
     expect(styles).toContain('[data-agent-chat-composer-form="root"]');
     expect(styles).toContain("var(--bottom-nav-travel, 0px)");
+  });
+
+  it("keeps selected text visible on the person's own accent bubble", () => {
+    // Regression: the theme highlight is the accent at 28%, so on the accent
+    // bubble selected text vanished. The on-accent rule is keyed to the
+    // bubble's exact fill class; renaming the fill must carry the rule with it.
+    const styles = read("app/globals.css");
+    const fill = CHAT_USER_BUBBLE_CLASSNAME.split(/\s+/).find((name) => name.startsWith("bg-"));
+
+    expect(fill).toBe("bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))]");
+    expect(styles).toContain(`[class~="${fill}"]`);
+    expect(styles).toMatch(/\)\s*::selection\s*\{\s*background-color: var\(--app-accent-selection-bg\);\s*color: var\(--app-accent-selection-fg\);/);
+    expect(styles).toContain("--app-accent-selection-bg:");
+    expect(styles).toContain("--app-accent-selection-fg:");
   });
 });

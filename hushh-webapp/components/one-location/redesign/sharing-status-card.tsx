@@ -210,7 +210,7 @@ export function SharingStatusCard({
                   : "Live location on"
                 : "Turn on live location"
             }
-            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition active:scale-95 disabled:opacity-70 enabled:cursor-pointer dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none"
+            className="inline-flex items-center gap-[7px] rounded-full bg-white px-3 py-1.5 shadow-[0_2px_8px_rgba(0,0,0,0.08)] transition disabled:opacity-70 enabled:cursor-pointer dark:bg-[color:var(--app-secondary-surface)] dark:shadow-none"
           >
             {toggleBusy ? (
               <Loader2 className="h-[11px] w-[11px] animate-spin text-[color:var(--app-secondary-label)]" />

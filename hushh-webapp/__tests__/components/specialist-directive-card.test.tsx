@@ -241,10 +241,14 @@ describe("SpecialistPendingConsentRequestCard", () => {
     // vocabulary in owner-facing speech; the chrome used to undo that one line
     // after the model obeyed it. The card now says what is happening instead of
     // naming our plumbing.
-    expect(screen.getByText(/wants to see/i)).toBeTruthy();
-    expect(screen.getByText("Macy's is asking for City.")).toBeTruthy();
+    // Worded like the Feed's "Needs you" row: who wants what, then why. The
+    // item is named from its key, the same rule the Active row uses.
+    expect(screen.getByText("Macy's wants your Profile city")).toBeTruthy();
     expect(screen.getByText("Only your city will be shared.")).toBeTruthy();
-    expect(screen.getByText("Reason: Update your brand profile")).toBeTruthy();
+    expect(screen.getByText("Update your brand profile")).toBeTruthy();
+    expect(screen.getByTestId("specialist-pending-consent-duration")).toHaveTextContent(
+      /^Decide by /,
+    );
 
     fireEvent.click(screen.getByTestId("specialist-pending-consent-approve"));
     expect(onApprove).toHaveBeenCalledWith(item);
@@ -275,7 +279,7 @@ describe("SpecialistPendingConsentRequestCard", () => {
     );
 
     expect(screen.getByTestId("specialist-pending-consent-duration")).toHaveTextContent(
-      "For 3 days.",
+      "For 3 days",
     );
   });
 
@@ -295,7 +299,7 @@ describe("SpecialistPendingConsentRequestCard", () => {
       />,
     );
     expect(screen.getByTestId("specialist-pending-consent-duration")).toHaveTextContent(
-      "For 1 day.",
+      "For 1 day",
     );
     unmount();
 
@@ -336,19 +340,19 @@ describe("SpecialistPendingConsentRequestCard", () => {
     );
 
     const deny = screen.getByTestId("specialist-pending-consent-deny");
-    expect(deny).toHaveTextContent("Deny");
-    expect(deny.getAttribute("aria-label")).toBe("Deny (tap again to confirm)");
+    expect(deny).toHaveTextContent("Don't allow");
+    expect(deny.getAttribute("aria-label")).toBe("Don't allow (tap again to confirm)");
 
     fireEvent.click(deny);
     expect(onDeny).not.toHaveBeenCalled();
     expect(deny).toHaveTextContent("Sure?");
-    expect(deny.getAttribute("aria-label")).toBe("Confirm Deny");
+    expect(deny.getAttribute("aria-label")).toBe("Confirm Don't allow");
     expect(deny.getAttribute("data-armed")).toBe("true");
 
     fireEvent.click(deny);
     expect(onDeny).toHaveBeenCalledTimes(1);
     expect(onDeny).toHaveBeenCalledWith(item);
-    expect(deny).toHaveTextContent("Deny");
+    expect(deny).toHaveTextContent("Don't allow");
     expect(deny.getAttribute("data-armed")).toBeNull();
   });
 
@@ -382,8 +386,8 @@ describe("SpecialistPendingConsentRequestCard", () => {
     act(() => {
       vi.advanceTimersByTime(200);
     });
-    expect(deny).toHaveTextContent("Deny");
-    expect(deny.getAttribute("aria-label")).toBe("Deny (tap again to confirm)");
+    expect(deny).toHaveTextContent("Don't allow");
+    expect(deny.getAttribute("aria-label")).toBe("Don't allow (tap again to confirm)");
 
     // A tap after the window arms again rather than denying.
     fireEvent.click(deny);
@@ -392,8 +396,8 @@ describe("SpecialistPendingConsentRequestCard", () => {
   });
 
   it.each([
-    ["approved", "Approved"], ["denied", "Denied"], ["cancelled", "Withdrawn"],
-    ["expired", "Expired"], ["revoked", "Revoked"], ["unavailable", "Status unavailable"],
+    ["approved", "Allowed"], ["denied", "Not allowed"], ["cancelled", "Withdrawn"],
+    ["expired", "Expired"], ["revoked", "Sharing stopped"], ["unavailable", "Status unavailable"],
   ] as const)("renders %s requests without approve or deny actions", (status, label) => {
     const item = {
       id: "req_approved",
@@ -437,7 +441,7 @@ describe("SpecialistPendingConsentRequestCard", () => {
     rerender(<SpecialistPendingConsentRequestCard item={{...item, status: "expired"}} {...actions} />);
     expect(screen.queryByTestId("specialist-pending-consent-deny")).toBeNull();
     rerender(<SpecialistPendingConsentRequestCard item={item} {...actions} />);
-    expect(screen.getByTestId("specialist-pending-consent-deny")).toHaveTextContent("Deny");
+    expect(screen.getByTestId("specialist-pending-consent-deny")).toHaveTextContent("Don't allow");
     expect(actions.onDeny).not.toHaveBeenCalled();
   });
 });

@@ -65,6 +65,42 @@ class DriveSharingStore(DriveDocumentStore):
         if owner == recipient or not row:
             raise DriveSharingError("connection_required")
 
+    @staticmethod
+    def _trusted_recipient_current(connection, owner: str, recipient: str) -> bool:
+        """Only an accepted pair in the owner's active Trusted roster may auto share.
+
+        A circle co-member or imported contact is not an accepted pair.
+        Absence of the owner's active roster entry fails closed.
+        Callers recheck this at request creation and immediately before each
+        provider grant; the encrypted request marker alone is not authority.
+        """
+        if owner == recipient or not connector_feature_enabled("drive_document_sharing", recipient):
+            return False
+        return bool(
+            connection.execute(
+                text("""
+                SELECT EXISTS(
+                  SELECT 1 FROM connections conn
+                  JOIN connection_origins origin ON origin.connection_id=conn.id
+                    AND origin.status='active'
+                    AND origin.origin_kind IN ('direct_request','legacy_invite')
+                  WHERE conn.status='active'
+                    AND ((conn.user_a_id=:owner AND conn.user_b_id=:recipient)
+                      OR (conn.user_b_id=:owner AND conn.user_a_id=:recipient))
+                    AND EXISTS(
+                      SELECT 1 FROM one_location_circles circle
+                      JOIN one_location_circle_memberships member
+                        ON member.circle_id=circle.id
+                      WHERE circle.owner_user_id=:owner
+                        AND circle.system_kind='trusted' AND circle.status='active'
+                        AND member.user_id=:recipient AND member.status='active'
+                    )
+                )
+                """),
+                {"owner": owner, "recipient": recipient},
+            ).scalar_one()
+        )
+
     def _participant_gate(self, connection, user_id, request_id, *, recipient=False):
         initial = self._row(
             connection,
@@ -164,6 +200,256 @@ class DriveSharingStore(DriveDocumentStore):
             purpose="request",
         )
 
+    async def trusted_request_authority(self, *, user_id: str, request_id: str) -> dict:
+        """Recheck a new trusted request and explicit background Drive authority.
+
+        This is a worker-only authority check, never an owner-session bypass in
+        a public route. It is repeated around planning and every batch queue.
+        """
+        self._sharing_admission(user_id)
+        if not connector_feature_enabled("google_drive_chat_reads", user_id):
+            raise DriveSharingError("trusted_request_unavailable")
+        identity = str(UUID(request_id))
+
+        def operation(connection):
+            participants = self._participant_gate(connection, user_id, identity)
+            preferences = DriveLivePreferences(db=self.db)
+            current = preferences.live_active(connection, user_id=user_id)
+            preferences.background_current(
+                connection, user_id=user_id, generation=current["connection_generation"]
+            )
+            row = self._related_request(connection, user_id, identity)
+            if (
+                row["status"] != "pending"
+                or row["preparation_error_code"] == "manual_search_active"
+                or row["expires_at"]
+                <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+                or self._open_request(row).get("trusted_auto") is not True
+                or not self._trusted_recipient_current(
+                    connection, user_id, participants["recipient_user_id"]
+                )
+            ):
+                raise DriveSharingError("trusted_request_unavailable")
+            if row["bulk_search_started_at"] is not None:
+                search = self._row(
+                    connection,
+                    """SELECT job_id,checkpoint_envelope FROM drive_owner_search_jobs
+                      WHERE user_id=:user AND client_request_id=:request""",
+                    {"user": user_id, "request": identity},
+                )
+                if search is not None:
+                    checkpoint = self.sharing_cipher.open(
+                        search["checkpoint_envelope"],
+                        user_id=user_id,
+                        resource_id=str(search["job_id"]),
+                        purpose="owner-search-checkpoint",
+                    )
+                    if checkpoint.get("authority_mode") != "trusted_auto":
+                        raise DriveSharingError("trusted_request_unavailable")
+            return {
+                "requestId": identity,
+                "recipientUserId": row["recipient_user_id"],
+                "searchStarted": row["bulk_search_started_at"] is not None,
+                "status": row["status"],
+                "generation": current["connection_generation"],
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def due_trusted_searches(self, *, limit: int = 4) -> list[dict]:
+        """Rotate only new, live-Drive requests; encrypted marker is inspected here."""
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise ValueError("invalid trusted search bound")
+
+        def operation(connection):
+            rows = connection.execute(
+                text("""
+                WITH due AS (
+                  SELECT r.request_id FROM drive_share_requests r
+                  JOIN user_external_connector_connections c ON c.user_id=r.user_id
+                    AND c.connector_id='google_drive' AND c.status='connected'
+                    AND c.validation_state='verified'
+                    AND c.verified_policy_hash=:policy
+                  WHERE r.status='pending' AND r.bulk_search_started_at IS NULL
+                    AND r.preparation_error_code IN
+                      ('trusted_auto_queued','background_preparation_required')
+                    AND r.expires_at>clock_timestamp()
+                    AND r.preparation_next_at<=clock_timestamp()
+                  ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
+                  LIMIT :limit FOR UPDATE OF r SKIP LOCKED
+                )
+                UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
+                FROM due WHERE r.request_id=due.request_id RETURNING r.*
+                """),
+                {"policy": LIVE_POLICY_HASH, "limit": limit},
+            ).mappings()
+            return [
+                {"user_id": row["user_id"], "request_id": str(row["request_id"])}
+                for row in rows
+                if self._open_request(row).get("trusted_auto") is True
+            ]
+
+        return cast(list[dict], await self._transaction(operation))
+
+    async def due_trusted_batches(self, *, limit: int = 4) -> list[dict]:
+        """Continue one 25-file batch per active request, including completed searches."""
+        if type(limit) is not int or not 1 <= limit <= 20:
+            raise ValueError("invalid trusted batch bound")
+
+        def operation(connection):
+            rows = connection.execute(
+                text("""
+                WITH due AS (
+                  SELECT r.request_id FROM drive_share_requests r
+                  JOIN drive_owner_search_jobs j ON j.user_id=r.user_id
+                    AND j.client_request_id=r.request_id
+                  WHERE r.status='pending' AND r.bulk_search_started_at IS NOT NULL
+                    AND r.preparation_error_code IN
+                      ('trusted_auto_active','background_preparation_required')
+                    AND r.preparation_next_at<=clock_timestamp()
+                    AND r.expires_at>clock_timestamp()
+                    AND j.status IN ('queued','running','completed')
+                  ORDER BY r.preparation_inspected_at,r.created_at,r.request_id
+                  LIMIT :limit FOR UPDATE OF r SKIP LOCKED
+                )
+                UPDATE drive_share_requests r SET preparation_inspected_at=clock_timestamp()
+                FROM due WHERE r.request_id=due.request_id RETURNING r.*
+                """),
+                {"limit": limit},
+            ).mappings()
+            return [
+                {"user_id": row["user_id"], "request_id": str(row["request_id"])}
+                for row in rows
+                if self._open_request(row).get("trusted_auto") is True
+            ]
+
+        return cast(list[dict], await self._transaction(operation))
+
+    async def trusted_request_for_job(self, *, user_id: str, job_id: str) -> str | None:
+        """Identify an automatic request without exposing its private query."""
+        identity = str(UUID(job_id))
+
+        def operation(connection):
+            row = self._row(
+                connection,
+                """SELECT r.*,j.checkpoint_envelope,j.job_id FROM drive_owner_search_jobs j
+                  JOIN drive_share_requests r ON r.request_id=j.client_request_id
+                    AND r.user_id=j.user_id
+                  WHERE j.job_id=:job AND j.user_id=:user
+                    AND r.bulk_search_started_at IS NOT NULL
+                    AND r.preparation_error_code<>'manual_search_active'
+                    AND r.expires_at>clock_timestamp()""",
+                {"job": identity, "user": user_id},
+            )
+            if row is None or self._open_request(row).get("trusted_auto") is not True:
+                return None
+            checkpoint = self.sharing_cipher.open(
+                row["checkpoint_envelope"],
+                user_id=user_id,
+                resource_id=str(row["job_id"]),
+                purpose="owner-search-checkpoint",
+            )
+            return (
+                str(row["request_id"])
+                if checkpoint.get("authority_mode") == "trusted_auto"
+                else None
+            )
+
+        return cast(str | None, await self._transaction(operation))
+
+    async def defer_trusted_search(self, *, user_id: str, request_id: str, code: str) -> None:
+        """Make missing background authority visible and avoid a hot retry loop."""
+        if code not in {
+            "background_preparation_required",
+            "preparation_unavailable",
+            "trusted_relationship_changed",
+        }:
+            code = "preparation_unavailable"
+
+        def operation(connection):
+            # Serialize with background preference changes so an enabled owner
+            # cannot leave this request parked until the next scheduler pass.
+            connector = self._row(
+                connection,
+                """SELECT connection_generation FROM user_external_connector_connections
+                  WHERE user_id=:user AND connector_id='google_drive' FOR UPDATE""",
+                {"user": user_id},
+            )
+            background_ready = False
+            if code == "background_preparation_required" and connector is not None:
+                try:
+                    DriveLivePreferences(db=self.db).background_current(
+                        connection,
+                        user_id=user_id,
+                        generation=connector["connection_generation"],
+                    )
+                    background_ready = True
+                except DriveReadError:
+                    pass
+            row = self._row(
+                connection,
+                """SELECT * FROM drive_share_requests WHERE request_id=:request
+                  AND user_id=:user FOR UPDATE""",
+                {"request": str(UUID(request_id)), "user": user_id},
+            )
+            if (
+                row is None
+                or row["status"] != "pending"
+                or row["preparation_error_code"] == "manual_search_active"
+                or self._open_request(row).get("trusted_auto") is not True
+            ):
+                return
+            has_job = bool(
+                self._row(
+                    connection,
+                    """SELECT job_id FROM drive_owner_search_jobs
+                   WHERE user_id=:user AND client_request_id=:request""",
+                    {"user": user_id, "request": row["request_id"]},
+                )
+            )
+            attempts = row["preparation_attempts"] + int(code == "preparation_unavailable")
+            terminal = code == "preparation_unavailable" and attempts >= 3
+            if code == "background_preparation_required":
+                visible_code = (
+                    ("trusted_auto_active" if has_job else "trusted_auto_queued")
+                    if background_ready
+                    else "background_preparation_required"
+                )
+            elif code == "trusted_relationship_changed":
+                visible_code = "trusted_relationship_changed"
+            elif terminal:
+                visible_code = "preparation_unavailable"
+            else:
+                visible_code = "trusted_auto_active" if has_job else "trusted_auto_queued"
+            updated = self._row(
+                connection,
+                """UPDATE drive_share_requests
+                  SET preparation_error_code=:code,
+                    preparation_attempts=:attempts,
+                    preparation_next_at=CASE WHEN :ready THEN clock_timestamp()
+                      ELSE clock_timestamp()+INTERVAL '5 minutes' END,
+                    bulk_search_started_at=CASE WHEN :has_job THEN bulk_search_started_at ELSE NULL END,
+                    updated_at=clock_timestamp()
+                  WHERE request_id=:request RETURNING *""",
+                {
+                    "request": row["request_id"],
+                    "code": visible_code,
+                    "attempts": attempts,
+                    "has_job": has_job,
+                    "ready": background_ready,
+                },
+            )
+            if visible_code in {
+                "background_preparation_required",
+                "preparation_unavailable",
+                "trusted_relationship_changed",
+            }:
+                # This is a one-time setup notice, not a file-review request.
+                # The event uniqueness key includes the unchanged revision.
+                self._event(connection, updated, user_id, "document_share_request")
+
+        await self._transaction(operation)
+
     async def request_bulk_context(self, *, user_id: str, request_id: str, start=False) -> dict:
         """Freeze B's request as the sole audience for a durable metadata search."""
         identity = str(UUID(request_id))
@@ -180,7 +466,13 @@ class DriveSharingStore(DriveDocumentStore):
                     connection,
                     """UPDATE drive_share_requests SET bulk_search_started_at=clock_timestamp(),
                       status='pending',preparation_lease_id=NULL,preparation_lease_expires_at=NULL,
-                      preparation_error_code=NULL,updated_at=clock_timestamp()
+                      preparation_error_code=CASE
+                        WHEN preparation_error_code IN
+                          ('trusted_auto_queued','background_preparation_required')
+                        THEN 'trusted_auto_active'
+                        WHEN preparation_error_code='manual_search_active'
+                        THEN 'manual_search_active' ELSE NULL END,
+                      updated_at=clock_timestamp()
                       WHERE request_id=:request RETURNING *""",
                     {"request": identity},
                 )
@@ -233,12 +525,16 @@ class DriveSharingStore(DriveDocumentStore):
         digest = self.sharing_cipher.digest(
             "request", [owner_user_id, binding, purpose.model_dump()]
         )
-        envelope = self.sharing_cipher.seal(
-            payload, user_id=owner_user_id, resource_id=request_id, purpose="request"
-        )
 
         def operation(connection):
             lock_connection_graph_users(connection, user_ids=[owner_user_id, recipient.user_id])
+            live_connection = self._row(
+                connection,
+                """SELECT status,validation_state,verified_policy_hash
+                   FROM user_external_connector_connections
+                   WHERE user_id=:user AND connector_id='google_drive' FOR SHARE""",
+                {"user": owner_user_id},
+            )
             self._relationship(connection, owner_user_id, recipient.user_id)
             old = self._row(
                 connection,
@@ -252,12 +548,31 @@ class DriveSharingStore(DriveDocumentStore):
                 if old["request_digest"] != digest or old["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
                 return self._summary(old, recipient=True)
+            # Only newly created requests receive this authority marker. An
+            # old pending request must not turn into an automatic grant after
+            # a deploy, and owner-initiated sharing keeps its own review path.
+            trusted_auto = bool(
+                not owner_initiated
+                and connector_feature_enabled("google_drive_chat_reads", owner_user_id)
+                and live_connection
+                and live_connection["status"] == "connected"
+                and live_connection["validation_state"] == "verified"
+                and live_connection["verified_policy_hash"] == LIVE_POLICY_HASH
+                and self._trusted_recipient_current(connection, owner_user_id, recipient.user_id)
+            )
+            envelope = self.sharing_cipher.seal(
+                {**payload, **({"trusted_auto": True} if trusted_auto else {})},
+                user_id=owner_user_id,
+                resource_id=request_id,
+                purpose="request",
+            )
             row = self._row(
                 connection,
                 """
                 INSERT INTO drive_share_requests(request_id,user_id,recipient_user_id,client_request_id,
-                  request_envelope,recipient_binding,request_digest)
-                VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),:binding,:digest)
+                  request_envelope,recipient_binding,request_digest,preparation_error_code)
+                VALUES (:id,:owner,:recipient,:client,CAST(:envelope AS jsonb),:binding,:digest,
+                  :preparation_code)
                 ON CONFLICT (recipient_user_id,client_request_id) DO NOTHING
                 RETURNING *
             """,
@@ -269,6 +584,7 @@ class DriveSharingStore(DriveDocumentStore):
                     "envelope": json.dumps(envelope),
                     "binding": binding,
                     "digest": digest,
+                    "preparation_code": "trusted_auto_queued" if trusted_auto else None,
                 },
             )
             if not row:
@@ -300,7 +616,7 @@ class DriveSharingStore(DriveDocumentStore):
                     """,
                         {"id": request_id},
                     )
-                else:
+                elif not trusted_auto:
                     self._event(connection, row, owner_user_id, "document_share_request")
             return self._summary(row, recipient=True)
 
@@ -1176,6 +1492,8 @@ class DriveSharingStore(DriveDocumentStore):
             result = {
                 **self._summary(row),
                 "purpose": private["purpose"],
+                "trustedAuto": private.get("trusted_auto") is True
+                and row.get("preparation_error_code") != "manual_search_active",
                 "recipientEmail": private["recipient"]["email"],
                 "role": "reader",
                 "duration": "until_revoked",
@@ -1183,7 +1501,10 @@ class DriveSharingStore(DriveDocumentStore):
                 "files": [],
                 "coverage": None,
                 "canApprove": False,
-                "preparationError": row.get("preparation_error_code"),
+                "preparationError": None
+                if row.get("preparation_error_code")
+                in {"trusted_auto_queued", "trusted_auto_active", "manual_search_active"}
+                else row.get("preparation_error_code"),
                 "durableAvailable": bool(
                     current_connection["verified_policy_hash"] == LIVE_POLICY_HASH
                     and row["preparation_next_at"] < row["expires_at"]

@@ -62,7 +62,7 @@ export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
 
 /** Primary CTA: full width only when the 320px layout needs to stack. */
 export const LIVE_SHARE_PRIMARY_ACTION_CLASSNAME =
-  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.98] min-[360px]:w-auto sm:px-5";
+  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 min-[360px]:w-auto sm:px-5";
 
 /** Secondary CTA follows the same responsive width without competing visually. */
 export const LIVE_SHARE_SECONDARY_ACTION_CLASSNAME =

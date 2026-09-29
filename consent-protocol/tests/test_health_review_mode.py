@@ -475,17 +475,49 @@ def test_review_mode_on_backend_without_passphrase_ignores_supplied_passphrase(m
     assert minted["uid"] == "reviewer_uid_123"
 
 
-def test_review_mode_on_production_ignores_passphrase_as_documented(monkeypatch):
+def _production_like_live(monkeypatch) -> None:
+    # The live production service sets ENVIRONMENT=production and leaves
+    # APP_RUNTIME_PROFILE unset, so the guard must hold on ENVIRONMENT alone.
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "production")
+
+
+def test_production_never_advertises_review_mode_even_when_flag_is_on(monkeypatch):
     _clear_reviewer_env(monkeypatch)
-    monkeypatch.setenv("APP_RUNTIME_PROFILE", "production")
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    _set_both_pairs(monkeypatch)
+    client = TestClient(_build_app())
+
+    # Negative control: the same configuration on UAT advertises review mode.
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert client.get("/api/app-config/review-mode").json() == {"enabled": True}
+
+    _production_like_live(monkeypatch)
+    assert client.get("/api/app-config/review-mode").json() == {"enabled": False}
+
+
+def test_production_never_mints_a_review_session_even_when_flag_is_on(monkeypatch):
+    _clear_reviewer_env(monkeypatch)
     monkeypatch.setenv("APP_REVIEW_MODE", "true")
     _set_both_pairs(monkeypatch)
     minted = _install_fake_minter(monkeypatch)
 
-    response = _post_session("counterpart-passphrase")
+    # Negative control: on UAT a bare request mints the primary reviewer with no
+    # credential at all, which is exactly why production must never do it.
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert _post_session(None).status_code == 200
+    assert minted.pop("uid") == "reviewer_uid_123"
 
-    assert response.status_code == 200
-    assert minted["uid"] == "reviewer_uid_123"
+    _production_like_live(monkeypatch)
+    for response in (
+        _post_session(None),
+        _post_session("primary-passphrase"),
+        _post_session("counterpart-passphrase"),
+        _post_session_for("reviewer_uid_123", None),
+    ):
+        assert response.status_code == 403
+        assert response.json()["detail"] == "App review mode is disabled"
+    assert "uid" not in minted
 
 
 def test_review_mode_on_never_logs_a_passphrase(monkeypatch, caplog):
@@ -585,6 +617,24 @@ def test_review_mode_requested_uid_unknown_is_refused(monkeypatch):
     assert minted == {}
 
 
+def _post_session_for(uid: str, passphrase: str | None):
+    client = TestClient(_build_app())
+    body: dict[str, str] = {"subject": "reviewer", "reviewer_uid": uid}
+    if passphrase is not None:
+        body["smoke_passphrase"] = passphrase
+    return client.post("/api/app-config/review-mode/session", json=body)
+
+
+def _set_shared_passphrase_pair(monkeypatch) -> None:
+    # Two accounts sharing one vault passphrase; the primary has none configured.
+    _clear_reviewer_env(monkeypatch)
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("REVIEWER_UID", "reviewer_uid_123")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_UID", "counterpart_uid_456")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_VAULT_PASSPHRASE", "shared-passphrase")
+
+
 def test_requested_primary_uid_mints_primary_despite_shared_passphrase(monkeypatch):
     _clear_reviewer_env(monkeypatch)
     monkeypatch.setenv("APP_REVIEW_MODE", "true")
@@ -614,3 +664,14 @@ def test_requested_primary_uid_mints_primary_despite_shared_passphrase(monkeypat
     )
     assert refused.status_code == 403
     assert minted == {}
+
+
+def test_requested_uid_cannot_mint_in_production(monkeypatch):
+    _set_shared_passphrase_pair(monkeypatch)
+    monkeypatch.setattr(health, "_is_production_runtime", lambda: True)
+    minted = _install_fake_minter(monkeypatch)
+
+    response = _post_session_for("counterpart_uid_456", None)
+
+    assert response.status_code == 403
+    assert "uid" not in minted

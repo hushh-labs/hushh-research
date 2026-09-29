@@ -51,7 +51,6 @@ const SHEET_CONSUMERS = [
   "components/kai/share/portfolio-share-sheet.tsx",
   "components/profile/profile-avatar-editor.tsx",
   "components/app-ui/settings-ui.tsx",
-  "components/onboarding/AuthLegalDialog.tsx",
   "components/agent/puppy-resource-monitor.tsx",
   "components/agent/agent-connections-drawer.tsx",
 ] as const;

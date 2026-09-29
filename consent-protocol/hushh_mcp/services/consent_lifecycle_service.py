@@ -15,6 +15,7 @@ import time
 from typing import Any, Awaitable, Callable, MutableMapping
 
 from hushh_mcp.consent import token as consent_token
+from hushh_mcp.consent.scope_labels import human_scope_label
 from hushh_mcp.consent.segment_labels import humanize_path
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import (
@@ -58,6 +59,14 @@ def identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, 
     if set(normalized_identifiers) <= {normalized_user_id}:
         return {}
     return {"user_ids": normalized_identifiers}
+
+
+def _labels_sentence(labels: list[str]) -> str:
+    """ "Food preferences", "Food preferences and Events", "A, B and 2 more"."""
+    unique = list(dict.fromkeys(label for label in labels if label))
+    if len(unique) <= 2:
+        return " and ".join(unique)
+    return f"{unique[0]}, {unique[1]} and {len(unique) - 2} more"
 
 
 def _clean(value: Any) -> str:
@@ -105,13 +114,37 @@ class ConsentLifecycleService:
 
     @staticmethod
     def _pending_projection(entry: dict[str, Any]) -> dict[str, Any]:
-        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        """One waiting request as the model may say it, with the ids the app opens.
+
+        A person-to-person request is one Consent Center group whose ``id`` is
+        ``bundle:<uuid>`` and whose ``request_id`` is empty. That group id is
+        not a ledger request id, so the owner's chat looked it up, found
+        nothing (``consent.pending_lookup found=0``, localhost run 4, O4) and
+        showed no card while One said one was on screen. The item request ids
+        of the group are what the app can open, so those are returned.
+        """
+        raw_metadata = entry.get("metadata")
+        metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
+        items = entry.get("bundle_items")
+        if isinstance(items, list):
+            waiting = [
+                item for item in items if isinstance(item, dict) and item.get("status") == "pending"
+            ]
+            request_ids = [_clean(item.get("request_id")) for item in waiting]
+            request_ids = [request_id for request_id in request_ids if request_id]
+            labels = [_clean(item.get("label")) for item in waiting if _clean(item.get("label"))]
+            description = _labels_sentence(labels) or _clean(entry.get("reason"))
+        else:
+            request_id = _clean(entry.get("request_id") or entry.get("id"))
+            request_ids = [request_id] if request_id and ":" not in request_id else []
+            description = _clean(entry.get("scope_description") or entry.get("reason"))
         return {
-            "requestId": _clean(entry.get("request_id") or entry.get("id")),
+            "requestId": request_ids[0] if request_ids else "",
+            "requestIds": request_ids,
             "requesterLabel": _clean(entry.get("counterpart_label")) or "Someone",
             "requesterType": _clean(entry.get("counterpart_type")) or "unknown",
-            "description": _clean(entry.get("scope_description") or entry.get("reason"))
-            or "some of your information",
+            "description": description or "some of your information",
+            "reason": _clean(entry.get("reason")) or None,
             "bundleLabel": _clean(metadata.get("bundle_label")) or None,
             "bundleScopeCount": metadata.get("bundle_scope_count"),
             "issuedAt": entry.get("issued_at"),
@@ -151,11 +184,18 @@ class ConsentLifecycleService:
         drops the two fields the revoke path cannot work without.
         """
         scope = _clean(row.get("scope"))
-        metadata = row.get("metadata") if isinstance(row.get("metadata"), dict) else {}
+        raw_metadata = row.get("metadata")
+        metadata: dict[str, Any] = raw_metadata if isinstance(raw_metadata, dict) else {}
         # ``attr.`` is the storage prefix, not a word anybody says. Dropping it
         # is the difference between "Attr Professional Employment" and
         # "Professional Employment".
-        readable = humanize_path(scope[len("attr.") :] if scope.startswith("attr.") else scope)
+        # An ``attr.*`` scope gets the one human name every other surface uses
+        # ("Food preferences"), not its humanized storage path.
+        readable = (
+            human_scope_label(scope, _clean(metadata.get("human_label")) or None)
+            if scope.startswith("attr.")
+            else humanize_path(scope)
+        )
         return {
             "scope": scope,
             "requestId": _clean(row.get("request_id")) or None,

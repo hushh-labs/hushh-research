@@ -1,10 +1,10 @@
 name: Release iOS to App Store
 
 # Public App Store release for Hushh One iOS. Cuts a build from an exact green
-# `main` SHA and — by product decision — ships the SAME frontend + backend that
-# is live on UAT: it builds the Capacitor app against the UAT backend + shared
-# Firebase authority (hushh-pda; config stored in hushh-pda-uat Secret Manager),
-# signs with Apple-managed signing via an App Store
+# `main` SHA and builds the Capacitor app against the backend chosen by
+# `backend_target` (default `uat`; `production` for a store binary that talks
+# to one.hushh.ai) + the shared Firebase authority (hushh-pda; config stored in
+# hushh-pda-uat Secret Manager), signs with Apple-managed signing via an App Store
 # Connect API key using the production APNs entitlement (AppRelease.entitlements,
 # required for any store binary), uploads to App Store Connect, sets the required
 # "What's New in This Version" notes, attaches the build, and — when asked — takes
@@ -16,8 +16,14 @@ name: Release iOS to App Store
 # New -> attach -> submit for public review). Left false, the run stops after
 # attaching the processed build to a MANUAL-release App Store version.
 #
-# Backend note: this store build points at the UAT backend on purpose (latest
-# frontend + latest backend, matching UAT). Push on a store binary routes through
+# Backend note: `backend_target` picks the backend the binary talks to. The
+# default `uat` keeps the historical behaviour (latest frontend + latest backend,
+# matching UAT). `production` reads the environment-routing half of the public
+# build contract (backend, app origin, analytics stream, storage bucket) from the
+# production project through the production workload identity, and keeps the
+# Apple signing material and the shared Firebase identity config where they
+# already live. The two Firebase identity values are compared across projects
+# and the run refuses if they differ. Push on a store binary routes through
 # Apple's PRODUCTION APNs, so the shared Firebase project must hold a production APNs
 # key for notifications to deliver — see the runbook.
 #
@@ -50,19 +56,31 @@ on:
         description: "Optional note for the run summary"
         required: false
         type: string
+      backend_target:
+        description: "Backend the binary talks to. uat = historical default; production = one.hushh.ai and the production API."
+        required: false
+        default: uat
+        type: choice
+        options:
+          - uat
+          - production
 
 permissions:
   contents: read
   checks: read
+  # Workload identity for the production contract read (backend_target=production).
+  id-token: write
 
 env:
-  # This public App Store build ships the UAT frontend + UAT backend by product
-  # decision (same as what's live on UAT / TestFlight), so it authenticates to
-  # and reads its runtime contract from hushh-pda-uat Secret Manager, exactly
-  # like the TestFlight pipeline. Firebase identity remains on hushh-pda. The
-  # App Store vs TestFlight difference is only the submission layer.
+  # Signing material, the ASC key, the native Firebase config and the shared
+  # Firebase web identity live in hushh-pda-uat Secret Manager, exactly like the
+  # TestFlight pipeline. Firebase identity remains on hushh-pda. With
+  # backend_target=production only the routing values are read from hushh-pda.
   GCP_PROJECT_ID: hushh-pda-uat
   GCP_REGION: us-central1
+  # Only read when backend_target=production: the routing half of the contract.
+  PROD_GCP_PROJECT_ID: hushh-pda
+  BACKEND_TARGET: ${{ github.event.inputs.backend_target || 'uat' }}
   IOS_BUNDLE_ID: com.hushh.app
   XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
   XCODE_SCHEME: App
@@ -149,6 +167,84 @@ jobs:
           # deps must exist before any Swift Package Manager resolution.
           npm ci --prefix hushh-webapp
 
+      # verify:one-voice regenerates the capability graph through the
+      # consent-protocol Python package. Without its locked environment the
+      # generator dies on `import dotenv` and no dispatch can pass the contract
+      # gate. Same provisioning the TestFlight lane has had since 231c6e50f.
+      - name: Set up locked consent-protocol runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "true"
+
+      - name: Validate backend target
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${BACKEND_TARGET}" in
+            uat|production) echo "Backend target: ${BACKEND_TARGET}" ;;
+            *) echo "Refusing release: unknown backend_target '${BACKEND_TARGET}'." >&2; exit 1 ;;
+          esac
+
+      - name: Authenticate to Google Cloud (production contract)
+        if: env.BACKEND_TARGET == 'production'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PROD_GCP_PROJECT_ID }}
+
+      - name: Set up gcloud (production contract)
+        if: env.BACKEND_TARGET == 'production'
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Read production routing contract
+        if: env.BACKEND_TARGET == 'production'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Only the values that route a build to an environment are read here.
+          # They are public identifiers (the live web bundle carries them), but
+          # the production project stays their single source of truth.
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="${PROD_GCP_PROJECT_ID}" 2>/dev/null || true
+          }
+          require() {
+            if [ -z "$2" ]; then
+              echo "Missing required production secret: $1 (project ${PROD_GCP_PROJECT_ID})" >&2
+              exit 1
+            fi
+          }
+          put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
+
+          PROD_BACKEND_URL="$(get BACKEND_URL)";                                require BACKEND_URL "$PROD_BACKEND_URL"
+          PROD_APP_URL="$(get APP_FRONTEND_ORIGIN)"
+          [ -n "$PROD_APP_URL" ] || PROD_APP_URL="https://one.hushh.ai"
+          PROD_FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";           require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$PROD_FB_PROJECT_ID"
+          PROD_FB_APP_ID="$(get NEXT_PUBLIC_FIREBASE_APP_ID)";                   require NEXT_PUBLIC_FIREBASE_APP_ID "$PROD_FB_APP_ID"
+          PROD_FB_STORAGE="$(get NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET)";          require NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET "$PROD_FB_STORAGE"
+          PROD_FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
+
+          PROD_BACKEND_HOST="$(printf '%s' "$PROD_BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
+          case "$PROD_BACKEND_HOST" in
+            ""|*uat*|*f2gsa4kfsq*|localhost|127.0.0.1|0.0.0.0|10.0.2.2)
+              echo "Refusing release: backend_target=production but the production BACKEND_URL resolves to '${PROD_BACKEND_HOST}'." >&2
+              exit 1
+              ;;
+          esac
+          case "$PROD_APP_URL" in
+            *uat*) echo "Refusing release: production APP_FRONTEND_ORIGIN points at UAT." >&2; exit 1 ;;
+          esac
+
+          put PROD_BACKEND_URL "$PROD_BACKEND_URL"
+          put PROD_APP_URL "$PROD_APP_URL"
+          put PROD_FB_PROJECT_ID "$PROD_FB_PROJECT_ID"
+          put PROD_FB_APP_ID "$PROD_FB_APP_ID"
+          put PROD_FB_STORAGE "$PROD_FB_STORAGE"
+          [ -n "$PROD_FB_MEASUREMENT" ] && put PROD_FB_MEASUREMENT "$PROD_FB_MEASUREMENT"
+          echo "Production routing contract read (backend host ${PROD_BACKEND_HOST})."
+
       - name: Authenticate to Google Cloud (UAT)
         uses: google-github-actions/auth@v2
         with:
@@ -172,16 +268,17 @@ jobs:
             exit 1
           fi
 
-      - name: Materialize UAT frontend contract + native Firebase config
+      - name: Materialize frontend contract + native Firebase config
         shell: bash
         run: |
           set -euo pipefail
 
           # Each NEXT_PUBLIC_* value is a GCP Secret Manager secret in
           # hushh-pda-uat (same source of truth deploy-uat.yml / the TestFlight
-          # pipeline use). prepare-ios-uat-archive.mjs lets process env override
-          # APP_RUNTIME_PROFILE and NEXT_PUBLIC_* keys; the guard below requires
-          # the UAT backend, since this store build ships against UAT by design.
+          # pipeline use). The prepare-ios-*-archive.mjs scripts let process env
+          # override APP_RUNTIME_PROFILE and NEXT_PUBLIC_* keys. For
+          # backend_target=production the routing values are replaced by the
+          # production contract read above; the guard below pins each target.
           get() {
             gcloud secrets versions access latest --secret="$1" --project="${GCP_PROJECT_ID}" 2>/dev/null || true
           }
@@ -194,24 +291,6 @@ jobs:
           }
           put() { printf '%s=%s\n' "$1" "$2" >> "$GITHUB_ENV"; }
 
-          BACKEND_URL="$(get BACKEND_URL)"
-          require BACKEND_URL "$BACKEND_URL"
-          # This store build ships the UAT backend by design. Fail fast BEFORE the
-          # heavy web build if the resolved backend is not the UAT host (guards
-          # against a mis-scoped project or a prod/localhost URL sneaking in).
-          BACKEND_HOST="$(printf '%s' "$BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
-          case "$BACKEND_HOST" in
-            *uat*|*f2gsa4kfsq*)
-              : # expected UAT backend
-              ;;
-            *)
-              echo "Refusing release: this App Store build must ship the UAT backend, but NEXT_PUBLIC_BACKEND_URL resolves to '$BACKEND_HOST' (project ${GCP_PROJECT_ID})." >&2
-              exit 1
-              ;;
-          esac
-          APP_URL="$(get APP_FRONTEND_ORIGIN)"
-          [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
-
           FB_API_KEY="$(get NEXT_PUBLIC_FIREBASE_API_KEY)";           require NEXT_PUBLIC_FIREBASE_API_KEY "$FB_API_KEY"
           FB_AUTH_DOMAIN="$(get NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN)";    require NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN "$FB_AUTH_DOMAIN"
           FB_PROJECT_ID="$(get NEXT_PUBLIC_FIREBASE_PROJECT_ID)";      require NEXT_PUBLIC_FIREBASE_PROJECT_ID "$FB_PROJECT_ID"
@@ -221,6 +300,44 @@ jobs:
           FB_VAPID="$(get NEXT_PUBLIC_FIREBASE_VAPID_KEY)";            require NEXT_PUBLIC_FIREBASE_VAPID_KEY "$FB_VAPID"
 
           FB_MEASUREMENT="$(get NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID)"
+
+          if [ "${BACKEND_TARGET}" = "production" ]; then
+            # Routing values come from the production project (read in the
+            # previous step). The native GoogleService-Info.plist and the
+            # Firebase web identity below are only valid for a production
+            # binary because both projects point at the one shared Firebase
+            # app; refuse rather than ship a binary with split identity.
+            if [ "${PROD_FB_PROJECT_ID:-}" != "$FB_PROJECT_ID" ] || [ "${PROD_FB_APP_ID:-}" != "$FB_APP_ID" ]; then
+              echo "Refusing release: production and UAT Firebase identity differ, so the stored native Firebase config cannot serve a production binary." >&2
+              exit 1
+            fi
+            BACKEND_URL="${PROD_BACKEND_URL:?production routing contract was not read}"
+            APP_URL="${PROD_APP_URL:?production routing contract was not read}"
+            FB_STORAGE="${PROD_FB_STORAGE:?production routing contract was not read}"
+            FB_MEASUREMENT="${PROD_FB_MEASUREMENT:-$FB_MEASUREMENT}"
+            RUNTIME_PROFILE="prod"
+            APP_ENV="production"
+          else
+            BACKEND_URL="$(get BACKEND_URL)"
+            require BACKEND_URL "$BACKEND_URL"
+            # Fail fast BEFORE the heavy web build if the resolved backend is not
+            # the UAT host (guards against a mis-scoped project or a
+            # prod/localhost URL sneaking into a uat-target build).
+            BACKEND_HOST="$(printf '%s' "$BACKEND_URL" | sed -E 's#^https?://##; s#/.*$##' | tr 'A-Z' 'a-z')"
+            case "$BACKEND_HOST" in
+              *uat*|*f2gsa4kfsq*)
+                : # expected UAT backend
+                ;;
+              *)
+                echo "Refusing release: backend_target=uat but NEXT_PUBLIC_BACKEND_URL resolves to '$BACKEND_HOST' (project ${GCP_PROJECT_ID})." >&2
+                exit 1
+                ;;
+            esac
+            APP_URL="$(get APP_FRONTEND_ORIGIN)"
+            [ -n "$APP_URL" ] || APP_URL="https://uat.one.hushh.ai"
+            RUNTIME_PROFILE="uat"
+            APP_ENV="uat"
+          fi
           MAPS_IOS_KEY="$(get NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY)"
           # The immersive "Your Map" uses the native SDK (iOS key), but the
           # onboarding location picker and LiveMap render Maps JS inside the
@@ -233,8 +350,8 @@ jobs:
           [ -n "$MAPS_IOS_KEY" ] && echo "::add-mask::$MAPS_IOS_KEY"
           [ -n "$MAPS_BROWSER_KEY" ] && echo "::add-mask::$MAPS_BROWSER_KEY"
 
-          put APP_RUNTIME_PROFILE "uat"
-          put NEXT_PUBLIC_APP_ENV "uat"
+          put APP_RUNTIME_PROFILE "$RUNTIME_PROFILE"
+          put NEXT_PUBLIC_APP_ENV "$APP_ENV"
           put NEXT_PUBLIC_BACKEND_URL "$BACKEND_URL"
           put NEXT_PUBLIC_APP_URL "$APP_URL"
           put NEXT_PUBLIC_PASSKEY_RP_ID "one.hushh.ai"
@@ -324,11 +441,17 @@ jobs:
             echo "Distribution certificate imported into signing keychain."
           fi
 
-      - name: Prepare iOS project (web build + cap sync, UAT backend)
+      - name: Prepare iOS project (web build + cap sync, selected backend)
         shell: bash
         run: |
           set -euo pipefail
-          npm run --prefix hushh-webapp ios:prepare:uat
+          # Both preparers end in verify-ios-bundled-backend.sh, which refuses the
+          # archive unless every native plugin's backendUrl equals the selected one.
+          if [ "${BACKEND_TARGET}" = "production" ]; then
+            npm run --prefix hushh-webapp ios:prepare:prod
+          else
+            npm run --prefix hushh-webapp ios:prepare:uat
+          fi
 
       - name: Verify generated voice authority and consent contracts
         shell: bash
@@ -430,7 +553,14 @@ jobs:
           # genuinely will not symbolicate. That is an accepted loss we cannot close
           # from here (see R29), not a harmless one. This step exists so that permanent
           # noise can never hide the failure that matters: OUR dSYM going missing.
-          ALLOWED_WITHOUT_DSYM="FirebaseAnalytics GoogleAppMeasurement GoogleAppMeasurementIdentitySupport GoogleAdsOnDeviceConversion"
+          #
+          # LinkKit (Plaid, plaid-link-ios 7.1.2, an SPM binaryTarget added 2026-09-22
+          # for native Plaid Link) is the same class: a closed-source dynamic library,
+          # stripped to its export trie, and no plaid-link-ios release from 7.0.0-beta1
+          # to 7.1.2 carries a dSYM. The shipped UUID (01485993-...) equals Plaid's
+          # prebuilt binary, so nothing of ours is being dropped. Adding a binary SDK
+          # means deciding its entry here; this list is the record of that decision.
+          ALLOWED_WITHOUT_DSYM="FirebaseAnalytics GoogleAppMeasurement GoogleAppMeasurementIdentitySupport GoogleAdsOnDeviceConversion LinkKit"
 
           test -f "$APP_BIN" || { echo "::error::No app binary at $APP_BIN"; exit 1; }
           if [ ! -d "$APP_DSYM" ]; then
@@ -457,7 +587,7 @@ jobs:
               [ -e "$fw" ] || continue
               name="$(basename "$fw" .framework)"
               case " $ALLOWED_WITHOUT_DSYM " in
-                *" $name "*) echo "  skip  $name (vendor static binary; upstream ships no dSYM)"; continue ;;
+                *" $name "*) echo "  skip  $name (closed-source vendor binary; upstream ships no dSYM)"; continue ;;
               esac
               if [ -d "${ARCHIVE}/dSYMs/${name}.framework.dSYM" ]; then
                 echo "  ok    $name"
@@ -493,6 +623,33 @@ jobs:
             -authenticationKeyID "${ASC_KEY_ID}" \
             -authenticationKeyIssuerID "${ASC_ISSUER_ID}" \
             2>&1 | tee "${RUNNER_TEMP}/xcodebuild-export.log"
+
+      # The same uploaded build can go to the TestFlight groups through
+      # resume-ios-testflight.yml, which reads this receipt (same shape the
+      # TestFlight lane writes). That is how a production-backed build reaches
+      # testers without the UAT-only TestFlight lane building a second binary.
+      - name: Preserve uploaded build identity for TestFlight distribution
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+        run: |
+          set -euo pipefail
+          RELEASE_SHA="$(git rev-parse HEAD)" python3 - <<'PY'
+          import json, os, pathlib, re
+          version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
+          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
+          PY
+
+      - name: Upload TestFlight distribution receipt
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: testflight-upload-receipt
+          path: ${{ runner.temp }}/testflight-upload-receipt.json
+          retention-days: 90
+          if-no-files-found: error
 
       - name: Prepare App Store version (set What's New, attach build; one-click submit)
         id: appstore
@@ -576,7 +733,11 @@ jobs:
             echo "| Version | ${MARKETING:-unknown} |"
             echo "| Build | ${{ steps.build_number.outputs.next_build }} |"
             echo "| Bundle | ${IOS_BUNDLE_ID} |"
-            echo "| Backend | UAT (hushh-pda-uat) |"
+            if [ "${BACKEND_TARGET}" = "production" ]; then
+              echo "| Backend | production (hushh-pda, one.hushh.ai) |"
+            else
+              echo "| Backend | UAT (hushh-pda-uat) |"
+            fi
             echo "| Mode | ${MODE} |"
             if [ -n "${{ github.event.inputs.notes }}" ]; then
               echo "| Notes | ${{ github.event.inputs.notes }} |"

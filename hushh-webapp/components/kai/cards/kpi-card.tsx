@@ -100,7 +100,7 @@ export function KPICard({
       className={cn(
         "border transition-[background-color,border-color,box-shadow,color,transform] duration-150",
         variantStyles[variant],
-        onClick && "cursor-pointer hover:scale-[1.02] active:scale-[0.98]",
+        onClick && "cursor-pointer",
         className
       )}
       onClick={onClick}

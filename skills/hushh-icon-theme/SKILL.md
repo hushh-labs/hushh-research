@@ -96,6 +96,40 @@ official regular paths and native viewBox; do not hide SVG paths with CSS or
 hand-draw substitutes. Animated menu/close controls crossfade registry icons.
 Capabilities retain duotone. Verify rendered glyphs, not just import names.
 
+### Settings rows: one treatment, one glyph per concept
+
+A `SettingsRow` leading icon uses `iconTone="capability"` with a registry glyph
+that carries its own colour: the `*AgentIcon` and `*ProfileIcon` exports, or the
+semantic `*RowIcon` set in `hushh-webapp/components/icons/agents/row-icons.tsx`
+(vault, passphrase, sync, reset, delete, disconnect, invite code and so on).
+The row paints no tile. The Profile menu and every nested Profile screen share
+one size (32px well, 28px glyph, from `app/globals.css`); the coloured tile tones
+(`blue`, `orange`, `gray`...) are legacy and must not return on Profile surfaces.
+The same concept uses the same export on every screen: email is
+`GmailAgentIcon`, security is `SecurityProfileIcon`, devices are
+`DevicesProfileIcon`, invitations are `InviteFriendsProfileIcon`. When a row
+needs a concept the registry lacks, add a `*RowIcon` there; never import a glyph
+library from application code. A state (off, paused) may mute the same glyph
+rather than swap to a gray tile. `__tests__/components/iconography-motion.contract.test.ts`
+enforces both the import boundary and the Profile row treatment.
+
+### Card headers, status lines, and the sparkle ban
+
+A card header icon follows the /one launcher: the concept's registry glyph,
+bare on a transparent well, in its own capability colour. Never a filled or
+tinted tile with a white or tinted glyph. Consent is always `ConsentAgentIcon`
+(the /one Consent capability), whatever the card. A person is their face or
+initials (`ConnectionPersonAvatar`), not a silhouette on a tile. Status lines
+use registry duotone glyphs in a semantic role from
+`hushh-webapp/lib/morphy-ux/tokens/semantic-roles.ts`: success for a settled
+positive fact (shared), neutral for absence and time (not shared, access ends).
+
+There is no sparkle glyph (founder directive, 2026-09-28). "AI did this" is not
+a concept; draw the concept instead: a preview, a draft, the agent that acts, or
+the chat glyph for talking to One. The contract test above rejects any sparkle
+reference, the registry included, and any consent card element that paints a
+background behind a sole glyph.
+
 Codex discovers this portable skill through `.agents/skills/hushh-icon-theme/`;
 Claude uses `.claude/skills/hushh-icon-theme/`. Both bridges copy only this
 frontmatter and point here. Governed owner skills remain in `.codex/skills/`;
@@ -122,7 +156,6 @@ host-specific adapters are not a second copy of portable behavior.
 | `Copy` | `Copy` | `CopyIcon` | `duotone` |
 | `Send` | `PaperPlaneRight` | `SendIcon` | `duotone` |
 | `Mic` / `Microphone` | `Microphone` | `MicrophoneIcon` | `duotone` |
-| `Sparkles` | `Sparkle` | `SparkleIcon` | `duotone` |
 | `Settings` / `Gear` | `GearSix` | `GearIcon`, `SettingsIcon` | `duotone` |
 | `Sliders` | `Sliders` | `SlidersIcon` | `duotone` |
 | `MoreHorizontal` | `DotsThree` | `DotsThreeIcon`, `MoreHorizontalIcon` | `duotone` |

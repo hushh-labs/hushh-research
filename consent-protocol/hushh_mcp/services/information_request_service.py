@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any
 
 from db.db_client import get_db
@@ -14,10 +16,19 @@ from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
     scope_handle_for_machine_scope,
 )
+from hushh_mcp.consent.field_sensitivity import field_sensitivity
+from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_others
+from hushh_mcp.consent.scope_labels import human_scope_label
+from hushh_mcp.consent.scope_sensitivity import scope_sensitivity
+from hushh_mcp.consent.share_collapse import collapse_covered_shares, share_order_key
 from hushh_mcp.services.consent_center_service import requester_identity_metadata
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.person_profile_service import PersonProfileService, requester_principal
+
+logger = logging.getLogger(__name__)
+
+UNREQUESTABLE_MESSAGE = "That information can't be requested from another person."
 
 
 class InformationRequestError(ValueError):
@@ -112,6 +123,248 @@ def _bound_person_export(
     )
 
 
+# Every state transition of a bundle's fields, oldest first (owner-bound).
+PROGRESS_LEDGER_SQL = """SELECT request_id, action, issued_at, expires_at, poll_timeout_at
+   FROM consent_audit
+   WHERE user_id = :subject
+     AND request_id = ANY(:request_ids)
+     AND action IN ('REQUESTED', 'CONSENT_GRANTED', 'CONSENT_DENIED',
+                    'REVOKED', 'TIMEOUT', 'CANCELLED')
+   ORDER BY issued_at, id"""
+# Outcomes after which a requester's chat must stop using what was shared.
+ACCESS_ENDED_OUTCOMES = frozenset({"revoked", "expired"})
+
+
+def _iso_ms(value: Any) -> str | None:
+    try:
+        millis = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).isoformat()
+
+
+def _iso_any(value: Any) -> str | None:
+    if isinstance(value, datetime):
+        stamp = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        return stamp.astimezone(timezone.utc).isoformat()
+    if value is None or value == "":
+        return None
+    return _iso_ms(value) or str(value)
+
+
+def _field_progress(events: list[dict[str, Any]], now_ms: int) -> dict[str, Any]:
+    """One field's state from its ordered ledger rows (oldest first).
+
+    ``revoked`` (the owner ended it) stays distinct from ``expired`` (time ended
+    it, before or after a decision). ``granted_ms`` / ``ended_ms`` let the bundle
+    say when access began and ended.
+    """
+    status = "pending"
+    decided_ms: int | None = None
+    granted_ms: int | None = None
+    ends_ms: int | None = None
+    ended_ms: int | None = None
+    request_deadline: int | None = None
+    for event in events:
+        action = str(event.get("action") or "").upper()
+        issued = _int_or_none(event.get("issued_at"))
+        if action == "REQUESTED":
+            status = "pending"
+            request_deadline = _int_or_none(event.get("poll_timeout_at")) or _int_or_none(
+                event.get("expires_at")
+            )
+        elif action == "CONSENT_GRANTED":
+            status, decided_ms, granted_ms = "granted", issued, issued
+            ends_ms = _int_or_none(event.get("expires_at"))
+        elif action == "CONSENT_DENIED":
+            status, decided_ms = "denied", issued
+        elif action == "REVOKED":
+            status, ended_ms = "revoked", issued
+        elif action == "TIMEOUT":
+            status = "expired"
+        elif action == "CANCELLED":
+            status = "cancelled"
+    if status == "pending" and request_deadline is not None and request_deadline <= now_ms:
+        status = "expired"
+    if status == "granted" and ends_ms is not None and ends_ms <= now_ms:
+        status, ended_ms = "expired", ends_ms
+    return {
+        "status": status,
+        "decided_ms": decided_ms,
+        "granted_ms": granted_ms,
+        "ends_ms": ends_ms if status == "granted" else None,
+        "ended_ms": ended_ms if granted_ms is not None else None,
+    }
+
+
+def _int_or_none(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None and value != "" else None
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def bundle_outcome_from_statuses(statuses: list[str], *, cancelled: bool = False) -> str:
+    """The one outcome of a request, from its per-field statuses.
+
+    Any field still waiting keeps the request pending. Otherwise granted wins
+    (partially when anything else was declined or has ended); then revoked,
+    denied and expired, in that order.
+    """
+    if cancelled:
+        return "cancelled"
+    if not statuses or "pending" in statuses:
+        return "pending"
+    if "granted" in statuses:
+        return "granted" if all(value == "granted" for value in statuses) else "partially_granted"
+    if "revoked" in statuses:
+        return "revoked"
+    if "denied" in statuses:
+        return "denied"
+    return "expired"
+
+
+def build_request_progress(
+    *,
+    bundle: dict[str, Any],
+    items: list[dict[str, Any]],
+    ledger_rows: list[dict[str, Any]],
+    notification_rows: list[dict[str, Any]],
+    now_ms: int,
+) -> dict[str, Any]:
+    """Contract C1 ``progress``: where a person-to-person request stands.
+
+    ``delivered_at`` is the first NOTIFICATION_SENT for any field and
+    ``seen_at`` the first NOTIFICATION_OPENED. ``decided_at`` is set once no
+    field waits. ``access_ends_at`` is when current access ends; ``ended_at`` is
+    when access that WAS granted ended (revoked or run out), and stays null for
+    a request that ran out before anyone decided.
+    """
+    by_request: dict[str, list[dict[str, Any]]] = {}
+    for row in sorted(ledger_rows, key=lambda row: _int_or_none(row.get("issued_at")) or 0):
+        by_request.setdefault(str(row.get("request_id") or ""), []).append(row)
+    fields = []
+    states = []
+    for item in items:
+        state = _field_progress(by_request.get(str(item["request_id"]), []), now_ms)
+        states.append(state)
+        fields.append(
+            {
+                "scope": item.get("scope"),
+                "label": human_scope_label(str(item.get("scope") or ""), item.get("label")),
+                "sensitivity": scope_sensitivity(
+                    str(item.get("scope") or ""), [item.get("sensitivity")]
+                ),
+                "status": state["status"],
+            }
+        )
+    cancelled = bundle.get("cancelled_at") is not None
+    outcome = bundle_outcome_from_statuses(
+        [state["status"] for state in states], cancelled=cancelled
+    )
+
+    def first(action: str) -> str | None:
+        times = [
+            stamp
+            for row in notification_rows
+            if str(row.get("action") or "").upper() == action
+            and (stamp := _int_or_none(row.get("issued_at"))) is not None
+        ]
+        return _iso_ms(min(times)) if times else None
+
+    decided = [state["decided_ms"] for state in states if state["decided_ms"] is not None]
+    access_ends = [state["ends_ms"] for state in states if state["ends_ms"] is not None]
+    ended = [state["ended_ms"] for state in states if state["ended_ms"] is not None]
+    return {
+        "requested_at": _iso_any(bundle.get("created_at")),
+        "delivered_at": first("NOTIFICATION_SENT"),
+        "seen_at": first("NOTIFICATION_OPENED"),
+        "decided_at": _iso_ms(max(decided)) if decided and outcome != "pending" else None,
+        "outcome": outcome,
+        "access_ends_at": _iso_ms(max(access_ends)) if access_ends else None,
+        "ended_at": _iso_ms(max(ended)) if ended else None,
+        "fields": fields,
+    }
+
+
+# The ledger sweep for unlisted grants reads each person's grants; bound it.
+_MAX_SWEPT_PEOPLE = 20
+
+
+def _active_grant(status: dict[str, Any] | None, now_ms: int) -> bool:
+    if not status or str(status.get("action") or "") != "CONSENT_GRANTED":
+        return False
+    expires_at = status.get("expires_at")
+    return not (expires_at and int(expires_at) <= now_ms)
+
+
+def _share(
+    *,
+    subject_user_id: str,
+    person_ref: str,
+    display_name: str,
+    bundle_id: str | None,
+    request_id: str,
+    scope: str,
+    stored_label: Any,
+    stored_sensitivity: Any,
+    scope_ref: Any,
+    purpose: Any,
+    status: dict[str, Any],
+) -> dict[str, Any]:
+    """One current share, as the requester's surfaces name it. Never a value.
+
+    ``_scope`` and ``_subject`` are internal and removed before it leaves the
+    service; the raw scope never crosses the API or reaches the model.
+    """
+    expires_at = status.get("expires_at")
+    return {
+        "bundleId": bundle_id,
+        "requestId": request_id,
+        # The opaque handle the device opens the export by (C6 ``grantRef``).
+        "grantRef": request_id,
+        "decryptable": bool(bundle_id),
+        "person": display_name or "Hussh member",
+        "personRef": person_ref,
+        "profilePath": f"/people/{person_ref}?section=shared#shared-with-you"
+        if person_ref
+        else None,
+        "label": human_scope_label(scope, stored_label)
+        if scope
+        else str(stored_label or "") or "Shared information",
+        "sensitivity": scope_sensitivity(scope, [stored_sensitivity]),
+        "scopeRef": scope_ref,
+        "purpose": purpose,
+        "expiresAt": expires_at,
+        "sharedAt": _iso_ms(status.get("issued_at")),
+        "accessEndsAt": _iso_ms(expires_at),
+        "_scope": scope,
+        "_subject": subject_user_id,
+    }
+
+
+def outline_field_sensitivity(names: list[str], item_sensitivity: Any) -> list[dict[str, str]]:
+    """Per-field C7 sensitivity for a share's outline: names only, never a value.
+
+    Every field of a sensitive item is sensitive. In a standard item a field is
+    sensitive when its name is identifier-class (``field_sensitivity``): the
+    EIN inside "Legal entity" is sensitive although the item is standard (run 4,
+    S3). The client hides exactly these from the model and shows them in the
+    secure card.
+    """
+    whole = item_sensitivity != "standard"
+    return [
+        {"name": name, "sensitivity": "sensitive" if whole else field_sensitivity(name)}
+        for name in names
+        if isinstance(name, str) and name
+    ]
+
+
+def access_ended(progress: dict[str, Any] | None) -> bool:
+    """True once any access this request granted has ended (revoked or run out)."""
+    return bool(isinstance(progress, dict) and progress.get("ended_at"))
+
+
 # The owner sees one "opened" record per approved item per hour, not one per
 # poll: the requesting device refreshes the encrypted package on every open of
 # its own screen, and a ledger that repeats itself that often stops being read.
@@ -196,6 +449,12 @@ class InformationRequestService:
             public_person_ref=person_ref,
             scope_refs=scope_refs,
         )
+        # The catalog already hides these; this is the independent check at the
+        # moment of creation, so no adapter or stale catalog can nominate one.
+        if any(
+            not is_scope_requestable_by_others(str(scope.get("scope") or "")) for scope in scopes
+        ):
+            raise InformationRequestError(UNREQUESTABLE_MESSAGE, status_code=403)
         subject_user_id = str(subject.get("user_id") or "")
         principal = requester_principal(str(viewer["public_person_ref"]))
         idem_hash = hashlib.sha256(f"{requester_user_id}|{idempotency_key}".encode()).hexdigest()
@@ -300,7 +559,10 @@ class InformationRequestService:
                 scope=scope["scope"],
                 action="REQUESTED",
                 request_id=request_id,
-                scope_description=scope.get("description") or scope.get("label"),
+                # An authored description first; otherwise the same human name
+                # the requester's card shows, never a raw stored label.
+                scope_description=scope.get("description")
+                or human_scope_label(str(scope["scope"]), scope.get("label")),
                 expires_at=expires_at,
                 poll_timeout_at=expires_at,
                 metadata={
@@ -323,6 +585,9 @@ class InformationRequestService:
                     "reason": purpose,
                     "bundle_id": bundle_id,
                     "bundle_scope_count": len(scopes),
+                    # Read by the owner Feed trigger (migration 259) so the one
+                    # bundle row names what was asked for in words.
+                    "human_label": human_scope_label(str(scope["scope"]), scope.get("label")),
                     "connector_public_key": connector["connector_public_key"],
                     "connector_key_id": connector["connector_key_id"],
                     "connector_wrapping_alg": connector["connector_wrapping_alg"],
@@ -338,32 +603,57 @@ class InformationRequestService:
     async def _bundle(
         self, requester_user_id: str, bundle_id: str
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        bundles = await self._rows(
-            """SELECT bundle.*, profile.public_person_ref
+        # One round trip for the bundle and its items: the bundle primary key
+        # and the items' (bundle_id, scope_ref) unique index serve it.
+        rows = await self._rows(
+            """SELECT bundle.*, profile.public_person_ref,
+                      item.request_id AS item_request_id, item.scope_ref AS item_scope_ref,
+                      item.scope AS item_scope, item.label AS item_label,
+                      item.sensitivity AS item_sensitivity
                FROM one_information_request_bundles bundle
                JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               LEFT JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
                WHERE bundle.bundle_id = CAST(:bundle AS UUID)
                  AND bundle.requester_user_id = :requester
-               LIMIT 1""",
+               ORDER BY item.created_at, item.request_id""",
             {"bundle": bundle_id, "requester": requester_user_id},
         )
-        if not bundles:
+        if not rows:
             raise InformationRequestError("Information request was not found.", status_code=404)
-        items = await self._rows(
-            """SELECT request_id, scope_ref, scope, label, sensitivity FROM one_information_request_items
-               WHERE bundle_id = CAST(:bundle AS UUID) ORDER BY created_at, request_id""",
-            {"bundle": bundle_id},
-        )
-        return bundles[0], items
+        bundle = {key: value for key, value in rows[0].items() if not key.startswith("item_")}
+        items = [
+            {
+                "request_id": row["item_request_id"],
+                "scope_ref": row.get("item_scope_ref"),
+                "scope": row.get("item_scope"),
+                "label": row.get("item_label"),
+                "sensitivity": row.get("item_sensitivity"),
+            }
+            for row in rows
+            if row.get("item_request_id")
+        ]
+        return bundle, items
 
     async def get(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
+        """Where one request stands, for the requester's card. Polled; kept cheap.
+
+        The requesting chat polls this while a request is open (166 polls of one
+        approved request in 18 minutes, localhost run 4). It reads a fixed four
+        indexed queries whatever the item count: the bundle, its items, every
+        state transition of those items (the same ledger read ``progress`` is
+        built from, so each item's status is its latest transition rather than
+        one more query per item), and the owner-scoped delivery records. No
+        catalog, profile or export is loaded.
+        """
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         output = []
         now_ms = int(time.time() * 1000)
+        ledger_rows, notifications = await self._progress_rows(bundle, items)
+        latest: dict[str, dict[str, Any]] = {}
+        for row in sorted(ledger_rows, key=lambda row: _int_or_none(row.get("issued_at")) or 0):
+            latest[str(row.get("request_id") or "")] = row
         for item in items:
-            status = await self._consent.get_request_status(
-                str(bundle["subject_user_id"]), str(item["request_id"])
-            )
+            status = latest.get(str(item["request_id"]))
             action = str((status or {}).get("action") or "REQUESTED")
             # A request's decision deadline is not the expiry of a later grant.
             expires_at = (status or {}).get("expires_at")
@@ -378,8 +668,12 @@ class InformationRequestService:
                 {
                     "requestId": item["request_id"],
                     "scopeRef": item["scope_ref"],
-                    "label": item["label"],
-                    "sensitivity": item.get("sensitivity"),
+                    # The same name the request card and progress use.
+                    "label": human_scope_label(str(item.get("scope") or ""), item.get("label")),
+                    # C7: the continuation admission strips values by this.
+                    "sensitivity": scope_sensitivity(
+                        str(item.get("scope") or ""), [item.get("sensitivity")]
+                    ),
                     "status": "expired"
                     if is_expired
                     else {
@@ -398,7 +692,37 @@ class InformationRequestService:
             "durationSeconds": bundle["duration_seconds"],
             "cancelled": bundle.get("cancelled_at") is not None,
             "items": output,
+            "progress": build_request_progress(
+                bundle=bundle,
+                items=items,
+                ledger_rows=ledger_rows,
+                notification_rows=notifications,
+                now_ms=now_ms,
+            ),
         }
+
+    async def _progress_rows(
+        self, bundle: dict[str, Any], items: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        """The bundle's state transitions and delivery records, owner-bound.
+
+        Sequential on purpose: a poll holds one pool connection at a time, and
+        the local pool has four (the run 4 stall was pool starvation).
+        """
+        subject_user_id = str(bundle["subject_user_id"])
+        request_ids = [str(item["request_id"]) for item in items]
+        if not request_ids:
+            return [], []
+        ledger_rows = await self._rows(
+            PROGRESS_LEDGER_SQL, {"subject": subject_user_id, "request_ids": request_ids}
+        )
+        events = await self._consent.list_internal_request_events(
+            request_ids,
+            actions=["NOTIFICATION_SENT", "NOTIFICATION_OPENED"],
+            user_id=subject_user_id,
+        )
+        notifications = [row for row in events if str(row.get("user_id") or "") == subject_user_id]
+        return ledger_rows, notifications
 
     async def verify_submission_receipt(
         self, *, requester_user_id: str, bundle_id: str, idempotency_key: str
@@ -450,6 +774,69 @@ class InformationRequestService:
             for row in rows
         ]
 
+    async def pending_for_scope_refs(
+        self, *, requester_user_id: str, person_ref: str, scope_refs: list[str]
+    ) -> list[dict[str, Any]]:
+        """Open requests this person already sent ``person_ref`` for these items.
+
+        Newest first, one entry per bundle, naming only the items still waiting
+        on the owner (``scope_refs`` are the per-person catalog refs a request
+        stores). Labels and ids only; the owner's user id stays here. Used so
+        asking again says the request is already waiting instead of offering a
+        second Send (localhost run 4, A5).
+        """
+        refs = sorted({str(ref) for ref in scope_refs if ref})[:50]
+        if not refs or not person_ref:
+            return []
+        rows = await self._rows(
+            """SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
+                      bundle.created_at, bundle.subject_user_id,
+                      item.request_id, item.scope_ref, item.scope, item.label
+               FROM one_information_request_bundles bundle
+               JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+               WHERE bundle.requester_user_id = :requester
+                 AND profile.public_person_ref = :person_ref
+                 AND bundle.cancelled_at IS NULL
+                 AND item.scope_ref = ANY(:scope_refs)
+               ORDER BY bundle.created_at DESC, item.created_at
+               LIMIT 100""",
+            {"requester": requester_user_id, "person_ref": person_ref, "scope_refs": refs},
+        )
+        if not rows:
+            return []
+        subject_user_id = str(rows[0]["subject_user_id"])
+        statuses = await self._consent.get_request_statuses(
+            subject_user_id, [str(row["request_id"]) for row in rows]
+        )
+        now_ms = int(time.time() * 1000)
+        bundles: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            status = statuses.get(str(row["request_id"])) or {}
+            deadline = status.get("poll_timeout_at") or status.get("expires_at")
+            waiting = str(status.get("action") or "") == "REQUESTED" and not (
+                deadline is not None and int(deadline) <= now_ms
+            )
+            if not waiting:
+                continue
+            bundle_id = str(row["bundle_id"])
+            entry = bundles.setdefault(
+                bundle_id,
+                {
+                    "bundleId": bundle_id,
+                    "purpose": row.get("purpose"),
+                    "durationSeconds": row.get("duration_seconds"),
+                    "sentAt": _iso_any(row.get("created_at")),
+                    "scopeRefs": [],
+                    "labels": [],
+                },
+            )
+            entry["scopeRefs"].append(str(row["scope_ref"]))
+            label = human_scope_label(str(row.get("scope") or ""), row.get("label"))
+            if label not in entry["labels"]:
+                entry["labels"].append(label)
+        return list(bundles.values())
+
     async def list_granted_shares(
         self,
         *,
@@ -457,7 +844,21 @@ class InformationRequestService:
         person_ref: str | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        """Active information shares granted to this user by connections."""
+        """Information connections currently share with this user: labels, never values.
+
+        The consent ledger is the authority, not the bundle's own state: a
+        request withdrawn after one of its items was approved still shares that
+        item until the owner stops it, so withdrawn bundles are read too. Grants
+        no request row names are swept from the ledger afterwards (CONTRACT-2
+        C6), so nothing currently shared is missing from the card.
+
+        Each share carries what the "Shared with you" card needs (C6): a human
+        label, its C7 ``sensitivity``, a ``fieldOutline`` of names only, when it
+        was shared and until when, and the refs the device opens it by
+        (``bundleId`` plus ``grantRef``, the request id the exports endpoint
+        keys by). ``decryptable`` is false only for a grant no request names,
+        which no existing path can open.
+        """
         normalized_person_ref = str(person_ref or "").strip()
         person_filter = (
             "AND profile.public_person_ref = :person_ref" if normalized_person_ref else ""
@@ -472,7 +873,6 @@ class InformationRequestService:
                LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
                JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
                WHERE bundle.requester_user_id = :requester
-                 AND bundle.cancelled_at IS NULL
                  {person_filter}
                ORDER BY bundle.created_at DESC, item.created_at
                LIMIT :limit""",  # nosec B608 - static SQL fragments only; every value is a bound parameter.
@@ -484,32 +884,170 @@ class InformationRequestService:
         )
         now_ms = int(time.time() * 1000)
         granted: list[dict[str, Any]] = []
+        people: dict[str, tuple[str, str]] = {}
         for row in rows:
-            status = await self._consent.get_request_status(
-                str(row["subject_user_id"]), str(row["request_id"])
+            subject_user_id = str(row["subject_user_id"])
+            people.setdefault(
+                subject_user_id,
+                (str(row.get("public_person_ref") or ""), str(row.get("display_name") or "")),
             )
-            if not status or str(status.get("action") or "") != "CONSENT_GRANTED":
+            status = await self._consent.get_request_status(subject_user_id, str(row["request_id"]))
+            if not _active_grant(status, now_ms):
                 continue
-            expires_at = status.get("expires_at")
-            if expires_at and int(expires_at) <= now_ms:
-                continue
-            person_ref = str(row.get("public_person_ref") or "")
             granted.append(
-                {
-                    "bundleId": str(row["bundle_id"]),
-                    "requestId": str(row["request_id"]),
-                    "person": str(row.get("display_name") or "Hussh member"),
-                    "personRef": person_ref,
-                    "profilePath": f"/people/{person_ref}?section=shared#shared-with-you"
-                    if person_ref
-                    else None,
-                    "label": row.get("label") or "Shared information",
-                    "scopeRef": row.get("scope_ref"),
-                    "purpose": row.get("purpose"),
-                    "expiresAt": expires_at,
-                }
+                _share(
+                    subject_user_id=subject_user_id,
+                    person_ref=str(row.get("public_person_ref") or ""),
+                    display_name=str(row.get("display_name") or ""),
+                    bundle_id=str(row["bundle_id"]),
+                    request_id=str(row["request_id"]),
+                    scope=str(row.get("scope") or ""),
+                    stored_label=row.get("label"),
+                    stored_sensitivity=row.get("sensitivity"),
+                    scope_ref=row.get("scope_ref"),
+                    purpose=row.get("purpose"),
+                    status=status or {},
+                )
             )
+        granted.extend(
+            await self._unlisted_grants(
+                requester_user_id=requester_user_id,
+                person_ref=normalized_person_ref,
+                people=people,
+                listed={share["requestId"] for share in granted},
+                now_ms=now_ms,
+            )
+        )
+        # One item per thing shared, in one stable order (run 4, S3): a grant a
+        # broader live grant from the same person covers is not listed twice.
+        granted = collapse_covered_shares(
+            granted,
+            scope_of=lambda share: str(share.get("_scope") or ""),
+            person_of=lambda share: str(share.get("_subject") or ""),
+            openable_of=lambda share: bool(share.get("decryptable")),
+        )
+        granted.sort(
+            key=lambda share: (
+                str(share.get("person") or "").casefold(),
+                *share_order_key(share.get("label"), share.get("sharedAt"), share.get("requestId")),
+            )
+        )
+        await self._attach_field_outlines(requester_user_id, granted)
+        for share in granted:
+            share.pop("_scope", None)
+            share.pop("_subject", None)
         return granted
+
+    async def _unlisted_grants(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str,
+        people: dict[str, tuple[str, str]],
+        listed: set[str],
+        now_ms: int,
+    ) -> list[dict[str, Any]]:
+        """Active grants to this requester that no request row listed (C6 item 4)."""
+        try:
+            viewer = await self._viewer(requester_user_id)
+        except InformationRequestError:
+            return []
+        if person_ref and not any(ref == person_ref for ref, _name in people.values()):
+            subjects = await self._rows(
+                """SELECT profile.user_id, profile.public_person_ref, identity.display_name
+                   FROM actor_profiles profile
+                   LEFT JOIN actor_identity_cache identity ON identity.user_id = profile.user_id
+                   WHERE profile.public_person_ref = :person_ref LIMIT 1""",
+                {"person_ref": person_ref},
+            )
+            for subject in subjects:
+                people[str(subject["user_id"])] = (
+                    str(subject.get("public_person_ref") or ""),
+                    str(subject.get("display_name") or ""),
+                )
+        principal = requester_principal(str(viewer["public_person_ref"]))
+        unlisted: list[dict[str, Any]] = []
+        for subject_user_id, (subject_ref, display_name) in list(people.items())[
+            :_MAX_SWEPT_PEOPLE
+        ]:
+            if person_ref and subject_ref != person_ref:
+                continue
+            for token in await self._consent.get_active_tokens(subject_user_id, agent_id=principal):
+                request_id = str(token.get("request_id") or "")
+                if (
+                    not request_id
+                    or request_id in listed
+                    or not _active_grant({**token, "action": "CONSENT_GRANTED"}, now_ms)
+                ):
+                    continue
+                listed.add(request_id)
+                metadata = token.get("metadata") if isinstance(token.get("metadata"), dict) else {}
+                claimed_bundle = str(metadata.get("bundle_id") or "")
+                bundle = (
+                    await self._rows(
+                        """SELECT bundle.bundle_id, bundle.purpose, item.scope_ref,
+                              item.label, item.sensitivity
+                       FROM one_information_request_bundles bundle
+                       JOIN one_information_request_items item
+                         ON item.bundle_id = bundle.bundle_id
+                       WHERE bundle.bundle_id::text = :bundle
+                         AND bundle.requester_user_id = :requester
+                         AND item.request_id = :request
+                       LIMIT 1""",
+                        {
+                            "bundle": claimed_bundle,
+                            "requester": requester_user_id,
+                            "request": request_id,
+                        },
+                    )
+                    if claimed_bundle
+                    else []
+                )
+                found = bundle[0] if bundle else {}
+                unlisted.append(
+                    _share(
+                        subject_user_id=subject_user_id,
+                        person_ref=subject_ref,
+                        display_name=display_name,
+                        bundle_id=str(found["bundle_id"]) if found else None,
+                        request_id=request_id,
+                        scope=str(token.get("scope") or ""),
+                        stored_label=found.get("label") or metadata.get("human_label"),
+                        stored_sensitivity=found.get("sensitivity"),
+                        scope_ref=found.get("scope_ref"),
+                        purpose=found.get("purpose") or metadata.get("reason"),
+                        status=token,
+                    )
+                )
+        return unlisted
+
+    async def _attach_field_outlines(
+        self, requester_user_id: str, shares: list[dict[str, Any]]
+    ) -> None:
+        """Names of the fields each share covers, from the owner's catalog (labels only)."""
+        by_subject: dict[str, list[dict[str, Any]]] = {}
+        for share in shares:
+            share.setdefault("fieldOutline", [])
+            by_subject.setdefault(str(share.get("_subject") or ""), []).append(share)
+        for subject_user_id, subject_shares in by_subject.items():
+            if not subject_user_id:
+                continue
+            try:
+                outlines = await asyncio.to_thread(
+                    self._profiles.field_outlines,
+                    requester_user_id,
+                    subject_user_id,
+                    [str(share.get("_scope") or "") for share in subject_shares],
+                )
+            except Exception:  # noqa: BLE001 - an outline is a courtesy; the card still renders
+                logger.warning("one.shared_with_me_outline_unavailable")
+                continue
+            for share in subject_shares:
+                share["fieldOutline"] = outlines.get(str(share.get("_scope") or "")) or []
+        for share in shares:
+            share["fields"] = outline_field_sensitivity(
+                share.get("fieldOutline") or [], share.get("sensitivity")
+            )
 
     async def cancel(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -32,6 +32,8 @@ import { ApiError } from "@/lib/services/api-client";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { useVault } from "@/lib/vault/vault-context";
+import { GuestPreview } from "@/components/onboarding/guest-preview";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 
 /**
  * A claim that threw is a hard failure, not something to look at later. The
@@ -56,16 +58,8 @@ function ownerLabel(invite: OneLocationCircleInvite | null): string {
   return invite?.ownerLabel || "a trusted person";
 }
 
-function loginHref(inviteToken: string): string {
-  return `/login?redirect=${encodeURIComponent(`/one/location/invite/${inviteToken}`)}`;
-}
-
-function phoneMandateHref(inviteToken: string): string {
-  return buildPhoneMandateRoute(`/one/location/invite/${inviteToken}`);
-}
-
-function vaultHandoffHref(inviteToken: string): string {
-  return buildProfileVaultRoute(`/one/location/invite/${inviteToken}`);
+function loginHref(returnTo: string): string {
+  return `/login?redirect=${encodeURIComponent(returnTo)}`;
 }
 
 function isPhoneVerificationRequiredError(error: unknown): boolean {
@@ -89,17 +83,30 @@ function isPhoneVerificationRequiredError(error: unknown): boolean {
   );
 }
 
-export default function OneLocationCircleInvitePageClient() {
+export default function OneLocationCircleInvitePageClient({
+  token,
+  returnTo,
+}: { token?: string; returnTo?: string } = {}) {
   const router = useRouter();
   const params = useParams<{ token?: string }>();
   const auth = useAuth();
+  const [hydrated, setHydrated] = useState(false);
+  useEffect(() => setHydrated(true), []);
   const { isVaultUnlocked, vaultOwnerToken, vaultKey } = useVault();
   const inviteToken = useMemo(
-    () => String(params?.token || "").trim(),
-    [params?.token],
+    () => String(token ?? params?.token ?? "").trim(),
+    [token, params?.token],
   );
+  const invitePath = returnTo ?? `/one/location/invite/${encodeURIComponent(inviteToken)}`;
+  const claimScope = useRef({ active: true });
+  useEffect(() => {
+    const scope = { active: true };
+    claimScope.current = scope;
+    return () => { scope.active = false; };
+  }, [auth.userId, inviteToken]);
   const [invite, setInvite] = useState<OneLocationCircleInvite | null>(null);
   const [loading, setLoading] = useState(true);
+  const [unavailable, setUnavailable] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimed, setClaimed] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,11 +120,17 @@ export default function OneLocationCircleInvitePageClient() {
     const loadInvite = async () => {
       setLoading(true);
       setError(null);
+      setInvite(null);
+      setClaimed(false);
+      setClaiming(false);
+      setClaimError(null);
+      setUnavailable(false);
       try {
         const response = await OneLocationService.resolveCircleInvite(inviteToken);
         if (!cancelled) setInvite(response.invite);
       } catch (loadError) {
         if (!cancelled) {
+          setUnavailable(loadError instanceof ApiError && [400, 404, 410, 422].includes(loadError.status));
           setError(
             loadError instanceof Error
               ? loadError.message
@@ -131,6 +144,7 @@ export default function OneLocationCircleInvitePageClient() {
     if (inviteToken) {
       void loadInvite();
     } else {
+      setUnavailable(true);
       setError("This Invite to One link is invalid.");
       setLoading(false);
     }
@@ -171,6 +185,7 @@ export default function OneLocationCircleInvitePageClient() {
 
   const handleClaim = useCallback(async () => {
     if (!auth.userId || !vaultOwnerToken) return;
+    const scope = claimScope.current;
     setClaiming(true);
     setClaimError(null);
     setPhoneVerificationRequired(false);
@@ -178,16 +193,19 @@ export default function OneLocationCircleInvitePageClient() {
       await AccountIdentityService.syncCurrentUser(auth.user).catch((syncError) => {
         console.warn("[OneLocationInvite] Failed to sync account identity:", syncError);
       });
+      if (!scope.active) return;
       await bootstrapCurrentUserLocationRecipientKey({
         userId: auth.userId,
         vaultOwnerToken,
         vaultKey,
       });
+      if (!scope.active) return;
       const claimResult = await OneLocationService.claimCircleInvite({
         vaultOwnerToken,
         inviteToken,
         message: "Joined from an Invite to One link.",
       });
+      if (!scope.active) return;
       // Best-effort: materialize a connection so the inviter and claimant become
       // One Location recipients of each other. Backend endpoint is dormant and
       // only runs because of this call — remove this block to disable the link.
@@ -195,6 +213,7 @@ export default function OneLocationCircleInvitePageClient() {
       if (peerUserId && auth.user) {
         try {
           const idToken = await auth.user.getIdToken();
+          if (!scope.active) return;
           await ConnectionsService.linkCircleInvite({ idToken, peerUserId });
         } catch (linkError) {
           console.warn(
@@ -203,10 +222,12 @@ export default function OneLocationCircleInvitePageClient() {
           );
         }
       }
+      if (!scope.active) return;
       setClaimed(true);
       toast.success("You're connected on One.");
       router.push("/one/location?section=circle");
     } catch (claimError) {
+      if (!scope.active) return;
       const message =
         claimError instanceof Error
           ? claimError.message
@@ -217,7 +238,7 @@ export default function OneLocationCircleInvitePageClient() {
       }
       toast.error(message);
     } finally {
-      setClaiming(false);
+      if (scope.active) setClaiming(false);
     }
   }, [auth.user, auth.userId, inviteToken, router, vaultOwnerToken, vaultKey]);
 
@@ -241,6 +262,12 @@ export default function OneLocationCircleInvitePageClient() {
     Boolean(vaultOwnerToken) &&
     !claimed &&
     !phoneVerificationRequired;
+
+  if (!hydrated || auth.loading) return <HushhLoader label="Checking your account" />;
+
+  if (!signedIn) {
+    return <GuestPreview key={inviteToken} invitation={{ kind: "connection", ownerName: invite?.ownerLabel ?? undefined, loading, unavailable, error: error ? unavailable ? "This invitation is unavailable. Ask for a new link." : "Preview is temporarily unavailable. You can still sign in." : null }} onStart={() => router.push(loginHref(invitePath))} />;
+  }
 
   return (
     // No height floor. min-h-screen compiles to 100vh, which in a WKWebView
@@ -326,21 +353,21 @@ export default function OneLocationCircleInvitePageClient() {
                 </Button>
               ) : !signedIn ? (
                 <Button asChild className="h-11 rounded-full">
-                  <Link href={loginHref(inviteToken)}>
+                  <Link href={loginHref(invitePath)}>
                     <UserPlus className="mr-2 h-4 w-4" aria-hidden="true" />
                     Sign in to join
                   </Link>
                 </Button>
               ) : phoneVerificationRequired ? (
                 <Button asChild className="h-11 rounded-full">
-                  <Link href={phoneMandateHref(inviteToken)}>
+                  <Link href={buildPhoneMandateRoute(invitePath)}>
                     <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
                     Verify phone to continue
                   </Link>
                 </Button>
               ) : !isVaultUnlocked || !vaultOwnerToken ? (
                 <Button asChild className="h-11 rounded-full">
-                  <Link href={vaultHandoffHref(inviteToken)}>
+                  <Link href={buildProfileVaultRoute(invitePath)}>
                     <ShieldCheck className="mr-2 h-4 w-4" aria-hidden="true" />
                     Continue to Vault
                   </Link>

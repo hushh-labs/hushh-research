@@ -130,7 +130,11 @@ async def test_approval_queues_only_stored_review_and_wakes_worker(monkeypatch):
     )
     assert result["status"] == "queued"
     store.approve.assert_awaited_once_with(
-        user_id=OWNER, share_id=SHARE, revision=3, review_digest="a" * 64
+        user_id=OWNER,
+        share_id=SHARE,
+        revision=3,
+        review_digest="a" * 64,
+        approval_source="owner",
     )
     wake.assert_awaited_once_with("sharing")
     assert current.await_count == 2

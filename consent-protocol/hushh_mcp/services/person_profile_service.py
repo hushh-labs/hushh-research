@@ -17,6 +17,16 @@ from typing import Any
 from uuid import UUID
 
 from db.db_client import get_db
+from hushh_mcp.consent.scope_generator import rank_scope_matches
+from hushh_mcp.consent.scope_labels import human_domain_label, human_scope_label
+from hushh_mcp.consent.scope_matcher import (
+    is_machine_entry,
+    is_record_field_entry,
+    presentable_scope_entries,
+    search_scope_entries,
+)
+from hushh_mcp.consent.scope_sensitivity import covers, scope_sensitivity
+from hushh_mcp.consent.share_collapse import collapse_covered_shares, share_order_key
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
 
@@ -79,6 +89,52 @@ def requester_principal(public_person_ref: str) -> str:
 def _scope_ref(public_person_ref: str, scope: str) -> str:
     material = f"person-scope-v1|{public_person_ref}|{scope}".encode()
     return f"psr_{hashlib.sha256(material).hexdigest()[:32]}"
+
+
+MAX_OUTLINE_FIELDS = 12
+
+
+def _item_labels(raw: Any) -> list[str]:
+    """Human labels of a bundle's items, deduplicated, in request order."""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            return []
+    labels: list[str] = []
+    for entry in raw if isinstance(raw, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        label = human_scope_label(str(entry.get("scope") or ""), entry.get("label"))
+        if label and label not in labels:
+            labels.append(label)
+    return labels[:50]
+
+
+def field_outline(scope: str, catalog: list[dict[str, Any]]) -> list[str]:
+    """Names (never values) of what a grant on ``scope`` covers, for the C6 card.
+
+    Drawn from the owner's requestable catalog, which the requester can already
+    browse: the labels of the branches under ``scope``, or the scope's own label
+    when it is a single field.
+    """
+    own_label = ""
+    names: list[str] = []
+    for item in catalog:
+        child = str(item.get("scope") or "")
+        # A record's schema field ("Events kind", "Events status") or app
+        # state is storage shape, not something the person shared (run 4, U3).
+        if child != scope and (is_record_field_entry(item) or is_machine_entry(item)):
+            continue
+        label = human_scope_label(child, str(item.get("label") or ""))
+        if child == scope:
+            own_label = label
+            continue
+        if covers(scope, child) and label and label not in names:
+            names.append(label)
+    if not names and own_label:
+        names = [own_label]
+    return names[:MAX_OUTLINE_FIELDS]
 
 
 class PersonProfileService:
@@ -180,6 +236,13 @@ class PersonProfileService:
             raise ValueError("One or more requested fields are unavailable.")
         return row, [resolved[value] for value in scope_refs if value in resolved]
 
+    def field_outlines(
+        self, viewer_user_id: str, subject_user_id: str, scopes: list[str]
+    ) -> dict[str, list[str]]:
+        """Field names for each granted scope, from the current catalog. Labels only."""
+        catalog = self._requestable_scope_entries(viewer_user_id, subject_user_id)
+        return {scope: field_outline(scope, catalog) for scope in scopes}
+
     def _relationship(self, viewer_user_id: str, subject_user_id: str) -> dict[str, Any]:
         connection = self._execute_one(
             """
@@ -253,7 +316,11 @@ class PersonProfileService:
             SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
                    bundle.created_at, bundle.cancelled_at,
                    (SELECT COUNT(*) FROM one_information_request_items item
-                    WHERE item.bundle_id = bundle.bundle_id) AS item_count
+                    WHERE item.bundle_id = bundle.bundle_id) AS item_count,
+                   (SELECT json_agg(json_build_object('scope', item.scope, 'label', item.label)
+                                    ORDER BY item.created_at, item.request_id)
+                    FROM one_information_request_items item
+                    WHERE item.bundle_id = bundle.bundle_id) AS item_names
             FROM one_information_request_bundles bundle
             WHERE bundle.requester_user_id = :viewer
               AND bundle.subject_user_id = :subject
@@ -266,7 +333,11 @@ class PersonProfileService:
                 SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
                        bundle.created_at, bundle.cancelled_at,
                        (SELECT COUNT(*) FROM one_information_request_items item
-                        WHERE item.bundle_id = bundle.bundle_id) AS item_count
+                        WHERE item.bundle_id = bundle.bundle_id) AS item_count,
+                       (SELECT json_agg(json_build_object('scope', item.scope, 'label', item.label)
+                                        ORDER BY item.created_at, item.request_id)
+                        FROM one_information_request_items item
+                        WHERE item.bundle_id = bundle.bundle_id) AS item_names
                 FROM one_information_request_bundles bundle
                 WHERE bundle.requester_user_id = :viewer
                   AND bundle.subject_user_id = :subject
@@ -291,6 +362,9 @@ class PersonProfileService:
                     "createdAt": str(item["created_at"]),
                     "cancelled": item.get("cancelled_at") is not None,
                     "itemCount": int(item["item_count"]),
+                    # Human names, so the page says what was asked for instead
+                    # of "Request for 2 information items" (run 4, S3/U3).
+                    "itemLabels": _item_labels(item.get("item_names")),
                 }
                 for item in page
             ],
@@ -357,6 +431,106 @@ class PersonProfileService:
 
         raise ValueError("The information catalog is too large to load safely.")
 
+    @staticmethod
+    def _scope_projection(public_person_ref: str, item: dict[str, Any]) -> dict[str, Any] | None:
+        """The only shape a viewer sees for one requestable row: no raw scope, no value."""
+        scope = str(item.get("scope") or "")
+        if not scope:
+            return None
+        domain = str(item.get("domain") or "") or None
+        return {
+            "scopeRef": _scope_ref(public_person_ref, scope),
+            "label": human_scope_label(scope, str(item.get("label") or "")),
+            "description": item.get("description"),
+            "domain": domain,
+            "domainLabel": human_domain_label(domain),
+            # C7: the one server-side authority; a stored tag only escalates.
+            "sensitivity": scope_sensitivity(scope, [item.get("sensitivity")]),
+            "wildcard": bool(item.get("wildcard")),
+            "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
+        }
+
+    async def get_requestable_catalog(
+        self, *, viewer_user_id: str, public_person_ref: str
+    ) -> dict[str, Any]:
+        """Who this person is and what the viewer may ask them for. Labels only.
+
+        The lean read behind One's proposal: unlike ``get_viewer_profile`` it
+        loads no grants, request history or consent statuses, because choosing
+        what to ask needs none of them and every query here is on the chat's
+        critical path.
+        """
+        row = await asyncio.to_thread(self._profile_row, public_person_ref)
+        subject_user_id = str(row.get("user_id") or "")
+        if not subject_user_id or subject_user_id == viewer_user_id:
+            raise PersonProfileNotFoundError("Person profile was not found.")
+        scope_items = await asyncio.to_thread(
+            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        )
+        scopes = [
+            projection
+            for item in presentable_scope_entries(scope_items)
+            if (projection := self._scope_projection(public_person_ref, item)) is not None
+        ]
+        return {**self._public_projection(row), "requestableScopes": scopes}
+
+    async def search_scope_catalog(
+        self,
+        *,
+        viewer_user_id: str,
+        public_person_ref: str,
+        query: str = "",
+        page: int = 1,
+        limit: int = 20,
+        catalog_revision: str = "",
+    ) -> dict[str, Any]:
+        """Server-side search over human labels and synonyms, paged (Contract C4).
+
+        "restaurant" finds Food. Each hit carries a readable ``why``. Items
+        carry an opaque ``scopeRef`` only; the raw scope never leaves the
+        server, and ``resolve_scope_refs`` re-checks every ref at request time.
+        """
+        row = await asyncio.to_thread(self._profile_row, public_person_ref)
+        subject_user_id = str(row.get("user_id") or "")
+        if not subject_user_id or subject_user_id == viewer_user_id:
+            raise PersonProfileNotFoundError("Person profile was not found.")
+        scope_items = await asyncio.to_thread(
+            self._requestable_scope_entries, viewer_user_id, subject_user_id
+        )
+        page_result = ConnectionsService.page_information_scope_entries(
+            scope_items,
+            page=page,
+            limit=limit,
+            catalog_revision=catalog_revision,
+            # Presentation filter inside the ranker: the revision still digests
+            # the full catalog, so paging stays consistent with validation.
+            ranker=lambda entries: search_scope_entries(presentable_scope_entries(entries), query),
+        )
+        items = []
+        for item in page_result["items"]:
+            projection = self._scope_projection(public_person_ref, item)
+            if projection is None:
+                continue
+            # ``scope`` mirrors the proposal's C4 field: the same opaque ref,
+            # never the raw ``attr.*`` string.
+            projection["scope"] = projection["scopeRef"]
+            if item.get("why"):
+                projection["why"] = item["why"]
+            items.append(projection)
+        return {
+            "person": {
+                "personRef": public_person_ref,
+                "displayName": self._public_projection(row)["displayName"],
+            },
+            "query": query,
+            "items": items,
+            **{key: value for key, value in page_result.items() if key not in {"items", "domains"}},
+            "domains": [
+                {**domain, "label": human_domain_label(domain.get("domain"))}
+                for domain in page_result.get("domains") or []
+            ],
+        }
+
     async def get_viewer_profile(
         self,
         *,
@@ -375,23 +549,22 @@ class PersonProfileService:
         scope_items = await asyncio.to_thread(
             self._requestable_scope_entries, viewer_user_id, subject_user_id
         )
-        scopes = []
         scope_by_name: dict[str, dict[str, Any]] = {}
         for item in scope_items:
             scope = str(item.get("scope") or "")
             if not scope:
                 continue
-            projection = {
-                "scopeRef": _scope_ref(public_person_ref, scope),
-                "label": item.get("label"),
-                "description": item.get("description"),
-                "domain": item.get("domain"),
-                "sensitivity": item.get("sensitivity"),
-                "wildcard": bool(item.get("wildcard")),
-                "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
-            }
-            scopes.append(projection)
+            projection = self._scope_projection(public_person_ref, item)
+            if projection is None:
+                continue
             scope_by_name[scope] = projection
+        # The complete map above names grants; the listing a person reads is
+        # the presentable catalog (no app state, one row per label).
+        scopes = [
+            scope_by_name[str(item["scope"])]
+            for item in presentable_scope_entries(scope_items)
+            if str(item.get("scope") or "") in scope_by_name
+        ]
 
         catalog = None
         if catalog_page is not None:
@@ -401,8 +574,12 @@ class PersonProfileService:
                 scope_items,
                 page=catalog_page,
                 catalog_revision=catalog_revision,
-                query=catalog_query,
-                domain=catalog_domain,
+                ranker=lambda entries: rank_scope_matches(
+                    presentable_scope_entries(entries),
+                    query=catalog_query,
+                    domain=catalog_domain,
+                    limit=None,
+                ),
             )
             scopes = [scope_by_name[item["scope"]] for item in page["items"]]
             catalog = {key: value for key, value in page.items() if key != "items"}
@@ -460,6 +637,17 @@ class PersonProfileService:
             bundle_by_request = {
                 str(item["request_id"]): str(item["bundle_id"]) for item in bundle_rows
             }
+            # The same one-item-per-share rule as the requester's Profile list
+            # (``list_granted_shares``), so the person page and Profile match.
+            active = collapse_covered_shares(
+                active,
+                scope_of=lambda grant: str(grant.get("scope") or ""),
+                person_of=lambda _grant: subject_user_id,
+                openable_of=lambda grant: (
+                    bool(grant.get("token_id"))
+                    and str(grant.get("request_id") or "") in bundle_by_request
+                ),
+            )
             for grant in active:
                 scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
                 token_id = str(grant.get("token_id") or "")
@@ -468,6 +656,10 @@ class PersonProfileService:
                         "scopeRef": (scope_projection or {}).get("scopeRef"),
                         "label": (scope_projection or {}).get("label") or "Shared information",
                         "domain": (scope_projection or {}).get("domain"),
+                        "sensitivity": scope_sensitivity(
+                            str(grant.get("scope") or ""),
+                            [(scope_projection or {}).get("sensitivity")],
+                        ),
                         "requestId": grant.get("request_id"),
                         "bundleId": bundle_by_request.get(str(grant.get("request_id") or "")),
                         "issuedAt": grant.get("issued_at"),
@@ -477,6 +669,11 @@ class PersonProfileService:
                         "exportRevision": export_revisions.get(token_id),
                     }
                 )
+            grants.sort(
+                key=lambda grant: share_order_key(
+                    grant.get("label"), grant.get("issuedAt"), grant.get("requestId")
+                )
+            )
 
         request_rows = await asyncio.to_thread(
             lambda: [
@@ -488,7 +685,7 @@ class PersonProfileService:
                         SELECT bundle.bundle_id, bundle.purpose,
                                bundle.duration_seconds, bundle.created_at,
                                bundle.cancelled_at, item.request_id,
-                               item.scope_ref, item.label, item.sensitivity
+                               item.scope_ref, item.scope, item.label, item.sensitivity
                         FROM one_information_request_bundles bundle
                         JOIN one_information_request_items item
                           ON item.bundle_id = bundle.bundle_id
@@ -539,8 +736,11 @@ class PersonProfileService:
                     "bundleId": str(item["bundle_id"]),
                     "requestId": item["request_id"],
                     "scopeRef": item["scope_ref"],
-                    "label": item["label"],
-                    "sensitivity": item.get("sensitivity"),
+                    # Human, never the stored "Tax Record Domain" (run 4, S3).
+                    "label": human_scope_label(str(item.get("scope") or ""), item.get("label")),
+                    "sensitivity": scope_sensitivity(
+                        str(item.get("scope") or ""), [item.get("sensitivity")]
+                    ),
                     "purpose": item["purpose"],
                     "durationSeconds": item["duration_seconds"],
                     "createdAt": str(item.get("created_at") or "") or None,

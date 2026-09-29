@@ -24,10 +24,12 @@ function mountChat() {
   document.body.innerHTML =
     '<div class="agent-chat-workspace" data-agent-chat-route="root">' +
     '<button aria-label="Open chat history">history</button>' +
-    '<div data-overlay class="fixed"></div>' +
-    '<div role="dialog" aria-label="Agent chat history" aria-hidden="true" style="width: 320px"></div>' +
     '<section data-transcript>transcript</section>' +
-    "</div>";
+    "</div>" +
+    // The scrim and panel are portalled to <body>, outside the workspace, so
+    // they can stack above the fixed bottom bar (founder direction, 2026-09-28).
+    '<div data-overlay class="fixed"></div>' +
+    '<div role="dialog" data-agent-history-drawer aria-label="Agent chat history" aria-hidden="true" style="width: 320px"></div>';
   const drawer = document.querySelector<HTMLElement>('[role="dialog"]')!;
   Object.defineProperty(drawer, "offsetWidth", { value: 320 });
   return {
@@ -80,6 +82,16 @@ describe("chat history edge gesture", () => {
 
     drawer.setAttribute("aria-hidden", "false");
     drawer.style.transform = "";
+    touch("touchstart", 80, 300, transcript);
+    touch("touchmove", 200, 300, transcript);
+    expect(drawer.style.transform).toBe("");
+  });
+
+  it("finds the portalled drawer only while its chat workspace is on screen", () => {
+    const { drawer, transcript } = mountChat();
+    render(<AppChatHistoryEdgeGesture enabled />);
+    document.querySelector(".agent-chat-workspace")!.removeAttribute("data-agent-chat-route");
+
     touch("touchstart", 80, 300, transcript);
     touch("touchmove", 200, 300, transcript);
     expect(drawer.style.transform).toBe("");

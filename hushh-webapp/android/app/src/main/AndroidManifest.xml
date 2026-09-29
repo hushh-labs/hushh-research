@@ -73,7 +73,7 @@
             </intent-filter>
 
             <!--
-                Android App Links for the OAuth returns. Without an autoVerify
+                Android App Links for OAuth returns and shared invitations. Without an autoVerify
                 https filter the system hands the redirect to the browser, and a
                 person who just connected a bank account is stranded outside the
                 app. The paths mirror UNIVERSAL_LINK_PATHS in
@@ -100,6 +100,10 @@
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
+                <data android:path="/circle/join" />
+                <data android:path="/" />
+                <data android:path="/circle/join/" />
+                <data android:pathPrefix="/one/location/invite/" />
             </intent-filter>
         </activity>
 

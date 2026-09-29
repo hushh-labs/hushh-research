@@ -28,7 +28,6 @@ import { pendingAudienceBinding } from "@/lib/one-location/command-continuation"
 import { privateCheckInDigest, readPrivateCheckInDraft, type PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
 import {
   Check,
-  CheckCircle2,
   RefreshCw,
   Search,
   Shield,
@@ -967,15 +966,10 @@ export function CheckInFlow({
         onClick={() => void submit()}
         disabled={!canSubmit || busy}
         className={cn(
-          "flex w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] py-4 text-[color:var(--app-accent-fg)] transition-opacity",
+          "flex w-full items-center justify-center rounded-full bg-[color:var(--app-accent)] py-4 text-[color:var(--app-accent-fg)] transition-opacity",
           (!canSubmit || busy) && "opacity-50",
         )}
       >
-        {busy ? (
-          <RefreshCw className="h-[18px] w-[18px] animate-spin" />
-        ) : (
-          <CheckCircle2 className="h-[18px] w-[18px]" strokeWidth={1.8} />
-        )}
         <ButtonLabel as="span">
           {point
             ? recipientKeyChanged

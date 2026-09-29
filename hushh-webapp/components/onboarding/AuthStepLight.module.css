@@ -202,7 +202,7 @@
 }
 
 :global(html:not(.dark)) .legalRow p,
-:global(html:not(.dark)) .legalRow button {
+:global(html:not(.dark)) .legalRow a {
   font-family: var(--auth-font) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
@@ -217,7 +217,7 @@
   color: #626b80;
 }
 
-:global(html:not(.dark)) .legalRow button { color: #006dcc; }
+:global(html:not(.dark)) .legalRow a { color: #006dcc; }
 
 :global(html:not(.dark)) .back {
   position: absolute;
@@ -368,7 +368,7 @@
   height: 25.76586px;
 }
 :global(html.dark) .legalRow p,
-:global(html.dark) .legalRow button {
+:global(html.dark) .legalRow a {
   font-family: var(--auth-font) !important;
   font-size: 13px !important;
   font-weight: 400 !important;
@@ -376,7 +376,7 @@
   letter-spacing: 0 !important;
 }
 :global(html.dark) .legalRow p { width: auto; flex: none; margin: 0; color: #bfbfc8; }
-:global(html.dark) .legalRow button { color: #57acff; }
+:global(html.dark) .legalRow a { color: #57acff; }
 :global(html.dark) .back {
   position: absolute;
   left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));

@@ -178,7 +178,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 showRipple
                 className={cn(
                   "h-14 rounded-full text-base font-semibold shadow-sm",
-                  "transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]",
+                  "transition-[background-color,color,transform] duration-150 ease-out",
                   canContinue && !isSaveStarted
                     ? "!bg-foreground !text-background hover:opacity-90"
                     : "!bg-secondary !text-muted-foreground",

@@ -153,7 +153,7 @@ const Card = React.forwardRef<HTMLDivElement, CardProps>(
               ? "!backdrop-blur-none"
               : "backdrop-blur-[22px] backdrop-saturate-[155%] backdrop-contrast-[1.02]",
           isApple ? "min-w-0 p-0" : presetConfig.spacing,
-          interactive ? "cursor-pointer press-scale active:scale-[0.985] hover:brightness-[1.01]" : "",
+          interactive ? "cursor-pointer hover:brightness-[1.01]" : "",
           fullHeight ? "h-full" : "",
           selected ? "ring-1 ring-accent/60 dark:ring-accent/50" : "",
           className

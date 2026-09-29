@@ -24,6 +24,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from hushh_mcp.branding import PRODUCT_NAME
+from hushh_mcp.one_adk.follow_up_suggestions import FOLLOW_UP_TOOL_NAME
 from hushh_mcp.services.chat_key import MAX_BINDING_SECONDS
 
 logger = logging.getLogger(__name__)
@@ -88,9 +89,29 @@ def newest_turn_settled(events: Sequence[Any]) -> bool:
     return any(_is_final(event) for event in _newest_turn(events))
 
 
+def _ends_on_follow_ups(event: Any) -> bool:
+    """A turn closed by follow-up suggestions: its answer is on the call's own event."""
+    responses = event.get_function_responses() if hasattr(event, "get_function_responses") else []
+    return bool(responses) and all(
+        response.name == FOLLOW_UP_TOOL_NAME and (response.response or {}).get("status") == "shown"
+        for response in responses
+    )
+
+
 def newest_turn_answered(events: Sequence[Any]) -> bool:
     """True when the newest turn ended with something the person can open."""
-    return any(_is_final(event) and _has_answer(event) for event in _newest_turn(events))
+    turn = _newest_turn(events)
+    for index, event in enumerate(turn):
+        if not _is_final(event):
+            continue
+        if _has_answer(event):
+            return True
+        if _ends_on_follow_ups(event) and any(
+            getattr(prior, "author", None) != "user" and _has_answer(prior)
+            for prior in turn[:index]
+        ):
+            return True
+    return False
 
 
 def newest_turn_pending(events: Sequence[Any], *, now: float | None = None) -> bool:

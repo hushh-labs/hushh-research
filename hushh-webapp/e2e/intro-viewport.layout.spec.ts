@@ -15,80 +15,31 @@ const viewports = [
 
 for (const dark of [false, true]) {
   for (const viewport of viewports) {
-    test(`intro ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fits`, async ({ page }, testInfo) => {
+    test(`three-screen intro ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fits`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       await page.addInitScript((theme) => localStorage.setItem("theme", theme), dark ? "dark" : "light");
-      await page.goto("/");
-      const screen = page.getByTestId("one-intro-screen");
-      await expect(screen).toBeVisible();
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await page.goto("/?invite=one");
+      const preview = page.getByTestId("guest-preview");
+      // The real route can compile its public-entry chunk on a cold dev server.
+      await expect(preview).toBeVisible({ timeout: 30000 });
       await page.addStyleTag({ content: `:root { --app-safe-area-top-effective: ${viewport.top}px !important; --app-safe-area-bottom-effective: ${viewport.bottom}px !important; }` });
       await page.evaluate(() => document.fonts.ready);
-      await expect.poll(() => screen.locator("img").evaluateAll(images => images.every(image => {
-        const img = image as HTMLImageElement;
-        return getComputedStyle(img).display === "none" || (img.complete && img.naturalWidth > 0);
-      }))).toBe(true);
-      const result = await screen.evaluate((element) => {
-        const rect = (e: Element) => {
-          const r = e.getBoundingClientRect();
-          return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
-        };
-        const button = element.querySelector("button")!;
-        const privacy = [...element.querySelectorAll("span")].find(e => e.textContent === "You choose what to share.")!;
-        const lines = [...privacy.childNodes].filter(n => n.nodeType === Node.TEXT_NODE).map(n => {
-          const range = document.createRange();
-          range.selectNodeContents(n);
-          return [...range.getClientRects()].filter(r => r.width > 0).length;
+      for (let step = 1; step <= 3; step++) {
+        await expect(preview).toHaveAttribute("data-preview-step", String(step));
+        const cta = preview.getByRole("button", { name: step === 1 ? "Meet your agents" : step === 2 ? "See what’s next" : "Create your One", exact: true });
+        const result = await preview.evaluate((element) => {
+          const root = document.querySelector<HTMLElement>("[data-app-scroll-root]")!;
+          return { x: root.scrollWidth - root.clientWidth, y: root.scrollHeight - root.clientHeight, top: element.getBoundingClientRect().top };
         });
-        const ancestors = [];
-        for (let e: HTMLElement | null = element; e; e = e.parentElement) {
-          ancestors.push({ tag: e.tagName, x: e.scrollWidth - e.clientWidth, y: e.scrollHeight - e.clientHeight });
-        }
-        const visibleImages = [...element.querySelectorAll("img")].filter(e => getComputedStyle(e).display !== "none");
-        const privacyRow = privacy.parentElement!;
-        const subtitle = [...element.querySelectorAll("p")].find(e => e.textContent === "Your private network of AI agents")!;
-        const privacyStyle = getComputedStyle(privacy);
-        const buttonStyle = getComputedStyle(button);
-        return { subtitle: rect(subtitle), privacyRow: rect(privacyRow), privacyFont: privacyStyle.fontSize, privacyLine: privacyStyle.lineHeight, buttonFont: buttonStyle.fontSize, buttonWeight: buttonStyle.fontWeight, button: rect(button), privacy: rect(privacy), lines, ancestors, images: visibleImages.map(e => ({ alt: e.alt, loaded: e.complete && e.naturalWidth > 0, ...rect(e) })) };
-      });
-      for (const ancestor of result.ancestors) {
-        expect(ancestor.x, `${ancestor.tag} horizontal overflow`).toBeLessThanOrEqual(1);
-        if (viewport.height >= 667) expect(ancestor.y, `${ancestor.tag} vertical overflow`).toBeLessThanOrEqual(1);
+        expect(result.x).toBeLessThanOrEqual(1);
+        if (viewport.height >= 568) expect(result.y).toBeLessThanOrEqual(1);
+        await expect(cta).toBeVisible();
+        await cta.scrollIntoViewIfNeeded();
+        await expect(cta).toBeInViewport();
+        await page.screenshot({ path: testInfo.outputPath(`intro-${step}.png`) });
+        if (step < 3) await cta.click();
       }
-      expect(result.lines).toEqual([1]);
-      expect(result.privacyFont).toBe("13px");
-      expect(result.privacyLine).toBe("20px");
-      expect(result.buttonFont).toBe("17px");
-      expect(result.buttonWeight).toBe("600");
-      const originalArtHeight = viewport.width >= 640 && viewport.height >= 860
-        ? 320
-        : Math.max(140, Math.min(360, viewport.height - 400 - viewport.top - viewport.bottom));
-      expect(result.privacyRow.y - result.subtitle.bottom).toBeCloseTo(48 + originalArtHeight * 0.1 + 2.7, 0);
-      expect(result.button.y - result.privacyRow.bottom).toBeCloseTo(10, 0);
-      expect(result.button.height).toBeCloseTo(50, 0);
-      expect(result.button.width).toBeCloseTo(Math.min(viewport.width, 440) - 48, 0);
-      expect(result.button.x).toBeGreaterThanOrEqual(0);
-      expect(result.button.right).toBeLessThanOrEqual(viewport.width);
-      if (viewport.height >= 667) expect(result.button.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
-      expect(result.button.y - result.privacy.bottom).toBeCloseTo(10, 0);
-      for (const image of result.images) {
-        expect(image.loaded).toBe(true);
-        // Decorative exports include intentionally oversized transparent/cropped
-        // canvases. Preserve those authored crops; bound the actual logos here.
-        if (!image.alt) continue;
-        expect(image.x).toBeGreaterThanOrEqual(0);
-        expect(image.right).toBeLessThanOrEqual(viewport.width);
-        expect(image.y).toBeGreaterThanOrEqual(viewport.top);
-        expect(image.bottom).toBeLessThanOrEqual(viewport.height - viewport.bottom);
-      }
-      const links = screen.getByRole("navigation", { name: "Explore Hussh" });
-      if (viewport.width >= 640 && viewport.height >= 860) {
-        const bounds = (await links.boundingBox())!;
-        expect(bounds.y + bounds.height).toBeLessThanOrEqual(viewport.height - viewport.bottom + 1);
-      }
-      // Very short/landscape views scroll instead of shrinking controls.
-      await screen.getByRole("button", { name: "Claim your One" }).scrollIntoViewIfNeeded();
-      await expect(screen.getByRole("button", { name: "Claim your One" })).toBeInViewport();
-      await page.screenshot({ path: testInfo.outputPath("intro.png") });
     });
   }
 }
@@ -124,3 +75,35 @@ for (const theme of ["light", "dark"]) {
     });
   }
 }
+
+// Terms and Privacy on sign-in are plain links to the full pages, in the same
+// tab, never an in-app popup. Back returns to sign-in.
+test("sign-in Terms and Privacy open their full pages, not a popup", async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
+  await page.goto("/login");
+  const footer = page.getByTestId("auth-step-primary").locator("[data-auth-supporting-content]");
+
+  const terms = footer.getByRole("link", { name: "Terms", exact: true });
+  const privacy = footer.getByRole("link", { name: "Privacy Policy", exact: true });
+  await expect(terms).toHaveAttribute("href", "/terms");
+  await expect(privacy).toHaveAttribute("href", "/privacy");
+  await expect(terms).not.toHaveAttribute("target", /.+/);
+  await expect(terms).toHaveCSS("font-size", "13px");
+  await expect(footer.getByRole("button")).toHaveCount(0);
+
+  await terms.click();
+  await expect(page).toHaveURL(/\/terms\/?$/);
+  await expect(page.getByTestId("legal-terms-page")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\/login\/?$/);
+  await page
+    .getByTestId("auth-step-primary")
+    .locator("[data-auth-supporting-content]")
+    .getByRole("link", { name: "Privacy Policy", exact: true })
+    .click();
+  await expect(page).toHaveURL(/\/privacy\/?$/);
+  await expect(page.getByTestId("legal-privacy-page")).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});

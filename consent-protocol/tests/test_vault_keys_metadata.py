@@ -1167,6 +1167,48 @@ async def test_pre_vault_update_persists_and_preserves_declined_capability_ids()
     assert second["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
 
 
+@pytest.mark.asyncio
+async def test_pre_vault_update_persists_bounded_chat_onboarding_progress():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    first = await service.update_pre_vault_state(
+        user_id="user-chat-onboarding",
+        one_chat_onboarding={
+            "version": 1,
+            "status": "in_progress",
+            "answered": ["name"],
+            "skipped": [],
+            "preferredName": "Kushal",
+        },
+    )
+    assert first["oneChatOnboarding"] == {
+        "version": 1,
+        "status": "in_progress",
+        "answered": ["name"],
+        "skipped": [],
+        "completedOn": None,
+        "tipDismissedOn": None,
+    }
+    # The stored plaintext row never carries the answer value.
+    row = next(r for r in fake.db["vault_keys"] if r["user_id"] == "user-chat-onboarding")
+    assert "Kushal" not in row["one_chat_onboarding"]
+
+    # Omitting the field on a later, unrelated write leaves it untouched.
+    second = await service.update_pre_vault_state(
+        user_id="user-chat-onboarding",
+        setup_capability_declined_ids=["gmail"],
+    )
+    assert second["oneChatOnboarding"]["answered"] == ["name"]
+
+    with pytest.raises(ValueError, match="invalid one chat onboarding state"):
+        await service.update_pre_vault_state(
+            user_id="user-chat-onboarding",
+            one_chat_onboarding={"version": 1, "status": "finished"},
+        )
+
+
 def test_pre_vault_serialization_preserves_integer_timestamps():
     state = VaultKeysService._serialize_user_entry(
         {

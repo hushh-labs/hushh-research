@@ -20,7 +20,6 @@ export const AuthService = {
 };
 export const ApiService = {
   getAccountSessionStatus: async () => Response.json({ active: true }),
-  notifyAuthMail: async () => undefined,
   deleteSession: async () => { record("cookie-cleared"); },
 };
 export const deleteFCMToken = async () => {

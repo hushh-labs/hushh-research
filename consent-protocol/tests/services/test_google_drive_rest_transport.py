@@ -98,6 +98,42 @@ async def test_search_maps_rest_files_to_the_mcp_file_shape(monkeypatch):
     )
 
 
+async def test_owner_scanner_keeps_all_100_rest_rows_without_widening_agent_read(monkeypatch):
+    listing = AsyncMock(
+        return_value={
+            "files": [
+                _file(f"file-{index}", modified="2026-09-20T10:00:00Z") for index in range(100)
+            ],
+            "nextPageToken": "next-100",
+            "incompleteSearch": False,
+        }
+    )
+    drive = transport(adapter=SimpleNamespace(list_files=listing), monkeypatch=monkeypatch)
+    result = await drive.read_owner_search_page(
+        user_id="owner",
+        tool_name="search_files",
+        arguments={"query": "title contains 'file'", "pageSize": 100},
+    )
+    assert [item["id"] for item in result.payload["files"]] == [
+        f"file-{index}" for index in range(100)
+    ]
+    assert result.payload["nextPageToken"] == "next-100"
+    assert result.payload["overLimit"] is False
+    assert listing.await_args.kwargs["page_size"] == 100
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "title contains 'file'", "pageSize": 26},
+        )
+    with pytest.raises(DriveOAuthError, match="invalid_argument"):
+        await drive.read_owner_search_page(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "title contains 'file'", "pageSize": 101},
+        )
+
+
 def _file(file_id, *, modified, created="2026-09-01T00:00:00Z"):
     return {
         "id": file_id,
@@ -419,7 +455,8 @@ async def test_the_connect_probe_is_one_bounded_rest_search():
         ),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "recency"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "createdTime"}, False),
-        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "26"}, False),
+        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "100"}, True),
+        ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "101"}, False),
         ({**adapter_module.LIST_FIXED, "q": "x", "pageSize": "8", "orderBy": "name"}, False),
         ({**adapter_module.LIST_FIXED, "fields": "*", "q": "x", "pageSize": "8"}, False),
         (

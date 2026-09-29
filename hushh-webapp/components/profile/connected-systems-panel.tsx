@@ -6,7 +6,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   BuildingsIcon as Building2,
-  DatabaseIcon as Database,
   ListChecksIcon as ListChecks,
   LockIcon as LockKeyhole,
   PencilIcon as Pencil,
@@ -14,6 +13,14 @@ import {
   SendIcon as SendHorizontal,
   TrashIcon as Trash2,
 } from "@/components/icons";
+import {
+  ConnectedSystemsAgentIcon,
+  ProgressRowIcon,
+  SuccessRowIcon,
+  SyncRowIcon,
+  VaultRowIcon,
+  WarningRowIcon,
+} from "@/components/icons/agents";
 
 import {
   AlertDialog,
@@ -2080,7 +2087,8 @@ export function ConnectedSystemsPanel({
     return (
       <SettingsGroup title="CRM system">
         <SettingsRow
-          icon={Database}
+          icon={VaultRowIcon}
+          iconTone="capability"
           title="Unlock vault"
           description="Unlock your vault to inspect connected CRM systems."
           chevron
@@ -2097,7 +2105,8 @@ export function ConnectedSystemsPanel({
         (busy === "systems" || systemsResource.loading) ? (
           <SettingsGroup>
             <SettingsRow
-              icon={RefreshCw}
+              icon={SyncRowIcon}
+              iconTone="capability"
               title="Loading connected systems"
               description="Fetching CRM systems configured for this One account."
               trailing={
@@ -2112,7 +2121,8 @@ export function ConnectedSystemsPanel({
         !systemsResource.loading ? (
           <SettingsGroup>
             <SettingsRow
-              icon={Database}
+              icon={ConnectedSystemsAgentIcon}
+              iconTone="capability"
               title="No CRM systems available"
               description="Refresh to check which systems are available to this account."
               trailing={
@@ -2242,7 +2252,8 @@ export function ConnectedSystemsPanel({
       {awaitingContactBinding && !isRecordStateLoading ? (
         <SettingsGroup title="Linking your CRM profile">
           <SettingsRow
-            icon={Database}
+            icon={ProgressRowIcon}
+            iconTone="capability"
             title="Your profile was created"
             description={`We are locating the separately verified ${readObjectType} record required before private CRM fields can be read or updated. The profile creation ID is never reused for this step.`}
             trailing={
@@ -2358,7 +2369,8 @@ export function ConnectedSystemsPanel({
       !canShowUnboundRecordActions ? (
         <SettingsGroup title="Profile">
           <SettingsRow
-            icon={Database}
+            icon={WarningRowIcon}
+            iconTone="capability"
             title="Profile setup is temporarily unavailable"
             description={
               schema.configurationMessage ||
@@ -2384,7 +2396,8 @@ export function ConnectedSystemsPanel({
       {isSetupPresentation && hasBoundRecord && !isRecordStateLoading ? (
         <SettingsGroup title="CRM ready">
           <SettingsRow
-            icon={Database}
+            icon={SuccessRowIcon}
+            iconTone="capability"
             title="Record connected"
             description="Your verified CRM record is ready for approved reads and writes."
             trailing={

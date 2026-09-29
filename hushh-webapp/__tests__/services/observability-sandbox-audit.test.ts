@@ -14,6 +14,7 @@ import {
   resolveGtmContainerId,
 } from "@/lib/observability/env";
 import { trackPageView, trackApiRequestCompleted, trackEvent } from "@/lib/observability/client";
+import { resetWebGtmHitBudgetForTests } from "@/lib/observability/adapters/web-gtm";
 import {
   captureGrowthAttribution,
   trackGrowthFunnelStepCompleted,
@@ -169,6 +170,10 @@ async function recordScenario(
   expectedEventNames: string[],
   invoke: () => void
 ): Promise<void> {
+  // Each scenario is an independent journey; the 22 of them in one tick would
+  // otherwise exhaust gtag's per-page event budget, which this audit does not
+  // cover (observability-web-transport.test.ts does).
+  resetWebGtmHitBudgetForTests();
   const beforeDataLayerCount = dataLayerTransport.length;
   const beforeGtagCount = gtagTransport.length;
   const startedAtMs = performance.now();

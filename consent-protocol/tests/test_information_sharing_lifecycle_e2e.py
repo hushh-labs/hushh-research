@@ -361,6 +361,26 @@ class _RequestService(InformationRequestService):
                     }
                 )
             return [{"request_id": params["request"]}]
+        if "FROM consent_audit" in sql and "request_id = ANY(:request_ids)" in sql:
+            # The progress read (CONTRACT C1): every transition, oldest first.
+            return sorted(
+                (
+                    event
+                    for event in world.ledger.events
+                    if event.get("user_id") == params["subject"]
+                    and event.get("request_id") in params["request_ids"]
+                    and event.get("action")
+                    in {
+                        "REQUESTED",
+                        "CONSENT_GRANTED",
+                        "CONSENT_DENIED",
+                        "REVOKED",
+                        "TIMEOUT",
+                        "CANCELLED",
+                    }
+                ),
+                key=lambda event: (event["issued_at"], event["id"]),
+            )
         if "UPDATE one_information_request_bundles SET cancelled_at" in sql:
             bundle = world.bundles.get(params["bundle"])
             if bundle is None:
@@ -714,6 +734,14 @@ async def test_request_creates_pending_for_owner_and_replay_is_idempotent(client
     assert len(spoken) == 1
     assert {row["requesterLabel"] for row in spoken} == {REQUESTER_LABEL}
     assert "attr." not in json.dumps(spoken)
+    # O4 (localhost run 4): the owner's chat handed the app "bundle:<uuid>",
+    # which the pending lookup cannot find, so no card appeared. The ids it
+    # hands out now are the ledger's own, and the lookup resolves each one.
+    assert len(spoken[0]["requestIds"]) == 2
+    assert spoken[0]["requestId"] == spoken[0]["requestIds"][0]
+    for request_id in spoken[0]["requestIds"]:
+        assert not request_id.startswith("bundle:")
+        await _owner_lookup(client, request_id)
 
 
 @pytest.mark.asyncio

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, LockKeyhole, PauseCircle, Sparkles, type LucideIcon } from "@/components/icons";
+import { Cloud, Database, Eye, LockKeyhole, PauseCircle, type LucideIcon } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 
@@ -77,7 +77,7 @@ export function GuidedConnectionScreen({
 }) {
   return (
     <SetupStoryScreen
-      icon={Sparkles}
+      icon={Cloud}
       titleId="one-setup-guided-connection-title"
       testId="one-setup-guided-connection"
       title={agentReady ? "Your private agent is ready" : "One last connection"}
@@ -104,7 +104,7 @@ export function GuidedConnectionScreen({
 export function BufferHandoffScreen() {
   return (
     <SetupStoryScreen
-      icon={Sparkles}
+      icon={Database}
       titleId="one-setup-buffer-handoff-title"
       testId="one-setup-buffer-handoff"
       title="Moving your details across"

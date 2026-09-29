@@ -113,12 +113,53 @@ def sql(store, statement, params=None):
         return connection.execute(text(statement), params or {})
 
 
+async def test_owner_coverage_dedup_and_resource_key_stay_encrypted(store):
+    state = checkpoint()
+    state.update(
+        coverage_manifest={
+            "corpora": ["user", "member_shared_drives"],
+            "fileKind": "document",
+            "requestedPeriod": {"start": "2026-06-28", "end": "2026-09-28", "timezone": "UTC"},
+            "dateBasis": "title_date_then_created_or_modified",
+            "contentPeriodVerified": False,
+        },
+        coverage_counts={"providerRowsScanned": 2, "excludedByDateCount": 3},
+        folder_queue=[{"id": "private-folder", "resourceKey": "private-folder-key"}],
+    )
+    job_state, _ = await store.create(
+        user_id="owner",
+        client_request_id=str(uuid4()),
+        request={"query": "Synthetic"},
+        checkpoint=state,
+        confirmed=True,
+    )
+    job = await store.claim(user_id="owner", job_id=job_state["jobId"])
+    item = {**result(1), "resourceKey": "private-file-key"}
+    await store.commit_page(job, checkpoint=state, files=[item])
+    completed = await store.commit_page(job, checkpoint=state, files=[item], done=True)
+    assert completed["matched"] == 1 and completed["coverage"]["deduplicatedCount"] == 1
+    assert completed["coverage"]["providerPagesExhausted"] is True
+    assert completed["coverage"]["excludedByDateCount"] == 3
+    assert "private-folder" not in json.dumps(completed)
+    page = await store.results(user_id="owner", job_id=job_state["jobId"])
+    assert "resourceKey" not in page["files"][0]
+    saved = await store.reference(user_id="owner", job_id=job_state["jobId"], position=1)
+    assert saved["resourceKey"] == "private-file-key"
+    encoded = sql(
+        store,
+        "SELECT checkpoint_envelope::text FROM drive_owner_search_jobs WHERE job_id=:job",
+        {"job": job_state["jobId"]},
+    ).scalar_one()
+    assert "private-folder" not in encoded and "private-folder-key" not in encoded
+
+
 async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_instances(store):
     state, _ = await create(store)
     calls, concurrency = [], {"active": 0, "peak": 0}
 
     async def read(*, user_id, tool_name, arguments):
-        assert user_id == "owner" and arguments["pageSize"] == 25
+        assert user_id == "owner"
+        assert arguments["pageSize"] == (25 if tool_name == "list_shared_drives" else 100)
         concurrency["active"] += 1
         concurrency["peak"] = max(concurrency["peak"], concurrency["active"])
         await asyncio.sleep(0)
@@ -131,8 +172,8 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         return ExternalMcpToolResult(
             False,
             {
-                "files": [file(n) for n in range(page * 25, (page + 1) * 25)],
-                "nextPageToken": str(page + 1) if page < 39 else None,
+                "files": [file(n) for n in range(page * 100, (page + 1) * 100)],
+                "nextPageToken": str(page + 1) if page < 9 else None,
                 "incompleteSearch": False,
             },
             False,
@@ -149,9 +190,9 @@ async def test_thousand_results_checkpoint_every_page_and_resume_new_worker_inst
         assert 1 <= len(calls) - before <= 4
     final = await store.status(user_id="owner", job_id=state["jobId"])
     assert final["status"] == "completed" and final["matched"] == 1000
-    assert final["pagesScanned"] == 41 and final["incompleteSearch"] is False
+    assert final["pagesScanned"] == 11 and final["incompleteSearch"] is False
     assert concurrency["peak"] == 1
-    assert len([call for call in calls if call[0] == "search_files"]) == 40
+    assert len([call for call in calls if call[0] == "search_files"]) == 10
     cursor, identifiers = None, []
     while True:
         page = await store.results(user_id="owner", job_id=state["jobId"], cursor=cursor)

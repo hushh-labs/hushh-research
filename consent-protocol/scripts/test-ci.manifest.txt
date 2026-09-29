@@ -54,6 +54,9 @@ tests/test_documents_agent_a2a.py
 tests/services/test_drive_live_query.py
 tests/services/test_drive_owner_share.py
 tests/services/test_drive_owner_search_postgres.py
+tests/services/test_drive_request_search_unit.py
+tests/services/test_drive_request_bulk_postgres.py
+tests/services/test_google_drive_mcp_service.py
 tests/services/test_drive_bulk_share_postgres.py
 tests/services/test_drive_bulk_share_service.py
 tests/services/test_drive_bulk_share_worker.py
@@ -109,8 +112,10 @@ tests/test_pkm_upgrade_run_id_path_bounds.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
+tests/test_onboarding_contract.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
+tests/services/test_connect_directory_postgres.py
 tests/test_one_capability_runtime_router_mount.py
 tests/services/test_location_brain_semantic_retrieval.py
 tests/services/test_location_circle_direct_executor.py
@@ -354,6 +359,8 @@ tests/services/test_location_nearby_visit_command_postgres.py
 tests/test_agui_turn_timing.py
 # Startup warmup: a worker's first chat turn imports nothing before its model call.
 tests/test_one_turn_warmup.py
+# Smart follow-ups end the turn in the answer's own model call, never a second.
+tests/test_one_follow_up_suggestions.py
 # Shutdown drain: a stream cut by SIGTERM still ends with a terminal RUN_ERROR.
 tests/test_agent_chat_drain.py
 tests/test_encrypted_adk_session_service.py
@@ -400,6 +407,11 @@ tests/test_information_sharing_lifecycle_e2e.py
 tests/test_specialist_turn_parity.py
 tests/test_health_review_mode.py
 tests/services/test_person_profile_service.py
+# Consent lifecycle C4 (2026-09-28), "One picks, the person confirms": the
+# label-and-synonym scope matcher with its synonym-off negative control, human
+# scope labels, and the people scope-catalog route binding.
+tests/test_scope_search_ranking.py
+tests/test_one_people_request_history.py
 tests/services/test_information_request_service.py
 tests/services/test_consent_export_read_dedupe.py
 tests/test_consent_handshake.py
@@ -547,3 +559,31 @@ tests/test_pod_server.py
 # Execute the real deploy shell with immutable-artifact fixtures.
 tests/test_personal_agent_deploy_lane.py
 tests/test_structure_agent_prompt_is_unambiguous.py
+# One's own attention moments: the picked-up card after a first connection
+# (nothing stored server-side, once per source, out-of-contract output rejected)
+# and the generic feed push (no personal content, notable-only, capped). Opening
+# the push runs One's real ADK runner with no tools and no persisted item text.
+# The ledger SQL (claim-once, first-week window, daily cap, cascade, replay and
+# rollback refusal) runs against the isolated PostgreSQL CI service.
+tests/test_one_attention.py
+tests/test_one_attention_ledger_postgres.py
+# Consent lifecycle in chat (2026-09-28). After a grant ends, One's real ADK
+# runner no longer sends the shared answer, or anything derived from it, to the
+# model, with a negative control that shows it would otherwise. The requester's
+# outcome doorbell stays bare. Migration 259 on real PostgreSQL: eight workers
+# handling one consent event send one push (without the claim, eight), one owner
+# Feed row per request bundle, NOTIFY carries the audit id, rollback refuses
+# while claims are recent. The Feed keeps a bundle item's who, what and why.
+tests/test_consent_redaction.py
+tests/test_consent_outcome_delivery_postgres.py
+tests/test_consent_listener_notifications.py
+tests/test_feed_metadata_allowlist.py
+# Wave 2 consent (CONTRACT-2, 2026-09-28). One sensitivity authority, deny by
+# default, on the catalog, request progress and the shared card (C7). A
+# sensitive value never reaches the model on the continuation path: the real
+# ADK runner with a recording model, plus a negative control without the strip.
+# The "Shared with you" card (C6) carries labels, field names and refs, never a
+# value, and survives a reload.
+tests/test_scope_sensitivity.py
+tests/test_consent_sensitive_continuation.py
+tests/test_shared_with_me_card.py

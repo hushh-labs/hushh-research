@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from api.routes.one import location
+from api.routes.one import router as one_router
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 
 CIRCLE_ID = "550e8400-e29b-41d4-a716-446655440000"
@@ -163,6 +166,16 @@ class FakeNamedCircleService:
             "memberCount": 1,
             "expiresAt": "2026-07-27T00:00:00+00:00",
             "alreadyMember": False,
+        }
+
+    def preview_public_invite_code(self, **kwargs):
+        self._record("public_preview", **kwargs)
+        # Deliberately add internal metadata: the route model must not leak it.
+        return {
+            "name": "Meena Family",
+            "ownerDisplayName": "Owner",
+            "alreadyMember": True,
+            "ownerUserId": "private-owner",
         }
 
     def join_circle(self, **kwargs):
@@ -467,7 +480,7 @@ def _bootstrap_client(monkeypatch, *, authenticated: bool = True):
 
     service = FakeNamedCircleService()
     app = FastAPI()
-    app.include_router(location.router)
+    app.include_router(one_router)
     if authenticated:
         app.dependency_overrides[location.require_firebase_auth] = lambda: "owner-user"
     monkeypatch.setattr(location, "_circle_service", lambda: service)
@@ -682,6 +695,102 @@ def test_circle_code_preview_rejects_an_unauthenticated_caller(monkeypatch) -> N
 
     assert response.status_code == 401
     assert service.calls == []
+
+
+def test_public_circle_preview_has_an_exact_anonymous_allowlist(monkeypatch) -> None:
+    from hushh_mcp.services.app_intelligence_runtime import (
+        _discover_service_api_endpoints_from_router,
+    )
+
+    # Exercise the canonical One mount, but keep guest presentation outside
+    # the protected workflow catalog so existing setup runs stay compatible.
+    assert not any(
+        endpoint["path"] == "/api/one/location/circle-codes/public-preview"
+        for endpoint in _discover_service_api_endpoints_from_router("location", location.router)
+    )
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+    response = client.post(
+        "/api/one/location/circle-codes/public-preview", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"circle": {"name": "Meena Family", "ownerDisplayName": "Owner"}}
+    assert response.headers["cache-control"] == "private, no-store"
+    assert service.calls == [("public_preview", {"code": "2345-6789-ABCD"})]
+
+
+@pytest.mark.parametrize("action", ["resolve", "join"])
+def test_public_preview_does_not_make_circle_mutations_anonymous(monkeypatch, action) -> None:
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+    response = client.post(
+        f"/api/one/location/circle-codes/{action}", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 401
+    assert service.calls == []
+
+
+def test_public_preview_reads_valid_ordinary_codes_without_viewer_or_mutation(monkeypatch) -> None:
+    calls = []
+
+    def read(query, params):
+        calls.append((query, params))
+        return SimpleNamespace(
+            data=[
+                {
+                    "name": "Family",
+                    "owner_display_name": "Alex",
+                    "owner_user_id": "private-id",
+                    "member_count": 3,
+                    "already_member": True,
+                }
+            ]
+        )
+
+    service = object.__new__(OneLocationCircleService)
+    service._db = SimpleNamespace(execute_raw=read)
+    monkeypatch.setattr(service, "_code_hash", lambda code: "hashed-code")
+    assert service.preview_public_invite_code(code="2345-6789-ABCD") == {
+        "name": "Family",
+        "ownerDisplayName": "Alex",
+    }
+    assert len(calls) == 1
+    query, params = calls[0]
+    assert params == {"code_hash": "hashed-code", "user_id": None}
+    for guard in [
+        "circle.status = 'active'",
+        "code.status = 'active'",
+        "code.expires_at > NOW()",
+        "code.use_count < code.max_uses",
+        "NOT circle.is_system",
+        "circle.system_kind IS NULL",
+    ]:
+        assert guard in query
+    assert not any(word in query.upper() for word in ["UPDATE ", "INSERT ", "DELETE "])
+
+
+def test_public_preview_unavailable_code_discloses_no_metadata(monkeypatch) -> None:
+    from hushh_mcp.services.one_location_circle_service import OneLocationCircleError
+
+    client, service = _bootstrap_client(monkeypatch, authenticated=False)
+
+    def unavailable(**kwargs):
+        raise OneLocationCircleError(
+            "LOCATION_CIRCLE_CODE_INVALID",
+            "That Circle code is invalid or no longer available.",
+            status_code=404,
+        )
+
+    monkeypatch.setattr(service, "preview_public_invite_code", unavailable)
+    response = client.post(
+        "/api/one/location/circle-codes/public-preview", json={"code": "2345-6789-ABCD"}
+    )
+    assert response.status_code == 404
+    assert "circle" not in response.json()
+    assert (
+        client.post(
+            "/api/one/location/circle-codes/public-preview", json={"code": "short"}
+        ).status_code
+        == 422
+    )
 
 
 def test_circle_code_preview_rejects_a_malformed_code(monkeypatch) -> None:

@@ -3,8 +3,9 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from api.consent_listener import (
+    REQUESTER_ACCESS_ENDED_BODY,
     REQUESTER_ANSWER_BODY,
-    _notify_information_requester,
+    _information_requester_doorbell,
     build_consent_push_content,
 )
 from api.utils.consent_notifications import (
@@ -83,27 +84,21 @@ def test_next_pending_notification_stops_after_opened():
 def test_person_request_resolution_wakes_only_database_bound_requester():
     bundle_id = "18e15d76-c850-5b8b-83ea-8a2f57ac15d0"
     query_parameters = []
-    delivered = []
 
     class Database:
         def execute_raw(self, _query, parameters):
             query_parameters.append(parameters)
             return SimpleNamespace(data=[{"requester_user_id": "requester-1"}])
 
-    async def dispatch(user_id, payload):
-        delivered.append((user_id, payload))
-
-    with (
-        patch("db.db_client.get_db", return_value=Database()),
-        patch("api.consent_listener._dispatch_notification_for_user", side_effect=dispatch),
-    ):
-        asyncio.run(
-            _notify_information_requester(
+    with patch("db.db_client.get_db", return_value=Database()):
+        doorbell = asyncio.run(
+            _information_requester_doorbell(
                 {
                     "action": "CONSENT_GRANTED",
                     "user_id": "subject-1",
                     "bundle_id": bundle_id,
                     "request_id": "one_person_request-1",
+                    "issued_at": 1759090000000,
                     "requester_user_id": "forged-requester",
                     "plaintext": "must-not-travel",
                 }
@@ -117,21 +112,23 @@ def test_person_request_resolution_wakes_only_database_bound_requester():
             "request_id": "one_person_request-1",
         }
     ]
-    assert delivered == [
-        (
-            "requester-1",
-            {
-                "type": "information_request_updated",
-                "user_id": "requester-1",
-                "action": "CONSENT_GRANTED",
-                "bundle_id": bundle_id,
-                "request_id": "one_person_request-1",
-                "message_id": f"information-request:{bundle_id}:one_person_request-1:CONSENT_GRANTED:",
-                "request_url": "/",
-                "deep_link": "/",
-            },
-        )
-    ]
+    # The canonical outcome event: identifiers, action and time only.
+    assert doorbell == (
+        "requester-1",
+        {
+            "type": "information_request_updated",
+            "user_id": "requester-1",
+            "action": "CONSENT_GRANTED",
+            "bundle_id": bundle_id,
+            "request_id": "one_person_request-1",
+            "at": "2025-09-28T20:06:40+00:00",
+            "message_id": (
+                f"information-request:{bundle_id}:one_person_request-1:CONSENT_GRANTED:1759090000000"
+            ),
+            "request_url": "/",
+            "deep_link": "/",
+        },
+    )
 
 
 def test_unresolved_or_unbound_person_request_never_wakes_a_requester():
@@ -139,13 +136,7 @@ def test_unresolved_or_unbound_person_request_never_wakes_a_requester():
         def execute_raw(self, _query, _parameters):
             return SimpleNamespace(data=[])
 
-    async def dispatch(_user_id, _payload):
-        raise AssertionError("No requester may be notified")
-
-    with (
-        patch("db.db_client.get_db", return_value=Database()),
-        patch("api.consent_listener._dispatch_notification_for_user", side_effect=dispatch),
-    ):
+    with patch("db.db_client.get_db", return_value=Database()):
         for payload in (
             {
                 "action": "REQUESTED",
@@ -166,7 +157,7 @@ def test_unresolved_or_unbound_person_request_never_wakes_a_requester():
                 "user_id": "subject-1",
             },
         ):
-            asyncio.run(_notify_information_requester(payload))
+            assert asyncio.run(_information_requester_doorbell(payload)) is None
 
 
 # --- Bare consent push (fcm-notifications.md trust rule) ---------------------
@@ -220,9 +211,36 @@ def test_requester_answer_push_is_bare_and_opens_the_asking_chat():
     assert data["request_url"] == data["deep_link"] == f"/?informationRequest={bundle}"
     assert "Allergies" not in " ".join(data.values())
 
-    # A revocation changes state but has no answer to open: it stays silent.
-    _t, _b, _d, revoked_alert = build_consent_push_content(
+    # The end of access alerts calmly, and still names no scope or value.
+    _t, revoked_body, revoked_data, revoked_alert = build_consent_push_content(
         "requester-uid",
-        {"type": "information_request_updated", "action": "REVOKED", "bundle_id": bundle},
+        {
+            "type": "information_request_updated",
+            "action": "REVOKED",
+            "bundle_id": bundle,
+            "outcome": "revoked",
+            "at": "2026-09-28T20:00:00+00:00",
+            "scope_description": "Allergies",
+        },
     )
-    assert revoked_alert is False
+    assert (revoked_alert, revoked_body) == (True, REQUESTER_ACCESS_ENDED_BODY)
+    assert revoked_data["outcome"] == "revoked"
+    assert revoked_data["at"] == "2026-09-28T20:00:00+00:00"
+    assert "Allergies" not in " ".join(revoked_data.values())
+    # A partial answer on a multi-field request waits for the whole answer.
+    _t, _b, _d, partial_alert = build_consent_push_content(
+        "requester-uid",
+        {
+            "type": "information_request_updated",
+            "action": "CONSENT_GRANTED",
+            "bundle_id": bundle,
+            "outcome": "pending",
+        },
+    )
+    assert partial_alert is False
+    # The requester's own withdrawal stays silent.
+    _t, _b, _d, cancelled_alert = build_consent_push_content(
+        "requester-uid",
+        {"type": "information_request_updated", "action": "CANCELLED", "bundle_id": bundle},
+    )
+    assert cancelled_alert is False

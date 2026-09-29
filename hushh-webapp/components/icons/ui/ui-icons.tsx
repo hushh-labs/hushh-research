@@ -28,7 +28,6 @@ import {
   SignOut,
   ShieldCheck,
   Sliders,
-  Sparkle,
   SquaresFour,
   Trash,
   User,
@@ -353,22 +352,6 @@ export function MicrophoneIcon({
 }: UiIconProps) {
   return (
     <Microphone
-      size={size}
-      weight={weight}
-      className={className}
-      {...props}
-    />
-  );
-}
-
-export function SparkleIcon({
-  size = "1em",
-  weight = "duotone",
-  className,
-  ...props
-}: UiIconProps) {
-  return (
-    <Sparkle
       size={size}
       weight={weight}
       className={className}

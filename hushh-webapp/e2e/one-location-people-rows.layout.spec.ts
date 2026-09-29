@@ -67,7 +67,7 @@ async function buildFixture(dark: boolean): Promise<string> {
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`People actions and Circles badge at ${width}px ${dark ? "dark" : "light"}`, async ({
+    test(`People actions and icon-free Circles summary at ${width}px ${dark ? "dark" : "light"}`, async ({
       page,
     }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
@@ -116,27 +116,18 @@ for (const dark of [false, true]) {
             }),
           };
         });
-        const identities = [
-          ...document.querySelectorAll<HTMLElement>(
-            "[data-circle-identity-stack] > span",
-          ),
-        ].map((item) => item.getBoundingClientRect());
-        const counter = document
-          .querySelector<HTMLElement>("[data-circle-overflow-count]")!
-          .getBoundingClientRect();
-        const counterElement = document.querySelector<HTMLElement>(
-          "[data-circle-overflow-count]",
+        const circlesSummary = document.querySelector<HTMLElement>(
+          '[data-testid="one-location-circles-summary"]',
         )!;
-        const counterStyle = getComputedStyle(counterElement);
         return {
           rows: rowMeasurements,
-          identityCount: identities.length,
-          circlesOverlap: identities[1].left < identities[0].right,
-          counterGap: counter.left - identities[1].right,
-          counterLabel: counterElement.textContent?.trim(),
-          counterBackground: counterStyle.backgroundColor,
-          counterBorderRadius: counterStyle.borderRadius,
-          counterPaddingInline: `${counterStyle.paddingLeft} ${counterStyle.paddingRight}`,
+          identityStackCount: circlesSummary.querySelectorAll(
+            "[data-circle-identity-stack]",
+          ).length,
+          overflowCount: circlesSummary.querySelectorAll(
+            "[data-circle-overflow-count]",
+          ).length,
+          summaryIconCount: circlesSummary.querySelectorAll("svg").length,
           pageOverflow:
             document.documentElement.scrollWidth > window.innerWidth + 1,
         };
@@ -144,13 +135,9 @@ for (const dark of [false, true]) {
 
       expect(measurements.rows).toHaveLength(3);
       expect(measurements.pageOverflow).toBe(false);
-      expect(measurements.identityCount).toBe(2);
-      expect(measurements.circlesOverlap).toBe(true);
-      expect(measurements.counterLabel).toBe("+2");
-      expect(measurements.counterBackground).toBe("rgba(0, 0, 0, 0)");
-      expect(measurements.counterBorderRadius).toBe("0px");
-      expect(measurements.counterPaddingInline).toBe("0px 0px");
-      expect(measurements.counterGap).toBeGreaterThanOrEqual(7);
+      expect(measurements.identityStackCount).toBe(0);
+      expect(measurements.overflowCount).toBe(0);
+      expect(measurements.summaryIconCount).toBe(1);
       for (const row of measurements.rows) {
         expect(row.actions).toHaveLength(2);
         expect(row.height).toBeLessThanOrEqual(width < 400 ? 140 : 90);

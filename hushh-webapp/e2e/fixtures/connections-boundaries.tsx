@@ -29,7 +29,24 @@ export const VaultContext = createContext<{ vaultOwnerToken: string } | null>({
   vaultOwnerToken: "synthetic-owner",
 });
 export function useCalendarConnectionStatus() {
-  return { connected: false, loaded: true, error: null };
+  // Starts disconnected without a request; `refresh` reads the routed
+  // owner status endpoint, the way the production hook re-reads the server.
+  const [connected, setConnected] = useState(false);
+  return {
+    connected,
+    loaded: true,
+    error: null,
+    status: { status: connected ? "connected" : "disconnected" },
+    refresh: () => {
+      // eslint-disable-next-line no-restricted-syntax -- Synthetic status read intercepted by the browser harness; never a product component.
+      void fetch("/api/one/calendar/status/fixture-owner")
+        .then((response) => response.json())
+        .then((body: { connected?: boolean; status?: string }) =>
+          setConnected(body.connected === true && body.status === "connected"),
+        )
+        .catch(() => undefined);
+    },
+  };
 }
 export function usePkmDomainResource() {
   return { data: null, loading: false, error: null };
@@ -59,6 +76,13 @@ export const GmailReceiptsService = {
     authorize_url: "https://accounts.google.com/o/oauth2/v2/auth?fixture=mail",
     expires_at: new Date(Date.now() + 60_000).toISOString(),
   }),
+  // Owner status read, routed by the browser harness like the real endpoint.
+  getStatus: async () => {
+    // eslint-disable-next-line no-restricted-syntax -- Synthetic status read intercepted by the browser harness; never a product component.
+    const response = await fetch("/api/gmail/status/fixture-owner");
+    return response.json();
+  },
+  recordConsentFailure: () => undefined,
 };
 export function useGmailConnectorStatus() {
   const [connected, setConnected] = useState(true);

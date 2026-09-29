@@ -468,3 +468,64 @@ class TestEntriesForSurface:
     def test_empty_center_returns_empty(self):
         result = SVC._entries_for_surface(_make_center(), actor="investor", surface="active")
         assert result == []
+
+
+# ===========================================================================
+# Person-request labels and bundle grouping on the owner's Active list
+# ===========================================================================
+
+
+class TestPersonRequestActiveEntries:
+    """Localhost run 2026-09-28: one request read "Food preferences" in chat and
+    "Food preferences kind" on the owner's Active row, one row per field."""
+
+    @staticmethod
+    def _grant(scope: str, request_id: str, **metadata) -> dict:
+        return {
+            "token_id": f"tok_{request_id}",
+            "request_id": request_id,
+            "developer": "person:viewer",
+            "scope": scope,
+            "metadata": {
+                "request_source": "one_person_profile",
+                "bundle_id": "bundle-1",
+                "requester_label": "Kushal",
+                **metadata,
+            },
+        }
+
+    def test_one_request_reads_as_one_thing_with_human_labels(self):
+        service = SVC.__new__(SVC)
+        entries = [
+            service._normalize_active(self._grant("attr.food.preferences.*", "r1")),
+            service._normalize_active(
+                self._grant("attr.food.dietary_constraints.observations._items", "r2")
+            ),
+            service._normalize_active(
+                {
+                    "token_id": "tok_dev",
+                    "developer": "app_1",
+                    "scope": "attr.financial.*",
+                    "metadata": {},
+                }
+            ),
+        ]
+        annotated = SVC._annotate_person_bundles(entries)
+        person = [entry for entry in annotated if entry.get("bundle_id")]
+        assert [entry["scope_description"] for entry in person] == [
+            "Food preferences",
+            "Dietary constraints",
+        ]
+        assert {entry["bundle_label"] for entry in person} == {
+            "Food preferences and Dietary constraints"
+        }
+        assert all(entry["bundle_id"] == "bundle-1" for entry in person)
+        # Anything that is not a person request is left exactly as it was.
+        developer = annotated[-1]
+        assert developer["scope_description"] is None and "bundle_id" not in developer
+
+    def test_a_stored_record_field_label_is_never_shown_bare(self):
+        entry = SVC.__new__(SVC)._normalize_active(
+            self._grant("attr.food.preferences.entities._entities.kind", "r3", human_label="Kind")
+        )
+        assert entry["scope_description"] == "Food preferences kind"

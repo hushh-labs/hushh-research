@@ -11,8 +11,8 @@ import { cn } from "@/lib/utils";
  *
  * Five surfaces had drawn their own: the Email Agent and Calendar used the
  * shared Button with a MessageCircle, the Gmail workspace used the same Button
- * with a Sparkles, and RIA's onboarding used a hand-rolled pill with inline
- * colours and a gold Sparkles. Same act, four appearances -- so "open One" read
+ * with a decorative star, and RIA's onboarding used a hand-rolled pill with
+ * inline colours and a gold star. Same act, four appearances -- so "open One" read
  * as a different kind of thing on each screen.
  *
  * This is the shape the most screens already had: the shared Button, a

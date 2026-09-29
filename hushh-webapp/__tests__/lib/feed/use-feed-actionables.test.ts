@@ -4,10 +4,12 @@ import {
   buildDebateFeedAnalysisHref,
   classifyDebateFeedState,
   isActiveSmsEmergencyGrant,
+  isConsentFeedActionable,
   isIncomingLocationRequestActionable,
   isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
 import type { DebateRunTask } from "@/lib/services/debate-run-manager";
+import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -15,6 +17,41 @@ import type {
 
 const ME = "user-me";
 const CONTACT = "user-contact";
+
+function documentRequest(attention: boolean | undefined): ConsentCenterEntry {
+  return {
+    id: "document_share_request:123e4567-e89b-42d3-a456-426614174000",
+    kind: "incoming_request",
+    status: "pending",
+    action: "DOCUMENT_SHARE_REVIEW",
+    counterpart_type: "investor",
+    metadata: {
+      request_source: "drive_document_share_request",
+      direction: "incoming",
+      ...(attention === undefined ? {} : { owner_attention_required: attention }),
+    },
+  };
+}
+
+describe("isConsentFeedActionable", () => {
+  it("hides Trusted Circle automation from Needs you but preserves owner work", () => {
+    expect(isConsentFeedActionable(documentRequest(false))).toBe(false);
+    expect(isConsentFeedActionable(documentRequest(true))).toBe(true);
+    // An older server must never hide a request it might need the owner to review.
+    expect(isConsentFeedActionable(documentRequest(undefined))).toBe(true);
+  });
+
+  it("keeps outgoing Drive requests and separate connection actions out of the consent lane", () => {
+    expect(
+      isConsentFeedActionable({
+        ...documentRequest(true),
+        kind: "outgoing_request",
+        metadata: { request_source: "drive_document_share_request", direction: "outgoing" },
+      }),
+    ).toBe(false);
+    expect(isConsentFeedActionable({ ...documentRequest(true), kind: "connection_request" })).toBe(false);
+  });
+});
 
 function request(
   overrides: Partial<OneLocationAccessRequest>,

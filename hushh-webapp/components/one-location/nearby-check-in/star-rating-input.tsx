@@ -97,7 +97,7 @@ export function StarRatingInput({
                   // fast enough to read as the control responding rather than
                   // as an animation, and it never touches layout.
                   "transition-transform duration-[120ms] ease-[cubic-bezier(0.23,1,0.32,1)]",
-                  "active:scale-90 motion-reduce:transition-none motion-reduce:active:scale-100",
+                  "motion-reduce:transition-none",
                 )}
               />
             </RadioGroupPrimitive.Item>

@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { DriveSearchError, type DriveSearchStatus, type DriveSearchResults } from "@/lib/services/drive-search-service";
 import type { DriveBulkShareView } from "@/lib/services/drive-sharing-service";
 const state = vi.hoisted(() => ({
@@ -7,7 +8,7 @@ const state = vi.hoisted(() => ({
   getToken: vi.fn(), tick: null as null | (() => unknown),
   service: { recent: vi.fn(), create: vi.fn(), get: vi.fn(), results: vi.fn(), stop: vi.fn() },
   bulk: { recentBulkShares: vi.fn(), bulkSharesForSearch: vi.fn(), bulkShareFiles: vi.fn(),
-    prepareBulkShare: vi.fn(), approveBulkShare: vi.fn(), stopBulkShare: vi.fn() },
+    prepareBulkShare: vi.fn(), approveBulkShare: vi.fn(), stopBulkShare: vi.fn(), bulkShareStatus: vi.fn(), retryBulkShare: vi.fn() },
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
@@ -54,6 +55,8 @@ const bulkReview = (): DriveBulkShareView => ({
 const deferred = <T,>() => { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { resolve, promise }; };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubGlobal("crypto", webcrypto);
+  window.localStorage.clear();
   state.uid = "owner-a"; state.unlocked = true; state.token = "token-a"; state.epoch = 1;
   state.getToken.mockImplementation(() => state.token);
   state.service.recent.mockResolvedValue([job()]); state.service.get.mockResolvedValue(job());
@@ -63,11 +66,67 @@ beforeEach(() => {
   state.bulk.bulkShareFiles.mockResolvedValue({ shareId: bulkReview().shareId, files: [{ position: 1,
     name: "Explain For Product", mimeType: "application/vnd.google-apps.document", modifiedTime: null, openUrl: null }], nextCursor: null });
   state.bulk.prepareBulkShare.mockResolvedValue(bulkReview());
+  state.bulk.bulkShareStatus.mockResolvedValue(bulkReview());
   state.bulk.approveBulkShare.mockResolvedValue({ ...bulkReview(), status: "queued", canApprove: false });
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("durable Drive search UI", () => {
+  it("keeps completed Drive batches in Feed-style sidebar rows and opens details only on request", async () => {
+    const seven: DriveBulkShareView = { ...bulkReview(), status: "completed", canApprove: false, canStop: false,
+      counts: { total: 7, processed: 7, shared: 4, alreadyShared: 3, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    const twentyFive: DriveBulkShareView = { ...seven, shareId: "33333333-3333-4333-8333-333333333333",
+      counts: { total: 25, processed: 25, shared: 11, alreadyShared: 14, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    state.bulk.recentBulkShares.mockResolvedValue([seven, twentyFive]);
+    state.bulk.bulkShareStatus.mockImplementation(async (_token: string, shareId: string) =>
+      shareId === seven.shareId ? seven : twentyFive);
+    render(<DriveRecentSharing presentation="sidebar" />);
+
+    const first = await screen.findByRole("button", { name: "Files are ready. 7 of 7 available. View details" });
+    expect(screen.getByRole("button", { name: "Files are ready. 25 of 25 available. View details" })).toBeVisible();
+    expect(screen.getByRole("region", { name: "Drive sharing activity" })).toBeVisible();
+    expect(screen.queryByRole("region", { name: "Drive sharing", exact: true })).toBeNull();
+    expect(state.bulk.bulkShareStatus).not.toHaveBeenCalled();
+
+    fireEvent.click(first);
+    await screen.findByRole("dialog", { name: "Drive sharing" });
+    await screen.findByText("7 of 7 files available");
+    expect(screen.getByRole("button", { name: "Hide this update" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Close Drive sharing card" })).toBeNull();
+    expect(screen.queryByLabelText("Sharing complete")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Hide this update" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Files are ready. 7 of 7 available. View details" })).toBeNull());
+    expect(screen.getByRole("button", { name: "Files are ready. 25 of 25 available. View details" })).toBeVisible();
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
+    await waitFor(() => expect(window.localStorage.length).toBe(1));
+  });
+
+  it("keeps a manual Drive review available from the sidebar without approving on open", async () => {
+    state.bulk.recentBulkShares.mockResolvedValue([bulkReview()]);
+    const onNeedsReviewChange = vi.fn();
+    render(<DriveRecentSharing presentation="sidebar" onNeedsReviewChange={onNeedsReviewChange} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Review files. 125 files to review. View details" }));
+    await screen.findByRole("button", { name: "Share 125 files with 1 person" });
+    expect(onNeedsReviewChange).toHaveBeenCalledWith(1);
+    expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+  });
+
+  it("keeps a pending review visible while limiting old updates above chat history", async () => {
+    const completed = { ...bulkReview(), status: "completed" as const, canApprove: false,
+      counts: { total: 1, processed: 1, shared: 1, alreadyShared: 0, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    state.bulk.recentBulkShares.mockResolvedValue([
+      ...[1, 2, 3, 4].map(index => ({ ...completed, shareId: `33333333-3333-4333-8333-33333333333${index}` })),
+      bulkReview(),
+    ]);
+    render(<DriveRecentSharing presentation="sidebar" />);
+    await screen.findByRole("button", { name: "Review files. 125 files to review. View details" });
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+    fireEvent.click(screen.getByRole("button", { name: "Show all 5 updates" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(5);
+    fireEvent.click(screen.getByRole("button", { name: "Show fewer updates" }));
+    expect(screen.getAllByRole("listitem")).toHaveLength(3);
+  });
+
   it("does not offer a background search without a visible results surface", () => {
     render(<ConnectorReadReceipt experience={{
       type: "one.connector_read.v1", connector: "drive", status: "response_too_large",
@@ -85,10 +144,98 @@ describe("durable Drive search UI", () => {
 
     await screen.findByText("Review 125 files with 1 person");
     await screen.findByRole("button", { name: "Share 125 files with 1 person" });
-    expect(screen.getByText("Drive sharing · 1")).toBeTruthy();
+    expect(screen.getByText("Review Drive sharing")).toBeTruthy();
     expect(screen.queryByLabelText("Drive searches")).toBeNull();
     expect(state.service.recent).not.toHaveBeenCalled();
     expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+  });
+
+  it("closes an active card without stopping and remembers only an owner-scoped UI dismissal after reload", async () => {
+    const active = { ...bulkReview(), status: "running" as const, canApprove: false };
+    state.bulk.recentBulkShares.mockResolvedValue([active]); state.bulk.bulkShareStatus.mockResolvedValue(active);
+    const first = render(<DriveRecentSharing />);
+    await screen.findByText("Sharing files");
+    fireEvent.click(screen.getByRole("button", { name: "Close Drive sharing card" }));
+    expect(screen.queryByRole("region", { name: "Drive sharing" })).toBeNull();
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
+    await waitFor(() => expect(window.localStorage.length).toBe(1));
+    const stored = window.localStorage.getItem("hushh:drive-sharing-dismissals:v1")!;
+    for (const privateValue of [state.uid, state.token, active.shareId, active.searchJobId, "alex@example.com", "Explain For Product"])
+      expect(stored).not.toContain(privateValue);
+    first.unmount();
+    const second = render(<DriveRecentSharing />);
+    await waitFor(() => expect(state.bulk.recentBulkShares).toHaveBeenCalledTimes(2));
+    await act(async () => { await new Promise(done => setTimeout(done, 20)); });
+    expect(screen.queryByRole("region", { name: "Drive sharing" })).toBeNull();
+    state.uid = "owner-b"; state.token = "token-b"; state.epoch += 1;
+    second.rerender(<DriveRecentSharing />);
+    await screen.findByText("Sharing files");
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
+  });
+
+  it("still closes when browser preferences cannot be written", async () => {
+    const active = { ...bulkReview(), status: "queued" as const, canApprove: false };
+    state.bulk.recentBulkShares.mockResolvedValue([active]); state.bulk.bulkShareStatus.mockResolvedValue(active);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    render(<DriveRecentSharing />);
+    await screen.findByText("Sharing files");
+    fireEvent.click(screen.getByRole("button", { name: "Close Drive sharing card" }));
+    expect(screen.queryByText("Sharing files")).toBeNull();
+    expect(state.bulk.stopBulkShare).not.toHaveBeenCalled();
+  });
+
+  it("shows available files and the actual reason, and retries only the server-approved unshared selection", async () => {
+    const partial: DriveBulkShareView = { ...bulkReview(), status: "partial", fileCount: 72, canApprove: false, canStop: false,
+      canRetry: true, retryableCount: 1, counts: { total: 72, processed: 72, shared: 62, alreadyShared: 9, skipped: 1,
+        failed: 0, needsReview: 0, unknown: 0, pending: 0 }, issues: [{ reasonCode: "provider_unavailable", count: 1 }] };
+    state.bulk.recentBulkShares.mockResolvedValue([partial]); state.bulk.bulkShareStatus.mockResolvedValue(partial);
+    state.bulk.retryBulkShare.mockResolvedValue({ ...partial, status: "queued", canRetry: false, canStop: true,
+      counts: { ...partial.counts, processed: 71, skipped: 0, pending: 1 }, issues: [] });
+    render(<DriveRecentSharing />);
+    await screen.findByText("71 of 72 files available");
+    expect(screen.getByText("Sharing incomplete")).toBeTruthy();
+    expect(screen.getByText("62 newly shared")).toBeTruthy();
+    expect(screen.getByText("9 already had access")).toBeTruthy();
+    expect(screen.getByText(/Google Drive was unavailable/)).toBeTruthy();
+    expect(screen.queryByText(/Notifications:|0 failed|file access checks|Sharing partial/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Retry 1 unshared file" }));
+    await screen.findByText("Sharing files");
+    expect(state.bulk.retryBulkShare).toHaveBeenCalledWith(state.token, partial, expect.any(Function));
+    expect(state.bulk.approveBulkShare).not.toHaveBeenCalled();
+  });
+
+  it("stops remaining work with an acknowledged receipt and rejects an older running poll", async () => {
+    const active: DriveBulkShareView = { ...bulkReview(), status: "running", canApprove: false };
+    const stopped: DriveBulkShareView = { ...active, status: "stopped", revision: 3, canStop: false,
+      counts: { ...active.counts, processed: 125, pending: 0, skipped: 125 } };
+    state.bulk.recentBulkShares.mockResolvedValue([active]); state.bulk.bulkShareStatus.mockResolvedValue(active);
+    state.bulk.stopBulkShare.mockResolvedValue(stopped);
+    render(<DriveRecentSharing />); await screen.findByText("Sharing files");
+    const old = deferred<DriveBulkShareView>(); state.bulk.bulkShareStatus.mockReturnValueOnce(old.promise);
+    act(() => { void state.tick?.(); });
+    fireEvent.click(screen.getByRole("button", { name: "Stop remaining" }));
+    await screen.findByText("Sharing stopped");
+    expect(screen.getByText("Files already shared stay available.")).toBeTruthy();
+    await act(async () => { old.resolve(active); });
+    expect(screen.queryByText("Sharing files")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop remaining" })).toBeNull();
+    expect(state.bulk.stopBulkShare).toHaveBeenCalledWith(state.token, active.shareId, expect.any(Function));
+  });
+
+  it("labels multiple-recipient effects accurately and does not show an issue for fully delivered shares", async () => {
+    const completed: DriveBulkShareView = { ...bulkReview(), status: "completed", recipientCount: 2, canApprove: false, canStop: false,
+      counts: { total: 250, processed: 250, shared: 248, alreadyShared: 2, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };
+    state.bulk.recentBulkShares.mockResolvedValue([completed]); state.bulk.bulkShareStatus.mockResolvedValue(completed);
+    render(<DriveRecentSharing />);
+    await screen.findByText("250 of 250 file shares complete");
+    expect(screen.getByText("Files are ready")).toBeTruthy();
+    expect(screen.queryByText(/needs attention|Sharing partial|0 failed/)).toBeNull();
+    // The card paints from the recent-shares row on its first commit and only
+    // then refreshes by id from a passive effect, so the text above is no proof
+    // the refresh ran. Wait for the call itself; under CI load React can yield
+    // before flushing that effect (reproduced 1 in 240 locally).
+    await waitFor(() => expect(state.bulk.bulkShareStatus).toHaveBeenCalledWith(state.token, completed.shareId, expect.any(Function)));
+    expect(state.bulk.bulkSharesForSearch).not.toHaveBeenCalled();
   });
 
   it("requires a scoped tap and reuses the create key after an uncertain response", async () => {
@@ -142,7 +289,7 @@ describe("durable Drive search UI", () => {
     await waitFor(() => expect(screen.getByRole("button", { name: "Share 125 files with 1 person" }).hasAttribute("disabled")).toBe(false));
     fireEvent.click(screen.getByRole("button", { name: "Share 125 files with 1 person" }));
     await waitFor(() => expect(state.bulk.approveBulkShare).toHaveBeenCalledTimes(1));
-    await screen.findByText(/Sharing · 0 of 125 file access checks/);
+    await screen.findByText("0 of 125 files available");
     cleanup();
     state.service.get.mockResolvedValue(job({ status: "limited", canStop: false, incompleteSearch: true }));
     render(<DriveBackgroundSearchCard initial={job({ status: "limited", canStop: false, incompleteSearch: true })}

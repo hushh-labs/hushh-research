@@ -403,6 +403,7 @@ export class ExternalConnectorService {
     flow?: "web" | "native";
     profile?: "selected" | "live";
     isEffectCurrent?: ConnectorEffectGuard;
+    signal?: AbortSignal;
   }): Promise<{
     authorizeUrl: string;
     expiresAt: string;
@@ -422,6 +423,7 @@ export class ExternalConnectorService {
           flow: input.flow ?? "web",
           profile: input.profile ?? "selected",
         }),
+        signal: input.signal,
         isEffectCurrent: input.isEffectCurrent,
       },
     );

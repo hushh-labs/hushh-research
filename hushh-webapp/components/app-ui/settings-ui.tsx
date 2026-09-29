@@ -7,9 +7,10 @@ import {
   isValidElement,
   useEffect,
   useContext,
+  useId,
   useState,
 } from "react";
-import type { ReactElement, ReactNode } from "react";
+import type { MouseEvent, ReactElement, ReactNode } from "react";
 import {
   CaretRightIcon as ChevronRight,
   XIcon as X,
@@ -92,6 +93,35 @@ function isKnownInteractiveComponent(type: unknown): boolean {
   ].includes(normalized);
 }
 
+/**
+ * Props that make an element a control whatever its component is called.
+ *
+ * Component names cannot be relied on: the production build emits components
+ * as anonymous functions (`.s(["Switch",0,function({className:e,...})` in the
+ * Turbopack output), so `Switch.name` is "" there and a name check that works
+ * in development silently fails in production. A row with a trailing <Switch>
+ * then rendered as a <button> wrapped around the switch's own <button>, and
+ * toggling the switch also opened the row. The handler a caller hands a control
+ * survives minification, so it is checked first.
+ */
+const INTERACTIVE_PROP_NAMES = [
+  "onClick",
+  "onChange",
+  "onCheckedChange",
+  "onValueChange",
+  "onPressedChange",
+  "onSelect",
+  "onOpenChange",
+] as const;
+
+function hasInteractiveProps(props: Record<string, unknown>): boolean {
+  if (typeof props.href === "string") return true;
+  if ("checked" in props || "defaultChecked" in props) return true;
+  return INTERACTIVE_PROP_NAMES.some(
+    (name) => typeof props[name] === "function",
+  );
+}
+
 function containsInteractiveNode(node: ReactNode): boolean {
   return Children.toArray(node).some((child) => {
     if (!isValidElement(child)) {
@@ -105,13 +135,62 @@ function containsInteractiveNode(node: ReactNode): boolean {
       return true;
     }
 
+    const childProps = (child.props ?? {}) as Record<string, unknown> & {
+      children?: ReactNode;
+    };
+    if (hasInteractiveProps(childProps)) {
+      return true;
+    }
+
     if (isKnownInteractiveComponent(child.type)) {
       return true;
     }
 
-    const childProps = child.props as { children?: ReactNode };
     return containsInteractiveNode(childProps.children);
   });
+}
+
+/**
+ * What counts as a control of its own inside a row with a row action.
+ *
+ * A click whose target sits inside one of these belongs to that control and
+ * never to the row. Kept as one list so the pointer-events rule that lets these
+ * receive the press and the click delegation that ignores them cannot drift.
+ */
+const NESTED_CONTROL_SELECTOR =
+  'a[href],button,input,select,textarea,label,summary,[role="button"],[role="checkbox"],[role="switch"],[role="radio"],[role="combobox"],[role="link"],[role="menuitem"],[role="slider"]';
+
+/**
+ * The row's content layer ignores the pointer so a press anywhere on it lands
+ * on the full-row action beneath; nested controls opt back in. The selector
+ * mirrors NESTED_CONTROL_SELECTOR (Tailwind needs it as a literal).
+ */
+const CONTENT_LAYER_POINTER_CLASSNAME =
+  "pointer-events-none [&_:is(a[href],button,input,select,textarea,label,summary,[role=button],[role=checkbox],[role=switch],[role=radio],[role=combobox],[role=link],[role=menuitem],[role=slider])]:pointer-events-auto";
+
+/** A trailing node that owns its own action keeps every press but the chevron's. */
+const OWNED_TRAILING_POINTER_CLASSNAME =
+  "[&>:not([data-slot=settings-row-chevron])]:pointer-events-auto";
+const OWNED_TRAILING_SELECTOR =
+  '[data-slot="settings-row-trailing"] > :not([data-slot="settings-row-chevron"])';
+
+function isNestedControlClick(
+  target: EventTarget | null,
+  row: HTMLElement,
+  trailingOwnsClicks: boolean,
+): boolean {
+  // React bubbles events through portals, so a menu opened from a trailing
+  // control would otherwise reach the row. Only this row's own DOM counts.
+  if (!(target instanceof Element) || !row.contains(target)) return true;
+  const control = target.closest(NESTED_CONTROL_SELECTOR);
+  if (
+    control &&
+    row.contains(control) &&
+    control.getAttribute("data-slot") !== "settings-row-action"
+  ) {
+    return true;
+  }
+  return trailingOwnsClicks && Boolean(target.closest(OWNED_TRAILING_SELECTOR));
 }
 
 export { SegmentedTabs };
@@ -439,6 +518,7 @@ export function SettingsRow({
   testId?: string;
 }) {
   const presentation = useContext(SettingsPresentationContext);
+  const contentId = useId();
   const resolvedDensity = density ?? presentation.density ?? "comfortable";
   const resolvedAsChild = asChild && isValidElement(children);
   const isInteractive =
@@ -487,8 +567,20 @@ export function SettingsRow({
       : iconTone;
   const isCapabilityTone =
     resolvedIconTone === "capability" || resolvedIconTone === "transparent";
+  // In a split row the full-row action sits BESIDE the content, so it takes
+  // its name from the content by reference -- the same name it had when it
+  // wrapped the content -- and the content itself is hidden from assistive
+  // tech so the row is announced once. Content that holds a control of its own
+  // stays exposed.
+  const hideSplitContent =
+    splitPrimaryAction &&
+    !containsInteractiveNode(title) &&
+    !containsInteractiveNode(description) &&
+    !containsInteractiveNode(leading);
   const mainContent = (
     <div
+      id={splitPrimaryAction ? contentId : undefined}
+      aria-hidden={hideSplitContent || undefined}
       className={cn(
         "relative z-0 flex min-w-0 gap-[var(--settings-row-gap)]",
         shouldStackTrailing ? "items-start sm:items-center" : "items-center",
@@ -587,8 +679,12 @@ export function SettingsRow({
   const trailingContent =
     renderedTrailing || chevron ? (
       <div
+        data-slot="settings-row-trailing"
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          splitPrimaryAction &&
+            trailingInteractive &&
+            OWNED_TRAILING_POINTER_CLASSNAME,
           // A wide inline trailing value must never squeeze the title into a
           // one-word-per-line column (a statement label did exactly that on
           // the phone). The bound lives on the grid track (fit-content(58%),
@@ -605,6 +701,8 @@ export function SettingsRow({
         {renderedTrailing}
         {chevron ? (
           <ChevronRight
+            aria-hidden
+            data-slot="settings-row-chevron"
             className={cn(
               "h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform",
               isInteractive && "group-hover:translate-x-0.5",
@@ -614,33 +712,45 @@ export function SettingsRow({
       </div>
     ) : null;
 
-  const sharedClassName = cn(
-    "relative isolate grid w-full appearance-none overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+  // One row geometry for every row shape: the padding, minimum height and
+  // grid live here once, so a row with a trailing control is exactly as tall
+  // and as indented as one without.
+  const rowGridClassName = cn(
+    "relative isolate grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
     layout === "person" && "min-h-[72px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
       : "grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-[var(--settings-row-gap)] sm:grid-cols-[minmax(0,1fr)_auto]",
-    isInteractive &&
-      "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
   );
-  const primaryActionClassName = cn(
-    // No background and no radius of its own.
+  // The row's focus ring. Inset, at the row's own corners: an outset ring
+  // (the old `ring-offset-2`) is drawn outside the row, where the row's and
+  // the group's `overflow-hidden` clip it away, so keyboard focus was
+  // invisible on a full-width row.
+  const rowFocusRingClassName =
+    "rounded-[inherit] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70";
+  const sharedClassName = cn(
+    rowGridClassName,
+    "appearance-none overflow-hidden border-0 bg-transparent outline-hidden ring-0 [-webkit-tap-highlight-color:transparent]",
+    isInteractive && cn("transition-[box-shadow]", rowFocusRingClassName),
+  );
+  const rowActionClassName = cn(
+    // The ONE interactive surface of a row that also holds a control.
     //
-    // This button used to paint the hover itself, with
-    // `[@media(hover:hover)]:rounded-xl` overriding the row radius and its own
-    // `px-[var(--settings-row-px)]` sitting INSIDE a grid cell that already has
-    // that padding. The result was a 12px-rounded pill inset from the row on
-    // every side and stopping short of the trailing controls -- a highlight
-    // that pointed at part of a row while the whole row was the target.
+    // This used to be an inner button wrapped around the title alone, with
+    // padding of its own inside the grid's padding, its own ripple and its own
+    // focus ring, while the trailing controls and chevron sat beside it. It
+    // drew a box inside the row (inset 16px, stopping short of the trailing
+    // side) and only that box was clickable: "a double box ... the entire
+    // thing should be clickable and not layering inside just for the title".
     //
-    // The hover now comes from the same full-bleed overlay the non-split row
-    // uses, so both shapes of row light up identically: edge to edge, at the
-    // row's own corner radius.
-    "relative isolate min-w-0 border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    "rounded-[inherit]",
-    resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
-    layout === "person" && "min-h-11 p-0",
+    // Now it is laid over the whole row, edge to edge at the row's radius,
+    // beneath a content layer that lets presses fall through to it. Nested
+    // controls opt back into the pointer and sit above it, so they stay
+    // independently operable without a surface of their own.
+    "absolute inset-0 z-[1] block appearance-none border-0 bg-transparent p-0 outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] disabled:cursor-not-allowed",
+    "transition-[box-shadow]",
+    rowFocusRingClassName,
   );
   const rowDataProps = {
     "data-testid": testId,
@@ -676,57 +786,73 @@ export function SettingsRow({
     : children;
 
   if (splitPrimaryAction) {
+    // Clicks are taken at the row, not the action button: a press on the
+    // content falls through to the button in a browser, and the click then
+    // bubbles here either way, so title, empty space, count and chevron all
+    // reach the one action. Keyboard activation of the button arrives here as
+    // the same click. A nested control's click is left to that control.
+    const handleRowClick = (event: MouseEvent<HTMLDivElement>) => {
+      if (disabled || !onClick) return;
+      if (
+        isNestedControlClick(
+          event.target,
+          event.currentTarget,
+          trailingInteractive,
+        )
+      ) {
+        return;
+      }
+      onClick();
+    };
     return (
-      <div className={rowShellClassName} {...rowDataProps}>
+      // Not a second control: the keyboard and assistive-tech surface is the
+      // button inside; this only collects its bubbled clicks.
+      <div
+        className={rowShellClassName}
+        {...rowDataProps}
+        data-row-surface="overlay"
+        onClick={handleRowClick}
+      >
         {/*
           The same hover surface the non-split row draws. It sits on the shell,
-          so it spans the full row and takes the shell's radius, rather than
-          being painted by the inner button at a radius of its own.
+          so it spans the full row and takes the shell's radius.
         */}
         {!disabled ? (
           <span
             aria-hidden
             className={cn(
-              "pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out",
+              "pointer-events-none absolute inset-0 z-0 rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
               "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
             )}
           />
         ) : null}
+        <button
+          type="button"
+          data-slot="settings-row-action"
+          disabled={disabled}
+          aria-pressed={ariaPressed}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabel ? undefined : contentId}
+          className={rowActionClassName}
+          {...voiceProps}
+        >
+          <MaterialRipple
+            variant="none"
+            effect="fade"
+            disabled={disabled}
+            disableHover
+          />
+        </button>
         <div
+          data-slot="settings-row-content"
           className={cn(
-            "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
-            layout === "person" && "min-h-[72px]",
-            shouldStackTrailing
-              ? cn(
-                  "grid-cols-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3 sm:gap-y-0",
-                  layout === "person"
-                    ? "gap-y-[var(--settings-row-stack-gap)]"
-                    : "gap-y-0",
-                )
-              : "grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto]",
+            rowGridClassName,
+            "z-[2]",
+            CONTENT_LAYER_POINTER_CLASSNAME,
           )}
         >
-          <button
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            aria-pressed={ariaPressed}
-            aria-label={ariaLabel}
-            className={primaryActionClassName}
-            {...voiceProps}
-          >
-            {mainContent}
-            <MaterialRipple
-              variant="none"
-              effect="fade"
-              disabled={disabled}
-              disableHover
-              className="z-10"
-            />
-          </button>
-          {trailingContent ? (
-            <div role="presentation">{trailingContent}</div>
-          ) : null}
+          {mainContent}
+          {trailingContent}
         </div>
       </div>
     );
@@ -754,7 +880,7 @@ export function SettingsRow({
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color]",
+            "pointer-events-none absolute inset-0 z-[1] bg-transparent transition-[background-color] duration-100 ease-out motion-reduce:transition-none",
             "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
           )}
         />
@@ -867,7 +993,7 @@ export function AdaptiveDetailSurface({
       className={cn(
         "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
         "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
-        "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground active:scale-[0.97]",
+        "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
     >

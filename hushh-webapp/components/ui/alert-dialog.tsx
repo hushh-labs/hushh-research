@@ -183,7 +183,7 @@ function AlertDialogAction({
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
   const ripple = rippleVariantForButtonVariant(variant)
   return (
-    <Button variant={variant} size={size} asChild>
+    <Button variant={variant} size={size} asChild showRipple={false}>
       <AlertDialogPrimitive.Action
         data-slot="alert-dialog-action"
         className={cn("relative isolate overflow-hidden", className)}
@@ -208,7 +208,7 @@ function AlertDialogCancel({
   Pick<React.ComponentProps<typeof Button>, "variant" | "size">) {
   const ripple = rippleVariantForButtonVariant(variant)
   return (
-    <Button variant={variant} size={size} asChild>
+    <Button variant={variant} size={size} asChild showRipple={false}>
       <AlertDialogPrimitive.Cancel
         data-slot="alert-dialog-cancel"
         className={cn("relative isolate overflow-hidden", className)}

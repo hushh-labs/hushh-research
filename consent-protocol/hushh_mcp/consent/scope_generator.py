@@ -17,6 +17,7 @@ from typing import Optional
 from db.db_client import get_db
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
 from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope, is_reserved_domain_scope
+from hushh_mcp.consent.scope_sensitivity import tag_is_sensitive
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
@@ -455,7 +456,8 @@ class DynamicScopeGenerator:
                 lambda: (
                     self.db.table("pkm_manifest_paths")
                     .select(
-                        "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
+                        "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle,"
+                        "sensitivity_label"
                     )
                     .eq("user_id", user_id)
                     .execute()
@@ -536,6 +538,16 @@ class DynamicScopeGenerator:
             merged["wildcard"] = bool(current.get("wildcard") or entry.get("wildcard"))
             merged["exposure_eligibility"] = bool(
                 current.get("exposure_eligibility") or entry.get("exposure_eligibility")
+            )
+            # A PKM sensitivity tag only ever escalates (C7): a lower-ranked
+            # source that tagged the branch keeps it tagged after the merge.
+            merged["sensitivity_label"] = next(
+                (
+                    tag
+                    for tag in (entry.get("sensitivity_label"), current.get("sensitivity_label"))
+                    if tag_is_sensitive(tag)
+                ),
+                merged.get("sensitivity_label"),
             )
             entries[scope] = merged
 
@@ -865,6 +877,8 @@ class DynamicScopeGenerator:
                     "segment_id": str(row.get("segment_id") or "root").strip().lower() or "root",
                     "wildcard": False,
                     "source_kind": "pkm_manifest_paths",
+                    # The PKM's own tag for this branch (C7 sensitivity input).
+                    "sensitivity_label": str(row.get("sensitivity_label") or "").strip() or None,
                     "registry_handle": str(row.get("scope_handle") or "").strip()
                     or registry_meta.get("registry_handle"),
                     "label": str(row.get("consent_label") or "").strip()

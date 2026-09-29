@@ -627,8 +627,8 @@
       "page_file": "app/circle/join/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
+        "mode": "hidden",
+        "exemption_reason": "Public three-screen Circle invitation preview owns its navigation; account-based joining continues through the protected Connect flow.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -659,14 +659,22 @@
       },
       "native": {
         "route": "/circle/join",
-        "classification": "excluded-web-only",
-        "reason": "Invite landing opened from a shared link. The link arrives in a browser, and the flow hands off to the app rather than being rendered by it."
+        "classification": "native-required-functional",
+        "initialRoute": "/circle/join?code=native-invitation-fixture",
+        "expectedMarker": "native-route-circle-join",
+        "expectedRoute": "/circle/join",
+        "autoReviewerLogin": false,
+        "expectedAuth": "anonymous",
+        "allowedDataStates": [
+          "loaded",
+          "unavailable-valid"
+        ]
       },
       "shell": {
         "app_page_shell": true,
         "page_header": true,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": null,
@@ -1791,9 +1799,7 @@
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
-          "allowed_families": [
-            "legal_document"
-          ]
+          "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.login",
@@ -1841,7 +1847,6 @@
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
       "voice_action_contract_ids": [
-        "auth.close_legal",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",
@@ -9960,5 +9965,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d3ecdf49d04687c1ad66ced863e8a944272167f27a6646f2591558291abbbdf2"
+  "content_sha256": "cc4e743b19f9358509d4ecb170d879608f23859343f090ded7c586c280edafd2"
 }

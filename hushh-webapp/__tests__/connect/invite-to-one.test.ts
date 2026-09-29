@@ -25,21 +25,21 @@ afterEach(() => {
 });
 
 describe("buildInviteToOneUrl", () => {
-  it("points at the anonymous onboarding entry, with nothing attached", () => {
+  it("points at the invitation-only guest entry without connection authority", () => {
     // Option B, deliberately: no token, no code, no pending connection. What
     // is shared is the app, and the recipient decides for themselves.
-    expect(buildInviteToOneUrl()).toBe("https://one.hushh.ai/");
+    expect(buildInviteToOneUrl()).toBe("https://one.hushh.ai/?invite=one");
   });
 
-  it("carries no query string that could be read as an authorization", () => {
+  it("carries only a presentation marker, not a Circle code or invite token", () => {
     const url = new URL(buildInviteToOneUrl() as string);
-    expect(url.search).toBe("");
+    expect(Array.from(url.searchParams.entries())).toEqual([["invite", "one"]]);
     expect(url.pathname).toBe("/");
   });
 
   it("follows the origin, so a UAT invite stays on UAT", () => {
     mockOrigin.mockReturnValue("https://uat.one.hushh.ai");
-    expect(buildInviteToOneUrl()).toBe("https://uat.one.hushh.ai/");
+    expect(buildInviteToOneUrl()).toBe("https://uat.one.hushh.ai/?invite=one");
   });
 
   it("does not double the slash when the origin already ends in one", () => {
@@ -62,7 +62,7 @@ describe("buildInviteToOneShare", () => {
       title: INVITE_TO_ONE_SHARE_TITLE,
       text: INVITE_TO_ONE_SHARE_TEXT,
       dialogTitle: INVITE_TO_ONE_DIALOG_TITLE,
-      url: "https://one.hushh.ai/",
+      url: "https://one.hushh.ai/?invite=one",
     });
   });
 

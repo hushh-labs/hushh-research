@@ -637,7 +637,7 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(sharedField).toBeDisabled();
   });
 
-  it("reveals a grant behind stable test ids and confirms a copy in one word", async () => {
+  it("opens a shared record in the secure card and copies one value, confirmed in one word", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
@@ -684,14 +684,17 @@ describe("PersonProfilePage request catalog tools", () => {
 
       render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-      const value = await screen.findByTestId("person-profile-grant-value");
+      const value = await screen.findByTestId("shared-with-you-values");
       expect(value).toHaveTextContent("Pune");
       expect(screen.getByText(/Information this person has granted to your account/)).toBeInTheDocument();
       expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
+      // The same card as chat: no raw record, no JSON control, no grant wording.
+      expect(screen.queryByRole("button", { name: /json/i })).toBeNull();
+      expect(screen.getByTestId("shared-with-you-card").textContent).not.toMatch(/grant|domain|scope/i);
 
-      fireEvent.click(screen.getByRole("button", { name: "Copy" }));
-      expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }, null, 2));
-      expect(toast.success).toHaveBeenCalledWith("Record copied to clipboard.");
+      fireEvent.click(screen.getByRole("button", { name: "Copy City" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("Pune"));
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Copied", expect.anything()));
     } finally {
       // Put the stub back so it cannot leak into a later test in this file.
       if (clipboardBefore) {
@@ -724,7 +727,7 @@ describe("PersonProfilePage request catalog tools", () => {
     view.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     await act(async () => resolveExports([]));
     expect(OneKycClientZkService.decryptScopedExport).not.toHaveBeenCalled();
-    expect(screen.queryByTestId("person-profile-grant-value")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("shared-with-you-values")).not.toBeInTheDocument();
   });
 
   it("unwraps the domain envelope before rendering an encrypted grant", async () => {
@@ -768,7 +771,7 @@ describe("PersonProfilePage request catalog tools", () => {
 
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent(
       "Synthetic approved detail",
     );
   });
@@ -789,11 +792,11 @@ describe("PersonProfilePage request catalog tools", () => {
       requestHistory: [],
     }));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent("Synthetic reviewer");
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("Synthetic reviewer");
     expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledWith({ bundleId: "bundle-old", vaultOwnerToken: "owner-token" });
     mocks.getViewer.mockResolvedValue(viewerProfile({ grants: [], requestHistory: [] }));
     act(() => window.dispatchEvent(new Event("consent-state-changed")));
-    await waitFor(() => expect(screen.queryByTestId("person-profile-grant-value")).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("shared-with-you-values")).toBeNull());
   });
 
   it("keeps nested approved summaries visible in an encrypted grant", async () => {
@@ -837,12 +840,12 @@ describe("PersonProfilePage request catalog tools", () => {
 
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+    expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent(
       "Synthetic nested detail",
     );
   });
 
-  it("keeps a backend detail out of the toast when a grant cannot be opened", async () => {
+  it("keeps a backend detail out of the card when shared information cannot be opened", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
@@ -885,13 +888,12 @@ describe("PersonProfilePage request catalog tools", () => {
 
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    fireEvent.click(await screen.findByTestId("person-profile-grant-reveal"));
-
-    await waitFor(() => expect(toast.error).toHaveBeenCalled());
-    const shown = String((toast.error as ReturnType<typeof vi.fn>).mock.calls.at(-1)?.[0]);
-    expect(shown).toBe("This shared information could not be opened.");
+    await waitFor(() => expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute("data-status", "error"));
+    const shown = screen.getByTestId("shared-with-you-card").textContent ?? "";
+    expect(shown).toContain("couldn’t be opened");
     expect(shown).not.toMatch(/psycopg2|column|export/i);
-    expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
+    expect(JSON.stringify((toast.error as ReturnType<typeof vi.fn>).mock.calls)).not.toMatch(/psycopg2|column/i);
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
   });
 
   it("stops automatic grant retries after a bounded failure and leaves a manual retry", async () => {
@@ -938,9 +940,13 @@ describe("PersonProfilePage request catalog tools", () => {
 
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("This shared information could not be opened."));
-    expect(await screen.findByTestId("person-profile-grant-reveal")).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("shared-with-you-card")).toHaveAttribute("data-status", "error"));
+    // One calm retry the person chooses; the card never loops on its own.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 30)); });
     expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(2));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 
   it("brings the requestable catalog into view when opened with ?request=1", async () => {
@@ -982,7 +988,23 @@ describe("PersonProfilePage request catalog tools", () => {
     });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
-    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status (pending) · 1 week");
+    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status (waiting) · 7 days");
+  });
+
+  // Localhost run 4 (S3): the history read "Tax Record Domain" beside a raw "granted" pill.
+  it("names a history row and its state in human words, never a machine label or state", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: [{
+        bundleId: "bundle-tax", requestId: "req-tax", scopeRef: "scope-tax", label: "Tax Record Domain",
+        sensitivity: "sensitive", purpose: "To ensure information sharing works", durationSeconds: 7 * 24 * 3600,
+        createdAt: null, expiresAt: null, status: "granted",
+      }],
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByText("Tax record")).toBeInTheDocument();
+    expect(screen.getByText("Shared")).toBeInTheDocument();
+    const history = screen.getByRole("heading", { name: "Request history" }).closest("section")!;
+    expect(history.textContent).not.toMatch(/domain|granted/i);
   });
 
   it("groups a multi-field request into one history row with one action", async () => {
@@ -1002,8 +1024,8 @@ describe("PersonProfilePage request catalog tools", () => {
     }));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    expect(await screen.findByText("Request for 12 information items")).toBeInTheDocument();
-    expect(screen.getAllByRole("button", { name: "Details for 12 information items" })).toHaveLength(1);
+    expect(await screen.findByText("Professional detail 1 and 11 more")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Details for Professional detail 1 and 11 more" })).toHaveLength(1);
     expect(screen.queryByText("Professional detail 2")).toBeNull();
   });
 
@@ -1037,14 +1059,31 @@ describe("PersonProfilePage request catalog tools", () => {
       ? { bundles: [{ bundleId: "older", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00", cancelled: false, itemCount: 2 }], nextCursor: null }
       : { bundles: [{ bundleId: "large", purpose: "Professional review", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00", cancelled: false, itemCount: 150 }], nextCursor: "next-page" });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(await screen.findByText("Request for 150 information items")).toBeInTheDocument();
+    expect(await screen.findByText("150 items")).toBeInTheDocument();
     expect(screen.getByText("Check status")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
-    expect(await screen.findByText("Request for 2 information items")).toBeInTheDocument();
-    expect(screen.queryByText("Request for 150 information items")).toBeNull();
+    expect(await screen.findByText("2 items")).toBeInTheDocument();
+    expect(screen.queryByText("150 items")).toBeNull();
     expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
       personRef: "actual-public-ref", idToken: "id-token", cursor: "next-page", limit: 8,
     });
+  });
+
+  // Run 4 (S3/U3): a grouped request on a later page read "2 items". The
+  // server now names the request's items, and the row says what was asked for.
+  it("titles a server history row by the item labels the server sends", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({ requestHistory: [] }));
+    mocks.getRequestHistory.mockResolvedValue({ bundles: [
+      { bundleId: "named", purpose: "Preparing the joint return", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00",
+        cancelled: false, itemCount: 2, itemLabels: ["Tax record", "Portfolio"] },
+      // Negative control: a row with no labels keeps its count.
+      { bundleId: "unnamed", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00",
+        cancelled: false, itemCount: 3 },
+    ], nextCursor: null });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByText("Tax record and Portfolio")).toBeInTheDocument();
+    expect(screen.queryByText("2 items")).toBeNull();
+    expect(screen.getByText("3 items")).toBeInTheDocument();
   });
 
   it("does not display details returned for another person", async () => {

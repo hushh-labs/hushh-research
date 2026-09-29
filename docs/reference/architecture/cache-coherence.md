@@ -189,6 +189,13 @@ Do:
   that refresh settles; the single top-right refresh control is the only
   in-page loading signal. When push is unavailable, the visible
   fallback reconciler uses the same cache keys and event path.
+- A person's own consent change is read back, not guessed. For 60 seconds after
+  `CacheSyncService.onConsentMutated`, Consent Center summary and list reads send
+  `Cache-Control: no-cache`, and the `/api/consent/center/{list,summary}` web
+  proxies then skip their 30-second hot copy, skip any load already in flight,
+  and never fall back to a stale copy (`hushh-webapp/lib/cache/consent-read-after-write.ts`).
+  Stop sharing removes the row from Active on the confirming tap and restores it
+  only if the stop fails. Outside that window, polls keep the proxy cache.
 - Keep passive background refresh copy human-readable:
   - `Getting your portfolio data ready`
   - `Refreshing your profile details`

@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, Lock, Share2, Wallet } from "@/components/icons";
+import { ArrowLeft, Lock, Share2, Wallet } from "@/components/icons";
+import { SuccessRowIcon, WalletAgentIcon } from "@/components/icons/agents";
 import { toast } from "sonner";
 
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -520,8 +521,8 @@ export function WalletCardWorkspace() {
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={Wallet}
-              iconTone="blue"
+              icon={WalletAgentIcon}
+              iconTone="capability"
               title={WALLET_CARD_COPY.setupIntro.title}
               description={WALLET_CARD_COPY.setupIntro.description}
             />
@@ -662,8 +663,8 @@ export function WalletCardWorkspace() {
         <div className="space-y-4">
           <SettingsGroup>
             <SettingsRow
-              icon={CheckCircle2}
-              iconTone="green"
+              icon={SuccessRowIcon}
+              iconTone="capability"
               title={WALLET_CARD_COPY.success.title}
               description={WALLET_CARD_COPY.success.description}
             />

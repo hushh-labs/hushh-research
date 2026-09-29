@@ -11,6 +11,8 @@ import { useAuth } from "@/lib/firebase/auth-context";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import {
   buildOneSetupCapabilityRoute,
+  buildOneSetupFinanceImportRoute,
+  resolveOneSetupReturnTo,
   resolveCapabilityHandoffTarget,
   resolveCompletedSetupCapabilityEntry,
   ROUTES,
@@ -103,12 +105,25 @@ export function resolveSetupCapabilityTerminalTarget({
   journeyMode,
   hasExplicitIncompleteSetup,
   kind,
+  returnTo,
 }: {
   capabilityId: OneSetupCapabilityId;
   journeyMode: Exclude<SetupCapabilityJourneyMode, "auto">;
   hasExplicitIncompleteSetup: boolean;
   kind: "finish" | "skip";
+  returnTo?: string | null;
 }): string {
+  // The continuation is only navigation intent. It cannot bypass unresolved
+  // root setup or the durable capability settlement performed by the caller.
+  const continuation = resolveOneSetupReturnTo(returnTo);
+  if (
+    capabilityId === "finance" &&
+    journeyMode === "individual" &&
+    !hasExplicitIncompleteSetup &&
+    continuation
+  ) {
+    return continuation;
+  }
   // A capability may prefer to hand off straight to its own workspace after a
   // Finish (e.g. Location). That shortcut is only safe once the overall
   // first-run setup is actually resolved. If setup is still explicitly
@@ -174,6 +189,8 @@ type UseSetupCapabilityCoordinatorParams = {
    * the freshly revalidated account setup state.
    */
   journeyMode?: SetupCapabilityJourneyMode;
+  /** Finance import continuation after settlement; never marks setup complete. */
+  returnTo?: string | null;
   /** Feature-owned terminals may use a stable authored control id. */
   terminalControlId?: (ready: boolean) => string;
   /** Auto-settling experiences publish the action without inventing a button. */
@@ -222,6 +239,7 @@ export function useSetupCapabilityCoordinator({
   settlementBlocked = false,
   screenId,
   journeyMode = "auto",
+  returnTo,
   terminalControlId,
   terminalPresentation = "explicit",
 }: UseSetupCapabilityCoordinatorParams): SetupCapabilityCoordinator {
@@ -267,8 +285,11 @@ export function useSetupCapabilityCoordinator({
   const routeReady = isReady || hasUsableCachedJourney || isAlreadyComplete;
 
   const canonicalRoute = useMemo(
-    () => buildOneSetupCapabilityRoute(capabilityId),
-    [capabilityId],
+    () =>
+      capabilityId === "finance" && resolveOneSetupReturnTo(returnTo)
+        ? buildOneSetupFinanceImportRoute(returnTo)
+        : buildOneSetupCapabilityRoute(capabilityId),
+    [capabilityId, returnTo],
   );
 
   const replaceRoute = useCallback(
@@ -493,13 +514,18 @@ export function useSetupCapabilityCoordinator({
           journeyMode: resolvedJourneyMode,
           hasExplicitIncompleteSetup,
           kind,
+          returnTo,
         });
 
         replaceRoute(targetRoute);
         return {
           status: "succeeded",
           summary:
-            kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
+            targetRoute === resolveOneSetupReturnTo(returnTo)
+              ? kind === "finish"
+                ? "Setup is complete. Continuing."
+                : "Skipped for now. Continuing."
+              : kind === "finish" && targetRoute === ROUTES.ONE_LOCATION
               ? "Setup is complete. Opening Location."
               : targetRoute === ROUTES.KAI_HOME
               ? kind === "finish"
@@ -543,6 +569,7 @@ export function useSetupCapabilityCoordinator({
       replaceRoute,
       settlementBlocked,
       journeyMode,
+      returnTo,
       userId,
     ],
   );

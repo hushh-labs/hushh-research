@@ -51,16 +51,19 @@ from hushh_mcp.one_adk.consent_continuation import (
     admit_consent_continuation,
     continued_outcomes,
 )
+from hushh_mcp.one_adk.consent_redaction import access_ended_outcome, redaction_for_history
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
 )
-from hushh_mcp.one_adk.history_descriptors import (
-    _discovery_source as _discovery_source,
+from hushh_mcp.one_adk.feed_attention import (
+    FeedAttentionError,
+    admit_feed_attention,
 )
 from hushh_mcp.one_adk.history_descriptors import (
     _event_text as _event_text,
 )
+from hushh_mcp.one_adk.history_descriptors import _request_source
 from hushh_mcp.one_adk.history_descriptors import (
     _safe_agent_history_metadata as _safe_agent_history_metadata,
 )
@@ -406,6 +409,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     consent_continuation = await _admit_consent_continuation(
         forwarded, input_data=input_data, owner_id=user_id if token else ""
     )
+    feed_attention = await _admit_feed_attention(
+        forwarded, input_data=input_data, owner_id=user_id if token else ""
+    )
     # The device sends a coarse position only when the person already granted
     # location; pre-vault turns never keep it.
     turn_location = admit_turn_location(forwarded)
@@ -453,8 +459,35 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         if workflow_id
         else "",
         **consent_continuation,
+        **feed_attention,
         STATE_PENDING_EMAIL_DRAFT: pending_email_draft,
     }
+
+
+async def _admit_feed_attention(
+    forwarded: dict[str, Any], *, input_data: RunAgentInput, owner_id: str
+) -> dict[str, Any]:
+    """Admit the turn a push tap starts about one feed update, or nothing."""
+    if forwarded.get("feedAttention") is None:
+        return {}
+    from hushh_mcp.services.feed_attention_push import get_offered_feed_item
+
+    session = None
+    if owner_id and input_data.thread_id:
+        session = await _session_service.get_session(
+            app_name=ONE_APP_NAME, user_id=owner_id, session_id=input_data.thread_id
+        )
+    try:
+        return await admit_feed_attention(
+            forwarded,
+            owner_id=owner_id,
+            messages=input_data.messages,
+            session_state=dict(session.state) if session is not None else None,
+            get_item=get_offered_feed_item,
+        )
+    except FeedAttentionError as exc:
+        logger.info("one.feed_attention_refused status=%s", exc.status_code)
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
 async def _admit_consent_continuation(
@@ -623,10 +656,10 @@ async def record_information_request_submission(
     )
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
-    source = _discovery_source(session, payload.source_activity_id)
+    source = _request_source(session, payload.source_activity_id)
     if source is None:
-        raise HTTPException(status_code=404, detail="Discovery card not found.")
-    source_card_id, discovery = source
+        raise HTTPException(status_code=404, detail="Request card not found.")
+    source_card_id, source_card = source
     try:
         bundle = await InformationRequestService().verify_submission_receipt(
             requester_user_id=owner,
@@ -635,9 +668,9 @@ async def record_information_request_submission(
         )
     except InformationRequestError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    person = discovery["person"]
+    person = source_card["person"]
     if bundle["personRef"] != person.get("personRef") or not bundle.get("items"):
-        raise HTTPException(status_code=409, detail="Request recipient did not match discovery.")
+        raise HTTPException(status_code=409, detail="Request recipient did not match the card.")
     statuses = [item["status"] for item in bundle["items"]]
     status = statuses[0] if all(value == statuses[0] for value in statuses) else "mixed"
     hours = bundle["durationSeconds"] // 3600
@@ -722,6 +755,38 @@ async def list_conversations(
     }
 
 
+# At most this many shared requests are re-checked per history load.
+_MAX_CONSENT_ACCESS_CHECKS = 10
+
+
+async def _consent_access_for_history(
+    owner: str, state: Any
+) -> tuple[dict[str, str], dict[str, str]]:
+    """``(invocation_id -> bundle_id, bundle_id -> ended outcome)`` for this load.
+
+    A bundle latched as ended by a model turn is ended. Otherwise its current
+    outcome is read (requester-bound) so a revoke is honoured on the very next
+    history load, before any new turn runs. A failed read redacts: the safe
+    direction, for this response only.
+    """
+    by_invocation, ended = redaction_for_history(state)
+    pending = [bundle for bundle in dict.fromkeys(by_invocation.values()) if bundle not in ended]
+    service = InformationRequestService()
+    for bundle_id in pending[:_MAX_CONSENT_ACCESS_CHECKS]:
+        try:
+            outcome = access_ended_outcome(
+                await service.get(requester_user_id=owner, bundle_id=bundle_id)
+            )
+        except Exception as exc:  # noqa: BLE001 - unknown means redact
+            logger.info("one.history_consent_access_unknown error=%s", type(exc).__name__)
+            outcome = "revoked"
+        if outcome:
+            ended[bundle_id] = outcome
+    for bundle_id in pending[_MAX_CONSENT_ACCESS_CHECKS:]:
+        ended[bundle_id] = "revoked"
+    return by_invocation, ended
+
+
 @router.get("/api/one/agent-chat/history/{conversation_id}")
 async def conversation_history(
     conversation_id: str,
@@ -738,11 +803,14 @@ async def conversation_history(
         source_id for event in session.events if (source_id := _submitted_source_id(event))
     }
     call_providers = _call_providers(session.events)
+    consent_by_invocation, consent_ended = await _consent_access_for_history(user_id, session.state)
     result = project_conversation_history(
         session.events,
         conversation_id,
         limit,
         session_state=session.state,
+        consent_by_invocation=consent_by_invocation,
+        consent_ended=consent_ended,
         project_event=lambda event: (
             _event_text(event),
             _safe_agent_history_metadata(event, submitted_discovery_ids, call_providers),
@@ -751,6 +819,7 @@ async def conversation_history(
     result.update(
         turn={"pending": newest_turn_pending(session.events)},
         consentOutcomes=continued_outcomes(session.state),
+        consentAccessEnded=consent_ended,
     )
     return result
 

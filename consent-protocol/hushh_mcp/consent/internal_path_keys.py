@@ -37,6 +37,7 @@ from __future__ import annotations
 import json
 import re
 from functools import lru_cache
+from itertools import pairwise
 
 from hushh_mcp.services.generated_contracts import generated_contract_path
 
@@ -83,6 +84,44 @@ def _internal_branches() -> frozenset[str]:
 
 def _normalize(segment: str) -> str:
     return str(segment or "").strip().lower()
+
+
+_SECRET_WORDS = frozenset(
+    {
+        "authorization",
+        "cipher",
+        "credential",
+        "mnemonic",
+        "passphrase",
+        "password",
+        "secret",
+        "token",
+    }
+)
+_SECRET_KEY_QUALIFIERS = frozenset({"access", "api", "encryption", "private", "recovery", "vault"})
+
+
+def is_secret_shaped_key(segment: str) -> bool:
+    """True when one key or domain name reads as credential material.
+
+    Word-based and plural-tolerant, unlike the anchored pattern above, which
+    misses ``passwords`` and ``api_keys``. Used for DOMAIN names, which the
+    path filter below never sees; it deliberately does not widen that filter.
+    """
+    normalized = _normalize(segment)
+    if not normalized:
+        return False
+    if _SECRET_KEY_PATTERN.search(normalized):
+        return True
+    words = [word for word in re.split(r"[^a-z0-9]+", normalized) if word]
+    singular = [word[:-1] if len(word) > 3 and word.endswith("s") else word for word in words]
+    if any(word in _SECRET_WORDS for word in singular):
+        return True
+    if any(marker in normalized for marker in ("cipher", "token")):
+        return True
+    return any(
+        left in _SECRET_KEY_QUALIFIERS and right == "key" for left, right in pairwise(singular)
+    )
 
 
 def is_internal_path_segment(segment: str) -> bool:

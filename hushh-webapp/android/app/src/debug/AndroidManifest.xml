@@ -16,6 +16,10 @@
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
+                <data android:path="/circle/join" />
+                <data android:path="/" />
+                <data android:path="/circle/join/" />
+                <data android:pathPrefix="/one/location/invite/" />
             </intent-filter>
         </activity>
     </application>

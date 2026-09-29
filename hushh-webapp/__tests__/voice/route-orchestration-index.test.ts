@@ -25,7 +25,6 @@ describe("One route orchestration index", () => {
       (entry) => entry.route_pattern === "/login",
     );
     expect(login?.action_ids).toEqual([
-      "auth.close_legal",
       "auth.open_privacy",
       "auth.open_terms",
       "auth.sign_in_apple",

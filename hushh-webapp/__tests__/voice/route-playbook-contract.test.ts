@@ -39,9 +39,8 @@ describe("One route voice playbooks", () => {
       }
     }
     expect(screenMismatches).toEqual([]);
-    expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([
-      "legal_document",
-    ]);
+    // Terms and Privacy leave Login for their own pages; no legal overlay.
+    expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([]);
     expect(
       resolveAppRouteLayout("/register-phone").interactionLayerPolicy.allowedFamilies,
     ).toEqual(["country_picker"]);

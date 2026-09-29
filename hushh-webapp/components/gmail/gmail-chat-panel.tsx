@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { RotateCcw, Send, Sparkles } from "@/components/icons";
+import { GmailAgentIcon, RotateCcw, Send } from "@/components/icons";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Button } from "@/lib/morphy-ux/button";
@@ -81,7 +81,7 @@ export default function GmailChatPanel({
     return (
       <SurfaceInset className="px-4 py-4 text-sm sm:px-5 sm:py-5">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
+          <GmailAgentIcon className="h-5 w-5 shrink-0" aria-hidden />
           <div>
             <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">
@@ -99,7 +99,7 @@ export default function GmailChatPanel({
     <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
+          <GmailAgentIcon className="h-5 w-5 shrink-0" aria-hidden />
           <div>
             <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">

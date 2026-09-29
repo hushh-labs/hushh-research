@@ -17,7 +17,13 @@ Verified live against the GitHub org on 2026-09-01.
 
 ## Status lifecycle
 
-`Inbox → Accepted → In Progress → Ready for QA → Ready For UAT → Done`
+`Inbox → Accepted → In Progress → Ready for QA → Done`
+
+Re-verified live 2026-09-28: there is no `Ready For UAT` option (the helper resolves options
+against the live catalog, so re-list the fields before assuming one). Shipped work that still
+awaits acceptance sits in `Ready for QA`. Setting `Done` through `board_ops.py` also closes the
+issue, so post the completion evidence as a comment in the same pass, or the item closes with
+no trace of what proved it.
 
 Side states: `Needs Triage`, `Blocked`, `Duplicate`, `Won't Fix`. The duplicate rule from
 the Engineering Core board applies unchanged: consolidate scope into the canonical issue,

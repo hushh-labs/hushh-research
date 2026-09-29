@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import {
   describeDirectiveForOwner,
   names,
+  REQUEST_DURATION_OPTIONS,
   requestDurationLabel,
 } from "@/lib/agent/action-directive-summary";
+import { proposalDurationLabel } from "@/lib/agent/scope-proposal";
+import { formatConsentDuration } from "@/lib/consent/consent-owner-copy";
 
 /**
  * Words the owner must never read on a confirmation card. They are the
@@ -54,12 +57,30 @@ describe("requestDurationLabel", () => {
   it("names the four standard durations", () => {
     expect(requestDurationLabel(24)).toBe("1 day");
     expect(requestDurationLabel(72)).toBe("3 days");
-    expect(requestDurationLabel(168)).toBe("1 week");
+    expect(requestDurationLabel(168)).toBe("7 days");
     expect(requestDurationLabel(720)).toBe("30 days");
   });
 
   it("falls back to hours for anything else", () => {
     expect(requestDurationLabel(36)).toBe("36 hours");
+    expect(requestDurationLabel(1)).toBe("1 hour");
+  });
+
+  // Regression (localhost run 2026-09-28): the ask card said "7 days" while
+  // the living card and the owner's sheet said "1 week" for the same request.
+  it("is the one wording: ask card, living card, owner sheet and server agree", () => {
+    // consent-protocol/api/routes/one/agent_chat.py builds history labels as
+    // whole days when the hours divide into days, else hours.
+    const serverLabel = (hours: number) => hours % 24 === 0
+      ? `${hours / 24} ${hours / 24 === 1 ? "day" : "days"}`
+      : `${hours} ${hours === 1 ? "hour" : "hours"}`;
+    for (const option of REQUEST_DURATION_OPTIONS) {
+      expect(option.label).toBe(serverLabel(option.hours));
+      expect(proposalDurationLabel(option.hours)).toBe(option.label);
+      expect(formatConsentDuration(option.hours)).toBe(option.label);
+      expect(requestDurationLabel(option.hours)).toBe(option.label);
+    }
+    expect(REQUEST_DURATION_OPTIONS.map((option) => option.label)).not.toContain("1 week");
   });
 });
 
@@ -77,7 +98,7 @@ describe("describeDirectiveForOwner", () => {
         durationHours: 168,
       },
     );
-    expect(sentence).toBe("Ask Sharu for Income and Assets for 1 week.");
+    expect(sentence).toBe("Ask Sharu for Income and Assets for 7 days.");
     expectOwnerSafe(sentence);
   });
 
@@ -94,7 +115,7 @@ describe("describeDirectiveForOwner", () => {
         displayName: "Sharu",
         labels: ["Income"],
       }),
-    ).toBe("Ask Sharu for Income for 1 week.");
+    ).toBe("Ask Sharu for Income for 7 days.");
   });
 
   it("names nothing it does not know when the request slots did not resolve", () => {
@@ -110,10 +131,10 @@ describe("describeDirectiveForOwner", () => {
   it("keeps a half-resolved request parsable", () => {
     expect(
       describeDirectiveForOwner("consent.request", "Ask", { displayName: "Sharu" }),
-    ).toBe("Ask Sharu for what you asked for, for 1 week.");
+    ).toBe("Ask Sharu for what you asked for, for 7 days.");
     expect(
       describeDirectiveForOwner("consent.request", "Ask", { labels: ["Income"] }),
-    ).toBe("Ask them for Income for 1 week.");
+    ).toBe("Ask them for Income for 7 days.");
   });
 
   it("describes a deny", () => {

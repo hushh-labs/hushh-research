@@ -1,5 +1,7 @@
 "use client";
 
+import { openOAuthWindow } from "@/lib/connections/oauth-window";
+
 const ATTEMPT_KEY = "one_drive_popup_attempt_v1";
 const SETTLEMENT_KEY = "one_drive_popup_settlement_v1";
 const MAX_AGE_MS = 10 * 60_000;
@@ -46,11 +48,8 @@ export function isDrivePopupSettlement(
 
 /** Must be called directly in the trusted click, before fetching a start URL. */
 export function openDriveOAuthPopup(): Window | null {
-  const popup = window.open(
-    "about:blank",
-    `one-drive-${crypto.randomUUID()}`,
-    "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes",
-  );
+  // A refused popup falls back to a new tab with the same settlement contract.
+  const popup = openOAuthWindow(`one-drive-${crypto.randomUUID()}`)?.target ?? null;
   if (popup) {
     popup.document.title = "Connecting Drive";
     popup.document.body.textContent = "Opening secure Google sign-in…";

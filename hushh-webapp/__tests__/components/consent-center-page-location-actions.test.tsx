@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
+import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
 // Verifies that One Location rows in the Access Manager (/consents) route their
 // Allow / Don't allow / Revoke CTAs through the dedicated One Location hook
@@ -314,6 +315,7 @@ describe("ConsentCenterPage One Location action routing", () => {
     mocks.handleLocationApprove.mockResolvedValue(undefined);
     mocks.handleLocationDeny.mockResolvedValue(undefined);
     mocks.handleLocationRevoke.mockResolvedValue(undefined);
+    mocks.handleRevoke.mockResolvedValue(undefined);
     installDesktopMediaQuery();
   });
 
@@ -478,7 +480,11 @@ describe("ConsentCenterPage One Location action routing", () => {
     fireEvent.click(within(confirmation).getByRole("button", { name: "Stop sharing" }));
 
     await waitFor(() => {
-      expect(mocks.handleRevoke).toHaveBeenCalledWith("attr.shopping.receipts.*");
+      expect(mocks.handleRevoke).toHaveBeenCalledWith(
+        "attr.shopping.receipts.*",
+        undefined,
+        { quiet: true },
+      );
     });
     expect(mocks.handleLocationRevoke).not.toHaveBeenCalled();
   });
@@ -499,5 +505,52 @@ describe("ConsentCenterPage One Location action routing", () => {
       screen.queryByRole("button", { name: "Stop sharing" }),
     ).toBeNull();
     expect(screen.queryByText("Manage access")).toBeNull();
+  });
+});
+
+// Run 4 (O1): the Requests tab did not live-update; a new request appeared
+// after more than 120s. There is no push on the web.
+describe("ConsentCenterPage Requests live refresh", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getVaultOwnerToken.mockImplementation(() => "vault-token");
+    mocks.isVaultUnlocked = true;
+    installDesktopMediaQuery();
+    vi.useFakeTimers();
+    // The shared idle clock runs on multiples of the interval, after a frame.
+    vi.setSystemTime(new Date(1789930800000));
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      setTimeout(() => cb(0), 0);
+      return 1;
+    });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "visible" as DocumentVisibilityState });
+    mocks.getSummary.mockResolvedValue(summaryResponse({ pending: 1, active: 0, previous: 0 }));
+    mocks.listEntries.mockImplementation(async ({ surface }: { surface: string }) =>
+      surface === "pending" ? pendingLocationRequestList() : { ...activeLocationGrantList(), items: [], total: 0 });
+  });
+  afterEach(() => {
+    resetIdleSchedulerForTests();
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  const pendingReads = () => mocks.listEntries.mock.calls
+    .filter(([input]) => (input as { surface: string }).surface === "pending").length;
+
+  it("re-reads Requests about every 10s while it is on screen, quietly", async () => {
+    mocks.search = "tab=pending";
+    render(<ConsentCenterPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    const afterMount = pendingReads();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(pendingReads() - afterMount).toBe(3);
+    expect(document.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("control: another tab does not re-read Requests", async () => {
+    mocks.search = "tab=active";
+    render(<ConsentCenterPage />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_500); });
+    expect(pendingReads()).toBe(0);
   });
 });

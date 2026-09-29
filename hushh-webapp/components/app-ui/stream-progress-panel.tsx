@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/collapsible";
 import { Progress } from "@/components/ui/progress";
 import { HelperText } from "@/components/app-ui/typography";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { StreamingCursor } from "@/lib/morphy-ux/streaming-cursor";
 import { cn } from "@/lib/utils";
 
@@ -149,7 +150,7 @@ export function AppStreamSection({
         <CollapsibleTrigger asChild>
           <button
             type="button"
-            className="ui-text-section-label group flex w-full items-center justify-between gap-3 px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+            className="ui-text-section-label group relative flex w-full items-center justify-between gap-3 rounded-[inherit] px-[6px] py-2 text-left transition hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
           >
             <span className="inline-flex min-w-0 items-center gap-2">
               <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -166,6 +167,7 @@ export function AppStreamSection({
                 aria-hidden="true"
               />
             </span>
+            <MaterialRipple variant="none" effect="glass" />
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
@@ -198,6 +200,12 @@ export type AppStreamPanelProps = {
   /** Presentation override for the nested reasoning section. */
   thinkingClassName?: string;
   structuredContent?: ReactNode;
+  /**
+   * Where cards sit relative to the answer. "before" (the default) suits a card
+   * the answer then summarizes; "after" suits a lead-in the card completes
+   * ("Here's what I'd request:" then the ask), so text reads before the card.
+   */
+  structuredContentPlacement?: "before" | "after";
   response?: ReactNode;
   responseText?: string;
   /** App-owned state shown while the model has not emitted response text yet. */
@@ -221,6 +229,7 @@ export function AppStreamPanel({
   evidenceTitle = "Consulted specialists",
   thinkingClassName,
   structuredContent,
+  structuredContentPlacement = "before",
   response,
   responseText = "",
   responsePendingLabel,
@@ -313,7 +322,7 @@ export function AppStreamPanel({
           />
         ) : null}
 
-        {structuredContent ? <div>{structuredContent}</div> : null}
+        {structuredContent && structuredContentPlacement === "before" ? <div>{structuredContent}</div> : null}
 
         {showResponsePending ? (
           <div
@@ -349,6 +358,8 @@ export function AppStreamPanel({
             ) : null}
           </div>
         ) : null}
+
+        {structuredContent && structuredContentPlacement === "after" ? <div>{structuredContent}</div> : null}
       </div>
     </section>
   );

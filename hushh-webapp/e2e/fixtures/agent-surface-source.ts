@@ -407,7 +407,7 @@ const segmentedGroupClasses = [
 
 const segmentedSegmentBase = one(
   segmented,
-  /"(press-scale relative flex[^"]+)"/,
+  /"(relative flex items-center justify-center gap-1\.5 rounded-full[^"]+)"/,
   "the segmented-control segment base classes",
   SEGMENTED_PATH,
 )[1];

@@ -389,6 +389,70 @@
       "from_version": 1,
       "to_version": 1,
       "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_terms",
+      "from_revision": "6a2a7c280f69e9e0",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_privacy",
+      "from_revision": "6a2a7c280f69e9e0",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.close_legal",
+      "from_revision": "6a2a7c280f69e9e0",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:consent.revoke",
+      "from_revision": "cccecbbc8438b3aa",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.close_legal",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": null,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_privacy",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:auth.open_terms",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
+    },
+    {
+      "schema_version": "one.capability_deprecation.v1",
+      "semantic_id": "actions:consent.revoke",
+      "from_revision": "d4b2dd7b65a583c6",
+      "from_version": 1,
+      "to_version": 1,
+      "active_run_policy": "reject"
     }
   ]
 }

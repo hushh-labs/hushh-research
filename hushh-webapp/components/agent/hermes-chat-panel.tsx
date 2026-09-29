@@ -34,6 +34,7 @@ import {
   type PuppyStatus,
 } from "@/lib/services/puppy-one-service";
 import { cn } from "@/lib/utils";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 const TRUSTED_DEVICES: ProfilePaneLocation = {
   panel: "security",
@@ -376,7 +377,7 @@ export function HermesChatPanel({
             onClick={togglePin}
             aria-pressed={onDevice}
             className={cn(
-              "rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
+              "relative rounded-full px-2 py-0.5 text-[11px] font-medium transition-colors",
               onDevice
                 ? "bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)]"
                 : "text-muted-foreground hover:text-foreground",
@@ -388,6 +389,7 @@ export function HermesChatPanel({
             }
           >
             {onDevice ? "on-device" : "any model"}
+            <MaterialRipple variant="none" effect="glass" />
           </button>
         ) : null}
       </div>
@@ -560,7 +562,7 @@ function PuppyTurnView({
               .catch(() => undefined);
           }}
           aria-label="Copy answer"
-          className="ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
+          className="relative ml-1 inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[11px] text-muted-foreground transition-colors hover:text-foreground"
         >
           {copied ? (
             <Check className="size-3" aria-hidden />
@@ -568,6 +570,7 @@ function PuppyTurnView({
             <Copy className="size-3" aria-hidden />
           )}
           {copied ? "Copied" : "Copy"}
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       ) : null}
     </div>

@@ -14,9 +14,11 @@
  * runner, because GCP has no macOS instances and local builds hang inside iCloud
  * Drive. This script is the thin, auditable dispatcher.
  *
- * BACKEND: the public App Store build ships the SAME UAT backend + shared Firebase
- * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight — the latest frontend+backend that is live on
- * UAT. It is NOT built against a separate production backend.
+ * BACKEND: `--backend uat` (default) ships the same UAT backend + shared Firebase
+ * authority (hushh-pda; config stored in hushh-pda-uat) as TestFlight. `--backend
+ * production` maps to the workflow's `backend_target=production`: the binary
+ * talks to one.hushh.ai and the production API, with the same shared Firebase
+ * identity.
  *
  * SAFETY / IRREVERSIBILITY
  *   By default this prepares the release up to — but NOT including — the final,
@@ -30,6 +32,7 @@
  *   node scripts/release/dispatch-ios-appstore.mjs                 # prepare-only, SHA=origin/main
  *   node scripts/release/dispatch-ios-appstore.mjs --sha <sha>     # pin an explicit green SHA
  *   node scripts/release/dispatch-ios-appstore.mjs --dry-run       # archive+sign only, no upload
+ *   node scripts/release/dispatch-ios-appstore.mjs --backend production  # binary talks to production
  *   node scripts/release/dispatch-ios-appstore.mjs --whats-new "..."  # App Store release notes for this version
  *   node scripts/release/dispatch-ios-appstore.mjs --notes "..."   # annotate the run summary
  *   node scripts/release/dispatch-ios-appstore.mjs --submit --ack-blockers   # IRREVERSIBLE one-click public submit
@@ -65,6 +68,7 @@ function parseArgs(argv) {
     ackBlockers: false,
     whatsNew: "",
     notes: "",
+    backend: "uat",
     yes: false,
     watch: true,
   };
@@ -89,6 +93,12 @@ function parseArgs(argv) {
       case "--notes":
         opts.notes = argv[++i] ?? "";
         break;
+      case "--backend":
+        opts.backend = argv[++i] ?? "";
+        if (!["uat", "production"].includes(opts.backend)) {
+          fail(`--backend must be "uat" or "production", got "${opts.backend}".`);
+        }
+        break;
       case "--yes":
       case "-y":
         opts.yes = true;
@@ -100,7 +110,7 @@ function parseArgs(argv) {
       case "-h":
         console.log(
           "Usage: node scripts/release/dispatch-ios-appstore.mjs " +
-            "[--sha <sha>] [--dry-run] [--whats-new <text>] [--submit --ack-blockers] [--notes <text>] [--yes] [--no-watch]",
+            "[--sha <sha>] [--dry-run] [--backend uat|production] [--whats-new <text>] [--submit --ack-blockers] [--notes <text>] [--yes] [--no-watch]",
         );
         process.exit(0);
         break;
@@ -203,7 +213,9 @@ async function main() {
   console.log(`  Workflow  : ${WORKFLOW}`);
   console.log(`  Ref       : ${REF}`);
   console.log(`  SHA       : ${sha}`);
-  console.log(`  Backend   : UAT (hushh-pda-uat) — same as TestFlight`);
+  console.log(
+    `  Backend   : ${opts.backend === "production" ? "PRODUCTION (hushh-pda, one.hushh.ai)" : "UAT (hushh-pda-uat), same as TestFlight"}`,
+  );
   console.log(`  Mode      : ${mode}`);
   if (!opts.dryRun) {
     console.log(`  What's New : ${opts.whatsNew || "(workflow default)"}`);
@@ -225,6 +237,7 @@ async function main() {
 
   const ghArgs = ["workflow", "run", WORKFLOW, "--ref", REF, "-f", `sha=${sha}`];
   if (opts.dryRun) ghArgs.push("-f", "dry_run=true");
+  ghArgs.push("-f", `backend_target=${opts.backend}`);
   if (opts.whatsNew) ghArgs.push("-f", `whats_new=${opts.whatsNew}`);
   if (opts.notes) ghArgs.push("-f", `notes=${opts.notes}`);
   // --ack-blockers is a local CLI safety gate (checked above); the workflow no

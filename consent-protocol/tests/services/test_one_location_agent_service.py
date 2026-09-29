@@ -13,6 +13,7 @@ import hushh_mcp.services.one_location_agent_service as one_location_agent_modul
 import hushh_mcp.services.one_location_agent_service as one_location_service_module
 from hushh_mcp.operons.location.policy import normalize_duration_hours
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.one_location_agent_service import (
     _DIRECTORY_SEPARATOR_FOLD,
     _DIRECTORY_SEPARATOR_SQL,
@@ -26,6 +27,11 @@ from hushh_mcp.services.one_location_agent_service import (
     _notification_safe_data,
     _redact_location_metadata,
     _share_lane_match_sql,
+)
+from hushh_mcp.services.requester_identity import (
+    OPAQUE_LABEL_MIN_LENGTH,
+    UUID_LIKE_LABEL_PATTERN,
+    label_from_identity_row,
 )
 
 PUBLIC_LOCATION_SNAPSHOT = {
@@ -1265,6 +1271,12 @@ class RecipientDirectoryProbe(OneLocationAgentService):
         self.params = params or {}
         return []
 
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return set(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {}
+
 
 def test_verified_recipient_directory_sources_from_connections_and_circles() -> None:
     service = RecipientDirectoryProbe()
@@ -1667,9 +1679,19 @@ class FourUserMemoryService(OneLocationAgentService):
         self.consent_audit_rows: list[dict] = []
         self.marketplace_profiles: dict[str, dict] = {}
         self.profile_user_ids: set[str] = set(self.identities)
+        # vault_keys.vault_status by user. Every seeded person finished sign-up;
+        # a test removes an entry (no row) or sets "placeholder" to model one
+        # who did not. The Connect directory lists only "active".
+        self.vault_statuses: dict[str, str] = {uid: "active" for uid in self.identities}
         self.contact_preferences: dict[str, dict] = {}
         self.persona_states: dict[str, dict] = {}
         self.auto_approve_preferences: dict[str, dict] = {}
+
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return set(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {}
 
     def _seed_auto_approve_preference(
         self,
@@ -2193,6 +2215,39 @@ class FourUserMemoryService(OneLocationAgentService):
                     continue
                 identity = self.identities.get(user_id) or {}
                 marketplace = self.marketplace_profiles.get(user_id) or {}
+                if is_connect_directory:
+                    named = bool(
+                        label_from_identity_row(
+                            {
+                                **identity,
+                                "user_id": user_id,
+                                "display_name": identity.get("display_name")
+                                or marketplace.get("display_name"),
+                            },
+                            allow_email_handle=False,
+                        )
+                    )
+                    if named == bool(params.get("missing_names_only")):
+                        continue
+                    # Mirrors the statement's vault rule: a stranger needs an
+                    # active vault; an existing relationship (either direction)
+                    # keeps a person reachable without one.
+                    related = (
+                        user_id in connected_ids
+                        or any(
+                            conn.get("status") == "active"
+                            and {conn.get("user_a_id"), conn.get("user_b_id")} == {owner, user_id}
+                            for conn in self.connections.values()
+                        )
+                        or any(
+                            tc.get("status") == "active"
+                            and tc.get("owner_user_id") == user_id
+                            and tc.get("trusted_user_id") == owner
+                            for tc in self.trusted_connections.values()
+                        )
+                    )
+                    if self.vault_statuses.get(user_id) != "active" and not related:
+                        continue
                 network_connected = user_id in connected_ids
                 if not network_connected:
                     if marketplace.get("is_discoverable") is False:
@@ -3886,6 +3941,9 @@ def test_directory_candidates_include_existing_profiles_without_verified_phone_o
     service = FourUserMemoryService()
     service.identities["user_c"]["phone_verified"] = False
     service.profile_user_ids.add("user_without_cache")
+    # A missing identity cache is not a missing sign-up: this person holds an
+    # active vault, so the cache gap alone must not hide them.
+    service.vault_statuses["user_without_cache"] = "active"
     service.marketplace_profiles["user_without_cache"] = {
         "user_id": "user_without_cache",
         "display_name": "Cache Missing Member",
@@ -3928,6 +3986,32 @@ def test_directory_candidates_exclude_explicit_contact_opt_out_for_strangers() -
     assert "user_c" in candidate_ids
 
 
+def test_directory_lists_strangers_only_with_an_active_vault() -> None:
+    """Founder ruling 2026-09-28: strangers must have finished sign-up.
+
+    Production was restored from UAT and the directory is otherwise opt-out, so
+    accounts that never created a vault became searchable. A placeholder vault
+    row or no row at all hides a stranger. Someone the viewer already has a
+    relationship with stays reachable, vault or not, so nothing that resolves
+    an existing person today stops working.
+    """
+    service = FourUserMemoryService()
+    service.vault_statuses["user_c"] = "placeholder"
+    del service.vault_statuses["user_d"]
+
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert candidate_ids == {"user_b"}
+
+    # Only the reverse edge exists: user_d trusts the viewer.
+    service.trusted_connections["edge"] = {
+        "owner_user_id": "user_d",
+        "trusted_user_id": "user_a",
+        "status": "active",
+    }
+    candidate_ids = {c["userId"] for c in service.list_directory_candidates(owner_user_id="user_a")}
+    assert candidate_ids == {"user_b", "user_d"}
+
+
 def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     service = RecipientDirectoryProbe()
     assert service.list_directory_candidates(owner_user_id="owner") == []
@@ -3936,8 +4020,217 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert "a.phone_verified = TRUE" not in service.sql
     assert "profile.user_id <> :owner_user_id" in service.sql
     assert "marketplace.is_discoverable IS DISTINCT FROM FALSE" in service.sql
+    # The vault-or-relationship rule sits in the eligibility subquery, ahead of
+    # the opt-out block and of LIMIT, so it can never subtract from a page that
+    # was already cut.
+    sql = " ".join(service.sql.split())
+    vault_rule = "vault.user_id = profile.user_id AND vault.vault_status = 'active'"
+    assert sql.count(vault_rule) == 1
+    vault_at = sql.index(vault_rule)
+    assert vault_at < sql.index("FROM trusted_connections tc")
+    assert vault_at < sql.index("LIMIT :fetch_limit OFFSET :offset")
+    for relationship in (
+        "FROM connections related WHERE related.status = 'active'",
+        "FROM connection_requests pending WHERE pending.status = 'pending'",
+        "FROM trusted_connections edge WHERE edge.status = 'active'",
+    ):
+        assert vault_at < sql.index(relationship) < sql.index("FROM trusted_connections tc")
     assert "profile.contact_sync_consent_rule_version" in service.sql
     assert service.params["contact_sync_contract_version"] == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+
+
+class DirectoryScanProbe(RecipientDirectoryProbe):
+    """SQL returns ordered rows; exercise the production lifecycle/page merge."""
+
+    def __init__(
+        self,
+        *,
+        named: list[dict],
+        active: set[str],
+        unnamed: list[dict] | None = None,
+        profiles: dict[str, dict[str, str]] | None = None,
+    ) -> None:
+        super().__init__()
+        self.named = named
+        self.active = active
+        self.unnamed = unnamed or []
+        self.profiles = profiles or {}
+        self.scanned_offsets: list[int] = []
+
+    def _execute_many(self, sql: str, params: dict | None = None) -> list[dict]:
+        params = params or {}
+        rows = self.unnamed if params["missing_names_only"] else self.named
+        offset = params["offset"]
+        if not params["missing_names_only"]:
+            self.scanned_offsets.append(offset)
+        return rows[offset : offset + params["fetch_limit"]]
+
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return self.active.intersection(user_ids)
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return {uid: self.profiles[uid] for uid in user_ids if uid in self.profiles}
+
+    def _apply_kai_circle_recommendations(self, **kwargs: object) -> list[dict]:
+        return list(kwargs["recipients"])  # type: ignore[arg-type]
+
+
+def test_directory_pages_current_accounts_after_stale_auth_rows() -> None:
+    stale = [{"user_id": f"deleted-{i}", "display_name": f"A Legacy {i:03}"} for i in range(100)]
+    service = DirectoryScanProbe(
+        named=[
+            *stale,
+            {"user_id": "current-b", "display_name": "Beta", "phone_verified": False},
+            {"user_id": "current-g", "display_name": "Gamma", "phone_verified": False},
+        ],
+        active={"current-b", "current-g"},
+    )
+
+    first = service.search_directory_candidates(owner_user_id="owner", limit=1)
+    last = service.search_directory_candidates(owner_user_id="owner", page=2, limit=1)
+
+    assert [item["userId"] for item in first["items"]] == ["current-b"]
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in last["items"]] == ["current-g"]
+    assert last["hasMore"] is False
+    assert service.scanned_offsets == [0, 100, 0, 100]
+
+
+def test_directory_merges_provider_named_profiles_before_search_rank_and_paging() -> None:
+    service = DirectoryScanProbe(
+        named=[
+            {"user_id": "regular", "display_name": "Divya Rajendran", "photo_url": "regular-photo"},
+            {"user_id": "surname", "display_name": "Member Divya", "photo_url": "surname-photo"},
+        ],
+        active={"regular", "surname"},
+        unnamed=[
+            {"user_id": "adviser", "display_name": "", "photo_url": "custom-adviser-photo"},
+            {"user_id": "unresolved", "display_name": ""},
+        ],
+        profiles={
+            "adviser": {"display_name": "Divya Rajendran", "photo_url": "provider-adviser-photo"},
+        },
+    )
+
+    first = service.search_directory_candidates(owner_user_id="owner", query="divya", limit=1)
+    second = service.search_directory_candidates(
+        owner_user_id="owner", query="divya", page=2, limit=1
+    )
+    last = service.search_directory_candidates(
+        owner_user_id="owner", query="divya", page=3, limit=1
+    )
+
+    assert [item["userId"] for item in first["items"]] == ["adviser"]
+    assert first["items"][0]["photoUrl"] == "custom-adviser-photo"
+    assert first["hasMore"] is True
+    assert [item["userId"] for item in second["items"]] == ["regular"]
+    assert second["items"][0]["photoUrl"] == "regular-photo"
+    assert second["hasMore"] is True
+    assert [item["userId"] for item in last["items"]] == ["surname"]
+    assert last["hasMore"] is False
+
+
+def test_directory_scan_timeout_is_retryable_not_an_empty_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    ticks = iter([0.0, 0.0, 31.0])
+    monkeypatch.setattr(one_location_service_module.time, "monotonic", lambda: next(ticks))
+    service = DirectoryScanProbe(named=[], active=set(), unnamed=[{"user_id": "legacy"}])
+
+    with pytest.raises(DirectoryIdentityUnavailableError):
+        service.search_directory_candidates(owner_user_id="owner")
+
+
+def test_directory_auth_status_maps_uid_and_expires_without_fail_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from collections import OrderedDict
+
+    from hushh_mcp.services import directory_identity_service as directory
+
+    clock = [0.0]
+    app = SimpleNamespace(project_id="uat", name="auth")
+    monkeypatch.setattr(directory, "_STATUS_CACHE", OrderedDict())
+    monkeypatch.setattr(directory, "_STATUS_CACHE_MAX_ENTRIES", 2)
+    monkeypatch.setattr(directory.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(directory, "get_firebase_auth_app", lambda: app)
+    calls: list[list[str]] = []
+
+    def get_users(identifiers, **kwargs):
+        calls.append([entry.uid for entry in identifiers])
+        return SimpleNamespace(
+            users=[
+                SimpleNamespace(uid="disabled", disabled=True),
+                SimpleNamespace(uid="enabled", disabled=False),
+            ]
+        )
+
+    monkeypatch.setattr(directory.auth, "get_users", get_users)
+
+    assert directory.active_directory_user_ids(["missing", "enabled", "disabled", "x" * 129]) == {
+        "enabled"
+    }
+    assert calls == [["missing", "enabled", "disabled"]]
+    assert len(directory._STATUS_CACHE) == 2
+    assert all(isinstance(entry[1], bool) for entry in directory._STATUS_CACHE.values())
+    assert directory.active_directory_user_ids(["enabled", "disabled"]) == {"enabled"}
+    assert len(calls) == 1
+    app.project_id = "production"
+    assert directory.active_directory_user_ids(["enabled"]) == {"enabled"}
+    assert len(calls) == 2
+    clock[0] = 61.0
+    monkeypatch.setattr(
+        directory.auth,
+        "get_users",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("private provider failure")),
+    )
+
+    with pytest.raises(DirectoryIdentityUnavailableError):
+        directory.active_directory_user_ids(["enabled"])
+
+
+def test_directory_auth_public_fallback_keeps_name_and_photo_on_same_uid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from hushh_mcp.services import directory_identity_service as directory
+
+    monkeypatch.setattr(
+        directory, "get_firebase_auth_app", lambda: SimpleNamespace(project_id="uat", name="auth")
+    )
+    records = [
+        SimpleNamespace(
+            uid="second",
+            disabled=False,
+            display_name="Same Name",
+            photo_url="second-photo",
+            provider_data=[],
+        ),
+        SimpleNamespace(
+            uid="first",
+            disabled=False,
+            display_name=None,
+            photo_url=None,
+            provider_data=[SimpleNamespace(display_name="Same Name", photo_url="first-photo")],
+        ),
+        SimpleNamespace(
+            uid="nameless", disabled=False, display_name=None, photo_url=None, provider_data=[]
+        ),
+        SimpleNamespace(
+            uid="disabled",
+            disabled=True,
+            display_name="Same Name",
+            photo_url="disabled-photo",
+            provider_data=[],
+        ),
+    ]
+    monkeypatch.setattr(
+        directory.auth, "get_users", lambda *args, **kwargs: SimpleNamespace(users=records)
+    )
+
+    assert directory.directory_auth_profiles(["first", "second", "nameless", "disabled"]) == {
+        "first": {"display_name": "Same Name", "photo_url": "first-photo"},
+        "second": {"display_name": "Same Name", "photo_url": "second-photo"},
+    }
 
 
 def test_recipient_payload_masks_email_for_directory_disambiguation() -> None:
@@ -4008,11 +4301,14 @@ def test_directory_candidate_search_filters_before_pagination(
         "word_prefix": "% cara%",
         "token_prefixes": ["% cara%"],
         "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+        "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
+        "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
+        "missing_names_only": False,
         # Every caller that predates the advisor split still asks for both
         # halves, so adding the tab changed nobody else's result set.
         "audience": "all",
-        "fetch_limit": 21,
-        "offset": 40,
+        "fetch_limit": 100,
+        "offset": 0,
     }
     # The substring predicate is what made a single letter return an empty
     # screen: it selected the page under one rule while the caller narrowed it
@@ -7764,9 +8060,9 @@ def test_only_the_relationship_scoped_list_may_show_an_email_handle() -> None:
     assert "allow_email_handle=True" in recipients
 
     directory = inspect.getsource(OneLocationAgentService.search_directory_candidates)
-    assert "allow_email_handle" not in directory, (
+    assert "allow_email_handle=True" not in directory, (
         "the discovery directory must not opt into the email handle: it lists "
-        "phone-verified strangers, not the viewer's connections"
+        "strangers, not only the viewer's connections"
     )
 
 

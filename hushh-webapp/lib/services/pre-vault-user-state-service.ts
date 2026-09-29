@@ -26,6 +26,21 @@ export type OneRuntimeSetupChoice =
   | "hushh_managed_vertex"
   | "byok_pending_vault";
 
+/**
+ * One's chat onboarding progress. Only which questions were answered or
+ * skipped plus two local calendar dates; never an answer value (the preferred
+ * name and reply style live in encrypted memory). `null` means never started.
+ */
+export type OneChatOnboardingQuestionId = "name" | "focus" | "tone";
+export type OneChatOnboardingState = {
+  version: 1;
+  status: "in_progress" | "completed";
+  answered: OneChatOnboardingQuestionId[];
+  skipped: OneChatOnboardingQuestionId[];
+  completedOn: string | null;
+  tipDismissedOn: string | null;
+};
+
 export type PreVaultUserState = {
   userId: string;
   /**
@@ -65,6 +80,7 @@ export type PreVaultUserState = {
   setupCapabilityDeclinedIds: string[];
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
+  oneChatOnboarding: OneChatOnboardingState | null;
   oneRuntimeSetupChoice: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion: number | null;
   onboardingPhase:
@@ -98,6 +114,7 @@ type PreVaultStateUpdatePayload = {
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
   setupCapabilityDeclinedIds?: string[];
+  oneChatOnboarding?: OneChatOnboardingState;
   oneRuntimeSetupChoice?: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion?: 1;
   onboardingPhase?: PreVaultUserState["onboardingPhase"];
@@ -138,6 +155,38 @@ function toStringArray(value: unknown): string[] {
     if (trimmed.length > 0) seen.add(trimmed);
   }
   return Array.from(seen).sort();
+}
+
+const CHAT_ONBOARDING_QUESTION_ORDER: readonly OneChatOnboardingQuestionId[] = [
+  "name",
+  "focus",
+  "tone",
+];
+
+function toCalendarDate(value: unknown): string | null {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function toQuestionIds(value: unknown): OneChatOnboardingQuestionId[] {
+  if (!Array.isArray(value)) return [];
+  return CHAT_ONBOARDING_QUESTION_ORDER.filter((id) => value.includes(id));
+}
+
+/** Mirror of the backend normalizer: bounded shape only, answered wins over skipped. */
+export function normalizeOneChatOnboarding(value: unknown): OneChatOnboardingState | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.version !== 1) return null;
+  if (record.status !== "in_progress" && record.status !== "completed") return null;
+  const answered = toQuestionIds(record.answered);
+  return {
+    version: 1,
+    status: record.status,
+    answered,
+    skipped: toQuestionIds(record.skipped).filter((id) => !answered.includes(id)),
+    completedOn: toCalendarDate(record.completedOn),
+    tipDismissedOn: toCalendarDate(record.tipDismissedOn),
+  };
 }
 
 function toNullableBool(value: unknown): boolean | null {
@@ -199,6 +248,7 @@ function normalizeResponse(
     setupCapabilityDeclinedIds: toStringArray(payload.setupCapabilityDeclinedIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
+    oneChatOnboarding: normalizeOneChatOnboarding(payload.oneChatOnboarding),
     oneRuntimeSetupChoice: normalizeOneRuntimeSetupChoice(
       payload.oneRuntimeSetupChoice,
     ),
@@ -484,6 +534,19 @@ export class PreVaultUserStateService {
     return this.updatePreVaultState(userId, {
       setupCapabilityDeclinedIds: toStringArray([...setupCapabilityDeclinedIds]),
     });
+  }
+
+  /**
+   * Replace the durable chat-onboarding progress record. It carries question
+   * ids and dates only; the backend re-normalizes and rejects anything else.
+   */
+  static async syncOneChatOnboarding(
+    userId: string,
+    oneChatOnboarding: OneChatOnboardingState,
+  ): Promise<PreVaultUserState> {
+    const normalized = normalizeOneChatOnboarding(oneChatOnboarding);
+    if (!normalized) throw new Error("Invalid chat onboarding state");
+    return this.updatePreVaultState(userId, { oneChatOnboarding: normalized });
   }
 
   static hasOneRuntimeChoice(

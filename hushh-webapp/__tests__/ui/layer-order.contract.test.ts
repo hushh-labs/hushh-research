@@ -126,31 +126,74 @@ describe("layer ladder", () => {
   });
 
   describe("chat history drawer on iOS (WKWebView)", () => {
-    it("keeps the drawer below the header with the same geometry on native", () => {
-      // The drawer sits on the sheet tier (above the header's z-540), so only its
-      // top edge keeps it off the header controls. That edge and the header's
-      // height must be the one variable; a native rule that redefined the height
-      // itself, instead of the safe-top it is built from, would split them.
+    it("spans the full viewport above the chat header and the bottom bar", () => {
+      // REVERSAL (founder direction, 2026-09-28): "Extend the chat sidebar end to
+      // end, and the bottom bar is behind the chat sidebar (z-index), so that it
+      // looks like a proper UX." The earlier contract pinned the opposite: the
+      // panel and its dim layer started under the chat header and stopped at the
+      // top of the fixed bottom bar, because the drawer lived inside the chat
+      // workspace's stacking context and no z-index there could rise above the
+      // bar's. The drawer is now portalled to <body>, where the ladder alone
+      // decides, so it is a real modal side drawer: full height, over both.
       const drawer = read("components/agent/agent-connections-drawer.tsx");
-      expect(drawer.match(/top-\[var\(--agent-chat-header-height\)\]/g)).toHaveLength(2);
-      // The fixed bottom bar is a separate stacking context that no drawer z-index
-      // can rise above, so the panel and its dim layer end where the bar begins
-      // (the chat list sat under the bar in narrow layouts).
-      expect(drawer.match(/bottom-\[var\(--app-bottom-shell-height,0px\)\]/g)).toHaveLength(2);
-      expect(drawer).not.toMatch(/absolute (inset-x-0 )?bottom-0/);
-      // The tap-to-close layer is untinted: a dim clipped between the header and
-      // the bottom bar left both bright, a white strip above and a patch below.
+      const portal = drawer.slice(drawer.indexOf("data-agent-history-scrim") - 200);
+      expect(portal).toMatch(/createPortal\(\s*<>/);
+      expect(portal).toMatch(/<\/>,\s*document\.body,?\s*\)/);
+      const scrim = portal.slice(0, portal.indexOf("onClick"));
+      const panel = portal.slice(portal.indexOf("data-agent-history-drawer"));
+      expect(scrim).toContain('"fixed inset-0"');
+      expect(panel).toContain("fixed inset-y-0 left-0 z-(--z-sheet)");
+      // The old geometry fails here: no edge is tied to the header or the bar.
+      expect(drawer).not.toMatch(/--agent-chat-header-height/);
+      expect(drawer).not.toMatch(/--app-bottom-shell-height/);
+      expect(drawer).not.toMatch(/\babsolute\b/);
+
+      // At the body, the sheet tier outranks the chrome it now covers.
+      const header = read("components/agent/agent-chat-workspace.tsx").match(
+        /"agent-chat-header relative z-\[(\d+)\]/,
+      );
+      const bar = read("components/app-ui/app-bottom-shell.tsx").match(
+        /fixed inset-x-0 bottom-0 z-\[(\d+)\]/,
+      );
+      expect(header, "chat header z-index").not.toBeNull();
+      expect(bar, "bottom bar z-index").not.toBeNull();
+      expect(Number(header![1])).toBeLessThan(ladder["sheet-overlay"]);
+      expect(Number(bar![1])).toBeLessThan(ladder["sheet-overlay"]);
+
+      // Full height means the surface, not a gap, runs under the status bar and
+      // home indicator: the panel pads both safe areas inside itself.
+      const aside = read("components/agent/agent-history-sidebar.tsx");
+      const surface = aside.slice(aside.indexOf("<aside")).match(/isMobileMode\s*\?\s*"([^"]+)"/)?.[1] ?? "";
+      expect(surface).toContain("pt-[var(--app-safe-area-top-effective,0px)]");
+      expect(surface).toContain("pb-[var(--app-safe-area-bottom-effective,0px)]");
+    });
+
+    it("dims and blurs the chat behind the drawer with the canonical sheet scrim", () => {
+      // Founder ask (2026-09-27): the history sidebar recedes the chat exactly as a
+      // sheet, dialog or modal popover does. The scrim tokens are read from
+      // SheetOverlay itself, so a change to the canonical scrim moves both together
+      // and a surface-specific blur or tint here fails.
+      const sheet = read("components/ui/sheet.tsx");
+      const overlay = sheet.slice(sheet.indexOf('data-slot="sheet-overlay"'));
+      const canonical =
+        overlay
+          .slice(0, overlay.indexOf("/>"))
+          .match(/bg-\[color:var\(--app-scrim-color\)\]|\[(?:-webkit-)?backdrop-filter:var\(--app-scrim-filter\)\]/g) ??
+        [];
+      expect(canonical).toHaveLength(3);
+
+      const drawer = read("components/agent/agent-connections-drawer.tsx");
       const scrim = drawer.slice(drawer.indexOf("data-agent-history-scrim"));
       const scrimClasses = scrim.slice(0, scrim.indexOf("onClick"));
-      expect(scrimClasses).toContain("bg-transparent");
-      expect(scrimClasses).not.toMatch(/bg-black\/|backdrop-blur/);
-      expect(read("components/agent/agent-chat-workspace.tsx")).toContain(
-        "h-[var(--agent-chat-header-height)]",
-      );
-      const css = read("app/globals.css");
-      for (const rule of css.matchAll(/html\.native-ios[^{]*\{([^}]*)\}/g)) {
-        expect(rule[1]).not.toMatch(/--agent-chat-header-height\s*:/);
-      }
+      for (const token of canonical) expect(scrimClasses).toContain(token);
+      expect(scrimClasses).toContain("z-(--z-sheet-overlay)");
+      expect(scrimClasses).not.toMatch(/bg-transparent|bg-black\/|backdrop-blur-|blur\(\d/);
+      // Charter: fade opacity only (never the blur radius or `all`), honour reduced
+      // motion, and hide the layer when closed so no backdrop filter stays live.
+      expect(scrimClasses).toContain("transition-[opacity,visibility]");
+      expect(scrimClasses).not.toMatch(/transition-(all|\[[^\]]*filter)/);
+      expect(scrimClasses).toContain("motion-reduce:transition-none");
+      expect(scrimClasses).toMatch(/pointer-events-none invisible opacity-0/);
     });
 
     it("keeps the drawer surface opaque inside its transformed sheet layer", () => {
@@ -160,8 +203,15 @@ describe("layer ladder", () => {
       const source = read("components/agent/agent-history-sidebar.tsx");
       const aside = source.slice(source.indexOf("<aside"));
       const mobileSurface = aside.match(/isMobileMode\s*\?\s*"([^"]+)"/)?.[1] ?? "";
-      expect(mobileSurface).toMatch(/(^|\s)bg-background(\s|$)/);
+      // The chat-scoped sidebar token (2026-09-29) replaced bg-background; it
+      // must stay a solid colour in both themes for the same WebKit reason.
+      expect(mobileSurface).toMatch(/(^|\s)bg-\[color:var\(--one-chat-sidebar\)\](\s|$)/);
       expect(mobileSurface).not.toMatch(/bg-background\/\d+|backdrop-blur|chrome-glass-surface/);
+      const sidebarTokens = [
+        ...read("app/globals.css").matchAll(/--one-chat-sidebar:\s*([^;]+);/g),
+      ].map((match) => match[1].trim());
+      expect(sidebarTokens.length).toBeGreaterThanOrEqual(2);
+      for (const value of sidebarTokens) expect(value).toMatch(/^#[0-9a-f]{6}$/i);
     });
   });
 

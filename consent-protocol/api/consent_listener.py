@@ -22,6 +22,12 @@ from api.utils.consent_notifications import next_pending_notification
 from api.utils.fcm_messages import build_push_message
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.consent_delivery_claims import (
+    claim_delivery,
+    consent_event_delivery_key,
+    prune_delivery_claims,
+    request_notification_key,
+)
 from hushh_mcp.services.consent_request_links import (
     build_consent_request_path,
     build_consent_request_url,
@@ -417,7 +423,13 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
 
 
 async def _handle_notify(payload_str: str):
-    """Parse payload, send FCM to user's tokens, push to in-app queue."""
+    """Fan one consent event out: local streams always, global effects once.
+
+    Every worker on every instance receives this NOTIFY. Each pushes to the SSE
+    streams it holds (a stream lives in exactly one worker, so it sees the event
+    once). The push, the delivery record and the requester's doorbell push are
+    global, so only the worker that claims the consent_audit id sends them.
+    """
     global _notify_received_count, _last_notify_user_id, _last_notify_action
     try:
         data = json.loads(payload_str)
@@ -437,21 +449,43 @@ async def _handle_notify(payload_str: str):
         data = await _enrich_notify_payload(data)
         logger.info("Consent NOTIFY received user_id=%s action=%s", user_id, action)
         await _push_to_developer_consent_queues(data)
-        if str(action).strip().upper() == "REQUESTED":
-            notification_payload = {
-                **data,
-                "notification_sequence": 1,
-                "delivery_reason": "initial_request",
-            }
-            await _dispatch_notification_for_user(user_id, notification_payload)
-            await _record_notification_event(notification_payload, action_name="NOTIFICATION_SENT")
+        is_request = str(action).strip().upper() == "REQUESTED"
+        owner_payload = (
+            {**data, "notification_sequence": 1, "delivery_reason": "initial_request"}
+            if is_request
+            else data
+        )
+        await _push_to_consent_queue(user_id, owner_payload)
+        doorbell = await _information_requester_doorbell(data)
+        claimed = await claim_delivery(consent_event_delivery_key(data))
+        if doorbell is not None:
+            requester_user_id, doorbell_payload = doorbell
+            if claimed or await _has_local_consent_queue(requester_user_id):
+                doorbell_payload = await _with_bundle_outcome(requester_user_id, doorbell_payload)
+                await _push_to_consent_queue(requester_user_id, doorbell_payload)
+                if claimed:
+                    await _send_fcm_for_user(requester_user_id, doorbell_payload)
+        if not claimed:
+            return
+        if is_request:
+            # Shared with the backfill job, so the job never repeats sequence 1
+            # for a request this handler is still delivering.
+            request_id = str(data.get("request_id") or "").strip()
+            if request_id and not await claim_delivery(request_notification_key(request_id, 1)):
+                return
+            await _send_fcm_for_user(user_id, owner_payload)
+            await _record_notification_event(owner_payload, action_name="NOTIFICATION_SENT")
         else:
-            await _dispatch_notification_for_user(user_id, data)
-            await _notify_information_requester(data)
+            await _send_fcm_for_user(user_id, data)
     except json.JSONDecodeError as e:
         logger.warning("Consent notify invalid JSON: %s", e)
     except Exception as e:
         logger.exception("Consent notify handle error: %s", e)
+
+
+async def _has_local_consent_queue(user_id: str) -> bool:
+    async with _consent_notify_queues_lock:
+        return bool(_consent_notify_queues.get(user_id))
 
 
 async def _record_notification_event(
@@ -486,63 +520,100 @@ async def _record_notification_event(
         )
 
 
-async def _dispatch_notification_for_user(user_id: str, data: Dict[str, Any]) -> None:
-    await _push_to_consent_queue(user_id, data)
-    await _send_fcm_for_user(user_id, data)
+_REQUESTER_DOORBELL_ACTIONS = frozenset(
+    {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}
+)
 
 
-async def _notify_information_requester(data: Dict[str, Any]) -> None:
-    """Wake only the requester bound to this resolved person-to-person item.
+def _event_time_iso(issued_at: Any) -> str:
+    """The consent_audit ``issued_at`` (epoch ms) as an ISO-8601 UTC string."""
+    from datetime import datetime, timezone
 
-    The notification is a metadata-only doorbell. The client must reread the
-    bundle and encrypted export through its normal owner-scoped authorities;
+    try:
+        millis = int(issued_at)
+    except (TypeError, ValueError, OverflowError):
+        return datetime.now(tz=timezone.utc).isoformat()
+    return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).isoformat()
+
+
+async def _information_requester_doorbell(
+    data: Dict[str, Any],
+) -> tuple[str, Dict[str, Any]] | None:
+    """The requester bound to this resolved person-to-person item, and its doorbell.
+
+    The doorbell is the canonical outcome event (api-contracts.md,
+    ``information_request_updated``): metadata only. The client rereads the
+    bundle and encrypted export through its own requester-scoped authorities;
     neither a payload-supplied requester nor a scope label is trusted here.
     """
     action = str(data.get("action") or "").strip().upper()
-    if action not in {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}:
-        return
+    if action not in _REQUESTER_DOORBELL_ACTIONS:
+        return None
     bundle_id = str(data.get("bundle_id") or "").strip()
     request_id = str(data.get("request_id") or "").strip()
     subject_user_id = str(data.get("user_id") or "").strip()
     if not _UUID_LIKE_PATTERN.fullmatch(bundle_id) or not request_id or not subject_user_id:
-        return
+        return None
     try:
         from db.db_client import get_db
 
-        result = get_db().execute_raw(
-            """SELECT bundle.requester_user_id
-               FROM one_information_request_bundles bundle
-               JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
-               WHERE bundle.bundle_id = CAST(:bundle_id AS UUID)
-                 AND bundle.subject_user_id = :subject_user_id
-                 AND item.request_id = :request_id
-               LIMIT 1""",
-            {
-                "bundle_id": bundle_id,
-                "subject_user_id": subject_user_id,
-                "request_id": request_id,
-            },
-        )
-        rows = result.data or []
-        row = rows[0] if rows else {}
-        requester_user_id = str(row.get("requester_user_id") or "").strip()
-        if not requester_user_id or requester_user_id == subject_user_id:
-            return
-        await _dispatch_notification_for_user(
-            requester_user_id,
-            {
-                "type": "information_request_updated",
-                "user_id": requester_user_id,
-                "action": action,
-                "bundle_id": bundle_id,
-                "request_id": request_id,
-                "message_id": f"information-request:{bundle_id}:{request_id}:{action}:{data.get('issued_at') or ''}",
-                "request_url": "/",
-                "deep_link": "/",
-            },
-        )
+        def lookup() -> list[Dict[str, Any]]:
+            result = get_db().execute_raw(
+                """SELECT bundle.requester_user_id
+                   FROM one_information_request_bundles bundle
+                   JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+                   WHERE bundle.bundle_id = CAST(:bundle_id AS UUID)
+                     AND bundle.subject_user_id = :subject_user_id
+                     AND item.request_id = :request_id
+                   LIMIT 1""",
+                {
+                    "bundle_id": bundle_id,
+                    "subject_user_id": subject_user_id,
+                    "request_id": request_id,
+                },
+            )
+            return list(result.data or [])
+
+        rows = await asyncio.to_thread(lookup)
     except Exception as exc:  # noqa: BLE001 - never unwind the consent event
-        logger.warning("information_request.requester_notify_failed error=%s", type(exc).__name__)
+        logger.warning("information_request.requester_lookup_failed error=%s", type(exc).__name__)
+        return None
+    row = rows[0] if rows else {}
+    requester_user_id = str(row.get("requester_user_id") or "").strip()
+    if not requester_user_id or requester_user_id == subject_user_id:
+        return None
+    issued_at = data.get("issued_at") or ""
+    return requester_user_id, {
+        "type": "information_request_updated",
+        "user_id": requester_user_id,
+        "action": action,
+        "bundle_id": bundle_id,
+        "request_id": request_id,
+        "at": _event_time_iso(issued_at),
+        "message_id": f"information-request:{bundle_id}:{request_id}:{action}:{issued_at}",
+        "request_url": "/",
+        "deep_link": "/",
+    }
+
+
+async def _with_bundle_outcome(requester_user_id: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Add the bundle's outcome after this event (C1 ``progress.outcome``).
+
+    Read through the requester-bound bundle view, so the outcome is exactly what
+    the requester's own ``GET /api/one/information-requests/{bundle}`` returns.
+    A failed read leaves ``outcome`` out; the client rereads the bundle anyway.
+    """
+    try:
+        from hushh_mcp.services.information_request_service import InformationRequestService
+
+        bundle = await InformationRequestService().get(
+            requester_user_id=requester_user_id, bundle_id=str(payload["bundle_id"])
+        )
+        outcome = str(((bundle.get("progress") or {}).get("outcome")) or "").strip()
+    except Exception as exc:  # noqa: BLE001 - the doorbell still rings without it
+        logger.warning("information_request.outcome_read_failed error=%s", type(exc).__name__)
+        return payload
+    return {**payload, "outcome": outcome} if outcome else payload
 
 
 async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -695,11 +766,15 @@ async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         return data
 
 
-# The answers a requester's chat continues from. Revocation and withdrawal stay
-# silent: they change state but have no answer to open.
-_REQUESTER_ALERT_ACTIONS = frozenset({"CONSENT_GRANTED", "CONSENT_DENIED", "TIMEOUT"})
+# The answers a requester's chat continues from, plus the end of access the
+# requester must hear about (the chat redacts what was shared). A withdrawal is
+# the requester's own act and stays silent. A partial answer on a multi-field
+# request alerts only once the whole request is settled (outcome not pending);
+# the per-request tag collapses repeats on the device.
+_REQUESTER_ALERT_ACTIONS = frozenset({"CONSENT_GRANTED", "CONSENT_DENIED", "TIMEOUT", "REVOKED"})
 REQUESTER_ANSWER_TITLE = "Hussh One"
 REQUESTER_ANSWER_BODY = "Your information request has an answer"
+REQUESTER_ACCESS_ENDED_BODY = "Access to information shared with you has ended"
 
 
 def build_consent_push_content(
@@ -734,8 +809,12 @@ def build_consent_push_content(
         message_type = "information_request_updated"
         # The requester's answer opens the conversation that asked, after unlock.
         request_url = deep_link = f"/?informationRequest={bundle_id}"
-        show_alert = normalized_action in _REQUESTER_ALERT_ACTIONS
-        title, body = REQUESTER_ANSWER_TITLE, REQUESTER_ANSWER_BODY
+        outcome = str(data.get("outcome") or "").strip()
+        show_alert = normalized_action in _REQUESTER_ALERT_ACTIONS and outcome != "pending"
+        title = REQUESTER_ANSWER_TITLE
+        body = (
+            REQUESTER_ACCESS_ENDED_BODY if normalized_action == "REVOKED" else REQUESTER_ANSWER_BODY
+        )
         tag = f"information-request:{bundle_id}"
     else:
         message_type = {
@@ -774,6 +853,12 @@ def build_consent_push_content(
             "delivery_reason": delivery_reason,
             "notification_tag": tag,
             "notification_category": "CONSENT_REQUEST" if message_type == "consent_request" else "",
+            # The canonical outcome event (api-contracts.md): identifiers, the
+            # outcome word and a time only, never a scope, label or value.
+            "outcome": data.get("outcome")
+            if message_type == "information_request_updated"
+            else None,
+            "at": data.get("at") if message_type == "information_request_updated" else None,
         }
     )
     return title, body, message_data, show_alert
@@ -912,7 +997,13 @@ async def _notification_job_loop():
                         "delivery_reason": delivery_reason,
                     }
                 )
-                await _dispatch_notification_for_user(str(pending.get("user_id") or ""), payload)
+                owner_id = str(pending.get("user_id") or "")
+                # Every worker runs this job. Each wakes the streams it holds;
+                # one worker per request and sequence sends the push and record.
+                await _push_to_consent_queue(owner_id, payload)
+                if not await claim_delivery(request_notification_key(request_id, sequence)):
+                    continue
+                await _send_fcm_for_user(owner_id, payload)
                 await _record_notification_event(
                     payload,
                     action_name="NOTIFICATION_SENT" if sequence == 1 else "REMINDER_SENT",
@@ -941,6 +1032,7 @@ async def _timeout_job_loop():
             count = await ConsentDBService().emit_timeout_events()
             if count:
                 logger.info("Timeout job: emitted %d TIMEOUT event(s)", count)
+            await prune_delivery_claims()
         except asyncio.CancelledError:
             break
         except Exception as e:

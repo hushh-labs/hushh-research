@@ -87,3 +87,27 @@ export function isInternalManifestPath(path: string): boolean {
     return isInternalPathSegment(segment);
   });
 }
+
+const SECRET_WORDS: ReadonlySet<string> = new Set([
+  "authorization", "cipher", "credential", "mnemonic", "passphrase", "password", "secret", "token",
+]);
+const SECRET_KEY_QUALIFIERS: ReadonlySet<string> = new Set([
+  "access", "api", "encryption", "private", "recovery", "vault",
+]);
+
+/**
+ * True when one key reads as credential material. The TypeScript half of
+ * `is_secret_shaped_key` in `internal_path_keys.py`: word-based and
+ * plural-tolerant, so `passwords` and `api keys` are caught where the anchored
+ * pattern above misses them. Used by the field-level sensitivity rule.
+ */
+export function isSecretShapedKey(segment: string): boolean {
+  const normalized = String(segment ?? "").trim().toLowerCase();
+  if (!normalized) return false;
+  if (SECRET_KEY_PATTERN.test(normalized)) return true;
+  const words = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+  const singular = words.map((word) => word.length > 3 && word.endsWith("s") ? word.slice(0, -1) : word);
+  if (singular.some((word) => SECRET_WORDS.has(word))) return true;
+  if (normalized.includes("cipher") || normalized.includes("token")) return true;
+  return singular.some((word, index) => index > 0 && word === "key" && SECRET_KEY_QUALIFIERS.has(singular[index - 1]!));
+}

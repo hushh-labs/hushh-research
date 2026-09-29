@@ -403,10 +403,21 @@ def capability_health():
     }
 
 
+def _app_review_mode_advertised() -> bool:
+    """Whether the app may learn that review mode exists.
+
+    Production never advertises it, even with APP_REVIEW_MODE set: the App
+    Store reviewer signs in through the ordinary sign-in flow with a dedicated
+    account, and the client must not be able to tell a reviewer apart from
+    anyone else. Non-production lanes advertise it exactly as before.
+    """
+    return _is_app_review_mode_enabled() and not _is_production_runtime()
+
+
 @router.get("/api/app-config/review-mode")
 def app_review_mode_config():
     """Runtime app-review-mode config served from backend env (not frontend build env)."""
-    return {"enabled": _is_app_review_mode_enabled()}
+    return {"enabled": _app_review_mode_advertised()}
 
 
 @router.post("/api/app-config/review-mode/session")
@@ -416,7 +427,11 @@ async def issue_app_review_mode_session(request: Request):
     Mint a Firebase custom token for app-review login.
 
     Security:
-    - Enabled when APP_REVIEW_MODE is true, or (outside production) when the
+    - Never mints in production. A review-mode session is a sign-in with no
+      credential, so on production it would hand the reviewer account to
+      anyone who asks. Production refuses with the same response as a
+      disabled lane, whatever APP_REVIEW_MODE says.
+    - Outside production: enabled when APP_REVIEW_MODE is true, or when the
       request carries a passphrase matching a configured reviewer pair
     - Mints only server-configured identities: REVIEWER_UID by default, or the
       pair (primary or REVIEWER_COUNTERPART_UID) whose passphrase matches
@@ -424,6 +439,14 @@ async def issue_app_review_mode_session(request: Request):
       unchanged from before the counterpart pair existed
     - Never returns any reviewer passphrase to clients, and never logs one
     """
+    if _is_production_runtime():
+        logger.warning("app_review_mode.session_refused reason=production_runtime")
+        raise HTTPException(
+            status_code=403,
+            detail="App review mode is disabled",
+            headers=NO_STORE_HEADERS,
+        )
+
     try:
         payload = await request.json()
     except Exception:

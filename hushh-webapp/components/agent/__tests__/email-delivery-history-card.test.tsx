@@ -68,6 +68,30 @@ describe("EmailDeliveryHistoryCard", () => {
     expect(onEnableGmailSend).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Enable sending" }));
     expect(onEnableGmailSend).toHaveBeenCalledTimes(1);
+    // The failed item travels with the request so its draft can reopen.
+    expect(onEnableGmailSend).toHaveBeenCalledWith(
+      expect.objectContaining({ id: item.id, errorCode: "GMAIL_SEND_DISABLED" }),
+    );
+  });
+
+  it("waits in place with a quiet Cancel sign-in while Google's window is open", () => {
+    const onEnableGmailSend = vi.fn();
+    const onCancel = vi.fn();
+    render(
+      <EmailDeliveryHistoryCard
+        item={{ ...item, status: "failed", errorCode: "GMAIL_SEND_PERMISSION_REQUIRED" }}
+        onEnableGmailSend={onEnableGmailSend}
+        enablingGmailSend
+        onCancelEnableGmailSend={onCancel}
+      />,
+    );
+    fireEvent.click(screen.getByText("Mail activity"));
+    const waiting = screen.getByRole("button", { name: "Waiting for Google…" });
+    expect(waiting).toBeDisabled();
+    fireEvent.click(waiting);
+    expect(onEnableGmailSend).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it("keeps rich formatting available when the owner expands sent email history", () => {

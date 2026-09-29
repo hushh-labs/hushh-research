@@ -1,4 +1,6 @@
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
+import { parseScopeProposal, type ScopeProposal } from "./scope-proposal";
+import { parseSharedFieldSensitivities, type SharedFieldSensitivity } from "@/lib/consent/field-sensitivity";
 import {
   parseConnectorReadReceipt,
   parseWorkspaceConnectorSetup,
@@ -80,6 +82,8 @@ export type ScopeDiscoveryExperience = {
   scopes: ScopeDiscoveryItem[];
   scopeCatalog?: PersonScopeCatalog;
   catalogIncomplete?: boolean;
+  /** One's preselected ask (contract C4); absent means show the catalog. */
+  proposal?: ScopeProposal;
 };
 
 type ReviewField = {
@@ -177,7 +181,49 @@ export type EvidenceBriefExperience = {
   unresolved: string[];
 };
 
+export const SHARED_WITH_ME_CARD_EXPERIENCE_TYPE = "one.shared_with_me_card.v1" as const;
+
+/** One item of the secure "Shared with you" card (CONTRACT-2 C6). It carries no values. */
+export type SharedWithMeCardItem = {
+  /** Stable within the card: the grant reference, else the item, else its position. */
+  key: string;
+  grantRef: string | null;
+  bundleId: string | null;
+  requestId: string | null;
+  label: string;
+  /** The server's C7 reading, or null when it sent none; the client resolves the rest. */
+  sensitivity: "sensitive" | "standard" | null;
+  domain: string | null;
+  fieldOutline: string[];
+  /**
+   * Each outlined field's own C7 reading: an identifier field inside a
+   * standard item (an EIN under "Legal entity") is sensitive. Names only.
+   */
+  fields?: SharedFieldSensitivity[];
+  sharedAt: string | null;
+  accessEndsAt: string | null;
+  purpose: string | null;
+  /** Present when the server already knows access ended. */
+  status: "granted" | "revoked" | "expired" | null;
+  /** False when the server knows there is nothing to open (no bundle); rare. */
+  decryptable?: boolean;
+};
+
+export type SharedWithMeCard = {
+  person: { personRef: string; displayName: string; profilePath: string | null; photoUrl: string | null };
+  items: SharedWithMeCardItem[];
+  /** The server's name for the client open path; informational, never executed. */
+  decryptVia: string | null;
+};
+
+/** One secure card per person; a result about several people carries several. */
+export type SharedWithMeCardExperience = {
+  type: typeof SHARED_WITH_ME_CARD_EXPERIENCE_TYPE;
+  cards: SharedWithMeCard[];
+};
+
 export type AgentStructuredExperience =
+  | SharedWithMeCardExperience
   | PersonSelectionExperience
   | ConnectorReadExperience
   | WorkspaceConnectorSetupExperience
@@ -567,6 +613,7 @@ function parseScopeDiscovery(
     && revision && /^[a-f0-9]{64}$/.test(revision)
     && typeof catalog.hasMore === "boolean"
     && (catalog.hasMore ? nextPage === page + 1 : nextPage === null);
+  const proposal = parseScopeProposal(record);
 
   return {
     type: SCOPE_DISCOVERY_EXPERIENCE_TYPE,
@@ -592,10 +639,125 @@ function parseScopeDiscovery(
     } } : {}),
     ...(record.catalogIncomplete === true || (Array.isArray(record.requestableScopes) && record.requestableScopes.length > MAX_SCOPES)
       ? { catalogIncomplete: true } : {}),
+    ...(proposal ? { proposal } : {}),
   };
 }
 
+const SHARED_REF_PATTERN = /^[A-Za-z0-9_.:-]{6,160}$/;
+const SHARED_MAX_ITEMS = 50;
+
+function isoOrNull(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    // Milliseconds from the share list ("expiresAt").
+    return new Date(value).toISOString();
+  }
+  const text = boundedString(value, 64);
+  return text && Number.isFinite(Date.parse(text)) ? text : null;
+}
+
+/**
+ * A human label even when a machine one slips through: "Tax Record Domain"
+ * and "tax_record" both read "Tax record".
+ */
+export function humanSharedLabel(value: unknown): string | null {
+  const raw = boundedString(value, 120);
+  if (!raw) return null;
+  const spaced = raw.replace(/[_]+/g, " ").replace(/\s+domain$/i, "").trim();
+  if (!spaced) return null;
+  const machine = spaced === spaced.toLowerCase() || /^([A-Z][a-z]+)(\s[A-Z][a-z]+)+$/.test(spaced);
+  const sentence = machine ? spaced.toLowerCase() : spaced;
+  return sentence[0]!.toUpperCase() + sentence.slice(1);
+}
+
+function sharedRef(value: unknown): string | null {
+  const text = boundedString(value, 160);
+  return text && SHARED_REF_PATTERN.test(text) ? text : null;
+}
+
+function parseSharedWithMeItems(value: unknown, fallbackPurpose: string | null): SharedWithMeCardItem[] {
+  const seen = new Set<string>();
+  return (Array.isArray(value) ? value.slice(0, SHARED_MAX_ITEMS) : []).flatMap((raw, index) => {
+    const item = asRecord(raw);
+    const label = humanSharedLabel(item?.label);
+    if (!item || !label) return [];
+    const grantRef = sharedRef(item.grantRef ?? item.grant_ref);
+    const bundleId = sharedRef(item.bundleId ?? item.bundle_id);
+    const requestId = sharedRef(item.requestId ?? item.request_id);
+    const key = grantRef ?? requestId ?? `${bundleId ?? "item"}:${index}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const declared = boundedString(item.sensitivity, 32)?.toLowerCase();
+    const status = boundedString(item.status, 32)?.toLowerCase();
+    const outline = item.fieldOutline ?? item.field_outline;
+    const fields = parseSharedFieldSensitivities(item.fields);
+    return [{
+      key,
+      grantRef,
+      bundleId,
+      requestId,
+      label,
+      sensitivity: declared === "standard" ? "standard"
+        : declared && ["sensitive", "restricted", "high", "medium"].includes(declared) ? "sensitive" : null,
+      domain: boundedString(item.domain, 80),
+      fieldOutline: (Array.isArray(outline) ? outline.slice(0, 24) : [])
+        .flatMap((name) => { const text = boundedString(name, 60); return text ? [text] : []; }),
+      sharedAt: isoOrNull(item.sharedAt ?? item.shared_at),
+      accessEndsAt: isoOrNull(item.accessEndsAt ?? item.access_ends_at ?? item.expiresAt ?? item.expires_at),
+      purpose: boundedString(item.purpose, 500) ?? fallbackPurpose,
+      status: status === "granted" || status === "revoked" || status === "expired" ? status : null,
+      ...(item.decryptable === false ? { decryptable: false } : {}),
+      ...(fields.length ? { fields } : {}),
+    }];
+  });
+}
+
+function parseOneSharedCard(record: Record<string, unknown>): SharedWithMeCard | null {
+  const person = asRecord(record.person);
+  const personRef = boundedString(person?.personRef ?? person?.person_ref, 128);
+  const displayName = boundedString(person?.displayName ?? person?.display_name, 120);
+  if (!personRef || !PUBLIC_PERSON_REF_PATTERN.test(personRef) || !displayName) return null;
+  const rawPath = boundedString(person?.profilePath ?? person?.profile_path, 240);
+  // `/people/{ref}`, optionally with the Shared section's query and anchor.
+  const profilePath = rawPath && rawPath.startsWith(`/people/${personRef}`)
+    && /^\/people\/[A-Za-z0-9_-]+(?:\?[A-Za-z0-9_=&-]*)?(?:#[A-Za-z0-9_-]*)?$/.test(rawPath) ? rawPath : null;
+  const rawPhoto = boundedString(person?.photoUrl ?? person?.photo_url, 500);
+  const photoUrl = rawPhoto && /^https:\/\//.test(rawPhoto) ? rawPhoto : null;
+  const items = parseSharedWithMeItems(record.items ?? record.shares, boundedString(record.purpose, 500));
+  if (!items.length) return null;
+  const decryptVia = record.decryptVia ?? record.decrypt_via;
+  return {
+    person: { personRef, displayName, profilePath, photoUrl },
+    items,
+    decryptVia: typeof decryptVia === "string" ? boundedString(decryptVia, 120)
+      : boundedString(asRecord(decryptVia)?.kind, 120),
+  };
+}
+
+/**
+ * CONTRACT-2 C6, read tolerantly: `kind` or `type`, camelCase or snake_case;
+ * the card under `card`, a list under `cards`, or the card at the result's
+ * root (also under `structured` or `result`); items under `items` or the
+ * share list's `shares`. Each card needs one verified person and at least
+ * one item; a person appears once.
+ */
+export function parseSharedWithMeCard(content: unknown): SharedWithMeCardExperience | null {
+  const root = unwrapToolResult(content);
+  if (!root) return null;
+  const isCard = (value: Record<string, unknown> | null): value is Record<string, unknown> =>
+    Boolean(value) && (value!.kind ?? value!.type) === SHARED_WITH_ME_CARD_EXPERIENCE_TYPE;
+  const listed = Array.isArray(root.cards) ? root.cards.slice(0, 20).map(asRecord) : [];
+  const candidates = [asRecord(root.card), ...listed, root, asRecord(root.structured), parseRecord(root.result)];
+  const cards: SharedWithMeCard[] = [];
+  for (const candidate of candidates) {
+    if (!isCard(candidate)) continue;
+    const card = parseOneSharedCard(candidate);
+    if (card && !cards.some((entry) => entry.person.personRef === card.person.personRef)) cards.push(card);
+  }
+  return cards.length ? { type: SHARED_WITH_ME_CARD_EXPERIENCE_TYPE, cards } : null;
+}
+
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
+  [SHARED_WITH_ME_CARD_EXPERIENCE_TYPE]: parseSharedWithMeCard,
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
   [DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseDocumentRequestReview,
@@ -628,6 +790,10 @@ export function parseAgentToolResultExperience(
     toolArguments,
   );
   if (connectorSetup) return connectorSetup;
+  // C6: whichever tool the backend names for it, a result that carries the
+  // shared-with-me card renders it.
+  const sharedCard = parseSharedWithMeCard(content);
+  if (sharedCard) return sharedCard;
   if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
     const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
     return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
@@ -678,6 +844,20 @@ export function parseAgentToolResultExperience(
       : null;
   }
   if (toolName === "propose_information_request") {
+    // A5 (localhost run 4): asked again while the same request waits, the
+    // server reports it as waiting with the living card's descriptor. It
+    // renders that request's card, never an ask card with Send.
+    if (result?.status === "already_pending") {
+      const living = parseInformationRequestReview(result.livingCard);
+      return living && living.direction === "outgoing" && living.phase === "submitted" && living.bundleId
+        ? living : null;
+    }
+    // C4: a proposal names the person and One's pick; it renders as the ask
+    // card over the catalog. Older servers still return a draft review.
+    if (Array.isArray(result?.proposed) || Array.isArray(asRecord(result?.proposal)?.proposed)) {
+      const discovery = parseScopeDiscovery({ ...result, status: "ok" });
+      if (discovery?.proposal) return discovery;
+    }
     return parseInformationRequestProposal(content);
   }
   if (toolName === "propose_document_request") {

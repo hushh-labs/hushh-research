@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Code2,
+  Eye,
   Loader2,
   Lock,
+  PreviewRowIcon,
   ShieldAlert,
   SlidersHorizontal,
-  Sparkles,
 } from "@/components/icons";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -1286,7 +1287,8 @@ export default function PkmAgentLabPageClient() {
               <SettingsRow
                 title="No pending preview"
                 description="Describe one new preference or memory below. Kai will draft the PKM capture before anything is encrypted or saved."
-                leading={<Sparkles className="h-4 w-4 text-accent-strong" />}
+                icon={PreviewRowIcon}
+                iconTone="capability"
               />
             ) : (
               previewCards.map((card) => (
@@ -1337,7 +1339,7 @@ export default function PkmAgentLabPageClient() {
                         {submitting ? (
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         ) : (
-                          <Sparkles className="mr-2 h-4 w-4" />
+                          <Eye className="mr-2 h-4 w-4" />
                         )}
                         Generate preview
                       </Button>

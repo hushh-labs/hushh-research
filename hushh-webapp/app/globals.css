@@ -442,6 +442,14 @@ textarea {
   --app-accent-fg: #ffffff; /* text on solid accent */
   --app-accent-hover: #0070ea; /* pressed/hover partner of the solid fill */
   --app-accent-ring: rgba(0, 122, 255, 0.25);
+  /* Text selection ON a solid accent fill (the person's own chat bubble,
+     accent badges). The fill's own ink becomes the highlight and a deepened
+     accent the selected text: on system blue the text reads ~9:1 on the
+     highlight and the highlight ~3.5:1 against the bubble. The gold dark
+     block overrides both, because its -fg is dark. Consumed only by the
+     on-accent ::selection rule in @layer base. */
+  --app-accent-selection-bg: color-mix(in oklab, var(--app-accent-fg) 90%, transparent);
+  --app-accent-selection-fg: color-mix(in oklab, var(--app-accent-deep) 60%, black);
 
   /* Apple Summer 2026 semantic refinement tokens. These intentionally alias
      the existing Foundation system instead of creating a second design system. */
@@ -957,10 +965,13 @@ textarea {
   --motion-ease-decelerate: cubic-bezier(0, 0, 0.2, 1);
   --motion-ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
 
-  /* Press physics: the system-wide active/pressed state is a uniform scale
-     shrink layered over the md-ripple. One value everywhere so every control
-     carries the same tactile weight; consumed by the .press-scale utility. */
-  --motion-press-scale: 0.97;
+  /* Press physics: a press is FLAT. The pressed state is a colour/opacity
+     change plus the md-ripple, never a scale, spring, or bounce. The scale
+     token stays at 1 (identity) for any consumer still reading it; the
+     .press-scale utility no longer transforms at all. Guarded by
+     __tests__/components/press-ripple.contract.test.tsx. */
+  --motion-press-scale: 1;
+  --motion-press-opacity: 0.8;
   --motion-press-duration: 80ms;
 
   --motion-page-enter-duration: var(--motion-duration-xl);
@@ -1542,9 +1553,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   left: var(--ios-account-separator-leading);
 }
 
-[data-profile-stack-screen="account"] [data-slot="settings-row-icon"],
-[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"],
-.profile-account-content [data-slot="settings-row-icon"] {
+[data-profile-stack-screen="account"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
+[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
+.profile-account-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-utility-icon-tile-background) !important;
   border-radius: 8px !important;
   color: var(--ios-account-utility-icon-glyph) !important;
@@ -1552,9 +1563,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   width: 32px !important;
 }
 
-[data-profile-stack-screen="account"] [data-slot="settings-row-icon"] svg,
-[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"] svg,
-.profile-account-content [data-slot="settings-row-icon"] svg {
+[data-profile-stack-screen="account"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
+[data-profile-stack-screen="panel:account"] [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
+.profile-account-content [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg {
   color: var(--ios-account-utility-icon-glyph) !important;
   height: 17px !important;
   stroke-width: 1.65 !important;
@@ -1603,9 +1614,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   background: var(--app-destructive) !important;
 }
 
-[data-profile-stack-screen="account"] [data-icon-tone] svg,
-[data-profile-stack-screen="panel:account"] [data-icon-tone] svg,
-.profile-account-content [data-icon-tone] svg,
+[data-profile-stack-screen="account"] [data-icon-tone]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
+[data-profile-stack-screen="panel:account"] [data-icon-tone]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
+.profile-account-content [data-icon-tone]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) svg,
 .profile-home-content
   [data-icon-tone]:not([data-icon-tone="capability"]):not(
     [data-icon-tone="transparent"]
@@ -1616,13 +1627,13 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 [data-profile-stack-screen="account"]
   .profile-account-service-row
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 [data-profile-stack-screen="panel:account"]
   .profile-account-service-row
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 .profile-account-content
   .profile-account-service-row
-  [data-slot="settings-row-icon"] {
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-service-icon-tile-background) !important;
   color: var(--ios-account-service-icon-glyph) !important;
 }
@@ -1668,43 +1679,43 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 [data-profile-stack-screen="account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 [data-profile-stack-screen="account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"]
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"])
   svg,
 [data-profile-stack-screen="panel:account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 [data-profile-stack-screen="panel:account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"]
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"])
   svg,
 .profile-account-content
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 .profile-account-content
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"]
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"])
   svg {
   color: var(--ios-account-utility-icon-glyph) !important;
 }
 
 [data-profile-stack-screen="account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 [data-profile-stack-screen="panel:account"]
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"],
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]),
 .profile-account-content
   [data-tone="destructive"]
-  [data-slot="settings-row-icon"] {
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-destructive) !important;
 }
 
 .profile-account-content
   .profile-account-reset-row
-  [data-slot="settings-row-icon"] {
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-utility-icon-tile-background) !important;
   color: #ffffff !important;
 }
@@ -1717,7 +1728,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 
 .profile-account-content
   .profile-account-delete-row
-  [data-slot="settings-row-icon"] {
+  [data-slot="settings-row-icon"]:not([data-icon-tone="capability"]):not([data-icon-tone="transparent"]) {
   background: var(--ios-account-destructive) !important;
 }
 
@@ -1879,7 +1890,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-screen [data-profile-avatar-camera="true"]:active {
-  transform: scale(0.94);
+  opacity: var(--motion-press-opacity, 0.8);
 }
 
 .profile-home-screen [data-profile-avatar-frame="true"] [data-slot="avatar"],
@@ -2069,10 +2080,18 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
  * direction, 2026-09-27): the authored duotone glyph in its own vivid colour,
  * with no tile behind it. The glyph is the /one list-row size (28px, the
  * AgentSectionIcon "roster" glyph); the well keeps the 32px footprint the
- * tiles had, so titles and separators stay where they were. The coloured
- * tiles above remain for Account and Vault detail rows. */
+ * tiles had, so titles and separators stay where they were.
+ *
+ * Nested Profile screens (Account, Vault methods, Mail, Referrals, Trusted
+ * devices and the rest of the stack) draw the same way, so a concept does not
+ * change look one tap deeper. The coloured tiles above now only apply to a
+ * row that opts out of the capability tone. */
 .profile-home-content [data-icon-tone="capability"],
-.profile-home-content [data-icon-tone="transparent"] {
+.profile-home-content [data-icon-tone="transparent"],
+[data-profile-stack-content="true"] [data-icon-tone="capability"],
+[data-profile-stack-content="true"] [data-icon-tone="transparent"],
+.profile-account-content [data-icon-tone="capability"],
+.profile-account-content [data-icon-tone="transparent"] {
   background: transparent !important;
   border-radius: 0 !important;
   box-shadow: none !important;
@@ -2081,7 +2100,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-icon-tone="capability"] svg,
-.profile-home-content [data-icon-tone="transparent"] svg {
+.profile-home-content [data-icon-tone="transparent"] svg,
+[data-profile-stack-content="true"] [data-icon-tone="capability"] svg,
+[data-profile-stack-content="true"] [data-icon-tone="transparent"] svg,
+.profile-account-content [data-icon-tone="capability"] svg,
+.profile-account-content [data-icon-tone="transparent"] svg {
   height: 28px !important;
   width: 28px !important;
 }
@@ -2290,10 +2313,14 @@ body:has(.profile-account-content)
 }
 
 /* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
-.agent-chat-workspace [data-chat-new-button] {
+/* The history drawer is portalled to <body> (it spans the full viewport above
+ * the bottom bar), so its New chat button is reached through the drawer too. */
+.agent-chat-workspace [data-chat-new-button],
+[data-agent-history-drawer] [data-chat-new-button] {
   position: relative;
 }
-.agent-chat-workspace [data-chat-new-button]::after {
+.agent-chat-workspace [data-chat-new-button]::after,
+[data-agent-history-drawer] [data-chat-new-button]::after {
   content: "";
   position: absolute;
   inset: -4px 0;
@@ -4393,6 +4420,29 @@ body:has([data-testid="one-location-onboarding"])
     color: inherit;
   }
 
+  /* Selection on a solid accent fill. The highlight above is the accent at 28%,
+     so on the person's own message bubble (an accent gradient) it painted
+     accent on accent and selected text vanished. Accent-filled surfaces invert
+     to the --app-accent-selection-* pair instead. Keyed to the exact fill
+     classes: `~=` matches a whole class, never a hover:/data-[] variant or a
+     /12 tint, and a bubble that `cn` repaints (an errored turn) drops out and
+     keeps the default highlight on its new surface. Buttons and links are
+     already user-select: none, so this reaches text people can select. */
+  :is(
+      [class~="bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))]"],
+      [class~="bg-[color:var(--app-accent)]"],
+      [class~="bg-[var(--app-accent)]"]
+    )::selection,
+  :is(
+      [class~="bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))]"],
+      [class~="bg-[color:var(--app-accent)]"],
+      [class~="bg-[var(--app-accent)]"]
+    )
+    ::selection {
+    background-color: var(--app-accent-selection-bg);
+    color: var(--app-accent-selection-fg);
+  }
+
   h1,
   h2,
   h3,
@@ -5346,6 +5396,122 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   }
 }
 
+/* One chat surface (Muse-inspired layout, 2026-09-29). Scoped to the chat
+   workspace, its history column/drawer and the Get the app prompt through
+   [data-one-chat-surface]; no other page reads these tokens. Light is a clean
+   white canvas with soft grey bubbles, dark a neutral near-black with raised
+   greys. The accent (user bubbles, focus) stays One's own blue. */
+[data-one-chat-surface] {
+  --one-chat-canvas: #ffffff;
+  /* One surface with the chat, as in the reference: the hairline divides. */
+  --one-chat-sidebar: #ffffff;
+  --one-chat-search-border: rgba(0, 0, 0, 0.12);
+  --one-chat-search-bg: transparent;
+  --one-chat-divider: rgba(0, 0, 0, 0.075);
+  --one-chat-bubble: #ebebee;
+  --one-chat-raised: #ffffff;
+  --one-chat-menu: #ffffff;
+  --one-chat-field: rgba(0, 0, 0, 0.045);
+  --one-chat-field-strong: rgba(0, 0, 0, 0.07);
+  --one-chat-row-hover: rgba(0, 0, 0, 0.04);
+  --one-chat-row-active: rgba(0, 0, 0, 0.07);
+  --one-chat-meta: rgba(60, 60, 67, 0.64);
+  --one-chat-composer: #ffffff;
+  --one-chat-composer-border: rgba(0, 0, 0, 0.1);
+  --one-chat-get-app-stage: color-mix(in oklab, var(--app-accent) 16%, #ffffff);
+  --one-chat-get-app-bezel: color-mix(in oklab, var(--app-accent) 10%, #ffffff);
+}
+
+.dark [data-one-chat-surface],
+[data-one-chat-surface].dark {
+  --one-chat-canvas: #171717;
+  --one-chat-sidebar: #171717;
+  --one-chat-search-border: rgba(255, 255, 255, 0.12);
+  --one-chat-search-bg: rgba(255, 255, 255, 0.04);
+  --one-chat-divider: rgba(255, 255, 255, 0.08);
+  --one-chat-bubble: #242424;
+  --one-chat-raised: #202020;
+  --one-chat-menu: #2e2e30;
+  --one-chat-field: rgba(255, 255, 255, 0.06);
+  --one-chat-field-strong: rgba(255, 255, 255, 0.1);
+  --one-chat-row-hover: rgba(255, 255, 255, 0.05);
+  --one-chat-row-active: rgba(255, 255, 255, 0.09);
+  --one-chat-meta: rgba(235, 235, 245, 0.55);
+  --one-chat-composer: #2a2a2a;
+  --one-chat-composer-border: rgba(255, 255, 255, 0.06);
+  --one-chat-get-app-stage: #2a2a2f;
+  --one-chat-get-app-bezel: #3a3a40;
+}
+
+/* The composer: a quiet rounded field on the canvas, as in the reference.
+   Focus keeps One's accent ring so keyboard users always see where they are. */
+[data-one-chat-surface] .agent-chat-composer-surface {
+  /* A full pill on one line; once the draft wraps, a fixed 28px corner (as in
+     the reference) so the first and last lines are never cut by the curve. */
+  border-radius: 1.75rem !important;
+  border-color: var(--one-chat-composer-border) !important;
+  background: var(--one-chat-composer) !important;
+  box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.28) !important;
+}
+
+.dark [data-one-chat-surface] .agent-chat-composer-surface {
+  box-shadow: 0 12px 34px -16px rgba(0, 0, 0, 0.7) !important;
+}
+
+[data-one-chat-surface] .agent-chat-composer-surface:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent) !important;
+  background: var(--one-chat-composer) !important;
+  box-shadow:
+    0 10px 30px -18px rgba(0, 0, 0, 0.28),
+    0 0 0 3px color-mix(in oklab, var(--app-accent) 18%, transparent) !important;
+}
+
+/* Copy / like / dislike on a settled answer. With a fine pointer on a wide
+   screen they sit beside the bubble, vertically centred, and appear on hover
+   or keyboard focus (as in the reference); touch screens keep the always-on
+   row under the answer. Exactly one of the two copies is ever displayed. */
+[data-one-chat-surface] .one-chat-hover-actions {
+  display: none;
+}
+
+@media (hover: hover) and (pointer: fine) and (min-width: 768px) {
+  [data-one-chat-surface] .one-chat-hover-actions {
+    display: flex;
+    position: absolute;
+    top: 50%;
+    left: 100%;
+    margin-left: 0.5rem;
+    width: max-content;
+    translate: 0 -50%;
+    opacity: 0;
+    transition: opacity 150ms ease;
+  }
+
+  [data-one-chat-surface] [data-message-role="assistant"]:hover .one-chat-hover-actions,
+  [data-one-chat-surface] .one-chat-hover-actions:focus-within {
+    opacity: 1;
+  }
+
+  [data-one-chat-surface] [data-agent-response-actions="inline"][data-hover-twin="true"] {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-one-chat-surface] .one-chat-hover-actions {
+    transition: none;
+  }
+}
+
+/* While the desktop history column is showing, the fixed bottom navigation
+   centres over the conversation column instead of the whole window, so it
+   lines up with the composer and never sits over the sidebar footer. */
+@media (min-width: 1024px) {
+  html[data-one-chat-sidebar="open"] [data-app-bottom-shell] {
+    left: 15rem;
+  }
+}
+
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the
    scroll-driven hide transform and all control transitions from this shared
    surface. */
@@ -5564,32 +5730,18 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* Standard interaction transitions for buttons, cards, links */
 @layer utilities {
-  /* System-wide press physics: uniform scale shrink on active, layered over
-     the md-ripple. Apply to buttons, chips, segmented tabs, and any control
-     that should carry tactile press weight. The utility owns ONLY the active
-     transform; each consumer keeps `transform` in its own transition list so
-     color/opacity fades are never clobbered. GPU-composited; stands down
-     under prefers-reduced-motion. */
+  /* System-wide press physics, kept under its historical name for the
+     feature controls that carry it. A press is FLAT: an immediate opacity
+     dim, no transform, no spring, no bounce. Core primitives (Button,
+     segmented controls, tabs, cards) no longer carry this class; they get
+     their pressed state from the md-ripple instead. The utility sets no
+     transition-property, so each consumer's own colour fades survive. */
   .press-scale {
-    transition-property: transform;
-    transition-duration: var(--motion-press-duration, 80ms);
-    transition-timing-function: var(
-      --motion-ease-emphasized,
-      cubic-bezier(0.2, 0, 0, 1)
-    );
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
   .press-scale:active:not(:disabled) {
-    transform: scale(var(--motion-press-scale, 0.97));
-    transition-duration: 50ms;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .press-scale,
-    .press-scale:active:not(:disabled) {
-      transform: none;
-      transition: none;
-    }
+    opacity: var(--motion-press-opacity, 0.8);
   }
 
   .morphy-transition {
@@ -6123,6 +6275,11 @@ html[data-accent="gold"].dark {
   --app-accent-fg: #1d1d1f;
   --app-accent-hover: #e0b382;
   --app-accent-ring: rgba(212, 165, 116, 0.35);
+  /* Dark ink on gold: the highlight is that ink, so the text goes light.
+     Restated in full here (not inherited from :root) because this block also
+     matches a nested .dark, where :root's mix resolved against light values. */
+  --app-accent-selection-bg: color-mix(in oklab, var(--app-accent-fg) 90%, transparent);
+  --app-accent-selection-fg: var(--app-accent-bright);
   --app-accent-hero-from: #8a5a24;
   --app-accent-hero-mid: #d4a574;
   --app-accent-hero-to: #fff8ea;
@@ -6652,7 +6809,6 @@ body[data-persona-surface="ria"] .ria-cta {
     opacity 0.15s ease;
 }
 body[data-persona-surface="ria"] .ria-cta:active {
-  transform: scale(0.985);
   opacity: 0.92;
 }
 body[data-persona-surface="ria"] .ria-cta:disabled {
@@ -6675,7 +6831,6 @@ body[data-persona-surface="ria"] .ria-secondary {
     opacity 0.15s ease;
 }
 body[data-persona-surface="ria"] .ria-secondary:active {
-  transform: scale(0.985);
   opacity: 0.92;
 }
 

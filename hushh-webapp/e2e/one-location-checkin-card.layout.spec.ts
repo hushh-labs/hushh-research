@@ -44,7 +44,7 @@ const STORY = `
         <div data-one-feature-lower-grid>
         <article data-one-use-case-card data-one-feature-card="checkin">
           <div data-one-feature-copy>
-            <h2 data-one-feature-title>Stuck waiting in line?</h2>
+            <h2 data-one-feature-title>At the venue, but can't find each other?</h2>
             <p data-one-feature-body>Check in on the spot and notify your circle</p>
           </div>
           <div data-one-checkin-map-backdrop></div>

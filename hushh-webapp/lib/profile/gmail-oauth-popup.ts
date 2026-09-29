@@ -1,5 +1,7 @@
 "use client";
 
+import { openOAuthWindow } from "@/lib/connections/oauth-window";
+
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
 const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
 // A localStorage key (not sessionStorage, which does not cross the
@@ -12,7 +14,6 @@ const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
 const FALLBACK_SETTLEMENT_KEY = "one_gmail_oauth_popup_settlement_v1";
 const MAX_ATTEMPT_AGE_MS = 15 * 60 * 1000;
 const POPUP_NAME = "hushh-gmail-oauth";
-const POPUP_FEATURES = "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes";
 
 export type GmailOAuthPopupAttempt = {
   version: 1;
@@ -152,7 +153,8 @@ export function openGmailOAuthPopup(
   attempt: GmailOAuthPopupAttempt,
 ): Window | null {
   if (typeof window === "undefined") return null;
-  const popup = window.open("about:blank", POPUP_NAME, POPUP_FEATURES);
+  // A refused popup falls back to a new tab with the same settlement contract.
+  const popup = openOAuthWindow(POPUP_NAME)?.target ?? null;
   if (!popup) return null;
 
   if (!persistGmailOAuthPopupAttempt(popup, attempt)) {

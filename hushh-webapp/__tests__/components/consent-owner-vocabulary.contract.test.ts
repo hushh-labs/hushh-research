@@ -68,6 +68,18 @@ const SURFACES: Surface[] = [
   "components/agent/global-consent-action-handlers.tsx",
   "lib/consent/use-consent-actions.ts",
   "lib/agent/action-directive-summary.ts",
+  // The owner's side of a request (2026-09-28): the one module that words it
+  // for the Feed, the sheet and the chat card, the grouping that builds the
+  // Feed row, the inline decision and its unlock step, and the on-device
+  // preview of what an Allow would share.
+  "lib/consent/consent-owner-copy.ts",
+  "lib/consent/owner-consent-request.ts",
+  "lib/consent/use-owner-consent-decision.ts",
+  "lib/consent/consent-share-preview.ts",
+  "components/consent/owner-consent-unlock-prompt.tsx",
+  // The Requests row's ✗ / ✓ and its Undo toast (2026-09-28, CONTRACT-2 C8).
+  "components/consent/consent-pending-row.tsx",
+  "lib/consent/deferred-consent-decline.ts",
   // The chat workspace, restricted to the blocks that decide or describe a
   // consent request. The rest of the file is a chat surface with its own
   // vocabulary, and scanning it whole is how a gate turns into a wolf cry.
@@ -91,7 +103,7 @@ const SURFACES: Surface[] = [
       },
       {
         label: "confirmation card render",
-        from: "{pendingAppAction ? (",
+        from: "{pendingAppAction && !pendingAppActionDuplicatesAskCard ? (",
         to: "{pendingSpecialistDirective ? (",
       },
     ],

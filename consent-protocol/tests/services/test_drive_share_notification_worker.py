@@ -89,7 +89,7 @@ async def test_document_event_push_is_opaque_deduped_and_settled_as_dispatch_onl
         # are fixed fallbacks, never a dynamic request/provider URL; the client
         # derives its review route from the closed type + opaque UUID above.
         "title": "Document request",
-        "body": "Open One to review.",
+        "body": "Open One for next steps.",
         "deep_link": "/one/feed",
         "notification_category": "ONE_DOCUMENT_SHARING",
         "show_alert": True,

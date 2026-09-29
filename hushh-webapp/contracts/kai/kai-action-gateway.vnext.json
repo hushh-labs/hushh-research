@@ -1838,7 +1838,7 @@
         "legal",
         "conditions"
       ],
-      "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
+      "meaning": "Opens the full Terms of Use page. Back returns to sign-in.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -1939,7 +1939,7 @@
         "policy",
         "legal"
       ],
-      "meaning": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
+      "meaning": "Opens the full Privacy Policy page. Back returns to sign-in.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -2003,108 +2003,6 @@
             "type": "action",
             "action_id": "auth.open_privacy",
             "label": "Privacy Policy",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "auth.close_legal",
-      "surface_id": "login",
-      "label": "Close legal document",
-      "aliases": [
-        "close terms",
-        "close privacy policy",
-        "close legal document"
-      ],
-      "search_keywords": [
-        "close",
-        "terms",
-        "privacy",
-        "legal"
-      ],
-      "meaning": "Closes the inline legal document and returns to the Login screen.",
-      "speaker_persona": "one",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/login"
-        ],
-        "screens": [
-          "login"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "investor",
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "auth.close_legal"
-      },
-      "control_ids": [
-        "auth_close_legal"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/one/one-voice-runtime-architecture.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "The mounted action reports its browser-observed outcome."
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.auth.close_legal",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "auth.close_legal",
-            "label": "Close legal document",
             "failure_behavior": "stop"
           }
         ],
@@ -23811,7 +23709,7 @@
       },
       "action_id": "consent.revoke",
       "surface_id": "consents",
-      "label": "Revoke a grant",
+      "label": "Stop sharing access",
       "aliases": [
         "revoke that access",
         "stop sharing that",
@@ -23895,7 +23793,7 @@
         "required_inputs": [
           {
             "name": "request_id",
-            "prompt": "Which grant should I revoke?",
+            "prompt": "Which shared access should I end?",
             "required": true,
             "slot": "request_id",
             "resolver": "opaque_request_id"
@@ -23908,7 +23806,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Revoke a grant",
+            "label": "Stop sharing access",
             "failure_behavior": "stop",
             "action_id": "consent.revoke",
             "settlement_target": {

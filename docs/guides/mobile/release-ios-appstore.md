@@ -23,6 +23,77 @@ review**. By default it stops *before* the final, irreversible "Submit for App S
 > tested. The binary is *identical* to the TestFlight binary — only the App Store version +
 > submission layer differs.
 
+### Backend target (`backend_target`, added 2026-09-29)
+
+The workflow input `backend_target` (dispatcher flag `--backend`) chooses the backend the binary
+talks to. `uat` is the default and is everything described above. `production` builds a binary
+for `https://one.hushh.ai` and the production API:
+
+- The production workload identity (`environment: production`, from `main`) reads only the
+  routing values from `hushh-pda`: `BACKEND_URL`, `APP_FRONTEND_ORIGIN`,
+  `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID` (the production
+  analytics stream). It also reads `NEXT_PUBLIC_FIREBASE_PROJECT_ID` and
+  `NEXT_PUBLIC_FIREBASE_APP_ID`, only to compare them.
+- Everything else (ASC key, distribution certificate, `GoogleService-Info.plist`, Firebase web
+  identity, Maps keys) still comes from `hushh-pda-uat`, as before. That is valid because both
+  projects point at the one shared Firebase app, and the run **refuses** if the two projects'
+  Firebase project id or app id differ.
+- The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
+  project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which
+  requires every native plugin's `backendUrl` to equal the production backend.
+- **User impact:** a person's vault and records live in the database of the backend their binary
+  talks to. A person who used a UAT-backed App Store build and updates to a production-backed one
+  signs in with the same Firebase identity, but reaches the production database. Treat the first
+  production-backed release as a decision about those people's information, not only a build flag.
+- **TestFlight for the same binary:** every non-dry run also uploads a `testflight-upload-receipt`
+  artifact. `gh workflow run resume-ios-testflight.yml --ref main -f upload_run_id=<App Store run id>`
+  then distributes that exact build to the internal and external TestFlight groups.
+  `ship-ios-testflight.yml` still builds a UAT binary only; do not run it for a
+  production-backed release, or testers alternate between two databases.
+
+### App Review sign-in on a production-backed build (added 2026-09-29)
+
+A production-backed binary shows **no reviewer affordance**: production never advertises review
+mode and never mints a review session, and a production frontend build never asks
+(`consent-protocol/docs/app-review-mode-config.md` § *Production: backend-only review*). Apple
+signs in like anyone else, with a dedicated reviewer account.
+
+**One-time setup (a person, not automation).** Google or Apple sign-in and the on-device vault
+cannot be completed from a script, so the founder does this once:
+
+1. Create a dedicated Google account that Hussh owns, preferably a Google Workspace user under
+   `hushh.ai` with 2-Step Verification not enforced for that user, so Apple's review devices
+   are not challenged. Never use a personal account.
+2. Generate the vault passphrase straight into production Secret Manager, never on screen:
+   `python3 -c 'import secrets; print(secrets.token_urlsafe(24), end="")' | gcloud secrets create REVIEWER_VAULT_PASSPHRASE --project=hushh-pda --replication-policy=automatic --data-file=-`
+3. On an iPhone running the production-backed build, sign in with that Google account. At the
+   phone step, enter one unused number from `HUSHH_PROD_PHONE_TEST_NUMBERS` and the fixed code
+   `HUSHH_PROD_PHONE_TEST_CODE` (no SMS is sent). Create the vault with the passphrase (copy it
+   with `gcloud secrets versions access latest --secret=REVIEWER_VAULT_PASSPHRASE --project=hushh-pda | pbcopy`
+   and paste over Universal Clipboard), then finish onboarding.
+4. Point `REVIEWER_UID` in `hushh-pda` at the new account (look the UID up by the account's
+   email with Identity Toolkit `accounts:lookup`, and pipe it into
+   `gcloud secrets versions add REVIEWER_UID --project=hushh-pda --data-file=-`).
+5. Never configure this UID as `REVIEWER_UID` in UAT or dev. UAT and production share the
+   Firebase authority, and UAT mints review sessions with no credential.
+
+**App Store Connect → App Review Information** (entered by hand once; it carries forward to new
+versions, and this pipeline does not set it):
+
+- *Sign-in required*: the reviewer Google account's email and password.
+- *Notes*: "Sign in with **Continue with Google** using the account above. When the app asks
+  for your vault passphrase, enter: `<REVIEWER_VAULT_PASSPHRASE>`. If the app asks you to verify a
+  phone number, enter `<the claimed test number>` and code `<HUSHH_PROD_PHONE_TEST_CODE>`; no SMS
+  is sent." Fill the placeholders from `hushh-pda` Secret Manager at entry time; never commit or
+  paste the values anywhere else.
+
+**iPhone device gate (release journeys).** The journeys section (`HUSHH_PERF_ATTACHED_SECTION=journeys`)
+runs on the session already in the app's data container and unlocks the vault with
+`REVIEWER_VAULT_PASSPHRASE` from the process environment. Against production, read it from
+`hushh-pda`, and leave the session on the gate phone by signing in by hand (step 3).
+`hushh-webapp/scripts/perf/ios-reviewer-signin.sh` restores a session through the review-mode mint, so it
+cannot sign into production, by design. After a sign-out, sign in by hand again.
+
 The build still archives with **production APNs** entitlements (correct for *any* App Store binary —
 push on a store build routes through Apple's PRODUCTION APNs). That means the **shared Firebase project
 must hold a production APNs key** for push notifications to deliver on the released app.
@@ -35,7 +106,8 @@ For an internal TestFlight build (no review), use the sibling pipeline: `ship-io
 - **Dispatcher:** `scripts/release/dispatch-ios-appstore.mjs` (resolves SHA, confirms, dispatches, watches).
 - **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
-- **Target:** bundle `com.hushh.app`, version `1.3.6`, **UAT** backend + Firebase (`hushh-pda`),
+- **Target:** bundle `com.hushh.app`, marketing version from `MARKETING_VERSION` in the pbxproj
+  (`1.4.0` on 2026-09-29), `backend_target` backend (default **UAT**) + Firebase (`hushh-pda`),
   ASC app id `6757718917`.
 
 ## The final command
@@ -272,4 +344,5 @@ build, set its release notes, and attach it for review.
 | Export/upload agreement error | Accept the Apple Program License Agreement in App Store Connect. |
 | Duplicate build number rejected | The ASC builds API lags a just-uploaded build; re-run so the resolver sees the sibling and picks N+1. |
 | Build stuck `PROCESSING` past the timeout | Apple-side processing delay; re-run prepare-only once the build shows in ASC. |
-| dSYM "Upload Symbols Failed" (Firebase/Google frameworks) | Non-fatal warnings; they do not fail the upload. |
+| dSYM "Upload Symbols Failed" (Firebase/Google frameworks, Plaid `LinkKit`) | Non-fatal export warnings for closed-source vendor libraries whose upstream publishes no dSYM; frames inside them will not symbolicate. The **Assert the archive ships our own debug symbols** step allow-lists exactly these by name and fails on anything else. |
+| `Embedded framework <Name> ships with no dSYM and is not an approved exception` | A new embedded framework has no dSYM in the archive. If it is ours, restore `DEBUG_INFORMATION_FORMAT = dwarf-with-dsym` for Release. If it is a closed-source vendor binary, prove upstream ships no dSYM and that the shipped UUID equals the vendor's prebuilt binary, then add it to `ALLOWED_WITHOUT_DSYM` with that evidence (R29 in `.claude/skills/safe-changes/SKILL.md`). |

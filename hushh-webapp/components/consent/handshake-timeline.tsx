@@ -68,12 +68,12 @@ function actionIcon(action: string) {
 
 function actionLabel(action: string): string {
   const labels: Record<string, string> = {
-    CONSENT_GRANTED: "Consent granted",
-    CONSENT_DENIED: "Consent denied",
-    REVOKED: "Consent revoked",
-    CANCELLED: "Request cancelled",
-    TIMEOUT: "Request timed out",
-    REQUESTED: "Consent requested",
+    CONSENT_GRANTED: "Allowed",
+    CONSENT_DENIED: "Declined",
+    REVOKED: "Stopped sharing",
+    CANCELLED: "Request withdrawn",
+    TIMEOUT: "Request expired",
+    REQUESTED: "Requested",
     INVITE_SENT: "Invite sent",
     // The requester opened a live grant. An audit row, not a transition; the
     // fallback would have printed it as "export read".

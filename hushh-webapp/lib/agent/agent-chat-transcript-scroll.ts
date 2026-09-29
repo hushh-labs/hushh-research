@@ -88,3 +88,43 @@ export function measureTranscriptReveal(
     elementBottom: elementRect.bottom,
   };
 }
+
+/** How far the end may sit below the composer band and still be "at the end". */
+export const TRANSCRIPT_FOLLOW_SLACK_PX = 48;
+
+export type TranscriptFollowState = {
+  /** The reader scrolled away from the latest turn. */
+  userScrolled: boolean;
+  /** A send or a consent continuation asked to reveal the pending turn. */
+  submittedTurn: boolean;
+  /** A programmatic scroll is still landing. */
+  programmatic: boolean;
+  scrollTop: number;
+  /** The last follow left the end in view, and the reader has not moved since. */
+  stuckToEnd: boolean;
+  /** Pixels between the scroll position and the scroll bottom. */
+  distanceFromBottom: number;
+  /**
+   * How far the end marker sits below the composer band (the scroll needed to
+   * reveal it above the composer); zero or less when it is already in view.
+   */
+  endBelowBand: number;
+};
+
+/**
+ * Whether the transcript keeps following the latest turn as it grows.
+ *
+ * The follow scroll lands the end ABOVE the composer, which is short of the
+ * scroll bottom by however much the reserved padding exceeds the composer
+ * (measured 2026-09-28 on a 393x852 phone: 87 px). The old gate compared the
+ * raw scroll bottom with a 48 px slack, so after the first reveal every
+ * further token was "away from the bottom" and One's answer grew under the
+ * composer. Following is sticky instead: once a follow left the end in view,
+ * growth keeps it there until the reader scrolls away.
+ */
+export function transcriptFollowsLatest(state: TranscriptFollowState): boolean {
+  if (state.userScrolled) return false;
+  return state.submittedTurn || state.programmatic || state.scrollTop <= 2 || state.stuckToEnd
+    || state.distanceFromBottom <= TRANSCRIPT_FOLLOW_SLACK_PX
+    || state.endBelowBand <= TRANSCRIPT_FOLLOW_SLACK_PX;
+}

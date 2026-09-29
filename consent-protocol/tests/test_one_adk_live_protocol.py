@@ -188,21 +188,21 @@ def test_voice_settings_caps_before_filtering_not_after():
 def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
     context = _sanitize_live_context(
         {
-            "route_family": "/login",
+            "route_family": "/register-phone",
             "available_action_ids": [
-                "auth.sign_in_apple",
-                "auth.close_legal",
+                "phone_mandate.submit_number",
+                "phone_mandate.close_country_picker",
                 "not.generated",
             ],
             "interaction_layer": {
-                "layer_id": "login_legal_terms",
-                "kind": "legal_document",
+                "layer_id": "phone_country_picker",
+                "kind": "country_picker",
                 "modality": "modal",
                 "lifecycle_state": "open",
                 "dismissible": True,
-                "dismiss_action_id": "auth.close_legal",
-                "visible_action_ids": ["auth.close_legal", "not.generated"],
-                "visible_control_ids": ["auth_close_legal"],
+                "dismiss_action_id": "phone_mandate.close_country_picker",
+                "visible_action_ids": ["phone_mandate.close_country_picker", "not.generated"],
+                "visible_control_ids": ["phone-flow-country"],
                 "options": [],
                 "underlying_actions_available": True,
                 "agent_continuity": "interactive",
@@ -210,16 +210,16 @@ def test_live_context_keeps_only_generated_actions_from_the_top_modal_layer():
         }
     )
 
-    assert context["available_action_ids"] == ["auth.close_legal"]
+    assert context["available_action_ids"] == ["phone_mandate.close_country_picker"]
     assert context["interaction_layer"] == {
-        "layer_id": "login_legal_terms",
-        "kind": "legal_document",
+        "layer_id": "phone_country_picker",
+        "kind": "country_picker",
         "modality": "modal",
         "lifecycle_state": "open",
         "dismissible": True,
-        "dismiss_action_id": "auth.close_legal",
-        "visible_action_ids": ["auth.close_legal"],
-        "visible_control_ids": ["auth_close_legal"],
+        "dismiss_action_id": "phone_mandate.close_country_picker",
+        "visible_action_ids": ["phone_mandate.close_country_picker"],
+        "visible_control_ids": ["phone-flow-country"],
         "options": [],
         "underlying_actions_available": False,
         "agent_continuity": "interactive",

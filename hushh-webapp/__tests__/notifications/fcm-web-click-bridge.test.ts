@@ -126,6 +126,20 @@ describe("web system-notification click bridge", () => {
     ).toBe("/");
   });
 
+  it("opens a fresh chat for a One-has-something push, never its deep_link", () => {
+    expect(
+      buildNotificationTapTarget({
+        type: "one_feed_attention",
+        feed_item_id: "4812",
+        deep_link: "https://evil.example/phish",
+      }),
+    ).toBe("/?feedAttention=4812");
+    // A malformed id lands on the durable Feed row, never a forged route.
+    expect(
+      buildNotificationTapTarget({ type: "one_feed_attention", feed_item_id: "../one/profile" }),
+    ).toBe("/one/feed");
+  });
+
   it("accepts Feed navigation and acknowledges the matching click id", async () => {
     await prepareFCMListeners();
     const postMessage = vi.fn();

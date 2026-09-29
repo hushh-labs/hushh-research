@@ -847,6 +847,15 @@ export class OneLocationService {
     return response.circle;
   }
 
+  /** Anonymous metadata only; this does not resolve membership or join. */
+  static async previewPublicCircleCode(code: string): Promise<{ name: string; ownerDisplayName: string }> {
+    const response = await apiJson<{ circle: { name: string; ownerDisplayName: string } }>(
+      "/api/one/location/circle-codes/public-preview",
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code }) },
+    );
+    return response.circle;
+  }
+
   static async updateNamedCircle(params: {
     vaultOwnerToken: string;
     circleId: string;

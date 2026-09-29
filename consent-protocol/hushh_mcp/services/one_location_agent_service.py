@@ -9,6 +9,7 @@ import logging
 import os
 import secrets
 import threading
+import time
 import uuid
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -37,6 +38,11 @@ from hushh_mcp.operons.location.policy import (
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+from hushh_mcp.services.directory_identity_service import (
+    DirectoryIdentityUnavailableError,
+    active_directory_user_ids,
+    directory_auth_profiles,
+)
 from hushh_mcp.services.one_location_public_invite_url import (
     public_invite_bearer_token,
     public_invite_url,
@@ -52,7 +58,12 @@ from hushh_mcp.services.one_location_share_lifecycle import (
     _is_until_stopped_share,
     _share_duration_change_direction,
 )
-from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.people_search_sql import directory_name_rank, people_query_match_params
+from hushh_mcp.services.requester_identity import (
+    OPAQUE_LABEL_MIN_LENGTH,
+    UUID_LIKE_LABEL_PATTERN,
+    label_from_identity_row,
+)
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
@@ -1764,9 +1775,8 @@ class OneLocationAgentService:
         """Who One may email for this Save my Soul alert.
 
         Resolution and authorization only — the message is rendered and sent by
-        One through `hushh-mail-api`, the same service every other product mail
-        uses. A second sender identity is a deliverability risk, and an
-        emergency mail is the worst place to find that out.
+        One through `hushh-mail-api`. Account and support notices use the
+        backend's separate delegated `one@hushh.ai` sender.
 
         Returns the owner's display label plus one entry per reachable contact.
         Addresses are returned to One's server route, never to a browser: a
@@ -1945,7 +1955,7 @@ class OneLocationAgentService:
         ``allow_email_handle`` is a privacy boundary, not a default. This same
         projection serves two lists: the recipients list, scoped to people the
         viewer is connected to or shares a Circle with, and the discovery
-        directory, which includes phone-verified strangers. An email's local
+        directory, which includes named active accounts. An email's local
         part is a name to the first group and an identifier about the second,
         so only the relationship-scoped caller opts in.
 
@@ -4554,8 +4564,9 @@ class OneLocationAgentService:
         # list_verified_recipients, which is intentionally scoped to the
         # connections graph for LOCATION sharing.
         #
-        # Every existing actor profile is searchable, whether its phone is
-        # verified or its identity cache has been hydrated. Explicit directory
+        # Named active accounts are searchable, whether their phone is verified
+        # or their identity cache has been hydrated. Strangers must also hold an
+        # active vault; people the viewer already has a relationship with do not. Explicit directory
         # visibility opt-outs still hide strangers; a trusted connection stays
         # visible to the person who already knows them.
         return cast(
@@ -4566,6 +4577,12 @@ class OneLocationAgentService:
                 limit=limit,
             )["items"],
         )
+
+    def _active_directory_user_ids(self, user_ids: list[str]) -> set[str]:
+        return cast(set[str], active_directory_user_ids(user_ids))
+
+    def _directory_auth_profiles(self, user_ids: list[str]) -> dict[str, dict[str, str]]:
+        return cast(dict[str, dict[str, str]], directory_auth_profiles(user_ids))
 
     def search_directory_candidates(
         self,
@@ -4585,11 +4602,28 @@ class OneLocationAgentService:
         pre-existing caller gets) keeps both. It is applied HERE, in the same
         statement, for the same reason the matching is -- see below.
 
-        Every actor profile is eligible unless its owner explicitly hid it
-        from strangers. The result remains a masked profile projection.
+        A named, active profile with a current enabled auth account is eligible
+        when EITHER it holds a ``vault_keys`` row whose ``vault_status`` is
+        ``'active'`` (the person finished signing up in THIS environment) OR the
+        viewer already has a relationship with it: an active ``connections``
+        edge, a ``'pending'`` ``connection_requests`` row, or an active
+        ``trusted_connections`` edge, each in either direction. So the vault
+        rule gates discovery of strangers only. The directory is otherwise
+        opt-out, and a database restored from another environment would
+        otherwise make every half-registered account searchable, while people
+        someone already knows stay reachable exactly as before.
 
-        Matching, ranking and ordering all happen HERE, in one statement, ahead
-        of ``LIMIT``.  That placement is the contract, not an implementation
+        Explicit opt-outs are unchanged: a person who set
+        ``marketplace_public_profiles.is_discoverable = FALSE`` or the
+        contact-sync opt-out is hidden unless the viewer holds a trusted edge
+        to them. Vault, relationship and auth eligibility are all applied
+        before the logical page is cut, so ineligible rows cannot create empty
+        pages or misleading ``hasMore`` values. ``candidate_user_id`` lookups
+        use this same statement, so they answer the same way.
+
+        Matching, ranking and ordering all happen HERE, before the logical
+        page is selected. SQL matches and recovered provider names use the
+        same name-ranking contract. That placement is the contract, not an implementation
         detail: this used to match any substring (``LIKE '%n%'``) and leave the
         caller to narrow the result, so Connect asked for 8 rows for "n", got
         the 8 alphabetically-first names that merely CONTAIN an n -- Anand,
@@ -4673,8 +4707,23 @@ class OneLocationAgentService:
             SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
         )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
-        rows = self._execute_many(
-            f"""
+
+        # Use the same technical-label contract as the projection. A legacy
+        # raw UID/UUID must not hide a usable marketplace or adviser name.
+        def usable_name(column: str) -> str:
+            return f"""CASE WHEN
+                NULLIF(BTRIM({column}), '') IS NOT NULL
+                AND BTRIM({column}) <> profile.user_id
+                AND LOWER(BTRIM({column})) NOT LIKE 'ria:%'
+                AND BTRIM({column}) !~* :technical_uuid_pattern
+                AND (
+                  STRPOS(BTRIM({column}), '@') > 0
+                  OR STRPOS(BTRIM({column}), ' ') > 0
+                  OR LENGTH(BTRIM({column})) < :opaque_label_min_length
+                )
+                THEN BTRIM({column}) END"""  # nosec B608 - literal column names only.
+
+        directory_sql = f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               a.public_person_ref, a.photo_url,
@@ -4683,16 +4732,19 @@ class OneLocationAgentService:
               SELECT
                 profile.user_id, profile.public_person_ref,
                 COALESCE(
-                  NULLIF(NULLIF(BTRIM(identity.display_name), ''), profile.user_id),
-                  NULLIF(BTRIM(marketplace.display_name), ''),
-                  NULLIF(BTRIM(ria.display_name), ''),
+                  {usable_name("identity.display_name")},
+                  {usable_name("marketplace.display_name")},
+                  {usable_name("ria.display_name")},
                   ''
                 ) AS display_name,
                 identity.email,
                 CASE WHEN identity.phone_verified = TRUE
                   THEN identity.phone_number ELSE NULL END AS phone_number,
                 COALESCE(identity.phone_verified, FALSE) AS phone_verified,
-                COALESCE(identity.custom_photo_url, identity.photo_url) AS photo_url
+                COALESCE(
+                  NULLIF(BTRIM(identity.custom_photo_url), ''),
+                  NULLIF(BTRIM(identity.photo_url), '')
+                ) AS photo_url
               FROM actor_profiles profile
               LEFT JOIN actor_identity_cache identity
                 ON identity.user_id = profile.user_id
@@ -4700,6 +4752,46 @@ class OneLocationAgentService:
                 ON marketplace.user_id = profile.user_id
               LEFT JOIN ria_profiles ria ON ria.user_id = profile.user_id
               WHERE profile.user_id <> :owner_user_id
+                AND profile.public_profile_status = 'active'
+                AND (
+                  EXISTS (
+                    SELECT 1
+                    FROM vault_keys vault
+                    WHERE vault.user_id = profile.user_id
+                      AND vault.vault_status = 'active'
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM connections related
+                    WHERE related.status = 'active'
+                      AND (
+                        (related.user_a_id = :owner_user_id AND related.user_b_id = profile.user_id)
+                        OR (related.user_b_id = :owner_user_id AND related.user_a_id = profile.user_id)
+                      )
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM connection_requests pending
+                    WHERE pending.status = 'pending'
+                      AND (
+                        (pending.requester_user_id = :owner_user_id
+                          AND pending.addressee_user_id = profile.user_id)
+                        OR (pending.addressee_user_id = :owner_user_id
+                          AND pending.requester_user_id = profile.user_id)
+                      )
+                  )
+                  OR EXISTS (
+                    SELECT 1
+                    FROM trusted_connections edge
+                    WHERE edge.status = 'active'
+                      AND (
+                        (edge.owner_user_id = :owner_user_id
+                          AND edge.trusted_user_id = profile.user_id)
+                        OR (edge.trusted_user_id = :owner_user_id
+                          AND edge.owner_user_id = profile.user_id)
+                      )
+                  )
+                )
                 AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
                 AND (
                   EXISTS (
@@ -4736,12 +4828,14 @@ class OneLocationAgentService:
               LIMIT 1
             ) k ON TRUE
             WHERE (
+              (:missing_names_only = TRUE AND a.display_name = '')
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
                 OR (:query <> '' AND {all_tokens_match_sql})
-              )
+              )))
               AND (
                 :audience = 'all'
                 OR (
@@ -4766,31 +4860,106 @@ class OneLocationAgentService:
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """,  # nosec B608 - static SQL fragments only; every value is a bound parameter.
-            {
-                "owner_user_id": owner_user_id,
-                "candidate_user_id": target,
-                "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
-                "query": needle,
-                "exact_name": needle,
-                "name_prefix": name_prefix_pattern,
-                "word_prefix": word_prefix_pattern,
-                "token_prefixes": token_prefix_patterns,
-                "audience": requested_audience,
-                "fetch_limit": limit + 1,
-                "offset": offset,
-            },
+            """  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+        params: dict[str, Any] = {
+            "owner_user_id": owner_user_id,
+            "candidate_user_id": target,
+            "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
+            "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
+            "missing_names_only": False,
+            "query": needle,
+            "exact_name": needle,
+            "name_prefix": name_prefix_pattern,
+            "word_prefix": word_prefix_pattern,
+            "token_prefixes": token_prefix_patterns,
+            "audience": requested_audience,
+            "fetch_limit": 100,
+            "offset": 0,
+        }
+        # The cache is not account authority. Scan ordered SQL batches until
+        # the requested logical page plus one current account is available.
+        # Applying auth filtering after SQL OFFSET would permanently skip real
+        # people behind stale records and report partial/empty pages.
+        deadline = time.monotonic() + 30.0
+
+        def check_deadline() -> None:
+            if time.monotonic() >= deadline:
+                raise DirectoryIdentityUnavailableError()
+
+        # A legacy cache can contain only the UID while Firebase has a real
+        # name. Resolve that bounded cohort before matching and ranking, rather
+        # than treating missing cache information as a missing person.
+        fallback_rows: list[dict[str, Any]] = []
+        fallback_params = {**params, "missing_names_only": True}
+        while True:
+            check_deadline()
+            rows = self._execute_many(directory_sql, fallback_params)
+            if not rows:
+                break
+            profiles = self._directory_auth_profiles(
+                [str(row.get("user_id") or "") for row in rows]
+            )
+            check_deadline()
+            for row in rows:
+                uid = str(row.get("user_id") or "")
+                profile = profiles.get(uid)
+                if profile and directory_name_rank(profile["display_name"], needle) is not None:
+                    fallback_rows.append(
+                        {
+                            **row,
+                            "display_name": profile["display_name"],
+                            "photo_url": row.get("photo_url") or profile["photo_url"],
+                        }
+                    )
+            if len(rows) < 100:
+                break
+            fallback_params["offset"] = int(fallback_params["offset"]) + len(rows)
+
+        eligible_rows: list[dict[str, Any]] = []
+        seen_user_ids: set[str] = set()
+        required_count = offset + limit + 1
+        while len(eligible_rows) < required_count:
+            check_deadline()
+            rows = self._execute_many(directory_sql, params)
+            if not rows:
+                break
+            active_user_ids = self._active_directory_user_ids(
+                [str(row.get("user_id") or "") for row in rows]
+            )
+            check_deadline()
+            for row in rows:
+                uid = str(row.get("user_id") or "")
+                if (
+                    uid in active_user_ids
+                    and uid not in seen_user_ids
+                    and label_from_identity_row(row, allow_email_handle=False)
+                    and directory_name_rank(str(row.get("display_name") or ""), needle) is not None
+                ):
+                    seen_user_ids.add(uid)
+                    eligible_rows.append(row)
+            if len(rows) < 100:
+                break
+            params["offset"] = int(params["offset"]) + len(rows)
+        eligible_by_id = {str(row["user_id"]): row for row in fallback_rows}
+        eligible_by_id.update({str(row["user_id"]): row for row in eligible_rows})
+        eligible_rows = list(eligible_by_id.values())
+        eligible_rows.sort(
+            key=lambda row: (
+                cast(int, directory_name_rank(str(row["display_name"]), needle)),
+                str(row["display_name"]).strip().lower(),
+                str(row["user_id"]),
+            )
         )
-        has_more = len(rows) > limit
-        page_rows = rows[:limit]
+        has_more = len(eligible_rows) > offset + limit
+        page_rows = eligible_rows[offset : offset + limit]
         recipients = [payload for row in page_rows if (payload := self._recipient_payload(row))]
         items = self._apply_kai_circle_recommendations(
             owner_user_id=owner_user_id,
             recipients=recipients,
-            # The SQL above already decided rank and A-Z, across the whole
-            # matched set rather than this slice of it. Re-sorting here would
-            # only ever shuffle one page against boundaries drawn by a
-            # different ordering.
+            # SQL matches plus resolved provider names were already merged and
+            # ranked before the logical page. Recommendation scores must not
+            # shuffle that stable order.
             preserve_order=True,
         )
         return {"items": items, "page": page, "hasMore": has_more}

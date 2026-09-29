@@ -5,6 +5,10 @@ import org.junit.Test
 import com.hussh.app.plugins.HushhAuth.GoogleIdentityReauthenticationFence.Claim
 
 class GoogleIdentityReauthenticationFenceTest {
+    @Test fun driveFallbackAllowsDelayedCustomSchemeDelivery() {
+        assertEquals(5_000L, NativeDriveOAuthPolicy.FALLBACK_RETURN_GRACE_MS)
+    }
+
     @Test fun acceptsEachStageExactlyOnce() {
         val fence = GoogleIdentityReauthenticationFence("a", 100)
         assertEquals(Claim.IGNORED, fence.claim(1, "a", true, 101))

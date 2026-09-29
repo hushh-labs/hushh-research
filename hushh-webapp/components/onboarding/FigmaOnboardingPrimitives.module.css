@@ -99,7 +99,7 @@
 }
 
 .backButton:active {
-  transform: scale(0.94);
+  opacity: 0.8;
 }
 
 .backButton:disabled {

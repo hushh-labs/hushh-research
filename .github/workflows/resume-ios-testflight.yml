@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       upload_run_id:
-        description: Original Ship iOS to TestFlight run with a successful upload and recovery receipt
+        description: Original Ship iOS to TestFlight or Release iOS to App Store run with a successful upload and recovery receipt
         required: true
         type: string
 
@@ -41,7 +41,9 @@ jobs:
           [[ "$UPLOAD_RUN_ID" =~ ^[0-9]+$ ]]
           python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
           gh api "repos/$GH_REPO/actions/runs/$UPLOAD_RUN_ID" > "$RUNNER_TEMP/upload-run.json"
-          jq -e '.path == ".github/workflows/ship-ios-testflight.yml" and .head_branch == "main" and .event == "workflow_dispatch"' "$RUNNER_TEMP/upload-run.json" >/dev/null
+          # A Release iOS to App Store run uploads the same kind of build (for
+          # example a production-backed one) and writes the same receipt.
+          jq -e '(.path == ".github/workflows/ship-ios-testflight.yml" or .path == ".github/workflows/release-ios-appstore.yml") and .head_branch == "main" and .event == "workflow_dispatch"' "$RUNNER_TEMP/upload-run.json" >/dev/null
           gh run download "$UPLOAD_RUN_ID" --name testflight-upload-receipt --dir "$RUNNER_TEMP/receipt"
           python3 - <<'PY'
           import json, os, pathlib, re, subprocess

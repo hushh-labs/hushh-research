@@ -1,6 +1,7 @@
 "use client";
 
 import { X } from "@/components/icons";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 /**
  * The reason voice failed to start -- mic permission denied, no device, the
@@ -46,17 +47,19 @@ export function VoiceErrorCard({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="pointer-events-auto flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/[0.1]"
+          className="relative pointer-events-auto flex size-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/[0.06] hover:text-foreground dark:hover:bg-white/[0.1]"
         >
           <X className="size-3.5" aria-hidden="true" />
+          <MaterialRipple variant="none" effect="glass" />
         </button>
       </div>
       <button
         type="button"
         onClick={onRetry}
-        className="mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+        className="relative mt-4 h-12 w-full rounded-full bg-primary text-[15px] font-semibold text-primary-foreground transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
       >
         Try again
+        <MaterialRipple variant="none" effect="fill" />
       </button>
     </div>
   );

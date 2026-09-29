@@ -136,8 +136,14 @@ test("runs the guard before reviewer resolution and never exports Plaid screensh
     card.indexOf("verify-ios-plaid-sandbox-proof.mjs") < card.indexOf("export-reviewer-test-env.mjs"),
     "the proof guard must run before reviewer credentials are resolved",
   );
-  assert.match(card, /if \[\[ "\$SECTION" == "session" && -d "\$RESULT_BUNDLE" \]\]/);
+  // Screenshots export only for the session and the release device journeys,
+  // never for the Plaid vault proof.
+  assert.match(
+    card,
+    /if \[\[ \( "\$SECTION" == "session" \|\| "\$SECTION" == "journeys" \) && -d "\$RESULT_BUNDLE" \]\]/,
+  );
   assert.doesNotMatch(card, /\|\| "\$\{PERF_SECTION:-\}" == "plaid-vault"/);
+  assert.doesNotMatch(card, /"\$SECTION" == "plaid-vault"[^\n]*-d "\$RESULT_BUNDLE"/);
   assert.match(card, /--export "\$NATIVE_EXPORT"/);
   assert.match(card, /--native-public "\$WEB_DIR\/ios\/App\/App\/public"/);
   assert.match(card, /cleanup_plaid_sandbox_proof/);

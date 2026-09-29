@@ -1,5 +1,12 @@
 package com.hussh.app.plugins.HushhAuth
 
+internal object NativeDriveOAuthPolicy {
+    // Custom Tabs can report cancellation before the custom-scheme intent is
+    // dispatched back to the singleTask activity. Keep the attempt pending
+    // long enough for that verified return instead of cancelling a valid grant.
+    const val FALLBACK_RETURN_GRACE_MS = 5_000L
+}
+
 /** Single-use, in-memory fence for an opaque Drive OAuth browser return. */
 internal class NativeDriveAuthorizationFence(
     val expectedUserId: String,

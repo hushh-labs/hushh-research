@@ -1921,10 +1921,29 @@ class ConsentDBService:
         Find REQUESTED rows that have timed out, insert TIMEOUT events (triggers NOTIFY → SSE).
         Returns the number of TIMEOUT events inserted.
         """
+        from hushh_mcp.services.consent_center_service import requester_identity_metadata
+        from hushh_mcp.services.consent_delivery_claims import (
+            claim_delivery,
+            timeout_emission_key,
+        )
+
         rows = await self.get_timed_out_requests()
         count = 0
         for row in rows:
             try:
+                # Every backend worker runs this job; one TIMEOUT row per request.
+                if not await claim_delivery(
+                    timeout_emission_key(str(row["user_id"]), str(row.get("request_id") or ""))
+                ):
+                    continue
+                request_metadata = self._parse_metadata(row.get("metadata"))
+                bundle_id = str(request_metadata.get("bundle_id") or "").strip()
+                # The requester's doorbell (api-contracts.md) needs the bundle to
+                # find its requester, and the owner's history needs the person.
+                timeout_metadata = {
+                    **requester_identity_metadata(request_metadata),
+                    **({"bundle_id": bundle_id} if bundle_id else {}),
+                }
                 await self.insert_event(
                     user_id=row["user_id"],
                     agent_id=row.get("agent_id") or "system",
@@ -1932,6 +1951,7 @@ class ConsentDBService:
                     action="TIMEOUT",
                     request_id=row.get("request_id"),
                     scope_description=row.get("scope_description"),
+                    metadata=timeout_metadata or None,
                 )
                 count += 1
             except Exception as e:
@@ -1947,8 +1967,14 @@ class ConsentDBService:
         request_ids: List[str],
         *,
         actions: Optional[List[str]] = None,
+        user_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Return internal notification/audit events keyed by request_id."""
+        """Return internal notification/audit events keyed by request_id.
+
+        ``user_id`` narrows the read to one owner, which lets the lookup use
+        the ``(user_id, action)`` index instead of scanning by request id; a
+        requester polling a request calls this on every poll.
+        """
         if not request_ids:
             return []
 
@@ -1959,6 +1985,8 @@ class ConsentDBService:
             query = db.table("internal_access_events").select(
                 "request_id,action,issued_at,metadata,user_id,agent_id,scope"
             )
+            if user_id:
+                query = query.eq("user_id", user_id)
             query = query.in_("request_id", request_ids)
             if actions:
                 query = query.in_("action", actions)
@@ -1972,6 +2000,8 @@ class ConsentDBService:
             query = db.table("consent_audit").select(
                 "request_id,action,issued_at,metadata,user_id,agent_id,scope"
             )
+            if user_id:
+                query = query.eq("user_id", user_id)
             query = query.in_("request_id", request_ids)
             if actions:
                 query = query.in_("action", actions)

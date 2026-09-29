@@ -4,6 +4,7 @@ import { SessionExpiryRecovery } from "@/components/system/session-expiry-recove
 import { StaleCacheTimestamp } from "@/components/system/stale-cache-timestamp";
 import Link from "next/link";
 import {
+  Fragment,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -14,14 +15,7 @@ import {
 } from "react";
 import type { ReadonlyURLSearchParams } from "next/navigation";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import {
-  Code2,
-  ExternalLink,
-  Landmark,
-  RefreshCcw,
-  Search,
-  UserRound,
-} from "@/components/icons";
+import { ExternalLink, RefreshCcw, Search } from "@/components/icons";
 import { toast } from "sonner";
 import {
   AppPageContentRegion,
@@ -46,7 +40,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -77,6 +70,16 @@ import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
+  bundleEntryToOpen,
+  ConsentCounterpartAvatar,
+  ConsentPendingRequestRow,
+  pendingBundleSummary,
+  resolveCounterpartLabel,
+  type ConsentRowDecision,
+} from "@/components/consent/consent-pending-row";
+import { OwnerConsentUnlockPrompt } from "@/components/consent/owner-consent-unlock-prompt";
+import { useOwnerConsentDecisionWith } from "@/lib/consent/use-owner-consent-decision";
+import {
   documentShareRequestId,
   isDocumentShareEntry,
   isDocumentShareSelection,
@@ -90,7 +93,6 @@ import {
 } from "@/lib/consent/drive-query-consent";
 import {
   humanizeConsentScope,
-  resolveConsentRequesterLabel,
   resolveConsentSupportingCopy,
 } from "@/lib/consent/consent-display";
 import {
@@ -110,6 +112,22 @@ import {
   normalizeInternalAppHref,
 } from "@/lib/consent/consent-sheet-route";
 import { isConnectionRequestEntry } from "@/components/consent/connection-request-entry";
+import {
+  consentEntryInformationLabel,
+  countItems,
+  formatConsentDuration,
+  formatDecideBy,
+  formatRequestedAt,
+  joinInformationLabels,
+  requesterShortName,
+} from "@/lib/consent/consent-owner-copy";
+import {
+  consentEntryToPendingConsent,
+  groupActiveConsentEntries,
+  groupPendingConsentRequests,
+  isInlineDecidableConsentEntry,
+} from "@/lib/consent/owner-consent-request";
+import { useConsentSharePreview } from "@/lib/consent/consent-share-preview";
 import { ConnectionsService } from "@/lib/services/connections-service";
 
 import {
@@ -125,6 +143,7 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
+import { useFeedPendingConsentRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
@@ -135,6 +154,11 @@ import {
 } from "@/lib/navigation/top-shell-tabs";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { cn } from "@/lib/utils";
+import {
+  bundleAllowLabel,
+  ConsentBundleChoice,
+  splitBundleChoice,
+} from "@/components/consent/consent-bundle-choice";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
@@ -185,12 +209,12 @@ function connectionScopeProposals(
   });
 }
 
-const DURATION_OPTIONS = [
-  { value: "24", label: "24 hours" },
-  { value: "168", label: "7 days" },
-  { value: "720", label: "30 days" },
-  { value: "2160", label: "90 days" },
-];
+// Labels come from the one duration wording the requester's form uses, so the
+// owner reads "7 days" where the person who asked chose "7 days".
+const DURATION_OPTIONS = [24, 168, 720, 2160].map((hours) => ({
+  value: String(hours),
+  label: formatConsentDuration(hours) || `${hours} hours`,
+}));
 const LOCATION_DURATION_OPTIONS = [
   { value: "0.5", label: "30 min" },
   { value: "1", label: "1 hour" },
@@ -243,24 +267,12 @@ function formatStatus(status?: string | null) {
   return String(status || "pending").replaceAll("_", " ");
 }
 
+/**
+ * A readable time for any instant the wire carries, including the numeric
+ * epoch strings the pending list sends ("Today, 1:51 PM", "Sep 26, 1:51 PM").
+ */
 function formatDate(value?: string | number | null) {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toLocaleString();
-}
-
-function formatRelative(value?: string | number | null) {
-  if (!value) return null;
-  const timestamp = new Date(value).getTime();
-  if (!Number.isFinite(timestamp)) return null;
-  const deltaMs = timestamp - Date.now();
-  if (deltaMs <= 0) return "Expired";
-  const totalMinutes = Math.ceil(deltaMs / (60 * 1000));
-  if (totalMinutes < 60) return `${totalMinutes} min left`;
-  const totalHours = Math.ceil(totalMinutes / 60);
-  if (totalHours < 48) return `${totalHours} hr left`;
-  return `${Math.ceil(totalHours / 24)} days left`;
+  return formatRequestedAt(value);
 }
 
 function eventTimeMs(value?: string | number | null) {
@@ -298,20 +310,9 @@ function parseDurationHours(value?: string | null) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
 }
 
+/** One wording for a duration on every surface ("1 day", "7 days"). */
 function formatDurationHours(value?: number | string | null) {
-  const hours = Number(value);
-  if (!Number.isFinite(hours) || hours <= 0) return null;
-  if (hours < 1) {
-    const minutes = hours * 60;
-    if (Number.isInteger(minutes)) {
-      return `${minutes} min`;
-    }
-  }
-  if (hours % 24 === 0) {
-    const days = hours / 24;
-    return `${days} day${days === 1 ? "" : "s"}`;
-  }
-  return `${hours} hour${hours === 1 ? "" : "s"}`;
+  return formatConsentDuration(value);
 }
 
 function durationOptionsFor(requestedDurationHours?: number | string | null) {
@@ -409,7 +410,14 @@ function lifecycleLabel(index: number) {
  * never sees. Named actions get their own sentence; anything unnamed still
  * falls back to the humanised action so a new row type is never blank.
  */
+/** The owner's words for each step, never the protocol's ("Consent granted"). */
 const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
+  CONSENT_GRANTED: "Allowed",
+  CONSENT_DENIED: "Declined",
+  REVOKED: "Stopped sharing",
+  CANCELLED: "Withdrawn",
+  TIMEOUT: "Expired",
+  REQUESTED: "Requested",
   EXPORT_READ: "Opened",
 };
 
@@ -576,6 +584,55 @@ function applyConsentMutationToSummary(
   return { ...data, counts };
 }
 
+/**
+ * The Active row an Allow has just created, shown until the server's Active
+ * list carries it. Measured on UAT: right after Allow the Active tab read "No
+ * one currently has active access." until a manual refresh, because the list
+ * it showed was the retained pre-approval page while the refetch was in flight.
+ */
+export function toLocallyGrantedEntry(
+  entry: ConsentCenterEntry,
+  durationHours: number | undefined,
+  nowMs: number = Date.now(),
+): ConsentCenterEntry {
+  const requestId = entry.request_id || entry.id;
+  const metadata = (entry.metadata || {}) as Record<string, unknown>;
+  const hours =
+    durationHours ?? (Number(metadata.expiry_hours) || undefined);
+  return {
+    ...entry,
+    id: `local-access:${requestId}`,
+    kind: "active_grant",
+    status: "active",
+    action: "CONSENT_GRANTED",
+    request_id: requestId,
+    issued_at: nowMs,
+    expires_at: hours ? nowMs + hours * 60 * 60 * 1000 : null,
+    approval_timeout_at: null,
+    allowed_next_action: "revoke",
+    bundle_items: undefined,
+    bundle_complete: undefined,
+  };
+}
+
+/** Local grants the server list does not show yet, ahead of the server rows. */
+export function mergeLocallyGrantedEntries(
+  server: ConsentCenterEntry[],
+  local: ConsentCenterEntry[],
+): ConsentCenterEntry[] {
+  if (local.length === 0) return server;
+  const pendingLocal = local.filter(
+    (candidate) =>
+      !server.some(
+        (row) =>
+          (row.request_id && row.request_id === candidate.request_id) ||
+          (row.scope === candidate.scope &&
+            row.counterpart_id === candidate.counterpart_id),
+      ),
+  );
+  return pendingLocal.length ? [...pendingLocal, ...server] : server;
+}
+
 function relationshipSortValue(entry: ConsentCenterEntry) {
   const candidates = [entry.issued_at, entry.expires_at]
     .map((value) => (value ? new Date(value).getTime() : 0))
@@ -619,45 +676,11 @@ function filterConnectionEntries(
   });
 }
 
-function resolveCounterpartLabel(entry: ConsentCenterEntry) {
-  return resolveConsentRequesterLabel({
-    counterpartLabel: entry.counterpart_label,
-    counterpartEmail: entry.counterpart_email,
-    counterpartSecondaryLabel: entry.counterpart_secondary_label,
-    counterpartId: entry.counterpart_id,
-  });
-}
-
 function toPendingConsent(
   entry: ConsentCenterEntry,
   durationHours?: number,
 ): PendingConsent {
-  const issuedAt =
-    typeof entry.issued_at === "number" ? entry.issued_at : Date.now();
-  const approvalTimeoutAt =
-    typeof entry.approval_timeout_at === "number"
-      ? entry.approval_timeout_at
-      : entry.expires_at && typeof entry.expires_at === "number"
-        ? entry.expires_at
-        : undefined;
-
-  return {
-    id: entry.request_id || entry.id,
-    developer: resolveCounterpartLabel(entry),
-    developerImageUrl: entry.counterpart_image_url || undefined,
-    developerWebsiteUrl: entry.counterpart_website_url || undefined,
-    scope: entry.scope || "",
-    scopeDescription: entry.scope_description || undefined,
-    requestedAt: issuedAt,
-    approvalTimeoutAt,
-    reason: entry.reason || undefined,
-    requestUrl: entry.request_url || undefined,
-    isScopeUpgrade: Boolean(entry.is_scope_upgrade),
-    existingGrantedScopes: entry.existing_granted_scopes || undefined,
-    additionalAccessSummary: entry.additional_access_summary || undefined,
-    durationHours,
-    metadata: entry.metadata || undefined,
-  };
+  return consentEntryToPendingConsent(entry, durationHours);
 }
 
 function pendingLookupItemToConsentEntry(
@@ -706,52 +729,6 @@ function pendingLookupItemToConsentEntry(
   };
 }
 
-function ConsentCounterpartAvatar({ entry }: { entry: ConsentCenterEntry }) {
-  const kind =
-    entry.counterpart_type === "ria"
-      ? "ria"
-      : entry.counterpart_type === "developer"
-        ? "developer"
-        : "person";
-  const Icon =
-    kind === "ria" ? Landmark : kind === "developer" ? Code2 : UserRound;
-  const label = resolveCounterpartLabel(entry);
-  const initials = label
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() || "")
-    .join("");
-  const identityTone =
-    kind === "ria"
-      ? "border-accent-border bg-accent-surface text-accent-strong"
-      : kind === "developer"
-        ? "border-sky-500/20 bg-sky-500/10 text-sky-700 dark:border-sky-300/20 dark:bg-sky-300/10 dark:text-sky-200"
-        : "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:border-emerald-300/20 dark:bg-emerald-300/10 dark:text-emerald-200";
-
-  return (
-    <Avatar
-      size="lg"
-      className={cn(
-        "h-10 w-10 rounded-[14px] border shadow-[0_1px_0_rgba(255,255,255,0.35)_inset]",
-        identityTone,
-      )}
-    >
-      <AvatarImage src={entry.counterpart_image_url || undefined} alt="" />
-      <AvatarFallback className="rounded-[13px] bg-transparent text-current">
-        <span className="relative flex h-full w-full items-center justify-center">
-          <Icon className="h-[18px] w-[18px] opacity-80" aria-hidden="true" />
-          {initials ? (
-            <span className="absolute bottom-0.5 right-0.5 rounded-md bg-[color:var(--app-card-surface-default-solid)] px-1 text-[9px] font-semibold leading-4 text-foreground shadow-sm">
-              {initials}
-            </span>
-          ) : null}
-        </span>
-      </AvatarFallback>
-    </Avatar>
-  );
-}
-
 function ConsentEntryRow({
   entry,
   selected,
@@ -766,7 +743,7 @@ function ConsentEntryRow({
   const counterpartSubtitle =
     entry.counterpart_email || entry.counterpart_secondary_label || null;
   const scopeLabel = entry.scope
-    ? entry.scope_description || humanizeConsentScope(entry.scope)
+    ? consentEntryInformationLabel(entry)
     : null;
   const supportingCopy = isIdentifierHistory
     ? entrySummary(entry)
@@ -801,59 +778,70 @@ function ConsentEntryRow({
   );
 }
 
-function ConsentBundleRow({
-  entry,
+/**
+ * One Active row per request ("Food preferences and Dietary constraints").
+ * Each field stays its own revocable access, so opening the row lists them,
+ * and each opens the same sheet a single row does.
+ */
+function ConsentActiveRequestRow({
+  label,
+  members,
+  selectedEntry,
   selectedId,
-  selectedBundleId,
-  onSelectItem,
+  onSelectEntry,
 }: {
-  entry: ConsentCenterEntry;
+  label: string;
+  members: ConsentCenterEntry[];
+  selectedEntry: ConsentCenterEntry | null;
   selectedId: string | null;
-  selectedBundleId: string | null;
-  onSelectItem: (entry: ConsentCenterEntry) => void;
+  onSelectEntry: (entry: ConsentCenterEntry) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const items = entry.bundle_items || [];
-  const openedByLink =
-    selectedBundleId === entry.bundle_id ||
-    items.some((item) => item.request_id === selectedId);
+  const head = members[0]!;
+  const isSelected = (entry: ConsentCenterEntry) =>
+    Boolean(selectedEntry && (selectedEntry.id === entry.id
+      || (selectedEntry.request_id && selectedEntry.request_id === entry.request_id)))
+    || Boolean(selectedId && consentEntryMatchesSelectedId(entry, selectedId));
+  const holdsSelection = members.some(isSelected);
+  const [expanded, setExpanded] = useState(holdsSelection);
   useEffect(() => {
-    if (openedByLink) setExpanded(true);
-  }, [openedByLink]);
-  const isExpanded = expanded;
-  const pendingCount = items.filter((item) => item.status === "pending").length;
-  const summary = entry.bundle_complete
-    ? `${items.length} items · ${pendingCount} awaiting review`
-    : "Request is still being prepared";
-  const toggleLabel = isExpanded
-    ? "Hide"
-    : entry.bundle_complete
-      ? "Review"
-      : "Details";
-
+    if (holdsSelection) setExpanded(true);
+  }, [holdsSelection]);
+  const counterpartSubtitle = head.counterpart_email || head.counterpart_secondary_label || null;
   return (
-    <div data-testid="consent-bundle-row">
+    <div data-testid="consent-active-request-row">
       <SettingsRow
-        leading={<ConsentCounterpartAvatar entry={entry} />}
-        title={resolveCounterpartLabel(entry)}
-        description={summary}
+        leading={<ConsentCounterpartAvatar entry={head} />}
+        title={resolveCounterpartLabel(head)}
+        description={
+          <span className="line-clamp-2">
+            <span>{label}</span>
+            {counterpartSubtitle ? (
+              <>
+                <span aria-hidden="true"> · </span>
+                <span>{counterpartSubtitle}</span>
+              </>
+            ) : null}
+          </span>
+        }
         trailing={
-          <Badge className={badgeClassName(entry.status)}>{toggleLabel}</Badge>
+          <Badge className={cn("shrink-0 capitalize", badgeClassName(head.status))}>
+            {formatStatus(head.status)}
+          </Badge>
         }
         onClick={() => setExpanded((value) => !value)}
-        ariaLabel={`${toggleLabel} ${items.length} information items from ${resolveCounterpartLabel(entry)}`}
+        ariaLabel={`${expanded ? "Hide" : "Show"} ${label} from ${resolveCounterpartLabel(head)}`}
       />
-      {isExpanded ? (
+      {expanded ? (
         <SettingsGroup embedded separatorInset>
-          {items.map((item) => (
+          {members.map((member) => (
             <SettingsRow
-              key={item.request_id}
-              title={item.label}
-              description={formatStatus(item.status)}
-              trailing={item.entry ? "Review" : undefined}
-              chevron={Boolean(item.entry)}
-              onClick={item.entry ? () => onSelectItem(item.entry!) : undefined}
-              testId="consent-bundle-item"
+              key={member.request_id || member.id}
+              title={consentEntryInformationLabel(member)}
+              description="Shared"
+              chevron
+              onClick={() => onSelectEntry(member)}
+              className={isSelected(member) ? "bg-accent-surface" : undefined}
+              testId="consent-active-request-item"
             />
           ))}
         </SettingsGroup>
@@ -989,11 +977,87 @@ function ConsentHistoryLifecycleDetails({
   );
 }
 
+/**
+ * "What they'll see": the items an Allow would hand over, counted on this
+ * device from the owner's own encrypted memory. The request's own labels show
+ * at once; the counts (and the names inside each item) fill in when this
+ * device has read them. Values stay out of the sheet, and nothing here is
+ * sent anywhere.
+ */
+function ConsentSharePreviewRow({
+  state,
+  onlyLabels,
+}: {
+  state: ReturnType<typeof useConsentSharePreview>;
+  /**
+   * The items the owner has chosen to share. Each preview group carries its
+   * item's label, so the preview narrows to exactly what an Allow would send.
+   */
+  onlyLabels?: ReadonlySet<string>;
+}) {
+  if (state.status === "idle" || state.status === "unavailable") return null;
+  const allRows = state.status === "ready"
+    ? state.preview.groups
+    : state.status === "loading"
+      ? state.labels.map((label) => ({ label, count: null as number | null, names: undefined }))
+      : [];
+  const rows = onlyLabels ? allRows.filter((group) => onlyLabels.has(group.label)) : allRows;
+  if (onlyLabels && !rows.length) return null;
+  const shownTotal = rows.reduce((sum, group) => sum + (group.count ?? 0), 0);
+  return (
+    <div
+      className="min-w-0 space-y-1 sm:col-span-2"
+      data-testid="consent-share-preview"
+    >
+      <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+        What they&apos;ll see
+      </dt>
+      <dd className="text-sm leading-5 text-foreground" aria-busy={state.status === "loading"}>
+        {state.status === "locked" ? (
+          <span className="text-muted-foreground">
+            Unlock to see exactly what would be shared.
+          </span>
+        ) : state.status === "empty" ? (
+          <span>Nothing is saved for this yet, so nothing would be shared.</span>
+        ) : (
+          <>
+            {state.status === "ready" && rows.length > 1 ? (
+              <span>{countItems(shownTotal)}</span>
+            ) : null}
+            <ul className="space-y-0.5">
+              {rows.map((group) => (
+                <li key={group.label} className="[overflow-wrap:anywhere]">
+                  <span>{group.label}</span>
+                  {group.count !== null ? (
+                    <span className="text-muted-foreground"> · {countItems(group.count)}</span>
+                  ) : null}
+                  {group.names?.length ? (
+                    <span className="block text-xs text-muted-foreground">{group.names.join(", ")}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </dd>
+    </div>
+  );
+}
+
+/** One item of a grouped request, as the decision calls name it. */
+function bundleMemberRef(member: ConsentCenterEntry): string {
+  return member.request_id || member.id;
+}
+
 function ConsentEntryDetail({
   actor,
   entry,
+  bundleMembers = [],
   onApprove,
+  onApproveBundle,
   onDeny,
+  onDenyBundle,
+  onDecideBundle,
   onRevoke,
   onRevokeScope,
   activeAction,
@@ -1002,6 +1066,26 @@ function ConsentEntryDetail({
 }: {
   actor: ConsentCenterActor;
   entry: ConsentCenterEntry | null;
+  /**
+   * Every still-pending item of the request this entry arrived in. With more
+   * than one, the sheet decides the whole request at once, which is how the
+   * person who asked framed it.
+   */
+  bundleMembers?: ConsentCenterEntry[];
+  onApproveBundle?: (
+    members: ConsentCenterEntry[],
+    durationHours?: number,
+  ) => void;
+  onDenyBundle?: (members: ConsentCenterEntry[]) => void;
+  /**
+   * Allow the chosen items of a grouped request and decline the rest. Absent,
+   * the sheet decides the whole request only.
+   */
+  onDecideBundle?: (
+    allow: ConsentCenterEntry[],
+    decline: ConsentCenterEntry[],
+    durationHours?: number,
+  ) => void;
   onApprove: (
     entry: ConsentCenterEntry,
     durationHours?: number,
@@ -1079,6 +1163,12 @@ function ConsentEntryDetail({
   // stock alert dialog instead. Both reset when a different item is selected.
   const denyConfirm = useArmedAction();
   const disarmDeny = denyConfirm.disarm;
+  // Every item of a grouped request starts chosen; the owner may hold some back.
+  const bundleMemberKey = bundleMembers.map(bundleMemberRef).join("|");
+  const [bundleChosen, setBundleChosen] = useState<{ key: string; refs: ReadonlySet<string> } | null>(null);
+  const chosenRefs = bundleChosen?.key === bundleMemberKey
+    ? bundleChosen.refs
+    : new Set(bundleMembers.map(bundleMemberRef));
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   useEffect(() => {
     // Information owners' requested scopes are selected by default; offers
@@ -1090,6 +1180,31 @@ function ConsentEntryDetail({
     disarmDeny();
     setRevokeDialogOpen(false);
   }, [disarmDeny, entry?.id, requestedProposalKey]);
+
+  const { user: previewUser } = useAuth();
+  const {
+    vaultKey: previewVaultKey,
+    getVaultOwnerToken: getPreviewVaultOwnerToken,
+  } = useVault();
+  const previewEntries =
+    bundleMembers.length > 1 ? bundleMembers : entry ? [entry] : [];
+  const previewEnabled = Boolean(
+    entry &&
+      previewEntries.length > 0 &&
+      previewEntries.every(isInlineDecidableConsentEntry),
+  );
+  const sharePreview = useConsentSharePreview({
+    userId: previewUser?.uid,
+    vaultKey: previewVaultKey,
+    getVaultOwnerToken: getPreviewVaultOwnerToken,
+    items: previewEnabled
+      ? previewEntries.map((member) => ({
+          scope: member.scope || "",
+          label: consentEntryInformationLabel(member),
+        }))
+      : [],
+    enabled: previewEnabled,
+  });
 
   if (!entry) {
     return (
@@ -1143,7 +1258,7 @@ function ConsentEntryDetail({
             ? "Circle invitation"
             : "Location sharing",
           description: isCircleMemberInvite
-            ? "Open Location to review the Circle and choose Join or Decline. This invitation grants no location access."
+            ? "Open Location to review the Circle and choose Join or Decline. This invitation gives no location access."
             : "Review this request or access in Location.",
           href: locationHref,
           label: isCircleMemberInvite ? "Open invitation" : "Open Location",
@@ -1193,7 +1308,28 @@ function ConsentEntryDetail({
       : entry.status === "pending");
   const isConnectionDecision =
     isPendingDecision && isConnectionRequestEntry(entry);
+  const isBundleDecision =
+    isPendingDecision &&
+    !isConnectionDecision &&
+    bundleMembers.length > 1 &&
+    Boolean(onApproveBundle && onDenyBundle);
   const denyRestingLabel = isConnectionDecision ? "Decline" : "Don't allow";
+  // R5: a grouped request is chosen item by item when the page can decide part of it.
+  const canChooseItems = isBundleDecision && Boolean(onDecideBundle);
+  const bundleChoiceItems = canChooseItems
+    ? bundleMembers.map((member) => ({
+        key: bundleMemberRef(member),
+        label: consentEntryInformationLabel(member),
+      }))
+    : [];
+  const chosenCount = bundleChoiceItems.filter((item) => chosenRefs.has(item.key)).length;
+  const partialChoice = canChooseItems && chosenCount < bundleChoiceItems.length;
+  const toggleBundleItem = (ref: string, include: boolean) => {
+    const next = new Set(chosenRefs);
+    if (include) next.add(ref);
+    else next.delete(ref);
+    setBundleChosen({ key: bundleMemberKey, refs: next });
+  };
   const isMarketplaceDecision =
     isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
   const durationOptions =
@@ -1231,10 +1367,22 @@ function ConsentEntryDetail({
     entry.approval_timeout_at || (isPendingDecision ? entry.expires_at : null);
   const activityDateLabel =
     entry.kind === "active_grant"
-      ? "Granted"
+      ? "Shared since"
       : entry.kind === "history"
         ? "Recorded"
         : "Requested";
+  // The request label and the access it becomes are named by the same rule,
+  // so "Food preferences" here is "Food preferences" in Active and History.
+  const decisionLabels = isBundleDecision
+    ? bundleMembers.map((member) =>
+        consentEntryInformationLabel(member),
+      )
+    : [
+        consentEntryInformationLabel(entry),
+      ];
+  const accessValue = isConnectionDecision
+    ? entry.scope_description || "Trusted connection"
+    : joinInformationLabels(decisionLabels, decisionLabels.length);
   const detailItems = [
     [
       "Contact",
@@ -1242,44 +1390,36 @@ function ConsentEntryDetail({
         entry.counterpart_secondary_label ||
         resolveCounterpartLabel(entry),
     ],
-    [
-      isConnectionDecision ? "Relationship" : "Access",
-      isConnectionDecision
-        ? entry.scope_description || "Trusted connection"
-        : entry.scope_description ||
-          (entry.scope ? humanizeConsentScope(entry.scope) : "Not provided"),
-    ],
-    [activityDateLabel, formatDate(entry.issued_at) || "Unavailable"],
-    isPendingDecision && requestDeadline
-      ? [
-          "Decision due",
-          formatDate(requestDeadline) ||
-            formatRelative(requestDeadline) ||
-            "Unavailable",
-        ]
+    // A choosable request names its items in the choice list instead.
+    canChooseItems
+      ? null
+      : [
+          isConnectionDecision
+            ? "Relationship"
+            : isBundleDecision
+              ? `Access · ${countItems(decisionLabels.length)}`
+              : "Access",
+          accessValue,
+        ],
+    // Omitted rather than "Unavailable" when the wire has no time at all.
+    formatDate(entry.issued_at)
+      ? [activityDateLabel, formatDate(entry.issued_at)!]
       : null,
-    entry.kind === "active_grant" && entry.expires_at
-      ? [
-          "Ends",
-          formatDate(entry.expires_at) ||
-            formatRelative(entry.expires_at) ||
-            "Unavailable",
-        ]
+    isPendingDecision && formatDecideBy(requestDeadline)
+      ? ["Decide by", formatDecideBy(requestDeadline)!]
       : null,
-    entry.kind === "history" && entry.expires_at
-      ? [
-          "Ended",
-          formatDate(entry.expires_at) ||
-            formatRelative(entry.expires_at) ||
-            "Unavailable",
-        ]
+    entry.kind === "active_grant" && formatDate(entry.expires_at)
+      ? ["Ends", formatDate(entry.expires_at)!]
+      : null,
+    entry.kind === "history" && formatDate(entry.expires_at)
+      ? ["Ended", formatDate(entry.expires_at)!]
       : null,
     isPendingDecision &&
     !isConnectionDecision &&
     !showDurationChoice &&
     requestedDurationLabel
       ? [
-          isLocationExtension ? "Extra time requested" : "Requested duration",
+          isLocationExtension ? "Extra time requested" : "For",
           requestedDurationLabel,
         ]
       : null,
@@ -1293,16 +1433,40 @@ function ConsentEntryDetail({
     <div className="space-y-4">
       {!hasGroupedHistory ? (
         <dl className="grid gap-x-6 gap-y-4 px-1 py-1 sm:grid-cols-2">
-          {detailItems.map(([label, value]) => (
-            <div key={label} className="min-w-0 space-y-1">
-              <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                {label}
-              </dt>
-              <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
-                {value}
-              </dd>
-            </div>
+          {detailItems.map(([label, value], index) => (
+            <Fragment key={label}>
+              <div className="min-w-0 space-y-1">
+                <dt className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                  {label}
+                </dt>
+                <dd className="text-sm leading-5 text-foreground [overflow-wrap:anywhere]">
+                  {value}
+                </dd>
+              </div>
+              {index === 0 && canChooseItems ? (
+                <ConsentBundleChoice
+                  items={bundleChoiceItems}
+                  chosen={chosenRefs}
+                  onToggle={toggleBundleItem}
+                  disabled={requestBusy}
+                />
+              ) : null}
+            </Fragment>
           ))}
+          {isPendingDecision && previewEnabled ? (
+            <ConsentSharePreviewRow
+              state={sharePreview}
+              onlyLabels={
+                partialChoice
+                  ? new Set(
+                      bundleChoiceItems
+                        .filter((item) => chosenRefs.has(item.key))
+                        .map((item) => item.label),
+                    )
+                  : undefined
+              }
+            />
+          ) : null}
         </dl>
       ) : null}
 
@@ -1418,9 +1582,16 @@ function ConsentEntryDetail({
             effect="fill"
             size="sm"
             className="min-h-11"
-            disabled={requestBusy}
-            onClick={() =>
-              onApprove(
+            disabled={requestBusy || (canChooseItems && chosenCount === 0)}
+            onClick={() => {
+              if (partialChoice) {
+                const { allow, decline } = splitBundleChoice(bundleMembers, bundleMemberRef, chosenRefs);
+                onDecideBundle!(allow, decline, effectiveDurationHours);
+                return;
+              }
+              return isBundleDecision
+                ? onApproveBundle!(bundleMembers, effectiveDurationHours)
+                : onApprove(
                 entry,
                 isConnectionDecision || isMarketplaceDecision
                   ? undefined
@@ -1431,8 +1602,8 @@ function ConsentEntryDetail({
                       offeredScopeHandles: selectedOfferedScopes,
                     }
                   : undefined,
-              )
-            }
+              );
+            }}
             data-voice-control-id="consent_approve"
           >
             {approveBusy
@@ -1441,7 +1612,9 @@ function ConsentEntryDetail({
                 : "Allowing..."
               : isConnectionDecision
                 ? "Accept"
-                : "Allow"}
+                : canChooseItems
+                  ? bundleAllowLabel(bundleChoiceItems.length, chosenCount)
+                  : "Allow"}
           </Button>
           <Button
             variant="none"
@@ -1458,7 +1631,11 @@ function ConsentEntryDetail({
                 ? denyConfirm.ariaLabel(denyRestingLabel)
                 : undefined
             }
-            onClick={() => denyConfirm.activate(() => onDeny(entry))}
+            onClick={() =>
+              denyConfirm.activate(() =>
+                isBundleDecision ? onDenyBundle!(bundleMembers) : onDeny(entry),
+              )
+            }
             data-voice-control-id="consent_deny"
           >
             {denyBusy
@@ -1619,6 +1796,8 @@ function ConsentSurfaceListSection({
   selectedBundleId,
   onSelectEntry,
   pagination,
+  groupByRequest = false,
+  decisionFor,
 }: {
   loading: boolean;
   emptyMessage: string;
@@ -1627,6 +1806,10 @@ function ConsentSurfaceListSection({
   selectedId: string | null;
   selectedBundleId?: string | null;
   onSelectEntry: (entry: ConsentCenterEntry) => void;
+  /** Active access: one row per request, not one per field. */
+  groupByRequest?: boolean;
+  /** Requests: the ✗ / ✓ a row carries, or null when it cannot decide inline. */
+  decisionFor?: (entry: ConsentCenterEntry) => ConsentRowDecision | null;
   pagination: {
     page: number;
     limit: number;
@@ -1651,46 +1834,95 @@ function ConsentSurfaceListSection({
             className="py-3 min-h-[64px]"
           />
         ) : null}
-        {items.map((entry, index) =>
-          entry.bundle_items ? (
-            <ConsentBundleRow
-              key={entry.id}
-              entry={entry}
+        {groupByRequest ? groupActiveConsentEntries(items).map((row, index) =>
+          row.kind === "request" ? (
+            <ConsentActiveRequestRow
+              key={row.key}
+              label={row.label}
+              members={row.members}
+              selectedEntry={selectedEntry}
               selectedId={selectedId}
-              selectedBundleId={selectedBundleId || null}
-              onSelectItem={onSelectEntry}
+              onSelectEntry={onSelectEntry}
             />
           ) : (
             <ConsentEntryRow
-              key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-              entry={entry}
+              key={`${row.entry.kind}-${row.entry.id}-${row.entry.request_id || "no-request"}-${index}`}
+              entry={row.entry}
               selected={
-                // Bug: when nothing is selected, selectedEntry is null,
-                // so selectedEntry?.id and selectedEntry?.request_id are
-                // both undefined. Entries without their own request_id
-                // (e.g. one_location_grant rows) also have
-                // entry.request_id === undefined, so
-                // "undefined === undefined" was true and falsely
-                // highlighted that row as selected on every render -
-                // this is the row that appeared to randomly "jump" to
-                // a different entry on every tab switch. Require a
-                // real selectedEntry (or a matching selectedId) before
-                // comparing ids at all.
                 Boolean(
                   selectedEntry &&
-                  (selectedEntry.id === entry.id ||
+                  (selectedEntry.id === row.entry.id ||
                     (selectedEntry.request_id &&
-                      selectedEntry.request_id === entry.request_id)),
+                      selectedEntry.request_id === row.entry.request_id)),
                 ) ||
-                Boolean(
-                  selectedId &&
-                  consentEntryMatchesSelectedId(entry, selectedId),
-                )
+                Boolean(selectedId && consentEntryMatchesSelectedId(row.entry, selectedId))
               }
-              onSelect={() => onSelectEntry(entry)}
+              onSelect={() => onSelectEntry(row.entry)}
             />
           ),
-        )}
+        ) : items.map((entry, index) => {
+          const isSelected =
+            // Bug: when nothing is selected, selectedEntry is null,
+            // so selectedEntry?.id and selectedEntry?.request_id are
+            // both undefined. Entries without their own request_id
+            // (e.g. one_location_grant rows) also have
+            // entry.request_id === undefined, so
+            // "undefined === undefined" was true and falsely
+            // highlighted that row as selected on every render -
+            // this is the row that appeared to randomly "jump" to
+            // a different entry on every tab switch. Require a
+            // real selectedEntry (or a matching selectedId) before
+            // comparing ids at all.
+            Boolean(
+              selectedEntry &&
+              (selectedEntry.id === entry.id ||
+                (selectedEntry.request_id &&
+                  selectedEntry.request_id === entry.request_id)),
+            ) ||
+            Boolean(
+              selectedId &&
+              consentEntryMatchesSelectedId(entry, selectedId),
+            );
+          if (entry.bundle_items) {
+            // A grouped request is one row that opens its sheet directly;
+            // the sheet names and decides every item still waiting.
+            const toOpen = bundleEntryToOpen(entry);
+            const holdsSelection =
+              Boolean(selectedBundleId && selectedBundleId === entry.bundle_id) ||
+              entry.bundle_items.some((item) => item.request_id === selectedId);
+            return (
+              <ConsentPendingRequestRow
+                key={entry.id}
+                entry={entry}
+                summary={pendingBundleSummary(entry)}
+                selected={holdsSelection}
+                onOpen={toOpen ? () => onSelectEntry(toOpen) : undefined}
+                decision={decisionFor?.(entry) ?? null}
+              />
+            );
+          }
+          const decision = decisionFor?.(entry) ?? null;
+          if (decision) {
+            return (
+              <ConsentPendingRequestRow
+                key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+                entry={entry}
+                summary={consentEntryInformationLabel(entry)}
+                selected={isSelected}
+                onOpen={() => onSelectEntry(entry)}
+                decision={decision}
+              />
+            );
+          }
+          return (
+            <ConsentEntryRow
+              key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+              entry={entry}
+              selected={isSelected}
+              onSelect={() => onSelectEntry(entry)}
+            />
+          );
+        })}
       </div>
       {pagination ? (
         <div className="shrink-0">
@@ -1827,6 +2059,19 @@ export function ConsentCenterPage() {
   const [locallyRevokedScopes, setLocallyRevokedScopes] = useState<Set<string>>(
     () => new Set(),
   );
+  // Stop sharing leaves Active on the confirming tap, not when the server
+  // answers; a failed stop puts the row back, so the owner is never told
+  // sharing stopped when it did not.
+  const [stoppingScopes, setStoppingScopes] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const hiddenActiveScopes = useMemo(
+    () =>
+      stoppingScopes.size
+        ? new Set([...locallyRevokedScopes, ...stoppingScopes])
+        : locallyRevokedScopes,
+    [locallyRevokedScopes, stoppingScopes],
+  );
   useEffect(() => {
     if (routeQuery !== searchValue) {
       setSearchValue(routeQuery);
@@ -1900,16 +2145,90 @@ export function ConsentCenterPage() {
       });
   }, [getVaultOwnerToken, isVaultUnlocked, user?.uid, vaultKey]);
 
+  // Entries an Allow is in flight for, so a confirmed approval can show its
+  // Active row at once (see toLocallyGrantedEntry).
+  const approvalsInFlightRef = useRef(
+    new Map<string, { entry: ConsentCenterEntry; durationHours?: number }>(),
+  );
+  const [locallyGrantedEntries, setLocallyGrantedEntries] = useState<
+    ConsentCenterEntry[]
+  >([]);
+  const recordApprovalInFlight = useCallback(
+    (entry: ConsentCenterEntry, durationHours?: number) => {
+      approvalsInFlightRef.current.set(entry.request_id || entry.id, {
+        entry,
+        durationHours,
+      });
+    },
+    [],
+  );
+  const handleGenericActionComplete = useCallback(
+    (detail: ConsentMutationDetail) => {
+      if (detail.action !== "approve" || !detail.requestId) return;
+      const approved = approvalsInFlightRef.current.get(detail.requestId);
+      if (!approved) return;
+      approvalsInFlightRef.current.delete(detail.requestId);
+      const granted = toLocallyGrantedEntry(
+        approved.entry,
+        approved.durationHours,
+      );
+      // Appended, so a request's items keep the order they were asked in.
+      setLocallyGrantedEntries((current) => [
+        ...current.filter((row) => row.request_id !== granted.request_id),
+        granted,
+      ]);
+      // A new Allow of a scope stopped earlier on this screen is live again.
+      const scope = granted.scope;
+      if (scope) {
+        const withoutScope = (current: Set<string>) => {
+          if (!current.has(scope)) return current;
+          const next = new Set(current);
+          next.delete(scope);
+          return next;
+        };
+        setLocallyRevokedScopes(withoutScope);
+        setStoppingScopes(withoutScope);
+      }
+    },
+    [],
+  );
+  const genericConsentActions = useConsentActions({
+    userId: user?.uid,
+    onActionComplete: handleGenericActionComplete,
+  });
   const {
     handleApprove,
+    handleApproveBundle,
+    handleDecideBundle,
     handleDeny,
+    handleDenyBundle,
     handleRevoke,
     activeAction: genericActiveAction,
     isRequestBusy: isGenericRequestBusy,
     isScopeBusy: isGenericScopeBusy,
-  } = useConsentActions({
-    userId: user?.uid,
-  });
+  } = genericConsentActions;
+  // ✓ / ✗ on a Requests row: the same decision the Feed makes, over this
+  // page's own actions, so an approval confirmed here still lands in Active.
+  const {
+    allow: allowRowRequest,
+    declineWithUndo: declineRowRequest,
+    unlockPrompt: rowUnlockPrompt,
+  } = useOwnerConsentDecisionWith(genericConsentActions);
+  // Rows answered from ✓ or ✗ leave Requests at once. A failed Allow, a failed
+  // decline, or Undo brings the row back; a confirmed decision stays hidden
+  // until the refetch agrees.
+  const [rowDecidedIds, setRowDecidedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const setRowDecided = useCallback((rowId: string, decided: boolean) => {
+    setRowDecidedIds((current) => {
+      if (current.has(rowId) === decided) return current;
+      const next = new Set(current);
+      if (decided) next.add(rowId);
+      else next.delete(rowId);
+      return next;
+    });
+  }, []);
 
   // One Location rows in the Access Manager are end-to-end encrypted and must go
   // through the dedicated One Location endpoints + envelope publish, NOT the
@@ -2048,9 +2367,11 @@ export function ConsentCenterPage() {
         void handleMarketplaceApprove(entry);
         return;
       }
+      recordApprovalInFlight(entry, durationHours);
       void handleApprove(toPendingConsent(entry, durationHours));
     },
     [
+      recordApprovalInFlight,
       handleApprove,
       handleLocationApprove,
       handleMarketplaceApprove,
@@ -2130,6 +2451,166 @@ export function ConsentCenterPage() {
       isLocationEntry,
       isMarketplaceEntry,
     ],
+  );
+  const approveBundleEntries = useCallback(
+    (members: ConsentCenterEntry[], durationHours?: number) => {
+      const head = members[0];
+      if (!head) return;
+      const name = requesterShortName(
+        resolveCounterpartLabel(head),
+        head.counterpart_type === "person",
+      );
+      const labels = members.map((member) =>
+        consentEntryInformationLabel(member),
+      );
+      for (const member of members) recordApprovalInFlight(member, durationHours);
+      void handleApproveBundle(
+        members.map((member) => toPendingConsent(member, durationHours)),
+        {
+          bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          successMessage: `${name} can now see your ${joinInformationLabels(labels)}.`,
+        },
+      ).catch((error: unknown) => {
+        // The bundle path toasts its own failures; only the up-front refusal
+        // (a locked vault) arrives here without one.
+        if (error instanceof Error && error.message.startsWith("Unlock")) {
+          toast.error("Unlock your vault to allow this. Nothing was shared.");
+        }
+      });
+    },
+    [handleApproveBundle, recordApprovalInFlight],
+  );
+  const denyBundleEntries = useCallback(
+    (members: ConsentCenterEntry[]) => {
+      if (!members.length) return;
+      void handleDenyBundle(
+        members.map((member) => member.request_id || member.id),
+        { bundleId: String(members[0]!.metadata?.bundle_id || "") || undefined },
+      ).catch(() => undefined);
+    },
+    [handleDenyBundle],
+  );
+  // Part of a request: the owner's chosen items are allowed, the rest declined.
+  const decideBundleEntries = useCallback(
+    (
+      allow: ConsentCenterEntry[],
+      decline: ConsentCenterEntry[],
+      durationHours?: number,
+    ) => {
+      const head = allow[0] ?? decline[0];
+      if (!head) return;
+      const name = requesterShortName(
+        resolveCounterpartLabel(head),
+        head.counterpart_type === "person",
+      );
+      const shared = joinInformationLabels(allow.map(consentEntryInformationLabel));
+      const held = joinInformationLabels(decline.map(consentEntryInformationLabel));
+      for (const member of allow) recordApprovalInFlight(member, durationHours);
+      void handleDecideBundle(
+        allow.map((member) => toPendingConsent(member, durationHours)),
+        decline.map((member) => member.request_id || member.id),
+        {
+          bundleId: String(head.metadata?.bundle_id || "") || undefined,
+          successMessage: `${name} can now see your ${shared}. ${held} ${decline.length === 1 ? "wasn't" : "weren't"} shared.`,
+        },
+      ).catch((error: unknown) => {
+        if (error instanceof Error && error.message.startsWith("Unlock")) {
+          toast.error("Unlock your vault to allow this. Nothing was shared.");
+        }
+      });
+    },
+    [handleDecideBundle, recordApprovalInFlight],
+  );
+  /**
+   * The ✗ / ✓ a Requests row carries. Only a request the shared generic path
+   * can decide gets them (the same rule the Feed uses); Location, Mail,
+   * marketplace, Drive and connection requests keep their own ceremony in the
+   * sheet. A grouped request still arriving decides nothing until it is whole.
+   */
+  const rowDecisionFor = useCallback(
+    (entry: ConsentCenterEntry): ConsentRowDecision | null => {
+      const [request] = groupPendingConsentRequests([entry]);
+      if (!request || !request.complete) return null;
+      const rowId = entry.id;
+      const busy = request.members.some((member) =>
+        isRequestBusy(member.request_id || member.id),
+      );
+      return {
+        disabled: busy,
+        onAllow: () => {
+          // The requested duration, exactly as the sheet's default would be.
+          const durationHours = request.durationHours ?? undefined;
+          void allowRowRequest(request, durationHours, {
+              onStart: () => {
+                for (const member of request.members) {
+                  recordApprovalInFlight(member, durationHours);
+                }
+                setRowDecided(rowId, true);
+              },
+            }).catch(() => setRowDecided(rowId, false));
+        },
+        onDecline: () => {
+          void declineRowRequest(request, {
+            onHide: () => setRowDecided(rowId, true),
+            onRestore: () => setRowDecided(rowId, false),
+          });
+        },
+      };
+    },
+    [
+      allowRowRequest,
+      declineRowRequest,
+      isRequestBusy,
+      recordApprovalInFlight,
+      setRowDecided,
+    ],
+  );
+  /**
+   * Stop sharing, then say plainly what changed. The sheet closes first, so
+   * the entry leaving the Active list never strands the owner on a "Request
+   * not visible" panel, which is what the old path did.
+   */
+  const revokeEntryCalmly = useCallback(
+    (entry: ConsentCenterEntry) => {
+      if (
+        isDriveSharingEntry(entry) ||
+        isLocationEntry(entry) ||
+        isMarketplaceEntry(entry) ||
+        !entry.scope
+      ) {
+        revokeEntry(entry);
+        return;
+      }
+      const name = requesterShortName(
+        resolveCounterpartLabel(entry),
+        entry.counterpart_type === "person",
+      );
+      const label = consentEntryInformationLabel(entry);
+      const scope = entry.scope;
+      setLocallyGrantedEntries((current) =>
+        current.filter((row) => row.scope !== scope),
+      );
+      setStoppingScopes((current) => new Set(current).add(scope));
+      void handleRevoke(scope, entry.request_id || undefined, {
+        quiet: true,
+      })
+        .then(() => {
+          toast.success(`${name} can no longer see your ${label}.`);
+        })
+        .catch((error: unknown) => {
+          setStoppingScopes((current) => {
+            const next = new Set(current);
+            next.delete(scope);
+            return next;
+          });
+          toast.error(
+            error instanceof Error && error.message
+              ? error.message
+              : "Could not stop sharing. Try again.",
+          );
+        });
+    },
+    [handleRevoke, isLocationEntry, isMarketplaceEntry, revokeEntry],
   );
   const idTokenLoader = async () => user?.getIdToken();
 
@@ -2325,6 +2806,31 @@ export function ConsentCenterPage() {
     }
   }, [centerResource, listResource, mutationTick, summaryResource, tab]);
 
+  // Requests reach this tab within about 10s while it is on screen, the same
+  // cadence and cached resources the Feed's "Needs you" uses. There is no push
+  // on the web, and this list used to refresh only on a decision made here
+  // (measured 2026-09-29, O1: a new request appeared after more than 120s).
+  // A consent push still refreshes at once (`reconcile`, above). These
+  // background checks are quiet: no spinner every 10s.
+  const [quietRefreshes, setQuietRefreshes] = useState(0);
+  const refreshSummaryResource = summaryResource.refresh;
+  const refreshPendingResource = pendingResource.refresh;
+  const refreshRequestsQuietly = useCallback(async () => {
+    setQuietRefreshes((count) => count + 1);
+    try {
+      await Promise.all([
+        refreshSummaryResource({ force: true }),
+        refreshPendingResource({ force: true }),
+      ]);
+    } finally {
+      setQuietRefreshes((count) => Math.max(0, count - 1));
+    }
+  }, [refreshPendingResource, refreshSummaryResource]);
+  useFeedPendingConsentRefresh(
+    refreshRequestsQuietly,
+    Boolean(user?.uid) && tab === "requests",
+  );
+
   useEffect(() => {
     if (summaryResource.data) {
       setRetainedSummary({ key: summaryCacheKey, data: summaryResource.data });
@@ -2440,23 +2946,35 @@ export function ConsentCenterPage() {
       ),
     [centerResource.data, deferredQuery],
   );
+  // Optimistic Active rows apply to the unfiltered first page only; a search
+  // or a later page shows exactly what the server returned.
+  const showLocalGrants = !deferredQuery && activePage === 1;
   const items = useMemo(
     () =>
       filterConsentSurfaceEntries(
-        tab === "connections" ? connectionItems : listData?.items || [],
+        tab === "connections"
+          ? connectionItems
+          : tab === "active" && showLocalGrants
+            ? mergeLocallyGrantedEntries(
+                listData?.items || [],
+                locallyGrantedEntries,
+              )
+            : listData?.items || [],
         // `listSurface` has no case for the connections tab and falls through
         // to "active"; naming the surface honestly here is what lets a just-
         // answered connection request be filtered out of the live pane.
         tab === "connections" ? "connections" : listSurface,
         locallyHandledRequestIds,
-        locallyRevokedScopes,
+        hiddenActiveScopes,
       ),
     [
       listData?.items,
+      locallyGrantedEntries,
       locallyHandledRequestIds,
-      locallyRevokedScopes,
+      hiddenActiveScopes,
       listSurface,
       connectionItems,
+      showLocalGrants,
       tab,
     ],
   );
@@ -2465,20 +2983,22 @@ export function ConsentCenterPage() {
   // only ever reflects the currently active surface.
   const pendingItems = useMemo(
     () =>
-      tab === "requests"
+      (tab === "requests"
         ? items
         : filterConsentSurfaceEntries(
             pendingResource.data?.items || [],
             "pending",
             locallyHandledRequestIds,
-            locallyRevokedScopes,
-          ),
+            hiddenActiveScopes,
+          )
+      ).filter((entry) => !rowDecidedIds.has(entry.id)),
     [
       tab,
       items,
       pendingResource.data,
       locallyHandledRequestIds,
-      locallyRevokedScopes,
+      hiddenActiveScopes,
+      rowDecidedIds,
     ],
   );
   const activeSurfaceItems = useMemo(
@@ -2486,17 +3006,24 @@ export function ConsentCenterPage() {
       tab === "active"
         ? items
         : filterConsentSurfaceEntries(
-            activeResource.data?.items || [],
+            showLocalGrants
+              ? mergeLocallyGrantedEntries(
+                  activeResource.data?.items || [],
+                  locallyGrantedEntries,
+                )
+              : activeResource.data?.items || [],
             "active",
             locallyHandledRequestIds,
-            locallyRevokedScopes,
+            hiddenActiveScopes,
           ),
     [
       tab,
       items,
       activeResource.data,
+      locallyGrantedEntries,
+      showLocalGrants,
       locallyHandledRequestIds,
-      locallyRevokedScopes,
+      hiddenActiveScopes,
     ],
   );
   const previousItems = useMemo(
@@ -2507,14 +3034,14 @@ export function ConsentCenterPage() {
             previousResource.data?.items || [],
             "previous",
             locallyHandledRequestIds,
-            locallyRevokedScopes,
+            hiddenActiveScopes,
           ),
     [
       tab,
       items,
       previousResource.data,
       locallyHandledRequestIds,
-      locallyRevokedScopes,
+      hiddenActiveScopes,
     ],
   );
   const connectionsSurfaceItems = useMemo(
@@ -2525,14 +3052,14 @@ export function ConsentCenterPage() {
             connectionItems,
             "connections",
             locallyHandledRequestIds,
-            locallyRevokedScopes,
+            hiddenActiveScopes,
           ),
     [
       tab,
       items,
       connectionItems,
       locallyHandledRequestIds,
-      locallyRevokedScopes,
+      hiddenActiveScopes,
     ],
   );
   const selectedEntryFromList = useMemo(() => {
@@ -2623,13 +3150,15 @@ export function ConsentCenterPage() {
   );
   const visibleSnapshot =
     tab === "connections" ? centerResource.snapshot : listResource!.snapshot;
+  const quietlyRefreshing = quietRefreshes > 0;
   const isConsentActionRefreshing =
-    summaryResource.refreshing ||
-    Boolean(listResource?.refreshing) ||
-    centerResource.refreshing;
+    !quietlyRefreshing &&
+    (summaryResource.refreshing ||
+      Boolean(listResource?.refreshing) ||
+      centerResource.refreshing);
   const accessibilityStatusMessage = activeListLoading
     ? "Consent entries are loading."
-    : activeListRefreshing
+    : activeListRefreshing && !quietlyRefreshing
       ? "Consent entries are refreshing."
       : consentLoadError
         ? "Consent entries failed to refresh."
@@ -2640,6 +3169,23 @@ export function ConsentCenterPage() {
     }
     return selectedEntryFromList;
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
+  // The rest of the request the selected item arrived in, so the sheet can
+  // decide the whole question at once. Only pending, inline-decidable items;
+  // a request still arriving decides nothing.
+  const selectedBundleMembers = useMemo(() => {
+    if (!selectedEntry || selectedEntry.kind !== "incoming_request") return [];
+    const requestId = selectedEntry.request_id || selectedEntry.id;
+    const request = groupPendingConsentRequests(pendingItems).find((candidate) =>
+      candidate.members.some(
+        (member) => (member.request_id || member.id) === requestId,
+      ),
+    );
+    if (!request || !request.complete) return [];
+    return request.members.filter(
+      (member) =>
+        !locallyHandledRequestIds.has(member.request_id || member.id),
+    );
+  }, [locallyHandledRequestIds, pendingItems, selectedEntry]);
   const isPanelOpen =
     Boolean(selectedId || selectedEntry) && !panelCloseRequested;
   const isQuerySelection = isDriveQuerySelection(selectedId) || !!(selectedEntry && isDriveQueryEntry(selectedEntry));
@@ -2731,7 +3277,7 @@ export function ConsentCenterPage() {
       screenId: "consents",
       title: "Consent manager",
       purpose:
-        "This screen is the permission workspace for reviewing pending requests, active grants, and prior decisions.",
+        "This screen is the permission workspace for reviewing pending requests, active access, and prior decisions.",
       sections: [
         {
           id: "pending",
@@ -2741,7 +3287,7 @@ export function ConsentCenterPage() {
         {
           id: "active",
           title: "Active",
-          purpose: "Shows currently active consent grants.",
+          purpose: "Shows the access you are sharing right now.",
         },
         {
           id: "previous",
@@ -2792,7 +3338,7 @@ export function ConsentCenterPage() {
               {
                 id: "consent_revoke",
                 label: "Revoke active access",
-                purpose: "Revokes the selected active grant.",
+                purpose: "Ends the selected access that is still active.",
                 role: "button",
               },
             ]
@@ -2803,7 +3349,7 @@ export function ConsentCenterPage() {
           id: "consents",
           label: "Consents",
           explanation:
-            "Consents is the permission workspace where sharing requests and active grants are reviewed.",
+            "Consents is the permission workspace where sharing requests and active access are reviewed.",
           aliases: ["consents", "consent center", "consent manager"],
         },
       ],
@@ -3111,6 +3657,7 @@ export function ConsentCenterPage() {
                         setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={pendingPagination}
+                      decisionFor={sentDocumentRequests ? undefined : rowDecisionFor}
                     />
                     </div>
                     <ConsentSurfaceListSection
@@ -3127,6 +3674,7 @@ export function ConsentCenterPage() {
                         setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={activePagination}
+                      groupByRequest
                     />
                     <ConsentSurfaceListSection
                       loading={previousResource.loading}
@@ -3257,8 +3805,23 @@ export function ConsentCenterPage() {
                 />
               ) : (
                 <SettingsRow
-                  title="Request not visible"
-                  description="Refresh the list or check History if the request was already handled."
+                  title="Nothing to review here"
+                  description="This was already handled. History shows what happened."
+                  trailing={
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={() => {
+                        closeDetailPanel();
+                        commitConsentTab("history");
+                      }}
+                    >
+                      Open History
+                    </Button>
+                  }
+                  stackTrailingOnMobile
                 />
               )}
             </SettingsGroup>
@@ -3266,6 +3829,19 @@ export function ConsentCenterPage() {
             <ConsentEntryDetail
               actor={actor}
               entry={selectedEntry}
+              bundleMembers={selectedBundleMembers}
+              onApproveBundle={(members, durationHours) => {
+                closeDetailPanel();
+                approveBundleEntries(members, durationHours);
+              }}
+              onDenyBundle={(members) => {
+                closeDetailPanel();
+                denyBundleEntries(members);
+              }}
+              onDecideBundle={(allow, decline, durationHours) => {
+                closeDetailPanel();
+                decideBundleEntries(allow, decline, durationHours);
+              }}
               onApprove={(entry, durationHours, scopeSelection) => {
                 // Dismiss the panel immediately; the list already optimistically
                 // removes the row and any failure surfaces via toast.
@@ -3277,7 +3853,8 @@ export function ConsentCenterPage() {
                 denyEntry(entry);
               }}
               onRevoke={(entry) => {
-                revokeEntry(entry);
+                closeDetailPanel();
+                revokeEntryCalmly(entry);
               }}
 
               onRevokeScope={(scope) => void handleRevoke(scope)}
@@ -3287,6 +3864,7 @@ export function ConsentCenterPage() {
             />
           )}
         </SettingsDetailPanel>
+        <OwnerConsentUnlockPrompt prompt={rowUnlockPrompt} />
       </SettingsPresentationProvider>
     </AppPageShell>
   );

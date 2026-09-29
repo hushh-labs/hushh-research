@@ -1,4 +1,7 @@
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
+import { INVITE_TO_ONE_PATH } from "@/lib/navigation/routes";
+
+export { INVITE_TO_ONE_PATH } from "@/lib/navigation/routes";
 
 /**
  * Inviting somebody who is not on One yet.
@@ -11,8 +14,8 @@ import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
  * What is shared is deliberately just the app: no invite token, no pending
  * connection, no code. Nobody is added to anything by receiving this, and the
  * sender is not committed to anything by sending it. A recipient who taps it
- * lands on the same anonymous onboarding entry as any other first-time visitor
- * and decides for themselves; if they join, they are found by the next search
+ * lands on the invitation-only guest introduction and decides for themselves;
+ * if they join, they are found by the next search
  * and connected through the normal request flow, which is where consent is
  * asked for and recorded. An invite that pre-authorized a connection would be
  * asking one person to consent on another person's behalf.
@@ -47,7 +50,7 @@ export const INVITE_TO_ONE_SHARE_TITLE = "Join me on One";
  */
 export function buildInviteToOneUrl(): string | null {
   const origin = resolveShareableAppOrigin();
-  return origin ? `${origin}/` : null;
+  return origin ? `${origin}${INVITE_TO_ONE_PATH}` : null;
 }
 
 /**

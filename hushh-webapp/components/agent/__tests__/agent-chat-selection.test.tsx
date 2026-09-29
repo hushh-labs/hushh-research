@@ -207,6 +207,38 @@ describe("ordered retained cards", () => {
     expect(JSON.stringify(restored)).not.toContain("decryptedExport");
   });
 
+  // Regression (localhost run 2026-09-28): after a reload the sent request
+  // read "Draft request · Not sent yet" and the continuation label rendered
+  // as the person's own "Consent approved" bubble.
+  it("restores a sent ask in place and its continuation label as a chip", () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const subjectRef = "1234567890abcdef";
+    const card = (phase: "draft" | "submitted") => ({
+      direction: "outgoing", phase, status: phase === "draft" ? "awaiting_review" : "pending",
+      personName: "Kushal Trivedi", purpose: "Planning a dinner", durationLabel: "7 days", subjectRef,
+      ...(phase === "submitted" ? { bundleId } : {}),
+      fields: [{ ...(phase === "submitted" ? { requestId: "request_12345678", status: "pending" } : {}),
+        label: "Food preferences", domain: "Information", sensitivity: "standard" }],
+    });
+    const restored = storedMessagesToAgentMessages([
+      { id: "q", conversation_id: "c1", role: "user", status: "complete", created_at: null, completed_at: null,
+        content: "What's Kushal's favorite restaurant?", metadata: null },
+      { ...message("turn", [], "I'll ask Kushal Trivedi."), metadata: { structuredExperiences: [
+        { id: "evt:propose-call", activityType: "one.information_request_review.v1", content: card("draft") }] } },
+      { ...message("receipt", [], ""), metadata: { structuredExperiences: [
+        { id: "request_submission_x", activityType: "one.information_request_review.v1", content: card("submitted") }] } },
+      { id: "label", conversation_id: "c1", role: "user", status: "complete", created_at: null, completed_at: null,
+        content: "Consent approved", metadata: null },
+    ]);
+    expect(restored.map((entry) => entry.id)).toEqual(["q", "turn", "label"]);
+    expect(restored[1]!.structuredExperiences?.[0]).toMatchObject({
+      id: "evt:propose-call", experience: { phase: "submitted", bundleId, status: "pending" } });
+    expect(restored[2]).toMatchObject({ role: "user", kind: "selection", text: "Consent approved" });
+    // Negative control: ordinary words stay the person's own bubble.
+    expect(storedMessageToAgentMessage({ id: "u", conversation_id: "c1", role: "user", status: "complete",
+      created_at: null, completed_at: null, content: "Consent approved, thanks!", metadata: null })?.kind).toBeUndefined();
+  });
+
   it("retains more than eight distinct live cards while revising by identity", () => {
     const first = {
       type: "one.scope_discovery.v1" as const,

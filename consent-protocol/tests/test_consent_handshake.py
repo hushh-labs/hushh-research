@@ -203,7 +203,7 @@ class _FakeConsentDBService:
     async def insert_internal_event(self, **kwargs):
         return len(self.events) + 1
 
-    async def list_internal_request_events(self, request_ids, *, actions=None):
+    async def list_internal_request_events(self, request_ids, *, actions=None, user_id=None):
         return []
 
 

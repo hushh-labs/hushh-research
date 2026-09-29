@@ -329,6 +329,181 @@ async def test_inline_submission_receipt_restores_one_card_without_model_replay(
     assert wrong_receipt.value.status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_a_request_sent_from_ones_ask_card_is_recorded_and_its_answer_continues(
+    monkeypatch,
+) -> None:
+    """Localhost run 2026-09-28, the P0: Send on One's ask card, then nothing.
+
+    The ask card comes from ``propose_information_request``. Its receipt was
+    refused 404 ("Discovery card not found") because only discovery cards were
+    recognised, so the owner's approval was then refused 409 ("This
+    conversation did not send that request"), and a reload showed the sent
+    request as an unsent draft.
+    """
+    from ag_ui.core import RunAgentInput, UserMessage
+
+    bundle_id = "22222222-2222-4222-8222-222222222222"
+    person_ref = "12345678-1234-1234-1234-123456789abc"
+    proposal = Event(
+        id="proposal-event",
+        author="one",
+        invocation_id="ask-run",
+        content=types.Content(
+            role="user",
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="propose-call",
+                        name="propose_information_request",
+                        response={
+                            "status": "proposal_ready",
+                            "proposalId": "a" * 32,
+                            "person": {
+                                "displayName": "Kushal Trivedi",
+                                "personRef": person_ref,
+                                "profilePath": f"/people/{person_ref}",
+                            },
+                            "fields": ["Food preferences"],
+                            "purpose": "To pick a restaurant for dinner",
+                            "durationHours": 168,
+                            "proposed": [
+                                {"scope": "psr_prefs", "label": "Food preferences", "why": "x"}
+                            ],
+                        },
+                    )
+                )
+            ],
+        ),
+    )
+    session = Session(
+        id="thread", app_name=agent_chat.ONE_APP_NAME, user_id="owner", events=[proposal]
+    )
+
+    class SessionStore:
+        async def get_session(self, *, app_name, user_id, session_id):
+            return session if (user_id, session_id) == ("owner", "thread") else None
+
+        async def append_event_once(self, *, app_name, user_id, session_id, event):
+            existing = next((item for item in session.events if item.id == event.id), None)
+            if existing:
+                return existing
+            session.events.append(event)
+            return event
+
+    item = {
+        "requestId": "request_12345678",
+        "scopeRef": "psr_prefs",
+        "label": "Food preferences",
+        "sensitivity": "standard",
+        "status": "pending",
+    }
+    recipient = {"personRef": person_ref}
+
+    class RequestStore:
+        async def verify_submission_receipt(self, *, requester_user_id, bundle_id, idempotency_key):
+            if (requester_user_id, idempotency_key) != ("owner", "synthetic-receipt-key"):
+                raise InformationRequestError("Request receipt was not found.", status_code=404)
+            return {
+                "bundleId": bundle_id,
+                "personRef": recipient["personRef"],
+                "purpose": "To pick a restaurant for dinner",
+                "durationSeconds": 7 * 86400,
+                "items": [item],
+            }
+
+        async def get(self, *, requester_user_id, bundle_id):
+            assert requester_user_id == "owner"
+            return {
+                "bundleId": bundle_id,
+                "personRef": person_ref,
+                "cancelled": False,
+                "items": [{**item, "status": "granted"}],
+            }
+
+    monkeypatch.setattr(agent_chat, "_session_service", SessionStore())
+    monkeypatch.setattr(agent_chat, "InformationRequestService", RequestStore)
+    monkeypatch.setattr(
+        agent_chat,
+        "PersonProfileService",
+        lambda: SimpleNamespace(get_public_profile=lambda _ref: {"displayName": "Kushal"}),
+    )
+    payload = agent_chat.RecordInformationRequestSubmission(
+        source_activity_id="propose-call",
+        bundle_id=UUID(bundle_id),
+        idempotency_key="synthetic-receipt-key",
+    )
+    turn = RunAgentInput(
+        thread_id="thread",
+        run_id="continue-run",
+        state={},
+        messages=[UserMessage(id="m-1", role="user", content="Consent approved")],
+        tools=[],
+        context=[],
+        forwarded_props={},
+    )
+    continuation = {
+        "consentContinuation": {
+            "bundleId": bundle_id,
+            "outcome": "granted",
+            "sharedInformation": "- Food preferences: My favorite restaurant is Nopa",
+        }
+    }
+
+    # Negative controls. The old lookup read discovery cards only, and this is
+    # not one, so the receipt was 404; without a receipt the answer is 409.
+    assert agent_chat._safe_discovery_descriptor(proposal) is None
+    with pytest.raises(HTTPException) as refused:
+        await agent_chat._admit_consent_continuation(
+            continuation, input_data=turn, owner_id="owner"
+        )
+    assert refused.value.status_code == 409
+
+    # The card must name the same person as the request.
+    recipient["personRef"] = "99999999-9999-4999-8999-999999999999"
+    with pytest.raises(HTTPException) as mismatch:
+        await agent_chat.record_information_request_submission(
+            "thread", payload, {"user_id": "owner"}
+        )
+    assert mismatch.value.status_code == 409
+    recipient["personRef"] = person_ref
+    # Only a card that exists in this conversation.
+    with pytest.raises(HTTPException) as unknown:
+        await agent_chat.record_information_request_submission(
+            "thread",
+            payload.model_copy(update={"source_activity_id": "some-other-call"}),
+            {"user_id": "owner"},
+        )
+    assert unknown.value.status_code == 404
+    with pytest.raises(HTTPException) as wrong_owner:
+        await agent_chat.record_information_request_submission(
+            "thread", payload, {"user_id": "other"}
+        )
+    assert wrong_owner.value.status_code == 404
+
+    result = await agent_chat.record_information_request_submission(
+        "thread", payload, {"user_id": "owner"}
+    )
+    assert result["descriptor"]["content"]["bundleId"] == bundle_id
+    assert result["descriptor"]["content"]["phase"] == "submitted"
+    assert "psr_prefs" not in json.dumps(session.events[-1].custom_metadata)
+
+    admitted = await agent_chat._admit_consent_continuation(
+        continuation, input_data=turn, owner_id="owner"
+    )
+    assert admitted[f"hussh:consent_outcome:{bundle_id}"] == "granted"
+
+    # After a reload the card reads as sent, not as an unsent draft.
+    history = await agent_chat.conversation_history("thread", limit=50, token={"user_id": "owner"})
+    cards = [
+        entry
+        for message in history["messages"]
+        for entry in (message["metadata"] or {}).get("structuredExperiences", [])
+    ]
+    assert [card["content"]["phase"] for card in cards] == ["submitted"]
+    assert cards[0]["content"]["bundleId"] == bundle_id
+
+
 def test_history_descriptor_discards_invalid_catalog_metadata() -> None:
     metadata = _safe_agent_history_metadata(
         _event(

@@ -99,12 +99,16 @@ def test_rollout_disable_fences_a_new_grant_before_provider_io(monkeypatch, disa
 @pytest.mark.asyncio
 async def test_grant_suppresses_google_email_and_records_confirmed_receipt():
     worker, store, adapter = _worker()
-    assert await worker._grant(_job()) == "succeeded"
+    job = _job()
+    job["file"]["resourceKey"] = "synthetic-resource-key"
+    assert await worker._grant(job) == "succeeded"
     store.mark_dispatching.assert_awaited_once()
     adapter.create_reader.assert_awaited_once()
     assert adapter.create_reader.await_args.kwargs["send_notification_email"] is False
     assert store.settle.await_args.kwargs["state"] == "succeeded"
     assert store.settle.await_args.kwargs["receipt"]["permission_id"] == "permission-1"
+    for operation in (adapter.inspect_shareable, adapter.list_permissions, adapter.create_reader):
+        assert operation.await_args.kwargs["resource_key"] == "synthetic-resource-key"
 
 
 @pytest.mark.asyncio
@@ -125,7 +129,10 @@ async def test_uncertain_post_is_not_retried_and_reconcile_never_posts():
             },
         )
     )
-    assert await worker._reconcile(_job("unknown")) == "present_unattributed"
+    job = _job("unknown")
+    job["file"]["resourceKey"] = "synthetic-resource-key"
+    assert await worker._reconcile(job) == "present_unattributed"
+    assert adapter.list_permissions.await_args.kwargs["resource_key"] == "synthetic-resource-key"
     assert adapter.create_reader.await_count == 1
     assert store.settle.await_args.kwargs["state"] == "present_unattributed"
 

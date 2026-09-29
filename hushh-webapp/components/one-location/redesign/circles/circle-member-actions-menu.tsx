@@ -323,7 +323,7 @@ export function CircleMemberActionsMenu({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-12 w-full rounded-[14px] text-[17px] font-semibold"
+                    className="h-12 w-full rounded-[14px] text-[17px] font-semibold text-foreground"
                     onClick={() => setSheetConfirmingRemove(false)}
                   >
                     Cancel

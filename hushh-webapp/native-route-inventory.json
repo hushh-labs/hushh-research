@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
   "total_routes": 128,
-  "native_required_routes": 106,
-  "excluded_routes": 22,
+  "native_required_routes": 107,
+  "excluded_routes": 21,
   "routes": [
     {
       "route": "/",
@@ -32,8 +32,16 @@
     },
     {
       "route": "/circle/join",
-      "classification": "excluded-web-only",
-      "reason": "Invite landing opened from a shared link. The link arrives in a browser, and the flow hands off to the app rather than being rendered by it."
+      "classification": "native-required-functional",
+      "initialRoute": "/circle/join?code=native-invitation-fixture",
+      "expectedMarker": "native-route-circle-join",
+      "expectedRoute": "/circle/join",
+      "autoReviewerLogin": false,
+      "expectedAuth": "anonymous",
+      "allowedDataStates": [
+        "loaded",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/connected-systems",

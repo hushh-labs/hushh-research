@@ -38,7 +38,7 @@ export const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE: Readonly<
 > = {
   document_share_request: {
     title: "Document request",
-    body: "Open One to review.",
+    body: "Open One for next steps.",
   },
   document_share_review_ready: {
     title: "Files ready to review",

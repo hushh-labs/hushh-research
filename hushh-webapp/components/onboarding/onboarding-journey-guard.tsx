@@ -18,6 +18,7 @@ import {
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
+  resolveOneSetupCompletionTarget,
   ROUTES,
 } from "@/lib/navigation/routes";
 import {
@@ -25,6 +26,7 @@ import {
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 const SETUP_REDIRECT_RETRY_MS = 1200;
@@ -223,14 +225,18 @@ export function OnboardingJourneyGuard({
       if (setupSurface) {
         // First onboarding and known capability handoffs are admitted. A
         // dismissed user who reaches the setup hub (browser/OS back, history,
-        // direct URL, or stale navigation) is ejected to the canonical root;
+        // direct URL, or stale navigation) continues to its safe return target;
         // capability routes must remain reachable so their own coordinators can
         // resolve completed entries to the capability workspace.
         if (shouldEjectSetupSurface) {
-          if (redirectTargetRef.current !== ROUTES.HOME) {
-            redirectTargetRef.current = ROUTES.HOME;
+          const completionTarget = resolveOneSetupCompletionTarget(
+            new URL(currentHref, "https://one.local").searchParams.get("return_to"),
+            PreVaultSensitiveDraftService.hasFinanceIntent(userId),
+          );
+          if (redirectTargetRef.current !== completionTarget) {
+            redirectTargetRef.current = completionTarget;
             setRedirecting(true);
-            router.replace(ROUTES.HOME);
+            router.replace(completionTarget);
           }
           return;
         }

@@ -375,12 +375,23 @@ jobs:
           if-no-files-found: ignore
 
   web-targeted-check:
-    name: "Web Targeted Contracts"
+    name: "Web Targeted Contracts (${{ matrix.part }})"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
+    # Two legs that partition the matched packs (scripts/ci/web-targeted-check.sh,
+    # WEB_TARGETED_PART): `node` runs the Vitest and verifier packs and never
+    # downloads a browser; `browser` runs the Playwright packs, several at once.
+    # On one runner the browser packs ran one test at a time and were ~11 of
+    # the lane's ~13 minutes (run 36346187928). ci-status reads the aggregate
+    # result, which is `success` only when every leg succeeded. fail-fast is
+    # off so a red leg never hides the other leg's verdict.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [node, browser]
     # Was 15, which the job could not fit. Downloading Chromium and WebKit
     # took 13-15 minutes on its own, so the lane either died mid-download or
     # reached the checks with ~100 seconds left and was cancelled part-way
@@ -404,6 +415,7 @@ jobs:
       # frontend-targeted lane must use the same locked runtime dependencies
       # rather than falling back to the runner's ambient Python installation.
       - uses: ./consent-protocol/.github/actions/setup-python-uv
+        if: matrix.part == 'node'
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
@@ -414,6 +426,7 @@ jobs:
       # PR restores them instead of re-downloading ~400MB per run.
       - name: Cache Playwright browsers
         id: playwright-cache
+        if: matrix.part == 'browser'
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -424,6 +437,7 @@ jobs:
       # ignores an author border-radius that Chromium honours, so a
       # Chromium-only run passes controls that are visibly broken on an iPhone.
       - name: Install Playwright browsers
+        if: matrix.part == 'browser'
         run: |
           set -euo pipefail
           # The one dependency install for this job. It is the same
@@ -445,7 +459,309 @@ jobs:
         run: bash scripts/ci/orchestrate.sh web-targeted
         env:
           WEB_TARGETED_FULL_SUITE_OWNED: "1"
-          WEB_CI_DEPS_INSTALLED: "1"
+  # Path filters: run platform jobs only when their paths change (or manual scope)
+  # ============================================================================
+  paths:
+    name: "Path filters"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ steps.resolve.outputs.frontend }}
+      backend: ${{ steps.resolve.outputs.backend }}
+      ios: ${{ steps.resolve.outputs.ios }}
+      android: ${{ steps.resolve.outputs.android }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dorny/paths-filter@v4
+        id: filter
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        with:
+          # A leading '!' pattern removes files from its own filter only; the
+          # filters below without one behave exactly as under the default
+          # 'some'. Without this setting a '!' pattern would match every other
+          # file in the repository.
+          predicate-quantifier: 'some-with-excludes'
+          # scripts/ci is split by the lane that executes each script.
+          # The web lanes run nothing under scripts/ci except orchestrate.sh
+          # and the web-*.sh scripts it dispatches (web-common.sh included),
+          # so those alone schedule them. Every other script, including any
+          # added later, stays on the backend side, which covers the protocol,
+          # MCP and integration lanes and every deploy script the protocol
+          # tests exercise. orchestrate.sh dispatches both sides and is in both.
+          # Guarded by
+          # consent-protocol/tests/test_ci_path_filters_cover_lane_scripts.py
+          filters: |
+            frontend:
+              - 'hushh-webapp/**'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/queue-validation.yml'
+              - '.github/workflows/main-post-merge-smoke.yml'
+              - 'scripts/ci/orchestrate.sh'
+              - 'scripts/ci/web-*.sh'
+            backend:
+              - 'consent-protocol/**'
+              - 'packages/hushh-mcp/**'
+              - 'deploy/backend.cloudbuild.yaml'
+              - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy-uat.yml'
+              - '.github/workflows/queue-validation.yml'
+              - '.github/workflows/main-post-merge-smoke.yml'
+              - 'scripts/ci/**'
+              - '!scripts/ci/web-*.sh'
+            ios:
+              - 'hushh-webapp/ios/**'
+              - 'hushh-webapp/lib/capacitor/**'
+              - 'hushh-webapp/scripts/native/**'
+              - 'hushh-webapp/capacitor.config.ts'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              # Web surfaces the CI-run XCUITest renders
+              # (AppUITests/testAccountNotFoundRecoveryReturnsToLogin). A change
+              # here can break the native lane without touching ios/**, so it
+              # must schedule it. Guarded by
+              # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+              - 'hushh-webapp/app/login/**'
+              - 'hushh-webapp/components/onboarding/**'
+              # The post-sign-in capability setup screens. Nothing the XCUITest
+              # renders imports them (asserted by the guard above), and they
+              # alone used to schedule this 13-minute lane.
+              - '!hushh-webapp/components/onboarding/setup/**'
+              - 'hushh-webapp/components/auth/**'
+              - 'hushh-webapp/components/app-ui/native-*'
+              - 'hushh-webapp/components/vault/**'
+              - 'hushh-webapp/lib/auth/session-invalidation.ts'
+              - 'hushh-webapp/lib/firebase/auth-context.tsx'
+              - 'hushh-webapp/lib/testing/**'
+              - 'hushh-webapp/app/providers.tsx'
+              - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
+              - '.github/workflows/ci.yml'
+            android:
+              - 'hushh-webapp/android/**'
+              - 'hushh-webapp/lib/capacitor/**'
+              - 'hushh-webapp/scripts/native/**'
+              - 'hushh-webapp/__tests__/fixtures/native/**'
+              - 'hushh-webapp/capacitor.config.ts'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              - '.github/workflows/ci.yml'
+
+      - id: override
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          scope="${{ github.event.inputs.scope }}"
+          case "$scope" in
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
+            echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
+            echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
+            echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
+            echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
+          fi
+        if: always()
+
+  preflight-gate:
+    name: "Preflight Gate"
+    needs:
+      - secret-scan
+      - dco-check
+      - pr-base-policy
+      - repo-governance
+      - paths
+      - main-freshness-gate
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      frontend: ${{ needs.paths.outputs.frontend }}
+      backend: ${{ needs.paths.outputs.backend }}
+      ios: ${{ needs.paths.outputs.ios }}
+      android: ${{ needs.paths.outputs.android }}
+    steps:
+      - name: Validate cheap authority checks before expensive lanes
+        shell: bash
+        run: |
+          SECRET_SCAN="${{ needs['secret-scan'].result }}"
+          DCO="${{ needs['dco-check'].result }}"
+          PR_BASE_POLICY="${{ needs['pr-base-policy'].result }}"
+          REPO_GOVERNANCE="${{ needs['repo-governance'].result }}"
+          PATHS="${{ needs.paths.result }}"
+          MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
+
+          printf 'secret-scan=%s\n' "$SECRET_SCAN"
+          printf 'dco-check=%s\n' "$DCO"
+          printf 'pr-base-policy=%s\n' "$PR_BASE_POLICY"
+          printf 'repo-governance=%s\n' "$REPO_GOVERNANCE"
+          printf 'paths=%s\n' "$PATHS"
+          printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
+
+          fail=0
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$MAIN_FRESHNESS"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
+              fail=1
+            fi
+          done
+
+          if [ "$fail" -ne 0 ]; then
+            echo "Preflight failed; skipping expensive web/protocol/integration lanes."
+            exit 1
+          fi
+
+          echo "Preflight passed; expensive lanes may run."
+
+  # ============================================================================
+  # Frontend (Next.js + Capacitor)
+  # ============================================================================
+  web-core-check:
+    name: "Web Core (Next.js)"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4
+        with:
+          path: hushh-webapp/.next/cache
+          key: ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-${{ hashFiles('hushh-webapp/app/**', 'hushh-webapp/components/**', 'hushh-webapp/lib/**', 'hushh-webapp/public/**', 'hushh-webapp/package.json') }}
+          restore-keys: |
+            ${{ runner.os }}-nextjs-${{ env.NODE_VERSION }}-${{ hashFiles('hushh-webapp/package-lock.json', 'hushh-webapp/next.config.ts') }}-
+
+      - name: Run core web check script
+        run: bash scripts/ci/orchestrate.sh web-core
+        env:
+          CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
+          NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+          NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
+          NEXT_PUBLIC_FIREBASE_API_KEY: "test-api-key"
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: "dummy-project.firebaseapp.com"
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: "dummy-project"
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
+          NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
+
+      - name: Upload security audit artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-core-npm-audit-report
+          path: hushh-webapp/npm-audit-report.json
+          if-no-files-found: ignore
+
+  web-targeted-check:
+    name: "Web Targeted Contracts (${{ matrix.part }})"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
+    runs-on: ubuntu-latest
+    # Two legs that partition the matched packs (scripts/ci/web-targeted-check.sh,
+    # WEB_TARGETED_PART): `node` runs the Vitest and verifier packs and never
+    # downloads a browser; `browser` runs the Playwright packs, several at once.
+    # On one runner the browser packs ran one test at a time and were ~11 of
+    # the lane's ~13 minutes (run 36346187928). ci-status reads the aggregate
+    # result, which is `success` only when every leg succeeded. fail-fast is
+    # off so a red leg never hides the other leg's verdict.
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [node, browser]
+    # Was 15, which the job could not fit. Downloading Chromium and WebKit
+    # took 13-15 minutes on its own, so the lane either died mid-download or
+    # reached the checks with ~100 seconds left and was cancelled part-way
+    # through them. Both outcomes report as "cancelled", which reads like
+    # infrastructure noise rather than a budget that was never large enough.
+    # 30 leaves room for a cold cache; a warm one finishes far inside it.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The One Voice verification includes the checked-in CapabilityGraphV1
+      # compiler.  It is deliberately a source-of-truth check, so the
+      # frontend-targeted lane must use the same locked runtime dependencies
+      # rather than falling back to the runner's ambient Python installation.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        if: matrix.part == 'node'
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
+
+      # The browsers are the whole cost of this lane, and they only change when
+      # the Playwright dependency does. Keying on the lockfile means a normal
+      # PR restores them instead of re-downloading ~400MB per run.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        if: matrix.part == 'browser'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
+
+      # The layout-contract pack drives real Chromium and WebKit. WebKit is not
+      # optional: it is the engine iOS ships, and a native <select> there
+      # ignores an author border-radius that Chromium honours, so a
+      # Chromium-only run passes controls that are visibly broken on an iPhone.
+      - name: Install Playwright browsers
+        if: matrix.part == 'browser'
+        run: |
+          set -euo pipefail
+          # The one dependency install for this job. It is the same
+          # web_ci_install the targeted check runs, done here because the
+          # Playwright CLI must exist first; the check step below is told
+          # (WEB_CI_DEPS_INSTALLED) not to repeat it.
+          bash -c 'source scripts/ci/web-common.sh && web_ci_install'
+          # `--with-deps` installs the browsers AND the apt libraries they link
+          # against. The apt half is not covered by the cache (it writes outside
+          # ~/.cache/ms-playwright), so on a cache hit install only the system
+          # deps and let the restored browser binaries stand.
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            (cd hushh-webapp && npx playwright install-deps chromium webkit)
+          else
+            (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+          fi
+
+      - name: Run targeted web contract checks
+        run: bash scripts/ci/orchestrate.sh web-targeted
+        env:
+          WEB_TARGETED_FULL_SUITE_OWNED: "1"
+          WEB_TARGETED_PART: ${{ matrix.part }}
+          # Only the browser leg ran npm ci in the step above; the node leg
+          # installs inside the script.
+          WEB_CI_DEPS_INSTALLED: ${{ matrix.part == 'browser' && '1' || '0' }}
+          # 3 of the runner's 4 vCPUs run tests; the fourth keeps the Node test
+          # runner and fixture builds from starving a browser. Only the Playwright
+          # config reads it, so it is inert in the node leg.
+          PLAYWRIGHT_WORKERS: "3"
           WEB_TARGETED_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           WEB_TARGETED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           WEB_TARGETED_BASE_REF: ${{ github.base_ref || 'main' }}
@@ -454,7 +770,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: web-targeted-npm-audit-report
+          name: web-targeted-npm-audit-report-${{ matrix.part }}
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
@@ -464,13 +780,23 @@ jobs:
   # critical path. Until 2026-09 the full suite ran only in the merge queue,
   # which every maintainer bypasses, so a red unit test gated nothing.
   web-full-suite-check:
-    name: "Web Full Suite (Vitest)"
+    name: "Web Full Suite (Vitest) ${{ matrix.shard }}/3"
     needs: [preflight-gate]
     if: >-
       !cancelled() && needs['preflight-gate'].result == 'success' &&
       (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # Three Vitest shards (`vitest --shard`, every test file in exactly one).
+    # On one runner the suite took 425-715s of a 7.5-13.8 minute lane (runs
+    # 36346187928, 36345696733). ci-status reads the aggregate result, which is
+    # `success` only when all three shards succeeded, so its "frontend changed
+    # requires a successful full suite" rule still holds. fail-fast is off so
+    # one red shard never cancels the others and hides their failures.
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -496,6 +822,7 @@ jobs:
       - name: Run the full Vitest suite and contract verifiers
         run: bash scripts/ci/orchestrate.sh web-full-suite
         env:
+          WEB_FULL_SUITE_SHARD: ${{ matrix.shard }}/3
           CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
 
@@ -570,38 +897,31 @@ jobs:
           plutil -insert GOOGLE_APP_ID -string "1:123456789:ios:abcdef1234567890abcdef" "$PLIST"
           plutil -lint "$PLIST"
 
-      - name: Prepare generated Capacitor iOS project
+      # There is deliberately no actions/cache for these packages. A cache saved
+      # by a pull_request run is scoped to that PR, so a new PR never restored
+      # one (every restore key missed on 36346187928), each save cost ~80s and
+      # ~4.5GB of the repository's 10GB cache budget, evicting the npm cache
+      # every other lane restores from main.
+      #
+      # Resolution stays sequential after cap sync. A background prefetch under
+      # the web export was measured on run 36371292301: the export slowed from
+      # 223s to 478s on the shared macOS runner and the resolve after sync still
+      # took 218s, because sync regenerates the package graph the prefetch used.
+      - name: Build the native web export
+        shell: bash
+        run: npm run --prefix hushh-webapp cap:build
+
+      - name: Sync the generated Capacitor iOS project
+        shell: bash
+        run: npm run --prefix hushh-webapp cap:sync:ios
+
+      # A cold simulator boot sat between the build and the first test (~110s
+      # from link to first test on 36346187928). Booting now overlaps it with
+      # resolution and compilation; xcodebuild waits for a device still booting.
+      - name: Boot the iPhone Simulator in the background
         shell: bash
         run: |
           set -euo pipefail
-          npm run --prefix hushh-webapp cap:build
-          npm run --prefix hushh-webapp cap:sync:ios
-
-      - name: Cache Swift packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ runner.temp }}/spm
-            ~/Library/Caches/org.swift.swiftpm
-          key: spm-ci-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
-          restore-keys: |
-            spm-ci-${{ runner.os }}-
-            spm-${{ runner.os }}-
-
-      - name: Resolve Swift package dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          xcodebuild -resolvePackageDependencies \
-            -project "${XCODE_PROJECT}" \
-            -scheme "${XCODE_SCHEME}" \
-            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
-
-      - name: Compile app and run native iOS unit tests
-        shell: bash
-        run: |
-          set -euo pipefail
-          set -o pipefail
           SIMULATOR_ID="$(python3 - <<'PY'
           import json
           import subprocess
@@ -622,6 +942,25 @@ jobs:
           raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
           PY
           )"
+          echo "SIMULATOR_ID=${SIMULATOR_ID}" >> "$GITHUB_ENV"
+          nohup xcrun simctl bootstatus "${SIMULATOR_ID}" -b \
+            > "${RUNNER_TEMP}/simulator-boot.log" 2>&1 &
+
+      - name: Resolve Swift package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+
+      - name: Compile app and run native iOS unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          test -n "${SIMULATOR_ID:-}" || { echo "::error::SIMULATOR_ID was not selected"; exit 1; }
           xcodebuild test \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \
@@ -701,6 +1040,7 @@ jobs:
           path: |
             ${{ runner.temp }}/AppTests.xcresult
             ${{ runner.temp }}/xcodebuild-ios-tests.log
+            ${{ runner.temp }}/simulator-boot.log
           if-no-files-found: ignore
           retention-days: 7
 

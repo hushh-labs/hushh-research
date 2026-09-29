@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
@@ -13,10 +14,13 @@ import {
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { resolveOneSetupReturnTo } from "@/lib/navigation/routes";
 
 export function FinanceImportOnboardingSetupClient() {
   const { user, loading } = useAuth();
   const { vaultOwnerToken } = useVault();
+  const searchParams = useSearchParams();
+  const returnTo = resolveOneSetupReturnTo(searchParams.get("return_to"));
   const [sourceSettled, setSourceSettled] = useState<
     "plaid" | "statement" | "later" | null
   >(null);
@@ -29,6 +33,7 @@ export function FinanceImportOnboardingSetupClient() {
     // Root setup may have been skipped before Finance is opened. This is still
     // an explicit Finance task and must retain the portfolio-source terminal.
     journeyMode: "auto",
+    returnTo,
   });
 
   if (loading || !user || !coordinator.isReady) {
@@ -52,6 +57,12 @@ export function FinanceImportOnboardingSetupClient() {
           const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
             force: true,
           });
+          if (returnTo && PreVaultUserStateService.isSetupResolved(journey)) {
+            // A deferred source resumes after root setup. Keep the import's
+            // existing explicit terminal; do not revive its old journey attempt.
+            setSourceSettled(source);
+            return true;
+          }
           if (
             journey.onboardingActiveCapability !== "finance" ||
             (callbackAttemptId &&

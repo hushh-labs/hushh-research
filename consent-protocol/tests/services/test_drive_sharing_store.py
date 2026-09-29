@@ -51,9 +51,23 @@ async def sharing(documents, monkeypatch):
         connection.exec_driver_sql(
             "CREATE TABLE connections(id UUID PRIMARY KEY,user_a_id TEXT,user_b_id TEXT,status TEXT)"
         )
+        connection.exec_driver_sql(
+            "CREATE TABLE connection_origins(connection_id UUID,status TEXT,origin_kind TEXT)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE one_location_circles(id UUID,owner_user_id TEXT,system_kind TEXT,status TEXT)"
+        )
+        connection.exec_driver_sql(
+            "CREATE TABLE one_location_circle_memberships(circle_id UUID,user_id TEXT,status TEXT)"
+        )
+        pair_id = str(uuid4())
         connection.execute(
             text("INSERT INTO connections VALUES (:id,'owner','recipient','active')"),
-            {"id": str(uuid4())},
+            {"id": pair_id},
+        )
+        connection.execute(
+            text("INSERT INTO connection_origins VALUES (:id,'active','direct_request')"),
+            {"id": pair_id},
         )
         connection.commit()
         for name in (
@@ -70,6 +84,7 @@ async def sharing(documents, monkeypatch):
             "251_drive_owner_search_jobs.sql",
             "254_drive_bulk_shares.sql",
             "256_drive_request_bulk_search.sql",
+            "259_drive_progressive_request_batches.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.

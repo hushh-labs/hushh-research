@@ -12,8 +12,7 @@ import { HOME_FAQ } from "@/lib/seo/faq-data";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { OnboardingLocalService } from "@/lib/services/onboarding-local-service";
 import { IntroStep } from "@/components/onboarding/IntroStep";
-import { ROUTES } from "@/lib/navigation/routes";
-import { resolveAppEnvironment } from "@/lib/app-env";
+import { INVITE_TO_ONE_PATH, ROUTES } from "@/lib/navigation/routes";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
@@ -21,15 +20,18 @@ import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { AgentChatWorkspace } from "@/components/agent/agent-chat-workspace";
 import { useVault } from "@/lib/vault/vault-context";
 
-type HomeStep = "intro";
-
 function HomeContent() {
   const router = useRouter();
   const { replace } = router;
   const searchParams = useSearchParams();
   const redirectPath = searchParams.get("redirect") || "";
-  const loginUrl = redirectPath
-    ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(redirectPath)}`
+  const inviteMarkers = searchParams.getAll("invite");
+  const isOneInvitation =
+    inviteMarkers.length === 1 && inviteMarkers[0] === "one" && !redirectPath;
+  const loginReturnTo =
+    redirectPath || (isOneInvitation ? INVITE_TO_ONE_PATH : "");
+  const loginUrl = loginReturnTo
+    ? `${ROUTES.LOGIN}?redirect=${encodeURIComponent(loginReturnTo)}`
     : ROUTES.LOGIN;
 
   const {
@@ -41,7 +43,6 @@ function HomeContent() {
     signOut,
   } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const [step, setStep] = useState<HomeStep | null>(null);
   const [routingError, setRoutingError] = useState(false);
   const [routingAttempt, setRoutingAttempt] = useState(0);
   const [authenticatedRootReady, setAuthenticatedRootReady] = useState(false);
@@ -58,16 +59,14 @@ function HomeContent() {
     user && isVaultUnlocked && !hasExplicitRedirect,
   );
 
-  const forceOnboardingInDev = resolveAppEnvironment() === "development";
-  // Debug helper (browser console): resets Steps 1-2 visibility flag.
+  // Debug helper uses the same invitation-only entry as a shared link.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (typeof window === "undefined") return;
 
     (window as any).resetOnboardingMarketing = async () => {
       await OnboardingLocalService.clearMarketingSeen();
-      setStep("intro");
-      router.replace("/");
+      router.replace(INVITE_TO_ONE_PATH);
     };
 
     return () => {
@@ -76,16 +75,17 @@ function HomeContent() {
   }, [router]);
 
   useEffect(() => {
-    if (loading) return;
-
-    if (user) return;
-
-    // The marketing carousel is disabled for now: every signed-out visitor
-    // lands on the single welcome (intro) screen, which leads to sign-in. The
-    // dev-only force-intro flag is consumed so it does not persist.
-    void OnboardingLocalService.consumeForceIntroOnce();
-    setStep("intro");
-  }, [forceOnboardingInDev, loading, user, router]);
+    if (loading || user || sessionVerificationRequired || isOneInvitation)
+      return;
+    replace(loginUrl);
+  }, [
+    isOneInvitation,
+    loading,
+    loginUrl,
+    replace,
+    sessionVerificationRequired,
+    user,
+  ]);
 
   useEffect(() => {
     if (loading || sessionVerificationRequired || !user?.uid) {
@@ -94,10 +94,14 @@ function HomeContent() {
     }
 
     const userId = user.uid;
-    const resolutionKey = JSON.stringify([userId, phoneNumber, redirectPath, routingAttempt]);
+    const resolutionKey = JSON.stringify([
+      userId,
+      phoneNumber,
+      redirectPath,
+      routingAttempt,
+    ]);
     if (activeResolutionRef.current === resolutionKey) return;
     activeResolutionRef.current = resolutionKey;
-    setStep(null);
     setAuthenticatedRootReady(false);
     setRoutingError(false);
     let cancelled = false;
@@ -151,7 +155,7 @@ function HomeContent() {
     user?.uid,
   ]);
 
-  if (loading || (!user && step === null && !sessionVerificationRequired)) {
+  if (loading || (!user && !isOneInvitation && !sessionVerificationRequired)) {
     return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
   }
 
@@ -190,7 +194,9 @@ function HomeContent() {
         <VaultLockGuard>
           <PhoneMandateGuard>
             <Suspense
-              fallback={<HushhLoader variant="fullscreen" label="Loading chat…" />}
+              fallback={
+                <HushhLoader variant="fullscreen" label="Loading chat…" />
+              }
             >
               <AgentChatWorkspace />
             </Suspense>
@@ -200,7 +206,7 @@ function HomeContent() {
     );
   }
 
-  if (step === "intro") {
+  if (isOneInvitation) {
     return (
       <>
         <NativeTestBeacon

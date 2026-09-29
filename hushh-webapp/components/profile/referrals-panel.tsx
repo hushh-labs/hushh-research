@@ -1,10 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ShareNetworkIcon as Share2 } from "@/components/icons";
 import {
-  ShareNetworkIcon as Share2,
-  UsersThreeIcon as Users,
-} from "@/components/icons";
+  InviteFriendsProfileIcon,
+  JoinRowIcon,
+  LinkRowIcon,
+  ProgressRowIcon,
+  QualifiedRowIcon,
+  ReviewRowIcon,
+  UseAgentRowIcon,
+  WarningRowIcon,
+} from "@/components/icons/agents";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -132,7 +139,8 @@ export function ReferralsPanel() {
       <div className="space-y-4 sm:space-y-5">
         <SettingsGroup>
           <SettingsRow
-            icon={Users}
+            icon={WarningRowIcon}
+            iconTone="capability"
             title="Unable to load"
             description="Check your connection."
           />
@@ -146,7 +154,7 @@ export function ReferralsPanel() {
     return (
       <div className="space-y-4 sm:space-y-5" aria-busy="true">
         <SettingsGroup>
-          <SettingsRow icon={Users} title="Loading" />
+          <SettingsRow icon={InviteFriendsProfileIcon} iconTone="capability" title="Loading" />
         </SettingsGroup>
       </div>
     );
@@ -161,7 +169,8 @@ export function ReferralsPanel() {
     <div className="space-y-4 sm:space-y-5">
       <SettingsGroup title="Your link">
         <SettingsRow
-          icon={Users}
+          icon={LinkRowIcon}
+          iconTone="capability"
           title={summary.slug}
           description={summary.link}
         />
@@ -176,9 +185,9 @@ export function ReferralsPanel() {
       </div>
 
       <SettingsGroup title="How it works">
-        <SettingsRow icon={Users} title="They join" density="compact" />
-        <SettingsRow icon={Users} title="Use an agent" density="compact" />
-        <SettingsRow icon={Users} title="Referral qualifies" density="compact" />
+        <SettingsRow icon={JoinRowIcon} iconTone="capability" title="They join" density="compact" />
+        <SettingsRow icon={UseAgentRowIcon} iconTone="capability" title="Use an agent" density="compact" />
+        <SettingsRow icon={QualifiedRowIcon} iconTone="capability" title="Referral qualifies" density="compact" />
       </SettingsGroup>
 
       <SettingsGroup
@@ -186,13 +195,15 @@ export function ReferralsPanel() {
         description={`${summary.required_active_minutes} active minutes · New users only`}
       >
         <SettingsRow
-          icon={Users}
+          icon={QualifiedRowIcon}
+          iconTone="capability"
           title="Qualified"
           trailing={<span data-testid="referral-qualified-count">{summary.qualified_count}</span>}
           density="compact"
         />
         <SettingsRow
-          icon={Users}
+          icon={ProgressRowIcon}
+          iconTone="capability"
           title="In progress"
           trailing={
             <span data-testid="referral-in-progress-count">
@@ -211,7 +222,8 @@ export function ReferralsPanel() {
         />
         {summary.under_review_count > 0 ? (
           <SettingsRow
-            icon={Users}
+            icon={ReviewRowIcon}
+            iconTone="capability"
             title="Under review"
             trailing={<span>{summary.under_review_count}</span>}
             density="compact"
@@ -227,7 +239,8 @@ export function ReferralsPanel() {
           {inProgressRows.map((row, index) => (
             <SettingsRow
               key={`progress:${row.started_on}:${index}`}
-              icon={Users}
+              icon={ProgressRowIcon}
+              iconTone="capability"
               title={row.step}
               description={`${row.active_minutes} of ${row.required_minutes} active minutes · joined ${row.started_on}`}
               trailing={
@@ -246,7 +259,8 @@ export function ReferralsPanel() {
           {summary.referrals.slice(0, 10).map((row, index) => (
             <SettingsRow
               key={`${row.started_on}:${index}`}
-              icon={Users}
+              icon={JoinRowIcon}
+              iconTone="capability"
               title="New member"
               description={row.started_on}
               trailing={<span>{row.status}</span>}
@@ -257,7 +271,8 @@ export function ReferralsPanel() {
       ) : (
         <SettingsGroup>
           <SettingsRow
-            icon={Users}
+            icon={InviteFriendsProfileIcon}
+            iconTone="capability"
             title="No referrals yet"
             description="Share your link to start."
           />

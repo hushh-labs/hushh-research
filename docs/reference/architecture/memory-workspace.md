@@ -31,6 +31,16 @@ Memory is available by default once the vault is unlocked. The former
 and the runtime policy guards are now baseline requirements. No hosted MCP
 handshake, developer credential authority, or encrypted export format changes.
 
+## The picked-up card after a first connection
+
+After a person connects Gmail, Calendar or Drive, chat may show "Here's what I
+picked up": a few inferences from that source's metadata, each with Keep and
+Forget. The card is a review surface, not memory. Nothing is saved until Keep,
+which sends that one item through the same owner-confirmed encrypted writer as
+**Add** (`confirmedByUser: true`, with a second confirmation when it would change
+what active recipients receive). Forget only removes it from the screen. The
+server stores no item text; it records only that the source was offered.
+
 ## Conversational capture and context transfers
 
 Chat uses the existing Memory proposal and encrypted writer, not a second memory
@@ -67,6 +77,20 @@ until the encrypted setting is read again. A confirmed write receipt stays
 successful after a session change, but cannot republish information into the new
 session; cancellation is not a rollback of a request already accepted upstream.
 Rendered continuity, extraction completeness and latency still need live proof.
+
+## Chat onboarding preferences
+
+After setup, One asks in chat what to call the person and how it should talk.
+Those two answers are saved only when the person taps **Save to memory**, as a
+typed structured write through `PkmWriteCoordinator.saveMergedDomain` to
+`identity.communication_preferences` (`preferred_name`, `reply_style`). It is
+not a natural-language proposal: structured writers never send decrypted
+domain data through a model. The per-turn memory packet renders the values as
+"Identity > Communication Preferences > ...", and One's authored instruction
+treats them as a style preference that never widens what it may read, share,
+save, or do. Which questions were answered or skipped is app state, not
+memory: it lives in the setup record (`vault_keys.one_chat_onboarding`), never
+in PKM and never in browser storage.
 
 UX reference: [Muse's published design](https://introducing.muse.ai/) describes quiet
 background status, inspectable memory, and explicit approval for consequential

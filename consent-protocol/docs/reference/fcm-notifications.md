@@ -117,14 +117,16 @@ those details after unlock from the owner-scoped pending list. Built by
 
 ### Information request answered (`information_request_updated`)
 
-When the owner approves or declines a person-to-person request, or it times
-out, the requester gets one bare alert:
+When the owner approves or declines a person-to-person request, it times out,
+or the owner later ends access, the requester gets one bare alert. This is the
+canonical outcome event documented in `docs/reference/architecture/api-contracts.md`
+(`information_request_updated`), sent exactly once per event (migration 259):
 
 | Field | Value |
 | ----- | ----- |
-| Title / body | `Hussh One` / `Your information request has an answer` (fixed; never the outcome, scope or values) |
-| `type` | `information_request_updated` with `action` and `bundle_id`, `request_id` |
-| Alert | `CONSENT_GRANTED`, `CONSENT_DENIED`, `TIMEOUT`; `REVOKED` and `CANCELLED` stay silent |
+| Title / body | `Hussh One` / `Your information request has an answer`; for `REVOKED`, `Access to information shared with you has ended` (fixed; never a scope, label or value) |
+| `type` | `information_request_updated` with `action`, `bundle_id`, `request_id`, `outcome` (the bundle's outcome word) and `at` |
+| Alert | `CONSENT_GRANTED`, `CONSENT_DENIED`, `TIMEOUT`, `REVOKED`, once the whole request is settled (`outcome` not `pending`); `CANCELLED` stays silent |
 | Tag | `information-request:{bundle_id}` (one card per request) |
 | Body tap | `/?informationRequest=<bundle_id>`; after unlock the app finds the asking conversation in the person's sealed history and continues it there |
 
@@ -135,6 +137,33 @@ the app a `Consent approved` notice appears and the existing `One replied`
 notice follows. The notifier polls only the requests this tab saw waiting, so
 it works when web push is blocked. The durable record is the sealed
 conversation, the same exception to the Feed-row rule as `one_reply`.
+
+### One has something for you (`one_feed_attention`)
+
+When a notable Feed row appears, the person gets one bare alert. One writes what
+it has to say only after they open the app with the vault unlocked, as an
+ordinary chat turn sealed with their chat key; the server never pre-writes or
+stores that message.
+
+| Field | Value |
+| ----- | ----- |
+| Title / body | `Hussh One` / `One has something for you` (fixed; never the event, a name or a value) |
+| `type` | `one_feed_attention` |
+| Data | `feed_item_id` (the opaque `feed_events` id) and `message_id` only; no `user_id` |
+| Platforms | iOS and Android tokens only, like `one_reply` |
+| Body tap | `/?feedAttention=<id>`; after unlock a fresh chat opens and One speaks about that row. `deep_link` is ignored |
+
+Only a closed list of event types is notable (`mail_information_request_detected`,
+`mail_reconnect_required`, `mail_message_failed`, `mail_delivery_unconfirmed`,
+`calendar_reconnect_required`, `kai_analysis_completed`, `kyc_status_changed`):
+rows that need the person or report a failure, from domains with no push of
+their own. At most two are sent per person in any 24 hours, counted in
+`one_attention_ledger` under a per-person advisory lock; a capped row is recorded
+`throttled` and never reconsidered. A person with notifications off has no device
+token, so nothing is sent and the row is recorded `no_device`, which does not
+spend a slot. There is no separate server-side notification preference today.
+The sweep runs every 60 s over the last hour of rows and is off unless
+`ONE_FEED_ATTENTION_PUSH_ENABLED=true`. The Feed row remains the durable record.
 
 ### Emergency SMS alert policy
 

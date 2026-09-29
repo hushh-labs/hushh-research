@@ -8,9 +8,11 @@ from collections.abc import Callable
 from typing import Any
 
 from hushh_mcp.one_adk.consent_continuation import CONSENT_OUTCOME_LABELS, continued_outcomes
+from hushh_mcp.one_adk.consent_redaction import shared_record_for_history
 from hushh_mcp.one_adk.drive_result_privacy import _safe_result as safe_connector_result
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
+from hushh_mcp.one_adk.feed_attention import FEED_ATTENTION_LABEL, opened_feed_items
 from hushh_mcp.one_adk.text_attachments import history_text_attachments
 
 
@@ -163,6 +165,7 @@ _ACTIVITY_TOOLS = frozenset(
         "discover_person_information",
         "list_pending_information_requests",
         "propose_information_request",
+        "suggest_follow_ups",
         "list_my_connections",
         "inspect_selected_drive_files",
         "read_selected_drive_search_result",
@@ -349,10 +352,17 @@ def project_conversation_history(
     *,
     project_event: Callable,
     session_state: dict | None = None,
+    consent_by_invocation: dict[str, str] | None = None,
+    consent_ended: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     messages: list[dict[str, object]] = []
-    outcomes = continued_outcomes(session_state or {})
+    state = session_state or {}
+    outcomes = continued_outcomes(state)
     outcome_labels = {CONSENT_OUTCOME_LABELS[outcome] for outcome in outcomes.values()}
+    if opened_feed_items(state):
+        outcome_labels.add(FEED_ATTENTION_LABEL)
+    by_invocation = consent_by_invocation or {}
+    ended = consent_ended or {}
     projected, turn_events, last_answer, last_card, receipts = _index_turns(events, project_event)
     # A turn's cards and Activity belong with its answer, as they were shown
     # live. Card-only tool events fold into the answer; a turn without an
@@ -406,6 +416,29 @@ def project_conversation_history(
                 metadata = {**(metadata or {}), "specialist_read": receipts[turn]}
         if event.author == "user" and text in outcome_labels:
             metadata = {**(metadata or {}), "kind": "selection", "display": text}
+        consent_bundle = by_invocation.get(str(turn or ""))
+        if consent_bundle and event.author == "user" and text in outcome_labels:
+            metadata = {
+                **(metadata or {}),
+                "consentBundleId": consent_bundle,
+                **({"consentAccessEnded": True} if consent_bundle in ended else {}),
+            }
+        elif consent_bundle and event.author != "user":
+            outcome = ended.get(consent_bundle)
+            access = {
+                "bundleId": consent_bundle,
+                "state": "ended" if outcome else "live",
+                "outcome": outcome,
+                **shared_record_for_history(state, consent_bundle),
+            }
+            tag = {"consentBundleId": consent_bundle, "consentAccess": access}
+            if outcome:
+                # After revocation, no prior answer, card or activity leaves history.
+                if not is_anchor:
+                    continue
+                text, metadata = "", {**tag, "consentAccessEnded": True}
+            else:
+                metadata = {**(metadata or {}), **tag}
         messages.append(
             {
                 "id": event.id or f"{event.invocation_id}:{len(messages)}",

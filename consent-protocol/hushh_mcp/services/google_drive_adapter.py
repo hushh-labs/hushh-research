@@ -26,6 +26,9 @@ logger = drive_logger(__name__)
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
 METADATA_LIMIT = 256 * 1024
+MAX_FILE_LIST_PAGE_SIZE = 100
+ERROR_RESPONSE_LIMIT = 16 * 1024
+RETRYABLE_403_REASONS = frozenset({"rateLimitExceeded", "userRateLimitExceeded"})
 CONTENT_LIMIT = 4 * 1024 * 1024
 DEADLINE_SECONDS = 20
 MAX_SELECTION = 25
@@ -53,21 +56,26 @@ def supports_selected_policy(value: object) -> bool:
 
 
 FILE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
+RESOURCE_KEY = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,size,md5Checksum,trashed,isAppAuthorized,"
     "capabilities(canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
 SHARE_METADATA_FIELDS = (
-    "id,name,mimeType,version,modifiedTime,createdTime,trashed,"
+    "id,name,mimeType,version,modifiedTime,createdTime,resourceKey,trashed,"
     "capabilities(canShare),clientEncryptionDetails(encryptionState)"
 )
 # Metadata-only live read for a file with no readable text (a video, an image,
 # an archive, a folder): what it is and where to open it, never its bytes.
-FACT_FIELDS = "id,name,mimeType,modifiedTime,size,webViewLink,trashed"
+FACT_FIELDS = (
+    "id,name,mimeType,modifiedTime,createdTime,driveId,resourceKey,size,webViewLink,trashed,"
+    "capabilities(canShare),clientEncryptionDetails(encryptionState)"
+)
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = (
-    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,webViewLink,"
-    "shortcutDetails(targetId,targetMimeType))"
+    "nextPageToken,incompleteSearch,files(id,name,mimeType,modifiedTime,createdTime,driveId,"
+    "resourceKey,webViewLink,capabilities(canShare),clientEncryptionDetails(encryptionState),"
+    "shortcutDetails(targetId,targetMimeType,targetResourceKey))"
 )
 # Drive sorts each key ascending unless told "desc"; live results are newest
 # first by the file time the owner asked about. modifiedTime is the default and
@@ -171,6 +179,50 @@ def _file_path(file_id: str) -> str:
     return f"/files/{file_id}"
 
 
+async def retryable_403_response(response: httpx.Response) -> bool:
+    """Read bounded reason codes without releasing provider messages or content."""
+    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+        return False
+    data = bytearray()
+    async for chunk in response.aiter_raw():
+        if len(data) + len(chunk) > ERROR_RESPONSE_LIMIT:
+            return False
+        data.extend(chunk)
+    try:
+        result = json.loads(data)
+    except (ValueError, UnicodeError, RecursionError):
+        return False
+    error = result.get("error") if isinstance(result, dict) else None
+    if not isinstance(error, dict) or type(error.get("code")) is not int or error["code"] != 403:
+        return False
+    reasons = error.get("errors")
+    return (
+        isinstance(reasons, list)
+        and 1 <= len(reasons) <= 16
+        and all(
+            isinstance(item, dict)
+            and isinstance(item.get("reason"), str)
+            and item["reason"] in RETRYABLE_403_REASONS
+            for item in reasons
+        )
+    )
+
+
+def _resource_keys(value: dict[str, str] | None) -> None:
+    if value is not None and (
+        not isinstance(value, dict)
+        or len(value) != 1
+        or any(
+            not isinstance(identity, str)
+            or not FILE_ID.fullmatch(identity)
+            or not isinstance(key, str)
+            or not RESOURCE_KEY.fullmatch(key)
+            for identity, key in value.items()
+        )
+    ):
+        raise DriveReadError("invalid_argument")
+
+
 def _decode_json(payload: bytes) -> dict[str, Any]:
     try:
         result = json.loads(payload)
@@ -183,8 +235,15 @@ def _decode_json(payload: bytes) -> dict[str, Any]:
 
 class GoogleDriveAdapter:
     async def _get(
-        self, path: str, *, access_token: str, params: dict[str, str], limit: int
+        self,
+        path: str,
+        *,
+        access_token: str,
+        params: dict[str, str],
+        limit: int,
+        resource_keys: dict[str, str] | None = None,
     ) -> bytes:
+        _resource_keys(resource_keys)
         # Fixed operation names only. The path can contain a private provider ID
         # and params can contain the owner's search, so neither is logged.
         operation = (
@@ -208,7 +267,11 @@ class GoogleDriveAdapter:
         try:
             with suppress_instrumentation():
                 result = await self._get_private(
-                    path, access_token=access_token, params=params, limit=limit
+                    path,
+                    access_token=access_token,
+                    params=params,
+                    limit=limit,
+                    **({"resource_keys": resource_keys} if resource_keys else {}),
                 )
             outcome = "ok"
             return result
@@ -239,8 +302,21 @@ class GoogleDriveAdapter:
             )
 
     async def _get_private(
-        self, path: str, *, access_token: str, params: dict[str, str], limit: int
+        self,
+        path: str,
+        *,
+        access_token: str,
+        params: dict[str, str],
+        limit: int,
+        resource_keys: dict[str, str] | None = None,
     ) -> bytes:
+        _resource_keys(resource_keys)
+        if resource_keys and any(
+            path != f"/files/{identity}"
+            and not (path == "/files" and f"'{identity}' in parents" in params.get("q", ""))
+            for identity in resource_keys
+        ):
+            raise DriveReadError("operation_not_allowed")
         # This is not a general HTTP executor. Even internal callers cannot
         # supply an origin, arbitrary query, mutation, or unbounded response.
         if path == "/about":
@@ -259,7 +335,7 @@ class GoogleDriveAdapter:
                     and FILE_ID.fullmatch(params.get("driveId", "")) is not None
                 )
                 and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy", "driveId"}
-                and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
+                and re.fullmatch(r"[1-9]|[1-9][0-9]|100", params.get("pageSize", "")) is not None
                 and len(params.get("q", "")) <= 4096
                 and len(params.get("pageToken", "")) <= 1024
                 and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
@@ -303,11 +379,24 @@ class GoogleDriveAdapter:
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Accept-Encoding": "identity",
+                        **(
+                            {
+                                "X-Goog-Drive-Resource-Keys": ",".join(
+                                    f"{identity}/{key}" for identity, key in resource_keys.items()
+                                )
+                            }
+                            if resource_keys
+                            else {}
+                        ),
                     },
                 ) as response,
             ):
                 if response.status_code == 401:
                     raise DriveReadError("reconnect_required")
+                if response.status_code == 403 and await retryable_403_response(response):
+                    # A rate-limited metadata read is not evidence that a
+                    # shortcut target is unavailable. Retry the same durable page.
+                    raise DriveReadError("provider_unavailable", retryable=True)
                 if response.status_code in {403, 404, 410}:
                     raise DriveReadError("source_unavailable")
                 if response.status_code == 429 or response.status_code >= 500:
@@ -430,14 +519,19 @@ class GoogleDriveAdapter:
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
 
-    async def get_file_facts(self, *, file_id: str, access_token: str) -> dict[str, Any]:
+    async def get_file_facts(
+        self, *, file_id: str, access_token: str, resource_key: str | None = None
+    ) -> dict[str, Any]:
         """Name, type, time, size and opening link of one live file, without content."""
+        if resource_key is not None:
+            _resource_keys({file_id: resource_key})
         result = _decode_json(
             await self._get(
                 _file_path(file_id),
                 access_token=access_token,
                 params={"fields": FACT_FIELDS, "supportsAllDrives": "true"},
                 limit=METADATA_LIMIT,
+                **({"resource_keys": {file_id: resource_key}} if resource_key else {}),
             )
         )
         name, mime = result.get("name"), result.get("mimeType")
@@ -449,25 +543,73 @@ class GoogleDriveAdapter:
         ):
             raise DriveReadError("source_unavailable")
         size, modified, link = (result.get(key) for key in ("size", "modifiedTime", "webViewLink"))
+        if (
+            result.get("createdTime") is not None
+            and (
+                not isinstance(result["createdTime"], str)
+                or not 1 <= len(result["createdTime"]) <= 64
+            )
+            or result.get("driveId") is not None
+            and (not isinstance(result["driveId"], str) or not FILE_ID.fullmatch(result["driveId"]))
+            or result.get("resourceKey") is not None
+            and (
+                not isinstance(result["resourceKey"], str)
+                or not RESOURCE_KEY.fullmatch(result["resourceKey"])
+            )
+        ):
+            raise DriveReadError("provider_response_invalid")
+        capabilities = result.get("capabilities")
+        if capabilities is not None and (
+            not isinstance(capabilities, dict)
+            or capabilities.get("canShare") is not None
+            and type(capabilities["canShare"]) is not bool
+        ):
+            raise DriveReadError("provider_response_invalid")
+        encryption = result.get("clientEncryptionDetails")
+        if encryption is not None and (
+            not isinstance(encryption, dict)
+            or not isinstance(encryption.get("encryptionState"), str)
+        ):
+            raise DriveReadError("provider_response_invalid")
         return {
             "id": file_id,
             "title": name[:1024],
             "mimeType": mime[:255],
             "modifiedTime": modified if isinstance(modified, str) and len(modified) <= 64 else None,
+            **{
+                key: result[key]
+                for key in ("createdTime", "driveId", "resourceKey")
+                if isinstance(result.get(key), str)
+            },
             "size": int(size)
             if isinstance(size, str) and re.fullmatch(r"[0-9]{1,20}", size)
             else None,
             "viewUrl": link if isinstance(link, str) and link.startswith("https://") else None,
+            **(
+                {"capabilities": {"canShare": capabilities["canShare"]}}
+                if isinstance(capabilities, dict) and "canShare" in capabilities
+                else {}
+            ),
+            **(
+                {"clientEncryptionDetails": {"encryptionState": encryption["encryptionState"]}}
+                if isinstance(encryption, dict)
+                else {}
+            ),
         }
 
-    async def get_share_metadata(self, *, file_id: str, access_token: str) -> DriveMetadata:
+    async def get_share_metadata(
+        self, *, file_id: str, access_token: str, resource_key: str | None = None
+    ) -> DriveMetadata:
         """Check an exact live file for sharing without requiring content access."""
+        if resource_key is not None:
+            _resource_keys({file_id: resource_key})
         result = _decode_json(
             await self._get(
                 _file_path(file_id),
                 access_token=access_token,
                 params={"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
                 limit=METADATA_LIMIT,
+                **({"resource_keys": {file_id: resource_key}} if resource_key else {}),
             )
         )
         mime = result.get("mimeType")
@@ -516,12 +658,13 @@ class GoogleDriveAdapter:
         page_token: str | None = None,
         order_by: str | None = None,
         drive_id: str | None = None,
+        resource_keys: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """One bounded Drive REST search page (the GA API the picker lane already uses)."""
         if (
             not isinstance(page_size, int)
             or isinstance(page_size, bool)
-            or not 1 <= page_size <= 25
+            or not 1 <= page_size <= MAX_FILE_LIST_PAGE_SIZE
         ):
             raise DriveReadError("invalid_argument")
         if drive_id is not None and (
@@ -537,7 +680,11 @@ class GoogleDriveAdapter:
             params["orderBy"] = order_by
         return _decode_json(
             await self._get(
-                "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+                "/files",
+                access_token=access_token,
+                params=params,
+                limit=METADATA_LIMIT,
+                **({"resource_keys": resource_keys} if resource_keys is not None else {}),
             )
         )
 

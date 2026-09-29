@@ -1,5 +1,4 @@
 "use client";
-import { OneAgentPresence } from "@/components/dashboard/one-agent-presence";
 
 import { Capacitor } from "@capacitor/core";
 import {
@@ -12,6 +11,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
 } from "react";
@@ -21,10 +21,44 @@ import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkm
 import {
   AgentConsentContinuationContext,
   AgentPersonSelectionContext,
+  AgentTranscriptRevealContext,
   type AgentConsentContinuationHandler,
   type InformationRequestSubmissionReceipt,
 } from "@/components/agent/agent-structured-experience";
-import { prepareConsentContinuation, watchSentInformationRequest } from "@/lib/agent/consent-continuation";
+import {
+  claimConsentContinuation,
+  collectOutgoingRequestCards,
+  consentRequestDirectiveDuplicatesAskCard,
+  continuedElsewhere,
+  foldSubmittedRequestReceipts,
+  markConsentContinuationUnavailable,
+  mergeServerRedactionFlags,
+  prepareConsentContinuation,
+  rebuildWaitingRequests,
+  redactedConsentAnswers,
+  releaseConsentContinuation,
+  revealConsentContinuationReply,
+  setInformationRequestPhase,
+  tagAnswersFromLiveAccess,
+  tagConsentContinuationMessages,
+  useInformationRequestPhaseReader,
+  watchSentInformationRequest,
+} from "@/lib/agent/consent-continuation";
+import { ConsentCardPhaseContext } from "@/components/agent/consent/requester-consent-card";
+import { firstName as personFirstName } from "@/components/agent/consent/request-progress";
+import { AccessEndedNotice } from "@/components/agent/consent/access-ended-notice";
+import {
+  consentAccessEndedChipText,
+  consentOutcomeDisplayText,
+  informationRequestOutcome,
+  isAccessEndedOutcome,
+  isSharedOutcome,
+  wireOutcomeForSentLabel,
+  type ConsentOutcome,
+} from "@/lib/consent/open-granted-person-information";
+import type { InformationRequestBundle } from "@/lib/services/person-profile-service";
+import { FEED_ATTENTION_LABEL } from "@/lib/agent/feed-attention";
+import { useFeedAttentionTurn } from "@/lib/agent/use-feed-attention-turn";
 import {
   Check,
   ChevronDown,
@@ -37,9 +71,7 @@ import {
   Loader2,
   LogIn,
   Mail,
-  Maximize2,
   Mic,
-  Minimize2,
   Pencil,
   RotateCcw,
   Send,
@@ -57,6 +89,7 @@ import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
+import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
@@ -123,7 +156,9 @@ import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
+import { CHAT_USER_BUBBLE_CLASSNAME } from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
+import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
@@ -138,8 +173,21 @@ import {
 import { describeSelection } from "@/lib/agent/describe-selection";
 import type { DriveBatchProgress, DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
-import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
-import { AgentFirstRunActions } from "@/components/agent/agent-first-run-actions";
+import { useEntryWelcome } from "@/lib/agent/use-entry-welcome";
+import { useChatOnboarding } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
+import {
+  ChatOnboardingDailyTip,
+  ChatOnboardingTurns,
+  turnsForSlot,
+  type ChatOnboardingBubbleMessage,
+} from "@/components/agent/chat-onboarding/chat-onboarding-transcript";
+import {
+  computeChatTimeSeparators,
+  parseChatTimestamp,
+  type ChatTimeSeparator,
+  type ChatTimelineItem,
+} from "@/lib/agent/chat-time-separators";
+import { AgentGetAppPrompt } from "@/components/agent/agent-get-app-prompt";
 import {
   parseAgentActivityExperience,
   personSelectionPrompt,
@@ -154,7 +202,6 @@ import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentVoiceWaveInput } from "@/components/agent/agent-voice-wave-input";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { AvatarBubble } from "@/lib/morphy-ux/ui";
 import {
   executeAgentGatewayAction,
   executeTrustedActivationGatewayAction,
@@ -183,7 +230,6 @@ import {
   type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import { isChatKeyRefusal } from "@/lib/vault/one-chat-key";
-import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent, type AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
 import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
@@ -201,6 +247,7 @@ import {
 } from "@/lib/agent/agent-chat-turn-watch";
 import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -220,6 +267,7 @@ import {
   AGENT_CHAT_STREAM_LOST_ERROR,
   AgentChatStreamLostError,
   deleteAgentChatConversation,
+  getAgentChatConsentOutcomes,
   getLostAgentTurnOutcome,
   renameAgentChatConversation,
   streamAgentChat,
@@ -227,6 +275,7 @@ import {
   type AgentChatConsentContinuation,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
+  type AgentChatConsentAccess,
   type AgentChatToolEvent,
   type PendingEmailDraftContext,
   type SpecialistDirectiveEvent,
@@ -234,7 +283,8 @@ import {
   getAgentChatFeedback,
   setAgentChatFeedback,
   type AgentResponseReportReason,
-  recordAgentChatInformationRequest,
+  InformationRequestReceiptError,
+  recordAgentChatInformationRequestWithRetry,
   parseRestoredTurnActivity,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
@@ -252,25 +302,28 @@ import {
   gmailMailboxDetails,
   runGmailMailboxDirective,
 } from "@/lib/agent/gmail-mailbox-directive-runtime";
-import { clearCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
-  createGoogleOAuthPopupAttempt,
-  persistGoogleOAuthSameWindowAttempt,
-} from "@/lib/google/google-oauth-popup";
+  connectCalendarInPlace,
+  connectGmailInPlace,
+  inPlaceConnectCopy,
+} from "@/lib/connections/google-connect-in-place";
+import { useInPlaceConnect } from "@/lib/connections/use-in-place-connect";
+import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 import {
   runLocationDirective,
   type DelegateResult,
 } from "@/lib/agent/specialist-directive-runtime";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { ROUTES } from "@/lib/navigation/routes";
-import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { cn } from "@/lib/utils";
 import {
   useConsentActions,
   type PendingConsent,
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
+import { useDeferredConsentDeclines } from "@/lib/consent/deferred-consent-decline";
 import { DriveRecentSharing, type SelectedDriveSearchFile } from "@/components/agent/drive-background-search";
+import { canReviewDriveMemory, DriveReadMemoryAction } from "@/components/agent/drive-read-memory-action";
 import { clearGeneratedDriveSearchDraft } from "@/lib/agent/drive-search-draft";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { useVault } from "@/lib/vault/vault-context";
@@ -290,7 +343,9 @@ import {
   streamOwnerDriveCompilation,
 } from "@/lib/services/drive-owner-compilation-service";
 import { exportPrivateDriveMarkdown } from "@/lib/utils/private-markdown-export";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { CONSENT_STATE_CHANGED_EVENT, dispatchConsentStateChanged } from "@/lib/consent/consent-events";
+import { subscribeInformationRequest } from "@/lib/consent/information-request-reads";
+import { wakeLiveAccessWatch, watchLiveAccess } from "@/lib/consent/live-access-watch";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
@@ -324,6 +379,7 @@ import { AgentTextAttachmentViewButton } from "@/components/agent/agent-text-att
 import {
   findPendingAssistantTurn,
   measureTranscriptReveal,
+  transcriptFollowsLatest,
   transcriptRevealScrollTop,
 } from "@/lib/agent/agent-chat-transcript-scroll";
 import {
@@ -346,7 +402,6 @@ import {
   GmailInformationRequestsService,
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 type AgentMessage = {
   id: string;
@@ -361,6 +416,11 @@ type AgentMessage = {
   /** Pasted text sent with a user turn: rendered as a chip, never as `text`. */
   attachments?: AgentTextAttachment[];
   timestamp: string;
+  /**
+   * When the message was sent or created (epoch ms): the live send moment or
+   * the restored row's `created_at`. Absent when unknown; never guessed.
+   */
+  sentAtMs?: number;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
@@ -381,9 +441,28 @@ type AgentMessage = {
   errorNotice?: string;
   /** The stream was lost, not the turn: Retry checks history before resending. */
   lostTurn?: AgentLostTurn;
+  /** One's 2-3 next questions for this answer; in memory only, shown while it is latest. */
+  followUps?: string[];
+  /**
+   * The information request this outcome chip or continuation answer belongs
+   * to. Set live when the turn starts; restored from history metadata
+   * (`metadata.consentBundleId`) when the server tags it.
+   */
+  consentBundleId?: string;
+  /** The outcome chip's words for the person; the message text stays the fixed sent label. */
+  consentChipText?: string;
+  /** The server already hid this answer because the sharing it used ended. */
+  consentAccessEnded?: boolean;
+  /** Whose shared information this answer used (`metadata.consentAccess`), names and labels only. */
+  consentAccess?: AgentChatConsentAccess;
 };
 
 type AgentLostTurn = { conversationId: string; startedAtMs: number };
+
+const EMPTY_CONSENT_OUTCOMES: Readonly<Record<string, string>> = Object.freeze({});
+
+/** How a follow-up turn ended; a consent answer another device already gave is settled, not failed. */
+type FollowUpTurnResult = "answered" | "continued_elsewhere" | "failed";
 
 /** Short inline notice under a partial answer whose connection was lost. */
 export const AGENT_PARTIAL_ANSWER_LOST_NOTICE = "Connection lost before One finished.";
@@ -1205,10 +1284,17 @@ export function mergePendingConsentMessages(
   return merged;
 }
 
+/** The Undo toast's line for a decline from the chat card, as the Consent Center words it. */
+export function declinedChatRequestMessage(requesterLabel: string): string {
+  const first = requesterLabel.trim().split(/\s+/)[0];
+  return first ? `Declined ${first}'s request.` : "Declined the request.";
+}
+
 function markPendingConsentRequestDirectiveStatus(
   event: SpecialistDirectiveEvent | null | undefined,
   itemId: string,
-  status: Exclude<PendingConsentCardStatus, "pending">,
+  // "pending" puts a card back after Undo on a decline.
+  status: PendingConsentCardStatus,
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
@@ -1313,6 +1399,18 @@ function formatNow(): string {
   }).format(new Date());
 }
 
+/** The label and the moment for a message created now, taken together. */
+function stampNow(): { timestamp: string; sentAtMs: number } {
+  const sentAtMs = Date.now();
+  return {
+    timestamp: new Intl.DateTimeFormat(undefined, {
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(new Date(sentAtMs)),
+    sentAtMs,
+  };
+}
+
 function createGreetingMessage(): AgentMessage {
   return {
     id: "agent-greeting",
@@ -1363,13 +1461,14 @@ function AgentPromptSuggestions({
           type="button"
           disabled={disabled}
           onClick={() => onPromptSelect(prompt)}
-          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
+          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 overflow-hidden !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
         >
           <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
           <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden
           />
+          <MaterialRipple variant="none" effect="glass" disabled={disabled} />
         </button>
       ))}
     </div>
@@ -1409,78 +1508,6 @@ function AgentWelcomePanel({
     </section>
   );
 }
-
-/**
- * The one-time note shown right after setup. It is deliberately an ordinary
- * assistant message: same width cap, typography and spacing as AgentBubble's
- * assistant branch, with no card chrome. It used to be a 28px-radius hero card
- * with a 3xl heading and a "What's ready so far" summary, which read as a
- * different surface and told a brand-new person about setup they had not done.
- * It now offers the first actions instead: connect accounts, set up agents,
- * or ask one of the curated starters.
- */
-function PostSetupWelcomeCard({
-  name,
-  context,
-  prompts,
-  vaultOwnerToken,
-  hasPortfolioData,
-  disabled,
-  onPromptSelect,
-  onOpenConnector,
-  onNavigate,
-}: {
-  name: string;
-  context: EntryWelcome;
-  prompts: readonly string[];
-  vaultOwnerToken: string | null;
-  hasPortfolioData: boolean;
-  disabled: boolean;
-  onPromptSelect: (prompt: string) => void;
-  onOpenConnector: (
-    provider: "gmail" | "drive" | "calendar" | undefined,
-    trigger: HTMLButtonElement,
-  ) => void;
-  onNavigate: (href: string) => void;
-}) {
-  return (
-    <section
-      data-testid="post-setup-welcome-card"
-      aria-label="Welcome"
-      className="motion-step-enter flex w-full items-start justify-start"
-    >
-      <div className="min-w-0 max-w-[90%] sm:max-w-[min(82%,48rem)]">
-        <div className="px-1 py-2 text-sm leading-6 text-foreground">
-          <p className="font-semibold">Welcome, {name}.</p>
-          <p className="mt-2">
-            I’m One, your private agent. Connect what you want me to work with,
-            or set up an agent. You decide what I see and who it’s shared with.
-          </p>
-        </div>
-        <AgentFirstRunActions
-          vaultOwnerToken={vaultOwnerToken}
-          hasPortfolioData={hasPortfolioData}
-          memoryHasItems={context.status === "ready" && context.totalAttributes > 0}
-          disabled={disabled}
-          onOpenConnector={onOpenConnector}
-          onNavigate={onNavigate}
-        />
-        <div role="group" aria-label="Try asking" className="mt-4">
-          <p className="px-1 text-xs font-medium text-muted-foreground">Try asking</p>
-          <div className="mt-2">
-            <AgentPromptSuggestions
-              prompts={prompts}
-              disabled={disabled}
-              onPromptSelect={onPromptSelect}
-              align="start"
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
-
 
 function useAnimatedAssistantText(targetText: string, active: boolean) {
   const [displayedText, setDisplayedText] = useState(active ? "" : targetText);
@@ -1635,8 +1662,9 @@ export function GmailInformationRequestAttachment({
         onClick={() => void toggle()}
         aria-expanded={open}
         aria-controls={open ? previewId : undefined}
-        className="group flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+        className="group relative flex min-h-14 w-full items-center gap-3 rounded-[inherit] px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
       >
+        <MaterialRipple variant="none" effect="fill" />
         <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-black/[0.12] text-white shadow-sm">
           <Mail className="h-[18px] w-[18px]" aria-hidden="true" />
         </span>
@@ -1705,8 +1733,6 @@ export function AgentBubble({
   onInformationRequestSubmitted,
   onCompileDriveNotes,
   onDownloadDriveNotes,
-  userAvatarUrl,
-  userInitials = "YO",
   onRetry,
   retryDisabled = false,
   busyConsentItemId = null,
@@ -1721,14 +1747,13 @@ export function AgentBubble({
   reported = false,
   onReport,
   gmailInformationRequestAttachment,
+  driveMemoryReview,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   onCompileDriveNotes?: (query: string, window: DriveOwnerCompileWindow) => void;
   onDownloadDriveNotes?: () => void;
-  userAvatarUrl?: string | null;
-  userInitials?: string;
   onRetry?: () => void;
   retryDisabled?: boolean;
   busyConsentItemId?: string | null;
@@ -1747,6 +1772,7 @@ export function AgentBubble({
   reported?: boolean;
   onReport?: (reason: AgentResponseReportReason) => Promise<void>;
   gmailInformationRequestAttachment?: ReactNode;
+  driveMemoryReview?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   // The rating is owned by the workspace so it survives a reload; the bubble
@@ -1825,10 +1851,99 @@ export function AgentBubble({
     }
   };
 
+  // Only settled, successful answers move their controls beside the bubble;
+  // an error keeps its Try again in plain sight.
+  const hoverResponseActions = showResponseActions && !isError;
+  const responseActionButtons = (
+    <div className="flex items-center gap-1">
+      {!isError ? (
+        <>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="relative grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+        aria-label={copied ? "Response copied" : "Copy response"}
+        title={copied ? "Copied" : "Copy response"}
+      >
+        {copied ? (
+          <Check className="h-3.5 w-3.5" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" />
+        )}
+        <MaterialRipple variant="none" effect="glass" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onRate?.(liked ? null : "up")}
+        className={cn(
+          "relative grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+          liked
+            ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
+            : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+        )}
+        aria-label="Like response"
+        aria-pressed={liked}
+        title="Like response"
+      >
+        <ThumbsUp className="h-3.5 w-3.5" weight={liked ? "fill" : "regular"} />
+        <MaterialRipple variant="none" effect="glass" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onRate?.(disliked ? null : "down")}
+        className={cn(
+          "relative grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+          disliked
+            ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
+            : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
+        )}
+        aria-label="Dislike response"
+        aria-pressed={disliked}
+        title="Dislike response"
+      >
+        <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
+        <MaterialRipple variant="none" effect="glass" />
+      </button>
+      {onReport && isAndroid() ? (
+        // Google Play AI-Generated Content policy. Android only for
+        // now, so iOS and web chat stay exactly as they are.
+        <AgentResponseReportButton reported={reported} onReport={onReport} />
+      ) : null}
+        </>
+      ) : null}
+      {onRetry ? (
+        <button
+          type="button"
+          onClick={onRetry}
+          disabled={retryDisabled}
+          className="relative ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
+          aria-label="Try again"
+          title="Try again"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          {/* One line everywhere: it wrapped to two lines beside the bubble. */}
+          <span>Try again</span>
+          <MaterialRipple variant="none" effect="glass" disabled={retryDisabled} />
+        </button>
+      ) : null}
+    </div>
+  );
+  const hoverResponseActionsNode = hoverResponseActions ? (
+    <div
+      data-agent-response-actions="hover"
+      className="one-chat-hover-actions items-center text-[rgba(0,0,0,0.46)] dark:text-zinc-500"
+    >
+      {responseActionButtons}
+    </div>
+  ) : null;
+
   return (
     <div
       data-message-role={message.role}
       data-message-status={message.status}
+      // The time is kept on the row for tooling; the transcript shows it in
+      // the centered separator above each group instead of under every bubble.
+      data-message-sent-at={message.sentAtMs ? new Date(message.sentAtMs).toISOString() : undefined}
       className={cn(
         "motion-step-enter flex w-full items-start gap-2",
         isUser ? "justify-end" : "justify-start",
@@ -1840,7 +1955,7 @@ export function AgentBubble({
           shouldRenderStreamPanel && !isUser
             ? "w-full max-w-none"
             : "max-w-[90%] sm:max-w-[min(82%,48rem)]",
-          isUser && "order-first sm:max-w-[min(76%,42rem)]",
+          isUser && "sm:max-w-[min(76%,42rem)]",
         )}
       >
         <div
@@ -1849,9 +1964,9 @@ export function AgentBubble({
           className={cn(
             "text-sm leading-6",
             isUser
-              ? "rounded-[22px] rounded-br-[7px] bg-[linear-gradient(145deg,var(--app-accent),var(--app-accent-deep))] px-4 py-2.5 text-[color:var(--app-accent-fg)] shadow-[0_14px_34px_-24px_var(--app-accent-deep)]"
+              ? CHAT_USER_BUBBLE_CLASSNAME
               : showAssistantBubble
-                ? "px-1 py-2 text-foreground"
+                ? cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative")
                 : "px-0 py-1 text-foreground",
             isError &&
               "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
@@ -1885,11 +2000,22 @@ export function AgentBubble({
               isError={isError}
               opportunities={turnPanelOpportunities}
               response={
-                assistantText ? <AgentMarkdown text={assistantText} /> : null
+                assistantText ? (
+                  <div
+                    data-agent-response-bubble
+                    className={cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative w-fit max-w-full sm:max-w-[min(82%,48rem)]")}
+                  >
+                    <AgentMarkdown text={assistantText} />
+                    {hoverResponseActionsNode}
+                  </div>
+                ) : null
               }
             />
           ) : assistantText ? (
-            <AgentMarkdown text={assistantText} />
+            <>
+              <AgentMarkdown text={assistantText} />
+              {showAssistantBubble && !isError ? hoverResponseActionsNode : null}
+            </>
           ) : canRenderConsentActions ||
             canRenderPendingConsentRequest ? null : (
             <AgentThinkingDots />
@@ -1905,83 +2031,19 @@ export function AgentBubble({
           ) : null}
         </div>
         {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
+        {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
+        {showResponseActions ? (
         <div
-          className={cn(
-            "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
-            isUser && "justify-end text-right",
-          )}
+          data-testid="agent-message-response-actions"
+          data-agent-response-actions="inline"
+          // Pointer desktops show these beside the bubble on hover instead
+          // (see `hoverResponseActions`); touch keeps this row, always shown.
+          data-hover-twin={hoverResponseActions ? "true" : undefined}
+          className="mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500"
         >
-          <span>{message.timestamp}</span>
-          {showResponseActions ? (
-            <div className="flex items-center gap-1">
-              {!isError ? (
-                <>
-              <button
-                type="button"
-                onClick={handleCopy}
-                className="grid h-7 w-7 place-items-center rounded-md border border-transparent text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-                aria-label={copied ? "Response copied" : "Copy response"}
-                title={copied ? "Copied" : "Copy response"}
-              >
-                {copied ? (
-                  <Check className="h-3.5 w-3.5" />
-                ) : (
-                  <Copy className="h-3.5 w-3.5" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => onRate?.(liked ? null : "up")}
-                className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                  liked
-                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
-                )}
-                aria-label="Like response"
-                aria-pressed={liked}
-                title="Like response"
-              >
-                <ThumbsUp className="h-3.5 w-3.5" weight={liked ? "fill" : "regular"} />
-              </button>
-              <button
-                type="button"
-                onClick={() => onRate?.(disliked ? null : "down")}
-                className={cn(
-                  "grid h-7 w-7 place-items-center rounded-md border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
-                  disliked
-                    ? "border-transparent bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]"
-                    : "border-transparent text-[rgba(0,0,0,0.46)] hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200",
-                )}
-                aria-label="Dislike response"
-                aria-pressed={disliked}
-                title="Dislike response"
-              >
-                <ThumbsDown className="h-3.5 w-3.5" weight={disliked ? "fill" : "regular"} />
-              </button>
-              {onReport && isAndroid() ? (
-                // Google Play AI-Generated Content policy. Android only for
-                // now, so iOS and web chat stay exactly as they are.
-                <AgentResponseReportButton reported={reported} onReport={onReport} />
-              ) : null}
-                </>
-              ) : null}
-              {onRetry ? (
-                <button
-                  type="button"
-                  onClick={onRetry}
-                  disabled={retryDisabled}
-                  className="ml-1 inline-flex h-7 items-center gap-1.5 rounded-md border border-transparent px-2 text-xs font-medium text-[rgba(0,0,0,0.46)] transition hover:border-black/10 hover:bg-black/[0.04] hover:text-[#1d1d1f] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-not-allowed disabled:opacity-45 dark:text-zinc-500 dark:hover:border-white/10 dark:hover:bg-white/[0.06] dark:hover:text-zinc-200"
-                  aria-label="Try again"
-                  title="Try again"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">Try again</span>
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          {responseActionButtons}
         </div>
+        ) : null}
         {canRenderConsentActions && consentActionsPayload ? (
           <div className="mt-4">
             <SpecialistConsentActionsCard
@@ -2014,15 +2076,39 @@ export function AgentBubble({
           </div>
         ) : null}
       </div>
-      {isUser ? (
-        <span className="mt-0.5 shrink-0" data-testid="agent-chat-self-avatar">
-          <AvatarBubble
-            initials={userInitials}
-            imageUrl={userAvatarUrl}
-            size={30}
-          />
+    </div>
+  );
+}
+
+/**
+ * Muse-style assistant surface, scoped to One's chat. The shared
+ * `CHAT_ASSISTANT_BODY_CLASSNAME` stays as it is for the product introduction.
+ */
+const ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME =
+  "rounded-[24px] bg-[color:var(--one-chat-bubble)] px-[18px] py-3 text-[15px] leading-[1.6] text-foreground";
+
+/** The centered date/time line that opens a group of messages. */
+function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
+  return (
+    <div
+      data-testid="agent-chat-time-separator"
+      className="flex justify-center pb-0.5 pt-2 first:pt-0"
+    >
+      {separator.dateTime ? (
+        <time
+          dateTime={separator.dateTime}
+          title={separator.accessibleLabel}
+          className="text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]"
+        >
+          <span aria-hidden="true">{separator.text}</span>
+          <span className="sr-only">{separator.accessibleLabel}</span>
+        </time>
+      ) : (
+        <span className="text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
+          <span aria-hidden="true">{separator.text}</span>
+          <span className="sr-only">{separator.accessibleLabel}</span>
         </span>
-      ) : null}
+      )}
     </div>
   );
 }
@@ -2046,7 +2132,13 @@ export function storedMessageToAgentMessage(
   // reload: prefer the persisted display label and render it as a chip. The
   // backend (Task 3) guarantees metadata.display for new selection messages;
   // legacy rows without metadata are detected via LEGACY_SELECTION_SEED below.
-  const isSelection = message.metadata?.kind === "selection";
+  // The follow-up turn after an answer is sent as the server's fixed label
+  // ("Consent approved"). It is a status chip, never the person's words, even
+  // when the server did not mark it (it refused the continuation, or a retry
+  // sent the label as a plain turn): the chip then names the request above it.
+  const isConsentOutcomeLabel =
+    message.role === "user" && wireOutcomeForSentLabel(message.content.trim()) !== null;
+  const isSelection = message.metadata?.kind === "selection" || isConsentOutcomeLabel;
   // Detect legacy rows: user message with raw seed content and no usable metadata.
   const isLegacySelectionSeed =
     !isSelection &&
@@ -2054,7 +2146,9 @@ export function storedMessageToAgentMessage(
     LEGACY_SELECTION_SEED.test(message.content);
 
   const displayText =
-    isSelection && message.metadata?.display
+    isConsentOutcomeLabel
+      ? message.content.trim()
+      : isSelection && message.metadata?.display
       ? message.metadata.display
       : isLegacySelectionSeed
         ? "Your selection"
@@ -2140,12 +2234,18 @@ export function storedMessageToAgentMessage(
             minute: "2-digit",
           }).format(createdAt)
         : formatNow(),
+    ...(createdAt && !Number.isNaN(createdAt.getTime())
+      ? { sentAtMs: createdAt.getTime() }
+      : {}),
     status: message.status === "error" ? "error" : "done",
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
     ...(structuredExperiences.length ? { structuredExperiences } : {}),
     ...(streamEvents.length ? { streamEvents } : {}),
+    ...(message.metadata?.consentBundleId ? { consentBundleId: message.metadata.consentBundleId } : {}),
+    ...(message.metadata?.consentAccessEnded ? { consentAccessEnded: true } : {}),
+    ...(message.metadata?.consentAccess ? { consentAccess: message.metadata.consentAccess } : {}),
   };
 }
 
@@ -2155,13 +2255,7 @@ export function storedMessageToAgentMessage(
  * January 1970, which rendered as a wrong clock time after returning to a chat.
  */
 export function restoredMessageTime(value: unknown): Date | null {
-  if (value === null || value === undefined || value === "") return null;
-  const numeric = typeof value === "number" ? value
-    : typeof value === "string" && /^\d+(\.\d+)?$/.test(value.trim()) ? Number(value) : null;
-  const date = numeric !== null
-    ? new Date(numeric < 1e12 ? numeric * 1000 : numeric)
-    : new Date(String(value));
-  return Number.isNaN(date.getTime()) ? null : date;
+  return parseChatTimestamp(value);
 }
 
 const RESTORED_CONNECTOR_STEP_LABEL = "Connected tool";
@@ -2189,9 +2283,11 @@ export function labelRestoredConnectorSteps<T extends { streamEvents?: AgentVisi
 
 export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
   const seenExperienceIds = new Set<string>();
-  return messages
+  // A sent request comes back as a draft plus its Send receipt; fold them so
+  // the card restores in place as sent, never as "Not sent yet".
+  return foldSubmittedRequestReceipts(messages
     .map(message => storedMessageToAgentMessage(message, seenExperienceIds))
-    .filter((message): message is AgentMessage => Boolean(message));
+    .filter((message): message is AgentMessage => Boolean(message)));
 }
 
 function ChatAgentSubtitle({ text }: { text: string }) {
@@ -2227,6 +2323,45 @@ export function chatHeaderSubtitle(input: {
   const current = input.activeToolCalls.at(-1);
   if (current) return `${current.activity || current.label}…`;
   return input.statusText || IDLE_AGENT_SUBTITLE;
+}
+
+/**
+ * From this width the chat history is a persistent column beside the
+ * conversation (Muse-style); below it, the existing full-height drawer.
+ */
+const DESKTOP_HISTORY_QUERY = "(min-width: 1024px)";
+const DESKTOP_HISTORY_COLLAPSED_KEY = "one.chat.desktop-history-collapsed";
+
+function subscribeDesktopHistoryLayout(onChange: () => void): () => void {
+  const query = window.matchMedia(DESKTOP_HISTORY_QUERY);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
+function useDesktopHistoryLayout(): boolean {
+  return useSyncExternalStore(
+    subscribeDesktopHistoryLayout,
+    () => window.matchMedia(DESKTOP_HISTORY_QUERY).matches,
+    () => false,
+  );
+}
+
+/** A per-viewer layout preference only; unreadable storage means expanded. */
+function readDesktopHistoryCollapsed(): boolean {
+  try {
+    return window.localStorage.getItem(DESKTOP_HISTORY_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeDesktopHistoryCollapsed(collapsed: boolean): void {
+  try {
+    if (collapsed) window.localStorage.setItem(DESKTOP_HISTORY_COLLAPSED_KEY, "1");
+    else window.localStorage.removeItem(DESKTOP_HISTORY_COLLAPSED_KEY);
+  } catch {
+    // Private mode or blocked storage: the column simply stays as toggled.
+  }
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -2306,6 +2441,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const transcriptProgrammaticTargetRef = useRef<number | null>(null);
   const transcriptProgrammaticScrollTimeoutRef = useRef<number | null>(null);
   const transcriptUserScrollRef = useRef(false);
+  // The last follow left the latest turn in view; growth keeps following it.
+  const transcriptStuckToEndRef = useRef(true);
   const scrollToSubmittedTurnRef = useRef(false);
 
   const clearTranscriptProgrammaticScroll = useCallback(() => {
@@ -2339,6 +2476,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [clearTranscriptProgrammaticScroll],
   );
+
+  // A card that just appeared (the ask card's Send row) is lifted above the
+  // composer the same way a sent turn is; it never lands behind it.
+  const revealInTranscript = useCallback((element: HTMLElement) => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      const transcript = transcriptRef.current;
+      if (!transcript || !transcript.contains(element)) return;
+      const top = transcriptRevealScrollTop(
+        measureTranscriptReveal(transcript, element, composerStackRef.current),
+      );
+      if (Math.abs(top - transcript.scrollTop) < 1) return;
+      beginTranscriptProgrammaticScroll(top);
+      transcript.scrollTo({
+        top,
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      });
+    });
+  }, [beginTranscriptProgrammaticScroll]);
   const enterPuppySurface = useCallback(() => {
     // Unconditional, and not behind a `voiceActive` guard. It is a no-op when
     // nothing is running, and it is the only shape that also covers the window
@@ -2453,8 +2609,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
   } | null>(null);
   const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
-  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions; owner: AuthSessionOwnerSnapshot; conversationId: string | null } | null>(null);
-  useEffect(() => { pendingChatKeyRetryRef.current = null; }, [renderedWorkspaceOwnerId]);
+  const pendingChatKeyRetryRef = useRef<{ text: string; options: AgentRunTurnOptions } | null>(null);
   currentDraftRef.current = { input, attachment: longPromptAttachment };
   const recoveryUiRef = useRef({
     conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
@@ -2567,6 +2722,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
     string | null
   >(null);
+  // Google connects from chat never navigate this window: the vault key is
+  // memory-only. Each surface holds at most one in-place attempt.
+  const gmailSendConnect = useInPlaceConnect();
+  const directiveConnect = useInPlaceConnect();
+  const directiveConnectWaiting = directiveConnect.pending?.cancellable === true;
   const voiceState = useAgentVoiceState((state) => state.status);
   const [hasPortfolioData, setHasPortfolioData] = useState(false);
   const [welcomePromptSetIndex, setWelcomePromptSetIndex] = useState(0);
@@ -2584,8 +2744,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   composerExpandedRef.current = composerExpanded;
   const composerTransitionRectRef = useRef<DOMRect | null>(null);
   const composerSurfaceAnimationRef = useRef<Animation | null>(null);
-  const manuallyCollapsedComposerDraftsRef = useRef(new Set<string>());
-  const composerDraftKey = conversationId ?? "__new_chat__";
   const setComposerExpanded = useCallback((
     expanded: boolean,
     originRect?: DOMRect | null,
@@ -2605,6 +2763,28 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, []);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
+  const desktopHistoryLayout = useDesktopHistoryLayout();
+  const [desktopHistoryCollapsed, setDesktopHistoryCollapsed] = useState(false);
+  useEffect(() => {
+    setDesktopHistoryCollapsed(readDesktopHistoryCollapsed());
+  }, []);
+  const desktopHistoryVisible = desktopHistoryLayout && !desktopHistoryCollapsed;
+  const [driveReviewSignal, setDriveReviewSignal] = useState<{ ownerId: string | null; epoch: number; count: number }>(
+    { ownerId: null, epoch: vaultSessionEpoch, count: 0 },
+  );
+  const onDriveNeedsReviewChange = useCallback((count: number) => {
+    const ownerId = user?.uid ?? null;
+    setDriveReviewSignal(current => current.ownerId === ownerId && current.epoch === vaultSessionEpoch && current.count === count
+      ? current : { ownerId, epoch: vaultSessionEpoch, count });
+  }, [user?.uid, vaultSessionEpoch]);
+  const driveReviewsPending = user && isVaultUnlocked && driveReviewSignal.ownerId === user.uid &&
+    driveReviewSignal.epoch === vaultSessionEpoch ? driveReviewSignal.count : 0;
+  const desktopHistoryId = useId();
+  const [getAppOpen, setGetAppOpen] = useState(false);
+  const [getAppAnchorRect, setGetAppAnchorRect] = useState<DOMRect | null>(null);
+  const getAppReturnFocusRef = useRef<HTMLElement | null>(null);
+  // The installed app never offers to download itself.
+  const offerGetApp = !Capacitor.isNativePlatform();
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
@@ -2641,6 +2821,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setPendingSpecialistDirective(null);
     },
   });
+  // Don't allow from the chat card holds for the same five-second Undo as
+  // the Consent Center rows and the Feed (lib/consent/deferred-consent-decline.ts).
+  const { schedule: scheduleConsentDecline } = useDeferredConsentDeclines();
   const consentActions = useConsentActions({
     userId: user?.uid,
     onActionComplete: (detail) => {
@@ -2833,25 +3016,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     compiledDriveMarkdownRef.current.clear();
     setMessages(clearDriveCompilationFromMessages);
   }, [conversationId]);
-  const handleEnableGmailSend = useCallback(async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    try {
-      const idToken = await user.getIdToken();
-      const loginHint = user.providerData?.some(
-        (provider) => provider.providerId === "google.com",
-      )
-        ? user.email ?? null
-        : null;
-      const start = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        loginHint,
-        includeGrantedScopes: true,
-        purpose: "send",
-      });
-      window.location.assign(start.authorize_url);
-    } catch {}
-  }, [user]);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -3076,12 +3240,23 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
     // Keep the latest-turn behavior for a fresh/initial conversation, but do
     // not yank a reader back to the bottom after they have started browsing
-    // older messages. The ref is intentionally session-local and does not
-    // add a render to the scroll path.
-    const shouldFollowTranscript =
-      !transcriptUserScrollRef.current &&
-      (scrollToSubmittedTurnRef.current || transcriptProgrammaticScrollRef.current ||
-        oneScrollTopRef.current <= 2 || distanceFromBottom <= 48);
+    // older messages. The refs are intentionally session-local and do not
+    // add a render to the scroll path. "At the end" is measured against the
+    // composer, not the raw scroll bottom, and is sticky once followed, so a
+    // growing answer never slides under the composer and bottom bar.
+    const endBelowBand = transcriptRevealScrollTop(
+      measureTranscriptReveal(transcript, messagesEnd, composerStackRef.current),
+    ) - transcript.scrollTop;
+    const shouldFollowTranscript = transcriptFollowsLatest({
+      userScrolled: transcriptUserScrollRef.current,
+      submittedTurn: scrollToSubmittedTurnRef.current,
+      programmatic: transcriptProgrammaticScrollRef.current,
+      scrollTop: oneScrollTopRef.current,
+      stuckToEnd: transcriptStuckToEndRef.current,
+      distanceFromBottom,
+      endBelowBand,
+    });
+    transcriptStuckToEndRef.current = shouldFollowTranscript;
     if (!shouldFollowTranscript) return;
 
     const submittedTurn = scrollToSubmittedTurnRef.current;
@@ -3230,47 +3405,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const rectBeforeEmptyCollapse =
       wasExpanded && !input.trim() ? surface?.getBoundingClientRect() ?? null : null;
     textarea.style.height = "0px";
+    // The field grows a line at a time up to its CSS ceiling (about six
+    // lines), then scrolls inside itself, as in the reference composer. It no
+    // longer jumps into the tall editor on the second line (founder direction,
+    // 2026-09-29); that editor is only for opening a pasted-text attachment.
     const nextHeight = textarea.scrollHeight;
-    // The compact pill grows to its CSS ceiling; text that outgrows it moves
-    // into the expanded writing surface (the same place the expand button
-    // opens) instead of scrolling inside the pill, which drew a scrollbar
-    // beside the expand icon (founder report, 2026-09-22).
-    const compactStyles = window.getComputedStyle(textarea);
-    const compactCeiling = Number.parseFloat(compactStyles.maxHeight);
-    const lineHeight = Number.parseFloat(compactStyles.lineHeight);
-    const verticalPadding =
-      Number.parseFloat(compactStyles.paddingTop) +
-      Number.parseFloat(compactStyles.paddingBottom);
-    const oneLineHeight = lineHeight + verticalPadding;
-    const hasSecondLine = Number.isFinite(oneLineHeight)
-      ? nextHeight > oneLineHeight + 1
-      : Number.isFinite(compactCeiling) && nextHeight > compactCeiling + 1;
 
-    if (!input.trim()) {
-      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
-      if (wasExpanded) {
-        textarea.style.height = previousHeight;
-        setComposerExpanded(false, rectBeforeEmptyCollapse);
-        return;
-      }
-    } else if (!hasSecondLine) {
-      // Re-arm automatic expansion after the person edits the draft back to a
-      // single line. A manual collapse remains respected while it is long.
-      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
-    }
-
-    const shouldAutoExpand =
-      !composerExpanded && hasSecondLine &&
-      !manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey);
-    if (shouldAutoExpand) {
-      // Restore the current compact geometry before recording the FLIP origin.
+    if (!input.trim() && wasExpanded) {
       textarea.style.height = previousHeight;
-      setComposerExpanded(true);
+      setComposerExpanded(false, rectBeforeEmptyCollapse);
       return;
     }
     // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
-  }, [composerDraftKey, composerExpanded, input, setComposerExpanded, voiceActive]);
+  }, [composerExpanded, input, setComposerExpanded, voiceActive]);
 
   useLayoutEffect(() => {
     const fromRect = composerTransitionRectRef.current;
@@ -3410,6 +3558,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     () => getWelcomePrompts(welcomePromptSetIndex),
     [welcomePromptSetIndex],
   );
+  // One's conversational onboarding replaces the old post-setup tile card.
+  const chatOnboarding = useChatOnboarding({
+    userId: user?.uid,
+    displayName: formatAgentDisplayName(user?.displayName, user?.email),
+    vaultKey,
+    vaultOwnerToken,
+    isVaultUnlocked,
+    startSignal: Boolean(postSetupWelcomeContext),
+    messages,
+    conversationId,
+    onFocusComposer: () => composerTextareaRef.current?.focus(),
+    visiblePrompts: welcomePrompts,
+  });
 
   useEffect(() => {
     if (welcomePromptSetInitializedRef.current) return;
@@ -3637,6 +3798,104 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftOpen(true);
   };
 
+  /**
+   * Grants Gmail sending in place. Call directly from the click: the consent
+   * window opens synchronously. On success the reviewed draft reopens, so the
+   * pending send resumes exactly where the person left it; nothing is sent
+   * until they send it again.
+   */
+  const handleEnableGmailSend = (item?: EmailDeliveryHistoryItem) => {
+    const owner = user;
+    if (!owner?.uid || !owner.getIdToken) return;
+    const ownerId = owner.uid;
+    const started = gmailSendConnect.start(
+      item?.id ?? "gmail_send",
+      (controls) =>
+        connectGmailInPlace({
+          owner,
+          purpose: "send",
+          ...controls,
+          isCurrent: () => workspaceOwnerIdRef.current === ownerId,
+        }),
+      (outcome, { cancelled }) => {
+        if (outcome === "connected") {
+          toast.success(inPlaceConnectCopy("gmail_send", outcome));
+          if (item) retryEmailDelivery(item);
+        } else if (outcome === "failed") {
+          toast.error(inPlaceConnectCopy("gmail_send", outcome));
+        } else if (!cancelled) {
+          toast.info(inPlaceConnectCopy("gmail_send", outcome));
+        }
+      },
+    );
+    if (started === "blocked") toast.info(OAUTH_WINDOW_BLOCKED_COPY);
+  };
+
+  /**
+   * Runs a connect requested by a specialist card. The card stays visible and
+   * cancellable while Google's window is open; on success it is cleared, as
+   * the old redirect-return did, and the person stays in this chat.
+   */
+  const runDirectiveConnect = (kind: "gmail_modify" | "calendar") => {
+    const owner = user;
+    if (!owner?.uid) return;
+    const ownerId = owner.uid;
+    const payload = (pendingSpecialistDirective?.directive.payload ?? {}) as Record<
+      string,
+      unknown
+    >;
+    const isCurrent = () => workspaceOwnerIdRef.current === ownerId;
+    const started = directiveConnect.start(
+      kind,
+      (controls) =>
+        kind === "calendar"
+          ? connectCalendarInPlace({
+              owner,
+              accessLevel: payload.accessLevel === "manage" ? "manage" : "read",
+              ...controls,
+              isCurrent,
+            })
+          : connectGmailInPlace({
+              owner,
+              purpose: "modify",
+              ...controls,
+              isCurrent,
+            }),
+      (outcome, { cancelled, surface }) => {
+        setSpecialistBusy(false);
+        if (
+          kind === "calendar" &&
+          (outcome === "failed" || (outcome === "connected" && surface === "native"))
+        ) {
+          // Web outcomes are recorded by the verified callback page itself.
+          trackEvent("one_calendar_action", {
+            route_id: "one_calendar",
+            action: "connected",
+            result: outcome === "connected" ? "success" : "error",
+          });
+        }
+        // Cancel already dismissed the card and said so.
+        if (cancelled) return;
+        if (outcome === "connected") {
+          setPendingSpecialistDirective(null);
+          toast.success(inPlaceConnectCopy(kind, outcome));
+        } else if (outcome === "failed") {
+          toast.error(inPlaceConnectCopy(kind, outcome));
+        } else {
+          toast.info(inPlaceConnectCopy(kind, outcome));
+        }
+      },
+    );
+    if (started === "started") setSpecialistBusy(true);
+    else if (started === "blocked") toast.info(OAUTH_WINDOW_BLOCKED_COPY);
+    else if (started === "unsupported") {
+      // The native Google sign-in plugins request an explicit scope list and do
+      // not yet include gmail.modify; never start a grant they would reject.
+      setPendingSpecialistDirective(null);
+      addErrorMessage("Allow Gmail changes from One on the web for now.");
+    }
+  };
+
   const openGmailEmailDraftFromDirective = useCallback(
     (event: AgentChatToolEvent, assistantMessageId: string): boolean => {
       const sourceBoundReply = getGmailInformationRequestReplyPayload(event);
@@ -3809,7 +4068,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // away from someone who just toggled to Puppy. Setting "one" while already
     // "one" is a React bail-out, so no dependency changes and no loop.
     setAgentSurface("one");
-    const timestamp = formatNow();
+    const { timestamp, sentAtMs } = stampNow();
     const nextMessages: AgentMessage[] = [];
     const transcript = handoff.transcript?.trim();
     const emailDraftInstruction = handoff.emailDraftInstruction?.trim();
@@ -3869,6 +4128,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         role: "user",
         text: transcript,
         timestamp,
+        sentAtMs,
       });
     }
     // The owner reads the action's label, never its identifier.
@@ -3895,6 +4155,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       role: "assistant",
       text: summaryText,
       timestamp,
+      sentAtMs,
       status: "done",
     });
     if (
@@ -4027,7 +4288,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               id: `msg-${Date.now()}-pending-consent-${item.id}`,
               role: "assistant",
               text: event.message,
-              timestamp: formatNow(),
+              ...stampNow(),
               status: "done",
               specialistDirective: event,
             },
@@ -4143,37 +4404,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       id: `msg-${Date.now()}-assistant-error`,
       role: "assistant",
       text,
-      timestamp: formatNow(),
+      ...stampNow(),
       status: "error",
     });
-  };
-
-  const handleEnableGmailModify = async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    if (Capacitor.isNativePlatform()) {
-      // The native Google sign-in plugins request an explicit scope list and do
-      // not yet include gmail.modify; never start a grant they would reject.
-      addErrorMessage("Allow Gmail changes from One on the web for now.");
-      return;
-    }
-    try {
-      const idToken = await user.getIdToken();
-      const loginHint = user.providerData?.some(
-        (provider) => provider.providerId === "google.com",
-      )
-        ? user.email ?? null
-        : null;
-      const start = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        loginHint,
-        includeGrantedScopes: true,
-        purpose: "modify",
-      });
-      window.location.assign(start.authorize_url);
-    } catch {
-      addErrorMessage("Unable to request Gmail permission. Please try again.");
-    }
   };
 
   useEffect(() => {
@@ -4237,7 +4470,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       id: `reattach-${selectedId}`,
                       role: "assistant" as const,
                       text: "",
-                      timestamp: formatNow(),
+                      ...stampNow(),
                       status: "streaming" as const,
                     }]
                   : []),
@@ -4955,8 +5188,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // lookup and memory capture -- use this. The wire and the transcript keep
     // the attachment separate from the typed text.
     const turnSourceText = composeTurnSourceText(text, attachments);
-    const requestOwner = snapshotValidatedAuthSessionOwner();
-    const requestConversationId = conversationIdRef.current;
     // Pre-model paste guard: a message that appears to contain a full card
     // number must never reach /api/one/agent-chat, history, or telemetry.
     // Block before ANY network call and route to the secure add form.
@@ -4965,7 +5196,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         id: `msg-${Date.now()}-pan-blocked`,
         role: "assistant",
         text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
-        timestamp: formatNow(),
+        ...stampNow(),
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
@@ -4988,7 +5219,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const userId = user.uid;
     const token = getVaultOwnerToken();
     const appendUserMessage = options.appendUserMessage ?? true;
-    const timestamp = formatNow();
+    const { timestamp, sentAtMs } = stampNow();
     const turnId = Date.now();
     const debugTurnId = `agent_turn_${turnId}`;
     const assistantMessageId = `msg-${turnId}-assistant`;
@@ -5293,9 +5524,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           phase: "executing",
         });
         const execute =
-          action?.activation_policy === "trusted_activation_required" &&
-          !(action.command?.domain === "location" && action.execution_target.status === "wired"
-            && action.execution_target.path === "local_handler")
+          action?.activation_policy === "trusted_activation_required"
             ? executeTrustedActivationGatewayAction
             : executeAgentGatewayAction;
         const result = await execute({
@@ -5399,6 +5628,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       text,
       ...(attachments.length ? { attachments } : {}),
       timestamp,
+      sentAtMs,
       gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
     };
     const assistantMessage: AgentMessage = {
@@ -5406,6 +5636,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       role: "assistant",
       text: "",
       timestamp,
+      sentAtMs,
       status: "streaming",
       // A cold decrypted context read happens before the AG-UI request starts.
       // Show that real local work immediately without exposing private facts.
@@ -5709,17 +5940,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               toolEvent,
             );
             upsertTurnStreamEvent(visibleEvent);
-            const action = toolEvent.actionId ? getKaiActionById(toolEvent.actionId) : null;
-            // Location's command runtime owns the ledger-bound confirmation.
-            // Enter preparation directly; a generic chat tap is not its receipt.
-            const commandOwnsConfirmation = action?.command?.domain === "location"
-              && action.execution_target.status === "wired"
-              && action.execution_target.path === "local_handler";
+            // A parked run_app_action directive that owes no confirmation
+            // runs through the governed client executor; one
+            // that does owe a confirmation (or a trusted tap) is staged.
             if (
               toolEvent.raw.parked === true &&
               toolEvent.actionId &&
-              (commandOwnsConfirmation || (!toolEvent.requiresConfirmation &&
-              !toolEvent.trustedActivationRequired))
+              !toolEvent.requiresConfirmation &&
+              !toolEvent.trustedActivationRequired
             ) {
               const callKey = toolEvent.callId;
               if (executedToolCalls.has(callKey)) return;
@@ -5793,6 +6021,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
+          },
+          onFollowUpSuggestions: (followUps) => {
+            if (streamAbortController.signal.aborted) return;
+            updateMessage(assistantMessageId, (message) => ({ ...message, followUps }));
           },
           onInterrupt: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -5919,10 +6151,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
         }
         if (error.recovery === "unlock") {
-          if (error.retrySafe && requestOwner?.userId === userId &&
-              isValidatedAuthSessionOwnerCurrent(requestOwner) && conversationIdRef.current === requestConversationId) {
-            pendingChatKeyRetryRef.current = { text, options, owner: requestOwner, conversationId: requestConversationId };
-          }
+          pendingChatKeyRetryRef.current = { text, options };
           setVaultDialogOpen(true);
         }
       } else {
@@ -5946,8 +6175,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const pending = pendingChatKeyRetryRef.current;
     if (!hasChatAccess || !pending) return;
     pendingChatKeyRetryRef.current = null;
-    if (!isValidatedAuthSessionOwnerCurrent(pending.owner)) return;
-    if (conversationIdRef.current !== pending.conversationId) return;
     if (currentDraftRef.current.input.trim() !== pending.text) return;
     const pendingAttachments = pending.options.attachments ?? [];
     if (pendingAttachments.length) {
@@ -5977,20 +6204,54 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    */
   const sendFollowUpTurn = async (
     message: string,
-    extra: { consentContinuation?: AgentChatConsentContinuation } = {},
-  ) => {
-    if (!hasChatAccess || !user?.uid) return;
+    extra: {
+      consentContinuation?: AgentChatConsentContinuation;
+      feedAttention?: { itemId: string };
+      pkmContext?: string;
+    } = {},
+  ): Promise<FollowUpTurnResult> => {
+    if (!hasChatAccess || !user?.uid) return "failed";
     const userId = user.uid;
     const token = getVaultOwnerToken();
     if (!token) {
       addErrorMessage("Vault access expired. Unlock again to continue.");
-      return;
+      return "failed";
     }
+    const consentBundleId = extra.consentContinuation?.bundleId.toLowerCase();
+    // A consent follow-up another device already continued is refused by the
+    // server (409). That is a settled answer, not an error: the reply from the
+    // other device replaces this bubble, with no error shown.
+    let consentFailure: { reason: string; error?: unknown } | null = null;
+    const settleConsentFailure = async (): Promise<FollowUpTurnResult> => {
+      const failure = consentFailure;
+      if (!failure || !consentBundleId) return "failed";
+      const threadId = conversationIdRef.current;
+      const key = vaultKeyRef.current;
+      if (threadId && key && await continuedElsewhere({
+        conversationId: threadId,
+        bundleId: consentBundleId,
+        vaultOwnerToken: token,
+        vaultKey: key,
+      })) {
+        setMessages((current) => current.filter((item) => item.id !== assistantMessageId));
+        clearAgentChatHistoryCache(userId);
+        dispatchAgentChatHistoryInvalidated(userId);
+        if (conversationIdRef.current === threadId) {
+          void restoreConversationMessages(threadId, token, () => conversationIdRef.current === threadId)
+            .catch(() => undefined);
+        }
+        return "continued_elsewhere";
+      }
+      updateMessage(assistantMessageId, (current) =>
+        settleAssistantMessageError(current, failure.reason, failure.error),
+      );
+      return "failed";
+    };
 
     const turnId = Date.now();
     const debugTurnId = `agent_delegate_${turnId}`;
     const assistantMessageId = `msg-${turnId}-assistant`;
-    const timestamp = formatNow();
+    const { timestamp, sentAtMs } = stampNow();
 
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
@@ -6023,7 +6284,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       role: "assistant",
       text: "",
       timestamp,
+      sentAtMs,
       status: "streaming",
+      ...(consentBundleId ? { consentBundleId } : {}),
     });
     latestVisibleTurnIdRef.current = debugTurnId;
     setActiveToolCalls([]);
@@ -6038,6 +6301,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId,
         message,
         ...(extra.consentContinuation ? { consentContinuation: extra.consentContinuation } : {}),
+        ...(extra.feedAttention ? { feedAttention: extra.feedAttention } : {}),
+        ...(extra.pkmContext ? { pkmContext: extra.pkmContext } : {}),
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
@@ -6093,9 +6358,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
-            updateMessage(assistantMessageId, (current) =>
-              settleAssistantMessageError(current, message),
-            );
+            if (consentBundleId) {
+              consentFailure ??= { reason: message };
+            } else {
+              updateMessage(assistantMessageId, (current) =>
+                settleAssistantMessageError(current, message),
+              );
+            }
             setIsChatLoading(false);
             setIsStreaming(false);
           },
@@ -6110,13 +6379,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         }));
         setIsChatLoading(false);
         setIsStreaming(false);
-        return;
+        return "failed";
       }
       flushAssistantDelta();
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
       }
-      if (streamResult.detached) return; // settled-turn effect reloads the answer
+      if (consentFailure) {
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        return await settleConsentFailure();
+      }
+      if (streamResult.detached) return "answered"; // settled-turn effect reloads the answer
       updateMessage(assistantMessageId, (message) => {
         if (message.status === "error") return message;
         return {
@@ -6128,8 +6402,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      return "answered";
     } catch (error) {
       flushAssistantDelta();
+      let result: FollowUpTurnResult = "failed";
       if (streamAbortController.signal.aborted) {
         updateMessage(assistantMessageId, (message) => ({
           ...message,
@@ -6141,13 +6417,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           error instanceof Error && error.message
             ? error.message
             : "Agent chat request failed.";
-        updateMessage(assistantMessageId, (current) =>
-          settleAssistantMessageError(current, message, error),
-        );
+        if (consentBundleId) {
+          consentFailure ??= { reason: message, error };
+          result = await settleConsentFailure();
+        } else {
+          updateMessage(assistantMessageId, (current) =>
+            settleAssistantMessageError(current, message, error),
+          );
+        }
       }
       void loadConversationList(true).catch(() => undefined);
       setIsChatLoading(false);
       setIsStreaming(false);
+      return result;
     } finally {
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
@@ -6172,7 +6454,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const turnId = Date.now();
     const assistantMessageId = `msg-${turnId}-assistant`;
     const executedNavCalls = new Set<string>();
-    const timestamp = formatNow();
+    const { timestamp, sentAtMs } = stampNow();
     let assistantHasToken = false;
 
     // rAF-coalesce streamed tokens so the pre-vault intro tier renders as
@@ -6208,12 +6490,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       role: "user",
       text,
       timestamp,
+      sentAtMs,
     };
     const assistantMessage: AgentMessage = {
       id: assistantMessageId,
       role: "assistant",
       text: "",
       timestamp,
+      sentAtMs,
       status: "streaming",
     };
     setMessages((current) => [...current, userMessage, assistantMessage]);
@@ -6487,7 +6771,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       id: `msg-${crypto.randomUUID()}-${options.scope}-confirm`,
       role: "user",
       text: label,
-      timestamp: formatNow(),
+      ...stampNow(),
       status: "done",
       kind: "selection",
     });
@@ -6495,7 +6779,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       id: resultMessageId,
       role: "assistant",
       text: options.pendingText,
-      timestamp: formatNow(),
+      ...stampNow(),
       status: "streaming",
       renderAsPlainAssistantMessage: true,
     });
@@ -6554,35 +6838,349 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   };
 
-  // The other person answered a request this chat sent: show the outcome as a
-  // status chip at the end of that turn, then let One answer from it.
+  // --- Requests this conversation sent: durable waiting and access ended ---
+  // Rebuilt from the conversation itself on every load, so a reload, a cold
+  // start or a second device never loses a request that is still waiting.
+  const [consentLedger, setConsentLedger] = useState<{
+    conversationId: string;
+    continued: Record<string, string>;
+  } | null>(null);
+  const [liveBundleOutcomes, setLiveBundleOutcomes] = useState<Record<string, ConsentOutcome | null>>({});
+  const outgoingRequestCards = useMemo(() => collectOutgoingRequestCards(messages), [messages]);
+  const outgoingRequestCardsRef = useRef(outgoingRequestCards);
+  outgoingRequestCardsRef.current = outgoingRequestCards;
+  const outgoingRequestKey = outgoingRequestCards.map((card) => card.bundleId).join(",");
+  const continuedOutcomes = consentLedger && consentLedger.conversationId === conversationId
+    ? consentLedger.continued
+    : EMPTY_CONSENT_OUTCOMES;
+
+  useEffect(() => {
+    const ownerId = user?.uid;
+    const threadId = conversationId;
+    const token = vaultOwnerToken;
+    const key = vaultKey;
+    if (!hasChatAccess || !ownerId || !threadId || !token || !key || !outgoingRequestKey) return;
+    let active = true;
+    void getAgentChatConsentOutcomes({ conversationId: threadId, vaultOwnerToken: token, vaultKey: key })
+      .then((continued) => {
+        if (!active) return;
+        setConsentLedger({ conversationId: threadId, continued });
+        // Every card whose answer this conversation has not continued waits
+        // again: the doorbell finds an answer that landed while the app was
+        // closed, and the card continues it once (the server marker holds).
+        for (const request of rebuildWaitingRequests({
+          ownerId,
+          conversationId: threadId,
+          cards: outgoingRequestCardsRef.current,
+          continued,
+        })) {
+          watchSentInformationRequest(request);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [conversationId, hasChatAccess, outgoingRequestKey, user?.uid, vaultKey, vaultOwnerToken]);
+
+  // Each outgoing card reads "Reading…" then "Answered" from the continuation.
+  const consentCardPhaseFor = useInformationRequestPhaseReader(user?.uid);
+
+  const consentTags = useMemo(() => tagConsentContinuationMessages({
+    messages,
+    cards: outgoingRequestCards,
+    continued: continuedOutcomes,
+  }), [continuedOutcomes, messages, outgoingRequestCards]);
+  const sharedAnswerBundleKey = useMemo(() => [...new Set(
+    [...consentTags.values()]
+      .filter((tag) => tag.role === "answer" && isSharedOutcome(tag.continuedOutcome))
+      .map((tag) => tag.bundleId),
+  )].sort().join(","), [consentTags]);
+
+  // Shared access this chat answered from, while it is still live. Ended
+  // access leaves the watch; its answers already read "Access ended".
+  const watchedAccessBundleKey = useMemo(() => sharedAnswerBundleKey
+    .split(",")
+    .filter((bundleId) => bundleId && !isAccessEndedOutcome(liveBundleOutcomes[bundleId]))
+    .join(","), [liveBundleOutcomes, sharedAnswerBundleKey]);
+
+  // Read by the access watch when sharing ends, without re-arming it.
+  const continuedOutcomesRef = useRef(continuedOutcomes);
+  useEffect(() => {
+    continuedOutcomesRef.current = continuedOutcomes;
+  }, [continuedOutcomes]);
+  const liveBundleOutcomesRef = useRef(liveBundleOutcomes);
+  useEffect(() => {
+    liveBundleOutcomesRef.current = liveBundleOutcomes;
+  }, [liveBundleOutcomes]);
+
+  // Sharing ended: hide every answer One gave while it was live, now, not at
+  // the next reload. Tag them here by the server's own rule, then bring the
+  // server's redaction flags in so this chat and a reload agree.
+  const hideAnswersFromEndedAccess = useCallback((bundleId: string, token: string) => {
+    setMessages((current) => tagAnswersFromLiveAccess({
+      messages: current,
+      bundleId,
+      tags: tagConsentContinuationMessages({
+        messages: current,
+        cards: collectOutgoingRequestCards(current),
+        continued: continuedOutcomesRef.current,
+      }),
+      // Another request's access that is still live bounds what this one hides.
+      liveOutcomes: liveBundleOutcomesRef.current,
+    }));
+    const ownerId = user?.uid;
+    const threadId = conversationIdRef.current;
+    const key = vaultKeyRef.current;
+    if (!ownerId || !threadId || !key) return;
+    void loadAgentChatConversationHistory({
+      userId: ownerId,
+      conversationId: threadId,
+      vaultOwnerToken: token,
+      vaultKey: key,
+      force: true,
+    }).then((history) => {
+      if (conversationIdRef.current !== threadId) return;
+      const server = storedMessagesToAgentMessages(history);
+      setMessages((current) => mergeServerRedactionFlags(current, server));
+    }).catch(() => undefined);
+  }, [user?.uid]);
+
+  // Answers from shared information: watch that access while it is live,
+  // through the one app-wide live-access watch (about 5s for a minute after
+  // the answer, then 10s, while visible, and at once on a push, a live event
+  // or a return to the app). This chat reads each reading of those bundles,
+  // whoever made it, so a bundle the card also shows is read once per tick.
+  // A stop or a lapse hides every answer from it and ends the card within
+  // seconds. Decrypted information itself is never kept past its turn.
+  useEffect(() => {
+    const token = vaultOwnerToken;
+    if (!hasChatAccess || !token || !watchedAccessBundleKey) return;
+    const bundles = watchedAccessBundleKey.split(",");
+    let active = true;
+    const onReading = (bundleId: string) => (bundle: InformationRequestBundle) => {
+      if (!active || bundle.bundleId.toLowerCase() !== bundleId) return;
+      const outcome = informationRequestOutcome(bundle);
+      let changed = false;
+      setLiveBundleOutcomes((current) => {
+        if (current[bundleId] === outcome) return current;
+        changed = true;
+        return { ...current, [bundleId]: outcome };
+      });
+      // The card for this request reads its own status: tell it now,
+      // so it turns to "Access ended" with the answers, not later.
+      // Idempotent, and an ended bundle leaves the watch, so this runs
+      // once per stop without depending on when the updater above ran.
+      if (isAccessEndedOutcome(outcome)) hideAnswersFromEndedAccess(bundleId, token);
+      if (changed && isAccessEndedOutcome(outcome)) {
+        dispatchConsentStateChanged({
+          source: "information_request_updated",
+          origin: "chat_access_watch",
+          bundleId,
+          requestId: bundle.items[0]?.requestId ?? "",
+          action: outcome === "expired" ? "TIMEOUT" : "CONSENT_REVOKED",
+        });
+      }
+    };
+    const releases = bundles.flatMap((bundleId) => [
+      subscribeInformationRequest(bundleId, onReading(bundleId)),
+      watchLiveAccess({ bundleId, vaultOwnerToken: token }),
+    ]);
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      if (detail?.origin === "chat_access_watch") return;
+      const bundleId = String(detail?.bundleId || "").toLowerCase();
+      // A push or live event about one of these requests, or a consent change
+      // that names none: check now and return to the fast cadence.
+      if (!bundleId || bundles.includes(bundleId)) wakeLiveAccessWatch();
+    };
+    // A chat that opens on a live answer checks it at once.
+    wakeLiveAccessWatch();
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+    return () => {
+      active = false;
+      releases.forEach((release) => release());
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
+    };
+  }, [hasChatAccess, hideAnswersFromEndedAccess, watchedAccessBundleKey, vaultOwnerToken]);
+
+  // One Send per ask: while an ask card (or the card it became) is on screen
+  // for that person, a staged "Request someone's information" bar would be a
+  // second, duplicate send affordance.
+  const pendingAppActionDuplicatesAskCard = useMemo(() => Boolean(pendingAppAction)
+    && consentRequestDirectiveDuplicatesAskCard({
+      actionId: pendingAppAction?.event.actionId,
+      slots: pendingAppAction?.event.slots,
+      messages,
+    }), [messages, pendingAppAction]);
+
+  const redactedAnswerIds = useMemo(() => redactedConsentAnswers({
+    tags: consentTags,
+    liveOutcomes: liveBundleOutcomes,
+    serverRedacted: new Set(messages
+      .filter((message) => message.consentAccessEnded || message.consentAccess?.state === "ended")
+      .map((message) => message.id)),
+  }), [consentTags, liveBundleOutcomes, messages]);
+
+  const outgoingRequestCardFor = (messageId: string) => {
+    const tag = consentTags.get(messageId);
+    return tag ? outgoingRequestCards.find((card) => card.bundleId === tag.bundleId) ?? null : null;
+  };
+
+  // The server's names and labels win (they survive a conversation that no
+  // longer holds the card); the card this chat sent fills any gap.
+  const accessEndedNoticeFor = (message: AgentMessage) => {
+    const access = message.consentAccess;
+    const card = outgoingRequestCardFor(message.id);
+    const bundleId = (access?.bundleId ?? consentTags.get(message.id)?.bundleId ?? "").toLowerCase();
+    const live = bundleId ? liveBundleOutcomes[bundleId] : null;
+    return {
+      personName: access?.personName || card?.personName || "",
+      labels: access?.labels.length ? access.labels : card?.labels ?? [],
+      reason: access?.outcome ?? (live === "expired" ? "expired" as const : "revoked" as const),
+    };
+  };
+
+  // A shared chip whose sharing has since stopped or run out.
+  const consentChipEnded = (message: AgentMessage): boolean => {
+    const tag = consentTags.get(message.id);
+    const live = tag ? liveBundleOutcomes[tag.bundleId] : null;
+    return tag?.role === "chip" && isSharedOutcome(tag.continuedOutcome)
+      && (isAccessEndedOutcome(live) || Boolean(message.consentAccessEnded));
+  };
+
+  // What a consent chip reports, so a decline draws the neutral mark, never
+  // the check (localhost run 4, R6). A chip no card claimed still carries the
+  // server's fixed label, which names its outcome.
+  const consentChipOutcome = (message: AgentMessage) => {
+    const tag = consentTags.get(message.id);
+    if (tag?.role === "chip") return tag.continuedOutcome;
+    return wireOutcomeForSentLabel(message.text.trim());
+  };
+
+  const consentChipLabel = (message: AgentMessage): string => {
+    const tag = consentTags.get(message.id);
+    const card = outgoingRequestCardFor(message.id);
+    // Once that sharing ends, the chip says so too, beside answers that now
+    // read "Access ended" ("Kushal stopped sharing Food preferences").
+    const live = tag ? liveBundleOutcomes[tag.bundleId] : null;
+    if (consentChipEnded(message)) {
+      return consentAccessEndedChipText({
+        reason: live === "expired" ? "expired" : "revoked",
+        personName: card?.personName ? personFirstName(card.personName) : null,
+        sharedLabels: card?.labels,
+      });
+    }
+    if (message.consentChipText) return message.consentChipText;
+    if (!tag || tag.role !== "chip") return message.text;
+    return consentOutcomeDisplayText({
+      outcome: tag.continuedOutcome,
+      personName: card?.personName ? personFirstName(card.personName) : null,
+      sharedLabels: card?.labels,
+    });
+  };
+
+  // The other person answered a request this chat sent: the card reads
+  // "reading" at once, a chip says what happened in words ("Kushal shared
+  // Food preferences"), and One answers from it in view. The turn itself
+  // sends the server's fixed label, which admission requires.
   const continueWithConsentOutcome: AgentConsentContinuationHandler["continueWithOutcome"] = async (input) => {
     const token = getVaultOwnerToken();
     const key = vaultKeyRef.current;
-    if (!hasChatAccess || !user?.uid || !token || !key) return false;
-    const prepared = await prepareConsentContinuation({
-      userId: user.uid,
-      vaultKey: key,
-      vaultOwnerToken: token,
-      ...input,
+    const ownerId = user?.uid;
+    if (!hasChatAccess || !ownerId || !token || !key) return false;
+    setInformationRequestPhase(ownerId, input.bundleId, "reading");
+    let prepared: Awaited<ReturnType<typeof prepareConsentContinuation>>;
+    try {
+      prepared = await prepareConsentContinuation({
+        userId: ownerId,
+        vaultKey: key,
+        vaultOwnerToken: token,
+        ...input,
+      });
+    } catch (error) {
+      setInformationRequestPhase(ownerId, input.bundleId, null);
+      throw error;
+    }
+    if (!prepared) {
+      setInformationRequestPhase(ownerId, input.bundleId, null);
+      return false;
+    }
+    const sent = prepared;
+    const bundleId = input.bundleId.toLowerCase();
+    revealConsentContinuationReply({
+      userScrolled: transcriptUserScrollRef,
+      scrollToSubmittedTurn: scrollToSubmittedTurnRef,
     });
-    if (!prepared) return false;
-    appendMessage({
-      id: `msg-${crypto.randomUUID()}-consent-outcome`,
-      role: "user",
-      text: prepared.message,
-      timestamp: formatNow(),
-      status: "done",
-      kind: "selection",
+    setMessages((current) => {
+      const card = collectOutgoingRequestCards(current).find((entry) => entry.bundleId === bundleId);
+      return [...current, {
+        id: `msg-${crypto.randomUUID()}-consent-outcome`,
+        role: "user",
+        text: sent.message,
+        consentBundleId: bundleId,
+        consentChipText: consentOutcomeDisplayText({
+          outcome: input.outcome,
+          personName: card?.personName ? personFirstName(card.personName) : null,
+          sharedLabels: sent.sharedLabels.length ? sent.sharedLabels : card?.labels,
+        }),
+        ...stampNow(),
+        status: "done",
+        kind: "selection",
+      }];
     });
     enqueueWorkspaceOperation({
       id: `consent-${input.bundleId}`,
       run: async () => {
-        await sendFollowUpTurn(prepared.message, { consentContinuation: prepared.continuation });
+        revealConsentContinuationReply({
+          userScrolled: transcriptUserScrollRef,
+          scrollToSubmittedTurn: scrollToSubmittedTurnRef,
+        });
+        const settled = await sendFollowUpTurn(sent.message, { consentContinuation: sent.continuation });
+        setInformationRequestPhase(ownerId, input.bundleId, settled === "failed" ? null : "answered");
       },
     });
     return true;
   };
+
+  // "One has something for you": a fresh chat, the fixed status chip, then One
+  // writes its message about that one update, grounded in it and in memory.
+  useFeedAttentionTurn({
+    ownerId: user?.uid ?? null,
+    ready: hasChatAccess && Boolean(vaultKey),
+    start: (itemId) => {
+      // Same as a handoff: One is speaking, never behind the on-device Puppy
+      // header, and the first history load must not replace this chat.
+      setAgentSurface("one");
+      const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
+      handleCreateNewChat();
+      skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
+      appendMessage({
+        id: `msg-${crypto.randomUUID()}-feed-attention`,
+        role: "user",
+        text: FEED_ATTENTION_LABEL,
+        ...stampNow(),
+        status: "done",
+        kind: "selection",
+      });
+      enqueueWorkspaceOperation({
+        id: `feed-attention-${itemId}`,
+        run: async () => {
+          const userId = user?.uid;
+          const token = getVaultOwnerToken();
+          const key = vaultKeyRef.current;
+          const memory = userId && token && key
+            ? await loadAgentPkmContext({ userId, vaultOwnerToken: token, vaultKey: key, message: FEED_ATTENTION_LABEL })
+              .catch(() => EMPTY_PKM_CONTEXT)
+            : EMPTY_PKM_CONTEXT;
+          await sendFollowUpTurn(FEED_ATTENTION_LABEL, {
+            feedAttention: { itemId },
+            pkmContext: memory.text || undefined,
+          });
+        },
+      });
+    },
+  });
 
   const enqueueDelegateResult = (result: DelegateResult) => {
     enqueueWorkspaceOperation({
@@ -6601,6 +7199,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const attachmentText = attachment?.isExpanded ? draftText : attachment?.text ?? null;
     const typedText = attachment?.isExpanded ? "" : draftText;
     if ((!typedText.trim() && !attachmentText?.trim()) || isVoiceConnecting || voiceActive) {
+      return;
+    }
+    // Only after the person chose "Something else" for their name, and only
+    // when it is name-shaped; anything else is an ordinary turn to One.
+    if (!attachment && chatOnboarding.captureComposerText(typedText)) {
+      setInput("");
       return;
     }
     // Enter (form submit) and the Send button both land here, so both bring
@@ -6643,7 +7247,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         id: `msg-${Date.now()}-pan-blocked`,
         role: "assistant",
         text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
-        timestamp: formatNow(),
+        ...stampNow(),
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
@@ -6711,15 +7315,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (longPromptAttachment?.isExpanded) {
       setLongPromptAttachment(createPendingTextAttachment(input));
       setInput("");
-    } else if (input.trim()) {
-      manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey);
     }
     setComposerExpanded(false);
-  };
-
-  const expandComposer = () => {
-    manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
-    setComposerExpanded(true);
   };
 
   const removeLongPromptAttachment = () => {
@@ -6784,10 +7381,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [user?.displayName, user?.email],
   );
   const userAvatarUrl = useEffectiveAvatarUrl();
-  const userInitials = useMemo(() => {
-    const value = displayName === "there" ? "You" : displayName;
-    return value.slice(0, 2).toUpperCase();
-  }, [displayName]);
   const hasStartedConversation = messages.some(
     (message) => message.id !== "agent-greeting",
   );
@@ -6797,12 +7390,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (
         pendingSpecialistDirective &&
         message.role === "assistant" &&
-        !message.text.trim()
+        !message.text.trim() &&
+        // An ended answer arrives with empty text and renders "Access ended".
+        !message.consentAccessEnded
       ) {
         return false;
       }
       return true;
     }),
+  );
+  const visibleMessageIds = visibleMessages.map((message) => message.id);
+  const renderChatOnboarding = (slot: Parameters<typeof ChatOnboardingTurns>[0]["slot"]) => (
+    <ChatOnboardingTurns
+      controller={chatOnboarding}
+      slot={slot}
+      renderBubble={(message: ChatOnboardingBubbleMessage) => (
+        <>
+          {timeSeparators.has(message.id) ? (
+            <ChatTimeSeparatorRow separator={timeSeparators.get(message.id)!} />
+          ) : null}
+          <AgentBubble message={message} />
+        </>
+      )}
+      onConnect={(action, trigger) =>
+        action.kind === "connector"
+          ? openConnectorSurface(action.provider, trigger)
+          : router.push(action.href)
+      }
+    />
   );
   const trailingSpecialistLoadingMessages = pendingSpecialistDirective
     ? messages.filter(
@@ -6812,6 +7427,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           !message.text.trim(),
       )
     : [];
+  // One timeline in the order the transcript renders it (onboarding turns sit
+  // between real messages by their anchors), so a group spans both kinds.
+  const onboardingTimelineItem = (turn: { id: string }): ChatTimelineItem => ({
+    id: turn.id,
+    atMs: chatOnboarding.shownTurnTimes.get(turn.id) ?? null,
+    label: chatOnboarding.shownTurns.get(turn.id) ?? null,
+  });
+  const timelineItems: ChatTimelineItem[] = [
+    ...turnsForSlot(chatOnboarding.turns, { kind: "top" }).map(onboardingTimelineItem),
+  ];
+  for (const message of visibleMessages) {
+    timelineItems.push(
+      ...turnsForSlot(chatOnboarding.turns, {
+        kind: "before",
+        messageId: message.id,
+        visibleMessageIds,
+      }).map(onboardingTimelineItem),
+      // No label fallback: a restored row without `created_at` was stamped
+      // with the restore time, which is not when it was sent.
+      { id: message.id, atMs: message.sentAtMs ?? null },
+    );
+  }
+  timelineItems.push(
+    ...turnsForSlot(chatOnboarding.turns, { kind: "end", visibleMessageIds }).map(
+      onboardingTimelineItem,
+    ),
+    ...trailingSpecialistLoadingMessages.map((message) => ({
+      id: message.id,
+      atMs: message.sentAtMs ?? null,
+    })),
+  );
+  const timeSeparators = computeChatTimeSeparators(timelineItems);
   const emailDeliveryTimeline = useMemo(
     () =>
       bucketEmailDeliveryTimelineItems(
@@ -6919,6 +7566,34 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       toast.error("No previous message found to retry.");
       return;
     }
+    // A failed answer after someone shared retries as that continuation. Sent
+    // as a plain turn, the fixed label ("Consent approved") reached One with
+    // nothing shared attached, was answered blind, and was saved as if the
+    // person had typed it.
+    const continuationRetry = previousUserMessage.kind === "selection"
+      ? consentTags.get(previousUserMessage.id) ?? null
+      : null;
+    if (continuationRetry && wireOutcomeForSentLabel(previousUserMessage.text)) {
+      const ownerId = user?.uid;
+      const card = outgoingRequestCards.find((entry) => entry.bundleId === continuationRetry.bundleId);
+      if (!ownerId || !card) {
+        toast.info("Open the request card above to try again.");
+        return;
+      }
+      setMessages((current) => current.filter((item) =>
+        item.id !== messageId && item.id !== previousUserMessage.id));
+      releaseConsentContinuation(ownerId, card.bundleId);
+      if (!claimConsentContinuation(ownerId, card.bundleId)) return;
+      void continueWithConsentOutcome({
+        bundleId: card.bundleId,
+        subjectRef: card.subjectRef,
+        outcome: continuationRetry.continuedOutcome,
+        domainFor: () => undefined,
+      }).then((started) => {
+        if (!started) releaseConsentContinuation(ownerId, card.bundleId);
+      }).catch(() => releaseConsentContinuation(ownerId, card.bundleId));
+      return;
+    }
     setWalletWidgets([]);
     const lostTurn = messages[assistantIndex]?.lostTurn;
     const retryFromConversation = conversationIdRef.current;
@@ -6990,6 +7665,129 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (next.open && !isPuppySurface)
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
+  const toggleDesktopHistory = useCallback(() => {
+    setDesktopHistoryCollapsed((collapsed) => {
+      writeDesktopHistoryCollapsed(!collapsed);
+      return !collapsed;
+    });
+  }, []);
+  // The column needs the list as soon as it is on screen (the drawer loads on
+  // open); the history cache makes a repeat of this cheap.
+  useEffect(() => {
+    if (!desktopHistoryVisible || isPuppySurface) return;
+    void loadConversationList().catch(() => undefined);
+  }, [desktopHistoryVisible, isPuppySurface, loadConversationList]);
+  // Widening past the breakpoint with the phone drawer open hands the list to
+  // the column rather than leaving a modal drawer over a two-column layout.
+  useEffect(() => {
+    if (desktopHistoryLayout && isHistoryDrawerOpen && drawerMode === "chats")
+      handleHistoryDrawerOpenChange(false);
+  }, [desktopHistoryLayout, drawerMode, handleHistoryDrawerOpenChange, isHistoryDrawerOpen]);
+  // The fixed bottom navigation centres on the conversation column, not the
+  // whole window, while the column is showing (see globals.css).
+  useEffect(() => {
+    if (!desktopHistoryVisible) return;
+    const root = document.documentElement;
+    root.dataset.oneChatSidebar = "open";
+    return () => {
+      delete root.dataset.oneChatSidebar;
+    };
+  }, [desktopHistoryVisible]);
+  // "N messages" (as in the reference): while the reader is scrolled up, a
+  // pill above the composer counts the messages not yet fully in view below
+  // and jumps back to the latest on a tap.
+  const [messagesBelow, setMessagesBelow] = useState(0);
+  const messagesBelowFrameRef = useRef<number | null>(null);
+  const countMessagesBelow = useCallback(() => {
+    messagesBelowFrameRef.current = null;
+    const transcript = transcriptRef.current;
+    if (!transcript || isPuppySurface) {
+      setMessagesBelow(0);
+      return;
+    }
+    const distanceFromBottom =
+      transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop;
+    if (distanceFromBottom <= 96) {
+      setMessagesBelow(0);
+      return;
+    }
+    // The composer floats over the transcript, so "in view" ends at its top.
+    const visibleBottom =
+      composerStackRef.current?.getBoundingClientRect().top ??
+      transcript.getBoundingClientRect().bottom;
+    let count = 0;
+    transcript.querySelectorAll<HTMLElement>("[data-message-role]").forEach((row) => {
+      if (row.getBoundingClientRect().bottom > visibleBottom + 4) count += 1;
+    });
+    setMessagesBelow(count);
+  }, [isPuppySurface]);
+  const scheduleMessagesBelowCount = useCallback(() => {
+    if (messagesBelowFrameRef.current !== null) return;
+    messagesBelowFrameRef.current = window.requestAnimationFrame(countMessagesBelow);
+  }, [countMessagesBelow]);
+  useEffect(() => {
+    scheduleMessagesBelowCount();
+  }, [messages, chatOnboarding.turns.length, scheduleMessagesBelowCount]);
+  useEffect(() => () => {
+    if (messagesBelowFrameRef.current !== null)
+      window.cancelAnimationFrame(messagesBelowFrameRef.current);
+  }, []);
+  const jumpToLatestMessage = useCallback(() => {
+    const transcript = transcriptRef.current;
+    const end = messagesEndRef.current;
+    if (!transcript || !end) return;
+    transcriptUserScrollRef.current = false;
+    // Straight to the latest message in one step (founder direction,
+    // 2026-09-29): a smooth scroll counted down "2 messages, 1 message" on the
+    // way. The very end of the transcript is past the composer's band.
+    const top = Math.max(0, transcript.scrollHeight - transcript.clientHeight);
+    beginTranscriptProgrammaticScroll(top);
+    transcript.scrollTo({ top, behavior: "instant" });
+    setMessagesBelow(0);
+  }, [beginTranscriptProgrammaticScroll]);
+  // The transcript's bottom band tracks the composer's real height, so a
+  // draft that grows to several lines never covers the last message. A
+  // reader already at the end stays at the end while it grows.
+  useEffect(() => {
+    const stack = composerStackRef.current;
+    const transcript = transcriptRef.current;
+    if (!stack || !transcript || typeof ResizeObserver === "undefined") return;
+    const publish = () => {
+      const atEnd =
+        transcript.scrollHeight - transcript.clientHeight - transcript.scrollTop <= 24;
+      transcript.style.setProperty(
+        "--agent-chat-composer-stack-height",
+        `${Math.ceil(stack.getBoundingClientRect().height)}px`,
+      );
+      if (atEnd) transcript.scrollTop = transcript.scrollHeight;
+      scheduleMessagesBelowCount();
+    };
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(stack);
+    return () => observer.disconnect();
+  }, [isPuppySurface, scheduleMessagesBelowCount]);
+  const openGetApp = useCallback((trigger: HTMLButtonElement) => {
+    if (desktopHistoryLayout) {
+      getAppReturnFocusRef.current = trigger;
+      setGetAppAnchorRect(trigger.getBoundingClientRect());
+    } else {
+      // The phone drawer is modal: close it first, then raise the sheet, and
+      // return focus to the history button the drawer itself restores to.
+      getAppReturnFocusRef.current =
+        historyDrawerTriggerRef.current ?? historyDrawerFallbackRef.current;
+      setGetAppAnchorRect(null);
+      handleHistoryDrawerOpenChange(false);
+    }
+    setGetAppOpen(true);
+  }, [desktopHistoryLayout, handleHistoryDrawerOpenChange]);
+  // A floating card anchored to a control that moved is worse than none.
+  useEffect(() => {
+    if (!getAppOpen || !getAppAnchorRect) return;
+    const close = () => setGetAppOpen(false);
+    window.addEventListener("resize", close);
+    return () => window.removeEventListener("resize", close);
+  }, [getAppAnchorRect, getAppOpen]);
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -7005,13 +7803,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
-      hideCloseButton={true}
+      // The drawer now runs full height over the chat header (2026-09-28), so the
+      // header's hamburger-to-cross sits under the panel; the panel carries its
+      // own close control instead of leaving a modal with no visible way out.
+      hideCloseButton={false}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
       onOpenConnectors={!isPuppySurface
         ? (trigger) => openConnectorSurface(undefined, trigger)
         : undefined}
+      onGetApp={offerGetApp ? openGetApp : undefined}
+      getAppOpen={getAppOpen}
+      driveActivity={!isPuppySurface && (mode === "desktop" ? desktopHistoryVisible : !desktopHistoryVisible)
+        ? <DriveRecentSharing presentation="sidebar" onNeedsReviewChange={onDriveNeedsReviewChange} /> : null}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -7046,6 +7851,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ) : null}
       <ShellActionSurface
         type="submit"
+        rippleEffect="fill"
         className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
         disabled={!canSend}
         aria-label="Send message"
@@ -7064,13 +7870,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     </>
   );
 
+  const renderDriveMemoryReview = (message: AgentMessage) => {
+    const experiences = [...(message.structuredExperiences || []).map(item => item.experience),
+      ...(message.structuredExperience ? [message.structuredExperience] : [])];
+    if (!hasChatAccess || !user?.uid || !vaultKey || !vaultOwnerToken || message.role !== "assistant" ||
+      !canReviewDriveMemory(message.status, message.text, experiences)) return undefined;
+    const ownerId = user.uid;
+    const threadId = conversationId;
+    return <DriveReadMemoryAction key={`${ownerId}:${message.id}:${vaultSessionEpoch}:${threadId || "draft"}`}
+      ownerId={ownerId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken} answer={message.text}
+      scopeId={`${threadId || "draft"}:${message.id}`} getCurrentToken={getVaultOwnerToken}
+      isScopeCurrent={() => workspaceOwnerIdRef.current === ownerId && conversationIdRef.current === threadId &&
+        vaultKeyRef.current === vaultKey && isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, vaultOwnerToken)} />;
+  };
+
   return (
     <div
       className={cn(
         "agent-chat-workspace flex min-h-0 w-full flex-col text-foreground",
         // Chat is the canonical root workspace. In canonical mode it spans full
         // height and manages its internal scroll streams and composer clearance.
-        "min-h-[420px] overflow-hidden bg-background",
+        "min-h-[420px] overflow-hidden bg-[color:var(--one-chat-canvas)]",
         isCanonicalChatRoute
           ? // The persistent bottom nav is `position: fixed`, so a flex-1/h-full
             // ancestor has no way to know it needs to leave room above it. Without
@@ -7094,6 +7914,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-chat-workspace="page"
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
+      data-agent-history-column={desktopHistoryVisible ? "open" : undefined}
+      data-one-chat-surface
     >
       <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
@@ -7101,6 +7923,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       <AgentConsentContinuationContext.Provider value={hasChatAccess
         ? { conversationId, continueWithOutcome: continueWithConsentOutcome }
         : null}>
+      <ConsentCardPhaseContext.Provider value={consentCardPhaseFor}>
+      <AgentTranscriptRevealContext.Provider value={revealInTranscript}>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -7135,27 +7959,66 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           }
         />
 
+        {/* Desktop: one persistent history column beside the conversation,
+            scrolling on its own. Phones and tablets keep the drawer above. */}
+        {desktopHistoryVisible ? (
+          <div id={desktopHistoryId} className="flex min-h-0 shrink-0 max-lg:hidden">
+            {renderHistorySidebar("h-full", undefined, false, "desktop")}
+          </div>
+        ) : null}
+
         <section
           className={cn(
-            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
+            "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[color:var(--one-chat-canvas)]",
           )}
         >
           <div
             className={cn(
-              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-[color:var(--one-chat-canvas)] px-4 pt-[var(--agent-chat-header-safe-top)] sm:px-5",
               "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
-            {/* Only identity may shrink: clip it before it can overlap the fixed actions. */}
+            {/*
+              Three flex regions, and only the middle one may give way:
+              [history] [identity: flex-1, clips] [actions: shrink-0].
+              The identity region used to share a group with the history
+              button and carried no clip, so on a 390px phone the actions
+              (then 281px, with a fixed-width picker slot) squeezed it below
+              its own minimum and the brand tile painted under the One | Puppy
+              toggle while the agent's name collapsed to zero width. Clipping
+              the identity horizontally makes that overlap impossible by
+              construction: whatever does not fit is cut at its own edge and
+              truncates, it never slides under a control.
+            */}
+            {/* The same menu control on every width. On desktop it shows or
+                hides the history column (and keeps its hamburger: nothing
+                modal opened); below that it opens the drawer as before. Its
+                drawer-side label is what the edge-swipe gesture clicks. */}
             <ShellActionSurface
               variant="icon"
               ref={historyDrawerFallbackRef}
-              onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
-              aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
-              title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+              onClick={(event) => {
+                if (desktopHistoryLayout) {
+                  toggleDesktopHistory();
+                  return;
+                }
+                historyDrawerTriggerRef.current = event.currentTarget;
+                toggleHistoryDrawer();
+              }}
+              aria-label={`${desktopHistoryLayout
+                ? desktopHistoryVisible ? "Hide chat history" : "Show chat history"
+                : isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}${driveReviewsPending > 0 && !desktopHistoryVisible && !isHistoryDrawerOpen
+                ? `, ${driveReviewsPending} Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you` : ""}`}
+              title={desktopHistoryLayout
+                ? desktopHistoryVisible ? "Hide chat history" : "Show chat history"
+                : isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+              aria-expanded={desktopHistoryLayout ? desktopHistoryVisible : undefined}
+              aria-controls={desktopHistoryLayout && desktopHistoryVisible ? desktopHistoryId : undefined}
               className="relative z-[540]"
             >
-              <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
+              <AnimatedMenuCrossIcon isOpen={!desktopHistoryLayout && isHistoryDrawerOpen} />
+              {driveReviewsPending > 0 && !desktopHistoryVisible && !isHistoryDrawerOpen && !isPuppySurface ?
+                <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
             </ShellActionSurface>
             <div
               data-agent-chat-header-region="identity"
@@ -7197,15 +8060,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <div className="truncate text-base font-medium leading-5 text-foreground">
                   {isPuppySurface ? "Puppy One" : "One"}
                 </div>
-                {!isPuppySurface && !statusText && activeToolCalls.length === 0 ? (
-                  <OneAgentPresence compact />
-                ) : (
-                  <ChatAgentSubtitle text={chatHeaderSubtitle({
-                    isPuppySurface,
-                    activeToolCalls,
-                    statusText,
-                  })} />
-                )}
+                <ChatAgentSubtitle text={chatHeaderSubtitle({
+                  isPuppySurface,
+                  activeToolCalls,
+                  statusText,
+                })} />
               </div>
             </div>
 
@@ -7256,7 +8115,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     title={`Running ${modelPreference.effective_model}`}
                     className="h-8 w-auto max-w-[7.5rem] shrink-0 gap-1 rounded-full border-0 bg-foreground/[0.045] px-2.5 text-[11px] font-medium text-muted-foreground sm:max-w-[9.5rem]"
                   >
-                    {/* "3.6 Flash", not "Gemini 3.6 Flash": every option is a
+                    {/* "3.7 Flash", not "Gemini 3.7 Flash": every option is a
                         Gemini, so the shared word is the one thing a narrow
                         header cannot afford. The full label stays in the menu
                         and in the tooltip. */}
@@ -7359,8 +8218,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             </div>
           </div>
 
-          {!isPuppySurface ? <DriveRecentSharing /> : null}
-
           {/* Both transcripts are HIDDEN rather than unmounted, and the
               symmetry is the point: `hidden` is display:none, so the surface
               that is not on screen leaves the tab order and the accessibility
@@ -7400,6 +8257,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               onScroll={(event) => {
                 // A display:none element fires no scroll events, so this only
                 // ever records One's own position; the guard is belt and braces.
+                if (!isPuppySurface) scheduleMessagesBelowCount();
                 if (!isPuppySurface) {
                   const transcript = event.currentTarget;
                   const scrollTop = transcript.scrollTop;
@@ -7454,13 +8312,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               }}
               className={cn(
                 "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+5.5rem)] lg:px-8",
+                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+max(5.5rem,var(--agent-chat-composer-stack-height,0px)+1.75rem))] lg:px-8",
               )}
               tabIndex={0}
               role="region"
               aria-label="Agent conversation history"
             >
-            <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
+            <div className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-5">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
                   <span>{accessMessage}</span>
@@ -7481,41 +8339,64 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </div>
               ) : null}
 
-              {postSetupWelcomeContext ? (
-                <PostSetupWelcomeCard
-                  name={displayName}
-                  context={postSetupWelcomeContext}
-                  prompts={welcomePrompts}
-                  vaultOwnerToken={vaultOwnerToken}
-                  hasPortfolioData={hasPortfolioData}
-                  disabled={isChatLoading || isStreaming}
-                  onPromptSelect={handleWelcomePromptSelect}
-                  onOpenConnector={openConnectorSurface}
-                  onNavigate={(href) => router.push(href)}
-                />
+              {chatOnboarding.turns.length ? (
+                renderChatOnboarding({ kind: "top" })
               ) : !hasStartedConversation ? (
-                <AgentWelcomePanel
-                  name={displayName}
-                  prompts={welcomePrompts}
-                  disabled={isChatLoading || isStreaming}
-                  onPromptSelect={handleWelcomePromptSelect}
-                />
+                <>
+                  <AgentWelcomePanel
+                    name={displayName}
+                    prompts={welcomePrompts}
+                    disabled={isChatLoading || isStreaming}
+                    onPromptSelect={handleWelcomePromptSelect}
+                  />
+                  {chatOnboarding.dailyTip ? (
+                    <ChatOnboardingDailyTip
+                      tip={chatOnboarding.dailyTip}
+                      onUse={handleWelcomePromptSelect}
+                      onDismiss={chatOnboarding.dismissDailyTip}
+                    />
+                  ) : null}
+                </>
               ) : null}
 
               {visibleMessages.map((message) => (
                 <Fragment key={message.id}>
-                  {message.kind === "selection" ? (
-                    <SelectionChip label={message.text} />
+                  {renderChatOnboarding({ kind: "before", messageId: message.id, visibleMessageIds })}
+                  {timeSeparators.has(message.id) ? (
+                    <ChatTimeSeparatorRow separator={timeSeparators.get(message.id)!} />
+                  ) : null}
+                  {message.role === "assistant" && redactedAnswerIds.has(message.id) ? (
+                    <AccessEndedNotice variant="message" {...accessEndedNoticeFor(message)} />
+                  ) : message.kind === "selection" ? (
+                    <SelectionChip
+                      label={consentChipLabel(message)}
+                      ended={consentChipEnded(message)}
+                      outcome={consentChipOutcome(message)}
+                    />
                   ) : (
                     <AgentBubble
                       message={message}
+                      driveMemoryReview={renderDriveMemoryReview(message)}
                       onInformationRequestSubmitted={async (activityId, receipt) => {
                         const ownerUid = user?.uid;
                         const threadId = conversationIdRef.current;
                         const ownerToken = vaultOwnerToken;
                         const epoch = historyRestoreEpochRef.current;
+                        // The request exists now: the card says "Request sent"
+                        // from the request itself, whatever happens to its
+                        // history receipt below.
+                        const showSent = (review: AgentStructuredExperience) =>
+                          setMessages((current) => current.map((item) => item.id !== message.id ? item : {
+                            ...item,
+                            structuredExperiences: (item.structuredExperiences ?? []).map((entry) =>
+                              entry.id === activityId ? { ...entry, experience: review } : entry),
+                          }));
+                        showSent(receipt.review);
                         if (!ownerUid || !threadId || !ownerToken) {
-                          toast.error("Request sent, but Chat history could not be saved.");
+                          if (ownerUid) markConsentContinuationUnavailable(ownerUid, receipt.bundleId);
+                          console.warn("[one-chat] information request receipt not recorded", {
+                            bundleId: receipt.bundleId, reason: "no_conversation",
+                          });
                           return;
                         }
                         // Sent from this chat, now: watch for the answer even if
@@ -7525,10 +8406,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           bundleId: receipt.bundleId,
                           conversationId: threadId,
                           subjectRef: receipt.subjectRef,
-                          personName: "",
+                          personName: receipt.review.personName,
                         });
                         try {
-                          const review = await recordAgentChatInformationRequest({
+                          const review = await recordAgentChatInformationRequestWithRetry({
                             conversationId: threadId,
                             sourceActivityId: activityId,
                             bundleId: receipt.bundleId,
@@ -7542,13 +8423,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           clearAgentChatHistoryCache(ownerUid);
                           if (historyRestoreEpochRef.current !== epoch || conversationIdRef.current !== threadId) return;
-                          setMessages((current) => current.map((item) => item.id !== message.id ? item : {
-                            ...item,
-                            structuredExperiences: (item.structuredExperiences ?? []).map((entry) =>
-                              entry.id === activityId ? { ...entry, experience: review } : entry),
-                          }));
-                        } catch {
-                          toast.error("Request sent, but Chat history could not be saved.");
+                          showSent(review);
+                        } catch (error) {
+                          // Nothing scary for the person: the request was sent
+                          // and its card stays true. Without a receipt the server
+                          // refuses a follow-up turn (409), so this chat does not
+                          // start one; the card still shows the answer when it lands.
+                          markConsentContinuationUnavailable(ownerUid, receipt.bundleId);
+                          console.warn("[one-chat] information request receipt not recorded", {
+                            bundleId: receipt.bundleId,
+                            status: error instanceof InformationRequestReceiptError ? error.status : null,
+                          });
                         }
                       }}
                       onOpenConnections={openConnectorSurface}
@@ -7560,8 +8445,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       onDownloadDriveNotes={hasChatAccess && compiledDriveMarkdownRef.current.has(message.id)
                         ? () => void downloadCompiledDriveNotes(message.id)
                         : undefined}
-                      userAvatarUrl={userAvatarUrl}
-                      userInitials={userInitials}
                       gmailInformationRequestAttachment={
                         hasChatAccess && message.gmailInformationRequestWorkflowId ? (
                           <GmailInformationRequestAttachment
@@ -7643,14 +8526,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             return;
                           }
                           // Quiet so the outcome lands in the transcript, not
-                          // a toast over it. Quiet rethrows a failed request,
-                          // so the card is only marked approved when every
-                          // request in it was.
-                          for (const target of targets) {
-                            await consentActions.handleApprove(target, {
-                              quiet: true,
-                            });
-                          }
+                          // a toast over it. The shared bundle path decides
+                          // every item (a few at a time) and rejects unless
+                          // every one went through, so the card is only marked
+                          // approved when every request in it was.
+                          await consentActions.handleApproveBundle(targets, {
+                            quiet: true,
+                            bundleId: item.bundleId || item.id,
+                          });
                           updateMessage(message.id, (current) => ({
                             ...current,
                             specialistDirective:
@@ -7694,20 +8577,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             );
                             return;
                           }
-                          for (const target of targets) {
-                            await consentActions.handleDeny(target.id, {
-                              quiet: true,
-                            });
-                          }
-                          updateMessage(message.id, (current) => ({
-                            ...current,
-                            specialistDirective:
-                              markPendingConsentRequestDirectiveStatus(
-                                current.specialistDirective,
-                                item.id,
-                                "denied",
-                              ),
-                          }));
+                          const setCardStatus = (status: PendingConsentCardStatus) =>
+                            updateMessage(message.id, (current) => ({
+                              ...current,
+                              specialistDirective:
+                                markPendingConsentRequestDirectiveStatus(
+                                  current.specialistDirective,
+                                  item.id,
+                                  status,
+                                ),
+                            }));
+                          const requestIds = targets.map((target) => target.id);
+                          const bundleId = item.bundleId || item.id;
+                          const deny = consentActions.handleDenyBundle;
+                          // The card reads declined at once; nothing is sent
+                          // until the Undo window closes, and Undo sends nothing.
+                          setCardStatus("denied");
+                          scheduleConsentDecline({
+                            key: `chat:${bundleId}`,
+                            message: declinedChatRequestMessage(item.requesterLabel),
+                            onUndo: () => setCardStatus("pending"),
+                            send: () => deny(requestIds, { quiet: true, bundleId }).catch(() => {
+                              setCardStatus("pending");
+                              addErrorMessage("Could not decline that request. Try again.");
+                            }),
+                          });
                         } catch (error) {
                           addErrorMessage(
                             error instanceof Error && error.message.startsWith("This request")
@@ -7734,14 +8628,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       key={item.id}
                       item={item}
                       onEnableGmailSend={handleEnableGmailSend}
+                      enablingGmailSend={gmailSendConnect.pending?.key === item.id}
+                      onCancelEnableGmailSend={
+                        gmailSendConnect.pending?.cancellable
+                          ? gmailSendConnect.cancel
+                          : undefined
+                      }
                       onRetry={retryEmailDelivery}
                     />
                   ))}
+                  <AgentFollowUpSuggestions
+                    suggestions={visibleFollowUps(
+                      message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
+                    )}
+                    onSelect={handleWelcomePromptSelect}
+                  />
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
                     : null}
                 </Fragment>
               ))}
+              {renderChatOnboarding({ kind: "end", visibleMessageIds })}
 
               {walletWidgets.map((widget) =>
                 widget.kind === "list" ? (
@@ -7810,7 +8717,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${Date.now()}-card-saved`,
                         role: "assistant",
                         text: `Saved card "${saved.summary.nickname || saved.summary.brand}" ending ${saved.summary.last4}.`,
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         renderAsPlainAssistantMessage: true,
                       });
@@ -7835,6 +8742,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ),
               )}
 
+              <FirstConnectInsightsCard
+                ownerId={user?.uid ?? null}
+                vaultKey={vaultKey ?? null}
+                vaultOwnerToken={vaultOwnerToken ?? null}
+                enabled={hasChatAccess && !isPuppySurface}
+              />
+
               {pendingMcpReviews.slice(0, 1).map((review) => (
                 <McpCallReviewCard
                   key={review.reference.directiveId}
@@ -7845,7 +8759,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ))}
 
-              {pendingAppAction ? (
+              {pendingAppAction && !pendingAppActionDuplicatesAskCard ? (
                 <SpecialistDirectiveCard
                   summary={
                     pendingAppAction.event.message ||
@@ -7947,7 +8861,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${Date.now()}-crm-answer`,
                           role: "user",
                           text: value,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           kind: "selection",
                         });
@@ -7981,7 +8895,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${Date.now()}-crm-cancel`,
                         role: "user",
                         text: "Cancelled",
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         kind: "selection",
                       });
@@ -8022,7 +8936,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${Date.now()}-sel`,
                           role: "user",
                           text: display,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           kind: "selection",
                         });
@@ -8054,7 +8968,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${Date.now()}-sel`,
                           role: "user",
                           text: display,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           kind: "selection",
                         });
@@ -8084,7 +8998,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${Date.now()}-sel`,
                         role: "user",
                         text: display,
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         kind: "selection",
                       });
@@ -8133,53 +9047,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           );
                           return;
                         }
-                        const operationOwnerId = user.uid;
-                        setSpecialistBusy(true);
-                        try {
-                          const accessLevel =
-                            payload.accessLevel === "manage"
-                              ? "manage"
-                              : "read";
-                          clearCalendarSetupOAuthReturn();
-                          const start =
-                            await GoogleCalendarService.startConnect({
-                              idToken: await user.getIdToken(),
-                              userId: operationOwnerId,
-                              accessLevel,
-                            });
-                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
-                            return;
-                          }
-                          const attempt = createGoogleOAuthPopupAttempt(
-                            "calendar",
-                            { ownerId: operationOwnerId, accessLevel },
-                          );
-                          if (!persistGoogleOAuthSameWindowAttempt(attempt)) {
-                            throw new Error(
-                              "Calendar sign-in could not be started safely. Please try again.",
-                            );
-                          }
-                          setPendingSpecialistDirective(null);
-                          window.location.assign(start.authorize_url);
-                        } catch (error) {
-                          if (workspaceOwnerIdRef.current !== operationOwnerId) {
-                            return;
-                          }
-                          trackEvent("one_calendar_action", {
-                            route_id: "one_calendar",
-                            action: "connected",
-                            result: "error",
-                          });
-                          addErrorMessage(
-                            error instanceof Error
-                              ? error.message
-                              : "Unable to request Google Calendar permission.",
-                          );
-                        } finally {
-                          if (workspaceOwnerIdRef.current === operationOwnerId) {
-                            setSpecialistBusy(false);
-                          }
-                        }
+                        // Opens Google's window synchronously, in this click;
+                        // the chat window never navigates.
+                        runDirectiveConnect("calendar");
                         return;
                       }
                       if (type !== "calendar.execute_proposal") {
@@ -8198,7 +9068,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       }
                       enqueueCalendarDirective(directive, token, user.uid);
                     }}
+                    busyLabel={
+                      directiveConnectWaiting ? "Waiting for Google…" : undefined
+                    }
+                    cancelWhileBusy={directiveConnectWaiting}
                     onCancel={() => {
+                      directiveConnect.cancel();
                       setPendingSpecialistDirective(null);
                       toast.info(
                         "Calendar change cancelled. Nothing was changed.",
@@ -8249,7 +9124,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${crypto.randomUUID()}-drive-confirm`,
                         role: "user",
                         text: String(payload.confirmLabel ?? "Confirm"),
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         kind: "selection",
                       });
@@ -8264,7 +9139,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${crypto.randomUUID()}-drive-result`,
                           role: "assistant",
                           text: result.detail,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           renderAsPlainAssistantMessage: true,
                         });
@@ -8318,9 +9193,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       const type = String(payload.type ?? "");
                       if (type === "gmail.connect") {
                         // The restricted gmail.modify scope is requested only
-                        // here, on first use, on top of existing grants.
-                        setPendingSpecialistDirective(null);
-                        await handleEnableGmailModify();
+                        // here, on first use, on top of existing grants, in a
+                        // window opened synchronously by this click.
+                        runDirectiveConnect("gmail_modify");
                         return;
                       }
                       if (type !== "gmail.execute_mailbox_proposal") {
@@ -8342,7 +9217,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         vaultOwnerToken,
                       });
                     }}
+                    busyLabel={
+                      directiveConnectWaiting ? "Waiting for Google…" : undefined
+                    }
+                    cancelWhileBusy={directiveConnectWaiting}
                     onCancel={() => {
+                      directiveConnect.cancel();
                       setPendingSpecialistDirective(null);
                       toast.info("Gmail change cancelled. Nothing was changed.");
                     }}
@@ -8390,7 +9270,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${Date.now()}-crm-act`,
                           role: "user",
                           text: confirmLabel,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           kind: "selection",
                         });
@@ -8415,7 +9295,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${Date.now()}-crm-cancel`,
                         role: "user",
                         text: "Cancelled",
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         kind: "selection",
                       });
@@ -8497,7 +9377,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           id: `msg-${Date.now()}-act`,
                           role: "user",
                           text: confirmText,
-                          timestamp: formatNow(),
+                          ...stampNow(),
                           status: "done",
                           kind: "selection",
                         });
@@ -8531,7 +9411,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         id: `msg-${Date.now()}-act`,
                         role: "user",
                         text: "Cancelled",
-                        timestamp: formatNow(),
+                        ...stampNow(),
                         status: "done",
                         kind: "selection",
                       });
@@ -8564,12 +9444,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               ) : null}
 
               {trailingSpecialistLoadingMessages.map((message) => (
-                <AgentBubble
-                  key={message.id}
-                  message={message}
-                  onOpenConnections={openConnectorSurface}
-                  retryDisabled={isChatLoading || isStreaming}
-                />
+                <Fragment key={message.id}>
+                  {timeSeparators.has(message.id) ? (
+                    <ChatTimeSeparatorRow separator={timeSeparators.get(message.id)!} />
+                  ) : null}
+                  <AgentBubble
+                    message={message}
+                    onOpenConnections={openConnectorSurface}
+                    retryDisabled={isChatLoading || isStreaming}
+                  />
+                </Fragment>
               ))}
               {!emailDraftIsAnchored ? renderEmailDraftCard() : null}
               {emailDeliveryTimeline.trailingItems.map((item) => (
@@ -8577,6 +9461,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   key={item.id}
                   item={item}
                   onEnableGmailSend={handleEnableGmailSend}
+                  enablingGmailSend={gmailSendConnect.pending?.key === item.id}
+                  onCancelEnableGmailSend={
+                    gmailSendConnect.pending?.cancellable
+                      ? gmailSendConnect.cancel
+                      : undefined
+                  }
                   onRetry={retryEmailDelivery}
                 />
               ))}
@@ -8594,7 +9484,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 sm:px-5",
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3",
               "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
@@ -8602,13 +9492,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               isPuppySurface && "hidden",
             )}
           >
+            {messagesBelow > 0 ? (
+              <div className="pointer-events-none mx-auto mb-2 flex w-full justify-center">
+                <button
+                  type="button"
+                  data-testid="agent-chat-messages-below"
+                  onClick={jumpToLatestMessage}
+                  aria-label={`Jump to latest, ${messagesBelow} ${messagesBelow === 1 ? "message" : "messages"} below`}
+                  className="pointer-events-auto inline-flex h-9 items-center gap-1.5 rounded-full bg-[color:var(--app-accent)] pl-4 pr-3 text-[14px] font-semibold tabular-nums text-[color:var(--app-accent-fg)] shadow-[0_10px_28px_-12px_var(--app-accent-deep)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-[color:var(--one-chat-canvas)] motion-safe:animate-in motion-safe:fade-in-0 motion-safe:slide-in-from-bottom-1"
+                >
+                  {messagesBelow} {messagesBelow === 1 ? "message" : "messages"}
+                  <ChevronDown className="h-4 w-4" aria-hidden="true" />
+                </button>
+              </div>
+            ) : null}
             <div
               ref={composerStackRef}
               className={cn(
+                // Exactly the bottom navigation's width on Chat: the same
+                // max-width token and the same 0.75rem gutters as its shell.
                 "pointer-events-auto mx-auto w-full",
                 isCanonicalChatRoute
                   ? "max-w-[var(--app-bottom-shell-max-width)]"
-                  : "max-w-4xl",
+                  : "max-w-3xl",
               )}
             >
               {queuedPrompts.length > 0 ? (
@@ -8856,43 +9762,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           isVoiceConnecting
                         }
                         placeholder={
-                          composerExpanded
+                          chatOnboarding.composerPlaceholder ??
+                          (composerExpanded
                             ? "Write a longer message..."
-                            : "Message One..."
+                            : "Message One...")
                         }
                         rows={1}
                         className={
                           composerExpanded
                             ? "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                                : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                                : "h-auto max-h-40 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-44 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         }
                       />
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
-                        className={
-                            composerExpanded
-                              ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30"
-                        }
-                        aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
-                        title={composerExpanded ? "Collapse" : "Expand"}
-                        disabled={
-                          composerExpanded
-                            ? false
-                            : !input.trim() ||
-                              isVoiceConnecting
-                        }
-                        onClick={composerExpanded ? collapseComposer : expandComposer}
-                      >
-                        {composerExpanded ? (
-                          <Minimize2 className="h-4 w-4" />
-                        ) : (
-                          <Maximize2 className="h-4 w-4" />
-                        )}
-                      </Button>
                     </div>
                         <div
                           className={
@@ -8913,6 +9794,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         </div>
         </section>
       </div>
+      {offerGetApp ? (
+        <AgentGetAppPrompt
+          open={getAppOpen}
+          onOpenChange={setGetAppOpen}
+          presentation={desktopHistoryLayout && getAppAnchorRect ? "card" : "sheet"}
+          anchorRect={getAppAnchorRect}
+          returnFocusRef={getAppReturnFocusRef}
+        />
+      ) : null}
       {user ? (
         <VaultUnlockDialog
           user={user}
@@ -8923,6 +9813,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
+      </AgentTranscriptRevealContext.Provider>
+      </ConsentCardPhaseContext.Provider>
       </AgentConsentContinuationContext.Provider>
       </AgentPersonSelectionContext.Provider>
     </div>

@@ -11,7 +11,6 @@ import {
   PenLine,
   RefreshCw,
   Receipt,
-  Trash2,
 } from "@/components/icons";
 import { toast } from "sonner";
 
@@ -654,11 +653,6 @@ export default function GmailReceiptsPage({
 
   const syncing = gmail.syncingRun;
   const isConnected = gmail.presentation.isConnected;
-  const hasKnownGmailAccount = Boolean(
-    gmail.status?.google_email ||
-    gmail.status?.connected ||
-    gmail.status?.connected_at,
-  );
   const loadingStatus = gmail.loadingStatus;
 
   useEffect(() => {
@@ -1922,7 +1916,6 @@ export default function GmailReceiptsPage({
                   data-voice-label="Disconnect Mail"
                   data-voice-purpose="disconnects Mail sync while keeping stored receipts available."
                 >
-                  <Trash2 className="mr-2 h-4 w-4" />
                   Disconnect
                 </Button>
               </div>
@@ -2051,7 +2044,7 @@ export default function GmailReceiptsPage({
                   <Button
                     onClick={() => void handleConnectGmail()}
                     disabled={gmailActionBusy !== null}
-                    className="h-12 w-full px-8 text-base shadow-lg sm:w-auto sm:min-w-[260px]"
+                    className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base shadow-lg"
                     data-voice-control-id="open_gmail_connector"
                     data-voice-action-id={
                       journeyVariant === "onboarding"
@@ -2061,11 +2054,6 @@ export default function GmailReceiptsPage({
                     data-voice-label={primaryActionLabel}
                     data-voice-purpose="starts Mail connection or reconnection from this receipts page."
                   >
-                    {gmailActionBusy === "connect" ? (
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                    ) : (
-                      <Mail className="mr-2 h-5 w-5" />
-                    )}
                     {primaryActionLabel}
                   </Button>
                   {gmail.statusError ? (
@@ -2088,21 +2076,6 @@ export default function GmailReceiptsPage({
                       Retry Mail status
                     </Button>
                   ) : null}
-                  {hasKnownGmailAccount ? (
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      onClick={() => setShowDisconnectConfirm(true)}
-                      disabled={gmailActionBusy !== null}
-                      className="h-12 w-full px-8 text-base sm:w-auto"
-                      data-voice-control-id="disconnect_gmail"
-                      data-voice-label="Disconnect Mail"
-                      data-voice-purpose="disconnects Mail sync while keeping stored receipts available."
-                    >
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Disconnect
-                    </Button>
-                  ) : null}
                   {connectGmailHelper ? (
                     <p className="w-full text-center text-xs text-muted-foreground sm:basis-full">
                       {connectGmailHelper}
@@ -2115,27 +2088,25 @@ export default function GmailReceiptsPage({
               workspace === "overview" &&
               showMailManagement &&
               !loadingStatus ? (
-                <div className="flex w-full flex-col items-center gap-2 pt-2 sm:flex-row">
+                <div className="flex w-full flex-col items-center gap-2 pt-2 sm:flex-col">
+                  <Button
+                    type="button"
+                    size="prominent"
+                    onClick={() => void handleConnectGmail()}
+                    disabled={gmailActionBusy !== null}
+                    className="min-h-11 w-full max-w-[244px] justify-center px-2 text-center sm:px-4"
+                  >
+                    <span className="truncate">Reconnect Mail</span>
+                  </Button>
                   <Button
                     type="button"
                     variant="destructive"
                     effect="fade"
                     onClick={() => setShowDisconnectConfirm(true)}
                     disabled={gmailActionBusy !== null}
-                    className="min-h-11 w-full min-w-0 flex-1 px-2 sm:px-4"
+                    className="min-h-11 w-full max-w-[244px] justify-center px-2 text-center sm:px-4"
                   >
-                    <Trash2 className="mr-1.5 h-4 w-4 shrink-0" />
                     <span className="truncate">Disconnect Mail</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="muted"
-                    onClick={() => void handleConnectGmail()}
-                    disabled={gmailActionBusy !== null}
-                    className="min-h-11 w-full min-w-0 flex-1 px-2 sm:px-4"
-                  >
-                    <RefreshCw className="mr-1.5 h-4 w-4 shrink-0" />
-                    <span className="truncate">Reconnect Mail</span>
                   </Button>
                 </div>
               ) : null}
@@ -2185,7 +2156,7 @@ export default function GmailReceiptsPage({
                 onClick={handleOpenOneChat}
                 showIcon={false}
                 size="prominent"
-                className="mt-6 w-full max-w-xs justify-center sm:w-full"
+                className="mt-6 w-full max-w-[244px] justify-center sm:w-full"
               >
                 Chat with One
               </AskOneButton>
@@ -2225,9 +2196,11 @@ export default function GmailReceiptsPage({
               </div>
               <h2 className="text-2xl font-semibold tracking-tight text-foreground">Receipts</h2>
               <p className="mt-2 max-w-xs text-[15px] leading-[22px] text-muted-foreground">
-                One organizes your email receipts into a shopping summary.
+                One organizes your email receipts{" "}
+                <br />
+                into a shopping summary.
               </p>
-              <div className="mt-6 flex w-full max-w-xs flex-col items-center gap-1">
+              <div className="mt-6 flex w-full max-w-[244px] flex-col items-center gap-1">
                 <Button
                   type="button"
                   size="prominent"

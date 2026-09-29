@@ -178,7 +178,7 @@ export function ProfileAvatarEditor() {
           disabled={busy}
           aria-label="Change profile photo"
           className={cn(
-            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-95 disabled:cursor-default",
+            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
           )}
         >
           {busy ? (

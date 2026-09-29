@@ -76,7 +76,7 @@ const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
 // Theme-aware flat accent pill CTA (follows the accent preference: iOS Blue
 // default, Molten Gold opt-in). No gradient, no decorative shadow.
 const FLOW_CTA_CLASS_NAME =
-  "h-[54px] rounded-full border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100";
+  "h-[54px] rounded-full border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] motion-reduce:transition-none";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 

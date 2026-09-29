@@ -68,7 +68,6 @@ describe("AuthStep layout contract", () => {
     expect(source).toContain("disabled={providerBusy}");
     expect(source).toContain("data-auth-provider-actions");
     expect(source).toContain("data-auth-supporting-content");
-    expect(source).toContain("<AuthLegalDialog");
   });
 
   it("keeps the legal footer centered on every platform, including 360px Android", () => {
@@ -100,7 +99,31 @@ describe("AuthStep layout contract", () => {
     // Terms and Privacy stay real, tappable controls.
     expect(source).toContain('data-voice-control-id="auth_terms"');
     expect(source).toContain('data-voice-control-id="auth_privacy"');
-    expect(source).toContain('onClick={() => void openLegalDoc("terms")}');
-    expect(source).toContain('onClick={() => void openLegalDoc("privacy")}');
+    // The footer links are styled as links, not buttons.
+    expect(css).toContain(":global(html:not(.dark)) .legalRow a");
+    expect(css).toContain(":global(html.dark) .legalRow a");
+    expect(css).not.toContain(".legalRow button");
+  });
+
+  it("links Terms and Privacy to their full pages instead of opening a popup", () => {
+    const source = readFileSync(join(process.cwd(), "components/onboarding/AuthStep.tsx"), "utf8");
+
+    // Same-tab navigation through next/link: the pre-auth screen holds no
+    // state worth keeping, Back returns to sign-in, and in the native static
+    // export the route is bundled so the link never leaves the app.
+    expect(source).toContain('import Link from "next/link";');
+    expect(source).toMatch(/<Link\s+href=\{ROUTES\.TERMS\}\s+data-voice-control-id="auth_terms"/);
+    expect(source).toMatch(/<Link\s+href=\{ROUTES\.PRIVACY\}\s+data-voice-control-id="auth_privacy"/);
+    expect(source).not.toContain('target="_blank"');
+    // Voice takes the same route as a tap.
+    expect(source).toContain("router.push(ROUTES.TERMS)");
+    expect(source).toContain("router.push(ROUTES.PRIVACY)");
+
+    // No inline legal document: no dialog, no sheet, no overlay to close.
+    expect(source).not.toContain("AuthLegalDialog");
+    expect(source).not.toContain("openLegalDoc");
+    expect(source).not.toContain("activeLegalDoc");
+    expect(source).not.toContain("auth.close_legal");
+    expect(source).not.toContain("legal_document");
   });
 });

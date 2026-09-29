@@ -717,11 +717,12 @@ describe("SettingsDetailPanel", () => {
 
 describe("row hover surface", () => {
   /**
-   * A row with an interactive trailing control splits: the primary action
-   * becomes an inner button so the control beside it stays independently
-   * operable. That split used to change how the row LOOKED on hover, because
-   * the inner button painted the highlight itself -- at `rounded-xl` instead of
-   * the row radius, and inside padding the grid cell had already applied.
+   * A row with an interactive trailing control splits: the row action becomes
+   * a full-row button laid under the content so the control beside it stays
+   * independently operable (settings-row-surface.contract.test.tsx). That
+   * split used to change how the row LOOKED on hover, because an inner
+   * title-only button painted the highlight itself -- at `rounded-xl` instead
+   * of the row radius, and inside padding the grid cell had already applied.
    *
    * The founder reported it twice, on two different surfaces, in the same
    * words: the highlight has to reach the edges rather than float as a pill.

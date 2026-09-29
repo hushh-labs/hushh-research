@@ -1,17 +1,15 @@
 "use client";
 
+import { Copy, Link2, Share2, Wallet } from "@/components/icons";
 import {
-  Copy,
-  Eye,
-  Link2,
-  Pause,
-  Pencil,
-  Play,
-  RefreshCw,
-  Share2,
-  Trash2,
-  Wallet,
-} from "@/components/icons";
+  DeleteRowIcon,
+  EditRowIcon,
+  PauseRowIcon,
+  PreviewRowIcon,
+  ResumeRowIcon,
+  RotateRowIcon,
+  WalletAgentIcon,
+} from "@/components/icons/agents";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { Button } from "@/lib/morphy-ux/morphy";
@@ -63,8 +61,8 @@ export function WalletCardManage({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={paused ? Pause : Wallet}
-          iconTone={paused ? "orange" : "green"}
+          icon={paused ? PauseRowIcon : WalletAgentIcon}
+          iconTone="capability"
           title={
             paused
               ? WALLET_CARD_OWNER_COPY.statusPaused
@@ -167,24 +165,24 @@ export function WalletCardManage({
 
       <SettingsGroup title="Sharing controls">
         <SettingsRow
-          icon={Eye}
-          iconTone="blue"
+          icon={PreviewRowIcon}
+          iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.previewAsVisitor}
           description="See exactly what a scan shows right now."
           chevron
           onClick={() => onAction("preview")}
         />
         <SettingsRow
-          icon={Pencil}
-          iconTone="accent"
+          icon={EditRowIcon}
+          iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.editInformation}
           description="Change what is included. Your QR stays the same."
           chevron
           onClick={() => onAction("edit")}
         />
         <SettingsRow
-          icon={paused ? Play : Pause}
-          iconTone="orange"
+          icon={paused ? ResumeRowIcon : PauseRowIcon}
+          iconTone="capability"
           title={
             paused
               ? WALLET_CARD_OWNER_COPY.resumeSharing
@@ -200,8 +198,8 @@ export function WalletCardManage({
           onClick={() => onAction(paused ? "resume" : "pause")}
         />
         <SettingsRow
-          icon={RefreshCw}
-          iconTone="purple"
+          icon={RotateRowIcon}
+          iconTone="capability"
           title={WALLET_CARD_OWNER_COPY.rotateAccess}
           description="Invalidate the current QR and create a new one."
           chevron
@@ -209,7 +207,8 @@ export function WalletCardManage({
           onClick={() => onAction("rotate")}
         />
         <SettingsRow
-          icon={Trash2}
+          icon={DeleteRowIcon}
+          iconTone="capability"
           tone="destructive"
           title={WALLET_CARD_OWNER_COPY.removeProfile}
           description="Stop sharing and take the profile down for good."

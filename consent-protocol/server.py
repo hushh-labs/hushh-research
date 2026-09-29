@@ -1481,6 +1481,33 @@ async def startup_account_deletion_cleanup_worker() -> None:
         )
 
 
+@app.on_event("startup")
+async def startup_feed_attention_push_worker() -> None:
+    """Generic, capped pushes for notable feed rows. Off unless explicitly enabled."""
+    try:
+        from hushh_mcp.services.feed_attention_push import (
+            ENABLE_ENV,
+            SWEEP_INTERVAL_SECONDS,
+            feed_attention_enabled,
+            start_feed_attention_loop,
+        )
+
+        if not feed_attention_enabled():
+            logger.info("startup.feed_attention_push_worker_disabled env=%s", ENABLE_ENV)
+            return
+        _track_startup_background_task(start_feed_attention_loop())
+        logger.info(
+            "startup.feed_attention_push_worker_registered interval_s=%s",
+            int(SWEEP_INTERVAL_SECONDS),
+        )
+    except Exception as exc:
+        # A wake-up aid only: the Feed itself stays authoritative without it.
+        logger.warning(
+            "startup.feed_attention_push_worker_failed reason=%s",
+            type(exc).__name__,
+        )
+
+
 if __name__ == "__main__":
     import uvicorn
 

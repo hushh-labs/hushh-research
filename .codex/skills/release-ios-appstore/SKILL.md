@@ -1,6 +1,6 @@
 ---
 name: release-ios-appstore
-description: Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main — Apple-managed signing with an Admin ASC API key, a UAT-backend/UAT-Firebase binary, per-version "What's New" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).
+description: Use when releasing, submitting, or verifying a public Hussh One iOS App Store build cut from green main: Apple-managed signing with an Admin ASC API key, a binary whose backend is chosen by `backend_target` (default UAT, or production), per-version "What's New" and build attach via the ASC API, and the two-gate dispatch path (prepare-only default, opt-in irreversible public submit).
 ---
 
 # Hussh Release iOS to App Store Skill
@@ -58,10 +58,12 @@ Non-owned surfaces:
 2. Pick SHA = user-provided else latest `origin/main`; it must be an ancestor of `origin/main`.
 3. Require "Main Post-Merge Smoke Gate" = success on that exact SHA (the workflow re-checks via `scripts/ci/require-deploy-sha-on-main.sh` and refuses otherwise).
 4. First run after any signing/secret change, dispatch a dry run (`make ios-prod-release-dry`): archive + sign, no upload. A dry run does NOT catch a closed marketing-version train.
-5. GATE 1 (every dispatch): restate workflow, `--ref main`, short SHA, mode, backend = UAT (`hushh-pda-uat`), bundle `com.hushh.app`; get an explicit yes, then `make ios-prod-release ARGS="--sha <sha> --yes --whats-new '<notes>'"` (prepare-only default; no `--submit`).
+5. GATE 1 (every dispatch): restate workflow, `--ref main`, short SHA, mode, backend target (`uat` = `hushh-pda-uat`, the default; `production` = `hushh-pda` / one.hushh.ai), bundle `com.hushh.app`; get an explicit yes, then `make ios-prod-release ARGS="--sha <sha> --backend <uat|production> --yes --whats-new '<notes>'"` (prepare-only default; no `--submit`). The first production-backed release moves existing App Store users from the UAT database to the production one. Name that in the gate, because their vault and records do not move with them.
 6. If a real upload fails with "train ... is closed", bump `MARKETING_VERSION` in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (Debug+Release), land it on `main`, re-release; the resolver only bumps the build number.
 7. GATE 2 (public submission only): irreversible and publishes to real users; requires a fresh explicit yes and every publish-safety blocker cleared, then `--submit --ack-blockers` (workflow input `submit_for_review=true`). Never dispatch submit from automation or on assumption.
 8. Verify from the ASC API and the run Job summary — uploaded, processed, "What's New" set, build attached, submitted-or-prepared — before reporting done. Never print, paste, or read the ASC `.p8` / Key / Issuer secrets.
+9. A production-backed submit needs the dedicated production reviewer account and its App Review Information, set by hand in App Store Connect (`docs/guides/mobile/release-ios-appstore.md` § *App Review sign-in on a production-backed build*). Production never advertises or mints review mode (`consent-protocol/api/routes/health.py`), so do not "enable" `APP_REVIEW_MODE` there, and never reuse the production reviewer UID as a UAT or dev `REVIEWER_UID`: the lanes share one Firebase authority and UAT mints with no credential.
+10. Any verify step shared with the TestFlight sibling must bring the same runtime. Run 36358944003 (2026-09-27) died in `verify:one-voice` on `ModuleNotFoundError: dotenv`: the capability-graph generator needs the consent-protocol package, TestFlight got its Python step in 231c6e50f, and this lane did not. Diff both workflows' setup steps whenever a verify step is shared.
 
 ## Handoff Rules
 

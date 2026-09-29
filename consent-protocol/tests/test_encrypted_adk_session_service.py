@@ -13,6 +13,7 @@ from db.db_client import DatabaseExecutionError
 from hushh_mcp.one_adk.encrypted_session_service import (
     EncryptedAdkSessionService,
     EncryptedAdkSessionUnavailableError,
+    session_payload_aad,
 )
 from tests.helpers.chat_keys import static_chat_cipher
 
@@ -522,3 +523,136 @@ async def test_pod_chat_recovers_across_more_than_ten_thousand_unrelated_commits
     assert (
         store.get.await_count == 10001
     )  # Verification visits every link without retaining the chain.
+
+
+def test_a_row_sealed_with_invocation_state_opens_without_it(monkeypatch) -> None:
+    """Rows sealed before 2026-09-28 hold an answer turn's ``temp:`` record; a
+    new invocation must never start with it (the same-chat consent leak)."""
+    monkeypatch.setenv("APP_SIGNING_KEY", "a" * 32)
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    session = Session(
+        id="thread-1",
+        app_name="hussh_one",
+        user_id="owner-1",
+        state={"hussh:kept": 1, "temp:hussh:consent_continuation": {"shared": "ref"}},
+        events=[],
+    )
+    legacy = service._cipher.seal(
+        session.model_dump_json(by_alias=True),
+        owner_id=session.user_id,
+        aad=session_payload_aad(session.app_name, session.id),
+    )
+    row = {
+        "payload_ciphertext": legacy.ciphertext,
+        "payload_iv": legacy.iv,
+        "payload_tag": legacy.tag,
+        "payload_algorithm": legacy.algorithm,
+    }
+    assert _decode_as(service, session, row).state == {"hussh:kept": 1}
+    # And nothing new is sealed with it, while the live session keeps it.
+    fresh = _decode_as(
+        service,
+        session,
+        {f"payload_{key}": value for key, value in service._encode(session).items()},
+    )
+    assert fresh.state == {"hussh:kept": 1}
+    assert "temp:hussh:consent_continuation" in session.state
+
+
+class _Rows:
+    """``one_adk_sessions`` for the statements the store issues, over real sealing."""
+
+    def __init__(self) -> None:
+        self.rows: dict[str, dict] = {}
+
+    async def execute(self, sql: str, params: dict):
+        statement = " ".join(sql.split())
+        fields = {
+            f"payload_{key}": params[key]
+            for key in ("ciphertext", "iv", "tag", "algorithm")
+            if key in params
+        }
+        if statement.startswith("INSERT"):
+            self.rows[params["session"]] = {**fields, "revision": 1}
+            return SimpleNamespace(data=[{"revision": 1}])
+        if statement.startswith("SELECT session_id"):
+            return SimpleNamespace(
+                data=[{"session_id": key, **row} for key, row in self.rows.items()]
+            )
+        if statement.startswith("SELECT"):
+            row = self.rows.get(params["session"])
+            return SimpleNamespace(data=[dict(row)] if row else [])
+        row = self.rows[params["session"]]
+        if row["revision"] != params["revision"]:
+            return SimpleNamespace(data=[])
+        row.update(fields, revision=row["revision"] + 1)
+        return SimpleNamespace(data=[{"revision": row["revision"]}])
+
+
+def _stale_temp_records(caplog) -> list:
+    return [r for r in caplog.records if "sealed_temp_state_dropped" in r.getMessage()]
+
+
+@pytest.mark.asyncio
+async def test_stale_temp_state_is_reported_once_per_legacy_row_and_never_for_a_live_turn(
+    monkeypatch, caplog
+) -> None:
+    """Measured 2026-09-28: 277 INFO lines, about 14 per turn, all from every
+    conversation-list poll re-reading the same legacy rows (reads never reseal)."""
+    from collections import OrderedDict
+
+    from hushh_mcp.one_adk import encrypted_session_service
+
+    monkeypatch.setenv("APP_SIGNING_KEY", "a" * 32)
+    monkeypatch.setattr(encrypted_session_service, "_REPORTED_STALE_TEMP_STATE", OrderedDict())
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    rows = _Rows()
+    monkeypatch.setattr(service, "_execute", rows.execute)
+    caplog.set_level("DEBUG", logger=encrypted_session_service.__name__)
+
+    # A normal turn: the running invocation holds ``temp:`` values in memory.
+    live = await service.create_session(app_name="one", user_id="owner", session_id="live")
+    await service.append_event(
+        live,
+        Event(
+            author="one",
+            timestamp=1.0,
+            actions=EventActions(state_delta={"temp:hussh:turn": 1, "hussh:kept": 1}),
+        ),
+    )
+    assert live.state["temp:hussh:turn"] == 1
+    for _poll in range(3):
+        await service.list_sessions(app_name="one", user_id="owner")
+    assert (
+        await service.get_session(app_name="one", user_id="owner", session_id="live")
+    ).state == {"hussh:kept": 1}
+    assert _stale_temp_records(caplog) == []
+
+    # A legacy row sealed with an earlier turn's ``temp:`` values.
+    legacy = Session(
+        id="legacy",
+        app_name="one",
+        user_id="owner",
+        state={"hussh:kept": 2, "temp:hussh:consent_continuation": {"shared": "ref"}},
+        events=[],
+    )
+    sealed = service._cipher.seal(
+        legacy.model_dump_json(by_alias=True),
+        owner_id="owner",
+        aad=session_payload_aad("one", "legacy"),
+    )
+    rows.rows["legacy"] = {
+        "payload_ciphertext": sealed.ciphertext,
+        "payload_iv": sealed.iv,
+        "payload_tag": sealed.tag,
+        "payload_algorithm": sealed.algorithm,
+        "revision": 1,
+    }
+    for _poll in range(3):
+        listed = await service.list_sessions(app_name="one", user_id="owner")
+        # Behaviour is unchanged: every read drops the stale value.
+        assert {s.id: s.state for s in listed.sessions}["legacy"] == {"hussh:kept": 2}
+
+    records = _stale_temp_records(caplog)
+    assert [record.levelname for record in records] == ["INFO", "DEBUG", "DEBUG"]
+    assert all(record.getMessage().endswith("count=1") for record in records)

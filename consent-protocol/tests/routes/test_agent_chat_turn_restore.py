@@ -496,3 +496,69 @@ async def test_a_consent_follow_up_restores_as_a_status_chip_and_is_reported_onc
     # A typed prompt is never re-labelled.
     typed = next(message for message in history["messages"] if message["id"] == "ask")
     assert not (typed["metadata"] or {}).get("kind")
+
+
+@pytest.mark.asyncio
+async def test_an_ended_share_restores_as_access_ended_and_never_ships_the_answer(
+    monkeypatch,
+) -> None:
+    """CONTRACT C3 (b): after revoke the client gets a marker, not the text."""
+    from hushh_mcp.one_adk.consent_redaction import consent_invocations_state_key
+
+    bundle = "0f0e0d0c-0b0a-4908-8706-050403020100"
+    secret = "Her favorite restaurant is Nopa."
+    events = [
+        _text("ask", USER_PROMPT, author="user"),
+        _text("sent", ANSWER),
+        _text("chip", "Consent approved", author="user", invocation="turn-2"),
+        _text("answer", secret, invocation="turn-2"),
+        _text("follow", "Where is it?", author="user", invocation="turn-3"),
+        _text("derived", "Nopa is on Divisadero.", invocation="turn-3"),
+    ]
+    state = {
+        f"hussh:consent_outcome:{bundle}": "granted",
+        f"hussh:consent_shared:{bundle}": {"personName": "Kushal", "labels": ["Food preferences"]},
+        consent_invocations_state_key(bundle): ["turn-2", "turn-3"],
+    }
+    outcome = {"value": "granted"}
+
+    class Ledger:
+        async def get(self, *, requester_user_id, bundle_id):
+            assert (requester_user_id, bundle_id) == ("owner", bundle)
+            ended = outcome["value"] == "revoked"
+            return {"progress": {"outcome": outcome["value"], "ended_at": "t" if ended else None}}
+
+    monkeypatch.setattr(agent_chat, "InformationRequestService", Ledger)
+
+    live = await _history(monkeypatch, events, state=state)
+    answer = next(message for message in live["messages"] if message["id"] == "answer")
+    assert answer["content"] == secret
+    assert answer["metadata"]["consentAccess"]["state"] == "live"
+    assert answer["metadata"]["consentBundleId"] == bundle
+    assert "consentAccessEnded" not in answer["metadata"]
+    assert live["consentAccessEnded"] == {}
+
+    # The owner revokes; the very next history load, before any new turn.
+    outcome["value"] = "revoked"
+    ended = await _history(monkeypatch, events, state=state)
+    assert ended["consentAccessEnded"] == {bundle: "revoked"}
+    rendered = json.dumps(ended["messages"])
+    assert "Nopa" not in rendered
+    marker = next(message for message in ended["messages"] if message["id"] == "answer")
+    assert marker["content"] == ""
+    chip = next(message for message in ended["messages"] if message["id"] == "chip")
+    assert chip["metadata"]["consentBundleId"] == bundle
+    assert chip["metadata"]["consentAccessEnded"] is True
+    assert marker["metadata"] == {
+        "consentBundleId": bundle,
+        "consentAccessEnded": True,
+        "consentAccess": {
+            "bundleId": bundle,
+            "state": "ended",
+            "outcome": "revoked",
+            "personName": "Kushal",
+            "labels": ["Food preferences"],
+        },
+    }
+    # The person's own messages are theirs and stay.
+    assert any(message["content"] == "Where is it?" for message in ended["messages"])

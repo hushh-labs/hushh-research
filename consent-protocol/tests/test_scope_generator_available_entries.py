@@ -177,7 +177,8 @@ def test_information_scope_catalog_matches_token_scope_grammar():
             "domain": "professional",
             "path": None,
             "wildcard": False,
-            "sensitivity": None,
+            # C7: the one server-side authority; professional profile is standard.
+            "sensitivity": "standard",
         },
         {
             "scope": "attr.professional.profile.entities._entities.summary",
@@ -186,6 +187,7 @@ def test_information_scope_catalog_matches_token_scope_grammar():
             "domain": "professional",
             "path": None,
             "wildcard": False,
-            "sensitivity": None,
+            # C7: the one server-side authority; professional profile is standard.
+            "sensitivity": "standard",
         },
     ]

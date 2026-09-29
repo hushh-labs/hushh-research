@@ -1,6 +1,7 @@
 import type { LucideIcon } from "@/components/icons";
 import {
   AlertTriangle,
+  Bot,
   CalendarDays,
   Database,
   FileText,
@@ -8,14 +9,17 @@ import {
   MapPin,
   Newspaper,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   UserRound,
   ScanSearch,
   Users,
 } from "@/components/icons";
 
-import { humanizeConsentScope } from "@/lib/consent/consent-display";
+import {
+  consentInformationLabel,
+  joinInformationLabels,
+  reasonMidSentence,
+} from "@/lib/consent/consent-owner-copy";
 import { documentShareNotificationSelection } from "@/lib/consent/document-share-consent";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
@@ -167,27 +171,29 @@ function driveFeedLine(
 ): string {
   switch (eventType) {
     case "document_share_request":
-      return "Asked for files from your Drive";
+      return "Document request received";
     case "document_share_review_ready":
-      return "Files are ready for you to review";
+      return "Files ready for your review";
     case "document_share_decided":
       if (sharedWithMe) {
         return status === "declined"
           ? "Declined your file request"
-          : "Is sharing Drive files with you";
+          : status === "pending"
+            ? "Files are available; more may arrive"
+            : "Is sharing Drive files with you";
       }
       return status === "cancelled"
         ? "Withdrew their file request"
-        : "Getting your shared files";
+        : status === "pending" ? "Some shared files are available" : "Getting your shared files";
     case "document_share_outcome":
       if (sharedWithMe) {
         return status === "partial"
-          ? "Shared some Drive files with you"
-          : "Shared Drive files with you";
+          ? "Sharing finished with some files unavailable"
+          : "Drive sharing finished; check file results";
       }
       return status === "partial"
-        ? "Got some of your shared files"
-        : "Now has your shared files";
+        ? "Could not share all selected files"
+        : "Drive sharing finished; check file results";
     case "document_share_revoked":
       return sharedWithMe
         ? "Removed your access to shared files"
@@ -207,6 +213,63 @@ function driveFeedLine(
   }
 }
 
+function metadataStringList(
+  metadata: Record<string, unknown>,
+  key: string,
+): string[] {
+  const value = metadata[key];
+  return Array.isArray(value)
+    ? value
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter(Boolean)
+    : [];
+}
+
+/**
+ * The name on a consent row, or "" when the row carries none. Never the
+ * technical requester id: an unnamed row says "Someone asked" instead.
+ */
+/**
+ * The requester's name, from the metadata when it has one, else the row's own
+ * `actor_label`: the per-request consent row (migration 260) writes the name
+ * there too. "Someone" is only for a row that truly carries no name.
+ */
+function consentRequesterName(item: Pick<FeedItem, "metadata" | "actor_label">): string {
+  const metadata = item.metadata;
+  return (
+    metadataString(metadata, "requester_label") ||
+    metadataString(metadata, "requester_display_name") ||
+    metadataString(metadata, "counterpart_label") ||
+    metadataString(metadata, "display_name") ||
+    (typeof item.actor_label === "string" ? item.actor_label.trim() : "") ||
+    ""
+  );
+}
+
+/**
+ * Human names for what a consent row is about, from the item keys when the row
+ * has them (so the words match the sheet and the Active row exactly), else from
+ * the stored names.
+ */
+function consentRowLabels(metadata: Record<string, unknown>): string[] {
+  const scopes = [
+    ...metadataStringList(metadata, "grouped_scopes"),
+    ...metadataStringList(metadata, "scopes"),
+  ];
+  const single = metadataString(metadata, "scope");
+  if (!scopes.length && single) scopes.push(single);
+  if (scopes.length) {
+    return scopes.map((scope) => consentInformationLabel({ scope }));
+  }
+  const labels = [
+    ...metadataStringList(metadata, "grouped_labels"),
+    ...metadataStringList(metadata, "labels"),
+  ];
+  const description = metadataString(metadata, "scope_description");
+  if (!labels.length && description) labels.push(description);
+  return labels.map((label) => consentInformationLabel({ label }));
+}
+
 /**
  * One line per event_type. Wording lives here, not in the backend row, so
  * copy iterates via a frontend deploy rather than a migration.
@@ -214,14 +277,6 @@ function driveFeedLine(
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
-  // A description reads as written; a bare scope key goes through the same
-  // humanizer the consent screens use. Printed raw, a row said
-  // "attr.professional.work_preferences.entities._entities.observations._items
-  // was revoked."
-  const rawScope = metadataString(item.metadata, "scope");
-  const scope =
-    metadataString(item.metadata, "scope_description") ||
-    (rawScope ? humanizeConsentScope(rawScope) : "");
   // Best-available name for the other party (label → display → first →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.
@@ -254,55 +309,66 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       return { icon, domainLabel: "Public profile", label: "Your profile review is complete", description: "The one-time profile handoff is finished.", href: ROUTES.ONE_PROFILE_DISCOVERY };
     case "profile_discovery_cancelled":
       return { icon, domainLabel: "Public profile", label: "Your profile search was cancelled", description: "No further public profile discovery will run for this handoff.", href: null };
+    // Consent rows are person-first like every other request in the Feed, and
+    // name what was asked for in the same words as the "Needs you" row and the
+    // decision sheet. They used to read "Someone requested Preferences.":
+    // no name, a label that disagreed with the access it became, one row per
+    // item. `requester_label`, `bundle_id`, `reason` and `scopes` are what the
+    // per-request row carries (CONTRACT C5); a per-item row with none of them
+    // still reads as a sentence.
     case "consent_requested":
-      return {
-        icon,
-        domainLabel,
-        label: "Consent requested",
-        description: scope
-          ? `${who} requested ${scope}.`
-          : `${who} sent a consent request for your review.`,
-        href: buildConsentCenterHref("pending"),
-      };
-    case "consent_granted": {
-      const personRef = metadataString(item.metadata, "person_ref");
-      const isRecipient =
-        iAskedForThis ||
-        metadataString(item.metadata, "feed_audience") === "requester" ||
-        Boolean(personRef);
-      if (isRecipient) {
-        const hasWho = who !== "Someone";
-        const scopeDesc =
-          metadataString(item.metadata, "scope_description") ||
-          metadataString(item.metadata, "scope") ||
-          "information";
+    case "consent_granted":
+    case "consent_revoked": {
+      const requester = consentRequesterName(item);
+      const what = joinInformationLabels(consentRowLabels(item.metadata), 2);
+      const reason = reasonMidSentence(metadataString(item.metadata, "reason"));
+      const person = requester
+        ? counterpartPerson(item.metadata, requester)
+        : null;
+      if (item.event_type === "consent_requested") {
         return {
-          icon: ShieldCheck,
-          domainLabel: "Consent",
-          label: hasWho ? `${who} shared information with you` : "Information shared with you",
-          person: counterpartPerson(item.metadata, who),
-          description: `Granted access to ${scopeDesc}. Tap to view.`,
-          href: personRef ? `/people/${encodeURIComponent(personRef)}?section=shared` : buildConsentCenterHref("active"),
+          icon,
+          domainLabel,
+          label: requester || "Information request",
+          person,
+          description: `${requester ? "Asked" : "Someone asked"} for your ${what}${reason ? ` · ${reason}` : ""}`,
+          href: buildConsentCenterHref("pending", {
+            bundleId: metadataString(item.metadata, "bundle_id") || undefined,
+          }),
+        };
+      }
+      if (item.event_type === "consent_granted") {
+        const personRef = metadataString(item.metadata, "person_ref");
+        if (iAskedForThis || personRef) {
+          return {
+            icon: ShieldCheck,
+            domainLabel: "Consent",
+            label: requester ? `${requester} shared information with you` : "Information shared with you",
+            person: counterpartPerson(item.metadata, requester || who),
+            description: `Granted access to ${what}. Tap to view.`,
+            href: personRef
+              ? `/people/${encodeURIComponent(personRef)}?section=shared`
+              : buildConsentCenterHref("active"),
+          };
+        }
+        return {
+          icon,
+          domainLabel,
+          label: requester || "Sharing started",
+          person,
+          description: `You shared your ${what}`,
+          href: buildConsentCenterHref("active"),
         };
       }
       return {
         icon,
         domainLabel,
-        label: "Consent granted",
-        description: scope
-          ? `You granted ${scope}.`
-          : "You granted a consent request.",
-        href: buildConsentCenterHref("active"),
-      };
-    }
-    case "consent_revoked":
-      return {
-        icon,
-        domainLabel,
-        label: "Consent revoked",
-        description: scope ? `${scope} was revoked.` : "A consent was revoked.",
+        label: requester || "Sharing ended",
+        person,
+        description: `You stopped sharing your ${what}`,
         href: buildConsentCenterHref("previous"),
       };
+    }
     /**
      * Personal agent lifecycle. Provisioning is fire-and-forget in the backend
      * and invisible everywhere else, so these rows are the only place a person
@@ -313,7 +379,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
      */
     case "personal_agent_reserved":
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent is on the way",
         description: "We reserved your own private agent. Nothing for you to do.",
@@ -321,7 +387,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "personal_agent_provisioning":
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Setting up your private agent",
         description: "Your private agent is being set up in the background.",
@@ -337,7 +403,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     // read their records. Said plainly, because that IS the product.
     case "personal_agent_connecting":
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent is starting up",
         description:
@@ -346,7 +412,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "personal_agent_ready":
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent is ready",
         description: "It is set up and ready whenever you are.",
@@ -354,7 +420,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       };
     case "personal_agent_updated":
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent was updated",
         description: "It is running the newest build, in your own private space.",
@@ -393,7 +459,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       // that genuinely restarts it. A capped-row retry is worth building; promising
       // it before it exists is not.
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent is in the queue",
         description:
@@ -405,7 +471,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
       // the next thing the person does re-provisions it. Saying "deleted" would be
       // false, and saying nothing would make the next cold start look like a fault.
       return {
-        icon: Sparkles,
+        icon: Bot,
         domainLabel: "Private agent",
         label: "Your private agent is resting",
         description: "It was idle for a while, so we powered it down. It wakes when you need it.",

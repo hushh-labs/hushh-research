@@ -16,9 +16,9 @@
     "surface_map_count": 147,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 47,
+      "redirect/alias": 46,
       "vault-backed": 58,
-      "hidden flow": 20,
+      "hidden flow": 21,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 1,
@@ -258,26 +258,29 @@
     {
       "route": "/circle/join",
       "page_file": "app/circle/join/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
-        "static render"
+        "fresh memory",
+        "cold loader"
       ],
       "readiness_kpis": [
-        "route_readiness_completed"
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/circle/join",
+      "reviewer_fixture": "/circle/join?code=native-invitation-fixture",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -289,11 +292,13 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
-        "native_beacon": false
+        "native_beacon": true
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/connected-systems",
@@ -6603,5 +6608,5 @@
       ]
     }
   ],
-  "content_sha256": "666c254da09d61c1df9f1a15645e622aea7847fdc71970f80fc952e40d618877"
+  "content_sha256": "479b608afd24fa85433849b4a9fc61d21cd63f5f39c92fe5dcef594a927c9e35"
 }

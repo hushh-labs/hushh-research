@@ -20,8 +20,16 @@ export type EmailDeliveryHistoryItem = {
 
 type EmailDeliveryHistoryCardProps = {
   item: EmailDeliveryHistoryItem;
-  /** Starts an explicit, incremental Gmail send-consent request. */
-  onEnableGmailSend?: () => void;
+  /**
+   * Starts an explicit, incremental Gmail send-consent request in place. On
+   * success the caller reopens this reviewed draft; nothing is sent until the
+   * person sends it again.
+   */
+  onEnableGmailSend?: (item: EmailDeliveryHistoryItem) => void;
+  /** True while this item's Google sign-in window is open. */
+  enablingGmailSend?: boolean;
+  /** Closes this item's Google sign-in window; ends quietly. */
+  onCancelEnableGmailSend?: () => void;
   onRetry?: (item: EmailDeliveryHistoryItem) => void;
 };
 
@@ -46,6 +54,8 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
 export function EmailDeliveryHistoryCard({
   item,
   onEnableGmailSend,
+  enablingGmailSend = false,
+  onCancelEnableGmailSend,
   onRetry,
 }: EmailDeliveryHistoryCardProps) {
   const canRetry = item.status === "failed";
@@ -142,9 +152,22 @@ export function EmailDeliveryHistoryCard({
           <div className="flex flex-wrap gap-2">
             {needsGmailReconnect ? (
               onEnableGmailSend ? (
-                <Button type="button" variant="outline" size="sm" onClick={onEnableGmailSend}>
-                  Enable sending
-                </Button>
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={enablingGmailSend}
+                    onClick={() => onEnableGmailSend(item)}
+                  >
+                    {enablingGmailSend ? "Waiting for Google…" : "Enable sending"}
+                  </Button>
+                  {enablingGmailSend && onCancelEnableGmailSend ? (
+                    <Button type="button" variant="ghost" size="sm" onClick={onCancelEnableGmailSend}>
+                      Cancel sign-in
+                    </Button>
+                  ) : null}
+                </>
               ) : (
                 <Button asChild type="button" variant="outline" size="sm">
                   <Link href="/one/gmail">Reconnect Mail</Link>

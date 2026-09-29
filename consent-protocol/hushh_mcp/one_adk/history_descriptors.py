@@ -12,6 +12,10 @@ from hushh_mcp.one_adk.history_projection import (
     _record,
     _safe_workspace_connector_setup_descriptor,
 )
+from hushh_mcp.one_adk.shared_with_me_card import (
+    SHARED_WITH_ME_CARD_KIND,
+    project_shared_with_me_card,
+)
 
 
 def _event_text(event: Any) -> str:
@@ -263,6 +267,102 @@ def _safe_information_request_descriptor(
     return None
 
 
+def _safe_shared_with_me_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore the "Shared with you" card (CONTRACT-2 C6) from its sealed tool result.
+
+    The card carries labels, field names, dates and the refs the device opens
+    each item by; it never carried a value. Each card is re-validated field by
+    field, so a stored result cannot smuggle anything else into history.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "list_information_shared_with_me"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        raw_cards = result.get("cards")
+        if result.get("status") != "ok" or not isinstance(raw_cards, list):
+            return None
+        cards = [
+            card
+            for raw in raw_cards[:20]
+            if (card := project_shared_with_me_card(_record(raw))) is not None
+        ]
+        if not cards:
+            return None
+        return {"activityType": SHARED_WITH_ME_CARD_KIND, "content": {"cards": cards}}
+    return None
+
+
+def _safe_proposal_source(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """The recipient of One's ask card (``propose_information_request``), or None.
+
+    The ask card is a send surface exactly like a discovery card, so its receipt
+    is bound the same way: a sealed ``proposal_ready`` result in this
+    conversation that carries a proposal, and a person whose reference matches
+    their profile path. Nothing else of the proposal leaves the session.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "propose_information_request"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        proposed = result.get("proposed")
+        if result.get("status") != "proposal_ready" or not isinstance(proposed, list):
+            return None
+        if not any(_record(item) for item in proposed):
+            return None
+        person = _record(result.get("person")) or {}
+        display_name = _bounded_text(person.get("displayName"), 120)
+        profile_path = _bounded_text(person.get("profilePath"), 180)
+        person_ref = _bounded_text(person.get("personRef"), 128)
+        if (
+            not display_name
+            or not profile_path
+            or not person_ref
+            or not _SAFE_PROFILE_PATH.fullmatch(profile_path)
+            or profile_path.rsplit("/", 1)[-1] != person_ref
+        ):
+            return None
+        return {
+            "person": {
+                "displayName": display_name,
+                "profilePath": profile_path,
+                "personRef": person_ref,
+            }
+        }
+    return None
+
+
 def _safe_submitted_information_request_card(card: Any) -> dict[str, Any] | None:
     """Allowlist display-only submission metadata, never consent authority."""
     card = _record(card) or {}
@@ -509,6 +609,8 @@ def _safe_agent_history_metadata(
         if descriptor is None:
             descriptor = _safe_information_request_descriptor(event, [part])
         if descriptor is None:
+            descriptor = _safe_shared_with_me_descriptor(event, [part])
+        if descriptor is None:
             descriptor = _safe_document_request_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_drive_share_descriptor(event, [part])
@@ -522,8 +624,8 @@ def _safe_agent_history_metadata(
             getattr(getattr(part, "function_response", None), "id", None), 128
         )
         card_id = f"{event_identity}:{invocation_identity or index}"
-        if card_id in (suppressed_discovery_ids or set()) and _safe_discovery_descriptor(
-            event, [part]
+        if card_id in (suppressed_discovery_ids or set()) and (
+            _safe_discovery_descriptor(event, [part]) or _safe_proposal_source(event, [part])
         ):
             continue
         if card_id in seen:
@@ -554,7 +656,8 @@ def _session_title(session: Any) -> str:
     return "New conversation"
 
 
-def _discovery_source(session: Any, activity_id: str) -> tuple[str, dict[str, Any]] | None:
+def _request_source(session: Any, activity_id: str) -> tuple[str, dict[str, Any]] | None:
+    """Find this conversation's unique discovery or information-request proposal card."""
     matches: list[tuple[str, dict[str, Any]]] = []
     for event in session.events:
         event_id = (
@@ -563,16 +666,21 @@ def _discovery_source(session: Any, activity_id: str) -> tuple[str, dict[str, An
             or "event"
         )
         for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
-            descriptor = _safe_discovery_descriptor(event, [part])
-            if descriptor is None:
+            discovery = _safe_discovery_descriptor(event, [part])
+            source = discovery["content"] if discovery else _safe_proposal_source(event, [part])
+            if source is None:
                 continue
             tool_id = _bounded_text(
                 getattr(getattr(part, "function_response", None), "id", None), 128
             )
             card_id = f"{event_id}:{tool_id or index}"
             if activity_id in {card_id, tool_id}:
-                matches.append((card_id, descriptor["content"]))
+                matches.append((card_id, source))
     return matches[0] if len(matches) == 1 else None
+
+
+# Existing route/tests imported the narrower name before ask cards were supported.
+_discovery_source = _request_source
 
 
 def _submitted_source_id(event: Any) -> str | None:

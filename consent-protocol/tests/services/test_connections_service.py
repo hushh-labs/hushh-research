@@ -407,6 +407,56 @@ def test_exact_requestable_scope_entries_do_not_depend_on_ranked_page():
     assert exact[-1]["scope"] == "attr.professional.field_59"
 
 
+def _requestable_entry(scope: str, label: str, domain: str, path: str = "") -> dict:
+    return {
+        "scope": scope,
+        "label": label,
+        "domain": domain,
+        "path": path,
+        "exposure_eligibility": True,
+        "consumer_visible": True,
+        "internal_only": False,
+        "visibility_posture": "consent_required",
+    }
+
+
+def test_secrets_are_never_requestable_by_another_person_in_catalog_or_validation():
+    """Contract C4. UAT 2026-09-28 offered "Runtime Secrets" to another person."""
+    from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_others
+
+    entries = [
+        _requestable_entry(
+            "attr.food.preferences.*",
+            "Preferences Entities Entities Summary",
+            "food",
+            "preferences",
+        ),
+        _requestable_entry("attr.runtime_secrets.*", "Runtime Secrets", "runtime_secrets"),
+        _requestable_entry("attr.runtime_secrets.llm.*", "Llm", "runtime_secrets", "llm"),
+        _requestable_entry("attr.passwords.*", "Passwords", "passwords"),
+        _requestable_entry("attr.health.api_keys.*", "Api Keys", "health", "api_keys"),
+    ]
+    # Negative control: the grammar filter that ran before this check lets the
+    # runtime-secrets rows through, so the new check is what removes them.
+    assert ConnectionsService._is_requestable_dynamic_scope("attr.runtime_secrets.*")
+    assert ConnectionsService._is_requestable_dynamic_scope("attr.runtime_secrets.llm.*")
+    svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
+
+    listed = svc.get_information_scope_catalog("user-a", "user-b", limit=100)
+    searched = svc.get_information_scope_catalog("user-a", "user-b", query="secret")
+    # Request creation validates opaque refs against exactly this list.
+    exact = svc.get_exact_requestable_scope_entries("user-a", "user-b")
+
+    assert [entry["scope"] for entry in listed["items"]] == ["attr.food.preferences.*"]
+    assert searched["items"] == []
+    assert [entry["scope"] for entry in exact] == ["attr.food.preferences.*"]
+    assert exact[0]["label"] == "Food preferences"
+    assert is_scope_requestable_by_others("attr.food.preferences.*")
+    assert is_scope_requestable_by_others("attr.wallet.summary.*")
+    assert not is_scope_requestable_by_others("attr.vault.recovery.*")
+    assert not is_scope_requestable_by_others("not-a-scope")
+
+
 class _RecordingDB:
     """Captures every (sql, params) and returns queued rows per call."""
 

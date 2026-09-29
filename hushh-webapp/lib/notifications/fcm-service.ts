@@ -16,6 +16,7 @@ import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { isAgentConversationId } from "@/lib/agent/agent-chat-turn-watch";
+import { feedAttentionTapTarget } from "@/lib/agent/feed-attention";
 import {
   buildConsentCenterHref,
   resolveConsentNavigationTarget,
@@ -52,7 +53,7 @@ const IOS_DEFAULT_NOTIFICATION_ACTION =
  */
 export const DOCUMENT_SHARE_NOTIFICATION_COPY = {
   title: "Document request",
-  body: "Open One to review.",
+  body: "Open One for next steps.",
 } as const;
 
 function normalizedDocumentShareType(
@@ -206,6 +207,10 @@ export function buildNotificationTapTarget(
   if (oneReplyTarget) return oneReplyTarget;
   const answerTarget = informationRequestAnswerTapTarget(data);
   if (answerTarget) return answerTarget;
+  // "One has something for you": native only, like one_reply, so the web
+  // worker's `notificationTapTarget` deliberately has no case for it.
+  const feedAttentionTarget = feedAttentionTapTarget(data);
+  if (feedAttentionTarget) return feedAttentionTarget;
   const locationTarget = incomingLocationShareTarget(data);
   if (locationTarget) return locationTarget;
   const documentShareTarget = documentShareNotificationTapTarget(data);

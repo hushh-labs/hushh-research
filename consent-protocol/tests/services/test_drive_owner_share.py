@@ -329,6 +329,11 @@ async def circle(shares, monkeypatch):
         "CONNECTOR_INTERNAL_OWNER_COHORT", "owner,recipient,contact,comember,stranger,nogoogle"
     )
     with shares.db.engine.begin() as connection:
+        # The shared request fixture supplies minimal Trusted tables. This
+        # circle suite needs its own legacy origin shape in the isolated DB.
+        connection.execute(text("DROP TABLE IF EXISTS connection_origins"))
+        connection.execute(text("DROP TABLE IF EXISTS one_location_circle_memberships"))
+        connection.execute(text("DROP TABLE IF EXISTS one_location_circles"))
         connection.execute(
             text(
                 "CREATE TABLE one_location_circles(id UUID PRIMARY KEY,owner_user_id TEXT,"

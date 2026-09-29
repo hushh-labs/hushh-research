@@ -69,3 +69,16 @@ export function createHotGetJsonCache(params: {
     invalidate,
   };
 }
+
+/**
+ * A caller that must see its own write asks for revalidation with
+ * `Cache-Control: no-cache` (the same convention the PKM proxy honours). Such a
+ * read skips the hot entry and any in-flight load that may predate the write,
+ * and never falls back to a stale value.
+ */
+export function requestsRevalidation(request: Request): boolean {
+  return (
+    request.headers.get("cache-control")?.toLowerCase().includes("no-cache") ??
+    false
+  );
+}

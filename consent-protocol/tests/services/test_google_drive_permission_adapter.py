@@ -123,8 +123,162 @@ async def test_fixed_individual_viewer_contract(monkeypatch):
         "sendNotificationEmail": "true",
     }
     assert result.permission_id == "synthetic-permission"
+    assert "X-Goog-Drive-Resource-Keys" not in request.headers
     assert "recipient" not in repr(result)
     assert "synthetic-permission" not in repr(result)
+
+
+@pytest.mark.asyncio
+async def test_resource_key_is_bound_to_exact_file_in_all_grant_headers(monkeypatch, caplog):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        if request.method == "POST":
+            return response(payload=permission())
+        if request.url.path.endswith("/permissions"):
+            return response(
+                payload={
+                    "permissions": [],
+                    **({"nextPageToken": "next"} if "pageToken" not in request.url.params else {}),
+                }
+            )
+        return response(
+            payload={
+                "id": "synthetic-file",
+                "version": "7",
+                "mimeType": "text/plain",
+                "trashed": False,
+                "isAppAuthorized": True,
+                "capabilities": {"canShare": True, "canDownload": True, "canAccessViaGenAi": True},
+            }
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    args = {**arguments(), "resource_key": "0-synthetic_resource-key"}
+    await adapter.inspect_shareable(**args, expected_version="7")
+    await adapter.list_permissions(**args)
+    await adapter.create_reader(**args, verified_email="recipient@example.invalid")
+    assert len(seen) == 4
+    for request in seen:
+        assert request.headers["X-Goog-Drive-Resource-Keys"] == (
+            "synthetic-file/0-synthetic_resource-key"
+        )
+        assert "synthetic_resource-key" not in str(request.url) + request.content.decode()
+    assert "synthetic_resource-key" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "resource_key", ["", "key/other", "key,other/key", "key\r\nX-Evil: value", "k" * 201, 1]
+)
+async def test_resource_key_format_cannot_add_another_target_or_header(monkeypatch, resource_key):
+    def unexpected(_request):
+        raise AssertionError("must not dispatch")
+
+    install(monkeypatch, unexpected)
+    args = arguments()
+    with pytest.raises(acl.DrivePermissionError, match="^operation_not_allowed$"):
+        await acl.GoogleDrivePermissionAdapter().list_permissions(**args, resource_key=resource_key)
+    args["require_current"].assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded"])
+@pytest.mark.parametrize("operation", ["inspect", "list"])
+async def test_documented_403_rate_limit_is_a_safe_read_retry(
+    monkeypatch, caplog, reason, operation
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(
+            403,
+            payload={
+                "error": {
+                    "code": 403,
+                    "errors": [{"reason": reason, "message": "PRIVATE PROVIDER DETAIL"}],
+                }
+            },
+        )
+
+    install(monkeypatch, handle)
+    caplog.set_level("INFO", logger=acl.__name__)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(
+        acl.DrivePermissionError, match="^permission_provider_unavailable$"
+    ) as caught:
+        if operation == "inspect":
+            await adapter.inspect_permission_management(**arguments())
+        else:
+            await adapter.list_permissions(**arguments())
+    assert caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert len(seen) == 1
+    assert "PRIVATE" not in str(caught.value) + caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["rateLimitExceeded", "userRateLimitExceeded"])
+@pytest.mark.parametrize("operation", ["create", "remove"])
+async def test_403_rate_limited_write_requires_reconciliation_without_replay(
+    monkeypatch, reason, operation
+):
+    seen = []
+
+    def handle(request):
+        seen.append(request)
+        return response(403, payload={"error": {"code": 403, "errors": [{"reason": reason}]}})
+
+    install(monkeypatch, handle)
+    adapter = acl.GoogleDrivePermissionAdapter()
+    with pytest.raises(acl.DrivePermissionError, match="^permission_outcome_unknown$") as caught:
+        if operation == "create":
+            await adapter.create_reader(
+                **arguments(),
+                verified_email="recipient@example.invalid",
+                resource_key="synthetic-key",
+            )
+        else:
+            await adapter.remove_recorded_permission(
+                **arguments(), recorded_permission_id="synthetic-permission"
+            )
+    assert caught.value.outcome_unknown
+    assert not caught.value.retryable
+    assert len(seen) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode", ["policy", "mixed", "message_only", "malformed", "oversized", "compressed"]
+)
+async def test_other_or_unverified_403_reasons_never_become_retryable(monkeypatch, mode):
+    payload = {"error": {"code": 403, "errors": [{"reason": "rateLimitExceeded"}]}}
+    headers, content = None, None
+    if mode == "policy":
+        payload["error"]["errors"] = [{"reason": "insufficientFilePermissions"}]
+    elif mode == "mixed":
+        payload["error"]["errors"].append({"reason": "domainPolicy"})
+    elif mode == "message_only":
+        payload["error"]["errors"] = [{"message": "PRIVATE rateLimitExceeded"}]
+    elif mode == "malformed":
+        content = b"PRIVATE INVALID JSON"
+    elif mode == "oversized":
+        content = json.dumps(payload).encode() + b" " * acl.ERROR_RESPONSE_LIMIT
+    else:
+        headers = {"Content-Encoding": "gzip"}
+    install(
+        monkeypatch,
+        lambda _request: response(403, payload=payload, content=content, headers=headers),
+    )
+    with pytest.raises(acl.DrivePermissionError, match="^permission_target_unavailable$") as caught:
+        await acl.GoogleDrivePermissionAdapter().list_permissions(**arguments())
+    assert not caught.value.retryable
+    assert not caught.value.outcome_unknown
+    assert "PRIVATE" not in str(caught.value)
 
 
 @pytest.mark.asyncio

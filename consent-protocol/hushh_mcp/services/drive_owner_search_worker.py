@@ -4,12 +4,20 @@ import asyncio
 from collections import Counter
 
 from hushh_mcp.services.drive_owner_search_service import DriveOwnerSearchService
+from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoService
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 
 
 class DriveOwnerSearchWorker:
-    def __init__(self, service=None):
+    def __init__(self, service=None, *, trusted_auto=None):
         self.service = service or DriveOwnerSearchService()
+        # A supplied fake search service keeps existing focused worker tests
+        # isolated unless they explicitly inject an auto-share collaborator.
+        self.trusted_auto = (
+            trusted_auto
+            if trusted_auto is not None
+            else (DriveTrustedAutoService() if service is None else None)
+        )
 
     async def run(self, *, max_jobs=1, deadline_seconds=90):
         if (
@@ -21,17 +29,35 @@ class DriveOwnerSearchWorker:
             raise ValueError("invalid search worker bounds")
         counts = Counter()
         continuation = False
+        woke_early = False
         deadline = asyncio.get_running_loop().time() + deadline_seconds
+        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
+            try:
+                started = await self.trusted_auto.start_pending(
+                    max_jobs=min(max_jobs, 2), deadline_at=deadline
+                )
+                counts["queued"] += started["started"]
+                counts["unavailable"] += started["deferred"]
+            except Exception:
+                counts["unavailable"] += 1
         for job in await self.service.store.due(limit=max_jobs):
             remaining = deadline - asyncio.get_running_loop().time()
             if remaining < 1:
                 counts["deadline"] += 1
                 break
             try:
+                authority = (
+                    await self.trusted_auto.search_authority_for_job(
+                        user_id=job["user_id"], job_id=str(job["job_id"])
+                    )
+                    if self.trusted_auto
+                    else None
+                )
                 outcome = await self.service.run_one(
                     user_id=job["user_id"],
                     job_id=str(job["job_id"]),
                     deadline_seconds=min(90, remaining),
+                    **({"require_current": authority} if authority is not None else {}),
                 )
                 if outcome == "queued":
                     # The slice has released its lease before waking another
@@ -40,6 +66,9 @@ class DriveOwnerSearchWorker:
                         user_id=job["user_id"], job_id=str(job["job_id"])
                     )
                     continuation = continuation or current["errorCode"] is None
+                    if self.trusted_auto and current["errorCode"] is None:
+                        await wake_drive_work("suggestions")
+                        woke_early = True
                 counts[
                     outcome
                     if outcome
@@ -54,8 +83,23 @@ class DriveOwnerSearchWorker:
                     }
                     else "unavailable"
                 ] += 1
+                if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
+                    # A completed search must also get a continuation wake
+                    # before batches run, since an outer deadline can cancel
+                    # this worker between freezing and approving a batch.
+                    if outcome == "completed":
+                        await wake_drive_work("suggestions")
+                        woke_early = True
+                    await self.trusted_auto.after_search_slice(
+                        user_id=job["user_id"], job_id=str(job["job_id"])
+                    )
             except Exception:
                 counts["unavailable"] += 1
-        if continuation:
+        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 25:
+            try:
+                await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
+            except Exception:
+                counts["unavailable"] += 1
+        if continuation and not woke_early:
             await wake_drive_work("suggestions")
         return {"schema_version": "drive.owner_search.worker.v1", "outcomes": dict(counts)}

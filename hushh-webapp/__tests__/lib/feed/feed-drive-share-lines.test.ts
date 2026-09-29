@@ -42,14 +42,14 @@ describe("Drive rows in the Feed", () => {
     );
     expect(row.label).toBe("Ankit");
     expect(row.person?.displayName).toBe("Ankit");
-    expect(row.description).toBe("Shared Drive files with you");
+    expect(row.description).toBe("Drive sharing finished; check file results");
     expect(row.domainLabel).toBe("Google Drive");
     expect(row.href).toContain(
       encodeURIComponent(`document_share_request:${REQUEST}`),
     );
   });
 
-  it("says when only some files were shared", () => {
+  it("marks a partial Drive request incomplete for both people", () => {
     expect(
       presentFeedItem(
         item("document_share_outcome", {
@@ -57,7 +57,12 @@ describe("Drive rows in the Feed", () => {
           user_facing_status: "partial",
         }),
       ).description,
-    ).toBe("Shared some Drive files with you");
+    ).toBe("Sharing finished with some files unavailable");
+    expect(
+      presentFeedItem(
+        item("document_share_outcome", { user_facing_status: "partial" }),
+      ).description,
+    ).toBe("Could not share all selected files");
   });
 
   it("announces an approved share before it finishes, and a decline", () => {
@@ -81,13 +86,18 @@ describe("Drive rows in the Feed", () => {
 
   it("tells the owner about a request, and about their finished share", () => {
     expect(presentFeedItem(item("document_share_request")).description).toBe(
-      "Asked for files from your Drive",
+      "Document request received",
     );
     expect(
       presentFeedItem(
         item("document_share_outcome", { user_facing_status: "completed" }),
       ).description,
-    ).toBe("Now has your shared files");
+    ).toBe("Drive sharing finished; check file results");
+    expect(presentFeedItem(item("document_share_review_ready")).description).toBe("Files ready for your review");
+    expect(presentFeedItem(item("document_share_decided", {
+      ...recipient, user_facing_status: "pending",
+    })).description)
+      .toBe("Files are available; more may arrive");
   });
 
   it("opens the Drive question card for question rows", () => {

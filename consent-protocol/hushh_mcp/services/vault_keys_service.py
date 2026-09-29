@@ -25,6 +25,7 @@ from starlette.concurrency import run_in_threadpool
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.onboarding_contract import (
+    normalize_one_chat_onboarding,
     normalize_setup_capability_declined_ids,
     normalize_setup_capability_id,
     normalize_setup_capability_ids,
@@ -240,6 +241,7 @@ class VaultKeysService:
                 row.get("setup_capabilities_updated_at")
             ),
             "setupStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("setup_state_updated_at")),
+            "oneChatOnboarding": cls._normalize_one_chat_onboarding(row.get("one_chat_onboarding")),
             "oneRuntimeSetupChoice": cls._normalize_one_runtime_setup_choice(
                 row.get("one_runtime_setup_choice")
             ),
@@ -313,6 +315,26 @@ class VaultKeysService:
             return []
         return normalize_setup_capability_declined_ids(decoded)
 
+    @staticmethod
+    def _normalize_one_chat_onboarding(raw: Any) -> Optional[Dict[str, Any]]:
+        """
+        Parse the JSON-encoded chat-onboarding progress record stored as TEXT.
+
+        Same tolerant shape as the id lists above: NULL, empty or malformed
+        JSON reads as "no record", so a corrupt row never breaks bootstrap.
+        """
+        if raw is None:
+            return None
+        if isinstance(raw, dict):
+            return normalize_one_chat_onboarding(raw)
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        try:
+            decoded = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return normalize_one_chat_onboarding(decoded)
+
     async def ensure_user_entry(self, user_id: str) -> Dict[str, Any]:
         return await run_in_threadpool(self._ensure_user_entry_sync, user_id)
 
@@ -335,7 +357,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -384,7 +406,7 @@ class VaultKeysService:
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
                         "setup_completed,setup_skipped,setup_completed_at,"
                         "nav_setup_completed_at,nav_setup_skipped_at,"
-                        "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                        "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
                         "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                         "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                         "created_at,updated_at"
@@ -423,7 +445,7 @@ class VaultKeysService:
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
+                "setup_capability_ids,setup_capability_declined_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,one_chat_onboarding,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -460,6 +482,7 @@ class VaultKeysService:
             "setupCapabilityDeclinedIds": state["setupCapabilityDeclinedIds"],
             "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
             "setupStateUpdatedAt": state["setupStateUpdatedAt"],
+            "oneChatOnboarding": state["oneChatOnboarding"],
             "oneRuntimeSetupChoice": state["oneRuntimeSetupChoice"],
             "onboardingJourneyVersion": state["onboardingJourneyVersion"],
             "onboardingPhase": state["onboardingPhase"],
@@ -481,6 +504,7 @@ class VaultKeysService:
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
         setup_capability_declined_ids: Optional[list[str]] = None,
+        one_chat_onboarding: Optional[Dict[str, Any]] = None,
         one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
@@ -501,6 +525,7 @@ class VaultKeysService:
             nav_setup_skipped_at,
             setup_capability_ids,
             setup_capability_declined_ids,
+            one_chat_onboarding,
             one_runtime_setup_choice,
             onboarding_journey_version,
             onboarding_phase,
@@ -522,6 +547,7 @@ class VaultKeysService:
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
         setup_capability_declined_ids: Optional[list[str]] = None,
+        one_chat_onboarding: Optional[Dict[str, Any]] = None,
         one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
@@ -596,6 +622,14 @@ class VaultKeysService:
                 self._normalize_declined_ids(setup_capability_declined_ids)
             )
             update_payload["setup_capabilities_updated_at"] = now_ms
+        # Write-only-if-supplied, like the id sets above. The record is
+        # normalized to its bounded shape (question ids, status, two dates),
+        # so a caller cannot smuggle an answer value into this plaintext row.
+        if one_chat_onboarding is not None:
+            normalized_chat_onboarding = normalize_one_chat_onboarding(one_chat_onboarding)
+            if normalized_chat_onboarding is None:
+                raise ValueError("invalid one chat onboarding state")
+            update_payload["one_chat_onboarding"] = json.dumps(normalized_chat_onboarding)
         if one_runtime_setup_choice is not None:
             normalized_runtime_choice = self._normalize_one_runtime_setup_choice(
                 one_runtime_setup_choice

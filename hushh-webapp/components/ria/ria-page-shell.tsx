@@ -396,7 +396,7 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
 
         {/* Action CTA Button */}
         <Button
-          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg transition-[background-color,color,transform,box-shadow] duration-150 hover:bg-[color:var(--app-accent-hover)] active:scale-[0.98] cursor-pointer"
+          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg transition-[background-color,color,transform,box-shadow] duration-150 hover:bg-[color:var(--app-accent-hover)] cursor-pointer"
           onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
           data-testid="ria-clients-verify-gate-cta"
         >

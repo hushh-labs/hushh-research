@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import hashlib
+import json
 import re
 import time
 from calendar import monthrange
@@ -16,16 +17,36 @@ from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
+from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
+from hushh_mcp.services.google_drive_adapter import FILE_ID, RESOURCE_KEY, DriveReadError
 from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
 PAGE_SIZE = 25
+FILE_LIST_PAGE_SIZE = 100
 MAX_SLICE_PAGES = 4
 SLICE_SECONDS = 90
+MAX_REQUEST_FILE_PAGES = 1000
+MAX_REQUEST_FOLDERS = 1000
+MAX_CHECKPOINT_BYTES = 96 * 1024
+FOLDER_MIME = "application/vnd.google-apps.folder"
+SHORTCUT_MIME = "application/vnd.google-apps.shortcut"
+DOCUMENT_MIMES = frozenset(
+    {
+        "application/vnd.google-apps.document",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.oasis.opendocument.text",
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "text/rtf",
+        "application/rtf",
+    }
+)
 logger = drive_logger("drive_owner_search")
 _MONTH_WINDOW = re.compile(
     r"\b(?:last|past)\s+(?P<count>\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+months?\b",
@@ -52,6 +73,130 @@ _MONTH_WORDS = {
     )
 }
 _TITLE_DATE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
+_TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
+
+
+def _coordinated_alternatives(terms: list[str], purpose: str) -> bool:
+    """Use OR only when the requester explicitly lists separate subjects."""
+    if not 2 <= len(terms) <= 3:
+        return False
+    matches = []
+    for term in terms:
+        match = _term_pattern(term.casefold()).search(purpose)
+        if match is None:
+            return False
+        matches.append(match)
+    ordered = sorted(matches, key=lambda match: match.start())
+    return all(
+        _TERM_COORDINATOR.fullmatch(purpose[left.end() : right.start()].strip())
+        for left, right in zip(ordered[:-1], ordered[1:], strict=True)
+    )
+
+
+def _request_kind_clause(kind: str) -> str | None:
+    if kind == "any":
+        return None
+    if kind == "document":
+        return "(" + " or ".join(f"mimeType = '{mime}'" for mime in sorted(DOCUMENT_MIMES)) + ")"
+    return MIME_CLAUSES[kind]
+
+
+def _request_discovery_clause(kind: str) -> str | None:
+    clause = _request_kind_clause(kind)
+    return (
+        f"({clause} or mimeType = '{SHORTCUT_MIME}' or mimeType = '{FOLDER_MIME}')"
+        if clause
+        else None
+    )
+
+
+def _subject_matches(checkpoint: dict, title: str) -> bool:
+    exact = checkpoint.get("request_exact_title")
+    if exact:
+        return title == exact
+    # A generic "notes" folder is not evidence of the requested meeting topic.
+    terms = [
+        term
+        for term in checkpoint.get("request_subject_terms", [])
+        if term.casefold() not in {"note", "notes", "document", "documents", "file", "files"}
+    ]
+    return any(
+        _term_pattern(
+            "standup" if term.casefold() in {"standup", "stand up", "stand-up"} else term.casefold()
+        ).search(title)
+        for term in terms
+    )
+
+
+def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bool:
+    if not checkpoint.get("request_notes"):
+        return True
+    # The compilation lane uses these same title checks: a topical folder
+    # does not turn an agenda, recording, or budget into a requested note.
+    from hushh_mcp.services.drive_content_compilation import _GEMINI_NOTE_TITLE, _NON_NOTE_TITLE
+
+    name = match["name"]
+    alias = match.get("shortcut_name", "")
+    return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and (
+        not folder_scoped
+        or bool(_GEMINI_NOTE_TITLE.search(name) or _GEMINI_NOTE_TITLE.search(alias))
+        or _subject_matches(checkpoint, name)
+        or _subject_matches(checkpoint, alias)
+    )
+
+
+def _shareability(source: dict) -> dict:
+    """Carry Drive's owner-specific permission fact into the frozen review.
+
+    An omitted capability is not permission to share. The sharing worker
+    rechecks an affirmative capability against current Drive state.
+    """
+    capabilities = source.get("capabilities")
+    encryption = source.get("clientEncryptionDetails")
+    if encryption is not None and (
+        not isinstance(encryption, dict) or encryption.get("encryptionState") != "unencrypted"
+    ):
+        return {"shareable": False, "unavailableReason": "source_not_shareable"}
+    if isinstance(capabilities, dict) and capabilities.get("canShare") is True:
+        return {"shareable": True}
+    if isinstance(capabilities, dict) and capabilities.get("canShare") is False:
+        return {"shareable": False, "unavailableReason": "source_not_shareable"}
+    return {"shareable": False, "unavailableReason": "shareability_unverified"}
+
+
+def _counter(checkpoint: dict, key: str, amount: int = 1) -> None:
+    counts = checkpoint.setdefault("coverage_counts", {})
+    counts[key] = counts.get(key, 0) + amount
+
+
+def _queue_folder(checkpoint: dict, match: dict, candidate: dict, *, drive_id=None) -> bool:
+    identity = match["file_id"]
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    seen = checkpoint.setdefault("folder_digests", [])
+    if digest in seen:
+        return True
+    if len(seen) >= MAX_REQUEST_FOLDERS:
+        return False
+    entry = {"id": identity}
+    source_drive = candidate.get("driveId") or drive_id
+    if source_drive:
+        if not isinstance(source_drive, str) or not FILE_ID.fullmatch(source_drive):
+            raise DriveReadError("provider_response_invalid")
+        entry["driveId"] = source_drive
+    key = candidate.get("resourceKey")
+    if key:
+        if not isinstance(key, str) or not RESOURCE_KEY.fullmatch(key):
+            raise DriveReadError("provider_response_invalid")
+        entry["resourceKey"] = key
+    queue = checkpoint.setdefault("folder_queue", [])
+    queue.append(entry)
+    seen.append(digest)
+    if len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8")) > MAX_CHECKPOINT_BYTES:
+        queue.pop()
+        seen.pop()
+        return False
+    _counter(checkpoint, "matchingFoldersDiscovered")
+    return True
 
 
 def compile_queries(plan: dict, timezone: str) -> list[dict]:
@@ -161,31 +306,38 @@ def compile_request_queries(
                 )
     period = {"start": start, "end": end, "timezone": timezone} if start and end else None
     base = []
-    if parsed.file_kind != "any":
-        base.append(
-            "("
-            + MIME_CLAUSES[parsed.file_kind]
-            + " or mimeType = 'application/vnd.google-apps.shortcut')"
-        )
+    kind_clause = _request_discovery_clause(parsed.file_kind)
+    if kind_clause:
+        base.append(kind_clause)
     if parsed.shared_with_me:
         base.append("sharedWithMe = true")
     if parsed.exact_title:
         subject = f"name = {quote_literal(parsed.exact_title)}"
     elif parsed.terms:
-        # OR preserves files whose title or text uses only one of the planner's
-        # terms; the owner decides the final set from the complete preview.
-        terms = [
-            variant
-            for term in parsed.terms
-            for variant in (
-                ("standup", "stand up", "stand-up")
-                if term.casefold() in {"standup", "stand-up", "stand up"}
-                else (term,)
+        # Keep full-text evidence from Drive while requiring every distinct
+        # subject term the planner selected. Standup spellings are one term.
+        groups = [
+            "("
+            + " or ".join(
+                compile_search_terms([variant])
+                for variant in (
+                    ("standup", "stand up", "stand-up")
+                    if term.casefold() in {"standup", "stand-up", "stand up"}
+                    else (term,)
+                )
             )
+            + ")"
+            for term in parsed.terms
         ]
-        subject = (
-            "(" + " or ".join(compile_search_terms([term]) for term in dict.fromkeys(terms)) + ")"
+        # Separate categories such as "contracts and invoices" are a union:
+        # no single file needs both words. Otherwise, preserve the planner's
+        # all-terms-match contract for one described subject.
+        joiner = (
+            " or "
+            if _coordinated_alternatives(parsed.terms, purpose.get("purpose", ""))
+            else " and "
         )
+        subject = "(" + joiner.join(groups) + ")"
     else:
         subject = None
     clauses = [*([subject] if subject else []), *base]
@@ -218,7 +370,10 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
         value = match.get(key)
         if isinstance(value, str):
             try:
-                day = datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(zone).date()
+                timestamp = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if timestamp.tzinfo is None or timestamp.utcoffset() is None:
+                    continue
+                day = timestamp.astimezone(zone).date()
             except ValueError:
                 continue
             if start <= day <= end:
@@ -230,10 +385,7 @@ def _matches_requested_kind(kind: str, mime: str) -> bool:
     if kind == "any":
         return True
     if kind == "document":
-        return (
-            mime in {"application/vnd.google-apps.document", "application/msword"}
-            or "wordprocessingml" in mime
-        )
+        return mime in DOCUMENT_MIMES
     if kind == "spreadsheet":
         return (
             mime == "application/vnd.google-apps.spreadsheet"
@@ -270,6 +422,9 @@ def _advance_query(checkpoint):
     queries = checkpoint.get("queries", [])
     index = checkpoint.get("query_index", 0) + 1
     if index >= len(queries):
+        if checkpoint.get("request_origin_id") and checkpoint.get("folder_queue"):
+            _phase(checkpoint, "folder_files")
+            return False
         return True
     query = queries[index]
     checkpoint.update(
@@ -363,6 +518,7 @@ class DriveOwnerSearchService:
                 job_id=state["jobId"],
                 max_pages=1,
                 deadline_seconds=15,
+                initial_page_size=PAGE_SIZE,
                 require_current=require_current,
             )
         await wake_drive_work("suggestions")
@@ -380,11 +536,15 @@ class DriveOwnerSearchService:
         plan,
         require_current,
         timezone="UTC",
+        authority_mode="owner",
     ):
         """Start or resume the owner-approved request's durable metadata search."""
+        if authority_mode not in {"owner", "trusted_auto"}:
+            raise DriveReadError("invalid_argument")
         await require_current()
         query = purpose["purpose"]
         request = self._request(query, timezone)
+        await self.store.clear_legacy_completed_request(user_id=user_id, request_id=request_id)
         existing = await self.store.by_client(user_id=user_id, client_request_id=request_id)
         if existing is not None:
             if existing["status"] not in {"failed", "limited", "stopped"}:
@@ -403,8 +563,24 @@ class DriveOwnerSearchService:
                 "query_index": 0,
                 "request_origin_id": request_id,
                 "request_revision": request_revision,
+                "authority_mode": authority_mode,
+                "request_shareability_version": 1,
                 "request_file_kind": plan.get("file_kind", "any"),
+                "request_subject_terms": plan.get("terms", []),
+                "request_exact_title": plan.get("exact_title"),
+                "request_notes": bool(re.search(r"\b(?:notes?|minutes)\b", query, re.I)),
                 "requested_period": period,
+                "coverage_manifest": {
+                    "corpora": ["user", "member_shared_drives"],
+                    "fileKind": plan.get("file_kind", "any"),
+                    "requestedPeriod": period,
+                    "dateBasis": "title_date_then_created_or_modified",
+                    "contentPeriodVerified": False,
+                    "folderDiscovery": "matching_topic_folders_and_descendants",
+                },
+                "coverage_counts": {},
+                "folder_queue": [],
+                "folder_digests": [],
                 "phase": "user",
                 "page_token": None,
                 "drive_page_token": None,
@@ -421,6 +597,7 @@ class DriveOwnerSearchService:
                 job_id=state["jobId"],
                 max_pages=1,
                 deadline_seconds=15,
+                initial_page_size=PAGE_SIZE,
                 require_current=require_current,
             )
         await wake_drive_work("suggestions")
@@ -562,18 +739,194 @@ class DriveOwnerSearchService:
         await require_current()
         return result
 
-    async def _page(self, job):
+    async def _request_candidates(self, job, checkpoint, candidates, *, folder_scoped, drive_id):
+        targets = {}
+        for candidate in candidates:
+            if not isinstance(candidate, dict) or candidate.get("mimeType") != SHORTCUT_MIME:
+                continue
+            details = candidate.get("shortcutDetails")
+            target = details.get("targetId") if isinstance(details, dict) else None
+            key = details.get("targetResourceKey") if isinstance(details, dict) else None
+            if isinstance(target, str) and FILE_ID.fullmatch(target):
+                if key is not None and (
+                    not isinstance(key, str) or not RESOURCE_KEY.fullmatch(key)
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                # Prefer the available target key when duplicate aliases point
+                # to one original. It remains encrypted with the result.
+                targets[target] = key or targets.get(target)
+        semaphore = asyncio.Semaphore(6)
+
+        async def target_metadata(target, key):
+            async with semaphore:
+                try:
+                    result = await self.transport.read_tool(
+                        user_id=job["user_id"],
+                        tool_name="get_file_metadata",
+                        arguments={"fileId": target, **({"resourceKey": key} if key else {})},
+                    )
+                except DriveReadError as error:
+                    if str(error) != "source_unavailable":
+                        raise
+                    return target, None
+                if result.is_error or result.truncated or not isinstance(result.payload, dict):
+                    raise DriveReadError("provider_response_invalid")
+                current = result.payload.get("file")
+                match = DriveLiveReader._match(current)
+                if match is None or match["file_id"] != target:
+                    raise DriveReadError("provider_response_invalid")
+                return target, current
+
+        target_files = dict(
+            await asyncio.gather(*(target_metadata(target, key) for target, key in targets.items()))
+        )
+        files = []
+        incomplete = False
+        kind = checkpoint.get("request_file_kind", "any")
+        period = checkpoint.get("requested_period")
+
+        def period_matches(match):
+            return _in_requested_period(match, period) or (
+                match.get("shortcut_name")
+                and _in_requested_period({**match, "name": match["shortcut_name"]}, period)
+            )
+
+        for candidate in candidates:
+            match = DriveLiveReader._match(candidate)
+            if match is None:
+                incomplete = True
+                _counter(checkpoint, "invalidMetadataCount")
+                continue
+            source = candidate
+            source_drive = drive_id
+            key = candidate.get("resourceKey")
+            if key is not None and (not isinstance(key, str) or not RESOURCE_KEY.fullmatch(key)):
+                raise DriveReadError("provider_response_invalid")
+            if match["mime_type"] == SHORTCUT_MIME:
+                alias = match["name"]
+                details = candidate.get("shortcutDetails") or {}
+                if not isinstance(details, dict):
+                    raise DriveReadError("provider_response_invalid")
+                target = details.get("targetId")
+                source = target_files.get(target)
+                if source is None:
+                    _counter(checkpoint, "unavailableShortcutCount")
+                    if details.get("targetMimeType") == FOLDER_MIME:
+                        # An unavailable folder can hide matching descendants;
+                        # it cannot establish an exhausted result set.
+                        incomplete = True
+                        _counter(checkpoint, "unavailableFolderCount")
+                        continue
+                    target_kind = details.get("targetMimeType")
+                    if target_kind and not _matches_requested_kind(kind, target_kind):
+                        _counter(checkpoint, "excludedByKindCount")
+                        continue
+                    if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
+                        _counter(checkpoint, "excludedByNoteTypeCount")
+                        continue
+                    if not period_matches(match):
+                        _counter(checkpoint, "excludedByDateCount")
+                        continue
+                    files.append(
+                        {
+                            "id": match["file_id"],
+                            "name": alias,
+                            "mimeType": SHORTCUT_MIME,
+                            "modifiedTime": match["modified_time"],
+                            "createdTime": match["created_time"],
+                            "openUrl": match["open_url"],
+                            "shareable": False,
+                            "unavailableReason": "shortcut_target_unavailable",
+                        }
+                    )
+                    continue
+                match = DriveLiveReader._match(source)
+                match["shortcut_name"] = alias
+                key = source.get("resourceKey") or targets.get(target)
+                if key is not None and (
+                    not isinstance(key, str) or not RESOURCE_KEY.fullmatch(key)
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                # A shortcut's targetMimeType is a snapshot, not live facts.
+                # Use the target's verified MIME and timestamps instead.
+                source_drive = None
+                _counter(checkpoint, "resolvedShortcutCount")
+            if match["mime_type"] == FOLDER_MIME:
+                if (
+                    folder_scoped
+                    or _subject_matches(checkpoint, match["name"])
+                    or (
+                        match.get("shortcut_name")
+                        and _subject_matches(checkpoint, match["shortcut_name"])
+                    )
+                ):
+                    if not _queue_folder(
+                        checkpoint,
+                        match,
+                        {**source, **({"resourceKey": key} if key else {})},
+                        drive_id=source_drive,
+                    ):
+                        incomplete = True
+                        checkpoint.setdefault("coverage_counts", {})["workLimitReached"] = True
+                else:
+                    _counter(checkpoint, "excludedFolderTopicCount")
+                continue
+            if not _matches_requested_kind(kind, match["mime_type"]):
+                _counter(checkpoint, "excludedByKindCount")
+                continue
+            if not _note_candidate(checkpoint, match, folder_scoped=folder_scoped):
+                _counter(checkpoint, "excludedByNoteTypeCount")
+                continue
+            if (
+                folder_scoped
+                and not checkpoint.get("request_notes")
+                and not _subject_matches(checkpoint, match["name"])
+                and not _subject_matches(checkpoint, match.get("shortcut_name", ""))
+            ):
+                # A topical parent is discovery evidence, not evidence that
+                # every descendant is a requested file. Direct fullText
+                # results remain available even when the title is generic.
+                _counter(checkpoint, "excludedByTopicCount")
+                continue
+            if not period_matches(match):
+                _counter(checkpoint, "excludedByDateCount")
+                continue
+            files.append(
+                {
+                    "id": match["file_id"],
+                    "name": match["name"],
+                    "mimeType": match["mime_type"],
+                    "modifiedTime": match["modified_time"],
+                    "createdTime": match["created_time"],
+                    **(
+                        {"shortcutName": match["shortcut_name"]}
+                        if match.get("shortcut_name")
+                        else {}
+                    ),
+                    **({"resourceKey": key} if key else {}),
+                    "openUrl": match["open_url"],
+                    **_shareability(source),
+                }
+            )
+        return files, incomplete
+
+    async def _page(self, job, *, page_size_override=None):
         checkpoint = copy.deepcopy(job["checkpoint"])
+        listing_read = getattr(self.transport, "read_owner_search_page", None)
+        if listing_read is None:
+            # Older injected transports implement the same listing call shape
+            # through the original read_tool seam.
+            listing_read = self.transport.read_tool
         phase = checkpoint["phase"]
         if phase == "drives":
             args = {"pageSize": PAGE_SIZE}
             if checkpoint["drive_page_token"]:
                 args["pageToken"] = checkpoint["drive_page_token"]
-            result = await self.transport.read_tool(
+            result = await listing_read(
                 user_id=job["user_id"], tool_name="list_shared_drives", arguments=args
             )
             payload = result.payload
-            if result.is_error or result.truncated:
+            if result.is_error or result.truncated or not isinstance(payload, dict):
                 raise DriveReadError("provider_response_invalid")
             drives = payload.get("drives")
             if (
@@ -597,15 +950,46 @@ class DriveOwnerSearchService:
                 _phase(checkpoint, "files")
             done = _advance_query(checkpoint) if not drives and not next_token else False
             return checkpoint, [], False, done
-        args = {**checkpoint["arguments"], "pageSize": PAGE_SIZE}
+        file_page_size = (
+            PAGE_SIZE
+            if checkpoint.get("file_page_size") == PAGE_SIZE or page_size_override == PAGE_SIZE
+            else FILE_LIST_PAGE_SIZE
+        )
+        args = {**checkpoint["arguments"], "pageSize": file_page_size}
+        if phase == "folder_files":
+            folder = checkpoint["folder_queue"][0]
+            clause = _request_discovery_clause(checkpoint.get("request_file_kind", "any"))
+            args = {
+                "folderId": folder["id"],
+                "query": clause or "trashed = false",
+                "orderBy": "createdTime desc",
+                "pageSize": file_page_size,
+                **({"driveId": folder["driveId"]} if folder.get("driveId") else {}),
+                **({"resourceKey": folder["resourceKey"]} if folder.get("resourceKey") else {}),
+            }
         if checkpoint["page_token"]:
             args["pageToken"] = checkpoint["page_token"]
         if phase == "files":
             args["driveId"] = checkpoint["drives"][checkpoint["drive_index"]]
-        result = await self.transport.read_tool(
-            user_id=job["user_id"], tool_name="search_files", arguments=args
-        )
+        try:
+            result = await listing_read(
+                user_id=job["user_id"], tool_name="search_files", arguments=args
+            )
+        except DriveReadError as error:
+            if str(error) != "file_too_large" or file_page_size == PAGE_SIZE:
+                raise
+            # A 100-row response can exceed the unchanged 256 KiB metadata
+            # ceiling when titles or URLs are long. Retry the same token with
+            # 25 rows and persist that size with the next successful page.
+            file_page_size = PAGE_SIZE
+            checkpoint["file_page_size"] = PAGE_SIZE
+            args["pageSize"] = PAGE_SIZE
+            result = await listing_read(
+                user_id=job["user_id"], tool_name="search_files", arguments=args
+            )
         payload = result.payload
+        if not isinstance(payload, dict):
+            raise DriveReadError("provider_response_invalid")
         candidates = payload.get("files")
         incomplete = payload.get("incompleteSearch", False)
         if (
@@ -614,160 +998,87 @@ class DriveOwnerSearchService:
             or payload.get("overLimit") is True
             or type(incomplete) is not bool
             or not isinstance(candidates, list)
-            or len(candidates) > PAGE_SIZE
+            or len(candidates) > file_page_size
         ):
             raise DriveReadError("provider_response_invalid")
-        files = []
-        shortcut_targets = {}
+        if (
+            file_page_size > PAGE_SIZE
+            and sum(
+                item.get("mimeType") == SHORTCUT_MIME
+                for item in candidates
+                if isinstance(item, dict)
+            )
+            > 8
+        ):
+            # Avoid making a 90-second slice resolve an unbounded fanout of
+            # shortcut targets (six concurrent metadata reads at a time).
+            # No rows or cursor from the large page have been committed.
+            large_page_incomplete = incomplete
+            checkpoint["file_page_size"] = PAGE_SIZE
+            args["pageSize"] = PAGE_SIZE
+            result = await listing_read(
+                user_id=job["user_id"], tool_name="search_files", arguments=args
+            )
+            payload = result.payload
+            candidates = payload.get("files") if isinstance(payload, dict) else None
+            incomplete = (
+                payload.get("incompleteSearch", False) if isinstance(payload, dict) else None
+            )
+            if (
+                result.is_error
+                or result.truncated
+                or not isinstance(payload, dict)
+                or payload.get("overLimit") is True
+                or type(incomplete) is not bool
+                or not isinstance(candidates, list)
+                or len(candidates) > PAGE_SIZE
+            ):
+                raise DriveReadError("provider_response_invalid")
+            incomplete = incomplete or large_page_incomplete
         if checkpoint.get("request_origin_id"):
-            targets = {
-                details["targetId"]
-                for candidate in candidates
-                if isinstance(candidate, dict)
-                if candidate.get("mimeType") == "application/vnd.google-apps.shortcut"
-                for details in [candidate.get("shortcutDetails")]
-                if isinstance(details, dict)
-                and isinstance(details.get("targetId"), str)
-                and FILE_ID.fullmatch(details["targetId"])
-            }
-            semaphore = asyncio.Semaphore(6)
-
-            async def target_metadata(target):
-                async with semaphore:
-                    try:
-                        result = await self.transport.read_tool(
-                            user_id=job["user_id"],
-                            tool_name="get_file_metadata",
-                            arguments={"fileId": target},
-                        )
-                    except DriveReadError as error:
-                        if str(error) != "source_unavailable":
-                            raise
-                        return target, None
-                    return target, result
-
-            shortcut_targets = dict(
-                await asyncio.gather(*(target_metadata(target) for target in targets))
+            _counter(checkpoint, "providerRowsScanned", len(candidates))
+            _counter(checkpoint, "providerFilePages")
+            files, candidate_incomplete = await self._request_candidates(
+                job,
+                checkpoint,
+                candidates,
+                folder_scoped=phase == "folder_files",
+                drive_id=args.get("driveId"),
             )
-        for candidate in candidates:
-            match = DriveLiveReader._match(candidate)
-            if match is None:
-                incomplete = True
-                continue
-            if (
-                checkpoint.get("request_origin_id")
-                and match["mime_type"] == "application/vnd.google-apps.folder"
-            ):
-                continue
-            if (
-                checkpoint.get("request_origin_id")
-                and match["mime_type"] == "application/vnd.google-apps.shortcut"
-            ):
-                alias = match["name"]
-                details = candidate.get("shortcutDetails") if isinstance(candidate, dict) else None
-                target = details.get("targetId") if isinstance(details, dict) else None
-                target_mime = details.get("targetMimeType") if isinstance(details, dict) else None
-                if not isinstance(target, str) or not FILE_ID.fullmatch(target):
-                    if _in_requested_period(match, checkpoint.get("requested_period")):
-                        files.append(
-                            {
-                                "id": match["file_id"],
-                                "name": alias,
-                                "mimeType": match["mime_type"],
-                                "modifiedTime": match["modified_time"],
-                                "createdTime": match.get("created_time"),
-                                "openUrl": match["open_url"],
-                                "shareable": False,
-                                "unavailableReason": "shortcut_target_unavailable",
-                            }
-                        )
+            incomplete = incomplete or candidate_incomplete
+        else:
+            files = []
+            for candidate in candidates:
+                match = DriveLiveReader._match(candidate)
+                if match is None:
+                    incomplete = True
                     continue
-                target_result = shortcut_targets.get(target)
-                if target_result is not None and (
-                    target_result.is_error
-                    or target_result.truncated
-                    or not isinstance(target_result.payload, dict)
-                ):
-                    raise DriveReadError("provider_response_invalid")
-                target_file = (
-                    target_result.payload.get("file")
-                    if target_result and isinstance(target_result.payload, dict)
-                    else None
-                )
-                if target_result is not None and not isinstance(target_file, dict):
-                    raise DriveReadError("provider_response_invalid")
-                if (
-                    target_result is None
-                    or target_file.get("id") != target
-                    or not isinstance(target_file.get("title"), str)
-                    or not target_file["title"]
-                    or target_file.get("mimeType")
-                    in {
-                        "application/vnd.google-apps.shortcut",
-                        "application/vnd.google-apps.folder",
+                day = checkpoint.get("title_date")
+                if day and day not in match["name"] and day.replace("-", "/") not in match["name"]:
+                    continue
+                files.append(
+                    {
+                        "id": match["file_id"],
+                        "name": match["name"],
+                        "mimeType": match["mime_type"],
+                        "modifiedTime": match["modified_time"],
+                        "createdTime": match.get("created_time"),
+                        "openUrl": match["open_url"],
                     }
-                    or target_mime
-                    and target_file.get("mimeType") != target_mime
-                ):
-                    if _in_requested_period(match, checkpoint.get("requested_period")):
-                        files.append(
-                            {
-                                "id": match["file_id"],
-                                "name": alias,
-                                "mimeType": match["mime_type"],
-                                "modifiedTime": match["modified_time"],
-                                "createdTime": match.get("created_time"),
-                                "openUrl": match["open_url"],
-                                "shareable": False,
-                                "unavailableReason": "shortcut_target_unavailable",
-                            }
-                        )
-                    continue
-                if not _matches_requested_kind(
-                    checkpoint.get("request_file_kind", "any"), target_file["mimeType"]
-                ):
-                    continue
-                match = {
-                    **match,
-                    "file_id": target,
-                    "name": target_file["title"],
-                    "mime_type": target_file["mimeType"],
-                    "modified_time": target_file.get("modifiedTime") or match["modified_time"],
-                    "open_url": _open_url(target, target_file.get("viewUrl")),
-                    "shortcut_name": alias,
-                }
-            day = checkpoint.get("title_date")
-            if day and day not in match["name"] and day.replace("-", "/") not in match["name"]:
-                continue
-            if not (
-                _in_requested_period(match, checkpoint.get("requested_period"))
-                or match.get("shortcut_name")
-                and _in_requested_period(
-                    {**match, "name": match["shortcut_name"]}, checkpoint.get("requested_period")
                 )
-            ):
-                continue
-            files.append(
-                {
-                    "id": match["file_id"],
-                    "name": match["name"],
-                    "mimeType": match["mime_type"],
-                    "modifiedTime": match["modified_time"],
-                    "createdTime": match.get("created_time"),
-                    **(
-                        {"shortcutName": match["shortcut_name"]}
-                        if match.get("shortcut_name")
-                        else {}
-                    ),
-                    "openUrl": match["open_url"],
-                }
-            )
         next_token = _token(payload, checkpoint["page_token"], checkpoint)
         checkpoint["page_token"] = next_token
         done = False
         if not next_token:
             if phase == "user":
                 _phase(checkpoint, "drives")
+            elif phase == "folder_files":
+                checkpoint["folder_queue"].pop(0)
+                _counter(checkpoint, "matchingFoldersExhausted")
+                if checkpoint["folder_queue"]:
+                    _phase(checkpoint, "folder_files")
+                else:
+                    done = True
             elif checkpoint["drive_index"] + 1 < len(checkpoint["drives"]):
                 checkpoint["drive_index"] += 1
                 _phase(checkpoint, "files")
@@ -775,6 +1086,14 @@ class DriveOwnerSearchService:
                 _phase(checkpoint, "drives")
             else:
                 done = _advance_query(checkpoint)
+        if checkpoint.get("request_origin_id") and (
+            checkpoint["coverage_counts"].get("providerFilePages", 0) >= MAX_REQUEST_FILE_PAGES
+            and not done
+            or len(json.dumps(checkpoint, ensure_ascii=False).encode("utf-8"))
+            > MAX_CHECKPOINT_BYTES
+        ):
+            checkpoint["coverage_counts"]["workLimitReached"] = True
+            incomplete, done = True, True
         return checkpoint, files, incomplete, done
 
     @drive_operation(job_key="job_id")
@@ -785,12 +1104,15 @@ class DriveOwnerSearchService:
         job_id,
         max_pages=MAX_SLICE_PAGES,
         deadline_seconds=SLICE_SECONDS,
+        initial_page_size=None,
         require_current=None,
     ):
         if (
             type(max_pages) is not int
             or not 1 <= max_pages <= MAX_SLICE_PAGES
             or not 1 <= deadline_seconds <= SLICE_SECONDS
+            or initial_page_size is not None
+            and (type(initial_page_size) is not int or initial_page_size != PAGE_SIZE)
         ):
             raise ValueError("invalid search slice bounds")
         job = await self.store.claim(user_id=user_id, job_id=job_id)
@@ -819,11 +1141,20 @@ class DriveOwnerSearchService:
                     await self.store.require_current(job)
                     page_started = time.monotonic()
                     phase = job["checkpoint"].get("phase")
-                    phase = phase if phase in {"user", "drives", "files"} else "unknown"
+                    phase = (
+                        phase if phase in {"user", "drives", "files", "folder_files"} else "unknown"
+                    )
                     page_outcome = "failed"
                     page_count = 0
                     try:
-                        checkpoint, files, incomplete, done = await self._page(job)
+                        checkpoint, files, incomplete, done = await self._page(
+                            job,
+                            **(
+                                {"page_size_override": initial_page_size}
+                                if pages == 0 and initial_page_size is not None
+                                else {}
+                            ),
+                        )
                         page_outcome = "received"
                         page_count = len(files)
                     finally:
@@ -850,6 +1181,15 @@ class DriveOwnerSearchService:
                 await self.store.release(job, error="provider_unavailable", retryable=True)
             )
         except DriveReadError as error:
+            if str(error) == "background_preparation_required":
+                # The owner can re-enable background Drive access without
+                # losing an already committed search checkpoint or batches.
+                if require_current:
+                    try:
+                        await require_current()
+                    except DriveReadError:
+                        pass
+                return finish(await self.store.pause_for_background(job))
             if str(error) == "search_superseded":
                 await self.store.release(job, error="connection_changed")
                 return finish("superseded")

@@ -70,7 +70,6 @@ import {
   useRouteTransition,
 } from "@/lib/morphy-ux/hooks/use-route-transition";
 import { PostAuthOnboardingSyncBridge } from "@/components/onboarding/PostAuthOnboardingSyncBridge";
-import { LegalAcceptanceGate } from "@/components/onboarding/LegalAcceptanceGate";
 import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journey-guard";
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -104,6 +103,7 @@ import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-sta
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import { AgentChatTurnNotifier } from "@/components/agent/agent-chat-turn-notifier";
 import { AgentConsentContinuationNotifier } from "@/components/agent/agent-consent-continuation-notifier";
+import { AgentFeedAttentionNotifier } from "@/components/agent/agent-feed-attention-notifier";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
 import {
@@ -633,6 +633,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <AgentChatTurnNotifier />
                   {/* A request sent from chat continues once it is answered. */}
                   <AgentConsentContinuationNotifier />
+                  <AgentFeedAttentionNotifier />
                   <RenderPerfProbe />
                   <FoundationPublicAmbient />
                   {!hidesPersistentChrome ? (
@@ -657,8 +658,6 @@ function AppShellFrame({ children }: ProvidersProps) {
                 app. Keeping it outside the route Suspense boundary prevents
                 fallback/resolved remounts from launching the same sync twice. */}
                   <PostAuthOnboardingSyncBridge />
-                  {/* Terms and Privacy Policy acceptance, recorded per version. */}
-                  <LegalAcceptanceGate />
                   <LocationBusAccountBridge />
                   <ContactInvitationSessionProvider>
                     {/* Keep persistent top chrome outside the route Suspense

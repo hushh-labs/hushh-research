@@ -110,6 +110,12 @@ vi.mock("@/lib/feed/use-feed-actionables", () => ({
     retry: mocks.retryActionables,
     hasClearableSmsEmergencies: true,
     clearSmsEmergencies: mocks.clearSmsEmergencies,
+    consentUnlockPrompt: {
+      open: false,
+      title: "",
+      description: "",
+      cancel: () => undefined,
+    },
   }),
 }));
 
@@ -403,6 +409,22 @@ describe("Feed history interactions", () => {
     });
     expect(clearButton).toHaveClass("w-auto", "max-w-full", "px-4");
     expect(clearButton).not.toHaveClass("w-full");
+  });
+
+  // Regression (localhost run 2026-09-28): the red "Clear on this device"
+  // sat directly under the Needs you row, reading as an answer to it.
+  it("keeps Clear quiet and after the history, destructive only once armed", async () => {
+    const view = await renderAfterAutomaticRead();
+    const clearButton = screen.getByRole("button", { name: "Clear feed notifications on this device" });
+    const daySections = view.container.querySelectorAll("section[aria-label]");
+    const lastHistorySection = daySections[daySections.length - 1]!;
+    expect(lastHistorySection).toBeTruthy();
+    expect(lastHistorySection.contains(clearButton)).toBe(false);
+    expect(lastHistorySection.compareDocumentPosition(clearButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(clearButton.className).not.toMatch(/text-destructive/);
+    fireEvent.click(clearButton);
+    expect(screen.getByRole("button", { name: "Confirm clear feed notifications on this device" }).className)
+      .toMatch(/text-destructive/);
   });
 
   it("does not dismiss revoked SOS cards or persist a watermark when mark-read fails", async () => {

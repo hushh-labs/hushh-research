@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   findPendingAssistantTurn,
+  transcriptFollowsLatest,
   transcriptRevealScrollTop,
+  type TranscriptFollowState,
   type TranscriptRevealGeometry,
 } from "@/lib/agent/agent-chat-transcript-scroll";
 
@@ -59,6 +61,41 @@ describe("transcriptRevealScrollTop", () => {
   });
 });
 
+/**
+ * Localhost run 2026-09-28 (screenshot 09, 393x852): the continuation reply was
+ * revealed with its end at y 693, 16 px above the composer at 708. The reserved
+ * padding is taller than the composer band, so that position is 86 px short of
+ * the scroll bottom, and every later token of One's answer was treated as the
+ * reader being away from the bottom: its last lines and actions grew under the
+ * composer and bottom bar.
+ */
+describe("transcriptFollowsLatest", () => {
+  const revealed: TranscriptFollowState = {
+    userScrolled: false, submittedTurn: false, programmatic: false, scrollTop: 1_200,
+    stuckToEnd: true, distanceFromBottom: 86, endBelowBand: 0,
+  };
+  /** The gate before the fix: the raw scroll bottom with a 48 px slack. */
+  const oldGate = (state: TranscriptFollowState) => !state.userScrolled
+    && (state.submittedTurn || state.programmatic || state.scrollTop <= 2 || state.distanceFromBottom <= 48);
+
+  it("keeps following an answer that grows after it was revealed above the composer", () => {
+    const grown = { ...revealed, distanceFromBottom: 86 + 60, endBelowBand: 60 };
+    expect(transcriptFollowsLatest(grown)).toBe(true);
+    // Not stuck (a fresh effect), the end a few lines below the composer: still the end.
+    expect(transcriptFollowsLatest({ ...grown, stuckToEnd: false, endBelowBand: 30 })).toBe(true);
+  });
+
+  it("negative control: the old raw-bottom gate stops following after the first reveal", () => {
+    expect(oldGate({ ...revealed, distanceFromBottom: 86 + 60, endBelowBand: 60 })).toBe(false);
+  });
+
+  it("never pulls a reader who scrolled away, or who is reading older history", () => {
+    expect(transcriptFollowsLatest({ ...revealed, userScrolled: true, endBelowBand: 10 })).toBe(false);
+    expect(transcriptFollowsLatest({ ...revealed, stuckToEnd: false, distanceFromBottom: 1_000, endBelowBand: 914 }))
+      .toBe(false);
+  });
+});
+
 describe("findPendingAssistantTurn", () => {
   it("targets the newest assistant row that is still streaming", () => {
     const transcript = document.createElement("div");
@@ -103,5 +140,9 @@ describe("chat workspace send path", () => {
       "measureTranscriptReveal(transcript, target, composerStackRef.current)",
     );
     expect(source).not.toMatch(/messagesEnd\.scrollIntoView\(/);
+    // The follow gate is measured against the composer and sticky once followed.
+    expect(source).toContain("measureTranscriptReveal(transcript, messagesEnd, composerStackRef.current)");
+    expect(source).toContain("const shouldFollowTranscript = transcriptFollowsLatest({");
+    expect(source).not.toContain("oneScrollTopRef.current <= 2 || distanceFromBottom <= 48");
   });
 });

@@ -211,8 +211,8 @@ export function shouldDisableExternalTelemetryForAutomation(
   return !allowGovernedUatSmoke;
 }
 
-/** Reviewer rehearsals must not send lifecycle mail from shared fixtures. */
-export function shouldSkipAuthMailForAutomation(
+/** Reviewer rehearsals must not send first-account welcome mail from shared fixtures. */
+export function shouldSkipFirstWelcomeForAutomation(
   config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return isAutomatedReviewerSession(config);

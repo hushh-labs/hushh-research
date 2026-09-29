@@ -112,7 +112,7 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
       "hover:bg-white/90",
     );
     expect(document.querySelector("[data-one-welcome-core] svg")?.className.baseVal).toContain(
-      "stroke-[#087ff5]",
+      "text-[color:var(--app-accent)]",
     );
   });
 
@@ -146,7 +146,9 @@ describe("OneLocationOnboardingFlow four-step contract", () => {
       screen.getByRole("heading", { name: "Can’t explain where you are?" }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("heading", { name: "Stuck waiting in line?" }),
+      screen.getByRole("heading", {
+        name: "At the venue, but can't find each other?",
+      }),
     ).toBeTruthy();
     expect(
       screen.getByRole("heading", { name: "Need help but can’t talk?" }),

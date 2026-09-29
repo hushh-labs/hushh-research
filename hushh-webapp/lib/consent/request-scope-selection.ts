@@ -1,7 +1,7 @@
 import type { RequestablePersonScope } from "@/lib/services/person-profile-service";
 
 /** Scope references are opaque. Coverage comes only from server-supplied hierarchy. */
-function covers(parent: RequestablePersonScope, child: RequestablePersonScope): boolean {
+export function covers(parent: RequestablePersonScope, child: RequestablePersonScope): boolean {
   if (!parent.wildcard || parent.scopeRef === child.scopeRef || !parent.domain || parent.domain !== child.domain) return false;
   if (!Array.isArray(parent.pathSegments) || !Array.isArray(child.pathSegments)) return false;
   return parent.pathSegments.length <= child.pathSegments.length

@@ -13,5 +13,10 @@ npm run build:route-orchestration-index  # route index (both copies)
 CI drift check: `npm run verify:voice-gateway` and
 `npm run verify:route-orchestration-index`.
 
+The hand-edited truth tables under `pkm/` and `consent/` have no generator:
+copy them byte-for-byte from the repo root when they change. Their vitest sync
+tests fail on any drift (`__tests__/lib/pkm/internal-path-keys-contract-sync.test.ts`,
+`__tests__/lib/consent/field-sensitivity-contract.test.ts`).
+
 See the canonical index at `../../contracts/README.md` for the full
 contract-to-generator-to-consumer map.

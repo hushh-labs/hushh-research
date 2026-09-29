@@ -8,7 +8,9 @@ from typing import Any, cast
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_live_preferences import LIVE_BACKGROUND_DISCLOSURE
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 
 REQUEST_SOURCE = "drive_document_share_request"
 QUERY_REQUEST_SOURCE = "drive_live_query_request"
@@ -29,10 +31,17 @@ WITH participants AS (
     CASE WHEN status IN ('pending','preparing','review_ready') AND expires_at<=now()
       THEN 'expired'
       WHEN recipient_user_id=:user AND status IN ('preparing','review_ready') THEN 'pending'
-      ELSE status END AS state
+      ELSE status END AS state,
+    preparation_error_code,
+    {owner_search_state} AS owner_search_state,
+    {trusted_authority_ready} AS trusted_authority_ready,
+    {trusted_batch_seen} AS trusted_batch_seen,
+    {trusted_work_active} AS trusted_work_active,
+    {trusted_recovery_needed} AS trusted_recovery_needed
   FROM drive_share_requests WHERE user_id=:user OR recipient_user_id=:user
   UNION ALL
-  SELECT request_id,revocation_revision,created_at,'share','incoming','management_only'
+  SELECT request_id,revocation_revision,created_at,'share','incoming','management_only',
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -87,18 +96,144 @@ _QUERIES = """
       WHEN status='running' AND expires_at<=now()
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
-      ELSE status END
+      ELSE status END,
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
+_OWNER_SEARCH_STATE = """(
+  SELECT CASE WHEN j.expires_at<=clock_timestamp() THEN 'expired' ELSE j.status END
+  FROM drive_owner_search_jobs j
+  WHERE j.user_id=drive_share_requests.user_id
+    AND j.client_request_id=drive_share_requests.request_id
+)"""
 
-def _projection(queries: bool) -> str:
-    return _PROJECTION.replace("{queries}", _QUERIES if queries else "")
+_TRUSTED_AUTHORITY_READY = """EXISTS (
+  SELECT 1 FROM user_external_connector_connections c
+  JOIN drive_live_preferences pref ON pref.user_id=c.user_id
+    AND pref.connection_generation=c.connection_generation
+  WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
+    AND c.status='connected' AND c.validation_state='verified'
+    AND c.verified_policy_hash=:live_policy_hash
+    AND pref.background_enabled=TRUE AND pref.disclosure_version=:background_disclosure
+    AND EXISTS (
+      SELECT 1 FROM connections conn
+      JOIN connection_origins origin ON origin.connection_id=conn.id
+        AND origin.status='active'
+        AND origin.origin_kind IN ('direct_request','legacy_invite')
+      WHERE conn.status='active'
+        AND ((conn.user_a_id=drive_share_requests.user_id
+              AND conn.user_b_id=drive_share_requests.recipient_user_id)
+          OR (conn.user_b_id=drive_share_requests.user_id
+              AND conn.user_a_id=drive_share_requests.recipient_user_id))
+        AND EXISTS (
+          SELECT 1 FROM one_location_circles circle
+          JOIN one_location_circle_memberships member ON member.circle_id=circle.id
+          WHERE circle.owner_user_id=drive_share_requests.user_id
+            AND circle.system_kind='trusted' AND circle.status='active'
+            AND member.user_id=drive_share_requests.recipient_user_id
+            AND member.status='active'
+        )
+    )
+)"""
+
+_TRUSTED_BATCH_SEEN = """EXISTS (
+  SELECT 1 FROM drive_bulk_shares b
+  WHERE b.user_id=drive_share_requests.user_id
+    AND b.origin_request_id=drive_share_requests.request_id
+    AND b.progressive_batch=TRUE
+)"""
+
+_TRUSTED_WORK_ACTIVE = """(
+  EXISTS (
+    SELECT 1 FROM drive_bulk_shares b
+    WHERE b.user_id=drive_share_requests.user_id
+      AND b.origin_request_id=drive_share_requests.request_id
+      AND b.progressive_batch=TRUE AND b.expires_at>clock_timestamp()
+      AND (b.status IN ('review_ready','queued','running')
+        OR EXISTS (SELECT 1 FROM drive_bulk_share_effects effect
+          WHERE effect.share_id=b.share_id
+            AND effect.state IN ('queued','dispatching','unknown')))
+  ) OR EXISTS (
+    SELECT 1 FROM drive_owner_search_results result
+    JOIN drive_owner_search_jobs job ON job.job_id=result.job_id
+    WHERE job.user_id=drive_share_requests.user_id
+      AND job.client_request_id=drive_share_requests.request_id
+      AND NOT EXISTS (
+        SELECT 1 FROM drive_bulk_share_files file
+        WHERE file.user_id=drive_share_requests.user_id
+          AND file.origin_request_id=drive_share_requests.request_id
+          AND file.source_position=result.position
+      )
+  )
+)"""
+
+# A skipped automatic effect that requires explicit review is not still "working".
+_TRUSTED_RECOVERY_NEEDED = """EXISTS (
+  SELECT 1 FROM drive_bulk_shares b
+  JOIN drive_bulk_share_files file ON file.share_id=b.share_id
+    AND file.origin_request_id=drive_share_requests.request_id
+  JOIN drive_bulk_share_effects effect ON effect.share_id=file.share_id
+    AND effect.position=file.position
+    AND effect.recipient_user_id=drive_share_requests.recipient_user_id
+  WHERE b.user_id=drive_share_requests.user_id
+    AND b.origin_request_id=drive_share_requests.request_id
+    AND b.progressive_batch=TRUE AND b.approval_source='trusted_auto'
+    AND effect.state='skipped' AND effect.safe_error_code='recipient_changed'
+    AND effect.attempts=0 AND effect.receipt_envelope IS NULL
+)"""
+
+
+def _projection(queries: bool, owner_search: bool, bulk: bool, background: bool) -> str:
+    projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
+    for name, expression in {
+        "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
+        "trusted_authority_ready": _TRUSTED_AUTHORITY_READY if background else "FALSE",
+        "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
+        "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
+        "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
+    }.items():
+        projection = projection.replace("{" + name + "}", expression)
+    return projection
 
 
 def entry(row: Any) -> dict[str, Any]:
     """Closed presentation shape; cannot enter the generic PKM grant path."""
     if row.get("source") == "query":
         return _query_entry(row)
+    preparation_code = row.get("preparation_error_code")
+    search_state = row.get("owner_search_state")
+    # Once the first Google grant succeeds, the same still-running request
+    # moves to active_grants for access management. Keep its progress metadata.
+    request_open = row["state"] == "pending" and row["bucket"] in {
+        "incoming_requests",
+        "outgoing_requests",
+        "active_grants",
+    }
+    live_search = search_state in {"queued", "running"} or (
+        search_state == "completed" and row.get("trusted_work_active") is True
+    )
+    automatic_progressing = bool(
+        request_open
+        and row.get("trusted_authority_ready") is True
+        and row.get("trusted_recovery_needed") is not True
+        and (
+            preparation_code == "trusted_auto_queued"
+            and (search_state is None or live_search)
+            or preparation_code == "trusted_auto_active"
+            and live_search
+        )
+    )
+    automatic_stage = (
+        (
+            "sharing"
+            if row.get("trusted_batch_seen") is True
+            else "finding"
+            if search_state in {"queued", "running", "completed"}
+            else "preparing"
+        )
+        if automatic_progressing
+        else None
+    )
     return {
         "id": row["id"],
         "request_id": str(row["request_id"]),
@@ -123,6 +258,13 @@ def entry(row: Any) -> dict[str, Any]:
             "state": row["state"],
             "revision": row["revision"],
             "recorded_outcome_only": True,
+            "automatic_progress_active": automatic_progressing,
+            "automatic_progress_stage": automatic_stage,
+            # A Trusted Circle request stays pending while automatic search and
+            # sharing run. Only the sharing authority can distinguish that
+            # progress from an owner task or a paused/manual recovery.
+            "owner_attention_required": row["bucket"] == "incoming_requests"
+            and not automatic_progressing,
         },
     }
 
@@ -171,6 +313,48 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _owner_search_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("SELECT to_regclass('drive_owner_search_jobs') IS NOT NULL")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _bulk_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("""SELECT EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_bulk_shares')
+                    AND attname='progressive_batch' AND NOT attisdropped
+                ) AND EXISTS (
+                  SELECT 1 FROM pg_attribute
+                  WHERE attrelid=to_regclass('drive_bulk_share_files')
+                    AND attname='origin_request_id' AND NOT attisdropped
+                )""")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _background_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("SELECT to_regclass('drive_live_preferences') IS NOT NULL")
+            ).scalar_one()
+        )
+
+    @staticmethod
+    def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
+        return {
+            "user": user_id,
+            "query": query,
+            "bucket": bucket,
+            "live_policy_hash": LIVE_POLICY_HASH,
+            "background_disclosure": LIVE_BACKGROUND_DISCLOSURE,
+        }
+
+    @staticmethod
     def _installed(connection) -> bool:
         # Rolling deployments may still be on the pre-sharing schema. This is
         # the only empty compatibility case; SQL/timeouts must remain errors.
@@ -194,10 +378,15 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             rows = connection.execute(
                 # Both SQL fragments are static; every value is bound below.
                 text(
-                    _projection(self._queries_installed(connection))  # nosec B608
+                    _projection(
+                        self._queries_installed(connection),
+                        self._owner_search_installed(connection),
+                        self._bulk_installed(connection),
+                        self._background_installed(connection),
+                    )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
-                {"user": user_id, "query": "", "bucket": ""},
+                self._params(user_id),
             ).mappings()
             return {
                 **dict.fromkeys(BUCKETS, 0),
@@ -222,7 +411,12 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 connection.execute(
                     text(
                         # Both SQL fragments are static; every value is bound below.
-                        _projection(self._queries_installed(connection))  # nosec B608
+                        _projection(
+                            self._queries_installed(connection),
+                            self._owner_search_installed(connection),
+                            self._bulk_installed(connection),
+                            self._background_installed(connection),
+                        )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
                         LEFT JOIN LATERAL (
@@ -232,9 +426,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         """
                     ),
                     {
-                        "user": user_id,
-                        "bucket": bucket,
-                        "query": query.strip().lower(),
+                        **self._params(user_id, query=query.strip().lower(), bucket=bucket),
                         "limit": limit,
                         "offset": offset,
                     },
@@ -267,7 +459,12 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             rows = connection.execute(
                 text(
                     # Both SQL fragments are static; every value is bound below.
-                    _projection(self._queries_installed(connection))  # nosec B608
+                    _projection(
+                        self._queries_installed(connection),
+                        self._owner_search_installed(connection),
+                        self._bulk_installed(connection),
+                        self._background_installed(connection),
+                    )  # nosec B608
                     + """
                     , ranked AS (
                       SELECT *,count(*) OVER (PARTITION BY bucket) AS total,
@@ -277,7 +474,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                     ) SELECT * FROM ranked WHERE position<=50 ORDER BY issued_at DESC,id COLLATE "C" DESC
                     """
                 ),
-                {"user": user_id, "query": "", "bucket": ""},
+                self._params(user_id),
             ).mappings()
             buckets: dict[str, list[dict[str, Any]]] = {key: [] for key in BUCKETS}
             counts = dict.fromkeys(BUCKETS, 0)

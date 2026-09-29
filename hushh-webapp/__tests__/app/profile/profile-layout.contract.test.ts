@@ -78,10 +78,17 @@ describe("Profile canonical page layout", () => {
     expect(workspace).not.toContain('description: "Unlock methods.",');
     expect(workspace).toContain('data-testid="vault-default-unlock-actions"');
     expect(workspace).toContain("VAULT_INLINE_ACTIONS_CLASS");
-    expect(workspace).toContain('iconTone="blue"');
-    expect(workspace).toContain('iconTone="purple"');
-    expect(workspace).toContain('iconTone="orange"');
-    expect(workspace).toContain('iconTone="indigo"');
+    // Founder direction, 2026-09-28: nested Profile screens draw rows the way
+    // the Profile menu does, so Vault methods carries no tile tones.
+    const vaultMethods = workspace.slice(
+      workspace.indexOf('className="profile-account-content profile-vault-methods-content"'),
+      workspace.indexOf("const gmailConnectionContent"),
+    );
+    const vaultTones = [...vaultMethods.matchAll(/iconTone="([a-z]+)"/g)].map(
+      (match) => match[1],
+    );
+    expect(vaultTones.length).toBeGreaterThanOrEqual(6);
+    expect(new Set(vaultTones)).toEqual(new Set(["capability"]));
     expect(workspace).not.toContain("Use device biometric");
     expect(workspace).not.toContain("Use passphrase");
     expect(workspace).toContain(

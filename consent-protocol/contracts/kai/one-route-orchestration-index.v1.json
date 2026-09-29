@@ -231,7 +231,7 @@
     {
       "route_pattern": "/circle/join",
       "page_file": "app/circle/join/page.tsx",
-      "route_mode": "redirect",
+      "route_mode": "hidden",
       "orchestration_class": "transitional",
       "instruction_id": "route.circle.join",
       "context_policy": "suppress",
@@ -265,7 +265,7 @@
       "action_ids": [],
       "action_coverage": "none",
       "delegation_policy": {
-        "mode": "block_delegation",
+        "mode": "no_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
@@ -1084,14 +1084,11 @@
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
-        "allowed_families": [
-          "legal_document"
-        ]
+        "allowed_families": []
       },
       "canonical_screen": "login",
       "voice_contract_file": "app/login/page.voice-action-contract.json",
       "action_ids": [
-        "auth.close_legal",
         "auth.open_privacy",
         "auth.open_terms",
         "auth.sign_in_apple",

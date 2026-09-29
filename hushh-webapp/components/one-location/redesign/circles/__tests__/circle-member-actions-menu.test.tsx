@@ -180,7 +180,9 @@ describe("CircleMemberActionsMenu on a phone", () => {
     fireEvent.click(
       await screen.findByRole("menuitem", { name: /Remove from Circle/i }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
+    const cancel = await screen.findByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveClass("text-foreground");
+    fireEvent.click(cancel);
 
     // Back to the action list, not out of the sheet entirely.
     expect(

@@ -233,6 +233,50 @@ describe("a turn that settles after the person left the chat", () => {
 // A stream can die after part of an answer arrived, while the server keeps
 // running the turn and saves it. The person must see why the answer stopped,
 // and Retry must never run a turn the server already finished.
+describe("a settled answer in the chat column", () => {
+  const answer = {
+    id: "assistant-2", role: "assistant" as const, text: "Your week has two free evenings.",
+    timestamp: "10:00", status: "done" as const,
+  };
+
+  it("sits in the answer bubble with its controls beside it and a touch row below", () => {
+    render(<AgentBubble message={answer} onRate={() => undefined} />);
+    const bubble = screen.getByText("Your week has two free evenings.").closest("[data-message-role]")!;
+    const hover = bubble.querySelector('[data-agent-response-actions="hover"]');
+    const inline = screen.getByTestId("agent-message-response-actions");
+    // The hover copy lives inside the bubble frame so it can sit at its edge;
+    // the always-on row is marked as its touch twin (CSS shows exactly one).
+    expect(hover?.parentElement?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+    expect(inline).toHaveAttribute("data-hover-twin", "true");
+    expect(hover?.querySelector('[aria-label="Copy response"]')).not.toBeNull();
+    expect(inline.querySelector('[aria-label="Copy response"]')).not.toBeNull();
+  });
+
+  it("gives a tool-using answer the same bubble, not bare text", () => {
+    const [restored] = storedMessagesToAgentMessages([{ ...connectAnswer, content: "Nothing new today." }]);
+    render(<AgentBubble message={restored!} />);
+    const bubble = screen.getByText("Nothing new today.").closest("[data-agent-response-bubble]");
+    expect(bubble).not.toBeNull();
+    expect(bubble?.className).toContain("bg-[color:var(--one-chat-bubble)]");
+  });
+
+  it("keeps an error's Try again in plain sight rather than on hover", () => {
+    render(<AgentBubble message={{ ...answer, status: "error" }} onRetry={() => undefined} />);
+    expect(document.querySelector('[data-agent-response-actions="hover"]')).toBeNull();
+    expect(screen.getByTestId("agent-message-response-actions")).not.toHaveAttribute("data-hover-twin");
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+  });
+
+  it("carries a restored row's real send time and never invents one", () => {
+    const [timed] = storedMessagesToAgentMessages([
+      { ...connectAnswer, content: "Timed.", created_at: "2026-09-26T07:46:00Z" },
+    ]);
+    const [untimed] = storedMessagesToAgentMessages([{ ...connectAnswer, content: "Untimed." }]);
+    expect(timed?.sentAtMs).toBe(Date.parse("2026-09-26T07:46:00Z"));
+    expect(untimed).not.toHaveProperty("sentAtMs");
+  });
+});
+
 describe("a turn whose stream was lost", () => {
   const conversationId = "7c2e1f0a-5b3d-4e8a-9f61-2d4c8b7a6e5f";
   const streaming = {

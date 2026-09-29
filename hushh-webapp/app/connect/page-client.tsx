@@ -4,17 +4,19 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
-  BadgeCheck,
   BookUser,
   Check,
   ChevronDown,
   Loader2,
-  Lock,
   RefreshCw,
   Search as SearchIcon,
-  Share2,
   X,
 } from "@/components/icons";
+import {
+  InviteFriendsProfileIcon,
+  LockedRowIcon,
+  QualifiedRowIcon,
+} from "@/components/icons/agents";
 
 import {
   AppPageContentRegion,
@@ -3381,10 +3383,7 @@ export default function ConnectPageClient() {
                                         }}
                                         className="press-scale absolute inset-y-0 right-0 flex w-11 items-center justify-center text-[#1d1d1f] transition-colors hover:text-black dark:text-white"
                                       >
-                                        <X
-                                          className="h-5 w-5"
-                                          strokeWidth={2.4}
-                                        />
+                                        <X className="h-5 w-5" />
                                       </button>
                                     ) : null}
                                   </div>
@@ -3449,8 +3448,8 @@ export default function ConnectPageClient() {
                           spell it out, or bring them here. */}
                                     {canInviteToOne ? (
                                       <SettingsRow
-                                        icon={Share2}
-                                        iconTone="blue"
+                                        icon={InviteFriendsProfileIcon}
+                                        iconTone="capability"
                                         title="Invite them to One"
                                         description="Share an invite link with them."
                                         density="compact"
@@ -3884,8 +3883,8 @@ export default function ConnectPageClient() {
                     {batchRequestableRows.map((row) => (
                       <SettingsRow
                         key={`batch-request-${row.userId}-${row.item.handle}`}
-                        icon={BadgeCheck}
-                        iconTone="green"
+                        icon={QualifiedRowIcon}
+                        iconTone="capability"
                         title={
                           <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
                             {row.title}
@@ -3957,8 +3956,8 @@ export default function ConnectPageClient() {
                 batchOfferableItems.length === 0 ? (
                   <SettingsGroup title="Connection access" separatorInset>
                     <SettingsRow
-                      icon={Lock}
-                      iconTone="gray"
+                      icon={LockedRowIcon}
+                      iconTone="capability"
                       title="No access yet"
                       description="These only send requests."
                       density="compact"

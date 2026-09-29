@@ -61,7 +61,6 @@ class HushhAuthPlugin : Plugin() {
     }
 
     private val TAG = "HushhAuth"
-    private val DRIVE_AUTH_FALLBACK_GRACE_MS = 750L
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
     private var googleSignInSettlement: GoogleSignInSettlement? = null
@@ -689,7 +688,10 @@ class HushhAuthPlugin : Plugin() {
             finishDriveAuthorization(operation, "cancelled", drainProvider = true)
         }
         operation.fallbackCancellation = cancellation
-        driveAuthorizationHandler.postDelayed(cancellation, DRIVE_AUTH_FALLBACK_GRACE_MS)
+        driveAuthorizationHandler.postDelayed(
+            cancellation,
+            NativeDriveOAuthPolicy.FALLBACK_RETURN_GRACE_MS
+        )
     }
 
     private fun isTrustedDriveAuthorizeUri(uri: Uri): Boolean =

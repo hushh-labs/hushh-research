@@ -42,6 +42,30 @@ const nav = vi.hoisted(() => {
 
 const setup = vi.hoisted(() => ({
   onSetupSourceSettled: vi.fn(async () => true),
+  syncOnboardingJourney: vi.fn(),
+}));
+
+vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
+  PreVaultUserStateService: {
+    bootstrapState: vi.fn(async () => ({ setupCompleted: true })),
+    isSetupResolved: (state: { setupCompleted?: boolean }) => state.setupCompleted === true,
+    syncOnboardingJourney: setup.syncOnboardingJourney,
+  },
+}));
+
+vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
+  createVaultLink: vi.fn(async () => ({ linkToken: "synthetic-link", platform: "web" })),
+  rememberVaultOAuthReturn: vi.fn(),
+  sealVaultPlaidConnection: vi.fn(async () => ({ status: null })),
+}));
+
+vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => ({
+  loadPlaidLink: vi.fn(async () => ({
+    create: ({ onSuccess }: { onSuccess: (token: string) => void }) => ({
+      open: () => onSuccess("synthetic-public-token"),
+      destroy: vi.fn(),
+    }),
+  })),
 }));
 
 vi.mock("next/navigation", async () => {
@@ -153,12 +177,17 @@ vi.mock("@/components/kai/views/portfolio-review-view", () => ({
 vi.mock("@/components/kai/views/portfolio-import-view", () => ({
   PortfolioImportView: ({
     onPreloadSchema,
+    onConnectPlaid,
   }: {
     onPreloadSchema?: () => void;
+    onConnectPlaid?: () => void;
   }) => (
     <div data-testid="portfolio-import-chooser">
       <button type="button" onClick={() => onPreloadSchema?.()}>
         Load sample brokerage
+      </button>
+      <button type="button" onClick={() => onConnectPlaid?.()}>
+        Connect brokerage
       </button>
     </div>
   ),
@@ -177,6 +206,7 @@ vi.mock("@/components/kai/views/analysis-view", () => ({
 }));
 
 import { KaiFlow } from "@/components/kai/kai-flow";
+import { ROUTES } from "@/lib/navigation/routes";
 
 // Synthetic, Schwab-shaped extraction result. Not a real person's holdings.
 function syntheticParsedPortfolio() {
@@ -259,6 +289,7 @@ describe.each<Platform>(["web", "native"])(
       window.localStorage.clear();
       setPlatform(platform);
       setup.onSetupSourceSettled.mockClear();
+      setup.syncOnboardingJourney.mockClear();
     });
 
     afterEach(() => {
@@ -266,6 +297,26 @@ describe.each<Platform>(["web", "native"])(
       window.sessionStorage.clear();
       window.localStorage.clear();
     });
+
+    it.each([null, "/circle/join?invite=opaque_token", "https://outside.invalid"])(
+      "resolved-root Plaid success preserves only a valid setup continuation (%s)",
+      async (returnTo) => {
+        if (returnTo) nav.navigate(`${SETUP_PATH}?return_to=${encodeURIComponent(returnTo)}`);
+        renderSetupImportFlow();
+
+        fireEvent.click(await screen.findByText("Connect brokerage"));
+
+        if (returnTo?.startsWith("/circle/join")) {
+          await waitFor(() => expect(setup.onSetupSourceSettled).toHaveBeenCalledWith("plaid", undefined));
+          expect(nav.hrefs.some((href) => href.startsWith("/one/kai"))).toBe(false);
+          expect(new URLSearchParams(nav.getSearch()).get("return_to")).toBe(returnTo);
+        } else {
+          await waitFor(() => expect(nav.hrefs).toContain(ROUTES.KAI_DASHBOARD));
+          expect(setup.onSetupSourceSettled).not.toHaveBeenCalled();
+        }
+        expect(setup.syncOnboardingJourney).not.toHaveBeenCalled();
+      },
+    );
 
     it("opens the review after a completed import and stays there", async () => {
       seedCompletedImport(platform, "import_run_synthetic");
@@ -300,8 +351,9 @@ describe.each<Platform>(["web", "native"])(
       expect(nav.getSearch()).toBe("stage=reviewing");
     });
 
-    it("cancel discards the extracted result and returns to the source chooser in setup", async () => {
+    it.each([null, "/circle/join?invite=opaque_token"])("cancel retains the source chooser and invitation continuation (%s)", async (returnTo) => {
       seedCompletedImport(platform, "import_run_synthetic");
+      if (returnTo) nav.navigate(`${SETUP_PATH}?return_to=${encodeURIComponent(returnTo)}`);
       renderSetupImportFlow();
 
       fireEvent.click(await screen.findByText("Cancel"));
@@ -318,8 +370,10 @@ describe.each<Platform>(["web", "native"])(
       });
       expect(screen.queryByText("Review Extracted Portfolio")).toBeNull();
       await waitFor(() =>
-        expect(nav.getSearch()).toBe("stage=import_required"),
+        expect(new URLSearchParams(nav.getSearch()).get("stage")).toBe("import_required"),
       );
+      expect(new URLSearchParams(nav.getSearch()).get("return_to")).toBe(returnTo);
+      expect(nav.hrefs.some((href) => href.startsWith("/one/kai"))).toBe(false);
     });
 
     it("Load sample brokerage opens the sample review despite a stale FAILED background snapshot", async () => {

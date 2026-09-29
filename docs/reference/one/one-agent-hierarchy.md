@@ -226,7 +226,8 @@ INBOX page, "my last N emails"), `list_needs_reply`, `search_inbox`, and the bod
 reads `read_message` / `read_thread` (size-capped text seen only by the tool-less
 interpreter), each scoped to `inbox`, `sent` or `anywhere` and returning an `unread`
 flag. Reviewed mailbox changes (archive, labels, read state, Trash) go through One's
-`propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools and One's
+`propose_gmail_mailbox_change` card, never through this read path. After a read, only exact-call-reviewed MCP tools, One's
+`suggest_follow_ups` (which reads and changes nothing), and One's
 client-only editable Gmail draft remain callable in the same invocation; the
 draft cannot run in the original parallel read batch and cannot send. Its
 interpreter has no tools; durable tool history contains a redacted receipt,
@@ -242,6 +243,25 @@ The external scope map and in-process dispatch registry intentionally contain
 different agents. A listed A2A scope does not prove that the agent is registered
 for local dispatch, and a local dispatch handler does not imply an external A2A
 endpoint; not every scope-gated specialist is registered in the in-process dispatch table.
+
+### Smart follow-ups
+
+In typed chat One may end a substantive answer with `suggest_follow_ups`: two or
+three next questions it wrote in the same model response. The tool validates them
+and sets ADK `skip_summarization`, so the turn ends on that call and costs no second
+model call. It ends the turn only when it is the sole function call in a response
+that already carries answer text; otherwise it returns `ignored` and the model
+continues as usual. The browser renders the result as chips under the latest answer
+only; a tap fills the composer, like the welcome chips. Suggestions are sealed turn
+content: never logged, and not restored as chips from history.
+
+| Declaration | Value |
+| --- | --- |
+| Owning agent | `agent_one` (typed-chat instruction added at runtime by `follow_up_instruction`) |
+| Manifest | `consent-protocol/hushh_mcp/agents/one/agent.yaml` (tool `suggest_follow_ups`) |
+| Output contract | `{"status": "shown", "suggestions": [2-3 strings]}`, or `ignored` / `unavailable` with no chips |
+| Validator rules | Single-line, at most 80 characters, distinct, first three kept; fewer than two valid is `ignored`. Nothing is rewritten. |
+| Live eval before promotion | How often and how well One suggests on `gemini-3.6-flash` is model behaviour; it needs a live sample before it is described as tuned. The one-call contract is proven offline in `consent-protocol/tests/test_one_follow_up_suggestions.py`. |
 
 ### Hermes-local bounded product leaf
 

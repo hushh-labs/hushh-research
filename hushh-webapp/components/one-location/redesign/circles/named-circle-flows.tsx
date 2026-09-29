@@ -17,6 +17,7 @@ import {
   Trash2,
   UsersRound,
 } from "@/components/icons";
+import { InviteCodeRowIcon, JoinRowIcon } from "@/components/icons/agents";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { INPUT_CLASSNAME } from "@/components/ui/input";
@@ -2241,8 +2242,8 @@ export function CircleDetailFlow({
             >
               {!livingCircleExperience && canInviteMembers ? (
                 <SettingsRow
-                  icon={Plus}
-                  iconTone="accent"
+                  icon={JoinRowIcon}
+                  iconTone="capability"
                   title="Add people"
                   chevron
                   onClick={openPeopleSheet}
@@ -2252,8 +2253,8 @@ export function CircleDetailFlow({
               ) : null}
               {canViewInviteCode ? (
                 <SettingsRow
-                  icon={KeyRound}
-                  iconTone="gray"
+                  icon={InviteCodeRowIcon}
+                  iconTone="capability"
                   title="Invite code"
                   trailing={inviteCode ? "Ready" : "Create"}
                   chevron

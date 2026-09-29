@@ -26,6 +26,14 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
+  it("mounts recent Drive sharing only in the visible chat sidebar", () => {
+    const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
+    expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" onNeedsReviewChange={onDriveNeedsReviewChange} />');
+    expect(sidebar).toContain('mode === "desktop" ? desktopHistoryVisible : !desktopHistoryVisible');
+    expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
+    expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');
+  });
+
   it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
     expect(source).toContain("function AgentPromptSuggestions(");
     expect(source).toContain('data-testid="agent-chat-suggestions"');
@@ -41,31 +49,31 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).toContain("setInput(prompt)");
   });
 
-  it("renders the post-setup welcome at ordinary assistant-message size", () => {
-    // Founder report: the first card after sign-up was an oversized hero card
-    // (28px radius, 3xl heading, its own max width), not the chat's own size.
-    const card = source.slice(
-      source.indexOf("function PostSetupWelcomeCard("),
-      source.indexOf("function useAnimatedAssistantText("),
+  it("runs post-setup onboarding as ordinary chat turns, with the tile grid retired", () => {
+    // Founder decision (2026-09-27): the first message is fixed text typed out
+    // through the same AgentBubble path as a real reply, then three questions
+    // in chat. The old PostSetupWelcomeCard and its connector/agent tiles are
+    // gone; a regression back to a card would reintroduce either name.
+    expect(source).not.toContain("function PostSetupWelcomeCard(");
+    expect(source).not.toContain("AgentFirstRunActions");
+    expect(source).toMatch(
+      // A centered time separator may open the group; the turn itself is still
+      // the workspace's own AgentBubble.
+      /renderBubble=\{\(message: ChatOnboardingBubbleMessage\) => \((?:(?!renderBubble)[\s\S]){0,400}?<AgentBubble message=\{message\} \/>/,
     );
-    const bubble = source.slice(
-      source.indexOf("function AgentBubble("),
-      source.indexOf("function AgentBubble(") + 8000,
+    // Only an explicitly armed name answer is kept from the model; everything
+    // else typed in the composer is an ordinary turn.
+    const submit = source.slice(
+      source.indexOf("const submitComposerText = async () => {"),
+      source.indexOf("const handleSubmit = async"),
     );
-    const assistantWidth = "max-w-[90%] sm:max-w-[min(82%,48rem)]";
-    expect(bubble).toContain(assistantWidth);
-    expect(card).toContain(assistantWidth);
-    expect(card).toContain("text-sm leading-6");
-    expect(card).not.toMatch(/rounded-\[28px\]|text-(2xl|3xl)|bg-card|shadow-\[/);
-    // A brand-new person has set nothing up: no "What's ready so far" summary.
-    expect(card).not.toMatch(/What.s ready so far/);
-    // First actions instead, launched through the existing connector surface.
-    expect(card).toContain("<AgentFirstRunActions");
-    expect(source).toContain("onOpenConnector={openConnectorSurface}");
-    // The same curated starters as the empty chat, never a hard-coded generic trio.
-    expect(card).toContain("prompts={prompts}");
-    expect(card).not.toContain("What can you help with?");
-    expect(source).toContain("prompts={welcomePrompts}\n                  vaultOwnerToken");
+    expect(submit).toContain("chatOnboarding.captureComposerText(typedText)");
+    expect(submit.indexOf("chatOnboarding.captureComposerText")).toBeLessThan(
+      submit.indexOf("transcriptUserScrollRef.current = false;"),
+    );
+    // Returning people with an empty chat keep the welcome panel and starters.
+    expect(source).toContain("<AgentWelcomePanel");
+    expect(source).toContain("prompts={welcomePrompts}");
   });
 
   it("keeps the dedicated-route history sidebar honest while it loads", () => {
@@ -130,7 +138,8 @@ describe("Agent One proactive Calendar cards wiring contract", () => {
   it("keeps Calendar available through explicit governed directives", () => {
     expect(source).toContain("getCalendarDirectiveFromToolEvent");
     expect(source).toContain("runCalendarDirective");
-    expect(source).toContain("GoogleCalendarService");
+    // Connect goes through the shared in-place connector (no chat redirect).
+    expect(source).toContain("connectCalendarInPlace");
     expect(source).toContain('delegateAgentId === "agent_calendar"');
   });
 });
@@ -162,11 +171,18 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
     );
   });
 
-  it("keeps Calendar connection confirmation on the existing OAuth path", () => {
+  it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {
     const connectIndex = normalized.indexOf('type === "calendar.connect"');
     const block = normalized.slice(connectIndex, connectIndex + 1200);
-    expect(block).toContain("GoogleCalendarService.startConnect(");
-    expect(block).toContain("clearCalendarSetupOAuthReturn();");
+    expect(block).toContain('runDirectiveConnect("calendar");');
+    expect(block).not.toContain("location.assign");
+    // The shared connector still owns the existing Calendar start + journey reset.
+    const shared = readFileSync(
+      join(process.cwd(), "lib/connections/google-connect-in-place.ts"),
+      "utf8",
+    );
+    expect(shared).toContain("GoogleCalendarService.startConnect(");
+    expect(shared).toContain("clearCalendarSetupOAuthReturn();");
   });
 
   it("routes explicit proposal confirmation through the existing action queue", () => {

@@ -44,15 +44,33 @@ describe("consent scope wording", () => {
   it("never prints a raw scope key in a Feed row", () => {
     const scope = "attr.professional.profile.entities._entities.summary";
     const row = presentFeedItem(item({ metadata: { scope } }));
-    expect(row.description).toBe("Professional Profile Summary was revoked.");
+    expect(row.description).toBe("You stopped sharing your Professional profile summary");
     expect(row.description).not.toContain("attr.");
     expect(row.description).not.toContain("_entities");
   });
 
-  it("prefers the stored description when there is one", () => {
-    const row = presentFeedItem(
-      item({ metadata: { scope: "attr.identity.email", scope_description: "Your work email" } }),
+  // Measured on UAT 2026-09-28: the request read "Preferences" (its stored
+  // description) and the access it became read "Food Preferences" (its key),
+  // because only one of them carried a description. The key is on every row,
+  // so naming from it is the one rule that makes the two agree.
+  it("names the item from its key so a request and its access agree", () => {
+    const requested = presentFeedItem(
+      item({
+        event_type: "consent_requested",
+        metadata: { scope: "attr.food.preferences.*", scope_description: "Preferences" },
+      }),
     );
-    expect(row.description).toBe("Your work email was revoked.");
+    const revoked = presentFeedItem(
+      item({ metadata: { scope: "attr.food.preferences.*" } }),
+    );
+    expect(requested.description).toBe("Someone asked for your Food preferences");
+    expect(revoked.description).toBe("You stopped sharing your Food preferences");
+  });
+
+  it("falls back to the stored name when a row has no key", () => {
+    const row = presentFeedItem(
+      item({ metadata: { scope_description: "Your work email" } }),
+    );
+    expect(row.description).toBe("You stopped sharing your Work email");
   });
 });

@@ -178,6 +178,21 @@
       "expected_row_growth": "medium_append_only"
     },
     {
+      "id": "consent_event_deliveries",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "consent_event_deliveries"
+      ],
+      "primary_access_path": "The consent NOTIFY listener claims one key per consent_audit id (and per request notification sequence and TIMEOUT emission) with INSERT ... ON CONFLICT DO NOTHING RETURNING before sending a push, writing a delivery record, or ringing the requester's information_request_updated doorbell; the claim that returns a row owns the side effect across every worker and instance.",
+      "retention_policy": "Pruned after 14 days by the consent timeout job.",
+      "deletion_behavior": "Holds no user identifier (keys are consent_audit ids, request ids, or a SHA-256 digest), so account deletion has nothing to remove; rows age out with retention.",
+      "trust_boundary": "Delivery key and claim time only. Grants no access and carries no scope, label, value, or person identifier.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "one to three rows per consent event, bounded by the 14-day prune"
+    },
+    {
       "id": "consent_export_workflows",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -1300,12 +1315,27 @@
       "exact_tables": [
         "account_legal_acceptances"
       ],
-      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance at sign-in and after the Terms of Use or Privacy Policy version changes; reads return the latest acceptance of each document.",
+      "primary_access_path": "GET/POST /api/account/legal-acceptance (Firebase-authenticated, not vault-gated). The web and native app records acceptance of the served Terms of Use and Privacy Policy versions silently at each successful sign-in (the sign-in screen links both documents); there is no in-app re-acceptance prompt. Reads return the latest acceptance of each document.",
       "retention_policy": "Append-only history: one row per person, document, version and effective date. Re-accepting a recorded version keeps the original accepted_at. Kept across account reset.",
       "deletion_behavior": "Delete rows where the deleting account is user_id on full account deletion (explicit DELETE; no foreign key, because acceptance precedes the actor profile).",
       "trust_boundary": "Document id, version and effective-date labels, surface (web or native) and a server timestamp, keyed by the Firebase UID from the verified token. Carries no user information and grants no access.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "two rows per person per legal document version they accept"
+    },
+    {
+      "id": "one_attention_ledger",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_attention_ledger"
+      ],
+      "primary_access_path": "POST /api/one/first-connect-insights claims one row per connected source before generating the picked-up card; the feed attention sweep claims one row per notable feed_events id and counts sent rows for the daily push cap; agent-chat admission of a feedAttention turn reads the sent row.",
+      "retention_policy": "Retain while the account exists; one row per (person, kind, subject). Feed attention rows are pruned after 30 days by the sweep.",
+      "deletion_behavior": "Cascade-delete with the actor profile on account deletion and reset.",
+      "trust_boundary": "Kind, subject identifier (a source name or a feed_events id), outcome word and timestamps only. Never inference text, feed item words or One's message: the card lives on the owner's screen and Keep saves through the encrypted PKM writer; One's message is sealed with the owner's chat key.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "at most three card rows per person plus one row per notable feed event"
     },
     {
       "id": "one_agent_model_preference",

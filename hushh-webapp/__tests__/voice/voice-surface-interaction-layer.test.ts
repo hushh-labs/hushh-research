@@ -11,7 +11,7 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
 const PUBLISHERS = ["route", "chrome", "layer_one", "layer_two", "next_route"];
 
-function runtime(pathname = "/login", screen = "login"): AppRuntimeState {
+function runtime(pathname = "/register-phone", screen = "register_phone"): AppRuntimeState {
   return {
     auth: { signed_in: false, user_id: null },
     vault: { unlocked: false, token_available: false, token_valid: false },
@@ -41,81 +41,85 @@ function layer(
   return {
     schemaVersion: "voice_interaction_layer.v1",
     id,
-    kind: "legal_document",
+    kind: "country_picker",
     modality: "modal",
     lifecycle: "open",
     dismissible: true,
-    dismissActionId: "auth.close_legal",
-    visibleActionIds: ["auth.close_legal"],
-    visibleControlIds: ["auth_close_legal"],
+    dismissActionId: "phone_mandate.close_country_picker",
+    // The picker's own actions, as the phone flow publishes them.
+    visibleActionIds: [
+      "phone_mandate.select_country",
+      "phone_mandate.close_country_picker",
+    ],
+    visibleControlIds: ["phone-flow-country"],
     options: [],
-    returnFocusControlId: "auth_terms",
+    returnFocusControlId: "phone-flow-country",
     blocksUnderlyingActions: true,
     agentContinuity: "interactive",
     ...overrides,
   };
 }
 
-function publishLoginRoute() {
+function publishPhoneRoute() {
   publishVoiceSurfaceMetadata(
     "route",
     {
-      screenId: "login",
-      title: "Sign in",
+      screenId: "register_phone",
+      title: "Verify your phone",
       actions: [
         {
-          id: "auth_sign_in_apple",
-          actionId: "auth.sign_in_apple",
-          label: "Continue with Apple",
+          id: "phone_submit_number",
+          actionId: "phone_mandate.submit_number",
+          label: "Submit Phone Number",
         },
         {
-          id: "auth_sign_in_google",
-          actionId: "auth.sign_in_google",
-          label: "Continue with Google",
+          id: "phone_submit_code",
+          actionId: "phone_mandate.submit_code",
+          label: "Submit Verification Code",
         },
       ],
       controls: [
         {
-          id: "auth_apple",
-          actionId: "auth.sign_in_apple",
-          label: "Continue with Apple",
+          id: "phone-flow-number",
+          actionId: "phone_mandate.submit_number",
+          label: "Submit Phone Number",
         },
         {
-          id: "auth_google",
-          actionId: "auth.sign_in_google",
-          label: "Continue with Google",
+          id: "phone-flow-code",
+          actionId: "phone_mandate.submit_code",
+          label: "Submit Verification Code",
         },
       ],
     },
-    { role: "route", routeKey: "/login" },
+    { role: "route", routeKey: "/register-phone" },
   );
 }
 
-function publishLegalLayer(
+function publishPickerLayer(
   publisherId: string,
   value: VoiceInteractionLayerV1,
 ) {
   publishVoiceSurfaceMetadata(
     publisherId,
     {
-      title: "Terms",
+      title: "Country code",
       actions: [
         {
-          id: "auth_close_legal",
-          actionId: "auth.close_legal",
-          label: "Close Terms",
+          id: "phone_close_country_picker",
+          actionId: "phone_mandate.close_country_picker",
+          label: "Close Country Picker",
         },
       ],
       controls: [
         {
-          id: "auth_close_legal",
-          actionId: "auth.close_legal",
-          label: "Close Terms",
+          id: "phone-flow-country",
+          actionId: "phone_mandate.close_country_picker",
+          label: "Close Country Picker",
         },
       ],
       interactionLayer: value,
     },
-    { role: "interaction_layer", routeKey: "/login" },
+    { role: "interaction_layer", routeKey: "/register-phone" },
   );
 }
 
@@ -125,7 +129,7 @@ afterEach(() => {
 
 describe("voice surface interaction-layer composition", () => {
   it("hides route and chrome actions behind a modal layer", () => {
-    publishLoginRoute();
+    publishPhoneRoute();
     publishVoiceSurfaceMetadata(
       "chrome",
       {
@@ -136,31 +140,39 @@ describe("voice surface interaction-layer composition", () => {
           { id: "profile", actionId: "route.profile", label: "Profile" },
         ],
       },
-      { role: "chrome", routeKey: "/login" },
+      { role: "chrome", routeKey: "/register-phone" },
     );
-    publishLegalLayer("layer_one", layer("login_terms"));
+    publishPickerLayer("layer_one", layer("phone_country_picker"));
 
     const metadata = getVoiceSurfaceMetadata();
     expect(metadata?.actions?.map((action) => action.actionId)).toEqual([
-      "auth.close_legal",
+      "phone_mandate.close_country_picker",
     ]);
     expect(metadata?.controls?.map((control) => control.id)).toEqual([
-      "auth_close_legal",
+      "phone-flow-country",
     ]);
 
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: runtime(),
     });
-    expect(snapshot.available_action_ids).toEqual(["auth.close_legal"]);
+    // Only the picker's actions; the route's submit actions and the chrome
+    // Profile action sit behind the modal layer.
+    expect(snapshot.available_action_ids).toEqual([
+      "phone_mandate.select_country",
+      "phone_mandate.close_country_picker",
+    ]);
     expect(snapshot.ui.interaction_layer).toEqual({
-      layer_id: "login_terms",
-      kind: "legal_document",
+      layer_id: "phone_country_picker",
+      kind: "country_picker",
       modality: "modal",
       lifecycle_state: "open",
       dismissible: true,
-      dismiss_action_id: "auth.close_legal",
-      visible_action_ids: ["auth.close_legal"],
-      visible_control_ids: ["auth_close_legal"],
+      dismiss_action_id: "phone_mandate.close_country_picker",
+      visible_action_ids: [
+        "phone_mandate.select_country",
+        "phone_mandate.close_country_picker",
+      ],
+      visible_control_ids: ["phone-flow-country"],
       options: [],
       underlying_actions_available: false,
       agent_continuity: "interactive",
@@ -168,11 +180,10 @@ describe("voice surface interaction-layer composition", () => {
   });
 
   it("ranks a nonmodal layer first while retaining permitted route actions", () => {
-    publishLoginRoute();
-    publishLegalLayer(
+    publishPhoneRoute();
+    publishPickerLayer(
       "layer_one",
-      layer("provider_help", {
-        kind: "legal_document",
+      layer("phone_country_picker", {
         modality: "nonmodal",
         blocksUnderlyingActions: false,
       }),
@@ -180,18 +191,18 @@ describe("voice surface interaction-layer composition", () => {
 
     const metadata = getVoiceSurfaceMetadata();
     expect(metadata?.actions?.map((action) => action.actionId)).toEqual([
-      "auth.close_legal",
-      "auth.sign_in_apple",
-      "auth.sign_in_google",
+      "phone_mandate.close_country_picker",
+      "phone_mandate.submit_number",
+      "phone_mandate.submit_code",
     ]);
     const snapshot = buildOneVoiceContextSnapshot({
       appRuntimeState: runtime(),
     });
     expect(snapshot.available_action_ids).toEqual(
       expect.arrayContaining([
-        "auth.close_legal",
-        "auth.sign_in_apple",
-        "auth.sign_in_google",
+        "phone_mandate.close_country_picker",
+        "phone_mandate.submit_number",
+        "phone_mandate.submit_code",
       ]),
     );
     expect(snapshot.ui.interaction_layer?.underlying_actions_available).toBe(
@@ -200,9 +211,9 @@ describe("voice surface interaction-layer composition", () => {
   });
 
   it("restores the prior layer when a nested layer unmounts", () => {
-    publishLoginRoute();
-    publishLegalLayer("layer_one", layer("login_terms"));
-    publishLegalLayer(
+    publishPhoneRoute();
+    publishPickerLayer("layer_one", layer("phone_country_picker"));
+    publishPickerLayer(
       "layer_two",
       layer("confirm_close", {
         kind: "confirmation",
@@ -215,12 +226,14 @@ describe("voice surface interaction-layer composition", () => {
       "confirm_close",
     );
     clearVoiceSurfaceMetadata("layer_two");
-    expect(getVoiceSurfaceMetadata()?.interactionLayer?.id).toBe("login_terms");
+    expect(getVoiceSurfaceMetadata()?.interactionLayer?.id).toBe(
+      "phone_country_picker",
+    );
   });
 
   it("evicts stale interaction layers when the route publisher changes route", () => {
-    publishLoginRoute();
-    publishLegalLayer("layer_one", layer("login_terms"));
+    publishPhoneRoute();
+    publishPickerLayer("layer_one", layer("phone_country_picker"));
     publishVoiceSurfaceMetadata(
       "next_route",
       { screenId: "one_intro", title: "One" },
@@ -232,7 +245,7 @@ describe("voice surface interaction-layer composition", () => {
   });
 
   it("never exposes actions from a publisher that belongs to the previous route", () => {
-    publishLoginRoute();
+    publishPhoneRoute();
 
     const betweenRoutes = buildOneVoiceContextSnapshot({
       appRuntimeState: runtime("/", "one_intro"),

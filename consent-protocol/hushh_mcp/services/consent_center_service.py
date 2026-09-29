@@ -12,6 +12,7 @@ from starlette.concurrency import run_in_threadpool
 
 from db.db_client import get_db
 from hushh_mcp.consent.scope_helpers import get_scope_description
+from hushh_mcp.consent.scope_labels import human_scope_label
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
@@ -804,6 +805,59 @@ class ConsentCenterService:
             "items": filtered[start:end],
         }
 
+    @staticmethod
+    def _person_request_label(scope: Any, metadata: dict[str, Any], stored: Any) -> str | None:
+        """The one human name for a person-to-person request's scope, or None.
+
+        Person requests (``request_source == "one_person_profile"``) name their
+        scope with ``human_scope_label`` everywhere else (the request card,
+        ``progress.fields[].label``, the Feed's ``requested_labels``); the owner's
+        lists used the raw stored text or nothing, so one request read "Food
+        preferences" in chat and "Food preferences kind" on the owner's row.
+        """
+        if metadata.get("request_source") != "one_person_profile":
+            return None
+        return human_scope_label(
+            str(scope or ""), str(metadata.get("human_label") or stored or "") or None
+        )
+
+    @staticmethod
+    def _join_labels(labels: list[str]) -> str:
+        if len(labels) <= 1:
+            return labels[0] if labels else "Information"
+        return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+    @classmethod
+    def _annotate_person_bundles(cls, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Give every field of one person request its ``bundle_id`` and the bundle's labels.
+
+        The Active list keeps one row per field (each is its own grant and is
+        revoked on its own), but a single request must read as one thing. Each
+        entry gains ``bundle_id``, ``bundle_labels`` (distinct human labels, in
+        order) and ``bundle_label`` ("Food preferences and Dietary constraints"),
+        so a client can group by ``bundle_id``. Other entries are unchanged.
+        """
+        labels_by_bundle: dict[str, list[str]] = {}
+        for entry in entries:
+            metadata = cls._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            label = entry.get("scope_description")
+            if not bundle_id or metadata.get("request_source") != "one_person_profile":
+                continue
+            labels = labels_by_bundle.setdefault(bundle_id, [])
+            if isinstance(label, str) and label and label not in labels:
+                labels.append(label)
+        for entry in entries:
+            metadata = cls._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            if bundle_id not in labels_by_bundle:
+                continue
+            labels = labels_by_bundle[bundle_id]
+            entry["bundle_id"] = bundle_id
+            entry["bundle_labels"] = list(labels)
+            entry["bundle_label"] = cls._join_labels(labels)
+        return entries
+
     def _normalize_pending(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or "")
         metadata = self._metadata(item.get("metadata"))
@@ -960,7 +1014,9 @@ class ConsentCenterService:
                 projected_items.append(
                     {
                         "request_id": request_id,
-                        "label": str(row.get("label") or "Information"),
+                        "label": human_scope_label(
+                            str(row.get("scope") or ""), str(row.get("label") or "") or None
+                        ),
                         "status": state,
                         "entry": None,
                     }
@@ -1004,7 +1060,9 @@ class ConsentCenterService:
             "status": status,
             "action": "CONSENT_GRANTED",
             "scope": item.get("scope"),
-            "scope_description": None,
+            "scope_description": self._person_request_label(
+                item.get("scope"), metadata, item.get("scope_description")
+            ),
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
@@ -1043,7 +1101,10 @@ class ConsentCenterService:
             "status": status,
             "action": item.get("action"),
             "scope": item.get("scope"),
-            "scope_description": item.get("scope_description"),
+            "scope_description": self._person_request_label(
+                item.get("scope"), metadata, item.get("scope_description")
+            )
+            or item.get("scope_description"),
             "counterpart_type": counterpart_type,
             "counterpart_id": counterpart_id,
             "counterpart_label": self._developer_label(agent_id, metadata),
@@ -1539,8 +1600,8 @@ class ConsentCenterService:
             user_id,
             **self._identifier_filter_kwargs(user_id, identifiers),
         )
-        return await self._hydrate_entry_identities(
-            [self._normalize_active(item) for item in active]
+        return self._annotate_person_bundles(
+            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
         )
 
     async def _load_investor_previous_entries(self, user_id: str) -> list[dict[str, Any]]:
@@ -1843,7 +1904,11 @@ class ConsentCenterService:
             else []
         )
         active_entries = (
-            await self._hydrate_entry_identities([self._normalize_active(item) for item in active])
+            self._annotate_person_bundles(
+                await self._hydrate_entry_identities(
+                    [self._normalize_active(item) for item in active]
+                )
+            )
             if need_active
             else []
         )

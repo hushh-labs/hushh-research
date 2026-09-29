@@ -288,6 +288,37 @@ export function driveBatchProgressToVisibleStreamEvent(
   };
 }
 
+/** Cards One introduces with a sentence: text first, then the card. */
+export const CONSENT_ASK_EXPERIENCE_TYPES: ReadonlySet<string> = new Set([
+  "one.scope_discovery.v1",
+  "one.information_request_review.v1",
+  // One's one-line reply reads first, then the secure card it points to (C6).
+  "one.shared_with_me_card.v1",
+]);
+
+/**
+ * One secure card per person in a turn. One may both list and show what a
+ * person shared; the reader sees that person's card once, where it last
+ * arrived.
+ */
+export function onePerPersonSharedCard<T extends { id: string; experience: AgentStructuredExperience }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index]!;
+    if (item.experience.type !== "one.shared_with_me_card.v1") {
+      kept.unshift(item);
+      continue;
+    }
+    const cards = item.experience.cards.filter((card) => !seen.has(card.person.personRef));
+    cards.forEach((card) => seen.add(card.person.personRef));
+    if (!cards.length) continue;
+    kept.unshift(cards.length === item.experience.cards.length
+      ? item : { ...item, experience: { ...item.experience, cards } });
+  }
+  return kept;
+}
+
 export function AgentTurnStreamPanel({
   streamEvents,
   responseText,
@@ -360,17 +391,23 @@ export function AgentTurnStreamPanel({
   );
   const experienceItems = useMemo(
     () =>
-      structuredExperiences.length > 0
+      onePerPersonSharedCard(structuredExperiences.length > 0
         ? structuredExperiences
         : structuredExperience
           ? [{ id: "legacy-structured-experience", experience: structuredExperience }]
-          : [],
+          : []),
     [structuredExperience, structuredExperiences],
   );
+
+  // One's lead-in ("I'll ask Kushal. Here's what I'd request:") reads before
+  // the ask card it introduces, the way a person talks.
+  const leadsIntoConsentCard = experienceItems.some(({ experience }) =>
+    CONSENT_ASK_EXPERIENCE_TYPES.has(experience.type));
 
   return (
     <AppStreamPanel
       title="One activity"
+      structuredContentPlacement={leadsIntoConsentCard ? "after" : "before"}
       progressItems={[...progressItems, ...specialistItems]}
       progressValue={batchIsStreaming && currentBatchProgress
         ? driveBatchProgressPercent(currentBatchProgress)

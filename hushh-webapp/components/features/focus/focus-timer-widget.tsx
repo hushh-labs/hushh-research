@@ -145,7 +145,7 @@ export function FocusTimerWidget() {
         variant="secondary"
         size="icon"
         onClick={() => setIsOpen(!isOpen)}
-        className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-[opacity,transform] duration-150 ${isOpen ? "rotate-90 scale-90 opacity-0" : "hover:scale-105"}`}
+        className={`pointer-events-auto h-12 w-12 rounded-full shadow-lg border transition-[opacity,transform] duration-150 ${isOpen ? "rotate-90 scale-90 opacity-0" : ""}`}
         aria-label="Open Focus Timer"
         aria-hidden={isOpen}
         tabIndex={isOpen ? -1 : 0}

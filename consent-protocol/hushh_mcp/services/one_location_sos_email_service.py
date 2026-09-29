@@ -2,11 +2,9 @@
 
 This module answers one question — *which contacts is this caller allowed to
 mail right now* — and nothing else. The message itself is rendered and sent by
-One, through `hushh-mail-api`, the same service that sends every other product
-mail (sign-in, phone conflict, capability linked). Only the webapp lane holds
-`MAIL_API_KEY`/`MAIL_API_ENDPOINT`, and more importantly a second sender
-identity is a deliverability risk we have already been bitten by: an emergency
-mail is the worst place to discover an SPF/DKIM misalignment.
+One through `hushh-mail-api`. Only the webapp lane holds
+`MAIL_API_KEY`/`MAIL_API_ENDPOINT`; account and support notices use the
+backend's separate delegated `one@hushh.ai` sender.
 
 So the split is:
 

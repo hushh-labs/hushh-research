@@ -1,10 +1,10 @@
 "use client";
 
+import { openOAuthWindow } from "@/lib/connections/oauth-window";
+
 const ATTEMPT_KEY = "one_google_oauth_popup_attempt_v1";
 const SETTLEMENT_KEY = "one_google_oauth_popup_settlement_v1";
 const MAX_AGE_MS = 15 * 60 * 1000;
-const POPUP_FEATURES =
-  "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes";
 
 export type GoogleOAuthPopupService = "gmail_send" | "calendar";
 export type GoogleOAuthPopupAttempt = {
@@ -75,11 +75,8 @@ export function createGoogleOAuthPopupAttempt(
 export function openGoogleOAuthPopup(
   attempt: GoogleOAuthPopupAttempt,
 ): Window | null {
-  const popup = window.open(
-    "about:blank",
-    "hushh-google-oauth",
-    POPUP_FEATURES,
-  );
+  // A refused popup falls back to a new tab with the same settlement contract.
+  const popup = openOAuthWindow("hushh-google-oauth")?.target ?? null;
   if (!popup) return null;
   try {
     const popupStorage = storage(popup);

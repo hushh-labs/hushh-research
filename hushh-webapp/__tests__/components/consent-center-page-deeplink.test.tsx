@@ -4,6 +4,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   getIdToken: vi.fn().mockResolvedValue("id-token"),
   getVaultOwnerToken: vi.fn(() => "vault-token"),
   isVaultUnlocked: true,
+  vaultKey: null as string | null,
+  toastShow: vi.fn(),
+  toastDismiss: vi.fn(),
   search:
     "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0",
   getSummary: vi.fn(),
@@ -29,6 +33,19 @@ const mocks = vi.hoisted(() => ({
   connectionAccept: vi.fn(),
   connectionReject: vi.fn(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  handleApproveBundle: vi.fn(),
+  handleDenyBundle: vi.fn(),
+  handleDecideBundle: vi.fn(),
+  consentActionOptions: null as null | {
+    onActionComplete?: (detail: {
+      action: "approve" | "deny" | "revoke";
+      requestId?: string;
+      scope?: string;
+      source: "consent_actions";
+    }) => void;
+  },
+  sharePreviewState: { status: "idle" } as Record<string, unknown>,
   busyRequestIds: new Set<string>(),
   cacheSubscribers: new Set<
     (event: { type: string; key?: string; keys?: string[] }) => void
@@ -79,7 +96,29 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     getVaultOwnerToken: mocks.getVaultOwnerToken,
     isVaultUnlocked: mocks.isVaultUnlocked,
+    vaultKey: mocks.vaultKey,
   }),
+}));
+
+// The unlock step is the whole vault ceremony; these tests only need to see
+// that it opened, and to close it.
+vi.mock("@/components/consent/owner-consent-unlock-prompt", () => ({
+  OwnerConsentUnlockPrompt: ({
+    prompt,
+  }: {
+    prompt: { open: boolean; title: string; cancel: () => void };
+  }) =>
+    prompt.open ? (
+      <div role="alertdialog" aria-label={prompt.title}>
+        <button type="button" onClick={prompt.cancel}>
+          Not now
+        </button>
+      </div>
+    ) : null,
+}));
+
+vi.mock("@/lib/one-marketplace/delivery-sweep", () => ({
+  runMarketplaceDeliverySweep: vi.fn().mockResolvedValue({ delivered: 0 }),
 }));
 
 vi.mock("@/lib/services/connections-service", () => ({
@@ -90,15 +129,28 @@ vi.mock("@/lib/services/connections-service", () => ({
 }));
 
 vi.mock("sonner", () => ({
-  toast: {
+  toast: Object.assign(mocks.toastShow, {
     error: mocks.toastError,
-  },
+    success: mocks.toastSuccess,
+    dismiss: mocks.toastDismiss,
+  }),
+}));
+
+// The on-device preview decrypts the owner's memory; these tests only need
+// to control what it reports.
+vi.mock("@/lib/consent/consent-share-preview", () => ({
+  useConsentSharePreview: () => mocks.sharePreviewState,
 }));
 
 vi.mock("@/lib/consent", () => ({
-  useConsentActions: () => ({
+  useConsentActions: (options: typeof mocks.consentActionOptions) => {
+    mocks.consentActionOptions = options;
+    return {
     handleApprove: mocks.handleApprove,
+    handleApproveBundle: mocks.handleApproveBundle,
+    handleDecideBundle: mocks.handleDecideBundle,
     handleDeny: mocks.handleDeny,
+    handleDenyBundle: mocks.handleDenyBundle,
     handleRevoke: mocks.handleRevoke,
     activeAction: mocks.activeAction,
     activeActions: mocks.activeAction ? [mocks.activeAction] : [],
@@ -106,7 +158,8 @@ vi.mock("@/lib/consent", () => ({
       mocks.busyRequestIds.has(String(requestId || "")),
     isScopeBusy: (scope?: string | null) =>
       mocks.busyScopes.has(String(scope || "")),
-  }),
+    };
+  },
   // One Location rows route through a dedicated hook; non-location consents
   // never touch it, so a no-op mock is enough for these deep-link tests.
   useOneLocationConsentActions: () => ({
@@ -258,6 +311,29 @@ function pendingListResponse(entry: Record<string, unknown>) {
   };
 }
 
+/** Kushal's dinner request, as the pending list sends it today. */
+function foodRequestEntry() {
+  return {
+    id: "req_food",
+    request_id: "req_food",
+    kind: "incoming_request",
+    status: "pending",
+    action: "REQUESTED",
+    allowed_next_action: "review_request",
+    scope: "attr.food.preferences.*",
+    scope_description: "Preferences",
+    counterpart_type: "person",
+    counterpart_id: "user-kushal",
+    counterpart_label: "Kushal Trivedi",
+    counterpart_email: "kushal@example.com",
+    reason: "Picking a place for our dinner together",
+    // Numeric epoch string, exactly as the pending list serialises it.
+    issued_at: String(Date.now() - 60_000),
+    approval_timeout_at: new Date(new Date().getFullYear(), 9, 5, 13, 51).getTime(),
+    metadata: { expiry_hours: 168 },
+  };
+}
+
 function expectInHiddenSwipePanel(text: string) {
   const panel = screen.getByText(text).closest('[role="tabpanel"]');
   expect(panel?.getAttribute("aria-hidden")).toBe("true");
@@ -347,11 +423,16 @@ describe("ConsentCenterPage requestId deep links", () => {
       "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0";
     mocks.getVaultOwnerToken.mockImplementation(() => "vault-token");
     mocks.isVaultUnlocked = true;
+    mocks.vaultKey = null;
     mocks.getSummary.mockResolvedValue(summaryResponse());
     mocks.listEntries.mockResolvedValue(emptyListResponse());
     mocks.handleApprove.mockResolvedValue(undefined);
     mocks.handleDeny.mockResolvedValue(undefined);
     mocks.handleRevoke.mockResolvedValue(undefined);
+    mocks.sharePreviewState = { status: "idle" };
+    mocks.handleApproveBundle.mockResolvedValue(undefined);
+    mocks.handleDenyBundle.mockResolvedValue(undefined);
+    mocks.handleDecideBundle.mockResolvedValue(undefined);
     mocks.connectionAccept.mockResolvedValue(undefined);
     mocks.connectionReject.mockResolvedValue(undefined);
     mocks.busyRequestIds = new Set();
@@ -374,7 +455,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     installDesktopMediaQuery();
   });
 
-  it("reviews a twelve-item person bundle in one expandable row with mixed states", async () => {
+  it("opens a twelve-item person bundle's sheet straight from its row, with no Review expansion", async () => {
     mocks.search = "tab=pending&bundleId=bundle-professional";
     const pendingItems = Array.from({ length: 12 }, (_, index) => ({
       request_id: `request-${index + 1}`,
@@ -390,7 +471,7 @@ describe("ConsentCenterPage requestId deep links", () => {
               status: "pending",
               action: "REQUESTED",
               allowed_next_action: "review_request",
-              scope: `attr.professional.detail_${index}`,
+              scope: `attr.professional.detail_${index + 1}`,
               scope_description: `Professional detail ${index + 1}`,
               counterpart_type: "person",
               counterpart_label: "A member",
@@ -416,12 +497,20 @@ describe("ConsentCenterPage requestId deep links", () => {
     const { rerender } = render(<ConsentCenterPage />);
 
     expect(await screen.findByTestId("consent-bundle-row")).toBeTruthy();
-    expect(screen.getAllByTestId("consent-bundle-item")).toHaveLength(12);
+    // One row names the request; nothing is listed or expanded under it.
+    const row = screen.getByRole("button", {
+      name: "A member, Professional detail 3 and 9 more, review",
+    });
     expect(screen.queryAllByTestId("consent-entry-row")).toHaveLength(0);
-    expect(screen.getByText("granted")).toBeTruthy();
-    expect(screen.getByText("denied")).toBeTruthy();
+    expect(screen.queryAllByTestId("consent-bundle-item")).toHaveLength(0);
+    expect(screen.queryByText("Review")).toBeNull();
     expect(screen.queryByRole("dialog", { name: "A member" })).toBeNull();
-    fireEvent.click(screen.getByText("Professional detail 3"));
+
+    // Negative control: the old row expanded in place on this tap (a nested
+    // list with a "Review" per item) and navigated nowhere.
+    fireEvent.click(row);
+    expect(screen.queryAllByTestId("consent-bundle-item")).toHaveLength(0);
+    expect(screen.queryByText("Review")).toBeNull();
     expect(mocks.replace).toHaveBeenCalledWith(
       expect.stringContaining("requestId=request-3"),
       { scroll: false },
@@ -432,9 +521,52 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       await screen.findByRole("dialog", { name: "A member" }),
     ).toBeTruthy();
-    expect(
-      screen.getByText("Professional detail 3", { selector: "dd" }),
-    ).toBeTruthy();
+    // The sheet decides the whole request: every item still waiting, named
+    // and counted, not only the one that was tapped, each one choosable.
+    expect(screen.getByText("Access · 10 items")).toBeTruthy();
+    const choice = screen.getByTestId("consent-bundle-choice");
+    expect(within(choice).getAllByRole("checkbox")).toHaveLength(10);
+    expect(within(choice).getByRole("checkbox", { name: "Professional detail 12" })).toBeChecked();
+    expect(within(choice).queryByRole("checkbox", { name: "Professional detail 1" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
+  });
+
+  // Localhost run 4 (R5): no owner surface could approve part of a request.
+  it("allows only the chosen items of a request and declines the rest", async () => {
+    const member = (id: string, label: string, scope: string) => ({
+      id, request_id: id, kind: "incoming_request", status: "pending", action: "REQUESTED",
+      allowed_next_action: "review_request", scope, scope_description: label,
+      counterpart_type: "person", counterpart_label: "Kushal Trivedi",
+      metadata: { bundle_id: "bundle-mixed", expiry_hours: 168 },
+    });
+    mocks.search = "tab=pending&bundleId=bundle-mixed&requestId=request-food";
+    mocks.listEntries.mockResolvedValue(pendingListResponse({
+      id: "bundle:bundle-mixed", bundle_id: "bundle-mixed", bundle_complete: true,
+      bundle_items: [
+        { request_id: "request-food", label: "Food preferences", status: "pending", entry: member("request-food", "Food preferences", "attr.food.preferences.*") },
+        { request_id: "request-events", label: "Events", status: "pending", entry: member("request-events", "Events", "attr.financial.events.*") },
+      ],
+      kind: "incoming_request", status: "pending", action: "REQUESTED", counterpart_type: "person",
+      counterpart_label: "Kushal Trivedi", metadata: { bundle_id: "bundle-mixed" },
+    }));
+    render(<ConsentCenterPage />);
+    const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
+    expect(within(dialog).getAllByRole("checkbox")).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Financial events" }));
+    expect(screen.getByText("Access · 1 of 2 items")).toBeTruthy();
+    expect(screen.getByTestId("consent-bundle-choice-summary"))
+      .toHaveTextContent("Only Food preferences will be shared. Financial events won't be.");
+    fireEvent.click(screen.getByRole("button", { name: "Allow 1 of 2" }));
+
+    await waitFor(() => expect(mocks.handleDecideBundle).toHaveBeenCalledTimes(1));
+    const [allow, decline, options] = mocks.handleDecideBundle.mock.calls[0]!;
+    expect(allow.map((consent: { id: string }) => consent.id)).toEqual(["request-food"]);
+    expect(decline).toEqual(["request-events"]);
+    expect(options).toMatchObject({ bundleId: "bundle-mixed" });
+    // Negative control: a partial choice never becomes a whole Allow or a whole decline.
+    expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
+    expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
   });
 
   it("routes a cold document link only to its private review, never generic consent or voice decisions", async () => {
@@ -583,7 +715,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
-    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(screen.queryByText("For")).toBeNull();
     expect(screen.queryByText("Future updates")).toBeNull();
     expect(
       screen.queryByText("Includes approved updates until access ends."),
@@ -596,7 +728,8 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     fireEvent.click(screen.getByRole("combobox", { name: "Access duration" }));
     expect(
-      await screen.findByRole("option", { name: "24 hours" }),
+      // One duration wording everywhere: the requester's form says "1 day".
+      await screen.findByRole("option", { name: "1 day" }),
     ).toBeTruthy();
     expect(screen.getByRole("option", { name: "2 days" })).toBeTruthy();
     expect(screen.queryByRole("option", { name: "7 days" })).toBeNull();
@@ -629,7 +762,7 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Requested duration")).toBeTruthy();
+    expect(await screen.findByText("For")).toBeTruthy();
     expect(screen.getAllByText("1 day")).toHaveLength(1);
     expect(
       screen.queryByText(
@@ -677,7 +810,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       await screen.findByRole("dialog", { name: "Travel Agent" }),
     ).toBeTruthy();
-    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(screen.queryByText("For")).toBeNull();
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
@@ -738,7 +871,9 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       await screen.findByRole("dialog", { name: "Macy's CRM" }),
     ).toBeTruthy();
-    expect(screen.getByText("Shopping receipts")).toBeTruthy();
+    // Named from the item key, the same rule the Active row uses, so the
+    // request and the access it becomes carry one name.
+    expect(screen.getByText("Shopping receipts memory")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
@@ -799,7 +934,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.getByRole("button", { name: "Accept" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Decline" })).toBeTruthy();
     expect(screen.queryByText("Access duration")).toBeNull();
-    expect(screen.queryByText("Requested duration")).toBeNull();
+    expect(screen.queryByText("For")).toBeNull();
     expect(screen.queryByText("Ends")).toBeNull();
   });
 
@@ -895,9 +1030,9 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    expect(await screen.findByText("Requested duration")).toBeTruthy();
+    expect(await screen.findByText("For")).toBeTruthy();
     expect(screen.getAllByText("3 days").length).toBeGreaterThan(0);
-    expect(screen.getByText("Decision due")).toBeTruthy();
+    expect(screen.getByText("Decide by")).toBeTruthy();
     expect(screen.queryByText("Access duration")).toBeNull();
   });
 
@@ -1461,6 +1596,50 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(denyButton).toHaveTextContent("Don't allow");
   });
 
+  // Regression (localhost run 2026-09-28): one allowed request showed as one
+  // Active row per field ("Food preferences kind", "Health dietary ...").
+  it("shows one Active row per request, named by the server, each field still its own access", async () => {
+    mocks.search = "tab=active";
+    const grant = (id: string, scope: string, label: string) => ({
+      id, request_id: `req_${id}`, kind: "active_grant", status: "active", action: "CONSENT_GRANTED",
+      counterpart_type: "person", counterpart_id: "user-kushal", counterpart_label: "Kushal Trivedi",
+      counterpart_email: "kushal@example.com", scope, scope_description: label,
+      issued_at: "2026-09-28T23:20:00.000Z", expires_at: "2026-10-05T23:20:00.000Z",
+      bundle_id: "bundle-dinner", bundle_labels: ["Food preferences", "Dietary constraints"],
+      bundle_label: "Food preferences and Dietary constraints",
+      metadata: { bundle_id: "bundle-dinner", request_source: "one_person_profile" },
+    });
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(), surface: "active", total: 2,
+      items: [grant("g1", "attr.food.preferences.*", "Food preferences"), grant("g2", "attr.health.dietary.*", "Dietary constraints")],
+    });
+    render(<ConsentCenterPage />);
+    const rows = await screen.findAllByTestId("consent-active-request-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Food preferences and Dietary constraints");
+    expect(screen.queryAllByTestId("consent-entry-row")).toHaveLength(0);
+    fireEvent.click(within(rows[0]!).getByRole("button", { name: /Show Food preferences and Dietary constraints/ }));
+    const items = within(rows[0]!).getAllByTestId("consent-active-request-item");
+    expect(items.map((item) => item.textContent)).toEqual([
+      expect.stringContaining("Food preferences"), expect.stringContaining("Dietary constraints"),
+    ]);
+  });
+
+  it("names what they'll see at once, then fills in the counts", async () => {
+    mocks.search = "tab=requests&requestId=req_food";
+    mocks.sharePreviewState = { status: "loading", labels: ["Food preferences"] };
+    mocks.listEntries.mockResolvedValue(pendingListResponse(foodRequestEntry()));
+    const { rerender } = render(<ConsentCenterPage />);
+    const preview = await screen.findByTestId("consent-share-preview");
+    expect(preview).toHaveTextContent("Food preferences");
+    expect(preview).not.toHaveTextContent(/Checking/);
+    mocks.sharePreviewState = { status: "ready", preview: { total: 2, groups: [
+      { label: "Food preferences", count: 2, names: ["Favorite restaurants"] }] } };
+    rerender(<ConsentCenterPage />);
+    expect(screen.getByTestId("consent-share-preview")).toHaveTextContent("Food preferences · 2 items");
+    expect(screen.getByTestId("consent-share-preview")).toHaveTextContent("Favorite restaurants");
+  });
+
   it("confirms Stop sharing through an alert dialog before revoking", async () => {
     mocks.search = "tab=active&requestId=req_active_1";
     mocks.getSummary.mockResolvedValue({
@@ -1512,9 +1691,186 @@ describe("ConsentCenterPage requestId deep links", () => {
       expect(mocks.handleRevoke).toHaveBeenCalledWith(
         "attr.financial.*",
         "req_active_1",
+        { quiet: true },
       ),
     );
     await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    // The sheet closes into a plain confirmation, never the "Request not
+    // visible" dead end the old path left once the row left Active.
+    expect(mocks.replace).toHaveBeenCalledWith(
+      expect.not.stringContaining("requestId="),
+      { scroll: false },
+    );
+    await waitFor(() =>
+      expect(mocks.toastSuccess).toHaveBeenCalledWith(
+        "Kushal Trivedi can no longer see your Financial data.",
+      ),
+    );
+    expect(screen.queryByText("Request not visible")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Kushal Trivedi" })).toBeNull();
+  });
+
+  // Regression (localhost run 3, 2026-09-28): after Stop sharing the Active
+  // tab still listed the access, because each re-read returned the pre-stop
+  // list. The server list below keeps returning it throughout.
+  async function stopSharingFoodAccess(stop: Promise<void>) {
+    mocks.search = "tab=active&requestId=req_active_food";
+    mocks.handleRevoke.mockReturnValue(stop);
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 1, previous: 0 },
+    });
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "grant_active_food",
+          request_id: "req_active_food",
+          kind: "active_grant",
+          status: "active",
+          action: "CONSENT_GRANTED",
+          counterpart_type: "person",
+          counterpart_id: "user-requester",
+          counterpart_label: "Requester Person",
+          scope: "attr.food.preferences.*",
+          scope_description: "Food preferences",
+          issued_at: "2026-09-28T23:20:00.000Z",
+          expires_at: "2026-10-05T23:20:00.000Z",
+        },
+      ],
+    });
+    render(<ConsentCenterPage />);
+    const list = screen.getByTestId("consent-manager-list");
+    await waitFor(() => expect(list).toHaveTextContent("Requester Person"));
+    fireEvent.click(await screen.findByRole("button", { name: "Stop sharing" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Stop sharing" }));
+    return list;
+  }
+
+  it("takes the access out of Active on the confirming tap, before the server agrees", async () => {
+    let finishStop: () => void = () => undefined;
+    const list = await stopSharingFoodAccess(
+      new Promise<void>((resolve) => {
+        finishStop = resolve;
+      }),
+    );
+
+    // The stop is still in flight and the server list still carries it.
+    await waitFor(() => expect(list).not.toHaveTextContent("Requester Person"));
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+
+    await act(async () => finishStop());
+    await waitFor(() => expect(mocks.toastSuccess).toHaveBeenCalled());
+    // A re-read that still returns the pre-stop list does not bring it back.
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("consent-state-changed", { detail: { reconcile: true } }),
+      );
+    });
+    await waitFor(() => expect(mocks.listEntries.mock.calls.length).toBeGreaterThan(1));
+    expect(list).not.toHaveTextContent("Requester Person");
+  });
+
+  it("puts the access back in Active when stopping fails", async () => {
+    let failStop: (error: Error) => void = () => undefined;
+    const list = await stopSharingFoodAccess(
+      new Promise<void>((_resolve, reject) => {
+        failStop = reject;
+      }),
+    );
+    await waitFor(() => expect(list).not.toHaveTextContent("Requester Person"));
+
+    // Negative control: the removal was a promise to the owner, not a server
+    // answer. When the stop fails the access is still live, and says so.
+    await act(async () => failStop(new Error("Could not stop sharing. Try again.")));
+    await waitFor(() => expect(list).toHaveTextContent("Requester Person"));
+    expect(mocks.toastError).toHaveBeenCalledWith("Could not stop sharing. Try again.");
+    expect(mocks.toastSuccess).not.toHaveBeenCalled();
+  });
+
+  it("names a request plainly: when it was asked, when to decide, what and how long", async () => {
+    mocks.search = "tab=requests&requestId=req_food";
+    mocks.sharePreviewState = {
+      status: "ready",
+      preview: {
+        total: 5,
+        groups: [
+          { label: "Favorite cuisines", count: 2 },
+          { label: "Favorite restaurants", count: 3 },
+        ],
+      },
+    };
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse(foodRequestEntry()),
+    );
+
+    render(<ConsentCenterPage />);
+
+    const dialog = await screen.findByRole("dialog", { name: "Kushal Trivedi" });
+    const valueFor = (label: string) =>
+      screen.getByText(label, { selector: "dt" }).nextElementSibling?.textContent;
+    // The wire sends issued_at as a numeric string; it used to read
+    // "Unavailable".
+    expect(valueFor("Requested")).toMatch(/^Today, /);
+    expect(valueFor("Decide by")).toMatch(/^Oct 5/);
+    // The request carries the same name its access will.
+    expect(valueFor("Access")).toBe("Food preferences");
+    // One duration wording: the requester's card says "7 days", so the
+    // owner's picker says "7 days" too, never "1 week".
+    expect(
+      screen.getByRole("combobox", { name: "Access duration" }),
+    ).toHaveTextContent("7 days");
+    expect(dialog).not.toHaveTextContent("Unavailable");
+    expect(dialog).not.toHaveTextContent("Decision due");
+    // What an Allow would hand over, counted on this device.
+    const preview = screen.getByTestId("consent-share-preview");
+    expect(preview).toHaveTextContent("5 items");
+    expect(preview).toHaveTextContent("Favorite restaurants · 3");
+  });
+
+  it("shows the new access in Active the moment an Allow is confirmed", async () => {
+    mocks.search = "tab=requests&requestId=req_food";
+    mocks.listEntries.mockImplementation(
+      async (options: { surface: string }) =>
+        options.surface === "pending"
+          ? pendingListResponse(foodRequestEntry())
+          : { ...emptyListResponse(), surface: options.surface },
+    );
+
+    const { rerender } = render(<ConsentCenterPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Allow" }));
+    expect(mocks.handleApprove).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "req_food", durationHours: 168 }),
+    );
+
+    // The shared hook reports the confirmed approval.
+    act(() => {
+      mocks.consentActionOptions?.onActionComplete?.({
+        action: "approve",
+        requestId: "req_food",
+        source: "consent_actions",
+      });
+    });
+
+    // Active's server page is still the pre-approval one (empty).
+    mocks.search = "tab=active";
+    rerender(<ConsentCenterPage />);
+
+    await waitFor(() =>
+      expect(mocks.listEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ surface: "active" }),
+      ),
+    );
+    // The Active pane shows the new access with its status, named the same
+    // way the request was.
+    const status = await screen.findByText("active");
+    const activePane = status.closest('[role="tabpanel"]');
+    expect(activePane).toHaveTextContent("Kushal Trivedi");
+    expect(activePane).toHaveTextContent("Food preferences");
+    expect(screen.queryByText("No one currently has active access.")).toBeNull();
   });
 
   it("advertises no consents.* voice actions the gateway cannot run", async () => {
@@ -1607,5 +1963,206 @@ describe("ConsentCenterPage requestId deep links", () => {
       name: "Stopping...",
     })) as HTMLButtonElement;
     expect(revokeButton.disabled).toBe(true);
+  });
+
+  // Founder decision 2026-09-28 (CONTRACT-2 C8): a waiting request carries
+  // ✗ and ✓ on its row, and the row itself opens the sheet.
+  describe("Requests row decisions", () => {
+    const ROW_NAME = "Kushal Trivedi, Food preferences, review";
+
+    function renderFoodRequestRow() {
+      mocks.search = "tab=pending";
+      mocks.listEntries.mockImplementation(
+        async (options: { surface: string }) =>
+          options.surface === "pending"
+            ? pendingListResponse(foodRequestEntry())
+            : { ...emptyListResponse(), surface: options.surface },
+      );
+      return render(<ConsentCenterPage />);
+    }
+
+    function twelveItemBundle() {
+      return {
+        id: "bundle:bundle-professional",
+        bundle_id: "bundle-professional",
+        bundle_complete: true,
+        bundle_items: Array.from({ length: 12 }, (_, index) => ({
+          request_id: `request-${index + 1}`,
+          label: `Professional detail ${index + 1}`,
+          status: index < 2 ? "granted" : "pending",
+          entry:
+            index < 2
+              ? null
+              : {
+                  id: `request-${index + 1}`,
+                  request_id: `request-${index + 1}`,
+                  kind: "incoming_request",
+                  status: "pending",
+                  action: "REQUESTED",
+                  allowed_next_action: "review_request",
+                  scope: `attr.professional.detail_${index + 1}`,
+                  scope_description: `Professional detail ${index + 1}`,
+                  counterpart_type: "person",
+                  counterpart_label: "A member",
+                  metadata: { bundle_id: "bundle-professional", expiry_hours: 24 },
+                },
+        })),
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        counterpart_type: "person",
+        counterpart_label: "A member",
+        metadata: { bundle_id: "bundle-professional" },
+      };
+    }
+
+    function lastUndoAction() {
+      const options = mocks.toastShow.mock.calls.at(-1)?.[1] as {
+        duration: number;
+        action: { label: string; onClick: () => void };
+      };
+      return options.action;
+    }
+
+    it("makes the row one button that opens the sheet, with the decisions beside it", async () => {
+      renderFoodRequestRow();
+      const row = await screen.findByRole("button", { name: ROW_NAME });
+      // A native button: Enter and Space open the sheet like a tap does.
+      expect(row.tagName).toBe("BUTTON");
+      const shell = screen.getByTestId("consent-entry-row");
+      const allow = within(shell).getByRole("button", { name: "Allow" });
+      const decline = within(shell).getByRole("button", { name: "Don't allow" });
+      // Never nested in the row's button, so they cannot open the sheet.
+      expect(row.contains(allow) || row.contains(decline)).toBe(false);
+
+      fireEvent.click(row);
+      expect(mocks.replace).toHaveBeenCalledWith(
+        expect.stringContaining("requestId=req_food"),
+        { scroll: false },
+      );
+    });
+
+    it("allows from ✓ for the requested duration, moves the row to Active, and never opens the sheet", async () => {
+      mocks.vaultKey = "vault-key";
+      const { rerender } = renderFoodRequestRow();
+      const shell = await screen.findByTestId("consent-entry-row");
+      fireEvent.click(within(shell).getByRole("button", { name: "Allow" }));
+
+      await waitFor(() =>
+        expect(mocks.handleApproveBundle).toHaveBeenCalledTimes(1),
+      );
+      const [consents] = mocks.handleApproveBundle.mock.calls[0] as [
+        Array<{ id: string; durationHours?: number }>,
+      ];
+      expect(consents.map((consent) => [consent.id, consent.durationHours])).toEqual([
+        ["req_food", 168],
+      ]);
+      expect(
+        mocks.replace.mock.calls.some(([href]) => String(href).includes("requestId=")),
+      ).toBe(false);
+      // Out of Requests at once, before the server confirms.
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: ROW_NAME })).toBeNull(),
+      );
+
+      act(() => {
+        mocks.consentActionOptions?.onActionComplete?.({
+          action: "approve",
+          requestId: "req_food",
+          source: "consent_actions",
+        });
+      });
+      mocks.search = "tab=active";
+      rerender(<ConsentCenterPage />);
+      const status = await screen.findByText("active");
+      expect(status.closest('[role="tabpanel"]')).toHaveTextContent("Kushal Trivedi");
+    });
+
+    it("opens the unlock before ✓ allows on a locked vault, and sends nothing meanwhile", async () => {
+      const { rerender } = renderFoodRequestRow();
+      const shell = await screen.findByTestId("consent-entry-row");
+      fireEvent.click(within(shell).getByRole("button", { name: "Allow" }));
+
+      expect(
+        await screen.findByRole("alertdialog", { name: "Unlock to allow" }),
+      ).toBeTruthy();
+      expect(mocks.handleApproveBundle).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: ROW_NAME })).toBeTruthy();
+
+      mocks.vaultKey = "vault-key";
+      rerender(<ConsentCenterPage />);
+      await waitFor(() =>
+        expect(mocks.handleApproveBundle).toHaveBeenCalledTimes(1),
+      );
+      expect(screen.queryByRole("alertdialog")).toBeNull();
+    });
+
+    it("declines from ✗ behind a five-second Undo, and Undo sends nothing", async () => {
+      mocks.vaultKey = "vault-key";
+      renderFoodRequestRow();
+      const shell = await screen.findByTestId("consent-entry-row");
+      fireEvent.click(within(shell).getByRole("button", { name: "Don't allow" }));
+
+      await waitFor(() =>
+        expect(screen.queryByRole("button", { name: ROW_NAME })).toBeNull(),
+      );
+      expect(mocks.toastShow).toHaveBeenCalledWith(
+        "Declined Kushal's request.",
+        expect.objectContaining({ duration: 5000 }),
+      );
+      expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
+      expect(mocks.handleDeny).not.toHaveBeenCalled();
+
+      act(() => lastUndoAction().onClick());
+      expect(await screen.findByRole("button", { name: ROW_NAME })).toBeTruthy();
+      expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
+    });
+
+    it("still declines when the page is left inside the Undo window", async () => {
+      mocks.vaultKey = "vault-key";
+      const { unmount } = renderFoodRequestRow();
+      const shell = await screen.findByTestId("consent-entry-row");
+      fireEvent.click(within(shell).getByRole("button", { name: "Don't allow" }));
+      await waitFor(() => expect(mocks.toastShow).toHaveBeenCalledTimes(1));
+      expect(mocks.handleDenyBundle).not.toHaveBeenCalled();
+
+      unmount();
+      expect(mocks.handleDenyBundle).toHaveBeenCalledWith(
+        ["req_food"],
+        expect.objectContaining({ quiet: true }),
+      );
+    });
+
+    it("decides every waiting item of a grouped request from its row", async () => {
+      mocks.vaultKey = "vault-key";
+      mocks.search = "tab=pending";
+      mocks.listEntries.mockResolvedValue(pendingListResponse(twelveItemBundle()));
+      const { unmount } = render(<ConsentCenterPage />);
+      const shell = await screen.findByTestId("consent-bundle-row");
+      const waiting = Array.from({ length: 10 }, (_, index) => `request-${index + 3}`);
+
+      fireEvent.click(within(shell).getByRole("button", { name: "Allow" }));
+      await waitFor(() =>
+        expect(mocks.handleApproveBundle).toHaveBeenCalledTimes(1),
+      );
+      const [consents] = mocks.handleApproveBundle.mock.calls[0] as [
+        Array<{ id: string; durationHours?: number }>,
+      ];
+      expect(consents.map((consent) => consent.id)).toEqual(waiting);
+      expect(consents.every((consent) => consent.durationHours === 24)).toBe(true);
+
+      // A fresh visit: ✗ declines every waiting item, with the same Undo.
+      unmount();
+      mocks.handleApproveBundle.mockClear();
+      const second = render(<ConsentCenterPage />);
+      const again = await screen.findByTestId("consent-bundle-row");
+      fireEvent.click(within(again).getByRole("button", { name: "Don't allow" }));
+      await waitFor(() => expect(mocks.toastShow).toHaveBeenCalled());
+      second.unmount();
+      expect(mocks.handleDenyBundle).toHaveBeenCalledWith(
+        waiting,
+        expect.objectContaining({ quiet: true }),
+      );
+    });
   });
 });

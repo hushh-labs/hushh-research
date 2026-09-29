@@ -192,7 +192,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
+                "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"

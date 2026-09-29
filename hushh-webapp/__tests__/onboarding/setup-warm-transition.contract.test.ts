@@ -139,8 +139,10 @@ describe("setup warm-transition contract", () => {
     );
     expect(plaidConnect).toContain("sealVaultPlaidConnection({");
     expect(plaidConnect).toContain("vaultOwnerToken: effectiveVaultOwnerToken");
-    expect(plaidConnect).toContain(
-      "if (onSetupSourceSettled && !shouldSettleSetupSource)",
+    // Ordinary resolved-root re-entry still bypasses setup settlement, but a
+    // pending invitation must remain on the import's explicit terminal.
+    expect(plaidConnect).toMatch(
+      /if\s*\(\s*onSetupSourceSettled\s*&&\s*!shouldSettleSetupSource\s*&&\s*!hasSetupContinuation\s*\)/,
     );
   });
 

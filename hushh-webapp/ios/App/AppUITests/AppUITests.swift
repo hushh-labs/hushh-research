@@ -1808,6 +1808,421 @@ final class AppUITests: XCTestCase {
             app.terminate()
         }
 
+        // PERF_SECTION=profile: scrolling the Profile page itself (the pane's
+        // open and dismiss are measured in the feed section).
+        if section == "profile" {
+            let (app, webView) = try launchAttached(route: nil)
+            perfSettle(3)
+            perfTapNav(app, label: "One")
+            perfSettle(1.5)
+            let open = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Open Profile")).firstMatch
+            if open.waitForExistence(timeout: 8) {
+                open.tap()
+                perfSettle(3)
+                NSLog("PERF_APP_READY route=profile")
+                for rep in 0..<repetitions {
+                    perfGesture("profile-flick", rep: rep) {
+                        for _ in 0..<4 {
+                            perfFlick(webView, fromY: 0.75, toY: 0.3)
+                            perfSettle(0.35)
+                        }
+                        perfSettle(1.5)
+                        for _ in 0..<4 {
+                            perfFlick(webView, fromY: 0.3, toY: 0.75)
+                            perfSettle(0.35)
+                        }
+                        perfSettle(1.5)
+                    }
+                }
+            } else {
+                NSLog("PERF_SKIPPED name=profile-flick reason=open_profile_not_found")
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=profile")
+            app.terminate()
+        }
+
+        // PERF_SECTION=journeys: the release device gate. Seven journeys a
+        // person takes, in one install, on the reviewer session the Debug
+        // bootstrap left behind (Release has no automated sign-in). Each
+        // journey is framed by JOURNEY_BEGIN/END for the card's Mac-side frame
+        // capture; JOURNEY_PAUSE holds that capture off the passphrase entry
+        // and the home screen, and waits out any frame already in flight.
+        // Checks log JOURNEY_CHECK / JOURNEY_METRIC / JOURNEY_GEOMETRY; the
+        // test itself fails only when the app cannot be reached at all, so a
+        // missing surface is reported next to its screenshot, not hidden.
+        // It never taps Allow: a decline is always undone inside its window.
+        if section == "journeys" {
+            let app = XCUIApplication()
+            app.launchArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+            let webView = app.webViews.firstMatch
+            func mark(_ kind: String, _ name: String) {
+                NSLog("JOURNEY_\(kind) name=\(name) epoch_ms=\(perfEpochMs())")
+            }
+            func pauseCapture(_ name: String) { mark("PAUSE", name); perfSettle(2.0) }
+            func stop(_ name: String, settle: TimeInterval = 1.5) {
+                perfSettle(settle)
+                NSLog("PERF_STOP name=\(name)")
+                perfSettle(2.0)
+            }
+            func check(_ journey: String, _ name: String, _ ok: Bool, _ detail: String = "") {
+                NSLog("JOURNEY_CHECK journey=\(journey) check=\(name) ok=\(ok ? 1 : 0) \(detail)")
+            }
+            func metric(_ name: String, _ value: Int64) { NSLog("JOURNEY_METRIC name=\(name) value=\(value)") }
+            func quickShot(_ name: String) {
+                let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                attachment.name = "\(name)-\(perfEpochMs())"
+                attachment.lifetime = .keepAlways
+                add(attachment)
+            }
+            func burst(_ name: String, count: Int) {
+                for index in 0..<count { quickShot(String(format: "burst-%@-%02d", name, index)) }
+            }
+            func web(_ predicate: NSPredicate) -> XCUIElementQuery {
+                app.webViews.descendants(matching: .any).matching(predicate)
+            }
+            func labelled(_ label: String) -> NSPredicate { NSPredicate(format: "label == %@", label) }
+            func tapElement(_ element: XCUIElement) {
+                if element.isHittable { element.tap() } else { element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            }
+            func tapFirst(_ predicate: NSPredicate, timeout: TimeInterval = 4) -> Bool {
+                let element = web(predicate).firstMatch
+                guard element.waitForExistence(timeout: timeout) else { return false }
+                tapElement(element)
+                return true
+            }
+            func geometry(_ name: String, _ element: XCUIElement) {
+                guard element.exists else { return }
+                let frame = element.frame
+                let window = app.windows.firstMatch.frame
+                NSLog("JOURNEY_GEOMETRY name=\(name) x=\(Int(frame.minX)) y=\(Int(frame.minY)) w=\(Int(frame.width)) h=\(Int(frame.height)) right_gap=\(Int(window.maxX - frame.maxX)) window_w=\(Int(window.width)) window_h=\(Int(window.height))")
+            }
+            // Scroll the page until an element sits clear of the top bar and the tab bar.
+            func scrollTo(_ predicate: NSPredicate, maxFlicks: Int = 8) -> XCUIElement? {
+                let height = app.windows.firstMatch.frame.height
+                for _ in 0...maxFlicks {
+                    let element = web(predicate).firstMatch
+                    if element.exists && element.frame.minY > 100 && element.frame.maxY < height - 120 { return element }
+                    perfFlick(webView, fromY: 0.72, toY: 0.45)
+                    perfSettle(0.9)
+                }
+                let element = web(predicate).firstMatch
+                return element.exists ? element : nil
+            }
+            func headerBack() {
+                for button in app.webViews.buttons.allElementsBoundByIndex where button.exists {
+                    let frame = button.frame
+                    if frame.minX < 80 && frame.midY < 170 && frame.width < 90 && button.isHittable {
+                        button.tap()
+                        return
+                    }
+                }
+            }
+            func openProfile() -> Bool {
+                perfTapNav(app, label: "One")
+                perfSettle(1.5)
+                return tapFirst(labelled("Open Profile"))
+            }
+            let gateField = NSPredicate(format: "label == %@ OR placeholderValue == %@ OR label == %@", "Vault passphrase", "Enter passphrase", "Passphrase")
+            func unlockOffCamera() throws {
+                pauseCapture("passphrase")
+                try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
+                perfSettle(1.0)
+                mark("RESUME", "passphrase")
+            }
+
+            // 1. Cold launch, the restored session, the passphrase unlock.
+            let launchStart = perfEpochMs()
+            app.launch()
+            mark("BEGIN", "01-cold-launch-unlock")
+            XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
+            metric("cold_launch_webview_ms", perfEpochMs() - launchStart)
+            var interactive: Int64 = -1
+            let interactiveDeadline = Date().addingTimeInterval(90)
+            while Date() < interactiveDeadline {
+                if web(gateField).count > 0 || perfLabelExists(app, "One") {
+                    interactive = perfEpochMs() - launchStart
+                    break
+                }
+                perfSettle(0.25)
+            }
+            metric("cold_launch_interactive_ms", interactive)
+            let gateShown = web(gateField).count > 0
+            check("01", "vault_gate_on_cold_launch", gateShown)
+            stop("01-cold-launch--gate", settle: 0.5)
+            try unlockOffCamera()
+            check("01", "unlocked_shell", perfLabelExists(app, "One"))
+            stop("01-cold-launch--unlocked")
+            mark("END", "01-cold-launch-unlock")
+
+            // 2. Chat: send, the reply streams in, the composer stays put,
+            // and the person's own bubble can be selected.
+            mark("BEGIN", "02-chat")
+            let chatTap = perfEpochMs()
+            perfTapNav(app, label: "Chat")
+            let composer = web(labelled("Message One")).firstMatch
+            let composerSeen = composer.waitForExistence(timeout: 20)
+            metric("chat_first_render_ms", composerSeen ? perfEpochMs() - chatTap : -1)
+            stop("02-chat--open")
+            if composerSeen {
+                let restTop = composer.frame.minY
+                geometry("chat-composer-rest", composer)
+                composer.tap()
+                perfSettle(1.2)
+                let keyboard = app.keyboards.firstMatch
+                if keyboard.exists {
+                    NSLog("JOURNEY_GEOMETRY name=chat-keyboard composer_bottom=\(Int(composer.frame.maxY)) keyboard_top=\(Int(keyboard.frame.minY)) gap=\(Int(keyboard.frame.minY - composer.frame.maxY))")
+                }
+                check("02", "keyboard_shown", keyboard.exists)
+                stop("02-chat--keyboard", settle: 0.3)
+                let prompt = "Reply in one short sentence: what can you help me with today?"
+                composer.typeText(prompt)
+                stop("02-chat--typed", settle: 0.5)
+                let send = app.webViews.buttons.matching(labelled("Send message")).firstMatch
+                let sentAt = perfEpochMs()
+                if send.exists {
+                    send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                } else {
+                    composer.typeText("\n")
+                }
+                burst("02-send-ripple", count: 6)
+                stop("02-chat--streaming", settle: 1.5)
+                let rated = app.webViews.buttons.matching(labelled("Like response")).firstMatch
+                let replied = rated.waitForExistence(timeout: 90)
+                metric("chat_reply_complete_ms", replied ? perfEpochMs() - sentAt : -1)
+                check("02", "reply_complete", replied)
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap()
+                perfSettle(1.2)
+                stop("02-chat--reply")
+                let settledTop = composer.exists ? composer.frame.minY : -1
+                check("02", "composer_back_at_rest", abs(settledTop - restTop) <= 2, "rest_top=\(Int(restTop)) settled_top=\(Int(settledTop))")
+                let mine = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "what can you help me with today")).firstMatch
+                if mine.exists {
+                    geometry("chat-own-bubble", mine)
+                    mine.press(forDuration: 1.2)
+                    perfSettle(0.8)
+                    let editMenu = app.menuItems.count > 0 || app.buttons.matching(labelled("Copy")).count > 0
+                    check("02", "own_bubble_selectable", editMenu, "menu_items=\(app.menuItems.count)")
+                    quickShot("02-selection")
+                    stop("02-chat--selection", settle: 0.2)
+                    webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap()
+                    perfSettle(0.8)
+                } else {
+                    check("02", "own_bubble_selectable", false, "reason=bubble_not_found")
+                }
+            }
+            mark("END", "02-chat")
+
+            // 3. Profile > Shared with you: the secure card, hide and copy.
+            mark("BEGIN", "03-shared-with-you")
+            if openProfile() {
+                stop("03-profile")
+                if let group = scrollTo(labelled("Shared with you")) {
+                    geometry("shared-with-you-title", group)
+                    perfSettle(2.0)
+                    stop("03-shared-with-you--group")
+                    let card = web(NSPredicate(format: "label ENDSWITH %@", " shared with you")).firstMatch
+                    check("03", "card_present", card.exists)
+                    let decrypted = web(NSPredicate(format: "label == %@", "Decrypted on this device")).firstMatch
+                    check("03", "decrypted_on_device", decrypted.waitForExistence(timeout: 10))
+                    let hide = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Hide ")).firstMatch
+                    if hide.exists {
+                        tapElement(hide)
+                        perfSettle(0.8)
+                        let hiddenShown = web(labelled("Hidden")).count > 0
+                        check("03", "hide_masks_values", hiddenShown)
+                        stop("03-shared-with-you--hidden", settle: 0.2)
+                        _ = tapFirst(NSPredicate(format: "label BEGINSWITH %@", "Show "))
+                        perfSettle(0.8)
+                    } else {
+                        check("03", "hide_masks_values", false, "reason=no_hide_control")
+                    }
+                    let copy = app.webViews.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Copy ")).firstMatch
+                    if copy.exists {
+                        tapElement(copy)
+                        let copied = web(labelled("Copied")).firstMatch.waitForExistence(timeout: 2)
+                        quickShot("03-copied")
+                        check("03", "copy_confirms", copied)
+                        // Shared values never stay on the phone's clipboard.
+                        UIPasteboard.general.items = []
+                    } else {
+                        check("03", "copy_confirms", false, "reason=no_copy_control")
+                    }
+                    stop("03-shared-with-you--card", settle: 0.8)
+                } else {
+                    check("03", "card_present", false, "reason=group_not_found")
+                    stop("03-shared-with-you--missing")
+                }
+            } else {
+                check("03", "profile_opened", false)
+            }
+            mark("END", "03-shared-with-you")
+
+            // 4. Consent Center: the decision row, its sheet, a decline undone.
+            mark("BEGIN", "04-consent-center")
+            perfTapNav(app, label: "One")
+            perfSettle(1.5)
+            if tapFirst(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", "Consent", "Consent,")) {
+                stop("04-consent", settle: 2.5)
+                let declines = app.webViews.buttons.matching(labelled("Don't allow"))
+                let allows = app.webViews.buttons.matching(labelled("Allow"))
+                NSLog("JOURNEY_COUNT name=consent_pending_rows decline=\(declines.count) allow=\(allows.count)")
+                for index in 0..<min(3, declines.count) {
+                    geometry("consent-decline-\(index)", declines.element(boundBy: index))
+                }
+                for index in 0..<min(3, allows.count) {
+                    geometry("consent-allow-\(index)", allows.element(boundBy: index))
+                }
+                if declines.count > 0 {
+                    let firstDecline = declines.element(boundBy: 0)
+                    let window = app.windows.firstMatch.frame
+                    check("04", "decision_buttons_unclipped", allows.element(boundBy: 0).frame.maxX <= window.maxX - 8)
+                    // The row body, left of its two buttons, opens the sheet.
+                    let buttonsBefore = app.webViews.buttons.count
+                    app.coordinate(withNormalizedOffset: .zero)
+                        .withOffset(CGVector(dx: 90, dy: firstDecline.frame.midY)).tap()
+                    perfSettle(1.5)
+                    let sheetOpen = app.webViews.buttons.count != buttonsBefore
+                        || web(NSPredicate(format: "label IN %@", ["Close", "Done", "Cancel"])).count > 0
+                    check("04", "row_opens_sheet", sheetOpen, "buttons_before=\(buttonsBefore) after=\(app.webViews.buttons.count)")
+                    stop("04-consent--sheet", settle: 0.3)
+                    if !tapFirst(NSPredicate(format: "label IN %@", ["Close", "Done", "Cancel"]), timeout: 1) {
+                        let top = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.35))
+                        top.press(forDuration: 0.05, thenDragTo: webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+                    }
+                    perfSettle(1.5)
+                    let rowsBefore = declines.count
+                    let decline = app.webViews.buttons.matching(labelled("Don't allow")).firstMatch
+                    if decline.exists {
+                        tapElement(decline)
+                        let undo = app.webViews.buttons.matching(labelled("Undo")).firstMatch
+                        if undo.waitForExistence(timeout: 2) {
+                            quickShot("04-undo-toast")
+                            undo.tap()
+                            check("04", "undo_toast", true)
+                        } else {
+                            check("04", "undo_toast", false, "reason=undo_not_found")
+                        }
+                        perfSettle(2.0)
+                        let rowsAfter = app.webViews.buttons.matching(labelled("Don't allow")).count
+                        check("04", "undo_restores_row", rowsAfter == rowsBefore, "before=\(rowsBefore) after=\(rowsAfter)")
+                        stop("04-consent--after-undo", settle: 0.3)
+                    }
+                } else {
+                    check("04", "pending_rows_present", false, "reason=no_pending_requests")
+                }
+            } else {
+                check("04", "consent_center_opened", false)
+            }
+            mark("END", "04-consent-center")
+
+            // 5. Feed: the "Needs you" group.
+            mark("BEGIN", "05-feed-needs-you")
+            perfTapNav(app, label: "Feed")
+            stop("05-feed", settle: 2.5)
+            let needsYou = web(NSPredicate(format: "label CONTAINS[c] %@", "Needs you")).firstMatch
+            check("05", "needs_you_present", needsYou.exists)
+            geometry("feed-needs-you", needsYou)
+            let feedDecisions = app.webViews.buttons.matching(labelled("Allow"))
+            for index in 0..<min(3, feedDecisions.count) {
+                geometry("feed-allow-\(index)", feedDecisions.element(boundBy: index))
+            }
+            perfFlick(webView, fromY: 0.75, toY: 0.3)
+            stop("05-feed--scrolled", settle: 1.2)
+            perfFlick(webView, fromY: 0.3, toY: 0.8)
+            perfSettle(1.0)
+            mark("END", "05-feed-needs-you")
+
+            // 6. Settings rows (one full-width surface each, ripple on tap),
+            // and the same screens in the other theme.
+            mark("BEGIN", "06-settings-rows")
+            if openProfile() {
+                stop("06-profile-pane")
+                for row in ["Your account", "Appearance & preferences", "Security & privacy", "Trusted devices", "Help & feedback"] {
+                    let slug = row.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-")
+                    guard let element = scrollTo(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", row, "\(row),"), maxFlicks: 3) else {
+                        check("06", "row_\(slug)", false, "reason=not_found")
+                        continue
+                    }
+                    let button = app.webViews.buttons.matching(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", row, "\(row),")).firstMatch
+                    geometry("settings-row-\(slug)", button.exists ? button : element)
+                    tapElement(button.exists ? button : element)
+                    burst("06-ripple-\(slug)", count: 3)
+                    stop("06-\(slug)")
+                    check("06", "row_\(slug)", true)
+                    if row == "Appearance & preferences" {
+                        let options = ["Light", "Dark", "System"]
+                        let selected = options.first { option in
+                            let radio = app.webViews.radioButtons.matching(labelled(option)).firstMatch
+                            return radio.exists && ((radio.value as? String) == "1" || radio.isSelected)
+                        }
+                        NSLog("JOURNEY_THEME original=\(selected ?? "unknown")")
+                        let other = selected == "Light" ? "Dark" : "Light"
+                        if tapFirst(labelled(other), timeout: 2) {
+                            stop("06-appearance--\(other.lowercased())")
+                            perfTapNav(app, label: "Feed")
+                            stop("06-feed--\(other.lowercased())")
+                            perfTapNav(app, label: "Chat")
+                            stop("06-chat--\(other.lowercased())")
+                            if openProfile(), tapFirst(NSPredicate(format: "label == %@ OR label BEGINSWITH %@", row, "\(row),")) {
+                                perfSettle(1.0)
+                                _ = tapFirst(labelled(selected ?? "System"), timeout: 2)
+                                perfSettle(1.0)
+                                NSLog("JOURNEY_THEME restored=\(selected ?? "System")")
+                            }
+                        }
+                    }
+                    headerBack()
+                    perfSettle(1.5)
+                    if !perfLabelExists(app, "Your account") { _ = openProfile(); perfSettle(1.0) }
+                }
+            } else {
+                check("06", "profile_opened", false)
+            }
+            mark("END", "06-settings-rows")
+
+            // 7. Background and foreground keep the unlock (the key is
+            // memory-only for the runtime); a relaunch must lock again.
+            mark("BEGIN", "07-background-relock")
+            perfTapNav(app, label: "Feed")
+            stop("07-before-background")
+            pauseCapture("home-screen")
+            XCUIDevice.shared.press(.home)
+            perfSettle(5.0)
+            app.activate()
+            _ = app.wait(for: .runningForeground, timeout: 10)
+            perfSettle(2.0)
+            mark("RESUME", "home-screen")
+            let resumedUnlocked = perfLabelExists(app, "One") && web(gateField).count == 0
+            check("07", "unlocked_after_resume", resumedUnlocked)
+            stop("07-after-foreground", settle: 0.5)
+            pauseCapture("relaunch")
+            app.terminate()
+            let relaunchStart = perfEpochMs()
+            app.launch()
+            XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable after relaunch")
+            perfSettle(1.0)
+            mark("RESUME", "relaunch")
+            var relocked = false
+            let relockDeadline = Date().addingTimeInterval(60)
+            while Date() < relockDeadline {
+                if web(gateField).count > 0 { relocked = true; break }
+                if perfLabelExists(app, "One") { break }
+                perfSettle(0.25)
+            }
+            metric("warm_relaunch_interactive_ms", perfEpochMs() - relaunchStart)
+            check("07", "locked_after_relaunch", relocked)
+            stop("07-relaunch--gate", settle: 0.3)
+            try unlockOffCamera()
+            check("07", "unlocked_after_relaunch", perfLabelExists(app, "One"))
+            stop("07-relaunch--unlocked")
+            mark("END", "07-background-relock")
+
+            NSLog("PERF_DONE route=journeys")
+            app.terminate()
+        }
+
         if section == "routes" {
             let list = (environment["HUSHH_PERF_ROUTES"] ?? "")
                 .split(separator: ",")

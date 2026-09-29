@@ -2,7 +2,7 @@
 
 import React from "react";
 import { useEffect, useState } from "react";
-import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "@/components/icons";
+import { ConsentAgentIcon, ExternalLink, ShieldCheck, ShieldOff } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
@@ -21,6 +21,10 @@ export type SpecialistCardProps = {
   onConfirm: () => void;
   onCancel: () => void;
   busy?: boolean;
+  /** Replaces "Working…" while busy, e.g. while a Google sign-in window is open. */
+  busyLabel?: string;
+  /** Keeps Cancel available while busy, so an open sign-in can be abandoned. */
+  cancelWhileBusy?: boolean;
 };
 
 export function SpecialistDirectiveCard({
@@ -31,6 +35,8 @@ export function SpecialistDirectiveCard({
   onConfirm,
   onCancel,
   busy,
+  busyLabel,
+  cancelWhileBusy = false,
 }: SpecialistCardProps) {
   return (
     <div
@@ -67,19 +73,21 @@ export function SpecialistDirectiveCard({
           type="button"
           onClick={onConfirm}
           disabled={busy}
-          className="rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          className="relative rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
           data-testid="specialist-directive-confirm"
         >
-          {busy ? "Working…" : confirmLabel}
+          {busy ? busyLabel ?? "Working…" : confirmLabel}
+          <MaterialRipple variant="none" effect="fill" disabled={busy} />
         </button>
         <button
           type="button"
           onClick={onCancel}
-          disabled={busy}
-          className="rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
+          disabled={busy && !cancelWhileBusy}
+          className="relative rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
           data-testid="specialist-directive-cancel"
         >
           Cancel
+          <MaterialRipple variant="none" effect="glass" disabled={busy && !cancelWhileBusy} />
         </button>
       </div>
     </div>
@@ -231,8 +239,9 @@ export function SpecialistConsentRequiredCard({
       className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+        {/* The /one Consent glyph, bare on a transparent well: never a tile. */}
+        <div data-slot="card-header-icon" className="grid h-9 w-9 shrink-0 place-items-center">
+          <ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">{agentName} needs permission</p>
@@ -329,8 +338,9 @@ export function SpecialistConsentActionsCard({
       className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
+        {/* The /one Consent glyph, bare on a transparent well: never a tile. */}
+        <div data-slot="card-header-icon" className="grid h-9 w-9 shrink-0 place-items-center">
+          <ConsentAgentIcon className="h-7 w-7" aria-hidden="true" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-foreground">Manage access</p>
@@ -421,8 +431,16 @@ export function SpecialistConsentActionsCard({
 
 import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
-import { requestDurationLabel } from "@/lib/agent/action-directive-summary";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import {
+  consentInformationLabel,
+  consentRequestHeadline,
+  formatConsentDuration,
+  formatDecideBy,
+  requesterShortName,
+} from "@/lib/consent/consent-owner-copy";
 import { useArmedAction } from "@/lib/ui/use-armed-action";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 
 export type PendingConsentCardStatus =
   | "pending" | "approved" | "denied" | "cancelled"
@@ -439,9 +457,11 @@ export function normalizePendingConsentCardStatus(value: unknown): PendingConsen
   }
 }
 
+// The owner's words for a request that is no longer waiting, the same words
+// the Feed and the Consent Center use for it.
 const resolvedConsentLabels: Record<Exclude<PendingConsentCardStatus, "pending">, string> = {
-  approved: "Approved", denied: "Denied", cancelled: "Withdrawn",
-  expired: "Expired", revoked: "Revoked", unavailable: "Status unavailable",
+  approved: "Allowed", denied: "Not allowed", cancelled: "Withdrawn",
+  expired: "Expired", revoked: "Sharing stopped", unavailable: "Status unavailable",
 };
 
 export type SpecialistPendingConsentRequestItem = {
@@ -489,33 +509,33 @@ export type SpecialistPendingConsentRequestCardProps = {
   onDetails: (item: SpecialistPendingConsentRequestItem) => void;
 };
 
-function formatConsentTime(value?: number | string | null): string | null {
-  if (value == null || value === "") return null;
-  const numeric = typeof value === "number" ? value : Number(value);
-  const date = Number.isFinite(numeric)
-    ? new Date(numeric < 10_000_000_000 ? numeric * 1000 : numeric)
-    : new Date(String(value));
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(date);
-}
-
 /**
  * The wire carries hours as a number or a string, or not at all. Only a
- * positive, finite count becomes a sentence; the words come from the same
- * helper the request sheet used, so both ends of one ask read alike.
+ * positive, finite count becomes words, and the words are the one duration
+ * wording every consent surface shares.
  */
 function pendingDurationLabel(hours?: number | string | null): string | null {
   if (hours == null || hours === "") return null;
   const numeric = typeof hours === "number" ? hours : Number(hours);
   if (!Number.isFinite(numeric) || numeric <= 0) return null;
-  return requestDurationLabel(Math.round(numeric));
+  return formatConsentDuration(Math.round(numeric));
 }
 
+/** The human names of what this card asks for, one per item. */
+function pendingConsentLabels(item: SpecialistPendingConsentRequestItem): string[] {
+  const bundled = (item.bundledScopes || [])
+    .map((scope) => consentInformationLabel({ label: scope.label }))
+    .filter(Boolean);
+  if (bundled.length > 1) return bundled;
+  return [consentInformationLabel({ scope: item.scope, label: item.scopeDescription })];
+}
+
+/**
+ * The owner's own pending request in chat, worded and laid out like the Feed's
+ * "Needs you" row: who wants what and why, then Details, Don't allow and Allow.
+ * The buttons call back into the chat workspace, which decides through the
+ * same shared approve path as the Feed and the Consent Center.
+ */
 export function SpecialistPendingConsentRequestCard({
   item,
   busy,
@@ -523,72 +543,83 @@ export function SpecialistPendingConsentRequestCard({
   onDeny,
   onDetails,
 }: SpecialistPendingConsentRequestCardProps) {
-  const timeout = formatConsentTime(item.approvalTimeoutAt);
   const duration = pendingDurationLabel(item.expiryHours);
+  const decideBy = formatDecideBy(item.approvalTimeoutAt);
   const status = normalizePendingConsentCardStatus(item.status);
   const resolved = status !== "pending";
 
-  // Deny is irreversible, so it takes a confirming second tap: the first tap
-  // arms the button ("Sure?") and it disarms on its own a few seconds later,
-  // so a stray tap cannot turn someone down. One implementation, shared with
-  // the feed's actionable row.
+  // Don't allow is irreversible, so it takes a confirming second tap: the
+  // first tap arms the button ("Sure?") and it disarms on its own a few
+  // seconds later, so a stray tap cannot turn someone down. One
+  // implementation, shared with the feed's actionable row.
   const denyTap = useArmedAction();
   const { armed: denyArmed, disarm: disarmDeny } = denyTap;
 
-  // Approve locks the row; a Deny left armed underneath it must not fire once
-  // the row unlocks.
+  // Allow locks the row; a Don't allow left armed underneath it must not fire
+  // once the row unlocks.
   useEffect(() => {
     if (busy || resolved) disarmDeny();
   }, [busy, resolved, disarmDeny]);
-  const access = item.scopeDescription || item.scope || "requested context";
-  // How many things this one card now stands for. The bundle merge folds
-  // same-bundle requests together, so this grows as they arrive.
-  const bundledCount = item.bundledScopes?.length || 1;
-  const requester = item.requesterLabel || "An agent";
+
+  const requester = item.requesterLabel || "Someone";
+  const labels = pendingConsentLabels(item);
+  const headline = consentRequestHeadline({
+    // First name for a person, the whole name for an app or an advisor.
+    requesterShortName: requesterShortName(
+      requester,
+      item.metadata?.requester_actor_type === "person",
+    ),
+    labels,
+  });
+  const meta = [
+    duration ? `For ${duration}` : null,
+    !resolved && decideBy ? `Decide by ${decideBy}` : null,
+  ].filter((part): part is string => Boolean(part));
 
   return (
     <div
       data-testid="specialist-pending-consent-request-card"
-      className="rounded-2xl border border-[#6b8f71]/35 bg-[#6b8f71]/5 p-4"
+      className="rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4"
     >
       <div className="flex items-start gap-3">
-        <div className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[#6b8f71]/10 text-[#426548]">
-          <ShieldCheck className="h-4 w-4" aria-hidden="true" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">
-              {/* Not "Consent request". agent.yaml bans that vocabulary for the
-                  model's speech; the chrome should not undo it one line later. */}
-              {bundledCount > 1
-                ? `${requester} wants to see ${bundledCount} things`
-                : `${requester} wants to see something`}
+        <ConnectionPersonAvatar
+          label={requester}
+          photoUrl={item.requesterImageUrl ?? null}
+          size="list"
+          className="bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
+        />
+        <div className="min-w-0 flex-1 space-y-1">
+          <p className="text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">
+            {headline}
+          </p>
+          {item.reason ? (
+            <p className="text-sm leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+              {item.reason}
             </p>
-            {status === "approved" ? (
-              <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
-                Approved
-              </span>
-            ) : status === "denied" ? (
-              <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                Denied
-              </span>
-            ) : status !== "pending" ? (
-              <span className="text-xs font-medium text-muted-foreground">
-                {resolvedConsentLabels[status]}
-              </span>
-            ) : null}
-          </div>
-          {bundledCount > 1 ? (
-            <p className="mt-1 text-sm text-foreground/75">
-              They are asking for these. You decide together, once.
+          ) : null}
+          {item.additionalAccessSummary ? (
+            <p className="text-sm leading-5 text-muted-foreground">
+              {item.additionalAccessSummary}
             </p>
-          ) : (
-            <p className="mt-1 text-sm text-foreground/75">
-              {requester} is asking for {access}.
+          ) : null}
+          {meta.length ? (
+            <p
+              className="text-[13px] leading-[18px] text-muted-foreground"
+              data-testid="specialist-pending-consent-duration"
+            >
+              {meta.join(" · ")}
             </p>
-          )}
-          {bundledCount > 1 ? (
-            <div className="mt-3">
+          ) : null}
+          {resolved ? (
+            <p
+              className="text-[13px] font-semibold leading-[18px] text-muted-foreground"
+              data-testid="specialist-pending-consent-status"
+            >
+              {resolvedConsentLabels[status]}
+            </p>
+          ) : null}
+          {labels.length > 3 ? (
+            <div className="pt-2">
               <ConsentScopeList
                 items={item.bundledScopes || []}
                 groupByDomain={false}
@@ -597,57 +628,9 @@ export function SpecialistPendingConsentRequestCard({
               />
             </div>
           ) : null}
-          {duration ? (
-            <p
-              className="mt-2 text-sm text-foreground/75"
-              data-testid="specialist-pending-consent-duration"
-            >
-              For {duration}.
-            </p>
-          ) : null}
-          {item.additionalAccessSummary ? (
-            <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
-          ) : null}
-          {item.reason ? (
-            <p className="mt-2 text-xs text-foreground/55">Reason: {item.reason}</p>
-          ) : null}
-          {timeout ? (
-            <p className="mt-1 text-xs font-medium text-foreground/55">
-              Review by {timeout}.
-            </p>
-          ) : null}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        {resolved ? null : (
-          <>
-            <Button
-              data-testid="specialist-pending-consent-approve"
-              size="sm"
-              disabled={busy}
-              isLoading={busy}
-              onClick={() => onApprove(item)}
-            >
-              <Check className="h-4 w-4" aria-hidden="true" />
-              Approve
-            </Button>
-            <Button
-              data-testid="specialist-pending-consent-deny"
-              size="sm"
-              variant={denyArmed ? "destructive" : "ghost"}
-              disabled={busy}
-              aria-label={denyTap.ariaLabel("Deny")}
-              data-armed={denyArmed ? "true" : undefined}
-              onClick={() => {
-                if (busy) return;
-                denyTap.activate(() => onDeny(item));
-              }}
-            >
-              <X className="h-4 w-4" aria-hidden="true" />
-              {denyTap.label("Deny")}
-            </Button>
-          </>
-        )}
+      <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
         <Button
           data-testid="specialist-pending-consent-details"
           size="sm"
@@ -655,9 +638,35 @@ export function SpecialistPendingConsentRequestCard({
           disabled={busy}
           onClick={() => onDetails(item)}
         >
-          <ExternalLink className="h-4 w-4" aria-hidden="true" />
           Details
         </Button>
+        {resolved ? null : (
+          <>
+            <Button
+              data-testid="specialist-pending-consent-deny"
+              size="sm"
+              variant={denyArmed ? "destructive" : "ghost"}
+              disabled={busy}
+              aria-label={denyTap.ariaLabel("Don't allow")}
+              data-armed={denyArmed ? "true" : undefined}
+              onClick={() => {
+                if (busy) return;
+                denyTap.activate(() => onDeny(item));
+              }}
+            >
+              {denyTap.label("Don't allow")}
+            </Button>
+            <Button
+              data-testid="specialist-pending-consent-approve"
+              size="sm"
+              disabled={busy}
+              isLoading={busy}
+              onClick={() => onApprove(item)}
+            >
+              Allow
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

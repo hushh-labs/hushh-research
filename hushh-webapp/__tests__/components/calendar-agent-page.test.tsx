@@ -77,6 +77,14 @@ describe("CalendarAgentPage", () => {
     );
   });
 
+  const waitForConsentWindow = () =>
+    waitFor(() =>
+      expect(
+        (mocks.popup as unknown as { location: { replace: ReturnType<typeof vi.fn> } })
+          .location.replace,
+      ).toHaveBeenCalled(),
+    );
+
   it("requests read-only access before an owner enables Calendar scheduling", async () => {
     mocks.status.mockResolvedValue({
       configured: true,
@@ -120,6 +128,7 @@ describe("CalendarAgentPage", () => {
       name: "Try Calendar Agent with One",
     });
     expect(chat).toBeTruthy();
+    expect(chat.querySelector("svg")).toBeNull();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
 
     expect(screen.queryByRole("button", { name: "Reconnect Calendar" })).toBeNull();
@@ -185,7 +194,7 @@ describe("CalendarAgentPage", () => {
     });
     render(<CalendarAgentPage />);
     fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
-    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    await waitForConsentWindow();
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
     act(() => {
       window.dispatchEvent(new MessageEvent("message", {
@@ -209,14 +218,6 @@ describe("CalendarAgentPage", () => {
   });
 
   it("does not treat an abandoned scheduling upgrade as connected", async () => {
-    let popupWatcher: (() => void) | null = null;
-    vi.spyOn(window, "setInterval").mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-    ) => {
-      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
-      return 1 as unknown as number;
-    }) as typeof window.setInterval);
     mocks.status.mockResolvedValue({
       configured: true,
       connected: true,
@@ -230,17 +231,11 @@ describe("CalendarAgentPage", () => {
     });
 
     render(<CalendarAgentPage />);
-    await waitFor(() => expect(popupWatcher).not.toBeNull());
     fireEvent.click(
       await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
     );
-    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
-    Object.assign(mocks.popup as object, { closed: true });
-    await act(async () => {
-      popupWatcher?.();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+    await waitForConsentWindow();
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }));
 
     await waitFor(() =>
       expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
@@ -253,19 +248,34 @@ describe("CalendarAgentPage", () => {
       "one_calendar_action",
       expect.objectContaining({ result: "success" }),
     );
+    expect(screen.queryByRole("button", { name: "Cancel sign-in" })).toBeNull();
+  });
+
+  it("never reads popup.closed, so a severed consent window is not an early failure", async () => {
+    mocks.status.mockResolvedValue({
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+    });
+    mocks.startConnect.mockResolvedValue({
+      authorize_url: "https://accounts.google.test",
+    });
+    render(<CalendarAgentPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Calendar" }));
+    await waitForConsentWindow();
+    // Google's opener policy makes a live consent window read as closed.
+    Object.defineProperty(mocks.popup as object, "closed", {
+      get: () => { throw new Error("popup.closed must not be read"); },
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1_200));
+    });
+    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+      "one_calendar_action",
+      expect.objectContaining({ action: "connected" }),
+    );
+    expect(screen.getByRole("button", { name: "Cancel sign-in" })).toBeInTheDocument();
   });
 
   it("suppresses abandoned popup recovery after the owner changes", async () => {
-    let popupWatcher: (() => void) | null = null;
-    vi.spyOn(window, "setInterval").mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-    ) => {
-      if (timeout === 500 && typeof handler === "function") {
-        popupWatcher = handler;
-      }
-      return 1 as unknown as number;
-    }) as typeof window.setInterval);
     mocks.status.mockResolvedValue({
       configured: true,
       connected: false,
@@ -280,12 +290,12 @@ describe("CalendarAgentPage", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Connect Calendar" }),
     );
-    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    await waitForConsentWindow();
     mocks.ownerId = "other-owner";
     view.rerender(<CalendarAgentPage />);
-    Object.assign(mocks.popup as object, { closed: true });
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sign-in" }));
     await act(async () => {
-      popupWatcher?.();
+      await Promise.resolve();
       await Promise.resolve();
     });
 
@@ -296,49 +306,41 @@ describe("CalendarAgentPage", () => {
   });
 
   it("records a Calendar popup timeout as a connection failure", async () => {
-    let popupWatcher: (() => void) | null = null;
-    vi.spyOn(window, "setInterval").mockImplementation(((
-      handler: TimerHandler,
-      timeout?: number,
-    ) => {
-      if (timeout === 500 && typeof handler === "function") popupWatcher = handler;
-      return 1 as unknown as number;
-    }) as typeof window.setInterval);
-    const now = vi.spyOn(Date, "now").mockReturnValue(1_000);
-    mocks.status.mockResolvedValue({
-      configured: true,
-      connected: false,
-      status: "disconnected",
-      scope_csv: "",
-    });
-    mocks.startConnect.mockResolvedValue({
-      authorize_url: "https://accounts.google.test",
-    });
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.status.mockResolvedValue({
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: "",
+      });
+      mocks.startConnect.mockResolvedValue({
+        authorize_url: "https://accounts.google.test",
+      });
 
-    render(<CalendarAgentPage />);
-    await waitFor(() => expect(popupWatcher).not.toBeNull());
-    fireEvent.click(
-      await screen.findByRole("button", { name: "Connect Calendar" }),
-    );
-    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
-    now.mockReturnValue(121_001);
-    await act(async () => {
-      popupWatcher?.();
-      await Promise.resolve();
-      await Promise.resolve();
-    });
+      render(<CalendarAgentPage />);
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Connect Calendar" }),
+      );
+      await waitForConsentWindow();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(120_000);
+      });
 
-    await waitFor(() =>
-      expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
-        route_id: "one_calendar",
-        action: "connected",
-        result: "error",
-      }),
-    );
-    expect(mocks.trackEvent).not.toHaveBeenCalledWith(
-      "one_calendar_action",
-      expect.objectContaining({ result: "expected_error" }),
-    );
+      await waitFor(() =>
+        expect(mocks.trackEvent).toHaveBeenCalledWith("one_calendar_action", {
+          route_id: "one_calendar",
+          action: "connected",
+          result: "error",
+        }),
+      );
+      expect(mocks.trackEvent).not.toHaveBeenCalledWith(
+        "one_calendar_action",
+        expect.objectContaining({ result: "expected_error" }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("keeps a verified scheduling upgrade at manage access", async () => {
@@ -358,7 +360,7 @@ describe("CalendarAgentPage", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: "Try Calendar Agent with One" }),
     );
-    await waitFor(() => expect(mocks.popupAttempt).not.toBe(""));
+    await waitForConsentWindow();
     const attempt = JSON.parse(mocks.popupAttempt) as { attemptId: string };
     act(() => {
       window.dispatchEvent(

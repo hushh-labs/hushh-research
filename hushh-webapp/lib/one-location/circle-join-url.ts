@@ -9,6 +9,14 @@
 import { resolveShareableAppOrigin } from "@/lib/share/app-origin";
 
 export const CIRCLE_JOIN_CODE_PARAM = "code";
+// Native static exports cannot bundle an arbitrary /invite/[token] page.
+// Keep the public shared URL unchanged; this query-backed transport reuses
+// the same invitation UI, auth prerequisites, and explicit claim action.
+export const ONE_INVITE_TOKEN_PARAM = "invite";
+
+export function buildOneInviteLandingPath(token: string): string {
+  return `/circle/join?${new URLSearchParams({ [ONE_INVITE_TOKEN_PARAM]: token })}`;
+}
 
 /**
  * Group a code the way it is shown everywhere else (`96RE-HUNF-KMVX`).

@@ -103,7 +103,10 @@ import {
   parseRestoredTurnActivity,
   getAgentChatHistory,
   listAgentChatConversations,
+  InformationRequestReceiptError,
+  isRetryableReceiptStatus,
   recordAgentChatInformationRequest,
+  recordAgentChatInformationRequestWithRetry,
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
@@ -426,6 +429,65 @@ describe("AG-UI Agent One client", () => {
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token",
     })).rejects.toThrow();
   });
+  // Regression (localhost run 2026-09-28): Send on the new ask card got 404
+  // "Discovery card not found." twice, then the continuation got 409.
+  it("sends the ask card's live tool call id as the receipt source, retries the race, and stops on a refusal", async () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const PERSON_REF = "11111111-1111-4111-8111-111111111111";
+    const onStructuredExperience = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "propose-call", toolCallName: "propose_information_request" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "propose-call", content: JSON.stringify({
+        status: "proposal_ready",
+        person: { displayName: "Sarah Chen", personRef: PERSON_REF, profilePath: `/people/${PERSON_REF}` },
+        fields: ["Food preferences"], purpose: "dinner planning", durationHours: 168,
+        proposed: [{ scope: "psr_food", label: "Food preferences", why: null }],
+        duration_default: "7d", reason_suggestion: "dinner planning",
+      }) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Where should we eat?",
+      vaultOwnerToken: "fixture", handlers: { onStructuredExperience } });
+    expect(onStructuredExperience).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "one.scope_discovery.v1", proposal: expect.any(Object) }), "propose-call");
+    const activityId = onStructuredExperience.mock.calls[0][1] as string;
+
+    const descriptor = { activityType: "one.information_request_review.v1", content: {
+      direction: "outgoing", phase: "submitted", status: "pending", personName: "Sarah Chen",
+      purpose: "dinner planning", durationLabel: "7 days", subjectRef: PERSON_REF, bundleId,
+      fields: [{ requestId: "request_12345678", label: "Food preferences",
+        domain: "Information", sensitivity: "standard", status: "pending" }],
+    } };
+    const input = { vaultKey: TEST_VAULT_KEY, conversationId: "thread-1", sourceActivityId: activityId,
+      bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token" };
+    const sleep = vi.fn(async () => undefined);
+    vi.mocked(ApiService.apiFetch).mockClear();
+    vi.mocked(ApiService.apiFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Discovery card not found." }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
+    await expect(recordAgentChatInformationRequestWithRetry(input, { sleep })).resolves.toMatchObject({
+      phase: "submitted", bundleId, subjectRef: PERSON_REF,
+    });
+    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(ApiService.apiFetch).mock.calls) {
+      expect(call[0]).toBe("/api/one/agent-chat/history/thread-1/information-requests");
+      // Locators only: the card id the server matches, the bundle and the key. Never a card body.
+      expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
+        source_activity_id: "propose-call", bundle_id: bundleId, idempotency_key: "synthetic-receipt-key",
+      });
+    }
+
+    // A final refusal is not retried, and reports its status for the log.
+    vi.mocked(ApiService.apiFetch).mockClear();
+    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ detail: "Request recipient did not match discovery." }), { status: 409 }));
+    const refused = await recordAgentChatInformationRequestWithRetry(input, { sleep }).catch((error: unknown) => error);
+    expect(refused).toBeInstanceOf(InformationRequestReceiptError);
+    expect((refused as InformationRequestReceiptError).status).toBe(409);
+    expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+    expect(isRetryableReceiptStatus(404)).toBe(true);
+    expect(isRetryableReceiptStatus(null)).toBe(true);
+    expect(isRetryableReceiptStatus(403)).toBe(false);
+  });
   it("shows Drive search progress without exposing the private tool request", async () => {
     const onToolStart = vi.fn();
     const onToolWaiting = vi.fn();
@@ -632,6 +694,34 @@ describe("AG-UI Agent One client", () => {
     await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "Find my file", vaultOwnerToken: "fixture",
       handlers: { onToolResult } });
     expect(onToolResult.mock.calls[0][0].message).toBe(expected);
+  });
+
+  it.each([
+    [{ status: "shown", suggestions: ["Find a free hour after 2pm", "Move standup to 9:30"] },
+      ["Find a free hour after 2pm", "Move standup to 9:30"]],
+    // Negative controls: only a valid server-shown result becomes chips.
+    [{ status: "ignored", reason: "call_alone_after_your_answer" }, null],
+    [{ status: "shown", suggestions: ["Only one"] }, null],
+    [{ status: "shown", suggestions: ["Fine", "x".repeat(81)] }, null],
+  ])("renders follow-ups only from a shown result, never as an Activity step", async (result, expected) => {
+    const onFollowUpSuggestions = vi.fn();
+    const onToolStart = vi.fn();
+    const onToolWaiting = vi.fn();
+    const onToolResult = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "follow-ups", toolCallName: "suggest_follow_ups" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "follow-ups" }, toolCallName: "suggest_follow_ups",
+        toolCallArgs: { suggestions: ["Find a free hour after 2pm"] } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "follow-ups", content: JSON.stringify(result) } });
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "What is on tomorrow?",
+      vaultOwnerToken: "fixture", handlers: { onFollowUpSuggestions, onToolStart, onToolWaiting, onToolResult } });
+    if (expected) expect(onFollowUpSuggestions).toHaveBeenCalledExactlyOnceWith(expected);
+    else expect(onFollowUpSuggestions).not.toHaveBeenCalled();
+    expect([onToolStart, onToolWaiting, onToolResult].map((spy) => spy.mock.calls.length)).toEqual([0, 0, 0]);
+    expect(parseRestoredTurnActivity({ activityType: "one.turn_activity.v1", content: { steps: [
+      { id: "follow-ups", tool: "suggest_follow_ups", status: "done" },
+    ] } })).toEqual([]);
   });
 
   it.each([

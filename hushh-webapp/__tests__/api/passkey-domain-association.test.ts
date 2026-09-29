@@ -28,6 +28,20 @@ describe.sequential("native passkey domain association routes", () => {
     expect(response.status).toBe(503);
   });
 
+  it("enables iOS invitation claims only after the native release rollout switch", async () => {
+    process.env.APPLE_TEAM_ID = "ABCDEFGHIJ";
+    delete process.env.NATIVE_INVITATION_LINKS_ENABLED;
+    const webFirst = await (await getAasa()).json();
+    expect(webFirst.applinks.details[0].components.map((item: { "/": string }) => item["/"]))
+      .not.toContain("/circle/join");
+    expect(webFirst.applinks.details[0].components.map((item: { "/": string }) => item["/"]))
+      .toContain("/one/kai/plaid/oauth/return");
+    process.env.NATIVE_INVITATION_LINKS_ENABLED = "true";
+    const appReady = await (await getAasa()).json();
+    expect(appReady.applinks.details[0].components.map((item: { "/": string }) => item["/"]))
+      .toEqual(expect.arrayContaining(["/", "/circle/join", "/one/location/invite/*"]));
+  });
+
   it("publishes the configured iOS and Android associations", async () => {
     process.env.APPLE_TEAM_ID = "ABCDEFGHIJ";
     process.env.NEXT_PUBLIC_IOS_BUNDLE_ID = "com.hushh.app";

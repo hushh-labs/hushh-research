@@ -65,7 +65,7 @@
     {
       "action_id": "auth.open_terms",
       "label": "Terms",
-      "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
+      "meaning": "Opens the full Terms of Use page. Back returns to sign-in.",
       "aliases": ["open terms", "show terms", "terms and conditions"],
       "search_keywords": ["terms", "legal", "conditions"],
       "reachability": {
@@ -89,7 +89,7 @@
     {
       "action_id": "auth.open_privacy",
       "label": "Privacy Policy",
-      "meaning": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
+      "meaning": "Opens the full Privacy Policy page. Back returns to sign-in.",
       "aliases": ["open privacy policy", "show privacy policy", "open privacy"],
       "search_keywords": ["privacy", "policy", "legal"],
       "reachability": {
@@ -107,30 +107,6 @@
         "target": "auth.open_privacy"
       },
       "control_ids": ["auth_privacy"],
-      "state_exposure": [],
-      "docs_references": []
-    },
-    {
-      "action_id": "auth.close_legal",
-      "label": "Close legal document",
-      "meaning": "Closes the inline legal document and returns to the Login screen.",
-      "aliases": ["close terms", "close privacy policy", "close legal document"],
-      "search_keywords": ["close", "terms", "privacy", "legal"],
-      "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": [],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "auth.close_legal"
-      },
-      "control_ids": ["auth_close_legal"],
       "state_exposure": [],
       "docs_references": []
     },

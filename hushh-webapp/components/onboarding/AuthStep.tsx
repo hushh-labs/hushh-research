@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
@@ -23,7 +24,6 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { AuthLegalDialog } from "@/components/onboarding/AuthLegalDialog";
 import {
   isOnboardingFlowActiveCookieEnabled,
   setOnboardingFlowActiveCookie,
@@ -35,7 +35,6 @@ import {
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { type LegalDocumentType } from "@/lib/legal/legal-documents";
 import { trackEvent } from "@/lib/observability/client";
 import {
   resolveGrowthEntrySurface,
@@ -180,10 +179,6 @@ export function AuthStep({
     () => resolveGrowthEntrySurface(redirectPath),
     [redirectPath],
   );
-  const [activeLegalDoc, setActiveLegalDoc] =
-    useState<LegalDocumentType | null>(null);
-  const legalReturnControlIdRef = useRef<string | null>(null);
-  const legalCloseResolversRef = useRef<Array<() => void>>([]);
 
   useEffect(() => {
     setHydrated(true);
@@ -254,61 +249,11 @@ export function AuthStep({
     };
   }, [updateProviderAttemptPhase, user]);
 
-  const openLegalDoc = useCallback(async (docType: LegalDocumentType) => {
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        legalReturnControlIdRef.current =
-          docType === "terms" ? "auth_terms" : "auth_privacy";
-        setActiveLegalDoc(docType);
-        resolve();
-      });
-    });
-  }, []);
-
-  const closeLegalDoc = useCallback(async () => {
-    if (!activeLegalDoc) return;
-    await new Promise<void>((resolve) => {
-      legalCloseResolversRef.current.push(resolve);
-      setActiveLegalDoc(null);
-    });
-  }, [activeLegalDoc]);
-
-  useEffect(() => {
-    if (activeLegalDoc || legalCloseResolversRef.current.length === 0) return;
-    requestAnimationFrame(() => {
-      const returnControlId = legalReturnControlIdRef.current;
-      if (returnControlId) {
-        document
-          .querySelector<HTMLElement>(
-            `[data-voice-control-id="${returnControlId}"]`,
-          )
-          ?.focus();
-      }
-      legalReturnControlIdRef.current = null;
-      const resolvers = legalCloseResolversRef.current.splice(0);
-      resolvers.forEach((resolve) => resolve());
-    });
-  }, [activeLegalDoc]);
-
-  useEffect(
-    () => () => {
-      legalCloseResolversRef.current.splice(0).forEach((resolve) => resolve());
-    },
-    [],
-  );
-
   const returnToWelcome = useCallback(async () => {
     if (providerBusy) {
       return {
         status: "blocked" as const,
         summary: "Sign-in is still in progress.",
-      };
-    }
-    if (activeLegalDoc) {
-      await closeLegalDoc();
-      return {
-        status: "succeeded" as const,
-        summary: "Returned to sign-in.",
       };
     }
     router.replace(
@@ -322,7 +267,7 @@ export function AuthStep({
       ),
       screenAfter: "one_intro",
     };
-  }, [activeLegalDoc, closeLegalDoc, providerBusy, redirectPath, router]);
+  }, [providerBusy, redirectPath, router]);
 
   const handleBack = useCallback(() => {
     void returnToWelcome();
@@ -795,17 +740,23 @@ export function AuthStep({
     }),
   );
   useLocalOnboardingActionHandler("onboarding.back_to_intro", returnToWelcome);
+  // Terms and Privacy Policy are ordinary pages. Voice takes the same
+  // same-tab navigation the footer links do; Back returns to sign-in.
   useLocalOnboardingActionHandler("auth.open_terms", async () => {
-    await openLegalDoc("terms");
-    return { status: "succeeded", summary: "Terms opened." };
+    router.push(ROUTES.TERMS);
+    return {
+      status: "started",
+      summary: "Opening the Terms.",
+      routeAfter: ROUTES.TERMS,
+    };
   });
   useLocalOnboardingActionHandler("auth.open_privacy", async () => {
-    await openLegalDoc("privacy");
-    return { status: "succeeded", summary: "Privacy Policy opened." };
-  });
-  useLocalOnboardingActionHandler("auth.close_legal", async () => {
-    await closeLegalDoc();
-    return { status: "succeeded", summary: "Legal document closed." };
+    router.push(ROUTES.PRIVACY);
+    return {
+      status: "started",
+      summary: "Opening the Privacy Policy.",
+      routeAfter: ROUTES.PRIVACY,
+    };
   });
 
   usePublishVoiceSurfaceMetadata(
@@ -813,7 +764,7 @@ export function AuthStep({
       screenId: "login",
       title: "Sign in to One",
       purpose:
-        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as inline documents.",
+        "This is the sign-in screen. Help the person sign in with Apple or Google so they can open their private vault. Terms and Privacy Policy open as their own pages.",
       actions: [
         ...(!providerBusy
           ? [
@@ -835,15 +786,15 @@ export function AuthStep({
           id: "auth.open_terms",
           actionId: "auth.open_terms",
           label: "Terms",
-          purpose: "Open the Terms document in this screen.",
+          purpose: "Open the Terms page.",
         },
         {
           id: "auth.open_privacy",
           actionId: "auth.open_privacy",
           label: "Privacy Policy",
-          purpose: "Open the Privacy Policy document in this screen.",
+          purpose: "Open the Privacy Policy page.",
         },
-        ...(!activeLegalDoc && !providerBusy
+        ...(!providerBusy
           ? [
               {
                 id: "onboarding.back_to_intro",
@@ -877,18 +828,18 @@ export function AuthStep({
         {
           id: "auth_terms",
           label: "Terms",
-          purpose: "Open the Terms document in this screen.",
+          purpose: "Open the Terms page.",
           actionId: "auth.open_terms",
-          role: "button",
+          role: "link",
         },
         {
           id: "auth_privacy",
           label: "Privacy Policy",
-          purpose: "Open the Privacy Policy document in this screen.",
+          purpose: "Open the Privacy Policy page.",
           actionId: "auth.open_privacy",
-          role: "button",
+          role: "link",
         },
-        ...(!activeLegalDoc && !providerBusy
+        ...(!providerBusy
           ? [
               {
                 id: "auth_back",
@@ -905,53 +856,6 @@ export function AuthStep({
       activeControlId: null,
     },
     { role: "route", routeKey: ROUTES.LOGIN },
-  );
-
-  usePublishVoiceSurfaceMetadata(
-    activeLegalDoc
-      ? {
-          screenId: "login",
-          title: activeLegalDoc === "terms" ? "Terms" : "Privacy Policy",
-          purpose:
-            "An inline legal document is open above Login. Answer questions about it or close it before using Login controls.",
-          actions: [
-            {
-              id: "auth.close_legal",
-              actionId: "auth.close_legal",
-              label: "Close legal document",
-              purpose: "Close this document and restore Login controls.",
-            },
-          ],
-          controls: [
-            {
-              id: "auth_close_legal",
-              label: "Close legal document",
-              purpose: "Close this document and restore Login controls.",
-              actionId: "auth.close_legal",
-              role: "button",
-            },
-          ],
-          modalState: `legal_${activeLegalDoc}`,
-          activeControlId: "auth_close_legal",
-          interactionLayer: {
-            schemaVersion: "voice_interaction_layer.v1",
-            id: `login_legal_${activeLegalDoc}`,
-            kind: "legal_document",
-            modality: "modal",
-            lifecycle: "open",
-            dismissible: true,
-            dismissActionId: "auth.close_legal",
-            visibleActionIds: ["auth.close_legal"],
-            visibleControlIds: ["auth_close_legal"],
-            options: [],
-            returnFocusControlId:
-              activeLegalDoc === "terms" ? "auth_terms" : "auth_privacy",
-            blocksUnderlyingActions: true,
-            agentContinuity: "interactive",
-          },
-        }
-      : null,
-    { role: "interaction_layer", routeKey: ROUTES.LOGIN },
   );
 
   if (hydrated && !authLoading && sessionVerificationRequired) {
@@ -1038,9 +942,7 @@ export function AuthStep({
         onClick={handleBack}
         disabled={providerBusy}
         aria-label={providerBusy ? "Sign-in in progress" : "Go back"}
-        data-voice-control-id={
-          activeLegalDoc || providerBusy ? undefined : "auth_back"
-        }
+        data-voice-control-id={providerBusy ? undefined : "auth_back"}
         className={cn("fixed left-4 top-[calc(max(var(--app-safe-area-top-effective),0.75rem))] z-50 grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] disabled:pointer-events-none disabled:opacity-40 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15", lightStyles.back, isWeb() && lightStyles.webBack)}
       >
         <ArrowLeft className={cn("h-[18px] w-[18px]", lightStyles.existingBackIcon)} strokeWidth={2} />
@@ -1130,34 +1032,25 @@ export function AuthStep({
           <p className="text-xs sm:text-[13px] leading-[1.35] text-[#8E8E93] dark:text-white/90">
             By continuing you agree to our{" "}
             <br />
-            <button
-              type="button"
-              onClick={() => void openLegalDoc("terms")}
+            <Link
+              href={ROUTES.TERMS}
               data-voice-control-id="auth_terms"
               className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Terms
-            </button>
+            </Link>
             <span aria-hidden="true"> and </span>
-            <button
-              type="button"
-              onClick={() => void openLegalDoc("privacy")}
+            <Link
+              href={ROUTES.PRIVACY}
               data-voice-control-id="auth_privacy"
               className="font-semibold text-[#387BF5] transition-opacity hover:opacity-75"
             >
               Privacy Policy
-            </button>
+            </Link>
             .
           </p>
         </div>
       </div>
-      <AuthLegalDialog
-        docType={activeLegalDoc}
-        closeControlId="auth_close_legal"
-        onOpenChange={(open) => {
-          if (!open) void closeLegalDoc();
-        }}
-      />
     </main>
   );
 }

@@ -457,7 +457,7 @@ export function LiveShareStatusCard({
               onClick={runChildAction(onShareMore)}
               className={cn(
                 LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
-                "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform] active:scale-[0.99]",
+                "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform]",
               )}
               data-ui-contract="occlusion-sensitive"
               data-ui-role="control"

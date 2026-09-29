@@ -115,11 +115,11 @@ the background. A blocked popup has no same-tab fallback. A direct/cold callback
 safe: it follows the established return route and asks for a fresh vault unlock only when
 the person next needs vault-backed receipt access.
 
-Login legal documents are authored interaction layers. While Terms or Privacy is open,
-the layer's generated close action and visible controls outrank Apple, Google, and
-route-back actions. One may interpret “close this” naturally, but it can execute only
-the active layer's exact generated action. Close success waits for committed layer
-removal, focus restoration, and the refreshed surface revision.
+Login's Terms and Privacy Policy are plain links to the full `/terms` and `/privacy`
+pages, opened in the same tab; Back returns to sign-in. There is no in-screen legal
+overlay. `auth.open_terms` and `auth.open_privacy` take the same navigation for voice,
+and settle on the destination route. A successful sign-in silently records the served
+document versions; nothing re-prompts a signed-in person to accept them.
 
 The phone code action is confirmation-required. The code is entered only into the
 authored browser or native control, held only in transient client memory, hidden from
@@ -160,7 +160,7 @@ the browser journey suite is expanded.
 
 - explicit Google/Apple from Login selects the exact provider action and requests one provider-specific trusted tap; generic sign-in requests a provider
 - popup success, cancellation, close/retry, focus recovery, SDK failure, and stale completion preserve the existing goal and post-auth route correctly
-- Terms/Privacy expose only their active-layer action inventory and close through visible, keyboard, outside-interaction, and command paths
+- Terms/Privacy navigate to their full pages by tap and by command, and never open an in-app popup
 - Login → phone → hub → capability → explicit capability finish → hub reaches One home only through explicit hub completion
 - Finance offers Plaid, statement upload, or later before its terminal finish and cannot resolve root setup
 - redacted command context and directive settlement are correlated; One cannot show success before settlement

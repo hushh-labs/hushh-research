@@ -86,6 +86,37 @@ async def viewer_person_profile(
         raise _not_found(exc) from exc
 
 
+@router.get("/{person_ref}/scope-catalog")
+async def viewer_scope_catalog(
+    person_ref: str,
+    response: Response,
+    query: str = Query(default="", max_length=200),
+    page: int = Query(default=1, ge=1, le=1000),
+    limit: int = Query(default=20, ge=1, le=100),
+    catalog_revision: str = Query(default="", max_length=64),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Search what the viewer may ask this person for (Contract C4, the Change picker).
+
+    Human labels and synonyms, searched on the server ("restaurant" finds
+    Food), paged. Opaque ``scopeRef`` values only; never a raw scope or a value.
+    """
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _service().search_scope_catalog(
+            viewer_user_id=firebase_uid,
+            public_person_ref=_validated_ref(person_ref),
+            query=query,
+            page=page,
+            limit=limit,
+            catalog_revision=catalog_revision,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise _not_found(exc) from exc
+
+
 @router.get("/{person_ref}/request-history")
 async def viewer_request_history(
     person_ref: str,

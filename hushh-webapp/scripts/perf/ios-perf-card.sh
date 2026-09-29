@@ -189,24 +189,64 @@ touch "$OUT_DIR/.run-start"
 # pixel review of each screen next to its frame numbers. The gate is captured
 # with its keyboard up before anything is typed.
 SHOT_PID=""
-if [[ "${PERF_SECTION:-}" == "session" && -n "${IOS_DEVICE_ID:-}" ]]; then
+FRAME_PIDS=()
+# PERF_SECTION=journeys adds frame capture: while a journey is open
+# (JOURNEY_BEGIN..END, minus PAUSE..RESUME) two workers pull screenshots from
+# the phone, stamped with their start time, and each journey's frames become
+# one video after the run. The phone cannot screen-record (CoreDevice 1001),
+# so this is a slideshow near 1 fps; frame pacing is the probe's job. A frame
+# whose capture straddled a pause is deleted unviewed: the test pauses before
+# the passphrase and before the home screen, which must never be kept.
+if [[ ( "$SECTION" == "session" || "$SECTION" == "journeys" ) && -n "${IOS_DEVICE_ID:-}" ]]; then
   mkdir -p "$OUT_DIR/shots"
   : > "$OUT_DIR/test.log"
+  ACTIVE="$OUT_DIR/frames/.active"
   (
     n=0
     tail -n +1 -F "$OUT_DIR/test.log" 2>/dev/null | while IFS= read -r line; do
+      line="${line//$'\r'/}"
       case "$line" in
         *"PERF_STOP name="*)
           n=$((n + 1))
           # xcodebuild ends its lines with a carriage return; keep it out of the file name.
-          name="${line##*PERF_STOP name=}"; name="${name%% *}"; name="${name//$'\r'/}"
+          name="${line##*PERF_STOP name=}"; name="${name%% *}"
           xcrun devicectl device capture screenshot --device "$IOS_DEVICE_ID" \
             --destination "$OUT_DIR/shots/$(printf %02d "$n")-$name.png" -q >/dev/null 2>&1 || true
+          ;;
+        *"JOURNEY_BEGIN name="*)
+          journey="${line##*JOURNEY_BEGIN name=}"; journey="${journey%% *}"
+          mkdir -p "$OUT_DIR/frames/$journey"; print -r -- "$journey" > "$ACTIVE"
+          ;;
+        *"JOURNEY_RESUME name="*)
+          [[ -n "${journey:-}" ]] && print -r -- "$journey" > "$ACTIVE"
+          ;;
+        *"JOURNEY_PAUSE name="*|*"JOURNEY_END name="*)
+          rm -f "$ACTIVE"
           ;;
       esac
     done
   ) &
   SHOT_PID=$!
+  if [[ "$SECTION" == "journeys" ]]; then
+    mkdir -p "$OUT_DIR/frames"
+    for worker in 1 2; do
+      (
+        zmodload zsh/datetime
+        while [[ ! -f "$OUT_DIR/.frames-stop" ]]; do
+          if [[ -f "$ACTIVE" ]]; then
+            journey="$(<"$ACTIVE")"
+            frame="$OUT_DIR/frames/$journey/$(( ${EPOCHREALTIME%.*} * 1000 + 10#${${EPOCHREALTIME#*.}[1,3]} )).png"
+            xcrun devicectl device capture screenshot --device "$IOS_DEVICE_ID" --destination "$frame" -q >/dev/null 2>&1 || true
+            if [[ ! -f "$ACTIVE" || "$(<"$ACTIVE" 2>/dev/null)" != "$journey" ]]; then rm -f "$frame"; fi
+          else
+            sleep 0.3
+          fi
+        done
+      ) &
+      FRAME_PIDS+=($!)
+      sleep 0.7
+    done
+  fi
 fi
 set +e
 env "$ENABLE_VAR=true" \
@@ -228,14 +268,35 @@ TEST_STATUS=$?
 set -e
 if [[ -n "$SHOT_PID" ]]; then
   sleep 3
+  touch "$OUT_DIR/.frames-stop"; rm -f "$OUT_DIR/frames/.active"
+  for pid in "${FRAME_PIDS[@]}"; do wait "$pid" 2>/dev/null || true; done
   pkill -P "$SHOT_PID" 2>/dev/null || true
   kill "$SHOT_PID" 2>/dev/null || true
   echo "session shots: $(ls "$OUT_DIR/shots" 2>/dev/null | wc -l | tr -d ' ') in $OUT_DIR/shots"
 fi
+# One video per journey from its stamped frames, each frame held until the
+# next one was taken (the last for one second).
+if [[ "$SECTION" == "journeys" && -d "$OUT_DIR/frames" ]] && command -v ffmpeg >/dev/null; then
+  mkdir -p "$OUT_DIR/journeys"
+  for dir in "$OUT_DIR"/frames/*(N/); do
+    frames=("$dir"/*.png(N))
+    (( ${#frames} > 1 )) || continue
+    list="$dir/concat.txt"; : > "$list"
+    for (( i = 1; i <= ${#frames}; i++ )); do
+      t="${frames[i]:t:r}"; next="${frames[i+1]:t:r}"
+      duration="1.000"; [[ -n "$next" ]] && duration="$(printf '%.3f' $(( (next - t) / 1000.0 )))"
+      print -r -- "file '${frames[i]}'" >> "$list"; print -r -- "duration $duration" >> "$list"
+    done
+    print -r -- "file '${frames[-1]}'" >> "$list"
+    ffmpeg -v error -y -f concat -safe 0 -i "$list" -vf "scale=590:-2,fps=10,format=yuv420p" \
+      -c:v libx264 -movflags +faststart "$OUT_DIR/journeys/${dir:t}.mp4" || echo "video failed: ${dir:t}" >&2
+  done
+  echo "journey videos: $(ls "$OUT_DIR/journeys" 2>/dev/null | wc -l | tr -d ' ') in $OUT_DIR/journeys"
+fi
 # Session walks keep their screenshot bursts: export the image attachments
 # only (typed strings live in the activity log, never in attachments), then
 # the bundle goes as always. Plaid proofs never retain screenshots.
-if [[ "$SECTION" == "session" && -d "$RESULT_BUNDLE" ]]; then
+if [[ ( "$SECTION" == "session" || "$SECTION" == "journeys" ) && -d "$RESULT_BUNDLE" ]]; then
   mkdir -p "$OUT_DIR/bursts"
   xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$OUT_DIR/bursts" >/dev/null 2>&1 || true
   find "$OUT_DIR/bursts" -type f ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.jpeg' ! -name 'manifest.json' -delete 2>/dev/null || true

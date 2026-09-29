@@ -63,7 +63,6 @@ vi.mock("lucide-react", () => ({
   Briefcase: () => <span />,
   Building2: () => <span />,
   Pencil: () => <span />,
-  Sparkles: () => <span />,
   BarChart3: () => <span />,
   Landmark: () => <span />,
   FileText: () => <span />,

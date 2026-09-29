@@ -5,11 +5,8 @@
  * server: this module must never be imported from a client component, and the
  * route handlers that use it never echo the key or the endpoint back.
  *
- * One sends rendered `subject` + `html` rather than a registered template id.
- * The registry covers cross-project shapes (invitation, notification,
- * verification); One's lifecycle copy is product-specific and lives with the
- * product, while the transport, key model, idempotency and rate limiting stay
- * with the service.
+ * Retained only for user-requested Save my Soul email. Account and support
+ * notices use the backend's delegated `one@hushh.ai` sender instead.
  */
 
 import "server-only";
@@ -41,8 +38,7 @@ export async function sendMail(input: SendMailInput): Promise<SendMailResult> {
   const endpoint = resolveMailApiEndpoint();
   const apiKey = resolveMailApiKey();
 
-  // Fail open, not closed: a missing binding must never break a sign-in. The
-  // caller decides how loudly to report it.
+  // SOS handles an unavailable optional email channel without undoing the alert.
   if (!endpoint || !apiKey) return { status: "not_configured" };
 
   const to = String(input.to ?? "").trim();

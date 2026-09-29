@@ -97,7 +97,7 @@ export function KaiPersonaScreen(props: {
                   "h-11 rounded-full type-headline",
                   "!bg-primary !text-primary-foreground hover:!bg-primary/90",
                   "transition-transform duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                  "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100"
+                  "motion-reduce:transition-none"
                 )}
               >
                 Continue finance setup

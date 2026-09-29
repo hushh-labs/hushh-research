@@ -31,6 +31,7 @@ def setup(monkeypatch):
                 "review",
                 "files",
                 "approve",
+                "retry",
                 "stop",
                 "received",
                 "received_files",
@@ -60,6 +61,7 @@ def unlock(app):
         ("get", "/received", None),
         ("get", f"/received/{SHARE}/files", None),
         ("post", f"/{SHARE}/approve", {"revision": 1, "reviewDigest": "a" * 64, "confirmed": True}),
+        ("post", f"/{SHARE}/retry", {"revision": 1, "reviewDigest": "a" * 64, "confirmed": True}),
         ("post", f"/{SHARE}/stop", {}),
     ],
 )
@@ -117,6 +119,21 @@ def test_history_preview_and_approval_keep_owner_scope(setup):
     assert response.status_code == 202
     service.approve.assert_awaited_once_with(
         user_id="owner-a", share_id=SHARE, revision=2, review_digest="b" * 64
+    )
+
+
+def test_retry_requires_explicit_exact_review_without_caller_selection(setup):
+    app, client, service, _ = setup
+    unlock(app)
+    body = {"revision": 3, "reviewDigest": "c" * 64, "confirmed": True}
+    for invalid in ({**body, "confirmed": False}, {**body, "fileIds": ["other"]}):
+        assert client.post(BASE + f"/{SHARE}/retry", json=invalid).status_code == 422
+    service.retry.assert_not_awaited()
+    response = client.post(BASE + f"/{SHARE}/retry", json=body)
+    assert response.status_code == 202
+    assert "no-store" in response.headers["Cache-Control"]
+    service.retry.assert_awaited_once_with(
+        user_id="owner-a", share_id=SHARE, revision=3, review_digest="c" * 64
     )
 
 

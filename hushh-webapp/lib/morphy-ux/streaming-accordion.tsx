@@ -26,7 +26,7 @@
 
 import { useRef, useEffect, useState, useCallback } from "react";
 import * as AccordionPrimitive from "@radix-ui/react-accordion";
-import { ChevronDownIcon, Sparkles, Loader2, Database, CheckCircle2 } from "@/components/icons";
+import { ChevronDownIcon, Loader2, Database, CheckCircle2 } from "@/components/icons";
 import type { LucideIcon } from "@/components/icons";
 
 import { cn } from "./cn";
@@ -136,7 +136,7 @@ export interface StreamingAccordionProps {
   /** Callback when user manually toggles */
   onToggle?: (isOpen: boolean) => void;
   /** Icon to show in header (default: spinner) - can be string or React component */
-  icon?: "brain" | "sparkles" | "spinner" | "database" | "none" | "check" | React.ReactNode;
+  icon?: "brain" | "spinner" | "database" | "none" | "check" | React.ReactNode;
   /** Custom class for the icon */
   iconClassName?: string;
 
@@ -391,19 +391,17 @@ export function StreamingAccordion({
         ? isComplete
           ? CheckCircle2
           : Loader2
-        : icon === "sparkles"
-          ? Sparkles
-          : icon === "database"
+        : icon === "database"
+          ? isComplete
+            ? CheckCircle2
+            : Database
+          : icon === "spinner"
             ? isComplete
               ? CheckCircle2
-              : Database
-            : icon === "spinner"
-              ? isComplete
-                ? CheckCircle2
-                : Loader2
-              : icon === "check"
-                ? CheckCircle2
-                : null
+              : Loader2
+            : icon === "check"
+              ? CheckCircle2
+              : null
       : null;
 
   const customIconNode = typeof icon === "string" ? null : icon;

@@ -24,6 +24,9 @@ from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+from hushh_mcp.consent.requestable_scope_policy import is_scope_requestable_by_others
+from hushh_mcp.consent.scope_labels import human_scope_label
+from hushh_mcp.consent.scope_sensitivity import covers, scope_sensitivity
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
@@ -740,8 +743,14 @@ class ConnectionsService:
         page: int = 1,
         limit: int = 100,
         catalog_revision: str = "",
+        ranker: Callable[[list[dict[str, Any]]], list[dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
-        """Page already-authorized metadata; this helper grants no read authority."""
+        """Page already-authorized metadata; this helper grants no read authority.
+
+        ``ranker`` replaces the default ranking (the person-facing catalog
+        search passes its synonym-aware one). It must only filter and order
+        the entries it is given; the revision always digests the full catalog.
+        """
         from hushh_mcp.consent.scope_generator import rank_scope_matches
 
         try:
@@ -763,14 +772,18 @@ class ConnectionsService:
         if reset:
             normalized_page = 1
         offset = (normalized_page - 1) * normalized_limit
-        ranked = rank_scope_matches(
-            safe_entries,
-            query=query,
-            domain=domain,
-            # Rank the bounded catalog before slicing it. Ranking only the
-            # requested page makes `hasMore` false on page one and can move a
-            # valid exact scope behind a different page boundary.
-            limit=None,
+        ranked = (
+            ranker(safe_entries)
+            if ranker is not None
+            else rank_scope_matches(
+                safe_entries,
+                query=query,
+                domain=domain,
+                # Rank the bounded catalog before slicing it. Ranking only the
+                # requested page makes `hasMore` false on page one and can move a
+                # valid exact scope behind a different page boundary.
+                limit=None,
+            )
         )
         page_items = ranked[offset : offset + normalized_limit]
         domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
@@ -798,14 +811,32 @@ class ConnectionsService:
         never enter this projection.
         """
         safe_entries: list[dict[str, Any]] = []
-        for entry in self._scope_entries_lookup(counterpart_user_id):
-            if not isinstance(entry, dict):
-                continue
+        raw_entries = [
+            entry
+            for entry in self._scope_entries_lookup(counterpart_user_id)
+            if isinstance(entry, dict)
+        ]
+        # C7: every PKM sensitivity tag in the owner's catalog, by scope. A
+        # wildcard inherits the tags of every branch it covers, because a grant
+        # on it shares those branches too.
+        tagged = [
+            (str(entry.get("scope") or "").strip(), tag)
+            for entry in raw_entries
+            for tag in (entry.get("sensitivity_label"), entry.get("sensitivity"))
+            if tag
+        ]
+        for entry in raw_entries:
             scope = str(entry.get("scope") or "").strip()
             if not self._is_requestable_dynamic_scope(scope):
                 # Manifest metadata can contain collection markers, but only
                 # the authored placement accepted by internal-path policy is
                 # eligible for an external selector or token issuer.
+                continue
+            if not is_scope_requestable_by_others(scope):
+                # Contract C4: runtime secrets, credentials, keys and tokens
+                # are never requestable by another person. Every catalog page
+                # and every request validation passes through here, so this
+                # one check covers both listing and request creation.
                 continue
             if (
                 entry.get("exposure_eligibility") is False
@@ -817,12 +848,15 @@ class ConnectionsService:
             safe_entries.append(
                 {
                     "scope": scope,
-                    "label": str(entry.get("label") or "") or None,
+                    "label": human_scope_label(scope, str(entry.get("label") or "")),
                     "description": str(entry.get("description") or "") or None,
                     "domain": str(entry.get("domain") or "") or None,
                     "path": str(entry.get("path") or "") or None,
                     "wildcard": bool(entry.get("wildcard")),
-                    "sensitivity": str(entry.get("sensitivity") or "") or None,
+                    "sensitivity": scope_sensitivity(
+                        scope,
+                        [tag for tagged_scope, tag in tagged if covers(scope, tagged_scope)],
+                    ),
                 }
             )
         return safe_entries

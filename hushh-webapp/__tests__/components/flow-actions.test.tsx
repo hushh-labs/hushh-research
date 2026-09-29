@@ -7,7 +7,7 @@ import {
 } from "@/components/app-ui/flow-actions";
 
 describe("FlowActionGroup", () => {
-  it("keeps the secondary action before the primary in DOM and responsive layout", () => {
+  it("shows the primary before the separated secondary action on phones", () => {
     const { container } = render(
       <FlowActionGroup
         secondary={<button type="button">Cancel</button>}
@@ -17,19 +17,22 @@ describe("FlowActionGroup", () => {
 
     const actions = screen.getAllByRole("button");
     expect(actions.map((action) => action.textContent)).toEqual([
-      "Cancel",
       "Continue",
+      "Cancel",
     ]);
 
     const group = container.querySelector('[data-ui-role="flow-actions"]');
     expect(group?.firstElementChild?.className).toContain("grid");
     expect(group?.firstElementChild?.className).toContain("sm:flex");
-    expect(
-      group?.querySelector('[data-action-priority="secondary"]'),
-    ).toBeTruthy();
-    expect(
-      group?.querySelector('[data-action-priority="primary"]'),
-    ).toBeTruthy();
+    const primary = group?.querySelector('[data-action-priority="primary"]');
+    const secondary = group?.querySelector(
+      '[data-action-priority="secondary"]',
+    );
+    expect(primary).toBeTruthy();
+    expect(secondary).toBeTruthy();
+    expect(primary?.className).toContain("order-1");
+    expect(secondary?.className).toContain("order-2");
+    expect(secondary?.className).toContain("border-t");
   });
 
   it("caps decision actions and publishes the selected values", () => {

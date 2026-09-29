@@ -23,7 +23,7 @@ def test_admission_defaults_to_allow_so_one_routes_by_intent() -> None:
     # One is the single routing authority: absence of an explicit block admits a
     # wired, authenticated, consent-bearing specialist from any conversational
     # screen. Consent + TrustLink still gate the call inside the specialist.
-    assert is_one_delegate_admitted("/agent", "agent_nav") is True
+    assert is_one_delegate_admitted("/", "agent_nav") is True
     assert is_one_delegate_admitted("/one/kai", "agent_location") is True
     assert is_one_delegate_admitted("/one/consent", "agent_nav") is True
     assert is_one_delegate_admitted("/one/setup/finance", "agent_kai") is True
@@ -36,7 +36,9 @@ def test_transitional_redirect_surfaces_block_delegation() -> None:
     # Genuine redirect/OAuth-return/logout stubs are the only explicit opt-out:
     # the user is mid-flow there and never actually converses.
     assert is_one_delegate_admitted("/logout", "agent_location") is False
-    assert is_one_delegate_admitted("/one/kai/alpaca/oauth/return", "agent_nav") is False
+    # /agent is now a legacy redirect stub (the Alpaca OAuth return page was
+    # removed with the Plaid vault), so it is the redirect example here.
+    assert is_one_delegate_admitted("/agent", "agent_nav") is False
     entry = resolve_route_orchestration_entry("/logout")
     assert entry is not None
     assert entry["delegation_policy"]["mode"] == "block_delegation"

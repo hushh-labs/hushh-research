@@ -20,27 +20,40 @@
  */
 
 /**
+ * How long a request's access lasts, worded one way on every surface: whole
+ * days when the hours divide into days ("1 day", "7 days", "30 days"),
+ * otherwise hours ("1 hour", "36 hours").
+ *
+ * This is the same rule the server uses for the labels it writes into Chat
+ * history (`duration_label` in consent-protocol/api/routes/one/agent_chat.py),
+ * so a card restored from history and a card drawn live say the same words.
+ * The ask card, the living card, the Profile form and the owner's sheet all
+ * call this; none keeps a second wording ("1 week" beside "7 days" was the
+ * mismatch this replaced).
+ */
+export function requestDurationLabel(hours: number): string {
+  if (!Number.isFinite(hours) || hours <= 0) return "";
+  if (hours % 24 === 0) {
+    const days = hours / 24;
+    return `${days} ${days === 1 ? "day" : "days"}`;
+  }
+  return `${hours} ${hours === 1 ? "hour" : "hours"}`;
+}
+
+/**
  * The durations a request can be made for, in the same order the profile page
  * offers them. Profile and inline Chat import this same typed list for their
  * shared review fields; neither maintains a second duration policy.
  */
 export const REQUEST_DURATION_OPTIONS = [
-  { hours: 24, label: "1 day" },
-  { hours: 72, label: "3 days" },
-  { hours: 168, label: "1 week" },
-  { hours: 720, label: "30 days" },
+  { hours: 24, label: requestDurationLabel(24) },
+  { hours: 72, label: requestDurationLabel(72) },
+  { hours: 168, label: requestDurationLabel(168) },
+  { hours: 720, label: requestDurationLabel(720) },
 ] as const;
 
 /** The duration a request is made for when nothing else was said. */
 export const DEFAULT_REQUEST_DURATION_HOURS = 168;
-
-/** "1 day", "3 days", "1 week", "30 days", or "{n} hours" for anything else. */
-export function requestDurationLabel(hours: number): string {
-  return (
-    REQUEST_DURATION_OPTIONS.find((option) => option.hours === hours)?.label ??
-    `${hours} hours`
-  );
-}
 
 /**
  * Join a list of labels the way a person would say them: "a", "a and b",

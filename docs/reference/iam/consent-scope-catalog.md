@@ -323,9 +323,9 @@ layer the REST routes use (`hushh_mcp/services/consent_lifecycle_service.py`,
 | Step | Chat surface | Guard |
 |---|---|---|
 | Discover | `discover_person_information` (connections, then the directory) | VAULT_OWNER re-validated; labels and opaque `psr_` refs only |
-| Propose | `propose_information_request(person, fields, purpose, duration_hours)` parks a proposal under an opaque id | fields matched by label or domain; 8 to 500 character purpose; 1 to 720 hours |
+| Propose | `propose_information_request(person, fields, purpose, duration_hours)` parks a proposal under an opaque id | fields matched by label or domain; 8 to 500 character purpose; 1 to 720 hours. When every matched item already waits in an open request to the same person it returns `already_pending` with `bundleId` and a `livingCard` descriptor, parks nothing and carries no `proposed` list (which would render a fresh Send); items already waiting are dropped from a partial proposal |
 | Request | `consent.request` with the proposal id | the app's confirmation card authorizes it; the proposal is re-resolved server-side, and the idempotency key is minted from the proposal id so a redelivered directive resolves to the same bundle |
-| Pending | `list_pending_information_requests` | the browser renders each request as the existing pending-consent card |
+| Pending | `list_pending_information_requests` | the browser renders each id in `pendingRequestIds` as the existing pending-consent card. For a person-to-person bundle those are the waiting items' ledger request ids: the Consent Center group id `bundle:<uuid>` resolves to nothing (`consent.pending_lookup found=0`, localhost run 4). `cardsShown` is false when no id can be shown, and One then never says a card is on screen |
 | Approve | the owner's tap on that card | never a tool: the export is encrypted under the vault key in the owner's browser |
 | Deny | `consent.deny` with the `requestId` that listing returned | same ledger write as `/api/consent/pending/deny` |
 | What I am sharing | `list_active_grants` parks each live grant under an opaque `g<n>` handle | the raw scope and request id stay server-side; labels only |

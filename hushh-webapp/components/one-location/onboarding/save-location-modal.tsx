@@ -1380,14 +1380,6 @@ export function SaveLocationModal({
               ) : null}
               <button
                 type="button"
-                onClick={onSkip}
-                disabled={interactionBusy}
-                className={secondaryActionClassName}
-              >
-                Skip saving this place
-              </button>
-              <button
-                type="button"
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
                 aria-busy={saving || undefined}
@@ -1403,6 +1395,17 @@ export function SaveLocationModal({
                   : unifiedSaveError
                     ? "Try saving again"
                     : "Save & continue"}
+              </button>
+              <button
+                type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                className={cn(
+                  secondaryActionClassName,
+                  "mt-2 border-t border-border/60 pt-2",
+                )}
+              >
+                Skip saving this place
               </button>
             </div>
           </footer>

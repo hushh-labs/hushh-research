@@ -3,6 +3,22 @@ import { ApiService } from "@/lib/services/api-service";
 
 const PATH = "/api/connectors/google_drive/searches";
 const STATES = ["queued", "running", "completed", "stopped", "failed", "limited"] as const;
+export type DriveSearchCoverage = {
+  corpora: Array<"user" | "member_shared_drives">;
+  fileKind: string;
+  requestedPeriod: { start: string; end: string; timezone: string } | null;
+  dateBasis: "title_date_then_created_or_modified";
+  contentPeriodVerified: false;
+  providerRowsScanned: number;
+  excludedByDateCount: number;
+  /** Files in matching folders omitted because their titles did not match the request. */
+  excludedByTopicCount?: number;
+  /** Owner-only: request search checked live Drive sharing capability. */
+  shareabilityVerified?: boolean;
+  deduplicatedCount: number;
+  unavailableShortcutCount: number;
+  providerPagesExhausted: boolean;
+};
 export type DriveSearchStatus = {
   jobId: string;
   status: (typeof STATES)[number];
@@ -16,6 +32,7 @@ export type DriveSearchStatus = {
   updatedAt: string;
   errorCode: string | null;
   unshareableCount?: number;
+  coverage?: DriveSearchCoverage;
 };
 export type DriveSearchFile = {
   position: number;
@@ -25,7 +42,7 @@ export type DriveSearchFile = {
   modifiedTime: string | null;
   openUrl: string | null;
   shareable?: boolean;
-  unavailableReason?: "shortcut_target_unavailable" | null;
+  unavailableReason?: "shortcut_target_unavailable" | "source_not_shareable" | "shareability_unverified" | null;
 };
 /** A single saved result, resolved and rechecked by the owner-authenticated chat route. */
 export type DriveSearchSelection = { jobId: string; position: number };
@@ -70,6 +87,36 @@ function date(value: unknown): string {
   if (!Number.isFinite(Date.parse(result))) throw new DriveSearchError("invalid_response");
   return result;
 }
+function coverage(value: unknown): DriveSearchCoverage {
+  const item = record(value);
+  if (!Array.isArray(item.corpora) || item.corpora.length > 2 ||
+    item.corpora.some(corpus => corpus !== "user" && corpus !== "member_shared_drives") ||
+    new Set(item.corpora).size !== item.corpora.length ||
+    item.dateBasis !== "title_date_then_created_or_modified" || item.contentPeriodVerified !== false ||
+    typeof item.providerPagesExhausted !== "boolean" ||
+    item.shareabilityVerified !== undefined && typeof item.shareabilityVerified !== "boolean")
+    throw new DriveSearchError("invalid_response");
+  let requestedPeriod: DriveSearchCoverage["requestedPeriod"] = null;
+  if (item.requestedPeriod != null) {
+    const period = record(item.requestedPeriod);
+    const start = date(period.start), end = date(period.end);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || start > end)
+      throw new DriveSearchError("invalid_response");
+    requestedPeriod = { start, end, timezone: text(period.timezone, 100) };
+  }
+  return { corpora: item.corpora as DriveSearchCoverage["corpora"], fileKind: text(item.fileKind, 32), requestedPeriod,
+    dateBasis: item.dateBasis, contentPeriodVerified: false,
+    providerRowsScanned: count(item.providerRowsScanned, Number.MAX_SAFE_INTEGER),
+    excludedByDateCount: count(item.excludedByDateCount, Number.MAX_SAFE_INTEGER),
+    ...(item.excludedByTopicCount === undefined ? {} : {
+      excludedByTopicCount: count(item.excludedByTopicCount, Number.MAX_SAFE_INTEGER),
+    }),
+    ...(item.shareabilityVerified === undefined ? {} : {
+      shareabilityVerified: item.shareabilityVerified as boolean,
+    }),
+    deduplicatedCount: count(item.deduplicatedCount, Number.MAX_SAFE_INTEGER),
+    unavailableShortcutCount: count(item.unavailableShortcutCount), providerPagesExhausted: item.providerPagesExhausted };
+}
 export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
   const item = record(value);
   if (!STATES.includes(item.status as DriveSearchStatus["status"]) ||
@@ -85,13 +132,17 @@ export function parseDriveSearchStatus(value: unknown): DriveSearchStatus {
     createdAt: date(item.createdAt), expiresAt: date(item.expiresAt), updatedAt: date(item.updatedAt),
     errorCode: item.errorCode == null ? null : text(item.errorCode, 80),
     ...(item.unshareableCount === undefined ? {} : { unshareableCount: count(item.unshareableCount) }),
+    ...(item.coverage == null ? {} : { coverage: coverage(item.coverage) }),
   };
 }
 function file(value: unknown): DriveSearchFile {
   const item = record(value);
   if (item.shareable !== undefined && typeof item.shareable !== "boolean")
     throw new DriveSearchError("invalid_response");
-  if (item.unavailableReason != null && item.unavailableReason !== "shortcut_target_unavailable")
+  if (item.unavailableReason != null &&
+    item.unavailableReason !== "shortcut_target_unavailable" &&
+    item.unavailableReason !== "source_not_shareable" &&
+    item.unavailableReason !== "shareability_unverified")
     throw new DriveSearchError("invalid_response");
   // Accept Google file links only. Provider response strings never become HTML.
   let openUrl: string | null = null;
@@ -105,7 +156,7 @@ function file(value: unknown): DriveSearchFile {
   return { position: position(item.position), id: text(item.id, 256), name: text(item.name, 1000), mimeType: text(item.mimeType, 256),
     modifiedTime: item.modifiedTime == null ? null : date(item.modifiedTime), openUrl,
     ...(item.shareable === undefined ? {} : { shareable: item.shareable as boolean }),
-    ...(item.unavailableReason == null ? {} : { unavailableReason: "shortcut_target_unavailable" as const }) };
+    ...(item.unavailableReason == null ? {} : { unavailableReason: item.unavailableReason as DriveSearchFile["unavailableReason"] }) };
 }
 
 export function parseDriveSearchResults(value: unknown, jobId: string): DriveSearchResults {

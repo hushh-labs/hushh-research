@@ -11,6 +11,7 @@ from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -27,7 +28,7 @@ def _service() -> ConnectionsService:
 
 
 def _handle(exc: Exception) -> HTTPException:
-    if isinstance(exc, ConnectionsError):
+    if isinstance(exc, (ConnectionsError, DirectoryIdentityUnavailableError)):
         # Expected, and already carries a code the client can act on.
         return HTTPException(
             status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}

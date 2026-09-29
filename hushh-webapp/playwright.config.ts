@@ -4,6 +4,25 @@ const baseURL = process.env.BASE_URL || "http://localhost:3000";
 const basePort = new URL(baseURL).port || "3000";
 
 /**
+ * Worker count under CI. One worker unless PLAYWRIGHT_WORKERS names a positive
+ * integer; the browser leg of Web Targeted Contracts sets it, because the
+ * layout packs spent ~11 minutes of a ~13-minute lane running one test at a
+ * time on a 4-vCPU runner. Every layout spec builds its fixture in its own
+ * mkdtemp directory and any server it starts binds port 0, so workers share
+ * nothing. A script that passes `--workers=1` (the Next dev-server pack) still
+ * wins, since the CLI overrides this. A malformed value fails loudly rather
+ * than silently falling back.
+ */
+function ciWorkers(): number {
+  const raw = process.env.PLAYWRIGHT_WORKERS?.trim();
+  if (!raw) return 1;
+  if (!/^[1-9][0-9]*$/.test(raw)) {
+    throw new Error(`PLAYWRIGHT_WORKERS must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return Number(raw);
+}
+
+/**
  * Playwright E2E Configuration for Hushh Webapp (Kai)
  *
  * Run with:
@@ -20,7 +39,7 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  workers: process.env.CI ? ciWorkers() : undefined,
   reporter: process.env.CI ? "github" : "html",
 
   use: {
@@ -85,7 +104,27 @@ export default defineConfig({
       // `text-attachment-viewer.layout` is opted in because the pasted-text
       // sheet, its own scroll box and the scroll after Send are read on an
       // iPhone; its fixture builds its own document.
+      // `settings-row-surface.layout` is opted in because a row's single
+      // full-width surface, the press that falls through its content and the
+      // nested checkbox beside it are tapped on an iPhone first.
+      // `consent-center-row.layout` is opted in because the Requests row's
+      // ✗ / ✓ targets and its row button are tapped on an iPhone.
+      // `shared-with-you-card.layout` is opted in because the secure card is
+      // read on an iPhone first: its Hide and Copy targets, and the ask rows'
+      // keyboard and 44px targets, are measured in the engine the app ships in.
+      // Its fixture builds its own document.
+      // `chat-onboarding.layout` is opted in because selecting text on the
+      // person's own accent bubble reads differently per engine, and the one
+      // that matters is the WKWebView the app ships in. Its fixture builds its
+      // own document.
       testMatch: [
+        /chat-onboarding\.layout\.spec\.ts/,
+        // press-ripple: the md-ripple on pointerdown, no press scale, and the
+        // reduced-motion layer are felt on an iPhone first; own document.
+        /press-ripple\.layout\.spec\.ts/,
+        /settings-row-surface\.layout\.spec\.ts/,
+        /consent-center-row\.layout\.spec\.ts/,
+        /shared-with-you-card\.layout\.spec\.ts/,
         /text-attachment-viewer\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
@@ -93,7 +132,9 @@ export default defineConfig({
         /setup-hub\.layout\.spec\.ts/,
         /phone-entry\.layout\.spec\.ts/,
         /circle-discovery\.layout\.spec\.ts/,
+        /guest-preview\.layout\.spec\.ts/,
         /document-share-review\.layout\.spec\.ts/,
+        /drive-sharing-card\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
         /(intro-viewport\.layout|country-picker\.layout|account-session-recovery|agent-surface-model-authority\.layout|one-voice-panel\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|location-cta-layout|google-contact-sync\.layout|location-switch\.layout|active-share-actions\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-people-rows\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout|contact-invitation-sheet\.layout)\.spec\.ts/,

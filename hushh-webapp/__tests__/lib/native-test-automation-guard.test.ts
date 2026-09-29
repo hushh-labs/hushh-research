@@ -6,7 +6,7 @@ import {
   isNativeUiTestSession,
   preferPassphraseUnlockForAutomation,
   shouldDisableExternalTelemetryForAutomation,
-  shouldSkipAuthMailForAutomation,
+  shouldSkipFirstWelcomeForAutomation,
   shouldSkipGeneratedVaultUnlockForAutomation,
 } from "@/lib/testing/native-test";
 
@@ -23,7 +23,7 @@ describe("native test automation guards", () => {
     expect(isNativeUiTestSession()).toBe(false);
     expect(preferPassphraseUnlockForAutomation()).toBe(false);
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(false);
-    expect(shouldSkipAuthMailForAutomation()).toBe(false);
+    expect(shouldSkipFirstWelcomeForAutomation()).toBe(false);
     expect(isNativeTestVaultBootstrapManaged()).toBe(false);
   });
 
@@ -44,7 +44,7 @@ describe("native test automation guards", () => {
     expect(isNativeUiTestSession()).toBe(true);
     expect(preferPassphraseUnlockForAutomation()).toBe(true);
     expect(shouldSkipGeneratedVaultUnlockForAutomation()).toBe(true);
-    expect(shouldSkipAuthMailForAutomation()).toBe(true);
+    expect(shouldSkipFirstWelcomeForAutomation()).toBe(true);
     expect(isNativeTestVaultBootstrapManaged()).toBe(true);
     expect(shouldDisableExternalTelemetryForAutomation()).toBe(true);
   });

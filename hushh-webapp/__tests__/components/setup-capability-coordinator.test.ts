@@ -7,7 +7,7 @@ import {
   resolveSetupCapabilityTerminalScreen,
   resolveSetupCapabilityTerminalTarget,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildOneSetupFinanceImportRoute, ROUTES } from "@/lib/navigation/routes";
 import type { PreVaultUserState } from "@/lib/services/pre-vault-user-state-service";
 
 describe("setup capability journey settlement", () => {
@@ -141,6 +141,30 @@ describe("setup capability journey settlement", () => {
           kind,
         }),
       ).toBe(ROUTES.ONE_SETUP);
+    }
+  });
+
+  it("retains a validated invitation only after root setup, including an explicit skip", () => {
+    const invite = "/circle/join?invite=opaque_token";
+    expect(buildOneSetupFinanceImportRoute(invite)).toBe(
+      ROUTES.ONE_SETUP_FINANCE_IMPORT + "?return_to=" + encodeURIComponent(invite),
+    );
+    for (const kind of ["finish", "skip"] as const) {
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "individual",
+        hasExplicitIncompleteSetup: false, kind, returnTo: invite,
+      })).toBe(invite);
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "root",
+        hasExplicitIncompleteSetup: true, kind, returnTo: invite,
+      })).toBe(ROUTES.ONE_SETUP);
+    }
+    for (const unsafe of ["https://outside.example/", "//outside.example/", "javascript:alert(1)", ROUTES.ONE_SETUP]) {
+      expect(buildOneSetupFinanceImportRoute(unsafe)).toBe(ROUTES.ONE_SETUP_FINANCE_IMPORT);
+      expect(resolveSetupCapabilityTerminalTarget({
+        capabilityId: "finance", journeyMode: "individual",
+        hasExplicitIncompleteSetup: false, kind: "finish", returnTo: unsafe,
+      })).toBe(ROUTES.KAI_HOME);
     }
   });
 

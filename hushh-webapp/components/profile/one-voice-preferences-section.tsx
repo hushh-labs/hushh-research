@@ -14,9 +14,10 @@
 
 import { useEffect, useState } from "react";
 import {
-  EarIcon as Ear,
-  BroadcastIcon as Radio,
-} from "@/components/icons";
+  LiveVoiceRowIcon,
+  SpeakerSafeRowIcon,
+  type AgentIconProps,
+} from "@/components/icons/agents";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { VoiceMicrophoneCheck } from "@/components/one-voice/voice-microphone-check";
@@ -33,6 +34,12 @@ import {
 // this flag lives beside it under the same key prefix instead of inside it.
 // The Live session provider reads it through `readSpeakerphoneSafePreference`
 // and passes it as `forced` to `decideHalfDuplex`.
+
+// Live voice keeps one glyph in both states; when the server has it off the
+// glyph is muted, so the row still reads "not on" before the badge does.
+function LiveVoiceIdleRowIcon(props: AgentIconProps) {
+  return <LiveVoiceRowIcon {...props} color="var(--muted-foreground)" />;
+}
 
 const SPEAKERPHONE_SAFE_KEY_PREFIX = "one_voice_preferences_v1:";
 const SPEAKERPHONE_SAFE_KEY_SUFFIX = ":speakerphone_safe";
@@ -207,8 +214,8 @@ export function OneVoicePreferencesSection({
       testId="one-voice-preferences-section"
     >
       <SettingsRow
-        icon={Radio}
-        iconTone={live.status === "ready" ? "green" : "gray"}
+        icon={live.status === "ready" ? LiveVoiceRowIcon : LiveVoiceIdleRowIcon}
+        iconTone="capability"
         title="Live voice"
         description={live.description}
         trailing={
@@ -226,8 +233,8 @@ export function OneVoicePreferencesSection({
           tokens keep it flush with the SettingsRows around it. */}
       <VoiceMicrophoneCheck className="px-[var(--settings-row-px)] py-[var(--settings-row-py)]" />
       <SettingsRow
-        icon={Ear}
-        iconTone="orange"
+        icon={SpeakerSafeRowIcon}
+        iconTone="capability"
         title="Speakerphone-safe mode"
         description="Pauses your microphone while One is talking so the speaker can't interrupt itself. Use it on a phone without echo cancellation."
         trailing={

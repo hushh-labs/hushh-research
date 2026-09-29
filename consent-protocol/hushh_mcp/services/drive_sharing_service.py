@@ -79,14 +79,25 @@ class DriveSharingService:
             raise DriveSharingError("bulk_not_found")
         from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 
-        page = await DriveBulkShareStore(db=self.store.db).recipient_files(
-            recipient_user_id=user_id,
-            recipient_subject=recipient["subject"],
-            recipient_email=recipient["email"],
-            share_id=share_id,
-            cursor=cursor,
-            limit=25,
-        )
+        bulk = DriveBulkShareStore(db=self.store.db)
+        if current["result"].get("progressiveBatch"):
+            page = await bulk.recipient_request_files(
+                recipient_user_id=user_id,
+                recipient_subject=recipient["subject"],
+                recipient_email=recipient["email"],
+                request_id=request_id,
+                cursor=cursor,
+                limit=25,
+            )
+        else:
+            page = await bulk.recipient_files(
+                recipient_user_id=user_id,
+                recipient_subject=recipient["subject"],
+                recipient_email=recipient["email"],
+                share_id=share_id,
+                cursor=cursor,
+                limit=25,
+            )
         return {"requestId": request_id, **page}
 
     async def approve(self, *, user_id, **kwargs):

@@ -179,6 +179,26 @@ Growth-parameter policy:
 | --- | --- | --- | --- | --- | --- |
 | `api_request_completed` | Central API health signal with normalized route and status buckets | `endpoint_template`, `http_method`, `result`, `status_bucket`, `duration_ms_bucket` | `hushh-webapp/lib/observability/client.ts`, called from `hushh-webapp/lib/services/api-service.ts` | request health, expected/unexpected failure classification, dashboard health rollups | `npm run verify:analytics`, GA DebugView, BigQuery instrumentation-health query |
 
+### Web GA4 event budget
+
+gtag.js limits GA4 events per page with a token bucket: 20 tokens, 5 more each
+second, never above 20. An event that arrives with no token is dropped silently;
+no request is made and no error is raised. One Kai dashboard load emits dozens of
+`api_request_completed` hits in a few seconds, and before gtag.js loads every
+queued hit is processed in one burst. That burst used to drop product events such
+as `portfolio_viewed` and `consent_pending_loaded`, which is why the UAT release
+analytics smoke failed intermittently.
+
+`hushh-webapp/lib/observability/adapters/gtag-hit-budget.ts` now decides who
+spends the budget. The high-volume operational events (`api_request_completed`,
+`cache_resource_resolved`, `route_readiness_completed`, `route_refresh_completed`,
+`warmup_completed`) only reach gtag while 8 tokens stay free for product events;
+every other event is always forwarded. Every event still reaches `dataLayer`.
+Consequence for reporting: on the web stream, operational events are a
+budget-shaped sample during load bursts, not a complete count. Read request
+volume from backend request summaries, and use these events for rates and
+buckets.
+
 ## Cache Performance and UX Readiness
 
 These events are metadata-only. They must never include raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, portfolio values, or decrypted data.

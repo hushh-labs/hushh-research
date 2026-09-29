@@ -370,7 +370,7 @@ export function KaiPreferencesWizard(props: {
                 className={cn(
                   "h-12 rounded-full type-headline",
                   "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-                  "active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100",
+                  "motion-reduce:transition-none",
                   canContinue
                     ? "!bg-primary !text-primary-foreground hover:!bg-primary/90"
                     : "!bg-muted !text-muted-foreground"

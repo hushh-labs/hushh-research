@@ -586,7 +586,7 @@ function AdvisorDetailSheet({
           type="button"
           onClick={() => onConnect(profile)}
           className={cn(
-            "w-full rounded-full px-4 py-3.5 text-[15px] font-semibold transition-transform active:scale-[0.98]",
+            "w-full rounded-full px-4 py-3.5 text-[15px] font-semibold transition-transform",
             requested
               ? "bg-[color:var(--one-up-t)] text-[color:var(--one-up)]"
               : "bg-[color:var(--one-blue)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.30)]"
@@ -679,7 +679,7 @@ export function KaiConnectPreviewView() {
             <button
               type="button"
               onClick={() => setNotificationsOpen(true)}
-              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform active:scale-90"
+              className="relative grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[color:var(--one-surface)] text-[color:var(--one-fg)] transition-transform"
               aria-label="Notifications"
             >
               <span className="absolute right-2 top-[7px] h-1.5 w-1.5 rounded-full bg-[color:var(--one-down,#ff3b30)] shadow-[0_0_0_2px_var(--one-surface)]" />
@@ -704,7 +704,7 @@ export function KaiConnectPreviewView() {
           <button
             type="button"
             onClick={() => setKaiOpen(true)}
-            className={cn(connectGlassClassName, "mt-4 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-3 text-left transition-transform active:scale-[0.99]")}
+            className={cn(connectGlassClassName, "mt-4 flex w-full items-center gap-[11px] rounded-2xl px-3.5 py-3 text-left transition-transform")}
           >
             <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white">
               <Bot className="h-4 w-4" />
@@ -754,7 +754,7 @@ export function KaiConnectPreviewView() {
               <button
                 type="button"
                 onClick={() => setSelectedProfile(CONNECT_PICK)}
-                className="mt-3.5 w-full rounded-full bg-[color:var(--one-surface)] py-3 text-[14px] font-semibold text-[color:var(--one-link)] transition-transform active:scale-[0.98]"
+                className="mt-3.5 w-full rounded-full bg-[color:var(--one-surface)] py-3 text-[14px] font-semibold text-[color:var(--one-link)] transition-transform"
               >
                 View profile
               </button>

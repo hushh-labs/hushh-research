@@ -32,8 +32,21 @@ BEGIN
   END IF;
 END $$;
 
-CREATE UNIQUE INDEX IF NOT EXISTS drive_bulk_origin_request_unique
-  ON drive_bulk_shares(user_id,origin_request_id)
-  WHERE origin_request_id IS NOT NULL;
+-- Migration 259 permits several immutable batches per request and drops this
+-- index. Release deploys replay older migrations, so do not recreate the old
+-- one-batch rule after 259 has already upgraded this database.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_attribute
+    WHERE attrelid = 'drive_bulk_shares'::regclass
+      AND attname = 'progressive_batch'
+      AND attnum > 0 AND NOT attisdropped
+  ) THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS drive_bulk_origin_request_unique
+      ON drive_bulk_shares(user_id,origin_request_id)
+      WHERE origin_request_id IS NOT NULL;
+  END IF;
+END $$;
 
 COMMIT;

@@ -21,7 +21,7 @@ from hushh_mcp.services.external_mcp_client import (
     call_tool,
     list_tools,
 )
-from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_adapter import FILE_ID, LIVE_POLICY_HASH, RESOURCE_KEY
 from hushh_mcp.services.mcp_capability_policy import (
     admit_catalog,
     arguments_bounded,
@@ -45,8 +45,33 @@ GOOGLE_DRIVE_READ_TOOLS = frozenset(
     }
 )
 _CATALOG_TTL_SECONDS = 300
-_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "createdTime", "viewUrl"})
+_SEARCH_FIELDS = frozenset(
+    {"id", "title", "mimeType", "modifiedTime", "createdTime", "driveId", "resourceKey", "viewUrl"}
+)
+_SHORTCUT_FIELDS = {"targetId": 200, "targetMimeType": 255, "targetResourceKey": 200}
 _LISTING_TOOLS = frozenset({"search_files", "list_recent_files"})
+
+
+def _shortcut_metadata(item: dict[str, Any]) -> dict[str, Any]:
+    value = item.get("shortcutDetails")
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    details = {key: value[key] for key in _SHORTCUT_FIELDS if value.get(key) is not None}
+    if any(
+        not isinstance(field, str)
+        or not 1 <= len(field) <= _SHORTCUT_FIELDS[key]
+        or any(ord(char) < 32 or ord(char) == 127 for char in field)
+        for key, field in details.items()
+    ) or (
+        "targetId" in details
+        and not FILE_ID.fullmatch(details["targetId"])
+        or "targetResourceKey" in details
+        and not RESOURCE_KEY.fullmatch(details["targetResourceKey"])
+    ):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    return {"shortcutDetails": details} if details else {}
 
 
 def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
@@ -68,7 +93,7 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     incomplete = payload.get("incompleteSearch", False)
     if not isinstance(incomplete, bool) or next_page is not None and len(next_page) > 1024:
         raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
-    # Metadata fields are scalar strings, not a channel for nested content.
+    # Scalar metadata and bounded shortcut references are not content channels.
     if any(
         value is not None and not isinstance(value, str)
         for item in files
@@ -76,9 +101,18 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
         if key in _SEARCH_FIELDS
     ):
         raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
+    if any(
+        item.get(key) is not None and not pattern.fullmatch(item[key])
+        for item in files
+        for key, pattern in (("driveId", FILE_ID), ("resourceKey", RESOURCE_KEY))
+    ):
+        raise ExternalMcpError("Invalid Drive listing.", code="MCP_INVALID_RESULT")
     return {
         "files": [
-            {key: value for key, value in item.items() if key in _SEARCH_FIELDS}
+            {
+                **{key: value for key, value in item.items() if key in _SEARCH_FIELDS},
+                **_shortcut_metadata(item),
+            }
             for item in files[:26]
         ],
         "nextPageToken": next_page,

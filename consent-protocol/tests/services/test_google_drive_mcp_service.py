@@ -315,6 +315,48 @@ def test_search_projection_keeps_creation_time_for_recordings():
     assert projected["files"] == [{"id": "f", "title": "R", "createdTime": "2026-09-20T00:00:00Z"}]
 
 
+def test_search_projection_preserves_only_bounded_shortcut_references():
+    item = {
+        "id": "alias",
+        "title": "Standup",
+        "mimeType": "application/vnd.google-apps.shortcut",
+        "resourceKey": "alias-key",
+        "driveId": "drive-one",
+        "snippet": "private content",
+        "shortcutDetails": {
+            "targetId": "original",
+            "targetMimeType": "application/pdf",
+            "targetResourceKey": "original-key",
+            "description": "private target content",
+        },
+    }
+    projected = _search_metadata({"files": [item]})["files"][0]
+    assert projected["shortcutDetails"] == {
+        "targetId": "original",
+        "targetMimeType": "application/pdf",
+        "targetResourceKey": "original-key",
+    }
+    assert projected["resourceKey"] == "alias-key" and projected["driveId"] == "drive-one"
+    assert "snippet" not in projected and "private" not in str(projected)
+
+
+@pytest.mark.parametrize(
+    "details",
+    [
+        [],
+        {"targetId": "../target"},
+        {"targetId": {"content": "injection"}},
+        {"targetResourceKey": "key\r\nheader"},
+        {"targetMimeType": "x" * 256},
+    ],
+)
+def test_search_projection_rejects_invalid_shortcut_references(details):
+    with pytest.raises(ExternalMcpError):
+        _search_metadata(
+            {"files": [{"id": "alias", "title": "Standup", "shortcutDetails": details}]}
+        )
+
+
 @pytest.mark.asyncio
 async def test_recent_listing_uses_the_same_bounded_projection(monkeypatch):
     admit(monkeypatch, tool="list_recent_files")

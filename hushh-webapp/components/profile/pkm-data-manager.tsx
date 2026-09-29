@@ -13,6 +13,11 @@ import {
   ArrowsClockwiseIcon as RefreshCw,
   XIcon as X,
 } from "@/components/icons";
+import {
+  FolderRowIcon,
+  SyncRowIcon,
+  WarningRowIcon,
+} from "@/components/icons/agents";
 
 import {
   SurfaceCard,
@@ -130,8 +135,8 @@ function DomainCard({
 
   return (
     <SettingsRow
-      icon={Folder}
-      iconTone="purple"
+      icon={FolderRowIcon}
+      iconTone="capability"
       title={domain.title}
       description={description || "Saved details ready to review."}
       onClick={onOpen}
@@ -351,8 +356,8 @@ export function PkmDataManagerPanel({
           <SettingsGroup separatorInset testId="memory-saved-details-group">
             {filteredDomains.length === 0 ? (
               <SettingsRow
-                icon={Folder}
-                iconTone="purple"
+                icon={FolderRowIcon}
+                iconTone="capability"
                 title={
                   domains.length === 0
                     ? "No saved details yet"
@@ -380,8 +385,8 @@ export function PkmDataManagerPanel({
       {loadingDomainCount > 0 || domainErrorCount > 0 ? (
         <SettingsGroup title="Availability" separatorInset>
           <SettingsRow
-            icon={domainErrorCount > 0 ? AlertTriangle : RefreshCw}
-            iconTone={domainErrorCount > 0 ? "orange" : "gray"}
+            icon={domainErrorCount > 0 ? WarningRowIcon : SyncRowIcon}
+            iconTone="capability"
             title={
               domainErrorCount > 0
                 ? "Refresh needed"

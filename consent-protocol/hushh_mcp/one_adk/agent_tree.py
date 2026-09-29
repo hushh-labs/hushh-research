@@ -101,6 +101,12 @@ from hushh_mcp.one_adk.agui_turn_timing import (
 from hushh_mcp.one_adk.consent_continuation import (
     block_tools_during_consent_answer,
     consent_continuation_instruction,
+    is_consent_answer_turn,
+)
+from hushh_mcp.one_adk.consent_redaction import (
+    consent_answer_fast_path,
+    redact_ended_consent_context,
+    track_consent_access,
 )
 from hushh_mcp.one_adk.drive_write_tools import (
     comment_on_drive_file,
@@ -115,12 +121,17 @@ from hushh_mcp.one_adk.external_read_boundary import (
     after_external_read_tool,
     before_external_read_tool,
 )
+from hushh_mcp.one_adk.feed_attention import (
+    block_tools_during_feed_attention,
+    feed_attention_instruction,
+)
 from hushh_mcp.one_adk.finance_market_tools import (
     MARKET_QUOTES_TOOL_NAME,
     TICKER_NEWS_TOOL_NAME,
     get_market_quotes,
     get_ticker_news,
 )
+from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
 from hushh_mcp.one_adk.registered_mcp_toolset import (
@@ -689,15 +700,17 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "the existing proposal and confirmation actions. Only offer a valid, visibly labeled profile "
     "link when requested; never claim navigation or submission happened without a result.\n\n"
     "When the person asks what information a connection has shared with them, whether "
-    "a request was approved, or to see approved information, call "
-    "list_information_shared_with_me for the selected person. Open outgoing requests "
-    "cannot establish a grant; discovery only shows what can be requested. Report only "
-    "the granted labels, domains, and grantor returned by the current tool. Values stay "
-    "end-to-end encrypted: the bound Chat request card can reveal them in the person's "
-    "unlocked app when available. Do not claim to have read or shown private values "
-    "from grant metadata, and do not send the person to Profile automatically. Only offer "
-    "a valid same-app profilePath when they ask to open it. If the conversation has "
-    "already selected a named person, "
+    "they have access to it, whether a request was approved, or to see approved "
+    "information, call list_information_shared_with_me for the selected person. Open "
+    "outgoing requests cannot establish a grant; discovery only shows what can be "
+    "requested. The chat renders the secure 'Shared with you' card from that result at "
+    "once, and it opens the values on the person's own device (asking them to unlock if "
+    'needed). Reply in one short line such as "Here\'s what Manish shared with you:" and '
+    "let the card show the rest. You hold labels and field names only: never guess, "
+    "restate or invent a value, and never say a reveal card may be available, that you "
+    "cannot display it, or the words grant, scope, domain or PKM, and do not send the "
+    "person to Profile automatically; only offer a valid same-app profilePath when they "
+    "ask to open it. If the conversation has already selected a named person, "
     "keep that person for a follow-up such as 'list the fields'; do not call the unfiltered "
     "all-connections view or substitute another grantor.\n\n"
     # Reading the person's own PKM data. One general read tool, not one per
@@ -809,7 +822,8 @@ def _one_runtime_instruction(context: Any) -> str:
     """
     started_at = time.perf_counter()
     try:
-        return _compose_one_runtime_instruction(context)
+        state_getter = getattr(getattr(context, "state", None), "get", None)
+        return _compose_one_runtime_instruction(context) + follow_up_instruction(state_getter)
     finally:
         record_instruction_build((time.perf_counter() - started_at) * 1000)
 
@@ -960,6 +974,8 @@ def _compose_one_runtime_instruction(context: Any) -> str:
         )
     # The owner's answer to this person's information request, for one turn.
     consent_continuation_block = consent_continuation_instruction(state_getter)
+    # A push tap about one feed update: grounded only in that item, no tools.
+    consent_continuation_block += feed_attention_instruction(state_getter)
     pending_draft_instruction = pending_email_draft_instruction(state_getter)
     voice_context = state_getter(STATE_VOICE_CONTEXT) if callable(state_getter) else None
     if not isinstance(voice_context, dict):
@@ -2421,6 +2437,7 @@ def _one_roster_tools(
         propose_calendar_event,
         propose_calendar_reschedule,
         propose_calendar_cancellation,
+        suggest_follow_ups,
     ]
     if not pod_mode():
         tools.append(propose_gmail_mailbox_change)
@@ -2471,9 +2488,46 @@ def build_one_root_agent(
 
 
 def _before_one_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
-    """One's tool gate: a consent answer turn runs no tools; then the read boundary."""
-    return block_tools_during_consent_answer(tool_context) or before_external_read_tool(
-        tool, args, tool_context
+    """One's tool gate: a consent answer or feed-attention turn runs no tools; then the read boundary.
+
+    Follow-up suggestions read and act on nothing, so the post-read barrier does
+    not apply to them; identity is the application-owned function, never a name.
+    A consent answer admits them too: they end the turn in the answering model
+    call, where a refusal would cost a second call that restates the answer
+    (run 2da4bf9c). They stay blocked in feed-attention turns like every tool.
+    """
+    follow_ups = getattr(tool, "func", None) is suggest_follow_ups
+    if follow_ups and is_consent_answer_turn(tool_context):
+        return None
+    blocked = block_tools_during_consent_answer(tool_context) or block_tools_during_feed_attention(
+        tool_context
+    )
+    if blocked or follow_ups:
+        return blocked
+    return before_external_read_tool(tool, args, tool_context)
+
+
+async def _requester_bundle(owner_id: str, bundle_id: str) -> dict[str, Any] | None:
+    """Requester-bound bundle read for consent redaction; absent for anyone else."""
+    from hushh_mcp.services.information_request_service import InformationRequestService
+
+    if not owner_id or owner_id.startswith("anonymous:"):
+        return None
+    bundle: dict[str, Any] = await InformationRequestService().get(
+        requester_user_id=owner_id, bundle_id=bundle_id
+    )
+    return bundle
+
+
+async def _track_one_consent_access(callback_context: Any) -> None:
+    await track_consent_access(callback_context, lookup=_requester_bundle)
+
+
+def _one_consent_before_model(callback_context: Any, llm_request: Any) -> None:
+    """Redact ended shared information, then speed up a consent answer turn."""
+    redact_ended_consent_context(callback_context, llm_request)
+    consent_answer_fast_path(
+        callback_context, llm_request, model=getattr(llm_request, "model", None)
     )
 
 
@@ -2505,10 +2559,12 @@ def build_one_text_agent(
             allow_workspace_tools=allow_workspace_tools,
             allow_private_mcp=allow_private_mcp,
         ),
-        before_agent_callback=timed_one_before_agent,
+        # Consent access is checked once per turn, then redacted before every
+        # model call (consent_redaction.py, CONTRACT C3).
+        before_agent_callback=[timed_one_before_agent, _track_one_consent_access],
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,
-        before_model_callback=timed_one_before_model,
+        before_model_callback=[_one_consent_before_model, timed_one_before_model],
         after_model_callback=timed_one_after_model,
         # Preserve the configured Chat thinking level for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(

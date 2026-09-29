@@ -111,6 +111,11 @@ _SAFE_METADATA_KEYS = frozenset(
         "share_kind",
         "person_ref",
         "bundle_id",
+        # One Feed item per person-to-person request (migration 259): which
+        # request it is, and what was asked for in human words, so the item
+        # reads "<Name> wants your <labels> · <reason>" and can act inline.
+        "requested_labels",
+        "requested_count",
     }
 )
 

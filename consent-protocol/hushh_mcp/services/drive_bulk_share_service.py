@@ -126,7 +126,13 @@ class DriveBulkShareService:
 
     @drive_operation(job_key="share_id")
     async def approve(
-        self, *, user_id: str, share_id: str, revision: int, review_digest: str
+        self,
+        *,
+        user_id: str,
+        share_id: str,
+        revision: int,
+        review_digest: str,
+        approval_source: str = "owner",
     ) -> dict:
         started = time.perf_counter()
         await self._owner()
@@ -136,6 +142,7 @@ class DriveBulkShareService:
             share_id=share_id,
             revision=revision,
             review_digest=review_digest,
+            approval_source=approval_source,
         )
         # PostgreSQL is authoritative; a lost wake still resumes on schedule.
         await self.wake("sharing")
@@ -144,6 +151,19 @@ class DriveBulkShareService:
             "drive_bulk_share.approve outcome=accepted duration_ms=%d",
             int((time.perf_counter() - started) * 1000),
         )
+        return result
+
+    @drive_operation(job_key="share_id")
+    async def retry(
+        self, *, user_id: str, share_id: str, revision: int, review_digest: str
+    ) -> dict:
+        await self._owner()
+        self._admit(user_id)
+        result = await self.store.retry(
+            user_id=user_id, share_id=share_id, revision=revision, review_digest=review_digest
+        )
+        await self.wake("sharing")
+        await self._owner()
         return result
 
     @drive_operation(job_key="share_id")

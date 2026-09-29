@@ -24,6 +24,8 @@ type AgentPkmReviewPanelProps = {
   onEdit?: () => void;
   /** Owner's domain display names, so chat names a place exactly as Profile does. */
   domainTitles?: ReadonlyMap<string, string>;
+  /** Connector notes must show their proposed content before confirmation. */
+  showSourceText?: boolean;
 };
 
 type ReviewGroup = { destination: string; cards: AgentPkmPreviewCard[] };
@@ -79,6 +81,7 @@ export function AgentPkmReviewPanel({
   onDismiss,
   onEdit,
   domainTitles,
+  showSourceText = false,
 }: AgentPkmReviewPanelProps) {
   const reviewableCards = cards.filter((card) => !isReservedPkmCard(card));
   if (reviewableCards.length === 0) return null;
@@ -203,12 +206,15 @@ export function AgentPkmReviewPanel({
                     <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-start justify-between gap-3">
                         <p className="font-medium text-foreground">
-                          {multiGroup ? cleanText(card.source_text, 140) || destinationOf(card) : destinationOf(card)}
+                          {multiGroup && !showSourceText ? cleanText(card.source_text, 140) || destinationOf(card) : destinationOf(card)}
                         </p>
                         <span className="shrink-0 rounded-full border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
                           {cardSensitivity(card)}
                         </span>
                       </div>
+                      {showSourceText && card.source_text ? (
+                        <p className="whitespace-pre-wrap break-words text-sm leading-5 text-foreground">{card.source_text}</p>
+                      ) : null}
                       {multiGroup ? null : card.confirmation_reason ? (
                         <p className="leading-5 text-muted-foreground">{cleanText(card.confirmation_reason, 120)}</p>
                       ) : null}

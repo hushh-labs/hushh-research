@@ -7,7 +7,6 @@ import {
   InfoIcon,
   WarningIcon,
   AlertCircleIcon as WarningCircleIcon,
-  SparkleIcon,
 } from "@/components/icons";
 import { useIconWeight } from "./icon-theme-context";
 import { cn } from "@/lib/utils";
@@ -301,7 +300,7 @@ export const useMorphyToast = () => {
       duration,
       
       icon: icon || (
-        <SparkleIcon
+        <InfoIcon
           className="h-4 w-4 text-current"
           weight={iconWeight}
         />

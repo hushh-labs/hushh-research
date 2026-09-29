@@ -682,7 +682,7 @@ export function SharedWithMeCard({
           <button
             type="button"
             className={cn(
-              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
+              "ui-text-button-label inline-flex min-h-11 items-center gap-2 rounded-[13px] px-3.5 text-[color:var(--app-accent)] transition-[background-color,color,transform] duration-150 hover:bg-[color:var(--app-accent-surface-strong)] hover:text-[color:var(--app-accent-deep)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:opacity-60 motion-reduce:transition-none",
               isPreviewExpanded
                 ? "-ml-2 min-h-10 rounded-full bg-transparent px-2"
                 : "w-full justify-center bg-[color:var(--app-accent-tint)]",
