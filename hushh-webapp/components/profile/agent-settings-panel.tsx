@@ -449,7 +449,7 @@ export function AgentSettingsPanel({
 
       {isPod && update.failed && update.operationId ? (
         <p className="text-xs text-muted-foreground">
-          This sends only update stages and error codes to Hussh when you choose to report it.
+          This sends the update ID, release ID, and up to 12 lifecycle events when you choose to report it. It does not send pod logs or your files.
         </p>
       ) : null}
 

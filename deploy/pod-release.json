@@ -17,5 +17,7 @@
       "Update completion requires installed-image and recovery verification; logs are not sent automatically."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:d278e7a2ae1164a3a1f79e65fca67f20bc029aab49f3bfcb2a154ac91a34472a"
+  ]
 }
