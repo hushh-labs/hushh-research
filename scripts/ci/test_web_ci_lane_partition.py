@@ -85,6 +85,10 @@ def _one_matching_file_per_pack() -> str:
     assert patterns, "web-targeted-check.sh has no has_match packs"
     chosen: list[str] = []
     for pattern in patterns:
+        # Mermaid rendering is a direct browser command, outside run_check's
+        # npm packs. Exercise its leg separately below without Chromium here.
+        if "render-doc-mermaid" in pattern:
+            continue
         regex = re.compile(pattern)
         hit = next((path for path in tracked if regex.search(path)), None)
         if hit is not None:
@@ -133,6 +137,14 @@ def test_targeted_legs_partition_the_matched_packs() -> None:
 def test_targeted_rejects_an_unknown_part() -> None:
     code, calls, _ = _run(TARGETED, {"WEB_TARGETED_PART": "chromium"})
     assert code == 2 and not calls
+
+
+def test_node_leg_leaves_diagram_rendering_to_browser_leg() -> None:
+    code, calls, output = _run(
+        TARGETED, {"WEB_TARGETED_PART": "node", "WEB_TARGETED_CHANGED_FILES": "docs/README.md"}
+    )
+    assert code == 0, output[-2000:]
+    assert not calls and "Rendered " not in output
 
 
 def test_full_suite_shards_run_verifiers_once() -> None:
@@ -185,6 +197,7 @@ def main() -> int:
     tests = (
         test_targeted_legs_partition_the_matched_packs,
         test_targeted_rejects_an_unknown_part,
+        test_node_leg_leaves_diagram_rendering_to_browser_leg,
         test_full_suite_shards_run_verifiers_once,
         test_workflow_schedules_every_leg_and_shard,
     )

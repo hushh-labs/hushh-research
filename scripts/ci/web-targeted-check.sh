@@ -103,7 +103,11 @@ ran=0
 # This lane already installs Chromium. Render every maintained Mermaid block
 # when documentation or its checker changes; structural lint alone misses parser errors.
 if has_match '(^|/)(README\.md|[^/]+\.md)$|^scripts/(render-doc-mermaid\.mjs|verify-doc-diagrams.*\.cjs)$'; then
-  (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
+  # The node leg intentionally has no browser install. The browser leg owns
+  # rendering; an unsplit local run still renders every diagram.
+  if [ "$WEB_TARGETED_PART" != "node" ]; then
+    (cd "$REPO_ROOT" && node scripts/verify-doc-diagrams.cjs && node scripts/render-doc-mermaid.mjs)
+  fi
   ran=1
 fi
 

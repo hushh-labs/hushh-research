@@ -3211,3 +3211,12 @@ correction restores the current main-owned CI job graph and retains the pod
 branch's targeted-suite ownership flag. A focused regression now rejects
 duplicate job IDs; it detects all four duplicates in the failed revision.
 The corrected SHA requires its own local and hosted verdict before deployment.
+
+Hosted PR Validation on `12c4cc1cc` scheduled jobs, then its governance
+preflight stopped because the targeted-lane partition fixture attempted
+Playwright Mermaid rendering in a dependency-free node leg. The browser leg
+now owns that render, including the normal unsplit local path; the fixture
+exercises npm packs separately and asserts that the node leg does not render.
+Focused partition checks pass, and the pinned local renderer produced all
+179 maintained Mermaid figures. A new exact-SHA core and hosted verdict are
+required before dev deployment.
