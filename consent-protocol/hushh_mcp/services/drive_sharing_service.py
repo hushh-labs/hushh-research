@@ -29,12 +29,15 @@ class DriveSharingService:
             raise DriveSharingError("reconnect_required")
         return row["connection_generation"]
 
-    async def create(self, *, recipient, owner_user_id, client_request_id, purpose):
+    async def create(
+        self, *, recipient, owner_user_id, client_request_id, purpose, request_time_zone=None
+    ):
         result = await self.store.create_request(
             recipient=recipient,
             owner_user_id=owner_user_id,
             client_request_id=client_request_id,
             purpose=purpose,
+            request_time_zone=request_time_zone,
         )
         await wake_drive_work("suggestions")
         await wake_drive_work("sharing")

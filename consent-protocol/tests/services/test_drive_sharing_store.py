@@ -106,6 +106,29 @@ async def request(sharing, client_id=None):
     )
 
 
+@pytest.mark.asyncio
+async def test_request_keeps_requester_calendar_context_encrypted(sharing):
+    created = await sharing.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Notes from yesterday's onboarding call"),
+        request_time_zone="Asia/Kolkata",
+    )
+
+    context = await sharing.request_bulk_context(user_id="owner", request_id=created["requestId"])
+    assert context["requestTimeZone"] == "Asia/Kolkata"
+    assert context["requestCreatedAt"].tzinfo is not None
+    with sharing.db.engine.connect() as connection:
+        serialized = connection.execute(
+            text("SELECT request_envelope::text FROM drive_share_requests WHERE request_id=:id"),
+            {"id": created["requestId"]},
+        ).scalar_one()
+    assert "Asia/Kolkata" not in serialized
+
+
 async def review(sharing):
     _, selected = await pick(sharing, [source("one"), source("two")])
     ids = [item["documentId"] for item in selected]

@@ -13,7 +13,7 @@ import json
 import re
 import time
 from calendar import monthrange
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
@@ -73,6 +73,13 @@ _MONTH_WORDS = {
     )
 }
 _TITLE_DATE = re.compile(r"(?<!\d)(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?!\d)")
+_TITLE_TIME = re.compile(
+    r"[ T](?P<hour>\d{1,2}):(?P<minute>\d{2})\s*"
+    r"(?P<zone>IST|(?:UTC|GMT)(?:[+-]\d{1,2}(?::?\d{2})?)?)\b",
+    re.I,
+)
+_YESTERDAY = re.compile(r"\byesterday(?:['’]?s)?\b", re.I)
+_NOTE_TITLE = re.compile(r"\b(?:notes?|minutes)\b", re.I)
 _TERM_COORDINATOR = re.compile(r"(?:,|and|or|&|,\s*(?:and|or|&))", re.I)
 
 
@@ -128,7 +135,40 @@ def _subject_matches(checkpoint: dict, title: str) -> bool:
     )
 
 
+def _trusted_subject_matches(checkpoint: dict, match: dict) -> bool:
+    """Require title evidence before granting access without owner review."""
+    # A shortcut alias can describe a different file. Its target is what Drive
+    # grants, so only the target's own title can authorize automatic sharing.
+    title = match["name"]
+    exact = checkpoint.get("request_exact_title")
+    if exact:
+        return exact == title
+    terms = [
+        term
+        for term in checkpoint.get("request_subject_terms", [])
+        if term.casefold() not in {"note", "notes", "document", "documents", "file", "files"}
+    ]
+    if not terms:
+        return True
+    matches = [
+        bool(
+            _term_pattern(
+                "standup"
+                if term.casefold() in {"standup", "stand up", "stand-up"}
+                else term.casefold()
+            ).search(title)
+        )
+        for term in terms
+    ]
+    request_text = checkpoint.get("request", {}).get("query", "")
+    return any(matches) if _coordinated_alternatives(terms, request_text) else all(matches)
+
+
 def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bool:
+    if checkpoint.get("authority_mode") == "trusted_auto" and not _trusted_subject_matches(
+        checkpoint, match
+    ):
+        return False
     if not checkpoint.get("request_notes"):
         return True
     # The compilation lane uses these same title checks: a topical folder
@@ -137,6 +177,13 @@ def _note_candidate(checkpoint: dict, match: dict, *, folder_scoped: bool) -> bo
 
     name = match["name"]
     alias = match.get("shortcut_name", "")
+    if checkpoint.get("authority_mode") == "trusted_auto":
+        # Google Drive fullText may match an incidental mention inside a
+        # generic document. Automatic grants need positive title evidence;
+        # an owner-reviewed search can still show the broader candidates.
+        return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and bool(
+            _NOTE_TITLE.search(name)
+        )
     return not (_NON_NOTE_TITLE.search(name) or _NON_NOTE_TITLE.search(alias)) and (
         not folder_scoped
         or bool(_GEMINI_NOTE_TITLE.search(name) or _GEMINI_NOTE_TITLE.search(alias))
@@ -255,7 +302,7 @@ def compile_plan(plan: dict, timezone: str) -> dict:
 
 
 def compile_request_queries(
-    plan: dict, purpose: dict, timezone: str
+    plan: dict, purpose: dict, timezone: str, *, requested_at: datetime | None = None
 ) -> tuple[list[dict], dict | None]:
     """Broaden a requested file set before the owner reviews it.
 
@@ -269,12 +316,19 @@ def compile_request_queries(
     parsed = LiveSearchPlan.model_validate(plan)
     if parsed.mode != "find":
         raise DriveReadError("invalid_argument")
-    now = datetime.now(UTC)
+    now = requested_at if requested_at is not None else datetime.now(UTC)
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise DriveReadError("invalid_argument")
+    now = now.astimezone(UTC)
     start = purpose.get("periodStart")
     end = purpose.get("periodEnd")
     if start is None and end is None:
-        month = _MONTH_WINDOW.search(purpose.get("purpose", ""))
-        if month:
+        request_text = purpose.get("purpose", "")
+        month = _MONTH_WINDOW.search(request_text)
+        if _YESTERDAY.search(request_text):
+            requested_day = now.astimezone(ZoneInfo(timezone)).date() - timedelta(days=1)
+            start = end = requested_day.isoformat()
+        elif month:
             months = _MONTH_WORDS.get(month["count"].lower()) or int(month["count"])
             if not 1 <= months <= 12:
                 raise DriveReadError("invalid_argument")
@@ -361,7 +415,42 @@ def _in_requested_period(match: dict, period: dict | None) -> bool:
     title_days = []
     for match_date in _TITLE_DATE.finditer(match["name"]):
         try:
-            title_days.append(date(*(int(part) for part in match_date.groups())))
+            year, month, day = (int(part) for part in match_date.groups())
+            title_day = date(year, month, day)
+            title_time = _TITLE_TIME.match(match["name"], match_date.end())
+            if title_time:
+                title_zone = title_time["zone"].upper()
+                if title_zone == "IST":
+                    source_zone = ZoneInfo("Asia/Kolkata")
+                elif title_zone in {"UTC", "GMT"}:
+                    source_zone = UTC
+                else:
+                    offset = title_zone[3:]
+                    sign = 1 if offset[0] == "+" else -1
+                    clock = offset[1:]
+                    if ":" in clock:
+                        hour_text, minute_text = clock.split(":", 1)
+                    else:
+                        hour_text, minute_text = (
+                            (clock[:-2], clock[-2:]) if len(clock) > 2 else (clock, "0")
+                        )
+                    hours, minutes = int(hour_text), int(minute_text)
+                    if hours > 23 or minutes > 59:
+                        continue
+                    source_zone = timezone(sign * timedelta(hours=hours, minutes=minutes))
+                title_day = (
+                    datetime(
+                        year,
+                        month,
+                        day,
+                        int(title_time["hour"]),
+                        int(title_time["minute"]),
+                        tzinfo=source_zone,
+                    )
+                    .astimezone(zone)
+                    .date()
+                )
+            title_days.append(title_day)
         except ValueError:
             continue
     if title_days:
@@ -537,6 +626,7 @@ class DriveOwnerSearchService:
         require_current,
         timezone="UTC",
         authority_mode="owner",
+        requested_at: datetime | None = None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
         if authority_mode not in {"owner", "trusted_auto"}:
@@ -550,7 +640,9 @@ class DriveOwnerSearchService:
             if existing["status"] not in {"failed", "limited", "stopped"}:
                 return existing
             await self.store.clear_terminal_request(user_id=user_id, request_id=request_id)
-        queries, period = compile_request_queries(plan, purpose, timezone)
+        queries, period = compile_request_queries(
+            plan, purpose, timezone, requested_at=requested_at
+        )
         state, created = await self.store.create(
             user_id=user_id,
             client_request_id=request_id,
@@ -786,6 +878,8 @@ class DriveOwnerSearchService:
         period = checkpoint.get("requested_period")
 
         def period_matches(match):
+            if checkpoint.get("authority_mode") == "trusted_auto":
+                return _in_requested_period(match, period)
             return _in_requested_period(match, period) or (
                 match.get("shortcut_name")
                 and _in_requested_period({**match, "name": match["shortcut_name"]}, period)

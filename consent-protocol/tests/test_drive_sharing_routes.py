@@ -256,6 +256,26 @@ def test_request_uses_fresh_verified_google_identity_not_drive_connection(setup,
     verifier.assert_called_once_with("synthetic-firebase", app=marker, check_revoked=False)
 
 
+def test_request_freezes_valid_requester_timezone_and_rejects_unknown_zone(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    body = {**create_body(), "timeZone": "Asia/Kolkata"}
+
+    response = client.post(BASE, json=body, headers={"Authorization": "Bearer synthetic-firebase"})
+    assert response.status_code == 202
+    assert service.create.await_args.kwargs["request_time_zone"] == "Asia/Kolkata"
+
+    service.create.reset_mock()
+    response = client.post(
+        BASE,
+        json={**body, "timeZone": "Invalid/NotAZone"},
+        headers={"Authorization": "Bearer synthetic-firebase"},
+    )
+    assert response.status_code == 422
+    service.create.assert_not_awaited()
+
+
 def test_request_resolves_public_reference_without_accepting_identity_from_client(
     setup, monkeypatch
 ):

@@ -18,6 +18,7 @@ export type SharingStatus = {
 export type DocumentRequestDraft = {
   ownerPersonRef: string;
   clientRequestId: string;
+  timeZone?: string;
   purpose: {
     purpose: string;
     periodStart: string | null;
@@ -888,12 +889,13 @@ export class DriveSharingService {
       )
     )
       throw new DriveSharingError("invalid_argument");
+    const timeZone = ownerTimeZone();
     const result = await this.request(
       token,
       null,
       guard,
       "",
-      draft,
+      { ...draft, ...(timeZone ? { timeZone } : {}) },
       firebaseToken,
     );
     return {

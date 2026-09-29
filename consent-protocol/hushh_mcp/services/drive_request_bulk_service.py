@@ -77,7 +77,7 @@ class DriveRequestBulkService:
         await self._owner()
         return context
 
-    async def _plan(self, *, user_id, purpose, timezone):
+    async def _plan(self, *, user_id, purpose, timezone, requested_at=None):
         query = purpose["purpose"]
         # A direct recurring standup request is unambiguously topical. The
         # broad Drive token includes notes under variant meeting titles and
@@ -86,7 +86,11 @@ class DriveRequestBulkService:
             return LiveSearchPlan(terms=["standup"], file_kind="document", mode="find")
         prompt = {
             "document_request": purpose,
-            "current_time_utc": datetime.now(UTC).isoformat(timespec="seconds"),
+            "current_time_utc": (
+                requested_at if isinstance(requested_at, datetime) else datetime.now(UTC)
+            )
+            .astimezone(UTC)
+            .isoformat(timespec="seconds"),
             "user_timezone": timezone,
         }
         documents_only = bool(_DOCUMENT_NOUN.search(query) and not _OTHER_FILE_NOUN.search(query))
@@ -140,6 +144,11 @@ class DriveRequestBulkService:
         if authority_mode not in {"owner", "trusted_auto"}:
             raise DriveSharingError("invalid_argument")
         context = await self._context(user_id, request_id)
+        # The requester authored words such as "yesterday". Freeze that
+        # calendar context when the request is created, before a delayed worker
+        # or an owner in a different timezone can reinterpret it.
+        timezone = context.get("requestTimeZone") or timezone
+        requested_at = context.get("requestCreatedAt")
         if authority_mode == "owner":
             # This authenticated owner action can explicitly take over an
             # earlier automatic request. Its exact results and frozen batches
@@ -163,7 +172,12 @@ class DriveRequestBulkService:
                 user_id=user_id, request_id=request_id
             ):
                 return existing
-        plan = await self._plan(user_id=user_id, purpose=context["purpose"], timezone=timezone)
+        plan = await self._plan(
+            user_id=user_id,
+            purpose=context["purpose"],
+            timezone=timezone,
+            requested_at=requested_at,
+        )
         context = await self._context(user_id, request_id, start=True)
         await self._owner()
         return await self.search.create_for_request(
@@ -173,6 +187,7 @@ class DriveRequestBulkService:
             purpose=context["purpose"],
             plan=plan.model_dump(mode="json"),
             timezone=timezone,
+            requested_at=requested_at,
             require_current=self.require_owner,
             authority_mode=authority_mode,
         )

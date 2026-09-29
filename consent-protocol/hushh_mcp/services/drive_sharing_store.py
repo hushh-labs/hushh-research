@@ -12,6 +12,7 @@ import re
 from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
@@ -482,6 +483,8 @@ class DriveSharingStore(DriveDocumentStore):
                 "revision": row["revision"],
                 "status": row["status"],
                 "purpose": private["purpose"],
+                "requestTimeZone": private.get("request_time_zone"),
+                "requestCreatedAt": row["created_at"],
                 "recipient": private["recipient"],
                 "recipientUserId": row["recipient_user_id"],
                 "recipientBinding": row["recipient_binding"],
@@ -497,6 +500,7 @@ class DriveSharingStore(DriveDocumentStore):
         owner_user_id: str,
         client_request_id: str,
         purpose: ShareRequestPurpose,
+        request_time_zone: str | None = None,
         owner_initiated: bool = False,
     ) -> dict:
         """B's authenticated identity must be verified by the service before calling.
@@ -509,10 +513,18 @@ class DriveSharingStore(DriveDocumentStore):
         age = (datetime.now(UTC) - recipient.verified_at).total_seconds()
         if not 0 <= age <= 300:
             raise DriveSharingError("verify_google_identity_required")
+        if request_time_zone is not None:
+            try:
+                if not isinstance(request_time_zone, str) or not 1 <= len(request_time_zone) <= 64:
+                    raise ValueError()
+                ZoneInfo(request_time_zone)
+            except (ValueError, ZoneInfoNotFoundError):
+                raise DriveSharingError("invalid_argument") from None
         client_request_id = str(UUID(client_request_id))
         request_id = str(uuid4())
         payload = {
             "purpose": purpose.model_dump(),
+            **({"request_time_zone": request_time_zone} if request_time_zone else {}),
             "recipient": {
                 "user_id": recipient.user_id,
                 "subject": recipient.subject,

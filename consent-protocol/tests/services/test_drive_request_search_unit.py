@@ -99,6 +99,50 @@ def test_request_plan_keeps_all_candidate_file_dates_and_shortcut_mime():
     assert period == {"start": start, "end": end, "timezone": "UTC"}
 
 
+def test_yesterday_uses_requesters_frozen_local_day_even_when_planner_used_utc():
+    requested_at = datetime(2026, 9, 29, 21, 33, tzinfo=UTC)
+    plan = {
+        "mode": "find",
+        "terms": ["onboarding", "notes"],
+        "file_kind": "document",
+        "time_intent": "file_activity",
+        "date_from": "2026-09-28",
+        "date_to": "2026-09-28",
+    }
+    purpose = {"purpose": "Send me notes from yesterdays onboarding call"}
+
+    _, local_period = compile_request_queries(
+        plan, purpose, "Asia/Kolkata", requested_at=requested_at
+    )
+    _, utc_period = compile_request_queries(plan, purpose, "UTC", requested_at=requested_at)
+
+    assert local_period == {
+        "start": "2026-09-29",
+        "end": "2026-09-29",
+        "timezone": "Asia/Kolkata",
+    }
+    assert utc_period == {"start": "2026-09-28", "end": "2026-09-28", "timezone": "UTC"}
+    assert search_module._in_requested_period(
+        {"name": "Chris Onboarding - 2026/09/29 - Notes by Gemini"}, local_period
+    )
+
+
+def test_ist_meeting_note_matches_previous_utc_day_without_admitting_older_notes():
+    title = "Chris Onboarding - 2026/09/29 03:19 IST - Notes by Gemini"
+    utc_period = {"start": "2026-09-28", "end": "2026-09-28", "timezone": "UTC"}
+    older_period = {"start": "2026-09-27", "end": "2026-09-27", "timezone": "UTC"}
+
+    assert search_module._in_requested_period({"name": title}, utc_period)
+    assert search_module._in_requested_period(
+        {"name": "Chris Onboarding - 2026/09/29 03:19 GMT+5:30 - Notes by Gemini"},
+        utc_period,
+    )
+    assert not search_module._in_requested_period({"name": title}, older_period)
+    assert not search_module._in_requested_period(
+        {"name": "Chris Onboarding - 2026/09/29 17:19 IST - Notes by Gemini"}, utc_period
+    )
+
+
 def test_request_plan_requires_each_distinct_subject_term():
     queries, _ = compile_request_queries(
         {"mode": "find", "terms": ["onboarding", "guide"], "file_kind": "document"},
@@ -203,6 +247,8 @@ async def test_completed_legacy_request_restarts_search_with_shareability_facts(
     context = {
         "purpose": {"purpose": "Onboarding documents from last 3 months"},
         "revision": 3,
+        "requestTimeZone": "Asia/Kolkata",
+        "requestCreatedAt": datetime(2026, 9, 29, 21, 33, tzinfo=UTC),
     }
     store = SimpleNamespace(
         by_client=AsyncMock(return_value={"status": "completed", "jobId": "old-job"}),
@@ -229,6 +275,10 @@ async def test_completed_legacy_request_restarts_search_with_shareability_facts(
         user_id="owner", request_id="request-id"
     )
     assert search.create_for_request.await_args.kwargs["plan"]["file_kind"] == "document"
+    assert search.create_for_request.await_args.kwargs["timezone"] == "Asia/Kolkata"
+    assert (
+        search.create_for_request.await_args.kwargs["requested_at"] == context["requestCreatedAt"]
+    )
 
 
 @pytest.mark.asyncio
@@ -351,6 +401,101 @@ def _provider_file(identity, name, mime="application/vnd.google-apps.document", 
 
 def _request_candidate(identity, name, mime="application/vnd.google-apps.document", **changes):
     return {**_provider_file(identity, name, mime, **changes), "title": name}
+
+
+@pytest.mark.asyncio
+async def test_trusted_notes_share_only_topical_note_titles_not_incidental_fulltext_hits():
+    candidates = [
+        _request_candidate(
+            "relevant-note",
+            "Chris Onboarding - 2026/09/29 03:19 IST - Notes by Gemini",
+            createdTime="2026-09-29T03:30:00Z",
+        ),
+        _request_candidate(
+            "incidental-hit",
+            "Explain For Product",
+            createdTime="2026-09-28T03:30:00Z",
+        ),
+        _request_candidate(
+            "other-notes",
+            "Team Retro - 2026/09/29 03:19 IST - Notes by Gemini",
+        ),
+    ]
+    checkpoint = {
+        "request_file_kind": "document",
+        "request_subject_terms": ["onboarding", "notes"],
+        "request_notes": True,
+        "requested_period": {
+            "start": "2026-09-28",
+            "end": "2026-09-28",
+            "timezone": "UTC",
+        },
+        "coverage_counts": {},
+    }
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    trusted, incomplete = await service._request_candidates(
+        {"user_id": "owner"},
+        {**checkpoint, "authority_mode": "trusted_auto"},
+        candidates,
+        folder_scoped=False,
+        drive_id=None,
+    )
+    owner_review, _ = await service._request_candidates(
+        {"user_id": "owner"},
+        {**checkpoint, "authority_mode": "owner"},
+        candidates,
+        folder_scoped=False,
+        drive_id=None,
+    )
+    trusted_folder, _ = await service._request_candidates(
+        {"user_id": "owner"},
+        {**checkpoint, "authority_mode": "trusted_auto"},
+        candidates,
+        folder_scoped=True,
+        drive_id=None,
+    )
+
+    assert incomplete is False
+    assert [file["name"] for file in trusted] == [candidates[0]["name"]]
+    assert [file["name"] for file in trusted_folder] == [candidates[0]["name"]]
+    assert [file["name"] for file in owner_review] == [
+        candidate["name"] for candidate in candidates
+    ]
+
+
+@pytest.mark.asyncio
+async def test_trusted_auto_requires_exact_or_all_noncoordinated_title_terms():
+    candidates = [
+        _request_candidate("expected", "Chris Onboarding Notes"),
+        _request_candidate("partial", "Team Onboarding Notes"),
+    ]
+    service = DriveOwnerSearchService(transport=SimpleNamespace())
+    checkpoint = {
+        "authority_mode": "trusted_auto",
+        "request_file_kind": "document",
+        "request_subject_terms": ["Chris", "onboarding"],
+        "request_notes": True,
+        "request": {"query": "Chris onboarding notes"},
+        "coverage_counts": {},
+    }
+    topical, _ = await service._request_candidates(
+        {"user_id": "owner"}, checkpoint, candidates, folder_scoped=False, drive_id=None
+    )
+    exact, _ = await service._request_candidates(
+        {"user_id": "owner"},
+        {**checkpoint, "request_exact_title": "Chris Onboarding Notes", "request_notes": False},
+        candidates,
+        folder_scoped=True,
+        drive_id=None,
+    )
+
+    assert [file["name"] for file in topical] == [candidates[0]["name"]]
+    assert [file["name"] for file in exact] == [candidates[0]["name"]]
+    assert not search_module._note_candidate(
+        checkpoint,
+        {"name": "Private Financial Notes", "shortcut_name": "Chris Onboarding Notes"},
+        folder_scoped=True,
+    )
 
 
 @pytest.mark.asyncio

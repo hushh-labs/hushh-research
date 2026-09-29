@@ -152,6 +152,7 @@ class CreateRequest(StrictRequest):
     ownerPersonRef: UUID | None = None
     clientRequestId: UUID
     purpose: ShareRequestPurpose
+    timeZone: str | None = Field(default=None, min_length=1, max_length=64)
 
     @model_validator(mode="after")
     def one_owner_target(self):
@@ -402,6 +403,11 @@ async def _person_target(owner: Owner, person_ref: UUID) -> str:
 async def create_request(
     body: CreateRequest, recipient=Depends(_recipient), owner: Owner = Depends(_owner)
 ):
+    if body.timeZone is not None:
+        try:
+            ZoneInfo(body.timeZone)
+        except (ValueError, ZoneInfoNotFoundError):
+            raise _error(DriveSharingError("invalid_argument")) from None
     owner_user_id = await _owner_target(owner, body)
     return await _call(
         "create",
@@ -410,6 +416,7 @@ async def create_request(
         owner_user_id=owner_user_id,
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
+        request_time_zone=body.timeZone,
     )
 
 

@@ -290,7 +290,11 @@ describe("private sharing transport", () => {
       cache: "no-store",
       headers: { Authorization: "Bearer firebase", "X-Hushh-Consent": "vault" },
     });
-    expect(JSON.parse(options.body)).toEqual(draft);
+    const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(JSON.parse(options.body)).toEqual({
+      ...draft,
+      ...(timeZone ? { timeZone } : {}),
+    });
     expect(options.isEffectCurrent()).toBe(true);
   });
   it.each([
