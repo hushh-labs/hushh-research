@@ -2825,3 +2825,69 @@ BYOK tables were empty; nonempty preservation evidence comes from the isolated
 fixture, not live records. The rehearsal clone and two extra temporary backup
 copies were removed after verification. Existing backup retention and owner
 resources were preserved; this does not establish erasure from retained backups.
+
+## 2026-09-28: Dev Puppy direct-relay checkpoint
+
+Scope was the existing personal dev BYOC owner and trusted Mac; no owner image,
+storage, key, device identity, or deployment target was replaced. Source
+`9ae80f2aa0a61e4816a7bce2909c54d0a0f6b5e2` passed local core CI and
+hosted PR Validation `36493222644`, including its status gate. Governed dev
+workflow `36494890057` deployed only the frontend. Cloud Run readback found
+`hushh-webapp-00086-kwp` at 100% traffic with that source label and immutable
+digest `sha256:37188d7dfb9857ea7542d5e2a0602ee9c8a473b0e9907efd91cf34f7ed2a55bb`.
+The backend remained `consent-protocol-00115-npd`. Authenticated maintenance
+preserved the owner's pod image, service identity, and durable key across the
+concurrency revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00016-xjl`
+and idle-grace revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00017-8cv`.
+
+The owner-project pod readback confirmed minimum zero and maximum one instance,
+request-based CPU, 1 vCPU, 1 GiB, and request concurrency eight. The existing
+one-worker image and runtime contract were unchanged by this configuration edit.
+The higher concurrency permits a direct relay socket and browser status/turn
+requests on the same instance. The older pod lacked `POD_IDLE_GRACE_SECONDS`,
+so its socket could remain billable indefinitely. Revision `00017-8cv` added
+only `POD_IDLE_GRACE_SECONDS=600`, retained the same image and resources, and
+passed a fresh direct inference turn. The Mac closed its idle direct socket and
+continued polling the hub activation lane. Owner-project Cloud Monitoring then
+reported active instances falling from one to zero at 2026-09-29 00:04 UTC.
+At 00:18 UTC, both active and idle instance counts were zero for the same
+revision. A new owner-browser Puppy turn woke that revision (active count one
+at 00:20 UTC) and returned a nonempty direct-relay response. The Mac stayed
+running in hub-activation wait mode between turns without an established pod
+socket. This proves one observed sleep/wake cycle, not a fixed scale-down SLA.
+
+Using an unlocked owner browser session, the existing Mac grant was enabled,
+activation returned 200, and direct pod status showed a trusted device with
+`puppy.inference` and an open link. Two synthetic browser turns completed with
+nonempty device-relay responses, including one after owner withdrawal,
+pod-side revocation, owner re-enable, and a fresh binding from the restarted
+client. Direct pod status remained 200 while the socket was open and showed no
+busy link after a cancelled in-flight browser request. Withdrawal made the hub
+grant false, the pod subject revoked, and the link absent; re-enable alone did
+not revive the revoked session. The model name was not reported in the browser
+turn metadata, so no exact model identity is claimed from that result.
+
+The first browser attempts were blocked by the reviewer harness's read-only
+guard on direct pod POST and revocation routes; those 409s were harness
+refusals, not pod refusals. The ignored, owner/device-bound rehearsal helper
+admitted only the exact direct turn and revocation after that diagnosis. The
+successful requests reached the pod with HTTP 200. Phone-on-cellular versus
+Mac-on-another-network acceptance remains unverified; local browser and Mac
+traffic cannot establish it. The wake rehearsal's temporary browser subject
+was removed from the hub and pod after its response; the owner grant and Mac
+identity were preserved.
+
+The Hermes client also rejected a freshly signed binding whose issue timestamp
+was roughly one millisecond ahead of the Mac clock. Published Hermes commit
+`324fb82bc0` accepts at most 30 seconds of issue-time clock skew while still
+refusing distant-future grants; its focused direct-pod suite passed 21 tests.
+Its repository guard passed 450 tests after the required source-license headers
+were added in `e21d3dd59d`. The same trusted Mac identity then completed a
+direct turn against pod revision `00017-8cv`; no re-enrollment occurred. An
+unrelated hosted fresh-sync check on `e21d3dd59d` exposed a Linux Bash cleanup
+failure: a failed dependency refresh could leave a temporary upstream branch
+checked out. Hermes commit `e160fd3c59` uses a script-scoped branch name for
+the exit trap; the local guard again passed 450 tests. Hosted fresh-sync,
+Docker build/test, and license checks passed for `e160fd3c59`; broader Hermes
+CI and Nix checks were still queued when this record was updated. The root
+branch's local core mirror and docs verification also passed before audit push.
