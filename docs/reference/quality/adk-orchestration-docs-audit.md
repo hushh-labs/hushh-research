@@ -3220,3 +3220,9 @@ exercises npm packs separately and asserts that the node leg does not render.
 Focused partition checks pass, and the pinned local renderer produced all
 179 maintained Mermaid figures. A new exact-SHA core and hosted verdict are
 required before dev deployment.
+
+Before that hosted verdict completed, main advanced to `d1bb6c82c` with Drive
+request relevance corrections. The infrastructure branch merged that exact
+main head without conflict. The affected 115 backend Drive tests and 86
+frontend Drive service tests pass. This freshness sync changes the candidate
+SHA; the earlier hosted run cannot authorize its deployment.
