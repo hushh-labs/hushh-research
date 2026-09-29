@@ -2927,3 +2927,53 @@ phone-on-cellular acceptance. A later UI-only candidate adds that progress,
 timeout, the remote machine-status sheet, One-aligned composer, and a dated
 display label for existing immutable release IDs. Its source and deployment
 evidence must be recorded separately when verified.
+
+## 2026-09-29: Dev update interface and direct Puppy follow-up
+
+Infrastructure source `9d94f6cdb5367ac4036e446c6c9ecb3da718ecba` passed the
+local core mirror and hosted validation run `36514353452`. Main-owned dev
+workflow `36515681953` completed with `scope=auto` and selected frontend only.
+Readback found `hushh-webapp-00087-97r` at 100% traffic with source label
+`9d94f6cdb5367ac4036e446c6c9ecb3da718ecba` and image digest
+`sha256:f762e157095ee8f5c6625874b8de3ca0e2ceb309a2034804070c383f315bdb17`.
+The backend remained `consent-protocol-00115-npd`. An unlocked owner Settings
+read showed installed release `.5` verified, displayed as `28.09.26 · Dev 5`,
+and no new offer. The display label is derived from immutable release metadata;
+the underlying release ID and digest remain the approval authority. Feed's
+post-install view was not independently read back.
+
+The owner's updated pod still served revision
+`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00018-pdz` and digest
+`sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d`.
+Cloud Monitoring observed both active and idle instance counts at zero for
+this revision at 2026-09-29 02:47 UTC, followed by startup and a direct relay
+connection after a new request. This is one observed on-demand cycle; an open
+socket remains billable until its idle grace closes. The first cold browser
+rehearsal timed out under its 90-second helper limit. Later direct turns
+returned nonempty local-model replies. The deployed Puppy composer now shows
+connection/waiting progress, cancellation, and a 205-second upper bound rather
+than an indefinite spinner; no cold-wake latency guarantee is claimed.
+
+Hermes source `7b10bb701239b5a6a0aabe9331a02f1355a1a2ee` publishes its
+existing, allow-listed machine reading while the direct relay waits for
+activation. It reports empty job and conversation lists as empty lists, which
+the hub distinguishes from missing reports. Focused relay/presence tests
+passed (85), and the Hermes guard passed (450). Only the existing direct relay
+was restarted; identity and owner grant were retained. An authenticated hub
+read then found the existing device active with a fresh heartbeat at
+2026-09-29 03:30:20 UTC, a reported model, zero scheduled jobs, and zero
+recent conversations. The deployed `This machine` sheet showed that report
+as current. A fresh browser session completed a direct Puppy turn with a
+nonempty reply after the restart. Temporary browser subjects were revoked in
+the pod and hub. The browser helper hung during its final browser close and
+was stopped after subject cleanup; this is a harness teardown issue, not
+evidence of a failed product turn.
+
+The remote sheet displays the device's reported model and schedule; it does
+not offer remote model switching. The existing model picker calls a local
+Hermes endpoint, and the direct relay intentionally has inference-only
+authority. Remote model management needs a separately reviewed owner/device
+control contract. The update rehearsal's active permit was observed before
+approval, but uninterrupted active-work drain was not observed after approval
+began. Feed consistency and phone-on-cellular versus Mac-on-another-network
+acceptance also remain unverified.
