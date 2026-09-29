@@ -42,9 +42,10 @@ def test_dev_cutover_preserves_canonical_release_and_recovery_boundaries() -> No
     assert MIGRATION.name not in manifest["ordered_migrations"]
     assert MIGRATION.name not in manifest["rollback_migrations"]
     assert ROLLBACK.exists() and "DELETE FROM" not in ROLLBACK.read_text().upper()
+    release_head = int(manifest["ordered_migrations"][-1].split("_", 1)[0])
     for contract in ("prod_core_schema", "uat_integrated_schema", "dev_minimum_schema"):
         data = json.loads((ROOT / f"db/contracts/{contract}.json").read_text())
-        assert data["expected_migration_version"] == 256
+        assert data["expected_migration_version"] == release_head
 
 
 def test_every_delete_targets_only_unmarked_chat_rows() -> None:

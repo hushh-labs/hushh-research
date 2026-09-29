@@ -45,6 +45,7 @@ _CASCADE_PARENT = {
     "drive_bulk_share_effects": "drive_bulk_shares",
     "drive_bulk_share_notifications": "drive_bulk_share_recipients",
     "one_capability_runs": "actor_profiles",
+    "one_attention_ledger": "actor_profiles",
     "one_location_onboarding_interactions": "actor_profiles",
     "one_location_onboarding_receipts": "actor_profiles",
     "one_location_onboarding_drafts": "actor_profiles",
