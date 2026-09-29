@@ -3192,3 +3192,13 @@ CI, branch dev deployment, serving readback, owner-approved pod installation,
 missing-billing recovery, Files operation, and Puppy independent-internet
 acceptance remain pending. The earlier 193.7-second cold Puppy turn remains a
 usability failure sample; no latency improvement is claimed here.
+
+The ADK worktree advanced after the integration freeze with three dependency
+patches. The candidate selectively carried those commits as `22819ef81`,
+`abce083b2`, and `067a51caf`; the backend lock was regenerated against the
+pod branch's authored dependencies, preserving its additional packages. The
+first core rerun exposed a skipped-service return type at the owner update
+failure-report route. `ad2f3693d` returns the service receipt as a concrete
+mapping; mypy passes. This adds two measured lines to the existing route-module
+size debt, reviewed without changing the fitness budgets. The complete core
+mirror must pass again on the final committed candidate before push.

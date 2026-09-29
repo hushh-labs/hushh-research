@@ -13622,7 +13622,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/personal_agent.py",
       "symbol": null,
-      "value": 1029
+      "value": 1031
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18288,6 +18288,10 @@
     "revision": "92e1301be",
     "scope": "Reviewed integrated size-debt baseline; thresholds and dependency/import checks unchanged. See adk-orchestration-docs-audit.md.",
     "source_revision": "1bd1afdf6",
+    "update_failure_receipt_20260929": {
+      "scope": "Two additional lines convert the owner update failure-report service result into a concrete mapping at the FastAPI boundary. The service package is intentionally skipped by the current gradual mypy scan. The route remains owner-authorized and returns the same receipt; no budget or comparator changed.",
+      "source_revision": "067a51caf"
+    },
     "update_presentation_20260927": {
       "accepted_findings": [
         {
