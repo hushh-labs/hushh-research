@@ -196,6 +196,7 @@ describe("owner hosting and software settings", () => {
         },
         availableRelease: {
           version: "2026.09-dev.2",
+          releasedAt: "2026-09-27T12:00:00Z",
           summary: "Improved reconnect behavior.",
           notes: {
             improvements: ["Reconnect after a network change."],
@@ -208,8 +209,8 @@ describe("owner hosting and software settings", () => {
     );
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
 
-    expect(screen.getByText("2026.09-dev.1")).toBeTruthy();
-    expect(screen.getByText("2026.09-dev.2")).toBeTruthy();
+    expect(screen.getByText("Sep 2026 · Dev 1")).toBeTruthy();
+    expect(screen.getByText("27.09.26 · Dev 2")).toBeTruthy();
     expect(screen.getByText("What’s in this update")).toBeTruthy();
     expect(screen.queryByText("abcdef123456")).toBeNull();
   });
@@ -231,7 +232,7 @@ describe("owner hosting and software settings", () => {
     expect(await request).toEqual(response);
     expect(copy.loading).toBe("Checking for updates…");
     expect(copy.success(response)).toBe(
-      "Version 2026.09-dev.2 is ready to install.",
+      "Sep 2026 · Dev 2 is ready to install.",
     );
   });
 

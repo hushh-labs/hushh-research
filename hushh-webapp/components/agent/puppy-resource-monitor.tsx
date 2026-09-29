@@ -175,7 +175,7 @@ const TONE_CHIP: Record<Tone, string> = {
  * anywhere. On a deployed origin the bridge is a container and never the
  * owner's Mac, so the second is the only one a deployed viewer ever has.
  */
-function useMachineReading(live: boolean, active: boolean): {
+function useMachineReading(live: boolean, active: boolean, onMachine: boolean): {
   payload: PuppyResources | null;
   readAt: number;
   link: PuppyLink | null;
@@ -219,21 +219,21 @@ function useMachineReading(live: boolean, active: boolean): {
   // this is one request every five minutes rather than the fifteen per minute
   // the always-on monitor used to make.
   useEffect(() => {
-    if (!active) return;
+    if (!active || !onMachine) return;
     void read();
     const timer = setInterval(() => void read(), LINK_POLL_MS);
     return () => clearInterval(timer);
-  }, [active, read]);
+  }, [active, onMachine, read]);
 
   // Polling is what opening the sheet buys, and it stops when it closes.
   useEffect(() => {
-    if (!live || !active) return;
+    if (!live || !active || !onMachine) return;
     void read();
     const timer = setInterval(() => void read(), POLL_MS);
     return () => clearInterval(timer);
-  }, [active, live, read]);
+  }, [active, live, onMachine, read]);
 
-  return { payload, readAt, link };
+  return { payload: onMachine ? payload : { configured: false }, readAt, link };
 }
 
 /**
@@ -248,7 +248,7 @@ function useMachineReading(live: boolean, active: boolean): {
  * says otherwise. That is the difference between a switch and a wish. A
  * refusal leaves the job exactly where it was and says so on the row.
  */
-function usePuppyScheduledWork(live: boolean, active: boolean): {
+function usePuppyScheduledWork(live: boolean, active: boolean, onMachine: boolean): {
   payload: PuppyJobs | null;
   busyIds: ReadonlySet<string>;
   errors: Readonly<Record<string, string>>;
@@ -281,9 +281,9 @@ function usePuppyScheduledWork(live: boolean, active: boolean): {
   // while someone is looking at it, and the readings' own 20s poll already
   // re-renders this list often enough for "in 14 min" to stay honest.
   useEffect(() => {
-    if (!live || !active) return;
+    if (!live || !active || !onMachine) return;
     void read();
-  }, [active, live, read]);
+  }, [active, live, onMachine, read]);
 
   const onToggle = useCallback(
     (job: PuppyJob) => {
@@ -327,7 +327,7 @@ function usePuppyScheduledWork(live: boolean, active: boolean): {
     [read],
   );
 
-  return { payload, busyIds, errors, onToggle };
+  return { payload: onMachine ? payload : { configured: false, jobs: [] }, busyIds, errors, onToggle };
 }
 
 function panelPresentationSupported(): boolean {
@@ -415,24 +415,20 @@ export function PuppyMachineSheet({
   useEffect(() => {
     if (!active) setOpen(false);
   }, [active]);
-  const { payload, readAt, link } = useMachineReading(open, active);
-  const scheduled = usePuppyScheduledWork(open, active);
+  const onMachine = isLocalHost();
+  const { payload, readAt, link } = useMachineReading(open, active, onMachine);
+  const scheduled = usePuppyScheduledWork(open, active, onMachine);
   // The bridge's own message names a server env key. On a deployed origin the
   // server is a Cloud Run container and never the reader's Mac, so that
   // sentence is an instruction they cannot act on, about a machine they do not
   // own. Computed HERE rather than inside the presentational component, which
   // states that fetching and environment are the panel owner's contract, and
   // passed down so BOTH probes (readings and jobs) answer the same reader.
-  const onMachine = isLocalHost();
-  // The control is offered only when the panel has something to say. Something
-  // is readable when the bridge answered with a live reading, or when One holds
-  // a heartbeat snapshot. `device.heartbeat` and not `device`: a trusted device
-  // that has never reported renders no snapshot at all, which is the normal
-  // state between `/hussh-one connect` and the first push, so gating on the
-  // device alone would leave exactly the empty panel this gate exists to stop.
+  // A linked device gives the remote owner a useful status panel even before
+  // its first heartbeat. Only the local machine can supply live readings.
   const readable =
     (payload?.configured === true && payload?.reachable === true) ||
-    Boolean(link?.device?.heartbeat);
+    Boolean(link?.device);
   // Latched, never unlatched: a transient "unavailable" link read must not
   // yank the control out from under a thumb, and a control that appears once
   // and stays is easier to trust than one that blinks. Starting false is

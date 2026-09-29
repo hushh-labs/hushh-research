@@ -98,7 +98,9 @@ async function mount(payload: PuppyResources, value: PuppyLink) {
   mocks.fetchPuppyResources.mockResolvedValue(payload);
   mocks.link.current = value;
   const view = render(<PuppyMachineSheet />);
-  await waitFor(() => expect(mocks.fetchPuppyResources).toHaveBeenCalled());
+  if (window.location.hostname === "localhost") {
+    await waitFor(() => expect(mocks.fetchPuppyResources).toHaveBeenCalled());
+  }
   return view;
 }
 
@@ -187,11 +189,9 @@ describe("PuppyMachineSheet reading from One", () => {
     expect(within(sheet).queryByText("gemma-4-26b-a4b-qat")).not.toBeInTheDocument();
   });
 
-  it("offers no control at all when the device has no snapshot", async () => {
-    // A trusted device that has never reported is the normal state between
-    // `/hussh-one connect` and the first push. With an unreachable bridge
-    // there is no reading from either authority, so the panel would be one
-    // muted sentence: the control is not offered rather than opened onto that.
+  it("keeps the device status accessible before its first snapshot", async () => {
+    // The owner can inspect a linked device before it sends a heartbeat;
+    // missing readings must not be represented as live measurements.
     await mount(
       UNREACHABLE,
       link({
@@ -206,9 +206,9 @@ describe("PuppyMachineSheet reading from One", () => {
         },
       }),
     );
-    expect(
-      screen.queryByRole("button", { name: /this machine/i }),
-    ).not.toBeInTheDocument();
+    const sheet = await open();
+    expect(within(sheet).getByText("Puppy One is not answering on this machine.")).toBeInTheDocument();
+    expect(within(sheet).queryByText(/As reported to Hussh One/)).not.toBeInTheDocument();
   });
 
   it("leaves One's record to the chat panel: no install link, no banner on the strip", async () => {
@@ -293,6 +293,8 @@ describe("PuppyMachineSheet reading from One", () => {
     } satisfies PuppyJobs);
     await mount(NOT_CONFIGURED, liveWithSnapshot());
     const sheet = await open();
+    expect(mocks.fetchPuppyResources).not.toHaveBeenCalled();
+    expect(mocks.fetchPuppyJobs).not.toHaveBeenCalled();
 
     expect(within(sheet).queryByText(/HERMES_API_SERVER_KEY/)).not.toBeInTheDocument();
     expect(

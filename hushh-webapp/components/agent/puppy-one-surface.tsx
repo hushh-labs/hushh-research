@@ -78,7 +78,7 @@ export function PuppyOneSurface({
           outer div would leave Puppy 48px narrower than One at the same
           viewport. The wrapper repeats the flex chain on purpose: an inert
           wrapper here would let the chat panel's flex-1 basis collapse. */}
-      <div className="mx-auto flex min-h-0 w-full max-w-4xl flex-1 flex-col gap-3">
+      <div className="mx-auto flex min-h-0 w-full max-w-[var(--app-bottom-shell-max-width)] flex-1 flex-col gap-3">
         {/* Said once, and only to someone with no machine yet. The workspace
             header cannot carry it (its subtitle is hidden below sm, and the
             unlinked empty state below names an install without ever saying
@@ -90,7 +90,7 @@ export function PuppyOneSurface({
             answers never leave it.
           </p>
         ) : null}
-        {localBridge ? <PuppyMachineSheet className="shrink-0" active={active} /> : null}
+        <PuppyMachineSheet className="shrink-0" active={active} />
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}

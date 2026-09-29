@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { readUpdateStatus, updateActivityLabel } from "@/lib/feed/agent-update-status";
+import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
@@ -48,7 +48,7 @@ function updateCheckMessage(
   const activity = updateActivityLabel(readUpdateStatus(status));
   if (activity) return `${activity}.`;
   if (canInstallUpdate(status) && status.availableRelease) {
-    return `Version ${status.availableRelease.version} is ready to install.`;
+    return `${releaseLabel(status.availableRelease.version, status.availableRelease.releasedAt)} is ready to install.`;
   }
   if (status.updateAvailable)
     return "An update is available, but this pod is not ready to install it.";
@@ -344,10 +344,12 @@ export function AgentSettingsPanel({
                     : "Running version not verified";
   const release = isPod ? status?.availableRelease : null;
   const installedVersion = status?.installedRelease?.version;
+  const installedReleasedAt = installedVersion && installedVersion === release?.version
+    ? release.releasedAt : null;
   const versionLabel =
     mode === "shared"
       ? installedVersion?.replace(/^Managed service /, "Managed build ")
-      : installedVersion;
+      : installedVersion ? releaseLabel(installedVersion, installedReleasedAt) : null;
   return (
     <div className="space-y-5">
       <SettingsGroup density="compact">
@@ -363,7 +365,7 @@ export function AgentSettingsPanel({
           />
         ) : null}
         {release && update.available ? (
-          <SettingsRow title="New version" description={release.version} />
+          <SettingsRow title="New version" description={releaseLabel(release.version, release.releasedAt)} />
         ) : null}
       </SettingsGroup>
 

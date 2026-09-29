@@ -32,6 +32,18 @@ export const NO_UPDATE: AgentUpdateStatus = {
   verified: false,
 };
 
+/** Use the published UTC date for people; keep the immutable build ID in the API. */
+export function releaseLabel(version: string, releasedAt?: string | null): string {
+  const match = /^(\d{4})\.(\d{2})-(dev|stable)\.(\d+)(?:\+.*)?$/.exec(version);
+  if (!match) return version;
+  const [, year, month, channel, sequence] = match;
+  const published = releasedAt ? new Date(releasedAt) : null;
+  const date = published && Number.isFinite(published.getTime())
+    ? `${String(published.getUTCDate()).padStart(2, "0")}.${String(published.getUTCMonth() + 1).padStart(2, "0")}.${String(published.getUTCFullYear()).slice(-2)}`
+    : `${new Date(Date.UTC(Number(year), Number(month) - 1, 1)).toLocaleString("en-US", { month: "short", timeZone: "UTC" })} ${year}`;
+  return `${date} · ${channel === "dev" ? "Dev" : "Stable"} ${sequence}`;
+}
+
 /** Activity is independent of permission to approve another installation. */
 export function updateActivityLabel(update: AgentUpdateStatus): string | null {
   if (update.failed || update.presentationState === "blocked")

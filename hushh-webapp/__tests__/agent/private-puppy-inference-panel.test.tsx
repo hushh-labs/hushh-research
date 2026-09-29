@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -102,5 +102,25 @@ describe("private Puppy relay", () => {
     await waitFor(() => expect(mocks.runPodTurn).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     expect(await screen.findByText("Puppy request cancelled.")).toBeInTheDocument();
+  });
+
+  it("ends an unanswered turn with a useful timeout instead of spinning forever", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.runPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      );
+      render(<PrivatePuppyInferencePanel />);
+      await act(async () => { await ask(); });
+      expect(mocks.runPodTurn).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
+      expect(screen.getByText("Puppy did not answer in time. Check your machine and try again.")).toBeInTheDocument();
+      expect(screen.queryByText(/Still waiting for your machine/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

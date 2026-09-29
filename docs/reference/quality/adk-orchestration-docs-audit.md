@@ -2891,3 +2891,39 @@ the exit trap; the local guard again passed 450 tests. Hosted fresh-sync,
 Docker build/test, and license checks passed for `e160fd3c59`; broader Hermes
 CI and Nix checks were still queued when this record was updated. The root
 branch's local core mirror and docs verification also passed before audit push.
+
+## 2026-09-28: Personal pod owner-approved update
+
+This rehearsal used the existing personal dev BYOC owner pod. The published dev-only offer
+`2026.09-dev.5+249b3b600eb0.f8464e85` named its actual predecessor digest
+`sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701`.
+Two authenticated, unlocked owner browser sessions were used. A synthetic
+legacy pod chat returned HTTP 200; before Settings approval, the pod reported
+one active handoff permit. Settings approval created operation
+`op_15b895d1996146e0b28c3c63a9421001`, and the duplicate exact approval
+returned that same operation. An idle handoff receipt was observed. The poll
+did not catch active work after approval began, so this is **not** conclusive
+live overlap or uninterrupted drain evidence. The old image lacked the newer
+AG-UI chat route; its authenticated legacy turn was the available work source.
+
+Owner status later reported the release installed and verified. Cloud Run
+readback found revision
+`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00018-pdz` at 100% traffic,
+target digest `sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d`,
+and the same service UID `a33135b3-1328-4379-9127-5ee9571a2f3a`. Minimum
+zero, maximum one instance, request-based CPU, one vCPU, one GiB, concurrency
+eight and the 600-second relay idle grace remained configured. Cold-session
+unlock and a new private AG-UI chat returned HTTP 200 with a nonempty completed
+answer. Its synthetic conversations were deleted and browser/pod subjects
+revoked. Settings displayed verified completion; Feed's post-install view was
+not separately observed.
+
+The first post-update Puppy request timed out in the browser rehearsal. A
+second direct request using the unchanged trusted Mac identity and owner grant
+returned a nonempty local-model answer. This supports reconnection after the
+restart, but the slow first turn requires visible progress and a bounded
+failure state in the frontend; it does not prove a latency target or
+phone-on-cellular acceptance. A later UI-only candidate adds that progress,
+timeout, the remote machine-status sheet, One-aligned composer, and a dated
+display label for existing immutable release IDs. Its source and deployment
+evidence must be recorded separately when verified.
