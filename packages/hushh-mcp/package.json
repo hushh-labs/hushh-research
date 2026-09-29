@@ -52,7 +52,7 @@
     "node": ">=18.18"
   },
   "devDependencies": {
-    "vitest": "^4.1.5"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "postcss": "8.5.23"
