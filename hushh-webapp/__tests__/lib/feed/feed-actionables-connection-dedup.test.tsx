@@ -138,7 +138,8 @@ vi.mock("@/lib/consent/consent-display", () => ({
   }) => counterpartLabel || "Someone",
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/navigation/routes")>()),
   buildKaiMarketRoute: () => "/one/kai",
 }));
 

@@ -1,28 +1,21 @@
 {
-  "version": "2026.09-dev.6",
+  "version": "2026.09-dev.7",
   "channel": "dev",
-  "summary": "Streaming remote Puppy replies and clearer trusted-machine controls.",
+  "summary": "Simpler cloud setup, a dedicated Files workspace, and clearer software updates.",
   "notes": {
     "improvements": [
-      "Remote Puppy replies stream as your trusted machine generates them.",
-      "Choose an installed local model for one chat or set the machine default for future chats."
+      "Deploy your private agent to your cloud from one guided action; new setups include the encrypted Files library.",
+      "Browse folders and files in a dedicated workspace with upload, search, and organization controls."
     ],
     "fixes": [
-      "Puppy shows first-response progress, cancellation, and a bounded failure instead of spinning indefinitely.",
-      "This machine reports when its model, capacity, and work readings were last observed.",
-      "Settings and Feed show the same observed update phase and retain the last verified version during refresh."
+      "Missing cloud billing now offers a direct setup link and resumes the recorded project after fresh authorization.",
+      "Settings and Feed show the same verified update stages and retain the installed version during refresh.",
+      "A failed update can send a bounded diagnostic report only after the owner chooses to send it."
     ],
     "security": [
-      "Model changes require an owner-authorized, device-acknowledged command bound to the current pod.",
-      "The inference-only Puppy relay cannot change the trusted machine's default model."
+      "Files content analysis remains off until the owner opts in.",
+      "Update completion requires installed-image and recovery verification; logs are not sent automatically."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:ac409994fddb8dda266c811eb14127d07678cd54b7c0c451aa16a8e94e7f4fea",
-    "sha256:61ff4ee3bbfcb1c35d9a5c8cfd9988548e2bd03f1d5d7ccb5c61b1d16bcd5259",
-    "sha256:22cadabee713a200d2dd0b5297d7d87344ca0a7885919abae45bb5a1708c2f79",
-    "sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809",
-    "sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701",
-    "sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d"
-  ]
+  "supportedUpgradeDigests": []
 }

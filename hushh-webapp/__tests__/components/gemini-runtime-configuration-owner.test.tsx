@@ -14,7 +14,10 @@ const { state, markChoice, navigate, replace, clearDraft } = vi.hoisted(() => ({
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({ user: { uid: state.uid }, loading: false }),
 }));
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace }) }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace }),
+  useSearchParams: () => new URLSearchParams(window.location.search),
+}));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultKey: null, vaultOwnerToken: null, isVaultUnlocked: false }),
 }));

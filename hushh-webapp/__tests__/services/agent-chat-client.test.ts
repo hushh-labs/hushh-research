@@ -460,15 +460,15 @@ describe("AG-UI Agent One client", () => {
     const input = { vaultKey: TEST_VAULT_KEY, conversationId: "thread-1", sourceActivityId: activityId,
       bundleId, idempotencyKey: "synthetic-receipt-key", vaultOwnerToken: "owner-token" };
     const sleep = vi.fn(async () => undefined);
-    vi.mocked(ApiService.apiFetch).mockClear();
-    vi.mocked(ApiService.apiFetch)
+    vi.mocked(ApiService.agentChatRequest).mockClear();
+    vi.mocked(ApiService.agentChatRequest)
       .mockResolvedValueOnce(new Response(JSON.stringify({ detail: "Discovery card not found." }), { status: 404 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ descriptor }), { status: 200 }));
     await expect(recordAgentChatInformationRequestWithRetry(input, { sleep })).resolves.toMatchObject({
       phase: "submitted", bundleId, subjectRef: PERSON_REF,
     });
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(2);
-    for (const call of vi.mocked(ApiService.apiFetch).mock.calls) {
+    expect(ApiService.agentChatRequest).toHaveBeenCalledTimes(2);
+    for (const call of vi.mocked(ApiService.agentChatRequest).mock.calls) {
       expect(call[0]).toBe("/api/one/agent-chat/history/thread-1/information-requests");
       // Locators only: the card id the server matches, the bundle and the key. Never a card body.
       expect(JSON.parse(String((call[1] as RequestInit).body))).toEqual({
@@ -477,13 +477,13 @@ describe("AG-UI Agent One client", () => {
     }
 
     // A final refusal is not retried, and reports its status for the log.
-    vi.mocked(ApiService.apiFetch).mockClear();
-    vi.mocked(ApiService.apiFetch).mockResolvedValueOnce(
+    vi.mocked(ApiService.agentChatRequest).mockClear();
+    vi.mocked(ApiService.agentChatRequest).mockResolvedValueOnce(
       new Response(JSON.stringify({ detail: "Request recipient did not match discovery." }), { status: 409 }));
     const refused = await recordAgentChatInformationRequestWithRetry(input, { sleep }).catch((error: unknown) => error);
     expect(refused).toBeInstanceOf(InformationRequestReceiptError);
     expect((refused as InformationRequestReceiptError).status).toBe(409);
-    expect(ApiService.apiFetch).toHaveBeenCalledTimes(1);
+    expect(ApiService.agentChatRequest).toHaveBeenCalledTimes(1);
     expect(isRetryableReceiptStatus(404)).toBe(true);
     expect(isRetryableReceiptStatus(null)).toBe(true);
     expect(isRetryableReceiptStatus(403)).toBe(false);
