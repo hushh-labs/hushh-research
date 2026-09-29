@@ -158,6 +158,9 @@ def test_full_suite_shards_run_verifiers_once() -> None:
 def test_workflow_schedules_every_leg_and_shard() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
+    job_ids = re.findall(r"^  ([a-z][a-z0-9-]*):$", workflow, re.M)
+    assert len(job_ids) == len(set(job_ids)), "CI workflow has duplicate job IDs"
+
     targeted = _job_block(workflow, "web-targeted-check", "web-full-suite-check")
     assert "part: [node, browser]" in targeted
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted

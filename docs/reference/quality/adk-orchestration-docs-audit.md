@@ -3202,3 +3202,12 @@ failure-report route. `ad2f3693d` returns the service receipt as a concrete
 mapping; mypy passes. This adds two measured lines to the existing route-module
 size debt, reviewed without changing the fitness budgets. The complete core
 mirror must pass again on the final committed candidate before push.
+
+The exact `294e7ddd3` local core mirror passed after the current release-head
+and attention-ledger cascade assertions were aligned with migration 260 and
+migration 258. Its first hosted PR Validation attempt (`36638392328`) failed
+before any job started: the merged CI YAML repeated four job IDs. The
+correction restores the current main-owned CI job graph and retains the pod
+branch's targeted-suite ownership flag. A focused regression now rejects
+duplicate job IDs; it detects all four duplicates in the failed revision.
+The corrected SHA requires its own local and hosted verdict before deployment.
