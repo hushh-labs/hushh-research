@@ -647,6 +647,21 @@ class PuppyAccessRequest(BaseModel):
     enabled: bool
 
 
+class PuppyModelSelectionRequest(BaseModel):
+    request_id: str = Field(alias="requestId", min_length=8, max_length=80)
+    model: str = Field(min_length=1, max_length=120)
+    catalog_version: str = Field(alias="catalogVersion", min_length=64, max_length=64)
+    expected_version: int = Field(alias="expectedVersion", ge=0, strict=True)
+
+
+class PuppyModelSelectionAck(BaseModel):
+    id: str = Field(min_length=8, max_length=80)
+    version: int = Field(ge=1, strict=True)
+    result: Literal["applied", "refused"]
+    reason: str = Field(default="", max_length=40)
+    proof: str = Field(min_length=1, max_length=2048)
+
+
 @router.get("/trusted-devices/{device_id}/pod-binding")
 async def read_pod_binding(
     device_id: str,
@@ -765,6 +780,71 @@ async def activate_puppy(device_id: str, token_data: dict = Depends(require_vaul
 
     try:
         return await request_activation(token_data["user_id"], device_id)
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.get("/trusted-devices/{device_id}/puppy-model-selection")
+async def read_puppy_model_selection(
+    device_id: str,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Read the owner's last device-default command and its observed outcome."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().read(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection")
+async def request_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Queue one exact owner-approved local model; only the device may apply it."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().request(
+            user_id=token_data["user_id"],
+            device_id=device_id,
+            request_id=payload.request_id,
+            model=payload.model,
+            catalog_version=payload.catalog_version,
+            expected_version=payload.expected_version,
+        )
+    except PodBindingError as exc:
+        raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+
+
+@router.post("/trusted-devices/{device_id}/puppy-model-selection/ack")
+async def acknowledge_puppy_model_selection(
+    device_id: str,
+    payload: PuppyModelSelectionAck,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """A signed receipt from the enrolled device key; Firebase alone is insufficient."""
+    from hushh_mcp.services.pod_binding_service import PodBindingError
+    from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+    try:
+        return await PuppyModelSelectionService().acknowledge(
+            user_id=firebase_uid,
+            device_id=device_id,
+            request_id=payload.id,
+            version=payload.version,
+            result=payload.result,
+            reason=payload.reason,
+            proof=payload.proof,
+        )
     except PodBindingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
 
@@ -915,7 +995,25 @@ async def trusted_device_status(
         except Exception:
             # A wake hint is advisory. Failure cannot imply revocation or widen a grant.
             pass
-    return {**status, "server_time_ms": int(time.time() * 1000), "puppyActivation": hint}
+    selection = None
+    if status.get("status") == "active":
+        try:
+            from hushh_mcp.services.puppy_model_selection import PuppyModelSelectionService
+
+            selection = await PuppyModelSelectionService().pending(
+                user_id=firebase_uid,
+                device_id=device_id,
+            )
+        except Exception:
+            # A control-command lookup cannot turn a valid device status into
+            # a false revocation. The next poll retries; owner read shows expiry.
+            logger.warning("trusted_device.puppy_model_selection_unavailable")
+    return {
+        **status,
+        "server_time_ms": int(time.time() * 1000),
+        "puppyActivation": hint,
+        "puppyModelSelection": selection,
+    }
 
 
 @router.post("/trusted-devices/{device_id}/seal-ack")

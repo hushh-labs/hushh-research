@@ -75,7 +75,7 @@ async def test_generate_rides_the_broker_and_normalises_the_result():
     assert [c.name for c in response.function_calls] == ["load_memory"]
     sent = socket.sent[0]
     assert sent["type"] == "inference.request" and sent["deviceId"] == KEY[1]
-    assert sent["model"] == "local" and sent["messages"][0]["text"] == "hello"
+    assert "model" not in sent and sent["messages"][0]["text"] == "hello"
     assert "Authorization" not in str(sent) and "pst1." not in str(sent)
 
 
@@ -104,6 +104,60 @@ async def test_stream_yields_chunks_in_order():
     ]
     await feeder
     assert [c.text for c in chunks] == ["a", "b"]
+
+
+async def test_explicit_model_requires_current_catalog_and_is_forwarded_with_version():
+    import hashlib
+    import json
+
+    broker = pb.PuppyBroker()
+    socket = _Socket()
+    link = await broker.register(KEY, send=socket.send, close=socket.close, epoch=1)
+    version = hashlib.sha256(
+        json.dumps(
+            {"defaultModel": "qwen3-8b-mlx", "models": ["qwen3-8b-mlx"]},
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    await broker.deliver(
+        KEY,
+        {
+            "type": "model.catalog",
+            "status": "available",
+            "defaultModel": "qwen3-8b-mlx",
+            "models": [{"id": "qwen3-8b-mlx"}],
+            "catalogVersion": version,
+            "observedAt": 1000,
+        },
+        expected_link=link,
+    )
+    stale = local.PuppyLocalBrokerTransport(
+        hushh_id=KEY[0], device_id=KEY[1], catalog_version="0" * 64, broker=broker
+    )
+    from hushh_mcp.runtime_providers.puppy_transport import PuppyCatalogStale
+
+    with pytest.raises(PuppyCatalogStale):
+        await stale._generate(_request(), model="qwen3-8b-mlx")
+    assert socket.sent == []
+
+    selected = local.PuppyLocalBrokerTransport(
+        hushh_id=KEY[0], device_id=KEY[1], catalog_version=version, broker=broker
+    )
+
+    async def device():
+        while not socket.sent:
+            await asyncio.sleep(0)
+        request = socket.sent[0]
+        await broker.deliver(
+            KEY, {"type": "inference.result", "requestId": request["requestId"], "text": "ok"}
+        )
+
+    feeder = asyncio.create_task(device())
+    response = await selected._generate(_request(), model="qwen3-8b-mlx")
+    await feeder
+    assert response.text == "ok"
+    assert socket.sent[0]["model"] == "qwen3-8b-mlx"
+    assert socket.sent[0]["catalogVersion"] == version
 
 
 async def test_offline_fenced_and_refused_surface_as_the_typed_refusal_never_a_fallback():

@@ -89,6 +89,8 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/agent-prompt",
         "/api/one/pod/live",
         "/api/one/pod/turn",
+        "/api/one/pod/turn/stream",
+        "/api/one/pod/puppy/models",
         # The learning loop's doors (api/routes/one/pod_memory.py): same admission
         # as the turn. Reviewed here because each carries owner authority.
         "/api/one/pod/conversation/{conversation_id}/close",
@@ -393,6 +395,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/status",
         "/api/one/pod/config",
         "/api/one/pod/turn",
+        "/api/one/pod/turn/stream",
+        "/api/one/pod/puppy/models",
         # NOT /api/one/pod/live: the Live websocket is walled on purpose, and
         # test_a_walled_websocket_is_closed_before_accept pins the 1008 close.
         "/api/one/puppy/relay",

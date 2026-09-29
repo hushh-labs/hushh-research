@@ -9,6 +9,7 @@ export async function ownerPodRequest(
   path: string,
   init: RequestInit,
   ports: AccessPorts,
+  expectedHushhId?: string,
 ): Promise<Response> {
   const route = path.split("?")[0] ?? "";
   const allowed = new Set([
@@ -24,6 +25,8 @@ export async function ownerPodRequest(
     "files/repair-index",
     "commands/transcriptions",
     "commands/assess",
+    "turn/stream",
+    "puppy/models",
   ]);
   const chatRoute = route === "agent-chat" || route === "agent-chat/capabilities" ||
     /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/.test(route) ||
@@ -39,6 +42,8 @@ export async function ownerPodRequest(
     endpoint = await ownerPod.refreshEndpointFromHub(uid, transport);
   const connection = await ownerPod.currentPodConnection(uid, transport);
   endpoint = connection.endpoint;
+  if (expectedHushhId && endpoint.hushhId !== expectedHushhId)
+    throw new Error("POD_DIRECT_OWNER_MISMATCH");
   const session = connection.session;
   if (AuthService.getCurrentUser()?.uid !== uid)
     throw new Error("POD_OWNER_CHANGED");

@@ -42,7 +42,14 @@ async def _link(broker: pb.PuppyBroker, socket: _Socket, key=KEY, **kw) -> pb.De
 
 
 def _request(request_id="r1", device=KEY[1]) -> dict:
-    return {"type": "inference.request", "requestId": request_id, "deviceId": device, "model": "m"}
+    # These lifecycle tests exercise the device's current local default. An
+    # explicitly pinned model is separately gated by its sealed catalog.
+    return {
+        "type": "inference.request",
+        "requestId": request_id,
+        "deviceId": device,
+        "model": "local",
+    }
 
 
 async def _collect(broker: pb.PuppyBroker, frame: dict, **kw) -> list[dict]:

@@ -8,7 +8,36 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     upgrade_approval_matches,
     upgrade_operation_is_recoverable,
 )
-from hushh_mcp.services.pod_release import public_release, upgrade_is_supported, validate_release
+from hushh_mcp.services.pod_release import (
+    image_digest,
+    public_release,
+    upgrade_is_supported,
+    validate_release,
+)
+
+
+def _active_phase(approval: dict, metadata: dict) -> str:
+    """Use only milestones persisted for this exact update operation."""
+    if approval.get("status") != "updating":
+        return "scheduled"
+    receipt = metadata.get("upgradeAcknowledgement")
+    if (
+        approval.get("presentationPhase") == "verifying"
+        and approval.get("providerAcknowledgedAt")
+        and isinstance(receipt, dict)
+        and receipt.get("operationId") == approval.get("operationId")
+        and receipt.get("releaseId") == approval.get("releaseId")
+        and receipt.get("podIncarnation") == approval.get("podIncarnation")
+        and receipt.get("targetDigest") == image_digest(approval.get("targetImage"))
+    ):
+        return "verifying"
+    if (
+        approval.get("presentationPhase") in {"installing", "verifying"}
+        and approval.get("handoffIdleAt")
+        and approval.get("handoffIncarnation")
+    ):
+        return "installing"
+    return "preparing"
 
 
 def _blocked_update(row: Optional[dict]) -> dict:
@@ -26,7 +55,7 @@ def _blocked_update(row: Optional[dict]) -> dict:
             "updateOfferable": False,
             "updateInstallable": False,
             "updateError": message,
-            "update": {"presentationState": "blocked", "summary": message},
+            "update": {"presentationState": "blocked", "phase": "blocked", "summary": message},
         }
     if not (
         isinstance(approval, dict)
@@ -50,6 +79,7 @@ def _blocked_update(row: Optional[dict]) -> dict:
             "releaseId": approval["releaseId"],
             "operationId": approval["operationId"],
             "presentationState": "blocked",
+            "phase": "blocked",
             "summary": message,
         },
     }
@@ -57,7 +87,8 @@ def _blocked_update(row: Optional[dict]) -> dict:
 
 def _active_update(row: Optional[dict]) -> dict:
     """Follow the approved operation even when the hub publishes a newer offer."""
-    approval = ((row or {}).get("backend_metadata") or {}).get("upgradeApproval")
+    metadata = (row or {}).get("backend_metadata") or {}
+    approval = metadata.get("upgradeApproval")
     if not isinstance(approval, dict) or approval.get("status") not in {
         "approved",
         "scheduled",
@@ -87,6 +118,7 @@ def _active_update(row: Optional[dict]) -> dict:
             "releaseId": approval["releaseId"],
             "operationId": approval["operationId"],
             "presentationState": state,
+            "phase": _active_phase(approval, metadata),
         },
     }
 
@@ -150,6 +182,7 @@ def _update_offer(
         status = str(approval.get("status") or "").strip()
         if status in {"approved", "scheduled", "updating"}:
             update["presentationState"] = "scheduled" if status == "approved" else status
+            update["phase"] = _active_phase(approval, metadata)
             if approval.get("operationId"):
                 update["operationId"] = str(approval["operationId"])
     out["update"] = update

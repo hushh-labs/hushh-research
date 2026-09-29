@@ -24,6 +24,8 @@ from .puppy_transport import (
     DEFAULT_TIMEOUT_SECONDS,
     DEVICE_CAPABILITY_NAMES,
     PuppyCapabilityUnsupported,
+    PuppyCatalogStale,
+    PuppyModelUnavailable,
     PuppyRelayProtocolError,
     PuppyRelayTransport,
     PuppyRelayUnavailable,
@@ -64,6 +66,7 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
         *,
         hushh_id: str,
         device_id: str,
+        catalog_version: str | None = None,
         broker: Any = None,
         incarnation: Any = None,
         timeout_seconds: float | None = None,
@@ -72,6 +75,7 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
         # a hub grant, neither of which exists on the owner-direct path.
         self._owner = str(hushh_id or "").strip()
         self._device_id = str(device_id or "").strip()
+        self._catalog_version = str(catalog_version or "").strip()
         self._timeout = float(timeout_seconds or DEFAULT_TIMEOUT_SECONDS)
         self._token = ""
         self._url = ""
@@ -118,6 +122,11 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
                     raise PuppyRelayProtocolError("Puppy returned a mismatched request")
                 kind = str(frame.get("type") or "")
                 if kind == "inference.error":
+                    code = str(frame.get("code") or "")
+                    if code == "MODEL_UNAVAILABLE" or code == "PUPPY_MODEL_UNAVAILABLE":
+                        raise PuppyModelUnavailable("selected local model unavailable")
+                    if code == "STALE_MODEL_CATALOG" or code == "PUPPY_CATALOG_STALE":
+                        raise PuppyCatalogStale("selected model catalog changed")
                     raise PuppyRelayUnavailable("Puppy inference was refused")
                 yield frame
                 if kind in {"inference.done", "inference.result"}:
@@ -132,7 +141,9 @@ def relay_url_configured() -> bool:
     return bool(str(os.getenv("PUPPY_INFERENCE_RELAY_URL") or "").strip())
 
 
-def select_puppy_transport(*, device_id: Optional[str]) -> Optional[PuppyLocalBrokerTransport]:
+def select_puppy_transport(
+    *, device_id: Optional[str], catalog_version: str | None = None
+) -> Optional[PuppyLocalBrokerTransport]:
     """The owner-direct transport, or None when direct BYOC admission is absent.
 
     Local only when this process is the owner's pod, Puppy is enabled there, and
@@ -162,7 +173,11 @@ def select_puppy_transport(*, device_id: Optional[str]) -> Optional[PuppyLocalBr
     except Exception:  # noqa: BLE001 - no authority means no fence to consult
         incarnation = None
     return PuppyLocalBrokerTransport(
-        hushh_id=owner, device_id=device, broker=BROKER, incarnation=incarnation
+        hushh_id=owner,
+        device_id=device,
+        catalog_version=catalog_version,
+        broker=BROKER,
+        incarnation=incarnation,
     )
 
 

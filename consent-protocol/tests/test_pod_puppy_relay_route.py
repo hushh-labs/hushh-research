@@ -459,6 +459,87 @@ def test_the_relay_is_on_the_app_surface_and_the_wall_still_covers_the_rest():
 
     assert is_app_surface("/api/one/puppy/relay") is True
     assert is_app_surface("/api/one/puppy/status/tdv_1") is False
+    assert is_app_surface("/api/one/pod/turn/stream") is True
+    assert is_app_surface("/api/one/pod/puppy/models") is True
+    assert is_app_surface("/api/one/pod/puppy/models/private") is False
+
+
+async def test_sealed_model_catalog_is_bound_to_the_current_device_link(pod):
+    import hashlib
+
+    device = Device()
+    token, claims = await pod["admit"](device)
+    envelope = _device_envelope(pod, device, claims)
+    material = json.dumps(
+        {"defaultModel": "qwen3-8b-mlx", "models": ["qwen3-8b-mlx"]},
+        separators=(",", ":"),
+    ).encode()
+    version = hashlib.sha256(material).hexdigest()
+    with _connect(pod, token) as ws:
+        ws.send_json(_hello(device))
+        assert ws.receive_json()["type"] == "relay.ready"
+        ws.send_json(
+            envelope.seal(
+                {
+                    "type": "model.catalog",
+                    "status": "available",
+                    "defaultModel": "qwen3-8b-mlx",
+                    "models": [{"id": "qwen3-8b-mlx"}],
+                    "catalogVersion": version,
+                    "observedAt": 1000,
+                },
+                direction=env.DIR_DEVICE_TO_POD,
+                seq=1,
+            )
+        )
+        catalog = pod["client"].portal.call(pb.BROKER.catalog, (OWNER, device.subject_id))
+        assert catalog["catalogVersion"] == version
+        assert catalog["models"] == [{"id": "qwen3-8b-mlx"}]
+        assert (
+            pod["client"].portal.call(
+                pb.BROKER.require_model, (OWNER, device.subject_id), "qwen3-8b-mlx", version
+            )
+            is None
+        )
+        assert (
+            pod["client"].portal.call(
+                pb.BROKER.require_model, (OWNER, device.subject_id), "qwen3-8b-mlx", "0" * 64
+            )
+            == "PUPPY_CATALOG_STALE"
+        )
+        assert (
+            pod["client"].portal.call(
+                pb.BROKER.require_model, (OWNER, device.subject_id), "other-model", version
+            )
+            == "PUPPY_MODEL_UNAVAILABLE"
+        )
+
+
+async def test_replaced_device_socket_cannot_publish_a_catalog():
+    broker = pb.PuppyBroker()
+
+    async def send(_frame):
+        return None
+
+    async def close(_code, _reason):
+        return None
+
+    key = (OWNER, "tdv_replaced")
+    old = await broker.register(key, send=send, close=close, epoch=1)
+    await broker.register(key, send=send, close=close, epoch=1)
+    await broker.deliver(
+        key,
+        {
+            "type": "model.catalog",
+            "status": "unavailable",
+            "defaultModel": "",
+            "models": [],
+            "catalogVersion": "",
+            "observedAt": 1000,
+        },
+        expected_link=old,
+    )
+    assert (await broker.catalog(key))["receivedAt"] is None
 
 
 async def test_on_demand_relay_closes_after_idle_even_with_heartbeats(pod, monkeypatch):

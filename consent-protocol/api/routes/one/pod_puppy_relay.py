@@ -245,7 +245,7 @@ async def pod_puppy_relay(websocket: WebSocket) -> None:
                 logger.warning("pod_puppy_relay.device_requested_inference")
                 await websocket.close(code=1008, reason="a device answers, it does not ask")
                 return
-            await BROKER.deliver(key, inner)
+            await BROKER.deliver(key, inner, expected_link=link)
     except (WebSocketDisconnect, ValueError, PuppyEnvelopeError, json.JSONDecodeError):
         try:
             await websocket.close(code=1008, reason="Puppy relay frame refused")

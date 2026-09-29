@@ -446,6 +446,7 @@ def _build(
     vertex_project: str | None = None,
     vertex_location: str | None = None,
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     if provider == "gemini":
         return _gemini_client(
@@ -474,7 +475,9 @@ def _build(
         # Puppy is available only through a linked, owner-local broker on the BYOC pod.
         # A hub relay is not a fallback: it would move a private inference request out
         # of the owner's deployment and could silently serve Shared or Hussh Pods.
-        local = select_puppy_transport(device_id=puppy_device_id)
+        local = select_puppy_transport(
+            device_id=puppy_device_id, catalog_version=puppy_catalog_version
+        )
         if local is None:
             raise PuppyRelayUnavailable(
                 "Puppy requires an active device relay on the owner's BYOC pod"
@@ -492,6 +495,7 @@ def build_runtime_client(
     vertex_project: str | None = None,
     vertex_location: str | None = None,
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
 ) -> Any:
     """BYOK client: the user supplies the key for the chosen provider."""
 
@@ -509,6 +513,7 @@ def build_runtime_client(
         vertex_project=vertex_project,
         vertex_location=vertex_location,
         puppy_device_id=puppy_device_id,
+        puppy_catalog_version=puppy_catalog_version,
     )
 
 

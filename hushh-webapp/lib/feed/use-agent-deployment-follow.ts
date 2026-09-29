@@ -98,8 +98,13 @@ function reportUpdateTask(
         taskId,
         kind: DEPLOYMENT_TASK_KIND,
         title: "Updating your private agent",
-        description:
-          "A verified update is being installed after your current work finishes.",
+        description: update.phase === "verifying"
+          ? "Your private agent is restarting. Waiting for its installed version to be verified."
+          : update.phase === "installing"
+            ? "The update is installing after current work finished."
+            : update.phase === "preparing"
+              ? "Finishing current work before the update starts."
+              : "Your approved update is scheduled.",
         routeHref: "/one/feed",
         visibility: "passive",
         groupLabel: "Private agent",

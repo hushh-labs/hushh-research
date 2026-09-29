@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   ownerToken: "owner-capability" as string | null,
   link: { state: "quiet", device: { id: "device-1" } } as { state: string; device: { id: string } } | null,
-  runPodTurn: vi.fn(),
+  streamPuppyPodTurn: vi.fn(),
   getPuppyRelayStatus: vi.fn(),
   getPersonalAgentStatus: vi.fn(),
   pendingRevocations: vi.fn(),
@@ -23,7 +23,7 @@ vi.mock("@/lib/services/puppy-one-service", () => ({
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    runPodTurn: mocks.runPodTurn,
+    streamPuppyPodTurn: mocks.streamPuppyPodTurn,
     getPuppyRelayStatus: mocks.getPuppyRelayStatus,
     getPersonalAgentStatus: mocks.getPersonalAgentStatus,
   },
@@ -33,6 +33,9 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
 }));
 vi.mock("@/components/agent/pod-memory-consent-row", () => ({
   PodMemoryConsentRow: () => null,
+}));
+vi.mock("@/components/agent/puppy-remote-model-picker", () => ({
+  PuppyRemoteModelPicker: () => null,
 }));
 
 import { PrivatePuppyInferencePanel } from "@/components/agent/private-puppy-inference-panel";
@@ -48,12 +51,15 @@ beforeEach(() => {
     state: "active",
     hushhId: "owner-pod-1",
   });
-  mocks.runPodTurn.mockResolvedValue({
-    text: "Puppy answered",
+  mocks.streamPuppyPodTurn.mockImplementation(async ({ onToken }: { onToken: (text: string) => void }) => {
+    onToken("Puppy ");
+    onToken("answered");
+    return {
     model: "local-model",
     modelReported: true,
     provider: "puppy",
     runtimeMode: "device-relay",
+    };
   });
 });
 
@@ -72,10 +78,9 @@ describe("private Puppy relay", () => {
 
     expect(await screen.findByText("Puppy answered")).toBeInTheDocument();
     expect(mocks.getPuppyRelayStatus).not.toHaveBeenCalled();
-    expect(mocks.runPodTurn).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mocks.streamPuppyPodTurn).toHaveBeenCalledWith(expect.objectContaining({
       hushhId: "owner-pod-1",
       vaultOwnerToken: "owner-capability",
-      runtimeProvider: "puppy",
       puppyDeviceId: "device-1",
       signal: expect.any(AbortSignal),
     }));
@@ -87,11 +92,11 @@ describe("private Puppy relay", () => {
     await ask();
 
     await waitFor(() => expect(screen.getByText("Unlock your private agent before using the Puppy relay.")).toBeInTheDocument());
-    expect(mocks.runPodTurn).not.toHaveBeenCalled();
+    expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
   });
 
   it("cancels an in-flight owner-pod turn", async () => {
-    mocks.runPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
+    mocks.streamPuppyPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
       new Promise((_resolve, reject) => {
         signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
       }),
@@ -99,7 +104,7 @@ describe("private Puppy relay", () => {
     render(<PrivatePuppyInferencePanel />);
     await ask();
 
-    await waitFor(() => expect(mocks.runPodTurn).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1));
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
     expect(await screen.findByText("Puppy request cancelled.")).toBeInTheDocument();
   });
@@ -107,14 +112,14 @@ describe("private Puppy relay", () => {
   it("ends an unanswered turn with a useful timeout instead of spinning forever", async () => {
     vi.useFakeTimers();
     try {
-      mocks.runPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
+      mocks.streamPuppyPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
         }),
       );
       render(<PrivatePuppyInferencePanel />);
       await act(async () => { await ask(); });
-      expect(mocks.runPodTurn).toHaveBeenCalledTimes(1);
+      expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1);
 
       await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
       expect(screen.getByText("Puppy did not answer in time. Check your machine and try again.")).toBeInTheDocument();
@@ -135,10 +140,10 @@ describe("private Puppy relay", () => {
 
       await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
       expect(screen.getByText("Puppy did not answer in time. Check your machine and try again.")).toBeInTheDocument();
-      expect(mocks.runPodTurn).not.toHaveBeenCalled();
+      expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
 
       await act(async () => { finishLink({ state: "quiet", device: { id: "device-1" } }); });
-      expect(mocks.runPodTurn).not.toHaveBeenCalled();
+      expect(mocks.streamPuppyPodTurn).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

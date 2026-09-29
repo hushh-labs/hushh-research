@@ -22,12 +22,17 @@ source wiring alone does not establish deployed recall or lifecycle completion.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
+import re
+from contextlib import suppress
 from types import SimpleNamespace
-from typing import Any, Optional
+from typing import Any, Awaitable, Callable, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException, WebSocket
+from fastapi import APIRouter, Body, Header, HTTPException, Query, WebSocket
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
@@ -79,6 +84,10 @@ class PodTurnRequest(BaseModel):
     # fleet manifest.
     runtime_provider: Optional[str] = Field(default=None, alias="runtimeProvider", max_length=32)
     puppy_device_id: Optional[str] = Field(default=None, alias="puppyDeviceId", max_length=128)
+    puppy_model: Optional[str] = Field(default=None, alias="puppyModel", max_length=128)
+    puppy_catalog_version: Optional[str] = Field(
+        default=None, alias="puppyCatalogVersion", max_length=64
+    )
     vertex_project: Optional[str] = Field(default=None, alias="vertexProject", max_length=64)
     vertex_location: Optional[str] = Field(default=None, alias="vertexLocation", max_length=64)
     # The owner's consented turn projection, opened by their key on their own device
@@ -192,6 +201,24 @@ def _is_puppy_capability_unsupported(exc: BaseException) -> bool:
             return True
         cur = cur.__cause__ or cur.__context__
     return False
+
+
+def _puppy_model_refusal(exc: BaseException) -> str:
+    from hushh_mcp.runtime_providers.puppy_transport import (  # noqa: PLC0415
+        PuppyCatalogStale,
+        PuppyModelUnavailable,
+    )
+
+    seen: set[int] = set()
+    cur: BaseException | None = exc
+    while cur is not None and id(cur) not in seen:
+        seen.add(id(cur))
+        if isinstance(cur, PuppyCatalogStale):
+            return "PUPPY_CATALOG_STALE"
+        if isinstance(cur, PuppyModelUnavailable):
+            return "PUPPY_MODEL_UNAVAILABLE"
+        cur = cur.__cause__ or cur.__context__
+    return ""
 
 
 async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict:
@@ -362,6 +389,7 @@ async def run_pod_turn(
     stream_fn: Any = None,
     verifier: Any = None,
     session: dict | None = None,
+    on_token: Callable[[str], Awaitable[None]] | None = None,
 ) -> dict:
     """The testable core: validate, run one turn, collect. Injectable by keyword."""
     _require_enabled()
@@ -423,6 +451,28 @@ async def run_pod_turn(
             user_id=user_id,
             hushh_id=str(session.get("hushh_id") or ""),
         )
+        if payload.puppy_model:
+            from api.routes.one.pod_puppy_relay import valid_model_name  # noqa: PLC0415
+            from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
+
+            version = str(payload.puppy_catalog_version or "")
+            if (
+                payload.puppy_model == "local"
+                or valid_model_name(payload.puppy_model) != payload.puppy_model
+                or not re.fullmatch(r"[0-9a-f]{64}", version)
+            ):
+                raise HTTPException(
+                    status_code=400, detail={"code": "PUPPY_MODEL_SELECTION_INVALID"}
+                )
+            refusal = await BROKER.require_model(
+                (str(session.get("hushh_id") or ""), str(payload.puppy_device_id)),
+                payload.puppy_model,
+                version,
+            )
+            if refusal:
+                raise HTTPException(status_code=409, detail={"code": refusal})
+        elif payload.puppy_catalog_version:
+            raise HTTPException(status_code=400, detail={"code": "PUPPY_MODEL_SELECTION_INVALID"})
         if not str(payload.runtime_credential or "").strip():
             # The session IS the Puppy authority on the local path; the marker keeps
             # every existing non-empty credential check honest without a hub grant.
@@ -489,6 +539,7 @@ async def run_pod_turn(
         vertex_location=payload.vertex_location,
         data_door_grants=payload.data_door_grants or {},
         puppy_device_id=payload.puppy_device_id,
+        puppy_catalog_version=payload.puppy_catalog_version,
         verifier=verifier,
     )
 
@@ -556,6 +607,7 @@ async def run_pod_turn(
                 runtime_credential=payload.runtime_credential,
                 runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
                 puppy_device_id=payload.puppy_device_id,
+                puppy_catalog_version=payload.puppy_catalog_version,
                 runtime_vertex_project=payload.vertex_project,
                 runtime_vertex_location=payload.vertex_location,
                 # The couriered per-specialist read scopes. Seeded into the runtime so
@@ -570,7 +622,10 @@ async def run_pod_turn(
             ):
                 kind = getattr(event, "kind", "")
                 if kind == "token":
-                    chunks.append(str(getattr(event, "text", "") or ""))
+                    token = str(getattr(event, "text", "") or "")
+                    chunks.append(token)
+                    if token and on_token is not None:
+                        await on_token(token)
                     observed_model = (
                         observed_model or str(getattr(event, "model_version", "") or "").strip()
                     )
@@ -590,6 +645,9 @@ async def run_pod_turn(
         # as "I can't do that here yet", never as their agent crashing (a 502). Only
         # in pod mode, and only for that specific wall: a real DB error on the
         # DB-capable hub still surfaces, and any OTHER pod failure is still a 502.
+        model_refusal = _puppy_model_refusal(exc) if provider == "puppy" else ""
+        if model_refusal:
+            raise HTTPException(status_code=409, detail={"code": model_refusal}) from None
         if pod_mode() and _is_puppy_capability_unsupported(exc):
             # The owner's device model refused a capability One's own request
             # needs. The device is up and the consent is good, so this is a
@@ -826,7 +884,9 @@ def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
             raise HTTPException(status_code=400, detail="requested inference target is unavailable")
         if not str(getattr(payload, "puppy_device_id", None) or "").strip():
             raise HTTPException(status_code=400, detail="Puppy device is required")
-        model = str(os.getenv("PUPPY_INFERENCE_MODEL") or "local").strip()
+        model = str(
+            getattr(payload, "puppy_model", None) or os.getenv("PUPPY_INFERENCE_MODEL") or "local"
+        ).strip()
         return "puppy", model
     manifest = load_one_agent_runtime_manifest()
     provider = str(manifest.model.provider or "gemini").strip().lower()
@@ -850,31 +910,167 @@ async def pod_turn_route(
     consent token, an OIDC token) is refused by shape, never accepted as local.
     """
     if not str(x_consent_token or "").strip():
-        from api.routes.one.pod_session import bearer, verified_session  # noqa: PLC0415
-        from hushh_mcp.services.pod_session_authority import ROLE_APP  # noqa: PLC0415
+        from api.routes.one.pod_session import bearer  # noqa: PLC0415
 
         if bearer(authorization):
-            authority, claims = verified_session(authorization, role=ROLE_APP)
-            from hushh_mcp.services.pod_files.runtime import files_access
+            authority, claims = _direct_turn_session(authorization)
+            return await _run_direct_turn(payload, authorization, authority, claims)
+    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
 
-            async def files_authority() -> None:
-                verified_session(authorization, role=ROLE_APP, scope="files.read")
-                await authority.require_held()
 
-            async def files_management() -> None:
-                verified_session(authorization, role=ROLE_APP, scope="files.manage")
-                await files_authority()
+def _direct_turn_session(authorization: str | None) -> tuple[Any, dict]:
+    """The one app-role admission used by both JSON and streamed direct turns."""
+    from api.routes.one.pod_session import verified_session  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import ROLE_APP  # noqa: PLC0415
 
-            with files_access(files_authority, manage=files_management):
-                return await _bounded_turn(
-                    run_pod_turn(
-                        payload=payload,
-                        consent_token=authority.local_token(claims),
-                        verifier=authority.local_verifier(claims),
-                        session=claims,
+    return verified_session(authorization, role=ROLE_APP)
+
+
+async def _run_direct_turn(
+    payload: PodTurnRequest,
+    authorization: str | None,
+    authority: Any,
+    claims: dict,
+    *,
+    on_token: Callable[[str], Awaitable[None]] | None = None,
+) -> dict:
+    """Share file scopes, consent verification and turn admission across both transports."""
+    from api.routes.one.pod_session import verified_session  # noqa: PLC0415
+    from hushh_mcp.services.pod_files.runtime import files_access  # noqa: PLC0415
+    from hushh_mcp.services.pod_session_authority import ROLE_APP  # noqa: PLC0415
+
+    async def files_authority() -> None:
+        verified_session(authorization, role=ROLE_APP, scope="files.read")
+        await authority.require_held()
+
+    async def files_management() -> None:
+        verified_session(authorization, role=ROLE_APP, scope="files.manage")
+        await files_authority()
+
+    with files_access(files_authority, manage=files_management):
+        return await _bounded_turn(
+            run_pod_turn(
+                payload=payload,
+                consent_token=authority.local_token(claims),
+                verifier=authority.local_verifier(claims),
+                session=claims,
+                on_token=on_token,
+            )
+        )
+
+
+def _stream_event(kind: str, payload: dict[str, Any]) -> str:
+    return f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+def _stream_error(exc: Exception) -> dict[str, str]:
+    """A stable code and public text, never exception details or private turn content."""
+    if isinstance(exc, HTTPException):
+        detail = exc.detail
+        code = detail.get("code") if isinstance(detail, dict) else None
+        if not isinstance(code, str):
+            code = ""
+        if code in {"PUPPY_OFFLINE", "POD_TURN_TIMEOUT"}:
+            return {"code": code, "message": "Puppy is unavailable. Try again shortly."}
+        if code == "PUPPY_CATALOG_STALE":
+            return {"code": code, "message": "The model list changed. Refresh it and try again."}
+        if code in {"PUPPY_MODEL_UNAVAILABLE", "PUPPY_MODEL_SELECTION_INVALID"}:
+            return {"code": code, "message": "That local model is unavailable."}
+        if exc.status_code in {401, 403}:
+            return {"code": "PUPPY_ACCESS_REFUSED", "message": "Puppy access is unavailable."}
+        if exc.status_code == 409:
+            return {"code": "PUPPY_BUSY", "message": "Puppy is finishing other work."}
+    return {"code": "PUPPY_TURN_FAILED", "message": "Puppy could not finish this response."}
+
+
+@router.get("/puppy/models")
+async def pod_puppy_models(
+    device_id: str = Query(..., alias="deviceId", min_length=1, max_length=128),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, Any]:
+    """The live sealed device catalog, visible only to this pod's admitted owner."""
+    _require_enabled()
+    authority, _claims = _direct_turn_session(authorization)
+    await authority.require_held()
+    from hushh_mcp.services.puppy_broker import BROKER  # noqa: PLC0415
+
+    catalog: dict[str, Any] = await BROKER.catalog((authority.hushh_id, device_id))
+    return catalog
+
+
+@router.post("/turn/stream")
+async def pod_turn_stream_route(
+    payload: PodTurnRequest = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> StreamingResponse:
+    """Stream a direct Puppy turn through the existing owner, device and update gates."""
+    _require_enabled()
+    if payload.runtime_provider != "puppy":
+        raise HTTPException(status_code=400, detail="Puppy inference target required")
+    authority, claims = _direct_turn_session(authorization)
+
+    async def events():
+        queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=8)
+        emitted = False
+
+        async def on_token(value: str) -> None:
+            nonlocal emitted
+            await queue.put(("token", {"text": value}))
+            emitted = True
+
+        async def run() -> None:
+            try:
+                result = await _run_direct_turn(
+                    payload, authorization, authority, claims, on_token=on_token
+                )
+                # A bounded refusal may be a helpful text result without a model
+                # token. Stream it once; the terminal carries metadata only.
+                if not emitted and result.get("text"):
+                    await queue.put(("token", {"text": result["text"]}))
+                await queue.put(
+                    (
+                        "done",
+                        {
+                            key: result[key]
+                            for key in (
+                                "model",
+                                "modelReported",
+                                "provider",
+                                "grounded",
+                                "runtimeMode",
+                                "degraded",
+                                "directiveCount",
+                            )
+                            if key in result
+                        },
                     )
                 )
-    return await _bounded_turn(run_pod_turn(payload=payload, consent_token=x_consent_token or ""))
+            except Exception as exc:  # noqa: BLE001 - no private details on the wire
+                logger.warning("pod_turn.stream_failed reason=%s", type(exc).__name__)
+                await queue.put(("error", _stream_error(exc)))
+
+        task = asyncio.create_task(run())
+        try:
+            while True:
+                try:
+                    kind, data = await asyncio.wait_for(queue.get(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    yield ": hb\n\n"
+                    continue
+                yield _stream_event(kind, data)
+                if kind in {"done", "error"}:
+                    return
+        finally:
+            if not task.done():
+                task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 async def _bounded_turn(turn: Any) -> dict:

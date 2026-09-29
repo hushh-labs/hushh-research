@@ -3608,6 +3608,7 @@ export class ApiService {
       releaseId?: string;
       summary: string;
       presentationState: "ready" | "deferred" | "scheduled" | "updating" | "blocked";
+      phase?: "scheduled" | "preparing" | "installing" | "verifying" | "blocked";
       remindAt?: string;
       reminderDue?: boolean;
       operationId?: string;
@@ -4055,10 +4056,80 @@ export class ApiService {
 
   /** Exact app routes only; content never falls back to the shared hub. */
   static async ownerPodRequest(path: string, init: RequestInit = {}, streaming = false,
-    onChatAdmission?: (hushhId: string) => void): Promise<Response> {
+    onChatAdmission?: (hushhId: string) => void, expectedHushhId?: string): Promise<Response> {
     const access = await import("./pod-app-access");
     const fetcher = streaming ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
-    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission });
+    return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission }, expectedHushhId);
+  }
+
+  static async getPuppyDirectModels(hushhId: string, deviceId: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<{
+    status: "available" | "unavailable" | "offline";
+    defaultModel: string;
+    models: Array<{ id: string }>;
+    catalogVersion: string;
+    observedAt: number | null;
+    receivedAt: number | null;
+  }> {
+    const read = () => this.ownerPodRequest(`puppy/models?deviceId=${encodeURIComponent(deviceId)}`, { method: "GET", signal, cache: "no-store" }, false, undefined, hushhId);
+    // Establish the owner session first; it wakes a sleeping pod without
+    // granting the device any broader authority. Activation then asks the
+    // existing trusted device to connect and publish its live catalog.
+    const first = await read();
+    if (!first.ok) throw new Error(`PUPPY_MODELS_UNAVAILABLE:${first.status}`);
+    const catalog = await first.json() as Awaited<ReturnType<typeof ApiService.getPuppyDirectModels>>;
+    if (catalog.status === "available") return catalog;
+    await this.activatePuppyWhenIdle(deviceId, vaultOwnerToken, signal);
+    const deadline = Date.now() + 20_000;
+    let last = catalog;
+    do {
+      if (signal?.aborted) throw signal.reason;
+      await new Promise<void>((resolve, reject) => {
+        const onAbort = () => { clearTimeout(timer); reject(signal?.reason); };
+        const timer = setTimeout(() => { signal?.removeEventListener("abort", onAbort); resolve(); }, 1_500);
+        signal?.addEventListener("abort", onAbort, { once: true });
+      });
+      const response = await read();
+      if (!response.ok) throw new Error(`PUPPY_MODELS_UNAVAILABLE:${response.status}`);
+      last = await response.json() as typeof catalog;
+      if (last.status === "available") return last;
+    } while (Date.now() < deadline);
+    return last;
+  }
+
+  static async getPuppyModelSelection(deviceId: string, vaultOwnerToken: string): Promise<{
+    version: number;
+    status: string;
+    id?: string;
+    model?: string;
+    catalogVersion?: string;
+    reason?: string;
+  }> {
+    const response = await this.apiFetch(`/api/account/trusted-devices/${encodeURIComponent(deviceId)}/puppy-model-selection`, {
+      method: "GET", cache: "no-store", headers: { Authorization: `Bearer ${vaultOwnerToken}` },
+    });
+    if (!response.ok) throw new Error(`PUPPY_MODEL_SELECTION_UNAVAILABLE:${response.status}`);
+    return response.json();
+  }
+
+  static async setPuppyGlobalModel(input: {
+    deviceId: string;
+    vaultOwnerToken: string;
+    model: string;
+    catalogVersion: string;
+    expectedVersion: number;
+    requestId: string;
+  }): Promise<{ id: string; version: number; status: string; model: string }> {
+    const response = await this.apiFetch(`/api/account/trusted-devices/${encodeURIComponent(input.deviceId)}/puppy-model-selection`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ requestId: input.requestId, model: input.model,
+        catalogVersion: input.catalogVersion, expectedVersion: input.expectedVersion }),
+    });
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null) as { detail?: { code?: string } } | null;
+      throw new Error(payload?.detail?.code ?? `PUPPY_MODEL_SELECTION_FAILED:${response.status}`);
+    }
+    return response.json();
   }
 
   static async reconnectOwnerPod(): Promise<void> {
@@ -4067,20 +4138,13 @@ export class ApiService {
       hosting: () => this.getPersonalAgentStatus() });
   }
 
-  private static async ownerDirectPodTurn(
+  private static async ownerDirectPodResponse(
     hushhId: string,
     body: string,
     signal?: AbortSignal,
     puppy?: { deviceId: string; vaultOwnerToken?: string },
-  ): Promise<{
-    hushhId: string;
-    text: string;
-    model: string;
-    modelReported: boolean;
-    provider: string;
-    grounded: boolean;
-    runtimeMode: string;
-  } | null> {
+    stream = false,
+  ): Promise<Response | null> {
     const ownerPod = await import("./owner-pod-endpoint");
     const uid = AuthService.getCurrentUser()?.uid;
     if (!uid) return null;
@@ -4111,6 +4175,7 @@ export class ApiService {
       if (connection.endpoint.hushhId !== hushhId || AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
       pin = connection.endpoint;
       session = connection.session;
+      if (stream) globalThis.performance?.mark?.("puppy.turn.session-admitted");
     } catch (error) {
       const code = error instanceof Error ? error.message : "unknown";
       throw new Error(`POD_DIRECT_UNAVAILABLE:${code}`);
@@ -4118,8 +4183,12 @@ export class ApiService {
     if (puppy) {
       await ApiService.activatePuppyWhenIdle(puppy.deviceId, puppy.vaultOwnerToken, signal);
       if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
+      if (stream) globalThis.performance?.mark?.("puppy.turn.activation-sent");
     }
-    const response = await apiFetch(`${pin.url}/api/one/pod/turn`, {
+    const fetcher = stream
+      ? (await import("./native-sse-fetch")).nativeStreamFetch
+      : apiFetch;
+    const response = await fetcher(`${pin.url}/api/one/pod/turn${stream ? "/stream" : ""}`, {
       method: "POST",
       credentials: "omit",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session}` },
@@ -4140,6 +4209,26 @@ export class ApiService {
       }
       throw new Error(code ? `POD_DIRECT_UNAVAILABLE:${code}` : "AGENT_UNREACHABLE");
     }
+    if (stream) globalThis.performance?.mark?.("puppy.turn.stream-opened");
+    return response;
+  }
+
+  private static async ownerDirectPodTurn(
+    hushhId: string,
+    body: string,
+    signal?: AbortSignal,
+    puppy?: { deviceId: string; vaultOwnerToken?: string },
+  ): Promise<{
+    hushhId: string;
+    text: string;
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+  } | null> {
+    const response = await ApiService.ownerDirectPodResponse(hushhId, body, signal, puppy);
+    if (!response) return null;
     const answer = (await response.json()) as {
       text: string;
       model: string;
@@ -4149,6 +4238,86 @@ export class ApiService {
       runtimeMode: string;
     };
     return { hushhId, ...answer };
+  }
+
+  /** Direct BYOC Puppy stream. The pod owns admission and terminal truth. */
+  static async streamPuppyPodTurn(input: {
+    hushhId: string;
+    vaultOwnerToken?: string;
+    message: string;
+    conversationId: string;
+    puppyDeviceId: string;
+    puppyModel?: string;
+    puppyCatalogVersion?: string;
+    history: Array<{ role: "user" | "assistant"; content: string }>;
+    signal?: AbortSignal;
+    onToken: (text: string) => void;
+  }): Promise<{
+    model: string;
+    modelReported: boolean;
+    provider: string;
+    grounded: boolean;
+    runtimeMode: string;
+    degraded?: string;
+  }> {
+    const response = await ApiService.ownerDirectPodResponse(
+      input.hushhId,
+      JSON.stringify({
+        message: input.message,
+        conversationId: input.conversationId,
+        runtimeProvider: "puppy",
+        puppyDeviceId: input.puppyDeviceId,
+        puppyModel: input.puppyModel,
+        puppyCatalogVersion: input.puppyCatalogVersion,
+        history: input.history,
+      }),
+      input.signal,
+      { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken },
+      true,
+    );
+    if (!response?.body) throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
+    const { parseSSEBlocks } = await import("@/lib/streaming/sse-parser");
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let remainder = "";
+    let totalText = 0;
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), remainder);
+        remainder = parsed.remainder;
+        if (remainder.length > 131_072) throw new Error("PUPPY_STREAM_INVALID");
+        for (const event of parsed.events) {
+          if (event.event === "token") {
+            const token = JSON.parse(event.data) as { text?: unknown };
+            if (typeof token.text !== "string") throw new Error("PUPPY_STREAM_INVALID");
+            totalText += token.text.length;
+            if (totalText > 262_144) throw new Error("PUPPY_STREAM_TOO_LARGE");
+            input.onToken(token.text);
+          } else if (event.event === "error") {
+            const failure = JSON.parse(event.data) as { code?: unknown };
+            throw new Error(typeof failure.code === "string" ? failure.code : "PUPPY_STREAM_FAILED");
+          } else if (event.event === "done") {
+            const result = JSON.parse(event.data) as Record<string, unknown>;
+            if (typeof result.model !== "string" || typeof result.modelReported !== "boolean")
+              throw new Error("PUPPY_STREAM_INVALID");
+            return {
+              model: result.model,
+              modelReported: result.modelReported,
+              provider: String(result.provider ?? "puppy"),
+              grounded: result.grounded === true,
+              runtimeMode: String(result.runtimeMode ?? "puppy_relay"),
+              ...(typeof result.degraded === "string" ? { degraded: result.degraded } : {}),
+            };
+          }
+        }
+      }
+      throw new Error("PUPPY_STREAM_INTERRUPTED");
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
+    }
   }
 
   private static async ownerDirectPuppyStatus(deviceId: string, signal?: AbortSignal): Promise<{

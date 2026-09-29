@@ -1565,6 +1565,7 @@ class PersonalAgentProvisioningService:
                     **approval,
                     "status": "succeeded",
                     "operationState": "succeeded",
+                    "presentationPhase": "verified",
                     "verifiedAt": datetime.now(timezone.utc).isoformat(),
                 }
             updated.update(handle_metadata)
@@ -1582,6 +1583,7 @@ class PersonalAgentProvisioningService:
                     **approval,
                     "status": "failed",
                     "operationState": "failed",
+                    "presentationPhase": "blocked",
                 }
             updated["upgrade"] = {
                 **(metadata.get("upgrade") or {}),
@@ -1949,6 +1951,44 @@ class PersonalAgentProvisioningService:
                 ),
             )
 
+        def persist_handoff_idle(receipt: dict[str, Any]) -> None:
+            if (
+                not approval_operation_id
+                or receipt.get("operationId") != approval_operation_id
+                or receipt.get("activeWork") != 0
+                or not isinstance(receipt.get("incarnation"), str)
+                or not receipt.get("incarnation")
+                or not isinstance(receipt.get("committedState"), str)
+                or not receipt.get("runtimeEpoch")
+            ):
+                raise RuntimeError("upgrade handoff idle receipt invalid")
+
+            async def persist() -> None:
+                approval = claimed_metadata.get("upgradeApproval")
+                if (
+                    not isinstance(approval, dict)
+                    or approval.get("operationId") != approval_operation_id
+                ):
+                    raise RuntimeError("upgrade handoff approval changed")
+                await publish_upgrade(
+                    backend_metadata={
+                        **claimed_metadata,
+                        "upgradeApproval": {
+                            **approval,
+                            "presentationPhase": "installing",
+                            "handoffIdleAt": datetime.now(timezone.utc).isoformat(),
+                            "handoffIncarnation": receipt["incarnation"],
+                        },
+                    },
+                    retain_lease=True,
+                )
+
+            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
+            future.result(timeout=30)
+
+        if approval_operation_id:
+            spec = replace(spec, on_upgrade_idle=persist_handoff_idle)
+
         def persist_acknowledgement(receipt: dict[str, Any]) -> None:
             # Called off-loop. A late receipt may survive erasure admission, but
             # that path never authorizes continued upgrade execution.
@@ -1972,8 +2012,16 @@ class PersonalAgentProvisioningService:
             async def persist() -> None:
                 nonlocal persisted_acknowledgement
                 try:
+                    current_approval = claimed_metadata.get("upgradeApproval")
+                    next_metadata = {**claimed_metadata, "upgradeAcknowledgement": bound}
+                    if isinstance(current_approval, dict) and approval_operation_id:
+                        next_metadata["upgradeApproval"] = {
+                            **current_approval,
+                            "presentationPhase": "verifying",
+                            "providerAcknowledgedAt": datetime.now(timezone.utc).isoformat(),
+                        }
                     await publish_upgrade(
-                        backend_metadata={**claimed_metadata, "upgradeAcknowledgement": bound},
+                        backend_metadata=next_metadata,
                         retain_lease=True,
                     )
                     persisted_acknowledgement = dict(bound)
@@ -2036,6 +2084,7 @@ class PersonalAgentProvisioningService:
                 **approval,
                 "status": "updating",
                 "operationState": "installing",
+                "presentationPhase": "preparing",
                 "startedAt": datetime.now(timezone.utc).isoformat(),
             }
             await publish_upgrade(backend_metadata=old_meta, retain_lease=True)
@@ -2068,6 +2117,7 @@ class PersonalAgentProvisioningService:
                     **claimed_metadata["upgradeApproval"],
                     "status": state,
                     "operationState": state,
+                    "presentationPhase": "blocked",
                     "failureCode": "FILES_PLAN_CHANGED",
                 },
             }
@@ -2095,6 +2145,7 @@ class PersonalAgentProvisioningService:
                     **approval,
                     "status": "blocked",
                     "operationState": "blocked",
+                    "presentationPhase": "blocked",
                 }
             failure_recorded = False
             try:
@@ -2170,6 +2221,7 @@ class PersonalAgentProvisioningService:
                 **approval,
                 "status": "succeeded",
                 "operationState": "succeeded",
+                "presentationPhase": "verified",
                 "verifiedAt": datetime.now(timezone.utc).isoformat(),
             }
         release_metadata = approved_release(approval, current_image)

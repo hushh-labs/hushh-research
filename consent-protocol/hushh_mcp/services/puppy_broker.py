@@ -26,7 +26,10 @@ socket and the per-connection key), which is why a link carries ``send`` and
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
+import re
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
@@ -45,6 +48,7 @@ _TERMINAL = frozenset({"inference.done", "inference.result", "inference.error"})
 _DEVICE_FRAMES = frozenset(
     {"inference.delta", "inference.result", "inference.done", "inference.error"}
 )
+_MODEL_NAME = re.compile(r"^[A-Za-z0-9_.:/-]{1,128}$")
 
 
 class PuppyBrokerFenced(RuntimeError):
@@ -74,6 +78,12 @@ class DeviceLink:
     last_work_monotonic: float = field(default_factory=time.monotonic)
     status: str = "ready"
     replaced: bool = False
+    catalog_status: str = "unavailable"
+    catalog_default_model: str = ""
+    catalog_models: tuple[str, ...] = ()
+    catalog_version: str = ""
+    catalog_observed_at: int | None = None
+    catalog_received_at: int | None = None
 
 
 class PuppyBroker:
@@ -166,16 +176,25 @@ class PuppyBroker:
 
     # -- inbound from the device --------------------------------------------------------
 
-    async def deliver(self, key: tuple[str, str], frame: dict[str, Any]) -> None:
+    async def deliver(
+        self,
+        key: tuple[str, str],
+        frame: dict[str, Any],
+        *,
+        expected_link: DeviceLink | None = None,
+    ) -> None:
         """A plain frame the relay route opened from the device. Routed by request id."""
         link = await self.get(key)
-        if link is None:
+        if link is None or (expected_link is not None and link is not expected_link):
             return
         link.last_seen_monotonic = time.monotonic()
         kind = str(frame.get("type") or "")
         if kind in {"relay.heartbeat", "relay.status"}:
             status = str(frame.get("status") or "ready").strip().lower()
             link.status = status if status in {"ready", "busy", "offline"} else "ready"
+            return
+        if kind == "model.catalog":
+            self._accept_catalog(link, frame)
             return
         request_id = str(frame.get("requestId") or "")
         if not request_id or len(request_id) > MAX_REQUEST_ID_LENGTH or kind not in _DEVICE_FRAMES:
@@ -189,6 +208,88 @@ class PuppyBroker:
             queue.put_nowait(frame)
         except asyncio.QueueFull as exc:
             raise ValueError("Puppy response buffer is full") from exc
+
+    @staticmethod
+    def _accept_catalog(link: DeviceLink, frame: dict[str, Any]) -> None:
+        """Accept only a bounded, internally consistent inventory from the sealed device."""
+        status = frame.get("status")
+        raw_models = frame.get("models")
+        raw_default = frame.get("defaultModel")
+        raw_version = frame.get("catalogVersion")
+        observed_at = frame.get("observedAt")
+        if status not in {"available", "unavailable"} or not isinstance(raw_models, list):
+            raise ValueError("invalid Puppy model catalog")
+        if not isinstance(observed_at, int) or isinstance(observed_at, bool) or observed_at < 0:
+            raise ValueError("invalid Puppy model observation")
+        if not isinstance(raw_default, str) or not isinstance(raw_version, str):
+            raise ValueError("invalid Puppy model catalog")
+        if len(raw_models) > 32 or any(
+            not isinstance(row, dict)
+            or set(row) != {"id"}
+            or not isinstance(row["id"], str)
+            or _MODEL_NAME.fullmatch(row["id"]) is None
+            or "://" in row["id"]
+            or row["id"].startswith("/")
+            for row in raw_models
+        ):
+            raise ValueError("invalid Puppy model catalog")
+        models = tuple(row["id"] for row in raw_models)
+        if len(set(models)) != len(models):
+            raise ValueError("duplicate Puppy model catalog entry")
+        if status == "available":
+            if not models or (raw_default and raw_default not in models):
+                raise ValueError("invalid Puppy default model")
+            material = json.dumps(
+                {"defaultModel": raw_default, "models": sorted(models)},
+                separators=(",", ":"),
+            ).encode("utf-8")
+            if raw_version != hashlib.sha256(material).hexdigest():
+                raise ValueError("invalid Puppy model catalog version")
+        elif models or raw_default or raw_version:
+            raise ValueError("unavailable Puppy catalog must be empty")
+        link.catalog_status = status
+        link.catalog_default_model = raw_default
+        link.catalog_models = models
+        link.catalog_version = raw_version
+        link.catalog_observed_at = observed_at
+        link.catalog_received_at = int(time.time() * 1000)
+
+    async def catalog(self, key: tuple[str, str]) -> dict[str, Any]:
+        link = await self.get(key)
+        if link is None:
+            return {
+                "status": "offline",
+                "defaultModel": "",
+                "models": [],
+                "catalogVersion": "",
+                "observedAt": None,
+                "receivedAt": None,
+            }
+        return {
+            "status": link.catalog_status,
+            "defaultModel": link.catalog_default_model,
+            "models": [{"id": model} for model in link.catalog_models],
+            "catalogVersion": link.catalog_version,
+            "observedAt": link.catalog_observed_at,
+            "receivedAt": link.catalog_received_at,
+        }
+
+    async def require_model(
+        self, key: tuple[str, str], model: str, catalog_version: str
+    ) -> str | None:
+        """Return a stable refusal code for an explicit selected model."""
+        link = await self.get(key)
+        return self._model_refusal(link, model, catalog_version)
+
+    @staticmethod
+    def _model_refusal(link: DeviceLink | None, model: str, catalog_version: str) -> str | None:
+        if link is None or link.catalog_status != "available":
+            return "PUPPY_MODEL_UNAVAILABLE"
+        if catalog_version != link.catalog_version:
+            return "PUPPY_CATALOG_STALE"
+        if model not in link.catalog_models:
+            return "PUPPY_MODEL_UNAVAILABLE"
+        return None
 
     # -- outbound from One -------------------------------------------------------------
 
@@ -221,6 +322,14 @@ class PuppyBroker:
         link = await self.get(key)
         if link is None:
             raise PuppyBrokerOffline("linked Puppy is offline")
+        selected_model = str(frame.get("model") or "")
+        if selected_model and selected_model != "local":
+            refusal = self._model_refusal(
+                link, selected_model, str(frame.get("catalogVersion") or "")
+            )
+            if refusal:
+                yield {"type": "inference.error", "requestId": request_id, "code": refusal}
+                return
         if link.busy_request_id is not None or request_id in link.pending:
             yield {"type": "inference.error", "requestId": request_id, "code": "PUPPY_BUSY"}
             return
@@ -268,7 +377,10 @@ class PuppyBroker:
         if link.replaced:
             return
         try:
-            await link.send({"type": "inference.cancel", "requestId": request_id})
+            await asyncio.wait_for(
+                link.send({"type": "inference.cancel", "requestId": request_id}),
+                timeout=3.0,
+            )
         except Exception:  # noqa: BLE001 - the socket may be gone; nothing to cancel
             pass
 

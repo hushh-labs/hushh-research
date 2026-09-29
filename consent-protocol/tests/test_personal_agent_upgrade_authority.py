@@ -521,3 +521,33 @@ def test_active_update_follows_its_approved_release_when_hub_offer_moves(status,
             "scheduled" if status == "approved" else status
         )
     assert row == original
+
+
+def test_update_phase_requires_bound_durable_milestones():
+    from api.routes.one.personal_agent import describe_pod_update
+
+    row = _row(approval=_approval(_row(), status="updating"))
+    approval = row["backend_metadata"]["upgradeApproval"]
+    assert describe_pod_update(row, target_image=NEW_IMAGE)["update"]["phase"] == "preparing"
+
+    approval.update(
+        presentationPhase="installing",
+        handoffIdleAt="2026-09-29T00:00:00+00:00",
+        handoffIncarnation="pod-revision-1",
+    )
+    assert describe_pod_update(row, target_image=NEW_IMAGE)["update"]["phase"] == "installing"
+
+    approval.update(
+        presentationPhase="verifying",
+        providerAcknowledgedAt="2026-09-29T00:01:00+00:00",
+    )
+    assert describe_pod_update(row, target_image=NEW_IMAGE)["update"]["phase"] == "installing"
+    row["backend_metadata"]["upgradeAcknowledgement"] = {
+        "operationId": "op-other",
+        "releaseId": approval["releaseId"],
+        "podIncarnation": SERVICE_UID,
+        "targetDigest": NEW_DIGEST,
+    }
+    assert describe_pod_update(row, target_image=NEW_IMAGE)["update"]["phase"] == "installing"
+    row["backend_metadata"]["upgradeAcknowledgement"]["operationId"] = "op-original"
+    assert describe_pod_update(row, target_image=NEW_IMAGE)["update"]["phase"] == "verifying"

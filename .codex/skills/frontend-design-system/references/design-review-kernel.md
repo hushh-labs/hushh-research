@@ -38,6 +38,19 @@ than the compact skill kernel.
 6. Detail surfaces should be narrower and more focused than the page shell
    unless real content requires more width.
 
+### Reproducible alignment review
+
+For chat, machine, and update surfaces, capture the same signed-in state at
+390, 768, and 1280 CSS pixels. Overlay vertical lines at the measured left
+and right edges of the owning content column, heading, first row, and composer.
+Use `getBoundingClientRect()` on the rendered elements rather than comparing
+screenshots by eye alone; paired start lines and gutters should differ by at
+most one CSS pixel. Record the selectors, viewport, rectangles, and screenshot
+with the review. Scroll and refresh once at each width to catch layout shift.
+Run the existing `?perf=1` frame-pacing probe during a stream and a sheet open;
+record its stream and sheet windows against the mobile render-performance
+charter. Do not turn a jsdom class-name assertion into pixel evidence.
+
 ## Interaction
 
 1. Dialog and sheet close controls must stay clickable above chrome, keep

@@ -10,6 +10,7 @@ import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { refreshPuppyLink } from "@/lib/services/puppy-one-service";
 import { ApiService } from "@/lib/services/api-service";
 import { PodMemoryConsentRow } from "@/components/agent/pod-memory-consent-row";
+import { PuppyRemoteModelPicker } from "@/components/agent/puppy-remote-model-picker";
 import {
   pendingRevocations,
   type PendingRevocation,
@@ -46,8 +47,10 @@ function whileNotAborted<T>(operation: Promise<T>, signal: AbortSignal): Promise
  */
 export function PrivatePuppyInferencePanel({
   className,
+  conversationId = "puppy-private-relay",
 }: {
   className?: string;
+  conversationId?: string;
 }) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -57,6 +60,7 @@ export function PrivatePuppyInferencePanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [turnStage, setTurnStage] = useState<"checking" | "connecting" | "waiting" | "answering">("checking");
   const requestRef = useRef<AbortController | null>(null);
   const [target, setTarget] = useState("Your machine · Private connection");
   // Revocations the pod has not received yet ("pending delivery"). Read from the
@@ -66,6 +70,7 @@ export function PrivatePuppyInferencePanel({
   // The owner's agent id, for the memory row. Learned from the same status read
   // `send()` performs, so no second source of truth is introduced.
   const [hushhId, setHushhId] = useState<string | null>(null);
+  const [chatModel, setChatModel] = useState<{ model: string; catalogVersion: string } | null>(null);
 
   useEffect(() => () => requestRef.current?.abort(), []);
 
@@ -129,6 +134,8 @@ export function PrivatePuppyInferencePanel({
     setError("");
     setBusy(true);
     setElapsedSeconds(0);
+    setTurnStage("checking");
+    window.performance.mark("puppy.turn.start");
     const controller = new AbortController();
     const deadline = window.setTimeout(
       () => controller.abort(new DOMException("Puppy did not answer in time", "TimeoutError")),
@@ -141,6 +148,14 @@ export function PrivatePuppyInferencePanel({
       { id: `u-${Date.now()}`, role: "user" as const, text: message },
     ];
     setTurns([...nextTurns, { id: assistantId, role: "assistant", text: "" }]);
+    let streamedText = "";
+    let pendingFrame: number | null = null;
+    const paint = () => {
+      pendingFrame = null;
+      setTurns((prior) => prior.map((turn) =>
+        turn.id === assistantId ? { ...turn, text: streamedText } : turn,
+      ));
+    };
     try {
       if (!user?.uid || !vaultOwnerToken)
         throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
@@ -151,21 +166,34 @@ export function PrivatePuppyInferencePanel({
           throw new Error("PUPPY_REQUIRES_BYOC_POD");
         if (status.state !== "active" || !status.hushhId)
           throw new Error("PRIVATE_AGENT_UNAVAILABLE");
+        setTurnStage("connecting");
+        window.performance.mark("puppy.turn.hosting-confirmed");
         // The sidebar poll may still be loading, or may belong to an earlier
         // signed-in owner. Select only from a fresh owner-scoped read at send time.
         const currentLink = await refreshPuppyLink();
         if (controller.signal.aborted) throw controller.signal.reason;
         if (!currentLink.device?.id || (currentLink.state !== "live" && currentLink.state !== "quiet"))
           throw new Error("PUPPY_OFFLINE");
-        return ApiService.runPodTurn({
+        setTurnStage("waiting");
+        window.performance.mark("puppy.turn.device-confirmed");
+        return ApiService.streamPuppyPodTurn({
           hushhId: status.hushhId,
           vaultOwnerToken,
           message,
-          conversationId: "puppy-private-relay",
-          runtimeProvider: "puppy",
+          conversationId,
           puppyDeviceId: currentLink.device.id,
+          puppyModel: chatModel?.model,
+          puppyCatalogVersion: chatModel?.catalogVersion,
           signal: controller.signal,
           history: nextTurns.map(({ role, text }) => ({ role, content: text })),
+          onToken: (text) => {
+            if (!streamedText) {
+              setTurnStage("answering");
+              window.performance.mark("puppy.turn.first-token");
+            }
+            streamedText += text;
+            if (pendingFrame === null) pendingFrame = window.requestAnimationFrame(paint);
+          },
         });
       })(), controller.signal);
       // A heartbeat model is a prior observation, not proof of which model
@@ -173,11 +201,10 @@ export function PrivatePuppyInferencePanel({
       setTarget(response.modelReported
         ? `${response.model} · On your machine`
         : "Your machine · Private connection");
-      setTurns((prior) =>
-        prior.map((turn) =>
-          turn.id === assistantId ? { ...turn, text: response.text } : turn,
-        ),
-      );
+      if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
+      paint();
+      if (!streamedText) throw new Error("PUPPY_EMPTY_RESPONSE");
+      window.performance.mark("puppy.turn.complete");
     } catch (cause) {
       const cancelled =
         (cause instanceof DOMException || cause instanceof Error) &&
@@ -199,13 +226,21 @@ export function PrivatePuppyInferencePanel({
             ? "Puppy needs your active BYOC pod and its private device relay. Shared and Hussh Pods do not run Puppy inference."
           : reason === "PUPPY_BUSY" || reason === "LOCAL_MODEL_OVERLOADED"
             ? "Puppy is handling another private turn. Try again shortly."
+            : reason === "PUPPY_CATALOG_STALE" || reason === "STALE_MODEL_CATALOG"
+              ? "The models on your machine changed. Refresh the model list and choose again."
+            : reason === "PUPPY_MODEL_UNAVAILABLE" || reason === "MODEL_UNAVAILABLE"
+              ? "That model is no longer available on your machine. Choose another local model."
             : reason === "PUPPY_REVOKED"
               ? "Puppy inference access was revoked. Re-link the device to continue."
               : reason === "PRIVATE_AGENT_UNLOCK_REQUIRED"
                 ? "Unlock your private agent before using the Puppy relay."
                 : "The private Puppy path is unavailable right now. No shared or cloud fallback was used.",
       );
-      setTurns((prior) => prior.filter((turn) => turn.id !== assistantId));
+      window.performance.mark("puppy.turn.failed");
+      if (pendingFrame !== null) window.cancelAnimationFrame(pendingFrame);
+      if (streamedText) paint();
+      else
+        setTurns((prior) => prior.filter((turn) => turn.id !== assistantId));
     } finally {
       window.clearTimeout(deadline);
       if (requestRef.current === controller) requestRef.current = null;
@@ -224,6 +259,26 @@ export function PrivatePuppyInferencePanel({
           {link?.state === "live" ? "Device reporting" : link?.state === "quiet" ? "Device quiet" : "Device unavailable"}
         </span>
       </div>
+      <div className="flex min-h-10 flex-wrap items-center gap-2 px-4">
+        <PuppyRemoteModelPicker
+          hushhId={hushhId}
+          deviceId={link?.device?.id ?? null}
+          vaultOwnerToken={vaultOwnerToken ?? null}
+          chatModel={chatModel?.model ?? null}
+          busy={busy}
+          hasTurns={turns.length > 0}
+          onChatModel={(model, catalogVersion) => setChatModel({ model, catalogVersion })}
+          onGlobalModel={(previousDefault, catalog) => {
+            if (!turns.length) return;
+            const model = chatModel?.model ?? previousDefault;
+            // A global change applies to future chats. Preserve this chat's
+            // choice even if the device removed that model: the next turn will
+            // explicitly refuse it instead of silently switching models.
+            if (model) setChatModel({ model, catalogVersion: catalog.catalogVersion });
+          }}
+        />
+        <span className="text-[11px] text-muted-foreground">Local models only</span>
+      </div>
       <PodMemoryConsentRow hushhId={hushhId} />
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
         {turns.length === 0 ? (
@@ -237,10 +292,10 @@ export function PrivatePuppyInferencePanel({
             <div
               key={turn.id}
               className={cn(
-                "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm",
+                "rounded-2xl px-3.5 py-2.5 text-sm",
                 turn.role === "user"
-                  ? "self-end bg-[color:var(--app-accent-surface)]"
-                  : "self-start bg-muted/60",
+                  ? "max-w-[90%] self-end bg-[color:var(--app-accent-surface)] sm:max-w-[min(76%,42rem)]"
+                  : busy ? "w-full max-w-none self-start bg-muted/60" : "max-w-[90%] self-start bg-muted/60 sm:max-w-[min(82%,48rem)]",
               )}
             >
               <p className="whitespace-pre-wrap [overflow-wrap:anywhere]">
@@ -249,11 +304,10 @@ export function PrivatePuppyInferencePanel({
               {turn.role === "assistant" && busy && !turn.text ? (
                 <span className="flex items-center gap-2 text-muted-foreground" role="status" aria-live="polite">
                   <Loader2 className="size-4 animate-spin" aria-hidden />
-                  {elapsedSeconds < 15
-                    ? "Connecting to your machine…"
-                    : elapsedSeconds < 60
-                      ? "Waiting for Puppy to answer…"
-                      : "Still waiting for your machine. You can cancel below."}
+                  {turnStage === "checking" ? "Checking your private pod…"
+                    : turnStage === "connecting" ? "Checking your trusted machine…"
+                    : elapsedSeconds < 60 ? "Waiting for Puppy to answer…"
+                    : "Still waiting for your machine. You can cancel below."}
                 </span>
               ) : null}
             </div>
@@ -272,8 +326,8 @@ export function PrivatePuppyInferencePanel({
           </p>
         ) : null}
       </div>
-      <div className="shrink-0 px-3 pt-3 sm:px-5">
-        <div className="bottom-chrome-surface flex min-h-14 items-center gap-2 rounded-[var(--app-input-radius)] px-3.5">
+      <div className="shrink-0 px-4 pt-3">
+        <div data-testid="puppy-chat-composer" className="bottom-chrome-surface flex min-h-[3.75rem] items-center gap-2 rounded-[var(--app-input-radius)] px-2.5 pl-3.5">
           <textarea
             value={draft}
             onChange={(event) => setDraft(event.target.value)}

@@ -476,6 +476,7 @@ def build_pod_specialist_runtime(
     vertex_location: str | None,
     data_door_grants: dict[str, str],
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
     verifier: Any = None,
     session_owner_id: str | None = None,
 ) -> SpecialistRuntime:
@@ -504,6 +505,7 @@ def build_pod_specialist_runtime(
         provider=provider,
         credential=credential or "",
         device_id=puppy_device_id,
+        puppy_catalog_version=puppy_catalog_version,
         runtime_mode=runtime_mode,
         gemini_byok_transport=credential_transport,
         vertex_project=vertex_project,
@@ -555,6 +557,7 @@ def build_pod_specialist_runtime(
                     vertex_project=vertex_project,
                     vertex_location=vertex_location,
                     puppy_device_id=puppy_device_id,
+                    puppy_catalog_version=puppy_catalog_version,
                 )
             elif runtime_mode in {"user_adc", "hushh_managed_vertex"} and not credential:
                 client = build_managed_runtime_client(provider)

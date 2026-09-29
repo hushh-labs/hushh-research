@@ -111,6 +111,7 @@ export function PuppyOneSurface({
               ) : (
                 <PrivatePuppyInferencePanel
                   key={conversation.id}
+                  conversationId={conversation.id}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

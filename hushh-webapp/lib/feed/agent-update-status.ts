@@ -11,6 +11,7 @@ export type AgentUpdateStatus = {
   summary: string | null;
   presentationState:
     "ready" | "deferred" | "scheduled" | "updating" | "blocked" | null;
+  phase: "scheduled" | "preparing" | "installing" | "verifying" | "blocked" | null;
   remindAt: string | null;
   operationId: string | null;
   verified: boolean;
@@ -27,6 +28,7 @@ export const NO_UPDATE: AgentUpdateStatus = {
   releaseId: null,
   summary: null,
   presentationState: null,
+  phase: null,
   remindAt: null,
   operationId: null,
   verified: false,
@@ -48,6 +50,9 @@ export function releaseLabel(version: string, releasedAt?: string | null): strin
 export function updateActivityLabel(update: AgentUpdateStatus): string | null {
   if (update.failed || update.presentationState === "blocked")
     return "Update needs attention";
+  if (update.phase === "verifying") return "Restarting and verifying";
+  if (update.phase === "installing") return "Installing update";
+  if (update.phase === "preparing") return "Finishing current work";
   if (update.presentationState === "scheduled") return "Update scheduled";
   if (update.inProgress || update.presentationState === "updating")
     return "Updating your private agent";
@@ -70,6 +75,7 @@ export function readUpdateStatus(
           summary?: string;
           presentationState?:
             "ready" | "deferred" | "scheduled" | "updating" | "blocked";
+          phase?: "scheduled" | "preparing" | "installing" | "verifying" | "blocked";
           remindAt?: string;
           operationId?: string;
         };
@@ -90,6 +96,7 @@ export function readUpdateStatus(
     releaseId: res?.update?.releaseId ? String(res.update.releaseId) : null,
     summary: res?.update?.summary ? String(res.update.summary) : null,
     presentationState: res?.update?.presentationState ?? null,
+    phase: res?.update?.phase ?? null,
     remindAt: res?.update?.remindAt ? String(res.update.remindAt) : null,
     operationId: res?.update?.operationId
       ? String(res.update.operationId)

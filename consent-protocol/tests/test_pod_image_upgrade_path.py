@@ -374,6 +374,52 @@ async def test_upgrade_resolves_the_source_tag_fresh_and_replaces_in_place(copy_
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("persist_idle", [True, False])
+async def test_owner_update_persists_authenticated_idle_before_replacement(
+    copy_log, monkeypatch, persist_idle
+):
+    from hushh_mcp.services import pod_upgrade_handoff
+
+    events: list[str] = []
+    name = ugb._service_name(HUSHH_ID)
+
+    class RecordingRun(FakeRun):
+        def replace_service(self, name, body, **kwargs):
+            assert events == ["idle"]
+            events.append("replace")
+            return super().replace_service(name, body, **kwargs)
+
+    run = RecordingRun(name, existing_digest=OLD)
+    run.services[name]["status"]["latestReadyRevisionName"] = "pod-revision-1"
+
+    class Handoff:
+        def prepare_and_wait(self, **kwargs):
+            assert kwargs == {"operation_id": "operation-1", "incarnation": "pod-revision-1"}
+            return {"operationId": "operation-1", "incarnation": "pod-revision-1", "activeWork": 0}
+
+        def release(self, **kwargs):
+            events.append("release")
+
+    monkeypatch.setattr(pod_upgrade_handoff, "PodUpgradeHandoffClient", lambda **_: Handoff())
+
+    def on_idle(receipt):
+        assert receipt["operationId"] == "operation-1"
+        if not persist_idle:
+            raise RuntimeError("idle receipt persistence failed")
+        events.append("idle")
+
+    spec = replace(_spec(), upgrade_operation_id="operation-1", on_upgrade_idle=on_idle)
+    if not persist_idle:
+        with pytest.raises(RuntimeError, match="idle receipt persistence failed"):
+            await _backend(run).upgrade(spec)
+        assert events == ["release"]
+        assert not run.replaced
+    else:
+        await _backend(run).upgrade(spec)
+        assert events == ["idle", "replace"]
+
+
+@pytest.mark.asyncio
 async def test_a_heal_converges_to_the_deployed_digest_and_only_upgrade_rolls_forward(copy_log):
     """The contrast the ledger item names: provision on an existing service is a heal
     and pins what is already running; upgrade is the one path that moves it."""

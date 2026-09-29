@@ -183,6 +183,7 @@ def _runtime_model(
     runtime_credential: str | None,
     runtime_provider: str = "gemini",
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -205,6 +206,7 @@ def _runtime_model(
             provider=runtime_provider,
             credential=credential,
             device_id=puppy_device_id,
+            puppy_catalog_version=puppy_catalog_version,
         )
     if runtime_mode == "byok" and not credential:
         raise ValueError("One text BYOK credential is missing")
@@ -555,6 +557,7 @@ async def _stream_one_text_turn_once(
     runtime_mode: str,
     runtime_credential: str | None,
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -592,6 +595,7 @@ async def _stream_one_text_turn_once(
         runtime_credential=runtime_credential,
         runtime_provider=runtime_provider,
         puppy_device_id=puppy_device_id,
+        puppy_catalog_version=puppy_catalog_version,
         runtime_credential_transport=runtime_credential_transport,
         runtime_vertex_project=runtime_vertex_project,
         runtime_vertex_location=runtime_vertex_location,
@@ -948,6 +952,7 @@ async def stream_one_text_turn(
     runtime_mode: str,
     runtime_credential: str | None,
     puppy_device_id: str | None = None,
+    puppy_catalog_version: str | None = None,
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
@@ -984,6 +989,7 @@ async def stream_one_text_turn(
                 runtime_mode=runtime_mode,
                 runtime_credential=runtime_credential,
                 puppy_device_id=puppy_device_id,
+                puppy_catalog_version=puppy_catalog_version,
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
@@ -1004,17 +1010,35 @@ async def stream_one_text_turn(
                     continue
                 replay_boundary_crossed = True
                 yield event
+            if index:
+                logger.info(
+                    "one_text_vertex_failover stage=one_text outcome=success attempts=%s location=%s",
+                    index + 1,
+                    location,
+                )
             return
         except Exception as error:  # noqa: BLE001 - provider boundary
+            status = getattr(error, "code", None)
+            status_code = (
+                status if isinstance(status, int) and not isinstance(status, bool) else None
+            )
             if (
                 replay_boundary_crossed
                 or index == last_index
                 or not is_retryable_vertex_error(error)
             ):
+                if index == last_index and index:
+                    logger.warning(
+                        "one_text_vertex_failover stage=one_text outcome=exhausted attempts=%s status_code=%s error_type=%s",
+                        index + 1,
+                        status_code,
+                        error.__class__.__name__,
+                    )
                 raise
             logger.warning(
-                "one_text_vertex_failover from_location=%s error_type=%s",
+                "one_text_vertex_failover stage=one_text from_location=%s status_code=%s error_type=%s",
                 location,
+                status_code,
                 error.__class__.__name__,
             )
 

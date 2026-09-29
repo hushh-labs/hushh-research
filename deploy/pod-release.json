@@ -1,22 +1,20 @@
 {
-  "version": "2026.09-dev.5",
+  "version": "2026.09-dev.6",
   "channel": "dev",
-  "summary": "Private connector approvals, reliable chat recovery and safer Files update handoff.",
+  "summary": "Streaming remote Puppy replies and clearer trusted-machine controls.",
   "notes": {
     "improvements": [
-      "Review and approve a private connector call before your pod resumes it.",
-      "Pasted text attachments and restored activity follow the current One chat flow."
+      "Remote Puppy replies stream as your trusted machine generates them.",
+      "Choose an installed local model for one chat or set the machine default for future chats."
     ],
     "fixes": [
-      "Interrupted chat streams report a retryable failure instead of waiting silently.",
-      "Hosting and Software updates retain their titles while Settings closes.",
-      "Settings and Feed keep an approved update visible until its outcome is verified.",
-      "Uploads excluded from analysis finish normally without starting organization.",
-      "Files organization saves its final status before an approved update can restart the pod."
+      "Puppy shows first-response progress, cancellation, and a bounded failure instead of spinning indefinitely.",
+      "This machine reports when its model, capacity, and work readings were last observed.",
+      "Settings and Feed show the same observed update phase and retain the last verified version during refresh."
     ],
     "security": [
-      "Connector approval remains bound to the exact owner, pod, tool and arguments.",
-      "A replaced pod identity cannot consume an earlier approval."
+      "Model changes require an owner-authorized, device-acknowledged command bound to the current pod.",
+      "The inference-only Puppy relay cannot change the trusted machine's default model."
     ]
   },
   "supportedUpgradeDigests": [
@@ -24,6 +22,7 @@
     "sha256:61ff4ee3bbfcb1c35d9a5c8cfd9988548e2bd03f1d5d7ccb5c61b1d16bcd5259",
     "sha256:22cadabee713a200d2dd0b5297d7d87344ca0a7885919abae45bb5a1708c2f79",
     "sha256:26bab16354b2eeded3c3688db7421226c27f82adab95b1f0ca3c8dd60c061809",
-    "sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701"
+    "sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701",
+    "sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d"
   ]
 }

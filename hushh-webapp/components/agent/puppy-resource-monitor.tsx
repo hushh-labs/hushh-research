@@ -1089,8 +1089,17 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
       ? formatRelativeTime(device.lastHeartbeatAt, link?.checkedAt)
       : "";
 
+  const observedAt = device.lastHeartbeatAt !== null &&
+    Number.isFinite(device.lastHeartbeatAt) && Math.abs(device.lastHeartbeatAt) <= 8.64e15
+    ? new Date(device.lastHeartbeatAt)
+    : null;
   return (
     <Section label={seen ? `As reported to Hussh One ${seen}` : "As reported to Hussh One"}>
+      {observedAt ? (
+        <p className="mb-2 text-[11px] tabular-nums text-muted-foreground">
+          Last device report: <time dateTime={observedAt.toISOString()}>{observedAt.toLocaleString()}</time>
+        </p>
+      ) : null}
       {model || activity.length > 0 ? (
         <div className="flex items-start gap-3">
           <Cpu

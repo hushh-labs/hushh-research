@@ -87,6 +87,11 @@ class PodSpec:
     on_upgrade_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
         default=None, repr=False, compare=False
     )
+    # Called after the authenticated pod has produced its bound idle receipt,
+    # before any image copy or service replacement begins.
+    on_upgrade_idle: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
+        default=None, repr=False, compare=False
+    )
     # Present only for a separately approved Files resource/configuration delta.
     files_upgrade_plan: Optional[dict[str, Any]] = dataclass_field(default=None, repr=False)
     # Only a fenced maintenance recovery may supply already-acknowledged steps.

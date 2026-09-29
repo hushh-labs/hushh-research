@@ -1073,6 +1073,77 @@ async def test_the_route_opens_the_local_door_on_a_pod_session_bearer(
     assert seen["consent_token"].startswith("pod-session:")
 
 
+async def test_streamed_puppy_turn_uses_app_admission_and_emits_one_terminal(
+    enabled, monkeypatch, local_authority
+):
+    app_token, _ = await local_authority["admit"]("tdv_app_stream", "web")
+    device_token, _ = await local_authority["admit"]("tdv_mac_stream", "macos")
+    payload = PodTurnRequest(
+        message="hello", runtime_provider="puppy", puppy_device_id="tdv_mac_stream"
+    )
+    with pytest.raises(HTTPException) as refused:
+        await pod_turn.pod_turn_stream_route(payload, authorization=f"Bearer {device_token}")
+    assert refused.value.status_code == 403
+
+    async def _run(_payload, _authorization, _authority, _claims, *, on_token=None):
+        await on_token("Hello ")
+        await on_token("world")
+        return {"text": "Hello world", "provider": "puppy", "runtimeMode": "puppy_relay"}
+
+    monkeypatch.setattr(pod_turn, "_run_direct_turn", _run)
+    response = await pod_turn.pod_turn_stream_route(payload, authorization=f"Bearer {app_token}")
+    frames = [frame async for frame in response.body_iterator]
+    assert sum("event: token" in frame for frame in frames) == 2
+    assert sum("event: done" in frame for frame in frames) == 1
+    assert "Hello " in frames[0] and "world" in frames[1]
+    assert '"text"' not in frames[-1]
+
+
+async def test_streamed_puppy_disconnect_cancels_the_turn(enabled, monkeypatch, local_authority):
+    import asyncio
+
+    token, _ = await local_authority["admit"]("tdv_app_cancel", "web")
+    cancelled = asyncio.Event()
+
+    async def _run(_payload, _authorization, _authority, _claims, *, on_token=None):
+        try:
+            await on_token("starting")
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    monkeypatch.setattr(pod_turn, "_run_direct_turn", _run)
+    response = await pod_turn.pod_turn_stream_route(
+        PodTurnRequest(message="hello", runtime_provider="puppy"),
+        authorization=f"Bearer {token}",
+    )
+    stream = response.body_iterator
+    assert "event: token" in await anext(stream)
+    await stream.aclose()
+    assert cancelled.is_set()
+
+
+async def test_puppy_catalog_read_is_bound_to_the_app_owner(enabled, monkeypatch, local_authority):
+    from hushh_mcp.services.puppy_broker import BROKER
+
+    app_token, _ = await local_authority["admit"]("tdv_app_catalog", "web")
+    device_token, _ = await local_authority["admit"]("tdv_mac_catalog", "macos")
+    with pytest.raises(HTTPException) as refused:
+        await pod_turn.pod_puppy_models("tdv_mac_catalog", authorization=f"Bearer {device_token}")
+    assert refused.value.status_code == 403
+
+    seen = {}
+
+    async def _catalog(key):
+        seen["key"] = key
+        return {"status": "offline", "models": []}
+
+    monkeypatch.setattr(BROKER, "catalog", _catalog)
+    result = await pod_turn.pod_puppy_models("tdv_mac_catalog", authorization=f"Bearer {app_token}")
+    assert result["status"] == "offline"
+    assert seen["key"] == ("ha1_turn_owner", "tdv_mac_catalog")
+
+
 async def test_a_local_puppy_turn_needs_an_enrolled_and_linked_device(
     enabled, monkeypatch, local_authority
 ):
@@ -1153,6 +1224,53 @@ async def test_a_local_puppy_turn_refuses_a_device_binding_for_another_owner(
     assert exc.value.status_code == 409
     assert exc.value.detail["code"] == "PUPPY_OFFLINE"
     assert seen == []
+
+
+async def test_selected_puppy_model_requires_the_live_catalog_before_model_work(
+    enabled, monkeypatch, local_authority
+):
+    from hushh_mcp.services.puppy_broker import BROKER
+
+    monkeypatch.setattr(
+        pod_turn, "_resolve_model", lambda payload=None: ("puppy", payload.puppy_model)
+    )
+    authority = local_authority["authority"]
+    _, claims = await local_authority["admit"]("tdv_app_model", "web")
+    await local_authority["admit"]("tdv_mac_model", "macos")
+    kwargs = _local_turn_kwargs(authority, claims)
+    payload = PodTurnRequest(
+        message="hi",
+        runtime_provider="puppy",
+        puppy_device_id="tdv_mac_model",
+        puppy_model="qwen3-8b-mlx",
+        puppy_catalog_version="a" * 64,
+    )
+    seen = {}
+
+    async def _linked(_owner, _device):
+        return True
+
+    async def _catalog(_key, _model, version):
+        return "PUPPY_CATALOG_STALE" if version != "b" * 64 else None
+
+    async def _run(**run_kwargs):
+        seen.update(run_kwargs)
+        yield _Event("token", "ready")
+
+    monkeypatch.setattr(pod_turn, "_puppy_link_available", _linked)
+    monkeypatch.setattr(BROKER, "require_model", _catalog)
+    with pytest.raises(HTTPException) as refused:
+        await pod_turn.run_pod_turn(payload=payload, stream_fn=_run, **kwargs)
+    assert refused.value.detail["code"] == "PUPPY_CATALOG_STALE"
+    assert not seen
+
+    result = await pod_turn.run_pod_turn(
+        payload=payload.model_copy(update={"puppy_catalog_version": "b" * 64}),
+        stream_fn=_run,
+        **kwargs,
+    )
+    assert result["model"] == "qwen3-8b-mlx"
+    assert seen["puppy_catalog_version"] == "b" * 64
 
 
 async def test_hub_path_tests_are_unchanged_by_the_local_door(enabled, monkeypatch):

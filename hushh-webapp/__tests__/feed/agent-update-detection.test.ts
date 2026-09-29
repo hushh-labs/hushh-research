@@ -21,6 +21,7 @@ import {
   NO_UPDATE,
   readUpdateStatus,
 } from "@/lib/feed/use-agent-deployment-follow";
+import { updateActivityLabel } from "@/lib/feed/agent-update-status";
 
 describe("readUpdateStatus", () => {
   it("keeps absent as unknown, never as false", () => {
@@ -45,6 +46,7 @@ describe("readUpdateStatus", () => {
       releaseId: null,
       summary: null,
       presentationState: null,
+      phase: null,
       remindAt: null,
       operationId: null,
       verified: false,
@@ -83,6 +85,19 @@ describe("readUpdateStatus", () => {
     });
     expect(update.failed).toBe(true);
     expect(update.error).toBe("copy refused (403)");
+  });
+
+  it("shows only observed update milestones and requires digest verification for completion", () => {
+    for (const [phase, label] of [
+      ["preparing", "Finishing current work"],
+      ["installing", "Installing update"],
+      ["verifying", "Restarting and verifying"],
+    ] as const) {
+      const update = readUpdateStatus({ updateInProgress: true, update: { phase } });
+      expect(updateActivityLabel(update)).toBe(label);
+      expect(update.verified).toBe(false);
+    }
+    expect(readUpdateStatus({ updateInProgress: false, update: { phase: "verifying" } }).verified).toBe(false);
   });
 });
 

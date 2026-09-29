@@ -1610,11 +1610,13 @@ class UserGcpBackend:
                 raise RuntimeError("pod upgrade handoff capability is unavailable")
             handoff = PodUpgradeHandoffClient(url=pod_url, hushh_id=spec.hushh_id)
             try:
-                await asyncio.to_thread(
+                idle_receipt = await asyncio.to_thread(
                     handoff.prepare_and_wait,
                     operation_id=spec.upgrade_operation_id,
                     incarnation=handoff_incarnation,
                 )
+                if spec.on_upgrade_idle is not None:
+                    await asyncio.to_thread(spec.on_upgrade_idle, idle_receipt)
             except Exception:
                 try:
                     await asyncio.to_thread(

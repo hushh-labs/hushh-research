@@ -38,6 +38,7 @@ class ProviderAdkModel(BaseLlm):
     provider: str
     credential: str
     device_id: str | None = None
+    puppy_catalog_version: str | None = None
     # Managed pod runtimes use workload ADC; BYOK and Puppy relay runtimes
     # continue through the explicit credential transport.
     runtime_mode: str | None = None
@@ -99,6 +100,11 @@ class ProviderAdkModel(BaseLlm):
             self.provider,
             self.credential,
             puppy_device_id=self.device_id,
+            **(
+                {"puppy_catalog_version": self.puppy_catalog_version}
+                if self.puppy_catalog_version
+                else {}
+            ),
             gemini_byok_transport=self.gemini_byok_transport,
             vertex_project=self.vertex_project,
             vertex_location=self.vertex_location,

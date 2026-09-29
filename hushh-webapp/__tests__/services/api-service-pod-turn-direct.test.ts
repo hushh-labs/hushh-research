@@ -326,6 +326,41 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(mockFetch).not.toHaveBeenCalled();
   });
 
+  it("streams fragmented Puppy tokens through the admitted pod and keeps terminal errors terminal", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
+    const stream = vi.spyOn(ApiService, "apiFetchStream");
+    const response = (parts: string[]) => new Response(new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
+        controller.close();
+      },
+    }), { headers: { "Content-Type": "text/event-stream" } });
+    stream.mockResolvedValueOnce(response([
+      'event: token\ndata: {"text":"Hello',
+      ' "}\n\nevent: token\ndata: {"text":"world"}\n\n',
+      'event: done\ndata: {"model":"local-m","modelReported":true,"provider":"puppy","grounded":false,"runtimeMode":"puppy_relay"}\n\n',
+    ]));
+    const tokens: string[] = [];
+    const input = {
+      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
+      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1",
+      history: [{ role: "user" as const, content: "hi" }], onToken: (text: string) => tokens.push(text),
+    };
+    const done = await ApiService.streamPuppyPodTurn(input);
+    expect(tokens).toEqual(["Hello ", "world"]);
+    expect(done.model).toBe("local-m");
+    expect(stream).toHaveBeenCalledTimes(1);
+    expect(stream.mock.calls[0][0]).toBe(`${POD_URL}/api/one/pod/turn/stream`);
+    expect(JSON.parse(String(stream.mock.calls[0][1]?.body))).toMatchObject({
+      runtimeProvider: "puppy", puppyDeviceId: "tdv_mac_1", conversationId: "puppy-chat-1",
+    });
+    stream.mockResolvedValueOnce(response(['event: error\ndata: {"code":"PUPPY_OFFLINE"}\n\n']));
+    await expect(ApiService.streamPuppyPodTurn(input)).rejects.toThrow("PUPPY_OFFLINE");
+    expect(stream).toHaveBeenCalledTimes(2);
+  });
+
   it("gives the pod turn its own ceiling above the proxies", async () => {
     expect(POD_TURN_FETCH_TIMEOUT_MS).toBe(170_000);
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);

@@ -30,6 +30,14 @@ class PuppyRelayProtocolError(RuntimeError):
     """Puppy returned a malformed, mismatched, or explicitly failed frame."""
 
 
+class PuppyModelUnavailable(PuppyRelayUnavailable):
+    """The selected local model is no longer installed or reachable."""
+
+
+class PuppyCatalogStale(PuppyRelayUnavailable):
+    """The selected model catalog changed before dispatch."""
+
+
 class PuppyCapabilityUnsupported(RuntimeError):
     """The linked device cannot honour a capability this request needs.
 
@@ -172,11 +180,13 @@ class PuppyRelayTransport(ProviderTransport):
         *,
         relay_url: str | None = None,
         device_id: str | None = None,
+        catalog_version: str | None = None,
         timeout_seconds: float | None = None,
     ) -> None:
         self._token = str(api_key or "").strip()
         self._url = (relay_url or os.getenv("PUPPY_INFERENCE_RELAY_URL") or "").strip()
         self._device_id = (device_id or os.getenv("PUPPY_INFERENCE_DEVICE_ID") or "").strip()
+        self._catalog_version = str(catalog_version or "").strip()
         self._timeout = timeout_seconds or _env_float(
             "PUPPY_INFERENCE_TIMEOUT_SECONDS", DEFAULT_TIMEOUT_SECONDS
         )
@@ -192,13 +202,19 @@ class PuppyRelayTransport(ProviderTransport):
             "type": "inference.request",
             "requestId": request_id,
             "deviceId": self._device_id,
-            "model": model,
             "messages": _messages(request),
             "systemInstruction": request.system_instruction,
             "temperature": request.temperature,
             "maxOutputTokens": request.max_output_tokens,
             "tools": _tools(request),
         }
+        # An absent model keeps the device's configured default. Sending the
+        # historical sentinel `local` as an explicit selection would make the
+        # device reject ordinary turns against its installed-model inventory.
+        if self._catalog_version and model and model != "local":
+            payload["model"] = model
+        if self._catalog_version:
+            payload["catalogVersion"] = self._catalog_version
         # Only set knobs travel: an absent key means "not asked", which the device
         # can tell apart from "asked for the default".
         response_format = _response_format(request)

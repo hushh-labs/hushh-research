@@ -1092,6 +1092,124 @@ class PersonalAgentRegistryRepo:
             raise RuntimeError("owner pod disappeared while Puppy access changed")
         return int(rows[0]["binding_version"])
 
+    async def record_puppy_model_selection(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        command: dict,
+        expected_version: int,
+        approval: dict,
+        readiness: dict,
+    ) -> Optional[dict]:
+        """CAS one owner command to the current BYOC pod and Puppy grant.
+
+        A retry with the same request ID and payload reads back the first
+        command. An unrelated write must present the current version. All
+        authority predicates are checked again at the SQL write boundary.
+        """
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = CASE
+                WHEN backend_metadata->'puppyModelSelection'->:device_id->>'id' = :request_id
+                THEN backend_metadata
+                ELSE jsonb_set(
+                    coalesce(backend_metadata, '{}'::jsonb),
+                    '{puppyModelSelection}',
+                    coalesce(backend_metadata->'puppyModelSelection', '{}'::jsonb)
+                        || jsonb_build_object(:device_id, CAST(:command AS jsonb)),
+                    true
+                )
+              END
+            WHERE user_id = :user_id AND hushh_id = :hushh_id
+              AND status = 'provisioned' AND deployment_target = 'user_gcp'
+              AND pod_key_id = :pod_key_id
+              AND backend_metadata->>'serviceUid' = :service_uid
+              AND backend_metadata->>'ingress' = 'direct'
+              AND backend_metadata->'puppyAccess'->:device_id = CAST(:approval AS jsonb)
+              AND backend_metadata->'directReadiness' = CAST(:readiness AS jsonb)
+              AND (
+                (backend_metadata->'puppyModelSelection'->:device_id->>'id' = :request_id
+                 AND backend_metadata->'puppyModelSelection'->:device_id->>'model' = :model
+                 AND backend_metadata->'puppyModelSelection'->:device_id->>'catalogVersion' = :catalog_version)
+                OR (
+                  backend_metadata->'puppyModelSelection'->:device_id->>'id' IS DISTINCT FROM :request_id
+                  AND coalesce((backend_metadata->'puppyModelSelection'->:device_id->>'version')::int, 0)
+                      = :expected_version
+                )
+              )
+            RETURNING backend_metadata->'puppyModelSelection'->:device_id AS selection
+            """,
+            {
+                "user_id": user_id,
+                "device_id": device_id,
+                "hushh_id": command["hushhId"],
+                "pod_key_id": command["podKeyId"],
+                "service_uid": command["serviceUid"],
+                "request_id": command["id"],
+                "model": command["model"],
+                "catalog_version": command["catalogVersion"],
+                "expected_version": expected_version,
+                "command": json.dumps(command),
+                "approval": json.dumps(approval),
+                "readiness": json.dumps(readiness),
+            },
+        )
+        rows = list(getattr(response, "data", None) or [])
+        return rows[0]["selection"] if rows else None
+
+    async def ack_puppy_model_selection(
+        self,
+        *,
+        user_id: str,
+        device_id: str,
+        previous: dict,
+        settled: dict,
+        approval: dict,
+        readiness: dict,
+    ) -> Optional[dict]:
+        """Settle only the exact unexpired command for the same service."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            UPDATE personal_agent_registry
+            SET backend_metadata = jsonb_set(
+                coalesce(backend_metadata, '{}'::jsonb),
+                '{puppyModelSelection}',
+                coalesce(backend_metadata->'puppyModelSelection', '{}'::jsonb)
+                    || jsonb_build_object(:device_id, CAST(:settled AS jsonb)),
+                true
+            )
+            WHERE user_id = :user_id AND hushh_id = :hushh_id
+              AND status = 'provisioned' AND deployment_target = 'user_gcp'
+              AND pod_key_id = :pod_key_id
+              AND backend_metadata->>'serviceUid' = :service_uid
+              AND backend_metadata->>'ingress' = 'direct'
+              AND backend_metadata->'puppyAccess'->:device_id = CAST(:approval AS jsonb)
+              AND backend_metadata->'directReadiness' = CAST(:readiness AS jsonb)
+              AND backend_metadata->'puppyModelSelection'->:device_id = CAST(:previous AS jsonb)
+              AND (backend_metadata->'puppyModelSelection'->:device_id->>'expiresAt')::bigint
+                    > :now_ms
+            RETURNING backend_metadata->'puppyModelSelection'->:device_id AS selection
+            """,
+            {
+                "user_id": user_id,
+                "device_id": device_id,
+                "hushh_id": previous["hushhId"],
+                "pod_key_id": previous["podKeyId"],
+                "service_uid": previous["serviceUid"],
+                "approval": json.dumps(approval),
+                "readiness": json.dumps(readiness),
+                "previous": json.dumps(previous),
+                "settled": json.dumps(settled),
+                "now_ms": settled["acknowledgedAt"],
+            },
+        )
+        rows = list(getattr(response, "data", None) or [])
+        return rows[0]["selection"] if rows else None
+
     async def record_direct_readiness(
         self,
         *,
