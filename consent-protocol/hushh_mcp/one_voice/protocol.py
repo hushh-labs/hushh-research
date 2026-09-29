@@ -13,6 +13,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from hushh_mcp.one_voice.tools.base import LOCATION_UPDATES_PENDING as _LOCATION_UPDATES_PENDING
+from hushh_mcp.one_voice.tools.mail import MAIL_OPEN_DISPATCHED as _MAIL_OPEN_DISPATCHED
 
 PROTOCOL_VERSION = "one-voice-v1"
 INPUT_MIME = "audio/pcm;rate=16000"
@@ -25,6 +26,9 @@ MAX_CONTEXT_JSON_CHARS = 48_000
 # Interim status of a device-executed Location updates step (resume/pause
 # tools); defined with the tool contract, re-exported here for the wire.
 LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
+# Re-exported for the wire, like the status above it, so the relay does not have
+# to import a tool family to know a dispatch when it sees one.
+MAIL_OPEN_DISPATCHED = _MAIL_OPEN_DISPATCHED
 # Interim status of an armed Save My Soul alert: grants exist, the device has
 # not published a position yet, and nobody has been reached.
 SOS_GRANTS_CREATED = "sos_grants_created"
@@ -63,6 +67,10 @@ class AuthFrame(_Frame):
     firebase_id_token: str | None = Field(default=None, max_length=8_000)
     conversation_id: str = Field(min_length=36, max_length=36)
     client: dict[str, Any] = Field(default_factory=dict)
+    # The owner's IANA zone, for resolving "today" and "this week" on their
+    # clock rather than the server's. A hint, never authority: it is validated
+    # downstream and falls back to UTC. Bounded because it reaches ZoneInfo.
+    timezone: str | None = Field(default=None, max_length=64)
     resume: bool = False
 
 
@@ -208,8 +216,29 @@ def session_ready(
     }
 
 
-def audio_out(data_b64: str, *, turn_id: str) -> dict[str, Any]:
-    return {"type": "audio", "data": data_b64, "mime_type": OUTPUT_MIME, "turn_id": turn_id}
+def audio_out(data_b64: str, *, turn_id: str, narration: bool = False) -> dict[str, Any]:
+    """One chunk of speech for the player.
+
+    ``narration`` marks audio this server synthesized rather than audio the Live
+    model produced. The client needs the distinction for one reason: while
+    narration plays, the microphone must be closed on every device, because the
+    speaker is carrying mail-derived text and the Live session transcribes what
+    the microphone hears straight into the context this feature exists to keep it
+    out of. Ordinary model speech needs no such gate -- it is already in that
+    context -- and closing the mic for it would cost barge-in.
+
+    Additive and optional, so a client that predates it plays the audio and
+    ignores the field.
+    """
+    frame: dict[str, Any] = {
+        "type": "audio",
+        "data": data_b64,
+        "mime_type": OUTPUT_MIME,
+        "turn_id": turn_id,
+    }
+    if narration:
+        frame["narration"] = True
+    return frame
 
 
 def transcript(

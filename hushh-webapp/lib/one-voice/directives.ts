@@ -24,6 +24,25 @@ import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 export const ONE_VOICE_FOCUS_PENDING_EVENT = "one-voice:focus-pending" as const;
 export const ONE_VOICE_REFRESH_EVENT = "one-voice:refresh" as const;
 
+export const ONE_VOICE_OPEN_MAIL_EVENT = "one-voice:open-mail" as const;
+/**
+ * How long a spoken open waits for the surface to actually show the message.
+ *
+ * The directive settles on the render, not on the dispatch: a handler that
+ * returned is not evidence the person is looking at the message. Nothing
+ * listening, or nothing rendered in this window, settles `failed` -- which is the
+ * honest answer and lets One say so rather than assume.
+ */
+export const OPEN_MAIL_SETTLE_TIMEOUT_MS = 15_000;
+
+export type OneVoiceOpenMailDetail = {
+  ordinal: number;
+  offerRevision: number;
+  conversationId: string;
+  /** Called by the surface once the message is shown, or once it cannot be. */
+  settle: (status: "opened" | "failed", reason?: string) => void;
+};
+
 export type OneVoiceFocusPendingDetail = { pendingActionId: string | null };
 export type OneVoiceRefreshDetail = { uiRefresh: string[] };
 
@@ -70,6 +89,16 @@ function cleanString(value: unknown, max = 400): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   return trimmed.slice(0, max);
+}
+
+/** A positive whole number inside a bound, or null. Never coerced from a string. */
+function cleanCount(value: unknown, max = Number.MAX_SAFE_INTEGER): number | null {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1 &&
+    value <= max
+    ? value
+    : null;
 }
 
 function cleanId(value: unknown): string | null {
@@ -231,6 +260,42 @@ export async function executeDirective(
         return navigated
           ? outcome("opened")
           : outcome("failed", "navigation_unavailable");
+      }
+      case "open_mail": {
+        const ordinal = cleanCount(data.ordinal, 25);
+        const offerRevision = cleanCount(data.offer_revision);
+        const conversationId = cleanId(data.conversation_id);
+        if (ordinal === null || offerRevision === null || !conversationId) {
+          // An unbound reference would mean "whatever list is current", which is
+          // the substitution the offer binding exists to prevent.
+          return outcome("failed", "unbound_reference");
+        }
+        const detail: Omit<OneVoiceOpenMailDetail, "settle"> = {
+          ordinal,
+          offerRevision,
+          conversationId,
+        };
+        return await new Promise<DirectiveOutcome>((resolve) => {
+          let done = false;
+          const finish = (
+            status: "opened" | "failed",
+            reason?: string,
+          ): void => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            resolve(outcome(status, reason));
+          };
+          const timer = setTimeout(
+            () => finish("failed", "not_shown"),
+            OPEN_MAIL_SETTLE_TIMEOUT_MS,
+          );
+          (helpers.dispatchEvent ?? defaultDispatch)(
+            new CustomEvent<OneVoiceOpenMailDetail>(ONE_VOICE_OPEN_MAIL_EVENT, {
+              detail: { ...detail, settle: finish },
+            }),
+          );
+        });
       }
       case "focus_pending_action": {
         const detail: OneVoiceFocusPendingDetail = {

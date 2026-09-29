@@ -395,7 +395,10 @@ TOOLS: tuple[ToolSpec, ...] = (
         description=(
             "Read the person's own Hussh profile: display name, masked email, masked phone, "
             "whether a photo is set, verification, and active persona. Reads only; the raw email "
-            "and phone are never returned."
+            "and phone are never returned. The email here is the address on their Hussh account, "
+            "which they have whether or not a mailbox was ever connected: it is not evidence that "
+            "you can see their mail, and a verified address does not mean Gmail access. For a "
+            "question about reaching their mailbox, use get_mail_access instead."
         ),
         handler=get_profile,
     ),

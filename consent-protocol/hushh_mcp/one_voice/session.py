@@ -33,11 +33,19 @@ from hushh_mcp.one_voice.pending_actions import (
 )
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import registry
-from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext, ToolSpec
+from hushh_mcp.one_voice.tools.base import (
+    EntityContext,
+    ScreenContext,
+    ToolContext,
+    ToolResult,
+    ToolSpec,
+    restore_context,
+)
 from hushh_mcp.one_voice.tools.executor import ToolCallOutcome, ToolExecutor
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
 
 logger = logging.getLogger(__name__)
+
 
 AUTH_TIMEOUT_SECONDS = 5.0
 CLIENT_STEP_TIMEOUT_SECONDS = 25
@@ -143,6 +151,8 @@ class VoiceSession:
         self._ctx: ToolContext | None = None
         self._live: LiveSessionPort | None = None
         self.turn = TurnState()
+        # Set from the auth frame before any tool runs; UTC until then.
+        self._client_timezone = "UTC"
         self.started_at = clock()
         self.last_activity = clock()
         self.audio_in_bytes = 0
@@ -264,6 +274,9 @@ class VoiceSession:
             await self._fail(protocol.CLOSE_AUTH, "auth_invalid", str(exc) or "Not authorized.")
         if auth.user_id != self.claims.user_id:
             await self._fail(protocol.CLOSE_AUTH, "auth_mismatch", "Ticket and auth do not match.")
+        # A hint for resolving relative dates, not authority. AuthResult is the
+        # route's authority object and stays untouched.
+        self._client_timezone = frame.timezone or "UTC"
         return auth
 
     async def _open_conversation(self, auth: AuthResult) -> None:
@@ -273,15 +286,9 @@ class VoiceSession:
             model_id=self.config.model_id,
             model_location=self.config.location,
         )
-        try:
-            entities = EntityContext.model_validate(self.conversation.entity_context or {})
-        except Exception:  # noqa: BLE001 - a corrupt context is dropped, never trusted
-            entities = EntityContext()
+        entities = restore_context(EntityContext, self.conversation.entity_context)
         entities.prune()
-        try:
-            screen = ScreenContext.model_validate(self.conversation.screen_context or {})
-        except Exception:  # noqa: BLE001
-            screen = ScreenContext()
+        screen = restore_context(ScreenContext, self.conversation.screen_context)
         self.ctx = ToolContext(
             user_id=auth.user_id,
             conversation_id=self.claims.conversation_id,
@@ -289,6 +296,7 @@ class VoiceSession:
             screen=screen,
             vault_owner_token=auth.vault_owner_token,
             firebase_id_token=auth.firebase_id_token,
+            timezone=self._client_timezone,
         )
         self._display_name = auth.display_name
         open_rows = await self.pending.list_open(
@@ -310,6 +318,23 @@ class VoiceSession:
         from hushh_mcp.one_voice.instruction import build_instruction
 
         declarations = registry.declarations()
+        # Nothing else observes this list. It is assembled here and handed to the
+        # provider; no endpoint returns it and no client frame carries it, so
+        # without this line a running deployment cannot be asked which
+        # capabilities a session was actually given -- only which ones its image
+        # ought to contain, which is an inference and reads identical when the
+        # catalog is wrong. Names only, and mail is named explicitly because a
+        # release that claims mail is live is exactly the claim worth checking.
+        mail_tools = sorted(
+            name
+            for name in (str(item.get("name") or "") for item in declarations)
+            if "mail" in name
+        )
+        logger.info(
+            "one_voice.session.tools count=%d mail=%s",
+            len(declarations),
+            ",".join(mail_tools) or "none",
+        )
         instruction = build_instruction(
             tool_declarations=declarations,
             screen_ids=list(OPENABLE_SCREENS),
@@ -612,7 +637,9 @@ class VoiceSession:
                 "tool": outcome.spec.name if outcome.spec else None,
                 "pending_action_id": pending_id,
                 "confirmation_source": source,
-                "result": public,
+                # Injected into the model's own context, so it takes the model
+                # projection for the same reason as the handback above.
+                "result": outcome.result.model_public(),
             }
         )
         # An awaiting step settles the card but not the turn: "complete" only
@@ -993,13 +1020,85 @@ class VoiceSession:
                 self._bump(tool_results_rejected=1)
         else:
             self.turn.not_ok_results += 1
+        # A read_mail result makes its Open button actionable immediately. Save
+        # the offered message IDs before publishing that result so a fast tap's
+        # HTTP resolver observes the same list the person just saw.
+        await self._persist_entities()
         await self._send(
             protocol.tool_result(
                 call_id=str(call_id or "") or None, tool=name, result_public=public
             )
         )
-        await self._persist_entities()
-        await self.live.send_tool_response(call_id=call_id, name=name, response=public)
+        # The client frame above carries the full result. The model gets its own
+        # projection, which for an external-content read is a receipt rather
+        # than the mail itself.
+        # Spoken before the model is told anything, so the model cannot start
+        # talking over it. A narration IS the answer, so its cost is the model's
+        # acknowledgement arriving a few seconds later -- and that acknowledgement
+        # is counts-only, so there is little to delay.
+        narrated = await self._narrate(outcome.result)
+        response = outcome.result.model_public()
+        if narrated:
+            # The digest has been said. Leaving the count sentence in would have
+            # One announce the same turn twice, in two different voices of its own.
+            response = {**response, "spoken_facts": []}
+        await self.live.send_tool_response(call_id=call_id, name=name, response=response)
+
+    async def _narrate(self, result: ToolResult) -> bool:
+        """Speak a result's own short digest, if it has one and narration is on.
+
+        The digest never reaches the operational model: it is rendered by a
+        separate provider context with no tools and no history, and arrives at the
+        client as ordinary audio frames marked `narration`, which close the
+        microphone while they play. See ``services.voice_narration``.
+
+        Returns whether anything was spoken. A failure is silent by design -- the
+        visible result is already on screen, and the screen and the speaker are
+        separate outcomes.
+        """
+        from hushh_mcp.one_voice.config import voice_mail_narration_enabled
+
+        if not voice_mail_narration_enabled():
+            return False
+        digest = ""
+        try:
+            digest = result.narratable_digest()
+        except Exception:  # noqa: BLE001 - a tool that cannot say it says nothing
+            return False
+        if not digest.strip():
+            return False
+        if self.turn.audio_chunks:
+            # The model is already speaking this turn. A narration would be a
+            # second voice over the first, and its unseen turn id would outrank
+            # the model's in the player's fence.
+            return False
+
+        from hushh_mcp.one_voice.instruction import voice_name
+        from hushh_mcp.services.voice_narration import (
+            NarrationUnavailable,
+            narrate_digest_stream,
+        )
+
+        # Its own turn id: the player schedules per turn, and a narration is not
+        # part of the model's turn.
+        turn_id = uuid.uuid4().hex[:12]
+        spoken = False
+        try:
+            async for chunk in narrate_digest_stream(digest, voice_name=voice_name()):
+                await self._send(
+                    protocol.audio_out(
+                        base64.b64encode(chunk.audio).decode("ascii"),
+                        turn_id=turn_id,
+                        narration=True,
+                    )
+                )
+                spoken = True
+                self._touch()
+        except NarrationUnavailable as exc:
+            # Named, not detailed: a provider message can echo the digest.
+            logger.info("Narration unavailable: %s", exc.reason)
+            return spoken
+        return spoken
 
     async def _emit_side_effects(
         self, outcome: ToolCallOutcome, *, call_id: str | None = None
@@ -1016,6 +1115,21 @@ class VoiceSession:
                         "screen": public.get("screen"),
                         "circle_id": public.get("circle_id"),
                         "user_id": public.get("user_id"),
+                    },
+                )
+            )
+        if public.get("status") == protocol.MAIL_OPEN_DISPATCHED:
+            # The surface opens the row through its own authenticated resolver.
+            # Nothing about the message passes through the relay or the model; this
+            # carries only which row, from which offer, in which conversation.
+            await self._send(
+                protocol.ui_directive(
+                    directive_id=uuid.uuid4().hex[:12],
+                    kind="open_mail",
+                    payload={
+                        "ordinal": public.get("ordinal"),
+                        "offer_revision": public.get("offer_revision"),
+                        "conversation_id": public.get("conversation_id"),
                     },
                 )
             )

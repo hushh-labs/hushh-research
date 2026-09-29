@@ -43,7 +43,7 @@ _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
 # Per-message reads for one listing page run concurrently, bounded so a page
 # never opens more than this many provider requests at once.
 _FETCH_CONCURRENCY = 8
-_BODY_OPERATIONS = frozenset({"read_message", "read_thread"})
+_BODY_OPERATIONS = frozenset({"read_message", "read_thread", "read_message_by_id"})
 MAX_BODY_MESSAGES = 5
 # A thread answer reads its newest messages; older ones are reported as omitted.
 _MAX_THREAD_MESSAGES = 10
@@ -51,7 +51,12 @@ _MAX_THREAD_MESSAGES = 10
 _BODY_TEXT_BUDGET = 16000
 _FULL_FIELDS = "id,threadId,internalDate,labelIds,payload"
 MailOperation = Literal[
-    "list_needs_reply", "list_recent", "search_inbox", "read_message", "read_thread"
+    "list_needs_reply",
+    "list_recent",
+    "search_inbox",
+    "read_message",
+    "read_thread",
+    "read_message_by_id",
 ]
 _OPERATIONS: dict[str, frozenset[str]] = {
     "list_needs_reply": frozenset({"limit", "mailbox"}),
@@ -59,6 +64,9 @@ _OPERATIONS: dict[str, frozenset[str]] = {
     "search_inbox": frozenset({"limit", "query", "mailbox"}),
     "read_message": frozenset({"limit", "query", "mailbox"}),
     "read_thread": frozenset({"query", "mailbox"}),
+    # Reads exactly the messages named, with no listing and so no search. The
+    # ids come from an offer this server minted, never from a model.
+    "read_message_by_id": frozenset({"message_ids", "mailbox"}),
 }
 Mailbox = Literal["inbox", "sent", "anywhere"]
 RequireAccess = Callable[[], Awaitable[None]]
@@ -106,11 +114,22 @@ def _label(value: Any, maximum: int) -> tuple[str, bool]:
     return encoded[:maximum].decode("utf-8", errors="ignore"), len(encoded) > maximum
 
 
-def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str]:
+def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str, tuple[str, ...]]:
     allowed = _OPERATIONS.get(operation)
     if allowed is None or set(arguments) - allowed:
         raise GmailMetadataError("invalid_argument")
     reads_bodies = operation in _BODY_OPERATIONS
+    message_ids: tuple[str, ...] = ()
+    if operation == "read_message_by_id":
+        raw_ids = arguments.get("message_ids")
+        if (
+            not isinstance(raw_ids, list | tuple)
+            or not 1 <= len(raw_ids) <= MAX_BODY_MESSAGES
+            or any(not isinstance(value, str) or not _ID.fullmatch(value) for value in raw_ids)
+            or len(set(raw_ids)) != len(raw_ids)
+        ):
+            raise GmailMetadataError("invalid_argument")
+        message_ids = tuple(raw_ids)
     limit = arguments.get("limit", 1 if reads_bodies else 10)
     maximum = MAX_BODY_MESSAGES if reads_bodies else 25
     if type(limit) is not int or not 1 <= limit <= maximum:
@@ -128,7 +147,9 @@ def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str
     # Needs-reply is defined over inbound inbox threads; it has no other scope.
     if mailbox not in _MAILBOX_LABELS or (operation == "list_needs_reply" and mailbox != "inbox"):
         raise GmailMetadataError("invalid_argument")
-    return limit, query.strip(), mailbox
+    if message_ids:
+        limit = len(message_ids)
+    return limit, query.strip(), mailbox, message_ids
 
 
 def _recipient_label(value: str) -> str:
@@ -206,16 +227,24 @@ class GmailMetadataReader:
         user_id: str,
         require_access: RequireAccess,
         transport: httpx.AsyncBaseTransport | None = None,
+        expect_account: str | None = None,
     ) -> None:
         self._gmail = gmail
         self._user_id = user_id
         self._require_access = require_access
         self._transport = transport
+        # The account a caller's message ids were resolved in. The session fence
+        # below pins the account for the duration of this read; this pins it to
+        # the one the ids came from, which is a different question and the one
+        # that matters when the owner reconnected a different Google account
+        # between being shown a list and asking for the second thing on it.
+        self._expect_account = expect_account
         self._observation: dict[str, Any] | None = None
         self._account: str | None = None
         self._used = False
         self._remaining = _BUDGET
         self._message_ids: list[str] = []
+        self._offered_message_ids: tuple[str, ...] = ()
 
     async def require_current(self) -> None:
         """Recheck after interpretation too; no stale content leaves the hop."""
@@ -262,12 +291,31 @@ class GmailMetadataReader:
         return self._grant_fingerprint(row["google_sub"], self._gmail._refresh_observation(row))
 
     async def read(self, operation: MailOperation, arguments: dict[str, Any]) -> dict[str, Any]:
-        limit, query, mailbox = _arguments(operation, arguments)
+        limit, query, mailbox, message_ids = _arguments(operation, arguments)
 
         async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
-            return await self._read(client, token, operation, limit, query, mailbox)
+            return await self._read(client, token, operation, limit, query, mailbox, message_ids)
 
         return await self._session(body, reads_bodies=operation in _BODY_OPERATIONS)
+
+    @property
+    def account(self) -> str:
+        """The Google account this read was served from. Empty before the read."""
+        return str(self._account or "")
+
+    def offered_message_ids(self) -> tuple[str, ...]:
+        """Provider ids for the rows this read returned, in the order shown.
+
+        Ordinal N in the result is index N-1 here, so a caller can bind "the
+        second one" to a message rather than to a position that a later search
+        would fill differently.
+
+        Empty when the mapping cannot be trusted -- an operation that cannot name
+        a message per row, or a length that does not match the rows. An empty map
+        makes a later positional request refuse honestly; a misaligned one would
+        read the wrong mail.
+        """
+        return self._offered_message_ids
 
     async def resolve_targets(
         self, arguments: dict[str, Any], *, label_name: str | None = None
@@ -279,7 +327,9 @@ class GmailMetadataReader:
         the owner reviews before anything changes.
         """
         operation: MailOperation = "search_inbox" if arguments.get("query") else "list_recent"
-        limit, query, mailbox = _arguments(operation, arguments)
+        # Mailbox changes are never targeted by id from a caller; they are
+        # resolved from a listing the owner reviews, so there are no ids here.
+        limit, query, mailbox, _ = _arguments(operation, arguments)
         if label_name is not None and (
             not isinstance(label_name, str)
             or not label_name.strip()
@@ -347,6 +397,12 @@ class GmailMetadataReader:
                 self._account = row.get("google_sub")
                 if not self._account or not all(self._observation.values()):
                     raise GmailMetadataError("reconnect_required")
+                if self._expect_account and self._account != self._expect_account:
+                    # Refuse before any fetch. Ids are meaningless in another
+                    # mailbox, and a request for "the second one" must not turn
+                    # into a read of some unrelated message that now holds that
+                    # position.
+                    raise GmailMetadataError("source_changed")
                 await self.require_current()
                 async with httpx.AsyncClient(
                     transport=self._transport, timeout=10, follow_redirects=False
@@ -426,17 +482,17 @@ class GmailMetadataReader:
             raise GmailMetadataError("invalid_response")
         return payload
 
-    async def _read(
+    async def _listing(
         self,
         client: httpx.AsyncClient,
         token: str,
         operation: MailOperation,
         limit: int,
         query: str,
-        mailbox: str = "inbox",
-    ) -> dict[str, Any]:
+        mailbox: str,
+    ) -> tuple[list[str], dict[str, Any]]:
+        """One page of ids, newest first, deduplicated. No content."""
         is_threads = operation in {"list_needs_reply", "read_thread"}
-        reads_bodies = operation in _BODY_OPERATIONS
         maximum = 25 if operation == "list_needs_reply" else limit
         params: dict[str, Any] = {
             "maxResults": maximum,
@@ -465,6 +521,28 @@ class GmailMetadataReader:
                 raise GmailMetadataError("invalid_response")
             if identity not in ids:
                 ids.append(identity)
+        return ids, listing
+
+    async def _read(
+        self,
+        client: httpx.AsyncClient,
+        token: str,
+        operation: MailOperation,
+        limit: int,
+        query: str,
+        mailbox: str = "inbox",
+        message_ids: tuple[str, ...] = (),
+    ) -> dict[str, Any]:
+        is_threads = operation in {"list_needs_reply", "read_thread"}
+        reads_bodies = operation in _BODY_OPERATIONS
+        listing: dict[str, Any] = {}
+        ids: list[str] = []
+        if operation == "read_message_by_id":
+            # No listing, so no search whose results could have shifted since
+            # these ids were offered. That is the point of the operation.
+            ids = list(message_ids)
+        else:
+            ids, listing = await self._listing(client, token, operation, limit, query, mailbox)
         if not is_threads:
             self._message_ids = ids
 
@@ -510,32 +588,48 @@ class GmailMetadataReader:
         # the newest matches, so older mail beyond the page is not an omission.
         # Search and needs-reply still report a next page as truncation because
         # matches were left out.
-        truncated = operation in {"list_needs_reply", "search_inbox"} and bool(
+        matches_beyond_page = operation in {"list_needs_reply", "search_inbox"} and bool(
             listing.get("nextPageToken")
         )
+        # Three different facts, not one. "More matches exist beyond this page",
+        # "results were dropped to fit", and "text was shortened" lead the person
+        # to do different things, and a single `truncated` bool made One say
+        # "there may be more than I checked" when only a body had been clipped.
+        items_omitted = False
+        content_shortened = False
+        assessed: int | None = len(ids)
+        # One provider id per projected row, in row order, so a caller can bind
+        # an ordinal to a message. Tracked alongside the rows rather than derived
+        # afterwards, because needs-reply re-sorts and filters its threads and a
+        # body read flattens one: neither row order matches the listing order.
+        ordered_ids: list[str] = list(ids)
         if operation == "list_needs_reply":
-            raw_items, truncated = await self._needs_reply_items(payloads, limit, truncated)
+            raw_items, matches_beyond_page, assessed, ordered_ids = await self._needs_reply_items(
+                payloads, limit, matches_beyond_page
+            )
         elif reads_bodies:
             messages = (
                 [m for payload in payloads for m in payload["messages"]] if is_threads else payloads
             )
+            assessed = len(messages)
             if len(messages) > _MAX_THREAD_MESSAGES:
                 messages = messages[-_MAX_THREAD_MESSAGES:]
-                truncated = True
+                items_omitted = True
             raw_items = [self._message_item(m, mailbox, with_body=True) for m in messages]
+            ordered_ids = [str(message.get("id") or "") for message in messages]
             # Every message shares one readable-text allowance.
             allowance = max(800, min(12000, _BODY_TEXT_BUDGET // max(1, len(raw_items))))
             for item in raw_items:
                 item["body"], cut_body = cap_utf8(item["body"], allowance)
                 item["body_truncated"] = cut_body
-                truncated = truncated or cut_body
+                content_shortened = content_shortened or cut_body
         else:
             raw_items = [self._message_item(payload, mailbox) for payload in payloads]
         items = []
         for ordinal, item in enumerate(raw_items, 1):
             subject, cut_subject = _label(item["subject"], 320)
             sender, cut_sender = _label(item["sender"], 160)
-            truncated = truncated or cut_subject or cut_sender
+            content_shortened = content_shortened or cut_subject or cut_sender
             projected: dict[str, Any] = {
                 "source_ref": f"mail:{ordinal}",
                 "subject": subject,
@@ -546,31 +640,68 @@ class GmailMetadataReader:
                 projected["unread"] = item["unread"]
             if "recipient" in item:
                 recipient, cut_recipient = _label(item["recipient"], 160)
-                truncated = truncated or cut_recipient
+                content_shortened = content_shortened or cut_recipient
                 projected["recipient"] = recipient
             if "body" in item:
                 projected["body"] = item["body"]
                 projected["body_truncated"] = item["body_truncated"]
             items.append(projected)
-        result = {
+        result: dict[str, Any] = {
             "status": "ok",
             "operation": operation,
             "mailbox": mailbox,
             "untrusted_external_content": items,
-            "truncated": truncated,
+            "truncated": matches_beyond_page or items_omitted or content_shortened,
             "metadata_only": not reads_bodies,
             "one_page_only": True,
         }
         # Leave space inside the 32-KB specialist envelope for status and the
         # interpreted answer. Count escaped JSON too, not only Python chars.
+        #
+        # This pops from the END, so the surviving items keep their original
+        # `mail:1..N` refs as a contiguous prefix. An ordinal the person was
+        # offered therefore still means the message it meant when offered.
         while len(json.dumps(result).encode("utf-8")) > 24000 and items:
             items.pop()
+            items_omitted = True
             result["truncated"] = True
+        # Bound after the trim, so the map covers exactly the surviving rows. A
+        # length mismatch or an unusable id yields no map at all: a later
+        # positional request then refuses honestly, where a misaligned map would
+        # quietly read a different message.
+        row_ids = ordered_ids[: len(items)]
+        self._offered_message_ids = (
+            tuple(row_ids)
+            if len(row_ids) == len(items) and all(_ID.fullmatch(value) for value in row_ids)
+            else ()
+        )
+        # Described after the trim, so `returned` is what the person can
+        # actually be shown rather than what was fetched. Coverage is not part
+        # of the interpreter's evidence; the caller reads it separately.
+        result["coverage"] = {
+            "operation": operation,
+            "mailbox": mailbox,
+            # What the read covered, so a count cannot imply a whole mailbox.
+            # "newest" is the front of the mailbox and nothing more: five bodies
+            # is this reader's budget, not evidence that five is all there is.
+            "scope": (
+                "selected" if operation == "read_message_by_id" else "search" if query else "newest"
+            ),
+            # One row per thread for needs-reply, one per message everywhere else.
+            "unit": "threads" if operation == "list_needs_reply" else "messages",
+            "assessed": assessed,
+            "returned": len(items),
+            "matches_beyond_page": matches_beyond_page,
+            "items_omitted": items_omitted,
+            "content_shortened": content_shortened,
+            "content_depth": "message" if reads_bodies else "metadata",
+            "one_page_only": True,
+        }
         return result
 
     async def _needs_reply_items(
         self, payloads: list[dict[str, Any]], limit: int, truncated: bool
-    ) -> tuple[list[dict[str, Any]], bool]:
+    ) -> tuple[list[dict[str, Any]], bool, int, list[str]]:
         row = await asyncio.to_thread(self._gmail._fetch_connection_row, user_id=self._user_id)
         account_email = str((row or {}).get("google_email") or "")
         if not account_email:
@@ -582,15 +713,27 @@ class GmailMetadataReader:
                 raise GmailMetadataError("invalid_response")
             threads.append(thread)
         nudges = derive_needs_reply_nudges(threads, user_email=account_email, limit=25)
+        shown = nudges[:limit]
         items = [
             {
                 "subject": n.title,
                 "sender": n.sender,
                 "received_at": n.received_at.isoformat() if n.received_at else None,
             }
-            for n in nudges[:limit]
+            for n in shown
         ]
-        return items, truncated or len(nudges) > limit
+        # The assessed count is every thread the nudge rule evaluated, which is
+        # what makes "three need a reply out of twelve I checked" sayable.
+        #
+        # The nudge already knows which message it is about. Dropping that id is
+        # why "read the second one" had nothing to resolve against on the one
+        # operation a person is most likely to say it about.
+        return (
+            items,
+            truncated or len(nudges) > limit,
+            len(nudges),
+            [str(n.message_id or "") for n in shown],
+        )
 
     def _message_item(
         self, payload: dict[str, Any], mailbox: str, *, with_body: bool = False

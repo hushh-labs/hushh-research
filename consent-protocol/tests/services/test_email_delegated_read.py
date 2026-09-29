@@ -14,10 +14,13 @@ from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
 
 
 class _Reader:
-    def __init__(self, *, metadata=None, late_error=False):
+    ACCOUNT = "synthetic-account"
+
+    def __init__(self, *, metadata=None, late_error=False, offered_ids=("mail-id-1",)):
         self.calls = []
         self.validations = 0
         self.late_error = late_error
+        self.offered_ids = tuple(offered_ids)
         self.metadata = metadata or {
             "status": "ok",
             "untrusted_external_content": [
@@ -28,6 +31,18 @@ class _Reader:
             ],
             "metadata_only": True,
             "truncated": True,
+            "coverage": {
+                "operation": "search_inbox",
+                "mailbox": "inbox",
+                "unit": "messages",
+                "assessed": 10,
+                "returned": 1,
+                "matches_beyond_page": True,
+                "items_omitted": False,
+                "content_shortened": False,
+                "content_depth": "metadata",
+                "one_page_only": True,
+            },
         }
 
     async def read(self, operation, args):
@@ -38,6 +53,13 @@ class _Reader:
         self.validations += 1
         if self.late_error and self.validations > 1:
             raise GmailMetadataError("connection_changed")
+
+    @property
+    def account(self):
+        return self.ACCOUNT
+
+    def offered_message_ids(self):
+        return self.offered_ids
 
 
 _NOW = datetime(2026, 9, 26, 20, 0, tzinfo=timezone.utc)
@@ -81,8 +103,23 @@ async def test_planner_never_sees_external_content_and_interpreter_has_no_second
         {"source_ref": "mail:1", "kind": "metadata", "label": "Mail"}
     ]
     assert result["structured"]["truncated"] is True
-    assert "omitted" in result["response"]
-    assert "evil.invalid" not in json.dumps(result)
+    assert "left out" in result["response"]
+    # External content now has exactly two legitimate destinations: the
+    # interpreted answer, and `items`, which is the owner's own mail on the
+    # owner's own screen. The shared `specialist_read` receipt is persisted in
+    # conversation snapshots and projected to other surfaces, so it must stay
+    # free of anything a sender wrote -- refs and counts only.
+    assert "evil.invalid" not in json.dumps(result["structured"])
+    assert "evil.invalid" not in result["response"]
+    assert "evil.invalid" in json.dumps(result["items"]), (
+        "the owner cannot read mail that never reaches the surface"
+    )
+    # Coverage is counted by the server, so a citation count cannot become a
+    # message count, and nothing a sender wrote can ride along in it.
+    assert result["coverage"]["returned"] == 1
+    assert result["coverage"]["assessed"] == 10
+    assert result["coverage"]["cited"] == 1
+    assert "evil" not in json.dumps(result["coverage"])
 
 
 @pytest.mark.parametrize(
@@ -341,3 +378,209 @@ async def test_body_read_is_planned_from_the_request_and_bounded_before_the_read
     assert result["structured"]["sources"] == [
         {"source_ref": "mail:1", "kind": "message", "label": "Mail"}
     ]
+
+
+async def test_an_offered_position_reads_that_message_and_never_searches_again():
+    """ "Read the second one" must reach the message that was second.
+
+    The planner has no history -- it is given the request and a clock, nothing
+    else -- so asked to plan this it produces a body read with no criteria, which
+    is the newest message. That is a confident wrong answer with nothing on the
+    result to show it was wrong. With the id in hand there is nothing to plan, so
+    the planner is skipped and the read is a direct fetch: no listing means no
+    chance of different mail having taken that position in the meantime.
+    """
+    reader = _Reader(offered_ids=("mail-id-2",))
+    calls = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs)
+        return {"answer": "Priya asked for the deck.", "source_refs": ["mail:1"]}
+
+    result = await run_delegated_mail_read(
+        gmail=object(),
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106 - synthetic test authority
+        conversation_id="original-one-thread",
+        message="read the second one",
+        require_access=AsyncMock(),
+        message_ids=("mail-id-2",),
+        expect_account=_Reader.ACCOUNT,
+        gene_runner=gene,
+        reader_factory=lambda **_: reader,
+        clock=lambda: _NOW,
+    )
+
+    assert [call["gene_id"] for call in calls] == ["agent_email_read_interpreter"], (
+        "the planner has nothing to plan and must not be asked"
+    )
+    assert reader.calls == [
+        ("read_message_by_id", {"mailbox": "inbox", "message_ids": ["mail-id-2"]})
+    ]
+    assert result["structured"]["status"] == "ok"
+    assert result["coverage"]["plan_source"] == "offer"
+    assert result["offer"]["message_ids"] == ["mail-id-2"]
+    assert result["offer"]["account"] == _Reader.ACCOUNT
+
+
+async def test_a_read_hands_back_the_messages_behind_its_rows():
+    """Without this the next turn has nothing to resolve a position against."""
+    reader = _Reader(offered_ids=("mail-id-7",))
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "limit": 1}
+        return {"answer": "One message.", "source_refs": ["mail:1"]}
+
+    result = await _run(reader, gene)
+
+    assert result["offer"] == {
+        "message_ids": ["mail-id-7"],
+        "account": _Reader.ACCOUNT,
+        "mailbox": "inbox",
+    }
+    assert result["coverage"]["plan_source"] == "planner"
+
+
+async def test_no_offer_is_handed_back_when_the_rows_cannot_be_named():
+    """A row list with no usable ids yields no offer at all, so a later position
+    is refused rather than resolved against a guess."""
+    reader = _Reader(offered_ids=())
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "limit": 1}
+        return {"answer": "One message.", "source_refs": ["mail:1"]}
+
+    result = await _run(reader, gene)
+    assert result["offer"] is None
+
+
+# -- per-item summaries ------------------------------------------------------
+
+
+def _body_reader(count: int = 2) -> _Reader:
+    """A body read: every row supplied its text, so every row may be summarised."""
+    return _Reader(
+        metadata={
+            "status": "ok",
+            "untrusted_external_content": [
+                {
+                    "source_ref": f"mail:{n}",
+                    "subject": f"Subject {n}",
+                    "sender": "Priya Nair",
+                    "body": f"Body text for message {n}.",
+                }
+                for n in range(1, count + 1)
+            ],
+            "metadata_only": False,
+            "truncated": False,
+            "coverage": {
+                "operation": "read_message",
+                "mailbox": "inbox",
+                "unit": "messages",
+                "assessed": count,
+                "returned": count,
+                "matches_beyond_page": False,
+                "items_omitted": False,
+                "content_shortened": False,
+                "content_depth": "message",
+                "one_page_only": True,
+            },
+        }
+    )
+
+
+async def test_a_gist_is_merged_onto_the_row_it_describes():
+    """Summary-first: a row says what it is about, not only who sent it."""
+    reader = _body_reader(2)
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "read_message", "limit": 2}
+        return {
+            "answer": "Priya needs the deck and the invoice is overdue.",
+            "source_refs": ["mail:1", "mail:2"],
+            "item_summaries": [
+                {"source_ref": "mail:2", "gist": "The March invoice is overdue."},
+                {"source_ref": "mail:1", "gist": "Priya wants the Q3 deck by Friday."},
+            ],
+        }
+
+    result = await _run(reader, gene)
+
+    rows = {item["source_ref"]: item for item in result["items"]}
+    assert rows["mail:1"]["gist"] == "Priya wants the Q3 deck by Friday."
+    assert rows["mail:2"]["gist"] == "The March invoice is overdue."
+    assert result["coverage"]["summarized"] == 2
+
+
+@pytest.mark.parametrize(
+    ("summaries", "why"),
+    [
+        (
+            [{"source_ref": "mail:9", "gist": "About nothing."}],
+            "a ref that was never supplied",
+        ),
+        (
+            [
+                {"source_ref": "mail:1", "gist": "One."},
+                {"source_ref": "mail:1", "gist": "Two."},
+            ],
+            "the same row summarised twice",
+        ),
+    ],
+)
+async def test_an_unsupported_gist_fails_the_read_rather_than_shipping(summaries, why):
+    reader = _body_reader(2)
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "read_message", "limit": 2}
+        return {
+            "answer": "Something.",
+            "source_refs": ["mail:1"],
+            "item_summaries": summaries,
+        }
+
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "unavailable", why
+    assert result["items"] == []
+
+
+async def test_a_row_with_only_headers_cannot_acquire_a_summary():
+    """The guard that makes summary-first honest.
+
+    A metadata row carries a subject and a sender and no text at all. A gist for
+    it would be written from the subject, and it would read exactly like a gist
+    written from the message. There is nothing downstream that could tell the
+    difference, so the read fails here instead.
+    """
+    reader = _Reader()  # default fixture: metadata only, no body
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "limit": 1}
+        return {
+            "answer": "One message.",
+            "source_refs": ["mail:1"],
+            "item_summaries": [{"source_ref": "mail:1", "gist": "Guessed from the subject."}],
+        }
+
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "unavailable"
+
+
+async def test_no_summaries_is_a_normal_read():
+    """A listing has nothing to summarise, and that is not a failure."""
+    reader = _Reader()
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "list_recent", "limit": 1}
+        return {"answer": "One message.", "source_refs": ["mail:1"]}
+
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "ok"
+    assert result["coverage"]["summarized"] == 0
+    assert all("gist" not in item for item in result["items"])

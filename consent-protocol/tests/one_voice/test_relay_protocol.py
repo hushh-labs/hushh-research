@@ -17,12 +17,14 @@ from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
+    EntityContext,
     PersonRef,
     ToolInput,
     ToolPolicy,
     ToolResult,
     ToolSpec,
     now_iso,
+    restore_context,
 )
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from tests.one_voice.fakes import (
@@ -1600,3 +1602,36 @@ async def test_spoken_yes_on_a_tap_tier_card_keeps_the_card_and_its_receipt():
         await _finish(transport, task)
     finally:
         mp.undo()
+
+
+def test_a_stored_context_written_by_a_newer_server_keeps_what_it_can():
+    """A rollback must not cost the person their confirmed people.
+
+    Both context models forbid unknown keys, which is the right contract for the
+    model and the wrong behaviour for a stored row: an older server reading a
+    field a newer one wrote would fail validation for the whole row, and the
+    fallback is an empty context. Every confirmed person and circle in every live
+    conversation would disappear, silently, because of one unrecognised key.
+    """
+    person = ConfirmedPerson(
+        user_id="u-priya",
+        display_name="Priya Nair",
+        relationship="connected",
+        confirmed_at=now_iso(),
+    ).model_dump(mode="json")
+
+    restored = restore_context(
+        EntityContext,
+        {"people": {"u-priya": person}, "a_field_from_a_later_version": {"x": 1}},
+    )
+
+    assert "u-priya" in restored.people
+    assert restored.people["u-priya"].display_name == "Priya Nair"
+    assert not hasattr(restored, "a_field_from_a_later_version")
+
+
+def test_a_genuinely_corrupt_stored_context_is_dropped_and_never_trusted():
+    """Tolerating unknown keys must not become tolerating bad values."""
+    assert restore_context(EntityContext, {"people": "not-a-mapping"}).people == {}
+    assert restore_context(EntityContext, "not-a-dict-at-all").people == {}
+    assert restore_context(EntityContext, None).people == {}

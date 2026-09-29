@@ -135,6 +135,11 @@ export default defineConfig({
         /guest-preview\.layout\.spec\.ts/,
         /document-share-review\.layout\.spec\.ts/,
         /drive-sharing-card\.layout\.spec\.ts/,
+        // one-voice-mail-open: a flex row with an Open control and an
+        // expand-in-place body, which people meet on an iPhone. A Chromium
+        // pass says nothing about whether the 44px control and the wrapped
+        // subject hold in the engine the app ships in.
+        /one-voice-mail-open\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
         /(intro-viewport\.layout|country-picker\.layout|account-session-recovery|agent-surface-model-authority\.layout|one-voice-panel\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|location-cta-layout|google-contact-sync\.layout|location-switch\.layout|active-share-actions\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-people-rows\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout|contact-invitation-sheet\.layout)\.spec\.ts/,

@@ -62,6 +62,11 @@ const HANDOFF_STATUSES = new Set<string>([
   // The device step, not a card, owns the interval until the relay settles
   // the final tool.result for this device's Location switch.
   "location_updates_pending",
+  // A spoken "open the second one" dispatches; it does not answer. Showing this
+  // as a card would replace the mail list the person is looking at with a result
+  // that has nothing of its own to show -- and take away the very rows the
+  // ordinal refers to.
+  "mail_open_dispatched",
 ]);
 const DISAMBIGUATION_STATUSES = new Set<string>([
   "multiple",
@@ -415,6 +420,7 @@ export function OneVoicePanel({
                 result={resultSlot.result}
                 tool={resultSlot.tool}
                 ok={resultSlot.ok}
+                onOpenMail={controller.openMail}
               />
             ) : null}
 

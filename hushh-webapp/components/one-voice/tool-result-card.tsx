@@ -14,9 +14,23 @@
  * AND the device permission is granted.
  */
 
-import type { ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { AlertCircle, Check, Info, Loader2 } from "@/components/icons";
+import { Button } from "@/components/ui/button";
 
+import { formatRelativeTime } from "@/lib/format/relative-time";
+import {
+  ONE_VOICE_OPEN_MAIL_EVENT,
+  type OneVoiceOpenMailDetail,
+} from "@/lib/one-voice/directives";
+import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
@@ -36,12 +50,24 @@ import { cn } from "@/lib/utils";
 
 import { initialsFor } from "./entity-card";
 
+export type OpenMail = (input: {
+  ordinal: number;
+  offerRevision: number;
+  conversationId: string;
+}) => Promise<OpenedMailMessage>;
+
 export type ToolResultCardProps = {
   result: ToolResultPublic;
   tool: string;
   /** The `ok` bit from the `tool.result` frame. Unknown never renders as success. */
   ok?: boolean;
   className?: string;
+  /**
+   * Open the original message behind a mail row. Optional: without it the rows
+   * render as plain rows, which is what every non-mail result and every bare
+   * render in the tests does.
+   */
+  onOpenMail?: OpenMail;
 };
 
 export type ToolResultFamily =
@@ -51,6 +77,7 @@ export type ToolResultFamily =
   | "links"
   | "status"
   | "sos"
+  | "mail"
   | "generic";
 
 const PEOPLE_TOOLS = new Set([
@@ -104,6 +131,11 @@ const STATUS_TOOLS = new Set([
   "set_precision",
   "get_location_setup_state",
 ]);
+/**
+ * Mail reads. The answer and the message rows arrive on the result and render
+ * here; nothing about them reaches the Live model, which gets counts only.
+ */
+const MAIL_TOOLS = new Set(["read_mail"]);
 const SOS_TOOLS = new Set<string>([
   SOS_TRIGGER_TOOL,
   SOS_REPORT_TOOL,
@@ -137,6 +169,9 @@ export function toolResultFamily(
   if (SHARE_TOOLS.has(name)) return "shares";
   if (LINK_TOOLS.has(name)) return "links";
   if (STATUS_TOOLS.has(name)) return "status";
+  // Keyed on the tool name alone. read_mail's statuses are ok/empty/rejected,
+  // which every family shares, so a status fallback would mis-family others.
+  if (MAIL_TOOLS.has(name)) return "mail";
   return "generic";
 }
 
@@ -189,7 +224,9 @@ export function sosHeadline(
 }
 
 /** A plain line for an SOS refusal the facts may not spell out. */
-export function sosReasonLine(reasonCode: string | null | undefined): string | null {
+export function sosReasonLine(
+  reasonCode: string | null | undefined,
+): string | null {
   switch (String(reasonCode || "").trim()) {
     case "sos_audience_changed":
       return "Your emergency contacts changed after this card was shown. Nothing was sent; ask again to see the current list.";
@@ -746,15 +783,409 @@ function SosDetail({ result }: { result: ToolResultPublic }) {
   }
   if (reason)
     blocks.push(
-      <p key="reason" className="text-[13px] text-[color:var(--app-secondary-label)]">
+      <p
+        key="reason"
+        className="text-[13px] text-[color:var(--app-secondary-label)]"
+      >
         {reason}
       </p>,
     );
   const rendered = blocks.filter(Boolean);
   if (rendered.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-col gap-2" data-testid="one-voice-sos-detail">
+    <div
+      className="mt-2 flex flex-col gap-2"
+      data-testid="one-voice-sos-detail"
+    >
       {rendered}
+    </div>
+  );
+}
+
+const OPEN_FAILURES: Record<string, string> = {
+  auth_missing: "Unlock Hushh to open your mail.",
+  disabled: "Opening mail isn't available right now.",
+  unauthorized: "Mail didn't allow that.",
+  offer_superseded:
+    "This list has been replaced. Ask again to see the current one.",
+  offer_unresolved:
+    "That one isn't on offer anymore. Ask again for a fresh list.",
+  source_changed: "That message isn't there anymore.",
+  rate_limited: "Too many requests just now. Try again in a moment.",
+  network: "Couldn't reach your mail. Check your connection.",
+  invalid_request: "I couldn't open that one.",
+};
+
+/**
+ * A sentence for a failed open. Reads the typed reason and nothing else -- a
+ * provider message could carry mail content or an instruction, so it is never
+ * surfaced.
+ */
+export function mailOpenMessage(error: unknown): string {
+  const reason =
+    error && typeof error === "object"
+      ? String((error as { reason?: unknown }).reason || "")
+      : "";
+  return OPEN_FAILURES[reason] ?? "I couldn't open that one.";
+}
+
+/** A whole number, or null. Absent is unknown, which is not zero. */
+function count(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0
+    ? value
+    : null;
+}
+
+function unitNoun(unit: unknown, n: number): string {
+  const plural = text(unit) === "threads" ? "conversations" : "messages";
+  if (n !== 1) return plural;
+  return plural === "conversations" ? "conversation" : "message";
+}
+
+/** When a message arrived, on the owner's clock. Empty when unparseable. */
+export function mailReceivedLabel(value: unknown, now = Date.now()): string {
+  const iso = text(value);
+  if (!iso) return "";
+  const at = Date.parse(iso);
+  return Number.isFinite(at) ? formatRelativeTime(at, now) : "";
+}
+
+/**
+ * What the read actually covered, in the person's words.
+ *
+ * Every number here was counted by the server. None of it is derived from how
+ * many sources the answer happened to cite, and an absent count is omitted
+ * rather than printed as zero.
+ */
+export function mailCoverageLine(coverage: unknown): string | null {
+  const row =
+    coverage && typeof coverage === "object" ? (coverage as Row) : null;
+  if (!row) return null;
+  const parts: string[] = [];
+  const returned = count(row.returned);
+  const assessed = count(row.assessed);
+  const scope = text(row.scope);
+  if (returned !== null) {
+    parts.push(
+      assessed !== null && assessed > returned
+        ? `${returned} of ${assessed} checked`
+        : scope === "newest"
+          ? // Nothing was narrowed, so this is the front of the mailbox. A bare
+            // count here reads as a total when it is a budget.
+            `newest ${returned} ${unitNoun(row.unit, returned)}`
+          : `${returned} ${unitNoun(row.unit, returned)}`,
+    );
+  }
+  if (text(row.content_depth) === "message") parts.push("full text");
+  else if (text(row.content_depth) === "metadata") parts.push("headers only");
+  if (row.matches_beyond_page === true) parts.push("more beyond this page");
+  if (row.items_omitted === true) parts.push("some left out to fit");
+  if (row.content_shortened === true) parts.push("some text shortened");
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * The mail itself: the answer, then the messages it came from.
+ *
+ * Rendered as text nodes, never as markup. A subject or body is written by
+ * somebody else, so it is displayed and never interpreted -- no raw HTML, no
+ * remote images, no followed links.
+ *
+ * Nothing is invented. A row appears only when the result carried a sender or a
+ * subject for it, and a missing subject is named as missing.
+ */
+function MailDetail({
+  result,
+  onOpenMail,
+}: {
+  result: ToolResultPublic;
+  onOpenMail?: OpenMail;
+}) {
+  // Which row is open, and the message behind it. Expanding in place rather than
+  // navigating is what makes "Back returns to the same list, order and position"
+  // true without any restore logic: the list never unmounts.
+  const [openRef, setOpenRef] = useState<string | null>(null);
+  const [message, setMessage] = useState<OpenedMailMessage | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  // Bumped on every open and every collapse, so a slow answer for a row the
+  // person has already closed -- or a different row -- is dropped instead of
+  // being painted under the wrong heading.
+  const requestRef = useRef(0);
+  const regionId = useId();
+  const offerRevision =
+    typeof result.offer_revision === "number" ? result.offer_revision : null;
+  const conversationId = text(result.conversation_id);
+  const canOpen =
+    Boolean(onOpenMail) && offerRevision !== null && Boolean(conversationId);
+
+  const openAt = useCallback(
+    async (
+      ordinal: number,
+      settle?: (status: "opened" | "failed", reason?: string) => void,
+    ) => {
+      const ref = `mail:${ordinal}`;
+      const ticket = ++requestRef.current;
+      setOpenRef(ref);
+      setMessage(null);
+      setFailure(null);
+      if (!onOpenMail || offerRevision === null || !conversationId) {
+        settle?.("failed", "no_resolver");
+        return;
+      }
+      setLoading(true);
+      try {
+        const opened = await onOpenMail({
+          ordinal,
+          offerRevision,
+          conversationId,
+        });
+        if (requestRef.current !== ticket) {
+          settle?.("failed", "superseded");
+          return;
+        }
+        setMessage(opened);
+        // Settled on the render, not on the dispatch: a resolved handler is not
+        // evidence the person is looking at the message.
+        settle?.("opened");
+      } catch (error) {
+        if (requestRef.current !== ticket) {
+          settle?.("failed", "superseded");
+          return;
+        }
+        setFailure(mailOpenMessage(error));
+        settle?.("failed", "open_failed");
+      } finally {
+        if (requestRef.current === ticket) setLoading(false);
+      }
+    },
+    [conversationId, offerRevision, onOpenMail],
+  );
+
+  const toggle = useCallback(
+    async (ref: string, ordinal: number) => {
+      if (openRef === ref) {
+        // Closing is Back. The list never unmounted, so its order and the
+        // person's place in it need no restoring.
+        requestRef.current += 1;
+        setOpenRef(null);
+        setMessage(null);
+        setFailure(null);
+        setLoading(false);
+        return;
+      }
+      await openAt(ordinal);
+    },
+    [openAt, openRef],
+  );
+
+  // A spoken "open the second one" arrives here, so it runs the same code a tap
+  // does. A directive naming a different offer or conversation is refused before
+  // any request: its position two is not this list's position two.
+  useEffect(() => {
+    const onDirective = (event: Event) => {
+      const detail = (event as CustomEvent<OneVoiceOpenMailDetail>).detail;
+      if (!detail) return;
+      if (
+        detail.offerRevision !== offerRevision ||
+        detail.conversationId !== conversationId
+      ) {
+        detail.settle?.("failed", "offer_mismatch");
+        return;
+      }
+      void openAt(detail.ordinal, detail.settle);
+    };
+    window.addEventListener(ONE_VOICE_OPEN_MAIL_EVENT, onDirective);
+    return () =>
+      window.removeEventListener(ONE_VOICE_OPEN_MAIL_EVENT, onDirective);
+  }, [conversationId, offerRevision, openAt]);
+
+  const items = rows(result.items);
+  const cited = new Set(
+    rows(result.sources)
+      .map((row) => text(row.source_ref))
+      .filter((ref): ref is string => Boolean(ref)),
+  );
+  const answer = text(result.answer);
+  const paragraphs = answer
+    ? answer
+        .split(/\n{2,}/)
+        .map((part) => part.trim())
+        .filter(Boolean)
+    : [];
+  const coverage = mailCoverageLine(result.coverage);
+  // Every returned row is shown, in the order the server returned it.
+  //
+  // Dropping the ones with no subject or sender renumbered the list: the person
+  // says "the second one" about what they can see, the server resolves position
+  // two against the list it actually returned, and a hidden row between them
+  // makes those two different messages. Truncating to the first eight was the
+  // same untruth from the other end -- One saying "I found 10 messages" over a
+  // list of eight. The panel already scrolls, and a read returns at most 25.
+  if (paragraphs.length === 0 && items.length === 0 && !coverage) return null;
+  return (
+    <div
+      className="mt-2 flex flex-col gap-2"
+      data-testid="one-voice-mail-detail"
+    >
+      {paragraphs.length > 0 ? (
+        <div className="flex flex-col gap-1.5">
+          {paragraphs.map((part, index) => (
+            <p
+              key={`answer:${index}`}
+              className="text-[15px] leading-5 text-[color:var(--app-label)]"
+            >
+              {part}
+            </p>
+          ))}
+        </div>
+      ) : null}
+      {items.length > 0 ? (
+        <ul className="flex flex-col gap-0.5" aria-label="Mail">
+          {items.map((row, index) => {
+            const subject = text(row.subject);
+            const sender = text(row.sender);
+            const ref = text(row.source_ref);
+            const when = mailReceivedLabel(row.received_at);
+            // What the message is about, when its text was actually read. The
+            // backend refuses a gist for a row it only has headers for, so an
+            // absent one here means there was nothing to summarise, not that
+            // summarising failed.
+            const gist = text(row.gist);
+            const byline = [sender, when].filter(Boolean).join(" · ") || null;
+            // The server's own ordinal, read off the ref rather than counted
+            // here, so the number the person sees is the number "the second
+            // one" resolves to even if a row above it has nothing to show.
+            const position = ref?.startsWith("mail:") ? ref.slice(5) : null;
+            const isOpen = Boolean(ref) && openRef === ref;
+            return (
+              <li
+                key={`${ref ?? index}`}
+                data-source-ref={ref ?? undefined}
+                data-cited={ref && cited.has(ref) ? "true" : undefined}
+                className="flex min-h-11 flex-col justify-center gap-0.5 py-1"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                    <div className="flex items-baseline gap-2">
+                      {row.unread === true ? (
+                        <span
+                          className={cn(
+                            "mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full",
+                            roleClasses("action").glyph,
+                            "bg-current",
+                          )}
+                          aria-label="Unread"
+                        />
+                      ) : null}
+                      {position ? (
+                        <span
+                          className="shrink-0 text-[12px] tabular-nums text-[color:var(--app-secondary-label)]"
+                          aria-hidden
+                        >
+                          {position}.
+                        </span>
+                      ) : null}
+                      <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[color:var(--app-label)]">
+                        {subject ?? "No subject"}
+                      </span>
+                    </div>
+                    {byline ? (
+                      <span className="truncate text-[12px] text-[color:var(--app-secondary-label)]">
+                        {byline}
+                      </span>
+                    ) : null}
+                    {gist ? (
+                      <span className="text-[13px] leading-[1.35] text-[color:var(--app-label)]">
+                        {gist}
+                      </span>
+                    ) : null}
+                  </div>
+                  {canOpen && ref && position ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      data-testid="one-voice-mail-open"
+                      data-ordinal={position}
+                      aria-expanded={isOpen}
+                      aria-controls={
+                        isOpen ? `${regionId}-${position}` : undefined
+                      }
+                      className="min-h-11 shrink-0 self-start px-3 text-[13px]"
+                      onClick={() => void toggle(ref, Number(position))}
+                    >
+                      {isOpen ? "Close" : "Open email"}
+                    </Button>
+                  ) : null}
+                </div>
+                {isOpen ? (
+                  <div
+                    id={`${regionId}-${position}`}
+                    data-testid="one-voice-mail-original"
+                    aria-live="polite"
+                    className="mt-1 rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] p-3"
+                  >
+                    {loading ? (
+                      <span
+                        className="flex items-center gap-2 text-[13px] text-[color:var(--app-secondary-label)]"
+                        role="status"
+                      >
+                        <Loader2
+                          className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none"
+                          aria-hidden
+                        />
+                        Opening
+                      </span>
+                    ) : failure ? (
+                      <p
+                        role="alert"
+                        data-testid="one-voice-mail-open-error"
+                        className="text-[13px] text-[color:var(--app-label)]"
+                      >
+                        {failure}
+                      </p>
+                    ) : message ? (
+                      <div className="flex flex-col gap-1.5">
+                        <p className="text-[13px] font-medium text-[color:var(--app-label)]">
+                          {message.subject ?? "No subject"}
+                        </p>
+                        {message.sender ? (
+                          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                            {message.sender}
+                          </p>
+                        ) : null}
+                        {message.body ? (
+                          // Text node, never markup. Somebody else wrote this, so
+                          // it is displayed and never interpreted: no raw HTML, no
+                          // remote images, no followed links.
+                          <p className="whitespace-pre-wrap break-words text-[13px] leading-[1.45] text-[color:var(--app-label)]">
+                            {message.body}
+                          </p>
+                        ) : null}
+                        {message.bodyTruncated ? (
+                          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+                            Shortened to fit. Open it in Gmail for the full
+                            text.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {coverage ? (
+        <p
+          data-testid="one-voice-mail-coverage"
+          className="text-[12px] text-[color:var(--app-secondary-label)]"
+        >
+          {coverage}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -762,9 +1193,11 @@ function SosDetail({ result }: { result: ToolResultPublic }) {
 function Detail({
   family,
   result,
+  onOpenMail,
 }: {
   family: ToolResultFamily;
   result: ToolResultPublic;
+  onOpenMail?: OpenMail;
 }) {
   switch (family) {
     case "sos":
@@ -779,6 +1212,8 @@ function Detail({
       return <LinksDetail result={result} />;
     case "status":
       return <StatusDetail result={result} />;
+    case "mail":
+      return <MailDetail result={result} onOpenMail={onOpenMail} />;
     default:
       return null;
   }
@@ -791,6 +1226,7 @@ export function ToolResultCard({
   tool,
   ok,
   className,
+  onOpenMail,
 }: ToolResultCardProps) {
   const tone = toneForResult(result, ok);
   const family = toolResultFamily(tool, result.status);
@@ -827,7 +1263,10 @@ export function ToolResultCard({
   const headline =
     family === "sos"
       ? (sosHeadline(result.status, tone) ?? genericHeadline)
-      : genericHeadline;
+      : family === "mail" && tone !== "failure"
+        ? // A read is not a thing that got "Done". The count line is the headline.
+          null
+        : genericHeadline;
 
   return (
     <div
@@ -885,7 +1324,7 @@ export function ToolResultCard({
               Nothing was changed.
             </p>
           ) : null}
-          <Detail family={family} result={result} />
+          <Detail family={family} result={result} onOpenMail={onOpenMail} />
         </div>
       </div>
     </div>

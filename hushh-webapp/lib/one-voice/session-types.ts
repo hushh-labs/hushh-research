@@ -6,6 +6,7 @@
  * chips come from `tool.result ok:true` / `pending_action.resolved executed`.
  */
 
+import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import type {
   CandidatePublic,
   EntityCardPayload,
@@ -165,6 +166,20 @@ export type VoiceSessionController = {
   sendText: (text: string) => void;
   /** Tap-confirm the pending action (sends the receipt). */
   confirmPending: (options?: { consentVersion?: string | null }) => Promise<void>;
+  /**
+   * Open the original message at a position One offered.
+   *
+   * Goes straight to the resolver over HTTP, not through the model: the model is
+   * given counts and never learns which message was second, so it could not name
+   * one. `offerRevision` and the conversation come from the result that drew the
+   * row, never from ambient state, so a replaced list is refused instead of
+   * reinterpreted. Throws `MailOpenError` with a typed reason.
+   */
+  openMail: (input: {
+    ordinal: number;
+    offerRevision: number;
+    conversationId: string;
+  }) => Promise<OpenedMailMessage>;
   cancelPending: () => void;
   chooseCandidate: (id: string | null) => void;
   /**

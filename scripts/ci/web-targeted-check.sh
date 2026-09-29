@@ -158,13 +158,22 @@ if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connecto
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-panel\.layout\.spec\.ts|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-(panel|mail-open)\.layout\.spec\.ts|e2e/fixtures/one-voice-mail-open|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_full_suite_check "voice gateway" npm run verify:voice-gateway
   run_full_suite_check "One Voice runtime evaluations" npm run verify:one-voice
   if has_match '^hushh-webapp/(components/one-voice/|e2e/one-voice-panel\.layout\.spec\.ts)'; then
     # This fixture is source-coupled and file:// based: it needs neither a
     # reviewer session nor a dev server, so keep the visual gate proportional.
     run_check "One Voice panel layout" npm run test:one-voice-panel-layout
+  fi
+  # Reading mail by voice is a separate mounted surface from the panel chrome,
+  # and its own trigger set: the open client and the offer fixtures live outside
+  # components/one-voice/, so the panel condition above would not fire for a
+  # change that only touches them. Registered explicitly because
+  # `test:layout-contracts` names its specs -- an unregistered layout spec
+  # triggers this job and is then silently skipped, which reads as a pass.
+  if has_match '^hushh-webapp/(components/one-voice/|lib/one-voice/(mail-open|directives|session-reducer)\.ts|e2e/one-voice-mail-open\.layout\.spec\.ts|e2e/fixtures/one-voice-mail-open)'; then
+    run_check "One Voice mail open layout" npm run test:one-voice-mail-open-layout
   fi
   ran=1
 fi

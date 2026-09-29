@@ -257,6 +257,86 @@ def _kyc_identity_fields() -> dict[str, dict[str, Any]]:
     return _KYC_IDENTITY_FIELDS
 
 
+@dataclass(frozen=True)
+class SensitiveRequestAssessment:
+    """One message's classification, in terms that are safe to show or speak.
+
+    Deliberately not ``_Classification``. That carries
+    ``requested_field_labels``, which the model authors as free text: the
+    validator dedupes them and caps them at 12 x 120 characters but binds them to
+    no vocabulary, unlike ``requested_domains``, which is enum-checked against
+    ``_DOMAIN_NAMES``. On the owner-only queue a model-authored string is a visual
+    risk; spoken aloud it is a channel from an untrusted sender into what One
+    says. ``requested_fields`` here is registry-authored instead.
+    """
+
+    is_information_request: bool
+    confidence: float
+    requested_domains: tuple[str, ...]
+    requested_fields: tuple[str, ...]
+
+
+def _registry_field_label(field_id: str) -> str:
+    """The KYC registry's own name for a field, in words a person would use."""
+    field = _kyc_identity_fields().get(field_id) or {}
+    leaf = (_text(field.get("path")) or field_id).rsplit(".", 1)[-1]
+    words = leaf.replace("_", " ").strip()
+    return words[:1].upper() + words[1:] if words else ""
+
+
+def _strict_kyc_field_ids(value: str) -> tuple[str, ...]:
+    """Field ids whose own name the label exactly is, once normalised.
+
+    Equality, never containment. The permissive resolver below is right for what
+    it does -- suggesting which of the owner's manifest leaves might be relevant,
+    where a loose match is intersected against the manifest side and validated by
+    ``_public_candidate_scope``, so a wrong suggestion is filtered out.
+
+    It is the wrong test for naming what a sender asked for, because that is a
+    factual claim shown to the owner and possibly spoken. Under containment
+    "your name is needed for our lottery" resolves to ``full_name`` and the card
+    reports that the sender asked for a Full name; "AGE verification please"
+    becomes Declared age. Both read as authoritative precisely because the label
+    is registry-authored, which makes a false positive here worse than the model's
+    own words rather than better.
+    """
+    normalized = _normalized_kyc_label(value)
+    if not normalized:
+        return ()
+    matches: list[str] = []
+    for field_id, field in _kyc_identity_fields().items():
+        names = [
+            field_id,
+            _text(field.get("path")),
+            *[_text(alias) for alias in field.get("aliases", [])],
+        ]
+        if any(name and _normalized_kyc_label(name) == normalized for name in names):
+            matches.append(field_id)
+    return tuple(matches)
+
+
+def safe_requested_fields(labels: Iterable[str]) -> tuple[str, ...]:
+    """Registry-authored names for what a sender asked the owner to provide.
+
+    Every model-authored label is resolved against the KYC identity registry by
+    exact normalised match and replaced by the registry's own name for the field
+    it named. A label that resolves to nothing is dropped rather than shown: the
+    cost of dropping one is a slightly thinner card, and the cost of keeping one
+    is letting a sender choose words One will read out.
+
+    A positive classification with no resolvable field is still a positive. The
+    owner is told a request was found and not which field it named, which is the
+    honest shape when the classifier's own words cannot be trusted.
+    """
+    resolved: list[str] = []
+    for label in labels:
+        for field_id in _strict_kyc_field_ids(str(label)):
+            name = _registry_field_label(field_id)
+            if name and name not in resolved:
+                resolved.append(name)
+    return tuple(resolved[:12])
+
+
 def _canonical_kyc_field_ids(value: str) -> tuple[str, ...]:
     normalized = _normalized_kyc_label(value)
     if not normalized:
@@ -1887,6 +1967,39 @@ class PersonalGmailInformationRequestService:
             candidate_scope_count=len(candidates),
         )
         return str(row["workflow_id"]) if row else None
+
+    async def assess_without_recording(self, message: dict[str, Any]) -> SensitiveRequestAssessment:
+        """Classify one message and persist nothing at all.
+
+        The monitor's own path cannot be reused for an on-demand read, for two
+        reasons that are easy to miss and expensive to discover:
+
+        ``_classify_messages`` skips every message whose source fingerprint is
+        already recorded, so a question asked about mail the monitor has seen
+        would answer from an empty list rather than from a classification.
+
+        And it records that fingerprint. ``_purge_expired_metadata`` deliberately
+        retains scan state, so writing it from a read would mark those messages
+        permanently unchanged and the owner's monitored queue would never surface
+        them again. Nothing would report it: every count stays healthy.
+
+        So this calls the classifier and returns. It reads no preference, takes no
+        ``expected_generation``, acquires no pool and writes no row, which means
+        it also works with monitoring switched off -- an owner asking a question is
+        not an owner opting into monitoring. Callers must supply their own
+        concurrency bound: ``_CLASSIFIER_CONCURRENCY`` is applied in
+        ``_classify_messages``, not here.
+
+        Raises ``PersonalGmailInformationRequestError`` when the classifier is
+        unavailable. A failed classification is unknown, never "not sensitive".
+        """
+        classification = await self._classify(message)
+        return SensitiveRequestAssessment(
+            is_information_request=classification.is_information_request,
+            confidence=classification.confidence,
+            requested_domains=classification.requested_domains,
+            requested_fields=safe_requested_fields(classification.requested_field_labels),
+        )
 
     async def _classify(self, message: dict[str, Any]) -> _Classification:
         headers = _header_map(message)

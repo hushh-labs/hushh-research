@@ -64,6 +64,7 @@ import {
   decideHalfDuplex,
 } from "@/lib/one-voice/audio/half-duplex";
 import { bytesFromBase64 } from "@/lib/one-voice/audio/pcm";
+import { MailOpenError, openOfferedMail } from "@/lib/one-voice/mail-open";
 import { LivePlaybackScheduler } from "@/lib/one-voice/audio/playback";
 import { isFirebasePlaneTool } from "@/lib/one-voice/confirmation";
 import type {
@@ -350,6 +351,18 @@ type LiveSession = {
   audioContext: AudioContext | null;
   lease: VoiceSessionLease | null;
   gate: HalfDuplexGate | null;
+  /**
+   * A server-synthesized narration is playing, so the microphone is closed.
+   *
+   * Independent of `gate`, which is null on every device that reports echo
+   * cancellation -- i.e. on the devices most people use. Leaving the mic open
+   * through a narration would feed the digest back through
+   * `input_audio_transcription` into the operational session's compressed context
+   * and its persisted resumption handle, which is the one boundary this whole
+   * feature is built around. Frames are dropped while it is set, never buffered,
+   * so nothing is replayed when it clears.
+   */
+  narrating: boolean;
   paused: boolean;
   stoppedLocally: boolean;
   tornDown: boolean;
@@ -719,6 +732,7 @@ export function VoiceSessionProvider({
           return;
         case "audio": {
           if (session.paused) return;
+          if (frame.narration === true) session.narrating = true;
           try {
             session.playback.enqueue(
               bytesFromBase64(frame.data),
@@ -803,6 +817,9 @@ export function VoiceSessionProvider({
             session.paused
           )
             return;
+          // Dropped, not buffered: a queued frame would replay the narration
+          // into the model the moment the gate lifted.
+          if (session.narrating) return;
           if (session.gate && !session.gate.allows()) return;
           session.client.sendAudio(pcm16);
         },
@@ -854,6 +871,7 @@ export function VoiceSessionProvider({
         audioContext,
         lease: null,
         gate: null,
+        narrating: false,
         paused: false,
         stoppedLocally: false,
         tornDown: false,
@@ -941,6 +959,10 @@ export function VoiceSessionProvider({
       session.unsubscribes.push(
         playback.onSpeakingChanged((speaking) => {
           if (sessionRef.current !== session) return;
+          // The player reports silence once the queue has drained, tail included,
+          // so the mic reopens when the narration has actually stopped being
+          // audible rather than when the last chunk was handed over.
+          if (!speaking) session.narrating = false;
           session.gate?.onSpeaking(speaking);
           dispatch({ type: "speaking", speaking });
         }),
@@ -1052,6 +1074,7 @@ export function VoiceSessionProvider({
         // ignore
       }
       session.capture = null;
+      session.narrating = false;
       session.playback.flush();
       session.gate?.reset();
       session.client.cancel({ scope: "turn" });
@@ -1240,6 +1263,12 @@ export function VoiceSessionProvider({
   const interrupt = useCallback(() => {
     const session = sessionRef.current;
     if (!session || session.tornDown) return;
+    // Local Stop reaches a narration where barge-in cannot: `fenceTurn` assigns a
+    // narration's unseen turn id a HIGHER order than the model turn it followed,
+    // so fencing the model's turn never stops it. `flush()` does, and it runs
+    // first here. The mic reopens now, because the drain callback that would
+    // otherwise clear this is exactly what the flush prevents.
+    session.narrating = false;
     session.playback.flush();
     const turnId = readState().turnId;
     if (turnId) session.playback.fenceTurn(turnId);
@@ -1303,6 +1332,29 @@ export function VoiceSessionProvider({
     [readState],
   );
 
+  const openMail = useCallback(
+    async (input: {
+      ordinal: number;
+      offerRevision: number;
+      conversationId: string;
+    }) => {
+      // The token is read from `latest.current` for the same reason start() does:
+      // the closure variable is a render-time snapshot, and this runs on a tap.
+      const token = latest.current.vaultOwnerToken;
+      if (!token) throw new MailOpenError("auth_missing");
+      // The conversation comes from the result that drew the row. Reading the
+      // live id here would resolve the position against whatever conversation a
+      // reconnect has since moved to, and open a different message.
+      return openOfferedMail({
+        vaultOwnerToken: token,
+        conversationId: input.conversationId,
+        ordinal: input.ordinal,
+        offerRevision: input.offerRevision,
+      });
+    },
+    [],
+  );
+
   const cancelPending = useCallback(() => {
     const session = sessionRef.current;
     const current = readState();
@@ -1357,6 +1409,7 @@ export function VoiceSessionProvider({
       interrupt,
       sendText,
       confirmPending,
+      openMail,
       cancelPending,
       chooseCandidate,
       clearView,
@@ -1371,6 +1424,7 @@ export function VoiceSessionProvider({
       interrupt,
       sendText,
       confirmPending,
+      openMail,
       cancelPending,
       chooseCandidate,
       clearView,

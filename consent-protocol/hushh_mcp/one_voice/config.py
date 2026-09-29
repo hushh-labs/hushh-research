@@ -20,6 +20,8 @@ ONE_VOICE_MAX_SESSIONS_PER_INSTANCE_ENV = "ONE_VOICE_MAX_SESSIONS_PER_INSTANCE"
 ONE_VOICE_SESSION_MAX_MINUTES_ENV = "ONE_VOICE_SESSION_MAX_MINUTES"
 ONE_VOICE_IDLE_CLOSE_SECONDS_ENV = "ONE_VOICE_IDLE_CLOSE_SECONDS"
 ONE_VOICE_DAILY_MINUTES_PER_USER_ENV = "ONE_VOICE_DAILY_MINUTES_PER_USER"
+ONE_VOICE_MAIL_READS_ENABLED_ENV = "ONE_VOICE_MAIL_READS_ENABLED"
+ONE_VOICE_MAIL_NARRATION_ENABLED_ENV = "ONE_VOICE_MAIL_NARRATION_ENABLED"
 
 PROTOCOL_VERSION: Final = "one-voice-v1"
 
@@ -105,3 +107,60 @@ class OneVoiceLiveConfig:
 
 def live_voice_enabled() -> bool:
     return _clean(ONE_VOICE_LIVE_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+def voice_mail_reads_enabled() -> bool:
+    """Whether One Live Voice may read the owner's mail. Nothing else.
+
+    Deliberately not ``gmail_chat_reads``. That key is owner-available by
+    construction -- ``connector_feature_admission.connector_feature_enabled``
+    returns on the ``OWNER_AVAILABLE`` membership test before it reads any
+    environment, so ``GMAIL_CHAT_READS`` has no runtime effect at all. Making it
+    effective would mean removing the key from that set, and a non-owner-available
+    feature is refused outright outside {uat, test, local, development}: typed-chat
+    mail reads, mailbox-change proposals, the Workspace MCP Gmail lane and the
+    first-connect card would go dark in production with no value able to reopen
+    them. Withdrawing a voice read must not cost any of that.
+
+    Unset means on. ``ONE_VOICE_LIVE_ENABLED`` already carries the rollout
+    decision for this surface, so a second rollout gate would be one more thing
+    to remember at launch rather than one more thing that can be withdrawn. Set
+    ``ONE_VOICE_MAIL_READS_ENABLED=false`` to withdraw the read.
+
+    No cohort and no user id: an allowlist of owners is the thing this must not
+    become. Owner authority is already carried by the vault token and the Gmail
+    grant, which are checked per read.
+    """
+    raw = _clean(ONE_VOICE_MAIL_READS_ENABLED_ENV).lower()
+    return raw in _TRUE_VALUES if raw else True
+
+
+def voice_mail_narration_enabled() -> bool:
+    """Whether One may speak a mail digest aloud.
+
+    Unset means OFF, unlike ``voice_mail_reads_enabled``. The difference is not
+    stylistic: reading was already gated behind ``ONE_VOICE_LIVE_ENABLED`` when
+    its switch was added, so that switch only ever had to withdraw something
+    already decided. Narration is new capability, it sends the owner's mail digest
+    to a second model, and it is the one path on this surface that puts
+    mail-derived text through a provider call the Live session does not make. A
+    new capability that defaults on is a capability nobody decided to ship.
+
+    Set ``ONE_VOICE_MAIL_NARRATION_ENABLED=true`` to enable it.
+    """
+    return _clean(ONE_VOICE_MAIL_NARRATION_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
+class OneVoiceMailAdmission:
+    """Injectable facade over the predicates, so tests can hand a tool a double.
+
+    The predicates read the environment at call time, which is what makes them
+    kill switches: a hosted config change takes effect on restart without a code
+    change, and every re-check during a read sees the current value.
+    """
+
+    def mail_reads_enabled(self) -> bool:
+        return voice_mail_reads_enabled()
+
+    def mail_narration_enabled(self) -> bool:
+        return voice_mail_narration_enabled()

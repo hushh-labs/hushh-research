@@ -1052,3 +1052,90 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     expect(controller!.state.phase).toBe("complete");
   });
 });
+
+describe("the microphone while a narration plays", () => {
+  const CHUNK = "AAECAwQFBgc=";
+
+  const narrationFrame = (narration: boolean) =>
+    ({
+      type: "audio",
+      data: CHUNK,
+      mime_type: "audio/pcm;rate=24000",
+      turn_id: narration ? "narration-1" : "model-turn-1",
+      ...(narration ? { narration: true } : {}),
+    }) as never;
+
+  const micFramesSent = (mounted: Mounted) =>
+    mounted.server.sent.filter((frame) => frame.type === "audio").length;
+
+  async function speakMic(mounted: Mounted) {
+    await act(async () => {
+      mounted.capture.frame?.(new Uint8Array([1, 2, 3, 4]));
+    });
+  }
+
+  it("drops microphone frames while narration plays, even with echo cancellation", async () => {
+    const mounted = await startSession(mount());
+    // The device class that matters. `decideHalfDuplex` returns false here, so
+    // `session.gate` is null and the pre-existing guard is inert -- which is why
+    // the narration gate cannot be built on it.
+    expect(mounted.capture.echoCancellation).toBe(true);
+    expect(controller!.state.halfDuplex).toBe(false);
+
+    await speakMic(mounted);
+    const beforeNarration = micFramesSent(mounted);
+    expect(beforeNarration).toBeGreaterThan(0);
+
+    await act(async () => mounted.server.push(narrationFrame(true)));
+    await speakMic(mounted);
+    await speakMic(mounted);
+
+    // Nothing left the device. Were these queued instead of dropped, they would
+    // replay the narration into the model the moment the gate lifted, which is
+    // the leak the gate exists to close.
+    expect(micFramesSent(mounted)).toBe(beforeNarration);
+    expect(mounted.playback.enqueued.at(-1)?.turnId).toBe("narration-1");
+
+    // The player reports silence once the queue has drained, tail included.
+    await act(async () => mounted.playback.speak(false));
+    await speakMic(mounted);
+    expect(micFramesSent(mounted)).toBe(beforeNarration + 1);
+
+    mounted.unmount();
+  });
+
+  it("leaves the microphone open for the model's own speech", async () => {
+    const mounted = await startSession(mount());
+    await speakMic(mounted);
+    const before = micFramesSent(mounted);
+
+    await act(async () => mounted.server.push(narrationFrame(false)));
+    await speakMic(mounted);
+
+    // Ordinary model audio is already in the model's context, so its echo carries
+    // nothing new. Closing the mic for it would cost barge-in for no gain.
+    expect(micFramesSent(mounted)).toBe(before + 1);
+    mounted.unmount();
+  });
+
+  it("local Stop reopens the microphone without waiting for a drain", async () => {
+    const mounted = await startSession(mount());
+    await speakMic(mounted);
+    const before = micFramesSent(mounted);
+
+    await act(async () => mounted.server.push(narrationFrame(true)));
+    await speakMic(mounted);
+    expect(micFramesSent(mounted)).toBe(before);
+
+    // Stop cuts playback, so the drain callback that would otherwise reopen the
+    // mic never fires. Barge-in on the model's turn cannot reach a narration --
+    // its unseen turn id outranks the model's in the player's fence -- so this
+    // path is the one that has to clear the gate itself.
+    await act(async () => controller!.interrupt());
+    expect(mounted.playback.flushes).toBeGreaterThan(0);
+
+    await speakMic(mounted);
+    expect(micFramesSent(mounted)).toBe(before + 1);
+    mounted.unmount();
+  });
+});

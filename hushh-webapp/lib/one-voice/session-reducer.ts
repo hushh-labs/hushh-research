@@ -115,6 +115,14 @@ export type ToolResultTone = "success" | "neutral" | "failure" | "pending";
 const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED]);
 
 /** An armed-but-unsent outcome: neither success nor failure yet. */
+/**
+ * Statuses that ask the surface to do something rather than report an outcome.
+ *
+ * They carry nothing of their own to show, and the surface they act on is the
+ * result already displayed.
+ */
+export const DISPATCH_ONLY_STATUSES = new Set<string>(["mail_open_dispatched"]);
+
 export function isPendingStatus(status: string | null | undefined): boolean {
   return PENDING_STATUSES.has(String(status || "").trim());
 }
@@ -639,7 +647,14 @@ function reduceServerFrame(
               ? "listening"
               : state.phase,
         toolTimeline: timeline,
-        lastResult: result,
+        // A dispatch does not replace what is displayed. There is exactly one
+        // result slot and no history, so letting a dispatch land in it would
+        // clear the card it refers to: "open the second one" would take away the
+        // list that made "second" mean anything. It still joins the timeline, so
+        // it is observable; it just does not become the thing on screen.
+        lastResult: DISPATCH_ONLY_STATUSES.has(String(result.status || "").trim())
+          ? state.lastResult
+          : result,
         pendingAction:
           matchesOpenPending && pending
             ? {

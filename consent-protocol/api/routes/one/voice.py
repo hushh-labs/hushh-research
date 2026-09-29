@@ -40,7 +40,12 @@ from hushh_mcp.one_voice.pending_actions import PendingActionConflict, PendingAc
 from hushh_mcp.one_voice.session import AuthResult, VoiceSession
 from hushh_mcp.one_voice.tickets import TicketClaims, TicketError, consume_ticket, issue_ticket
 from hushh_mcp.one_voice.tools import registry
-from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
+from hushh_mcp.one_voice.tools.base import (
+    EntityContext,
+    ScreenContext,
+    ToolContext,
+    restore_context,
+)
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
 from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 from hushh_mcp.runtime_providers.factory import build_managed_live_client
@@ -445,12 +450,8 @@ async def _tool_context_for(
     conversation = await ConversationStore().get(
         user_id=user_id, conversation_id=pending_conversation_id
     )
-    try:
-        entities = EntityContext.model_validate(
-            (conversation.entity_context if conversation else None) or {}
-        )
-    except Exception:  # noqa: BLE001
-        entities = EntityContext()
+    entities = restore_context(EntityContext, conversation.entity_context if conversation else None)
+    entities.prune()
     return ToolContext(
         user_id=user_id,
         conversation_id=pending_conversation_id,
@@ -459,6 +460,123 @@ async def _tool_context_for(
         vault_owner_token=str(token_data.get("token") or ""),
         firebase_id_token=firebase_id_token,
     )
+
+
+class MailOpenRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    conversation_id: str = Field(min_length=36, max_length=36)
+    # The position in the list One last showed, exactly as the voice tool takes
+    # it. The client never holds a Gmail id, so it cannot ask for anything but a
+    # position in an offer this server minted.
+    ordinal: int = Field(ge=1, le=25)
+    # Which list that position came from. A row from an earlier list can still be
+    # on screen -- a duplicate or delayed frame, or a view cleared and refilled --
+    # and its position two is not the current list's position two. Sending the
+    # revision back makes that case a refusal instead of a wrong message.
+    offer_revision: int = Field(ge=1)
+
+
+_MAIL_OPEN_ERRORS = {
+    "connect_required": 409,
+    "reconnect_required": 409,
+    "connection_changed": 409,
+    "permission_denied": 403,
+    "source_changed": 410,
+    "response_too_large": 413,
+    "invalid_argument": 400,
+}
+
+
+@router.post("/mail/open")
+async def open_offered_mail(
+    payload: MailOpenRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Show the person the message at a position One offered them.
+
+    No model runs. The Live model is handed counts and never learns which message
+    was second, so it could not name one; routing a tap through it would add
+    latency and a chance of it calling something else. The ordinal is resolved
+    against the offer this server minted and persisted, fenced to the Google
+    account those ids were resolved in, and read through the same bounded reader
+    the voice tool uses -- so a tap and "open the second one" end at the same
+    resolver.
+
+    Reading does not mark the message read: the reader holds ``gmail.readonly``
+    and issues GET only, and ``format=full`` selects projection depth rather than
+    touching the UNREAD label.
+    """
+    from hushh_mcp.one_voice.config import voice_mail_reads_enabled
+    from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+    from hushh_mcp.services.gmail_metadata_reader import (
+        GmailMetadataError,
+        GmailMetadataReader,
+    )
+    from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
+
+    user_id = str(token_data.get("user_id") or "").strip()
+    if not voice_mail_reads_enabled():
+        raise HTTPException(status_code=403, detail={"code": "VOICE_MAIL_READS_DISABLED"})
+    if not connector_feature_enabled("gmail_chat_reads", user_id):
+        raise HTTPException(status_code=403, detail={"code": "MAIL_READS_UNAVAILABLE"})
+
+    ctx = await _tool_context_for(token_data, payload.conversation_id, None)
+    offer = ctx.entities.offered_mail
+    if offer is not None and offer.revision != payload.offer_revision:
+        # The row came from a list this conversation has since replaced. Only one
+        # offer is kept, so the original cannot be resolved -- and resolving the
+        # position against the current list would open a different message than
+        # the one the person is looking at. Refuse and say which list is live.
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "MAIL_OFFER_SUPERSEDED", "current_revision": offer.revision},
+        )
+    message_id = ctx.entities.offered_mail_message_id(payload.ordinal)
+    if offer is None or message_id is None:
+        # Expired, replaced, or a position that was never offered. A refusal, not
+        # a fresh search: opening some other message that now sits at that
+        # position is the failure this whole binding exists to prevent.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "MAIL_OFFER_UNRESOLVED",
+                "offered": len(offer.message_ids) if offer else 0,
+            },
+        )
+
+    async def require_access() -> None:
+        if not voice_mail_reads_enabled() or not connector_feature_enabled(
+            "gmail_chat_reads", user_id
+        ):
+            raise PermissionError("Mail read authority is unavailable")
+
+    reader = GmailMetadataReader(
+        gmail=get_gmail_receipts_service(),
+        user_id=user_id,
+        require_access=require_access,
+        # Ids resolved in one mailbox are meaningless in another.
+        expect_account=offer.account,
+    )
+    try:
+        metadata = await reader.read(
+            "read_message_by_id",
+            {"message_ids": [message_id], "mailbox": offer.mailbox},
+        )
+        await reader.require_current()
+    except PermissionError:
+        raise HTTPException(status_code=403, detail={"code": "MAIL_READS_UNAVAILABLE"}) from None
+    except GmailMetadataError as exc:
+        raise HTTPException(
+            status_code=_MAIL_OPEN_ERRORS.get(exc.code, 502),
+            detail={"code": str(exc.code or "unavailable").upper()},
+        ) from None
+
+    items = metadata["untrusted_external_content"]
+    if not items:
+        raise HTTPException(status_code=410, detail={"code": "SOURCE_CHANGED"})
+    # One row, already bounded and label-capped by the reader. Returned as it was
+    # projected: the surface renders it as text, never as markup.
+    return {"message": items[0], "coverage": metadata.get("coverage")}
 
 
 @router.post("/pending-actions/{pending_action_id}/confirm")

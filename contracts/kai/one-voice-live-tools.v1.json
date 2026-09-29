@@ -906,6 +906,24 @@
     },
     {
       "circle_args": [],
+      "description": "Answer whether you can see the person's mail at all: whether their Gmail is connected, needs reconnecting, or is switched off for you. Use this for a question about access or capability -- 'can you see my email', 'is my Gmail connected', 'do you have access to my inbox'. Does not open the mailbox and returns no messages. The person's Hushh profile email is a different fact and never answers this: get_profile reports the address on their account, not whether a mailbox is connected. Use read_mail only when they want what their mail says.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "get_mail_access",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Nothing to ask. Whose mailbox is already decided by the owner token.",
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Fresh relationship (connected, request pending either way, or not connected) and Location readiness for one confirmed person. Read only.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_people",
@@ -968,7 +986,7 @@
     },
     {
       "circle_args": [],
-      "description": "Read the person's own Hussh profile: display name, masked email, masked phone, whether a photo is set, verification, and active persona. Reads only; the raw email and phone are never returned.",
+      "description": "Read the person's own Hussh profile: display name, masked email, masked phone, whether a photo is set, verification, and active persona. Reads only; the raw email and phone are never returned. The email here is the address on their Hussh account, which they have whether or not a mailbox was ever connected: it is not evidence that you can see their mail, and a verified address does not mean Gmail access. For a question about reaching their mailbox, use get_mail_access instead.",
       "firebase_plane": false,
       "gateway_action_id": "route.profile",
       "name": "get_profile",
@@ -1389,6 +1407,35 @@
     },
     {
       "circle_args": [],
+      "description": "Show the person the original message at a position in the list of mail you last showed them, when they ask to open it. Opens what is already on screen: it does not search, does not read the mailbox again, does not summarise, and does not mark anything read. Use read_mail instead when they want to know what a message says rather than to see it.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "open_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "The position the person named, and nothing else.\n\nNo message id: the model has never been told one, and a position is the only\nmail reference it can hold honestly.",
+        "properties": {
+          "ordinal": {
+            "description": "The position the person named in the list of mail you last showed them ('open the second one' is 2). Use this to show them the original message. It does not read the mailbox again and it does not summarise; the surface opens the exact message it already offered at that position. Never guess a position that was not in that list.",
+            "maximum": 25,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'.",
       "firebase_plane": false,
       "gateway_action_id": "route.one_location",
@@ -1490,6 +1537,51 @@
       ],
       "tier": null,
       "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Answer a question about the person's own mailbox: recent or unread mail, mail from someone, what needs a reply, or what a specific message says. Shows the matching messages and says how many were found. When they refer to mail by its position in the list you last showed them, pass that position as `ordinal` instead of describing it. Reading never marks mail read and never archives, sends or deletes anything.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "read_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "The person's own question, forwarded to the planner unchanged.\n\nNot a command phrase and not parsed here: the planner owns turning it into\nexactly one bounded operation.\n\n``ordinal`` is the exception, and only because there is nothing to plan: a\nposition refers to a list this server minted, so the message is already\nchosen and the planner is skipped rather than asked and overruled.",
+        "properties": {
+          "ordinal": {
+            "anyOf": [
+              {
+                "maximum": 25,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The position the person named in the list of mail you last showed them ('read the second one' is 2). Set this whenever they refer to mail by position instead of describing it. The server resolves the position to the message it showed; you do not know which message that is, so never guess one or turn a position into a search.",
+            "title": "Ordinal"
+          },
+          "request": {
+            "maxLength": 8000,
+            "minLength": 1,
+            "title": "Request",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": [
+        "mail"
+      ]
     },
     {
       "circle_args": [

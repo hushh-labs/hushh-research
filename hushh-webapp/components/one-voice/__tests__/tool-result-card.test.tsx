@@ -1,9 +1,16 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   ToolResultCard,
   locationStatusRows,
+  mailCoverageLine,
   sosHeadline,
   sosReasonLine,
   toneForResult,
@@ -275,6 +282,97 @@ describe("ToolResultCard", () => {
     expect(toolResultFamily("stop_save_my_soul")).toBe("sos");
     // A report that replaced the trigger's timeline entry keeps the family.
     expect(toolResultFamily("", "sos_partial")).toBe("sos");
+    expect(toolResultFamily("read_mail")).toBe("mail");
+    // read_mail shares ok/empty/rejected with every family, so unlike SOS the
+    // mail family must not be inferred from a status.
+    expect(toolResultFamily("", "ok")).toBe("generic");
+  });
+
+  it("keeps every returned row, in the position the server gave it", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["I found 2 messages."],
+      answer: "Two invoices are waiting.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "metadata" }],
+      items: [
+        { source_ref: "mail:1", subject: "March invoice", sender: "Acme" },
+        // A row the reader could not name. Dropping it renumbered everything
+        // below it, so "the second one" pointed at the third message while the
+        // person was looking at the second. It is shown unlabelled instead, and
+        // nothing is invented to fill it.
+        { source_ref: "mail:2" },
+        { source_ref: "mail:3", subject: "Statement", sender: "Bookkeeping" },
+      ],
+      coverage: { unit: "messages", returned: 3, assessed: 9 },
+    };
+    const { container } = render(
+      <ToolResultCard result={result} tool="read_mail" ok />,
+    );
+    expect(screen.getByText("March invoice")).toBeInTheDocument();
+    expect(screen.getByText("No subject")).toBeInTheDocument();
+    const list = screen.getByLabelText("Mail");
+    expect(list.children).toHaveLength(3);
+    // The position the person reads is the ordinal the server resolves, so the
+    // unnamed row still occupies two and "Statement" is still three.
+    expect(list.children[1]).toHaveAttribute("data-source-ref", "mail:2");
+    expect(list.children[2]).toHaveAttribute("data-source-ref", "mail:3");
+    expect(container.textContent).toContain("3 of 9 checked");
+  });
+
+  it("shows what each message is about when its text was read", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["I have those 2 messages."],
+      answer: "Priya needs the deck; the invoice is overdue.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" }],
+      items: [
+        {
+          source_ref: "mail:1",
+          subject: "Q3 deck",
+          sender: "Priya Nair",
+          received_at: "2026-09-28T09:00:00.000Z",
+          gist: "Priya wants the Q3 deck by Friday.",
+        },
+        // No text was supplied for this one, so the backend refused a gist.
+        // The row still appears; it just says less.
+        { source_ref: "mail:2", subject: "Invoice", sender: "Accounts" },
+      ],
+      coverage: { unit: "messages", returned: 2, content_depth: "message" },
+    };
+    render(<ToolResultCard result={result} tool="read_mail" ok />);
+
+    expect(
+      screen.getByText("Priya wants the Q3 deck by Friday."),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Invoice")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+  });
+
+  it("omits a count the server did not establish rather than printing zero", () => {
+    expect(mailCoverageLine({ unit: "messages", content_depth: "metadata" })).toBe(
+      "headers only",
+    );
+    expect(mailCoverageLine({ returned: 0, unit: "messages" })).toBe(
+      "0 messages",
+    );
+    expect(mailCoverageLine(null)).toBeNull();
+    expect(mailCoverageLine({})).toBeNull();
+    // A needs-reply row is a conversation, not a message.
+    expect(mailCoverageLine({ returned: 3, unit: "threads" })).toBe(
+      "3 conversations",
+    );
+    // Nothing narrowed the read, so the count is the front of the mailbox and
+    // says so. Five bodies is the reader's budget, not the size of the inbox.
+    expect(
+      mailCoverageLine({ returned: 5, unit: "messages", scope: "newest" }),
+    ).toBe("newest 5 messages");
+    expect(
+      mailCoverageLine({ returned: 5, unit: "messages", scope: "search" }),
+    ).toBe("5 messages");
+    // An assessed-vs-returned split still wins: it is the more specific fact.
+    expect(
+      mailCoverageLine({ returned: 3, assessed: 9, unit: "messages", scope: "newest" }),
+    ).toBe("3 of 9 checked");
   });
 });
 
@@ -559,5 +657,254 @@ describe("ToolResultCard: Save My Soul", () => {
       "Partly stopped",
     );
     expect(sosHeadline("renamed", "success")).toBeNull();
+  });
+});
+
+
+describe("ToolResultCard: opening a mail original", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+
+  function mailResult(items: Record<string, unknown>[]): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["I read your 3 newest messages."],
+      answer: "Priya needs the deck.",
+      sources: [{ source_ref: "mail:1", label: "Mail", kind: "message" }],
+      items,
+      coverage: { unit: "messages", returned: items.length, scope: "newest" },
+      offer_revision: 7,
+      conversation_id: CONV,
+    };
+  }
+
+  const THREE = [
+    { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+    // No subject and no sender. It used to be dropped, which renumbered the rows
+    // under it; the Open below must still send the server's ordinal 3.
+    { source_ref: "mail:2" },
+    { source_ref: "mail:3", subject: "Invoice", sender: "Acme" },
+  ];
+
+  it("sends the server's ordinal, the offer revision and the offer's conversation", async () => {
+    const calls: unknown[] = [];
+    const onOpenMail = async (input: unknown) => {
+      calls.push(input);
+      return {
+        sourceRef: "mail:3",
+        subject: "Invoice",
+        sender: "Acme",
+        receivedAt: null,
+        body: "The March invoice is attached.",
+        bodyTruncated: false,
+      };
+    };
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+
+    const buttons = screen.getAllByTestId("one-voice-mail-open");
+    expect(buttons).toHaveLength(3);
+    // The third row. Its ordinal is 3 even though the row above it is unlabelled
+    // -- the number comes from source_ref, never from a count of the DOM.
+    expect(buttons[2]).toHaveAttribute("data-ordinal", "3");
+    fireEvent.click(buttons[2]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText("The March invoice is attached."),
+      ).toBeInTheDocument();
+    });
+    expect(calls).toEqual([
+      { ordinal: 3, offerRevision: 7, conversationId: CONV },
+    ]);
+  });
+
+  it("closing returns to the same list in the same order", async () => {
+    const onOpenMail = async () => ({
+      sourceRef: "mail:1",
+      subject: "Q3 deck",
+      sender: "Priya",
+      receivedAt: null,
+      body: "Friday please.",
+      bodyTruncated: false,
+    });
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+    const order = () =>
+      Array.from(screen.getByLabelText("Mail").children).map((row) =>
+        row.getAttribute("data-source-ref"),
+      );
+    const before = order();
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+    await waitFor(() =>
+      expect(screen.getByText("Friday please.")).toBeInTheDocument(),
+    );
+    // Expanding in place is what makes Back free: the list never unmounted.
+    expect(order()).toEqual(before);
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-voice-mail-original")).toBeNull(),
+    );
+    expect(order()).toEqual(before);
+  });
+
+  it("says the list moved on rather than opening something else", async () => {
+    const onOpenMail = async () => {
+      throw Object.assign(new Error("stale"), { reason: "offer_superseded" });
+    };
+    render(
+      <ToolResultCard
+        result={mailResult(THREE)}
+        tool="read_mail"
+        ok
+        onOpenMail={onOpenMail}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() => {
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("This list has been replaced");
+    });
+  });
+
+  it("offers no Open control when the rows carry no offer to open against", () => {
+    const unbound = mailResult(THREE);
+    delete unbound.offer_revision;
+    render(
+      <ToolResultCard
+        result={unbound}
+        tool="read_mail"
+        ok
+        onOpenMail={async () => {
+          throw new Error("must not be called");
+        }}
+      />,
+    );
+    // Rows still render; there is simply nothing to resolve a position against.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(3);
+    expect(screen.queryAllByTestId("one-voice-mail-open")).toHaveLength(0);
+  });
+
+  it("renders no Open control at all without a handler, so bare renders are unchanged", () => {
+    render(<ToolResultCard result={mailResult(THREE)} tool="read_mail" ok />);
+    expect(screen.queryAllByTestId("one-voice-mail-open")).toHaveLength(0);
+  });
+});
+
+describe("ToolResultCard: a spoken open runs the same code as a tap", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+  const ROWS = [
+    { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+    { source_ref: "mail:2", subject: "March invoice", sender: "Acme" },
+  ];
+
+  function result(): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["I read your 2 newest messages."],
+      answer: "Two findings.",
+      sources: [],
+      items: ROWS,
+      coverage: { unit: "messages", returned: 2, scope: "newest" },
+      offer_revision: 7,
+      conversation_id: CONV,
+    };
+  }
+
+  async function speakOpen(detail: Record<string, unknown>) {
+    const { ONE_VOICE_OPEN_MAIL_EVENT } = await import(
+      "@/lib/one-voice/directives"
+    );
+    const settled: Array<[string, string | undefined]> = [];
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_MAIL_EVENT, {
+        detail: {
+          offerRevision: 7,
+          conversationId: CONV,
+          ...detail,
+          settle: (status: string, reason?: string) =>
+            settled.push([status, reason]),
+        },
+      }),
+    );
+    return settled;
+  }
+
+  it("opens the row the directive names, through the same resolver", async () => {
+    const calls: unknown[] = [];
+    render(
+      <ToolResultCard
+        result={result()}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          return {
+            sourceRef: "mail:2",
+            subject: "March invoice",
+            sender: "Acme",
+            receivedAt: null,
+            body: "Invoice 4471 is overdue.",
+            bodyTruncated: false,
+          };
+        }}
+      />,
+    );
+
+    const settled = await speakOpen({ ordinal: 2 });
+
+    await waitFor(() =>
+      expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument(),
+    );
+    // The same controller call a tap makes, with the same binding.
+    expect(calls).toEqual([
+      { ordinal: 2, offerRevision: 7, conversationId: CONV },
+    ]);
+    // Settled once the message is on screen, not when the handler returned.
+    await waitFor(() => expect(settled).toEqual([["opened", undefined]]));
+    // The list is still there: a spoken open does not take away the rows the
+    // ordinal refers to.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+  });
+
+  it("refuses a directive for a list this card is not showing, without asking", async () => {
+    const calls: unknown[] = [];
+    render(
+      <ToolResultCard
+        result={result()}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          throw new Error("must not be called");
+        }}
+      />,
+    );
+
+    const stale = await speakOpen({ ordinal: 2, offerRevision: 6 });
+    const foreign = await speakOpen({ ordinal: 2, conversationId: "other" });
+
+    expect(stale).toEqual([["failed", "offer_mismatch"]]);
+    expect(foreign).toEqual([["failed", "offer_mismatch"]]);
+    // Position two of another list is not position two of this one, and the
+    // refusal happens before any request rather than after a wrong answer.
+    expect(calls).toEqual([]);
+    expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
   });
 });

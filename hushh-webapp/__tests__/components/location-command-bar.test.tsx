@@ -80,6 +80,11 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
+  // `lib/capacitor/account.ts` calls registerPlugin at import time, so the mock
+  // has to answer it or the module graph fails to load and the whole file is
+  // reported as a collection error rather than a test failure. Same stub the
+  // sibling specs use (person-profile-page, location-command-workflow).
+  registerPlugin: () => ({}),
 }));
 vi.mock("@capacitor/app", () => ({ App: {} }));
 vi.mock("@/lib/voice/command-capture", () => ({

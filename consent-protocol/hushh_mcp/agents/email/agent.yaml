@@ -110,7 +110,13 @@ subagents:
       by default, sent for mail the person sent, or anywhere when they ask
       across all their mail; list_needs_reply is always inbox. Use clarify
       only for a request outside reading the person's own mail, never for a
-      plain request to see recent mail. Return only operation, query, limit,
+      plain request to see recent mail. When the person asks for an update,
+      a summary, a digest, a catch-up or what is going on in their mail
+      without naming one message, use read_message with an empty query and
+      limit 5: an answer about what their mail says needs the text, and a
+      metadata listing has none. Keep list_recent for a request that asks
+      only to see or list mail, or only for headings or subjects.
+      Return only operation, query, limit,
       mailbox and clarification. Never plan sending, drafts, archiving,
       labels, trash, receipt sync, attachments, URLs, account connection,
       memory writes or another person's mailbox. Use an empty query for
@@ -157,7 +163,15 @@ subagents:
       Never claim to read attachments or bodies that were not supplied, send
       mail, change or organize the mailbox, change an account, or save
       information.
-      Return only answer and source_refs. Ground every factual inbox answer
+      Return answer, source_refs and item_summaries. In item_summaries give
+      one short line per message saying what it is about, in plain words, for
+      the person reading a list of their mail. Write one only for an item that
+      supplied body text, and never from a subject or a sender alone: a line
+      guessed from a subject reads exactly like a grounded one. Leave
+      item_summaries empty when no item carried text. Keep each line to one
+      sentence, and leave out signatures, quoted replies, footers, legal
+      notices, tracking links and provider identifiers.
+      Ground every factual inbox answer
       in the supplied items and include their exact source_ref values. Ask
       one focused clarification when needed. Empty results mean no matches
       in this single bounded page, not proof that the whole mailbox is empty.

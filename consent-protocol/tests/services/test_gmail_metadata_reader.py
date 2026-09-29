@@ -113,6 +113,21 @@ async def test_search_is_one_page_metadata_only_and_drops_provider_ids_and_bodie
     assert len(calls) == 2
     assert result["truncated"] and result["metadata_only"] and result["one_page_only"]
     assert result["untrusted_external_content"][0]["subject"] == "Project plan"
+    # Counted here, where the reader knows what it fetched and what survived.
+    # Anything downstream would be counting a model's citations instead.
+    assert result["coverage"] == {
+        "operation": "search_inbox",
+        "mailbox": "inbox",
+        "scope": "search",
+        "unit": "messages",
+        "assessed": 1,
+        "returned": 1,
+        "matches_beyond_page": True,
+        "items_omitted": False,
+        "content_shortened": False,
+        "content_depth": "metadata",
+        "one_page_only": True,
+    }
     serialized = json.dumps(result)
     assert all(
         secret not in serialized
@@ -143,6 +158,12 @@ async def test_needs_reply_does_not_fetch_invites_or_full_messages():
     result = await _reader(_Gmail(), respond).read("list_needs_reply", {})
     assert len(calls) == 2
     assert result["untrusted_external_content"][0]["sender"] == "Alice"
+    # One row is one conversation here, not one message, so a spoken count built
+    # on this must not say "messages". `assessed` is the number of threads the
+    # nudge rule evaluated -- a floor, since the listing itself is capped at 25.
+    assert result["coverage"]["unit"] == "threads"
+    assert result["coverage"]["returned"] == 1
+    assert result["coverage"]["assessed"] == 1
 
 
 async def test_list_recent_reads_newest_inbox_page_without_a_search_expression():
@@ -517,6 +538,14 @@ async def test_body_read_falls_back_to_html_text_and_caps_size():
     assert result["untrusted_external_content"][0]["body_truncated"] is True
     assert result["truncated"] is True
     assert len(json.dumps(result).encode("utf-8")) <= 24000
+    # `truncated` collapsed six different causes into one bool, so a clipped
+    # body made One say matches might be missing when none were. Nothing was
+    # left out here; one message was shortened.
+    assert result["coverage"]["content_shortened"] is True
+    assert result["coverage"]["matches_beyond_page"] is False
+    assert result["coverage"]["items_omitted"] is False
+    assert result["coverage"]["content_depth"] == "message"
+    assert result["coverage"]["returned"] == 1
 
 
 async def test_thread_read_returns_each_message_body_in_thread_order():

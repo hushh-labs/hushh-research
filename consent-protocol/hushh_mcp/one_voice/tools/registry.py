@@ -65,6 +65,7 @@ def _family_tools() -> tuple[ToolSpec, ...]:
         account_lifecycle,
         circles,
         location_state,
+        mail,
         onboarding,
         people,
         profile,
@@ -83,6 +84,7 @@ def _family_tools() -> tuple[ToolSpec, ...]:
         sos,
         profile,
         account_lifecycle,
+        mail,
         onboarding,
     ):
         tools.extend(module.TOOLS)
