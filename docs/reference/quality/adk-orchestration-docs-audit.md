@@ -3148,3 +3148,47 @@ interval over 50 milliseconds. A two-hour sampled dev backend query found no
 an end-to-end 429 rate. Phone browser and Mac on independent active internet
 connections, live server-side cancellation, and a cold-wake latency target
 remain open acceptance evidence.
+
+### 2026-09-29: BYOC customer flow and local ADK integration candidate
+
+The isolated candidate combines infrastructure commit `63a16343e4409b32386a4e695491920bc20af073`,
+local ADK `a3a88680182db2f4c71acf0363a8aaab54fd2b58`, and current main
+`02d33ac09eb4d9da565765a8902c96a580551f0e`. Integration commits
+`d0095a74f` and `846d9079a` preserve the existing pod branch's hosting,
+owner, recovery, and onboarding prerequisites. The latter records the ADK
+capability graph as an exact workflow predecessor; the generated graph has no
+breaking action or workflow diff against the merged main revision. The remote
+branch and dev serving revisions have not yet changed from this candidate.
+
+The customer BYOC surface now offers one deploy action, an automatically
+suggested project, an advanced existing-project choice, and a billing recovery
+link. Retrying the recorded project uses a fresh authorization and the same
+setup job. New admitted BYOC setup selects the encrypted Files library; content
+analysis remains opt-in. Files uses its own explorer workspace, while Hosting
+links to it. Settings and Feed project stages from the same durable update
+operation; completion is shown only after installed-digest verification, and
+the owner may explicitly send a bounded redacted failure report. These are
+source and focused-test findings, not live acceptance.
+
+During ADK integration, consent history's shared-card and revocation behavior
+was moved into the existing descriptor/projector owners. The onboarding merge
+kept the cloud, verified-phone, and AI-choice completion checks; it now also
+carries a safe invitation return through the AI step and Finance handoff.
+Native Circle join is classified as required; Files remains web-only until
+native key continuity, transfer, and direct admission are accepted. The
+integration fitness report had 217 new or worsened findings against the prior
+baseline, all size measurements (54 new, 163 worsened). The reviewed combined
+baseline measures 2,025 findings in 5,339 files, with no new dependency or
+import-initialization finding; it retains the same thresholds and comparator.
+This is recorded debt, not a structural quality or runtime pass.
+
+Focused verification passed: 32 consent-history/shared-card backend tests,
+28 reviewer-mode tests, 46 customer-flow frontend tests, 37 onboarding/legal
+tests, frontend typecheck, capability graph generation, surface-map and native
+parity checks, and the CI lane partition contract. The first local core mirror
+stopped at the outdated architecture-fitness baseline; its preceding security,
+docs, skill, and topology checks passed. Core mirror rerun, hosted exact-SHA
+CI, branch dev deployment, serving readback, owner-approved pod installation,
+missing-billing recovery, Files operation, and Puppy independent-internet
+acceptance remain pending. The earlier 193.7-second cold Puppy turn remains a
+usability failure sample; no latency improvement is claimed here.
