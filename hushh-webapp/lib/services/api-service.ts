@@ -1937,7 +1937,7 @@ export class ApiService {
     );
   }
 
-  static async listTrustedDevices(): Promise<Response> {
+  static async listTrustedDevices(options?: { signal?: AbortSignal }): Promise<Response> {
     const authToken = await this.getFirebaseToken();
     if (!authToken) {
       return new Response(
@@ -1951,6 +1951,7 @@ export class ApiService {
       method: "GET",
       headers: { Authorization: `Bearer ${authToken}` },
       cache: "no-store",
+      signal: options?.signal,
     });
   }
 

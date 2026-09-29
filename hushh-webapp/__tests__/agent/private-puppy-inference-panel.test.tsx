@@ -123,4 +123,24 @@ describe("private Puppy relay", () => {
       vi.useRealTimers();
     }
   });
+
+  it("ends a stalled link check and never starts a turn after its deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishLink!: (value: { state: string; device: { id: string } }) => void;
+      mocks.refreshPuppyLink.mockReturnValue(new Promise((resolve) => { finishLink = resolve; }));
+      render(<PrivatePuppyInferencePanel />);
+      await act(async () => { await ask(); });
+      expect(mocks.refreshPuppyLink).toHaveBeenCalledTimes(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
+      expect(screen.getByText("Puppy did not answer in time. Check your machine and try again.")).toBeInTheDocument();
+      expect(mocks.runPodTurn).not.toHaveBeenCalled();
+
+      await act(async () => { finishLink({ state: "quiet", device: { id: "device-1" } }); });
+      expect(mocks.runPodTurn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

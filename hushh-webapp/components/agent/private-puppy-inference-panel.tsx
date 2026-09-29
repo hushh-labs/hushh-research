@@ -19,6 +19,24 @@ import { cn } from "@/lib/utils";
 type Turn = { id: string; role: "user" | "assistant"; text: string };
 const PUPPY_TURN_DEADLINE_MS = 205_000;
 
+function whileNotAborted<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(signal.reason);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason ?? new DOMException("aborted", "AbortError"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    operation.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 /**
  * The Puppy surface uses the private pod path, not Hermes' local agent loop:
  * frontend API -> owner pod -> Puppy relay -> resident model -> pod response.
@@ -126,26 +144,30 @@ export function PrivatePuppyInferencePanel({
     try {
       if (!user?.uid || !vaultOwnerToken)
         throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
-      const status = await ApiService.getPersonalAgentStatus();
-      if (status.hostingMode !== "byoc")
-        throw new Error("PUPPY_REQUIRES_BYOC_POD");
-      if (status.state !== "active" || !status.hushhId)
-        throw new Error("PRIVATE_AGENT_UNAVAILABLE");
-      // The sidebar poll may still be loading, or may belong to an earlier
-      // signed-in owner. Select only from a fresh owner-scoped read at send time.
-      const currentLink = await refreshPuppyLink();
-      if (!currentLink.device?.id || (currentLink.state !== "live" && currentLink.state !== "quiet"))
-        throw new Error("PUPPY_OFFLINE");
-      const response = await ApiService.runPodTurn({
-        hushhId: status.hushhId,
-        vaultOwnerToken,
-        message,
-        conversationId: "puppy-private-relay",
-        runtimeProvider: "puppy",
-        puppyDeviceId: currentLink.device.id,
-        signal: controller.signal,
-        history: nextTurns.map(({ role, text }) => ({ role, content: text })),
-      });
+      const response = await whileNotAborted((async () => {
+        const status = await ApiService.getPersonalAgentStatus({ signal: controller.signal });
+        if (controller.signal.aborted) throw controller.signal.reason;
+        if (status.hostingMode !== "byoc")
+          throw new Error("PUPPY_REQUIRES_BYOC_POD");
+        if (status.state !== "active" || !status.hushhId)
+          throw new Error("PRIVATE_AGENT_UNAVAILABLE");
+        // The sidebar poll may still be loading, or may belong to an earlier
+        // signed-in owner. Select only from a fresh owner-scoped read at send time.
+        const currentLink = await refreshPuppyLink();
+        if (controller.signal.aborted) throw controller.signal.reason;
+        if (!currentLink.device?.id || (currentLink.state !== "live" && currentLink.state !== "quiet"))
+          throw new Error("PUPPY_OFFLINE");
+        return ApiService.runPodTurn({
+          hushhId: status.hushhId,
+          vaultOwnerToken,
+          message,
+          conversationId: "puppy-private-relay",
+          runtimeProvider: "puppy",
+          puppyDeviceId: currentLink.device.id,
+          signal: controller.signal,
+          history: nextTurns.map(({ role, text }) => ({ role, content: text })),
+        });
+      })(), controller.signal);
       // A heartbeat model is a prior observation, not proof of which model
       // answered this turn. Show a model only when this response reports it.
       setTarget(response.modelReported

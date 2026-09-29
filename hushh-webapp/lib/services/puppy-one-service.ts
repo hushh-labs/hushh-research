@@ -21,6 +21,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 import { HEARTBEAT_FRESH_MS } from "@/lib/trusted-device/sync-display";
+import { withAbortDeadline } from "@/lib/utils/request-timeouts";
 
 export interface PuppyStatus {
   connected: boolean;
@@ -628,10 +629,10 @@ export function derivePuppyLink(devices: unknown, nowMs: number): PuppyLink {
  * deliberately NOT "unlinked", which would tell a person with a working
  * device to go and install one.
  */
-export async function fetchPuppyLink(): Promise<PuppyLink> {
+export async function fetchPuppyLink(signal?: AbortSignal): Promise<PuppyLink> {
   const checkedAt = Date.now();
   try {
-    const response = await ApiService.listTrustedDevices();
+    const response = await ApiService.listTrustedDevices({ signal });
     if (!response.ok) return derivePuppyLink(null, checkedAt);
     const payload = (await response.json()) as { devices?: unknown } | null;
     return derivePuppyLink(payload?.devices, checkedAt);
@@ -643,14 +644,11 @@ export async function fetchPuppyLink(): Promise<PuppyLink> {
 /**
  * One reader of the link for the whole page.
  *
- * The chat panel and the machine strip both need this fact, and when each
- * polled it on its own cadence the two disagreed on screen: the pill turned
- * green within thirty seconds of a heartbeat while the strip above it kept
- * saying One had not heard from the machine for another five minutes. One
- * fact, one poller, one moment of change. The device pushes a keepalive every
- * ten minutes, so a read a minute is already generous.
+ * Chat and machine status share one poller so they cannot disagree about a
+ * device's heartbeat. A minute is enough for the device's ten-minute keepalive.
  */
 export const PUPPY_LINK_POLL_MS = 60_000;
+const PUPPY_LINK_READ_DEADLINE_MS = 20_000;
 
 type LinkListener = (link: PuppyLink | null) => void;
 
@@ -674,7 +672,9 @@ export function getPuppyLinkSnapshot(): PuppyLink | null {
  */
 export function refreshPuppyLink(): Promise<PuppyLink> {
   if (linkStore.inFlight) return linkStore.inFlight;
-  const read = fetchPuppyLink().then((next) => {
+  const read = withAbortDeadline(
+    fetchPuppyLink, PUPPY_LINK_READ_DEADLINE_MS, () => derivePuppyLink(null, Date.now()),
+  ).then((next) => {
     linkStore.inFlight = null;
     linkStore.link = next;
     for (const listener of linkStore.listeners) listener(next);

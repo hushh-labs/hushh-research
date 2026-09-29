@@ -75,3 +75,24 @@ export function isRequestTimeoutError(error: unknown): boolean {
       : "";
   return name === "AbortError" || name === "TimeoutError";
 }
+
+/** Bound a read even when authentication stalls before fetch sees its signal. */
+export async function withAbortDeadline<T>(
+  task: (signal: AbortSignal) => Promise<T>,
+  deadlineMs: number,
+  fallback: () => T,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(fallback());
+    }, deadlineMs);
+  });
+  try {
+    return await Promise.race([task(controller.signal), deadline]);
+  } finally {
+    if (timer !== null) clearTimeout(timer);
+  }
+}
