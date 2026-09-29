@@ -8,6 +8,8 @@ from fastapi import HTTPException
 
 from api.routes.one import runtime as runtime_route
 
+_CHECK_UNASSIGNED = runtime_route._require_unassigned_byoc
+
 
 @pytest.fixture(autouse=True)
 def _signing(monkeypatch):
@@ -48,6 +50,8 @@ class _FakeJobRepo:
         pass
 
     async def start(self, *, user_id, job_id, project_id):
+        if _FakeJobRepo.store.get(user_id, {}).get("status") == "running":
+            return False
         _FakeJobRepo.store[user_id] = {
             "user_id": user_id,
             "job_id": job_id,
@@ -59,6 +63,7 @@ class _FakeJobRepo:
             "error_message": None,
             "updated_at": "2026-08-21T00:00:00+00:00",
         }
+        return True
 
     async def _current(self, user_id):
         row = _FakeJobRepo.store.get(user_id)
@@ -114,7 +119,26 @@ def _fake_job_repo(monkeypatch):
 
     _FakeJobRepo.store = {}
     monkeypatch.setattr(jobs, "ByocSetupJobRepo", _FakeJobRepo)
+
+    async def unassigned(_user_id):
+        return None
+
+    monkeypatch.setattr(runtime_route, "_require_unassigned_byoc", unassigned)
     yield
+
+
+async def test_active_owner_pod_refuses_first_time_cloud_setup(monkeypatch):
+    from hushh_mcp.services import personal_agent_registry_repo
+
+    class Repo:
+        async def get(self, _user_id):
+            return {"status": "provisioned", "external_agent_id": "existing-pod"}
+
+    monkeypatch.setattr(personal_agent_registry_repo, "PersonalAgentRegistryRepo", Repo)
+    with pytest.raises(HTTPException) as exc:
+        await _CHECK_UNASSIGNED("u1")
+    assert exc.value.status_code == 409
+    assert exc.value.detail["code"] == "POD_ASSIGNMENT_PRESERVED"
 
 
 def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
@@ -191,6 +215,38 @@ async def test_complete_answers_fast_and_the_job_runs_the_chain_in_order(monkeyp
         "proving",
     ]
     assert calls == ["create", "billing", "authorize", "settle", "save"]
+
+
+async def test_concurrent_complete_reuses_one_running_project_job(monkeypatch):
+    import asyncio
+
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+
+    calls: list[str] = []
+    _patch_chain(monkeypatch, oauth, calls)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def _wait_for_grant(*_args, **_kwargs):
+        entered.set()
+        await release.wait()
+        return True
+
+    monkeypatch.setattr(runtime_route, "_wait_for_bootstrap_grant", _wait_for_grant)
+    first = await runtime_route.complete_byoc_authorize(
+        request=None,
+        body=runtime_route.ByocAuthorizeCompleteRequest(code="first", state="s"),
+        firebase_uid="u1",
+    )
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    second = await runtime_route.complete_byoc_authorize(
+        request=None,
+        body=runtime_route.ByocAuthorizeCompleteRequest(code="second", state="s"),
+        firebase_uid="u1",
+    )
+    assert second.jobId == first.jobId
+    assert calls.count("create") == 1
+    release.set()
+    assert (await _wait_terminal("u1"))["status"] == "recorded"
 
 
 async def test_a_typed_refusal_lands_on_the_record_not_a_500(monkeypatch):

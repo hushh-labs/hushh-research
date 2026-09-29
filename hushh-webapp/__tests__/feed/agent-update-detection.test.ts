@@ -21,7 +21,7 @@ import {
   NO_UPDATE,
   readUpdateStatus,
 } from "@/lib/feed/use-agent-deployment-follow";
-import { updateActivityLabel } from "@/lib/feed/agent-update-status";
+import { updateActivityLabel, updateProgressStage } from "@/lib/feed/agent-update-status";
 
 describe("readUpdateStatus", () => {
   it("keeps absent as unknown, never as false", () => {
@@ -88,16 +88,21 @@ describe("readUpdateStatus", () => {
   });
 
   it("shows only observed update milestones and requires digest verification for completion", () => {
-    for (const [phase, label] of [
-      ["preparing", "Finishing current work"],
-      ["installing", "Installing update"],
-      ["verifying", "Restarting and verifying"],
+    for (const [phase, label, stage] of [
+      ["preparing", "Finishing current work", 1],
+      ["installing", "Installing update", 2],
+      ["verifying", "Restarting and verifying", 3],
     ] as const) {
       const update = readUpdateStatus({ updateInProgress: true, update: { phase } });
       expect(updateActivityLabel(update)).toBe(label);
+      expect(updateProgressStage(update)).toBe(stage);
       expect(update.verified).toBe(false);
     }
-    expect(readUpdateStatus({ updateInProgress: false, update: { phase: "verifying" } }).verified).toBe(false);
+    expect(updateProgressStage(readUpdateStatus({ updateInProgress: false, update: { phase: "verifying" } }))).toBe(3);
+    expect(updateProgressStage(readUpdateStatus({ update: { phase: "verified", presentationState: "verified" } }))).toBeNull();
+    expect(updateProgressStage(readUpdateStatus({
+      updateVerified: true, update: { phase: "verified", presentationState: "verified" },
+    }))).toBe(4);
   });
 });
 

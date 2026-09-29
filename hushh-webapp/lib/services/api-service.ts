@@ -1568,7 +1568,15 @@ export class ApiService {
       },
       body: JSON.stringify({ projectId: input.projectId, filesEnabled: input.filesEnabled ?? false }),
     });
-    if (!response.ok) throw new Error("BYOC_AUTHORIZE_BEGIN_FAILED");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      const detail = payload?.detail;
+      if (["FILES_SETUP_UNAVAILABLE", "FILES_RECOVERY_CONTRACT_UNAVAILABLE", "POD_ASSIGNMENT_PRESERVED", "INVALID_PROJECT_ID"].includes(detail?.code)) {
+        const reason = detail.message ?? detail.reason;
+        if (typeof reason === "string" && reason.length <= 240) throw new Error(reason);
+      }
+      throw new Error("BYOC_AUTHORIZE_BEGIN_FAILED");
+    }
     return response.json();
   }
 
@@ -3607,11 +3615,12 @@ export class ApiService {
     update?: {
       releaseId?: string;
       summary: string;
-      presentationState: "ready" | "deferred" | "scheduled" | "updating" | "blocked";
-      phase?: "scheduled" | "preparing" | "installing" | "verifying" | "blocked";
+      presentationState: "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked";
+      phase?: "scheduled" | "preparing" | "installing" | "verifying" | "verified" | "blocked";
       remindAt?: string;
       reminderDue?: boolean;
       operationId?: string;
+      verifiedAt?: string;
     };
   }> {
     const token = await ApiService.getFirebaseToken();
@@ -3636,6 +3645,22 @@ export class ApiService {
     releaseId: string;
   }): Promise<{ releaseId: string; status: "deferred"; remindAt: string }> {
     return ApiService.postPersonalAgentUpdate("defer", input);
+  }
+
+  static async reportPersonalAgentUpdateFailure(input: {
+    operationId: string;
+  }): Promise<{ reportId: string; status: "received"; excerptCount: number }> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await ApiService.apiFetch("/api/one/personal-agent/update/failure-report", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify(input),
+    });
+    if (!response.ok) throw new Error(`AGENT_UPDATE_REPORT_FAILED:${response.status}`);
+    return response.json();
   }
 
   private static async postPersonalAgentUpdate(

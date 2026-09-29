@@ -6,7 +6,13 @@ import { toast } from "sonner";
 import { Upload, RefreshCw } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
+import {
+  AppPageContentRegion,
+  AppPageHeaderRegion,
+  AppPageShell,
+} from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { FilesActivationPanel } from "./files-activation-panel";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { ApiService } from "@/lib/services/api-service";
@@ -29,6 +35,7 @@ export function FilesWorkspace() {
   const [trash, setTrash] = useState(false);
   const [query, setQuery] = useState("");
   const [settings, setSettings] = useState<FilesSettings | null>(null);
+  const [filesActivationAvailable, setFilesActivationAvailable] = useState(false);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -39,6 +46,9 @@ export function FilesWorkspace() {
   const work = useRef(new AbortController());
   const parent = folders[folders.length - 1]?.id ?? "root";
   const available = Boolean(user?.uid && vaultKey);
+  const visibleEntries = entries.filter((entry) =>
+    entry.name.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+  );
 
   const load = useCallback(
     async (next = "") => {
@@ -91,6 +101,17 @@ export function FilesWorkspace() {
     setTrash(false);
   }, [user?.uid, available]);
 
+  useEffect(() => {
+    if (!user?.uid) return;
+    let cancelled = false;
+    void ApiService.getPersonalAgentStatus().then((status) => {
+      if (!cancelled) setFilesActivationAvailable(status.filesActivationAvailable === true);
+    }).catch(() => {
+      if (!cancelled) setFilesActivationAvailable(false);
+    });
+    return () => { cancelled = true; };
+  }, [user?.uid]);
+
   const act = async (
     operation: () => Promise<unknown>,
     success: string,
@@ -118,26 +139,31 @@ export function FilesWorkspace() {
   };
 
   return (
-    <PkmSettingsShell
-      title="Files"
-      description="Your private library, stored in your cloud."
-      actions={
-        <Button
-          variant="outline"
-          disabled={!available || busy}
-          onClick={() => void act(() => load(), "Files refreshed")}
-        >
-          <RefreshCw className="mr-2 size-4" />
-          Refresh
-        </Button>
-      }
-    >
+    <AppPageShell as="div" width="expanded" fitContent>
+      <AppPageHeaderRegion>
+        <PageHeader
+          title="Files"
+          description="Your private library, stored in your cloud."
+          actions={
+            <Button
+              variant="outline"
+              disabled={!available || busy}
+              onClick={() => void act(() => load(), "Files refreshed")}
+            >
+              <RefreshCw className="mr-2 size-4" />
+              Refresh
+            </Button>
+          }
+        />
+      </AppPageHeaderRegion>
+      <AppPageContentRegion>
       {!available ? (
         <p className="text-sm text-muted-foreground">
           Unlock your vault to open Files.
         </p>
       ) : (
-        <div className="space-y-5">
+        <div className="grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)] xl:items-start">
+          <section className="min-w-0 space-y-5" aria-label="File explorer">
           {message ? (
             <div className="rounded-2xl border p-5 space-y-3">
               <p role="status">{message}</p>
@@ -337,14 +363,8 @@ export function FilesWorkspace() {
               Opening Files…
             </p>
           ) : null}
-          <div className="divide-y rounded-2xl border">
-            {entries
-              .filter((entry) =>
-                entry.name
-                  .toLocaleLowerCase()
-                  .includes(query.toLocaleLowerCase()),
-              )
-              .map((entry) => (
+          <div className="divide-y rounded-2xl border" aria-label={trash ? "Trash" : "Files and folders"}>
+            {visibleEntries.map((entry) => (
                 <FilesEntryRow
                   key={`${user?.uid}:${parent}:${entry.id}`}
                   entry={entry}
@@ -366,9 +386,11 @@ export function FilesWorkspace() {
                   }}
                 />
               ))}
-            {!entries.length && !message && !loading ? (
+            {!visibleEntries.length && !message && !loading ? (
               <p className="p-6 text-sm text-muted-foreground">
-                {trash
+                {query
+                  ? "No matches on this page. Load more files to search another page."
+                  : trash
                   ? "No trashed files in this folder."
                   : "Upload a file or create your first folder."}
               </p>
@@ -385,19 +407,26 @@ export function FilesWorkspace() {
               Load more
             </Button>
           ) : null}
-          {user?.uid ? (
-            <FilesOrganizationHistory key={user.uid} ownerId={user.uid} />
-          ) : null}
-          <FilesSettingsPanel
-            key={user?.uid}
-            settings={settings}
-            signal={work.current.signal}
-            busy={busy}
-            unavailable={Boolean(message)}
-            act={act}
-          />
+          </section>
+          <aside className="min-w-0 space-y-5" aria-label="Files activity and preferences">
+            {message && filesActivationAvailable ? (
+              <FilesActivationPanel disabled={busy} onScheduled={() => void load().catch(() => undefined)} />
+            ) : null}
+            {user?.uid ? (
+              <FilesOrganizationHistory key={`history:${user.uid}`} ownerId={user.uid} />
+            ) : null}
+            <FilesSettingsPanel
+              key={`settings:${user?.uid}`}
+              settings={settings}
+              signal={work.current.signal}
+              busy={busy}
+              unavailable={Boolean(message)}
+              act={act}
+            />
+          </aside>
         </div>
       )}
-    </PkmSettingsShell>
+      </AppPageContentRegion>
+    </AppPageShell>
   );
 }

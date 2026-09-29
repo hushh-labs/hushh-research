@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+import { AgentUpdateProgress } from "@/components/agent/agent-update-progress";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
@@ -242,7 +243,12 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
 
   const description = (
     <FeedRowMetadata
-      description={descriptionBody}
+      description={item.updateProgress ? (
+        <span className="block space-y-2">
+          {descriptionBody}
+          <AgentUpdateProgress update={item.updateProgress} />
+        </span>
+      ) : descriptionBody}
       timestamp={item.displayTimestamp}
     />
   );

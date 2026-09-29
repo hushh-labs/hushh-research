@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   defer: vi.fn(),
   reconnect: vi.fn(),
   adopt: vi.fn(),
+  report: vi.fn(),
   promiseToast: vi.fn(),
   dismissToast: vi.fn(),
 }));
@@ -28,6 +29,7 @@ vi.mock("@/lib/services/api-service", () => ({
     deferPersonalAgentUpdate: mocks.defer,
     reconnectOwnerPod: mocks.reconnect,
     adoptOrphanPod: mocks.adopt,
+    reportPersonalAgentUpdateFailure: mocks.report,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -170,6 +172,25 @@ describe("owner hosting and software settings", () => {
       );
     },
   );
+
+  it("sends a failed update report only after the owner selects the action", async () => {
+    const operationId = `op_${"a".repeat(32)}`;
+    status("byoc", { installedRelease: { version: "2026.09-dev.5" } }, {
+      ...NO_UPDATE,
+      failed: true,
+      operationId,
+      presentationState: "blocked",
+    });
+    mocks.report.mockResolvedValue({ reportId: "upr_receipt", status: "received" });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(mocks.report).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send failure report" }));
+    await waitFor(() =>
+      expect(mocks.report).toHaveBeenCalledWith({ operationId }),
+    );
+    expect(mocks.report).toHaveBeenCalledOnce();
+  });
 
   it.each([
     ["scheduled", "Update scheduled"],

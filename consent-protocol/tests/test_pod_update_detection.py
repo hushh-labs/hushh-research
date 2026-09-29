@@ -362,6 +362,51 @@ def test_update_verification_requires_exact_provider_and_owner_receipts(tamper):
         row["backend_metadata"]["upgradeAcknowledgement"][tamper] = "mismatch"
     out = describe_pod_update(row, target_image=target)
     assert out.get("updateVerified", False) is (tamper is None)
+    assert out.get("update", {}).get("operationId") == ("operation-1" if tamper is None else None)
+    assert out.get("update", {}).get("phase") == ("verified" if tamper is None else None)
+
+
+@pytest.mark.asyncio
+async def test_owner_failure_report_binds_operation_and_excludes_private_metadata(
+    monkeypatch, caplog
+):
+    from hushh_mcp.services import pod_update_failure_report as reports
+
+    operation_id = "op_" + "a" * 32
+    row = {
+        "hushh_id": "owner-pod",
+        "backend_metadata": {
+            "upgradeApproval": {
+                "ownerId": "owner",
+                "hushhId": "owner-pod",
+                "operationId": operation_id,
+                "status": "blocked",
+                "releaseId": "2026.09-dev.5",
+                "approvedAt": "2026-09-29T00:00:00Z",
+            },
+            "privateContent": "sentinel-private-content",
+        },
+    }
+
+    class Repo:
+        async def get(self, _user_id):
+            return row
+
+    monkeypatch.setattr(
+        reports, "_safe_events", lambda *_: [{"stage": "updating", "event": "started"}]
+    )
+    with pytest.raises(ValueError):
+        await reports.report_blocked_update(user_id="other", operation_id=operation_id, repo=Repo())
+    with pytest.raises(ValueError):
+        await reports.report_blocked_update(
+            user_id="owner", operation_id="op_" + "b" * 32, repo=Repo()
+        )
+    receipt = await reports.report_blocked_update(
+        user_id="owner", operation_id=operation_id, repo=Repo()
+    )
+    assert receipt["status"] == "received"
+    assert receipt["excerptCount"] == 1
+    assert "sentinel-private-content" not in caplog.text
 
 
 def test_conflicting_heartbeat_does_not_claim_provider_record_is_current():

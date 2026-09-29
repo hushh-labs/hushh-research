@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -25,27 +25,17 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
  * Shared is the default when the server confirms no pod assignment or pending
  * setup; BYOC and the gated Hussh Pods path are explicit alternatives.
  *
- * `ByocCloudCard` was written, finished and never mounted anywhere. This page is the
- * mount, and the only thing it adds is the half the card could not have: naming a
- * project has to be RECORDED and the grant has to be PROVEN, and both of those are
- * server work.
- *
- * WHY "not authorized yet" IS NOT AN ERROR HERE
- *
- * A person cannot authorize hushh before hushh tells them which identity to authorize,
- * and that value (`hushhCaller`) comes back from the save call itself. So the expected
- * sequence is: name the project, get told no along with the exact command, run it,
- * continue. Treating the first answer as a failure would make the normal path look
- * broken.
+ * The owner signs in to Google once; the server creates or verifies the
+ * project, proves authorization, and only then records the cloud assignment.
  */
 /** The six stages, in the product order, with copy a person can trust. */
 const SETUP_STAGES: Array<{ id: string; label: string }> = [
   { id: "creating_project", label: "Creating your project" },
   { id: "linking_billing", label: "Linking your billing" },
-  { id: "enabling_apis", label: "Enabling Google APIs" },
-  { id: "applying_iam", label: "Granting the one permission" },
-  { id: "settling_grant", label: "Waiting for Google to settle it" },
-  { id: "proving", label: "Proving we can act in your cloud" },
+  { id: "enabling_apis", label: "Preparing cloud services" },
+  { id: "applying_iam", label: "Configuring private access" },
+  { id: "settling_grant", label: "Confirming cloud access" },
+  { id: "proving", label: "Checking your private agent" },
 ];
 
 function SetupStageChecklist({
@@ -102,30 +92,17 @@ export function ByocCloudSetupPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const [saving, setSaving] = useState(false);
-  const [filesEnabled, setFilesEnabled] = useState(false);
-  const [filesAvailable, setFilesAvailable] = useState(false);
-  const [saved, setSaved] = useState<Awaited<
-    ReturnType<typeof ApiService.saveByocProject>
-  > | null>(null);
+  const authorizationStarting = useRef(false);
   const [error, setError] = useState<string | null>(null);
   // The already-connected state, resolved on mount. This page used to hold all
   // connection truth in per-session state, so a person whose cloud was fully
   // recorded came back to a blank form with a dead Finish button (audit
-  // finding, 2026-08-21). The durable "cloud" marker only exists after a
-  // PROVEN save, so marker + saved name is enough to render the truth.
+  // finding, 2026-08-21). The durable cloud marker follows proof, so the
+  // owner's registry assignment is the source for this revisit state.
   const [existing, setExisting] = useState<{
     projectId: string;
     rationale: string;
   } | null>(null);
-  const [switching, setSwitching] = useState(false);
-  // What the person is being asked to grant, and the script that grants it. Fetched
-  // rather than hard-coded: this page used to print `bash deploy/iam/...`, a path that
-  // exists only in the hussh repository, so the manual lane dead-ended on an
-  // instruction nobody outside the team could run.
-  const [instructions, setInstructions] = useState<Awaited<
-    ReturnType<typeof ApiService.getByocAuthorizationInstructions>
-  > | null>(null);
-  const [copied, setCopied] = useState(false);
   // Which alternative this person is taking from a confirmed Shared state.
   const [choice, setChoice] = useState<"own" | "hosted" | null>(null);
   // The hosted door is closed for maintenance (founder direction, 2026-09-02):
@@ -158,27 +135,6 @@ export function ByocCloudSetupPage() {
 
   // "Checking your agent home..." must end. If placement or setup state cannot
   // be read, the page offers refresh and keeps every existing assignment intact.
-  // The manual lane's content. Fetched only once a project is recorded and the grant
-  // is not yet proven, which is exactly when this screen asks for it -- and skipped
-  // entirely on the one-click path, where the person never sees a script at all.
-  useEffect(() => {
-    if (!saved || saved.authorized) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const next = await ApiService.getByocAuthorizationInstructions();
-        if (!cancelled) setInstructions(next);
-      } catch {
-        // Leave `instructions` null: the block renders "preparing…" rather than a
-        // command that would authorize nothing. A half-rendered grant is worse than
-        // a visibly pending one.
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [saved]);
-
   useEffect(() => {
     if (!user?.uid) return;
     if (checked && hostingStatusChecked) {
@@ -322,66 +278,38 @@ export function ByocCloudSetupPage() {
     if (searchParams.get("intent") === "migrate") setChoice("own");
   }, [searchParams]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setFilesEnabled(false);
-    setFilesAvailable(false);
-    if (choice === "own" && user?.uid) {
-      void ApiService.suggestByocProject().then(value => {
-        if (!cancelled) setFilesAvailable(value.filesAvailable === true);
-      }).catch(() => {});
-    }
-    return () => { cancelled = true; };
-  }, [choice, user?.uid]);
-
   const handleProjectNamed = useCallback(async (projectId: string) => {
+    if (authorizationStarting.current) return;
+    authorizationStarting.current = true;
     setSaving(true);
     setError(null);
     try {
-      // THE DEFAULT IS ONE CLICK (founder-directed): sign in to Google once and
-      // the server creates the project if needed, links the person's own
-      // billing, applies the authorization plan under their transient token,
-      // and records the proven cloud. The manual console/script route stays
-      // reachable through the card's create-help, as the fallback.
-      const begun = await ApiService.beginByocAuthorize({ projectId, filesEnabled });
+      // A transient suggestion failure must not strand someone who entered
+      // an existing project. The backend alone admits Files to this setup.
+      const suggestion = await ApiService.suggestByocProject().catch(() => null);
+      const begun = await ApiService.beginByocAuthorize({
+        projectId,
+        filesEnabled: suggestion?.filesAvailable === true,
+      });
       window.location.assign(begun.authUrl);
       return;
     } catch (err) {
-      // A deployment without Google sign-in configured falls back to the
-      // manual route: record the name, show the script, prove on re-save.
-      // The fallback is a lane, not an error.
-      const message = err instanceof Error ? err.message : "";
-      if (
-        !filesEnabled && (message === "BYOC_AUTHORIZE_BEGIN_FAILED" ||
-        /not configured/i.test(message))
-      ) {
-        try {
-          setSaved(await ApiService.saveByocProject({ projectId }));
-          return;
-        } catch (fallbackErr) {
-          err = fallbackErr;
-        }
-      }
-      // The project is not recorded, so the step is genuinely incomplete. Say that
-      // rather than advancing: a false "done" here surfaces much later, in their own
-      // cloud, as a provisioning failure with nothing naming the cause. When the
-      // server sent a real reason (the 409 "verify your phone first" is a normal
-      // step of this journey, not a fault), show that reason verbatim — one status
-      // line, the actual next action (Restraint Charter: earn every element).
       const serverReason =
         err instanceof Error &&
         err.message &&
-        err.message !== "BYOC_SAVE_FAILED"
+        err.message !== "BYOC_AUTHORIZE_BEGIN_FAILED" &&
+        err.message !== "BYOC_SUGGESTION_UNAVAILABLE"
           ? err.message
           : null;
       setError(
         serverReason ??
-          "We could not save your cloud just now. Try again in a moment.",
+          "We could not start cloud setup. Your existing setup is unchanged; try again in a moment.",
       );
     } finally {
+      authorizationStarting.current = false;
       setSaving(false);
     }
-  }, [filesEnabled]);
+  }, []);
 
   const chooseHosted = useCallback(async () => {
     setError(null);
@@ -436,15 +364,11 @@ export function ByocCloudSetupPage() {
     }
   }, [user?.uid]);
 
-  // A cloud is "done" here either because THIS session just proved it, or
-  // because the durable marker says a prior session did, or because the person
-  // chose to have hussh host it (which needs no proof — there is nothing to
-  // authorize). All three are settled states; the footer treats them the same.
-  const connectedNow = saved?.authorized === true;
-  const connectedBefore = existing !== null && !switching;
+  // A durable connected project or a selected hosting mode completes this step.
+  const connectedBefore = existing !== null;
   const hostedChosen = hosted !== null;
   const authorized =
-    connectedNow || connectedBefore || hostedChosen || sharedChosen || hostingMode === "hussh_pods";
+    connectedBefore || hostedChosen || sharedChosen || hostingMode === "hussh_pods";
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -471,7 +395,7 @@ export function ByocCloudSetupPage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Where your agent lives"
-          description="Choose Hussh Shared with no personal pod, BYOC in your Google Cloud, or Hussh Pods when available. Existing pod assignments stay in place."
+          description="Choose where your private agent runs. Your existing setup stays in place."
           accent="neutral"
         />
         {checkTimedOut && !authorized ? (
@@ -504,13 +428,27 @@ export function ByocCloudSetupPage() {
                 ? "The setup stopped partway (our side restarted). Everything already done is kept."
                 : job.errorMessage || "The setup could not finish."}
             </p>
+            {job.errorCode === "NEEDS_BILLING" ? (
+              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                <a href="https://console.cloud.google.com/billing" target="_blank" rel="noreferrer"
+                  className="underline underline-offset-4" data-testid="byoc-open-billing">
+                  Set up Google Cloud billing
+                </a>
+                <a href="https://console.cloud.google.com/billing/projects" target="_blank" rel="noreferrer"
+                  className="underline underline-offset-4" data-testid="byoc-link-project-billing">
+                  Link billing to this project
+                </a>
+                <p className="w-full text-muted-foreground">Return here after billing is active. Your project is preserved.</p>
+              </div>
+            ) : null}
             <button
               type="button"
-              className="self-start text-sm underline underline-offset-4 text-destructive"
+              disabled={saving}
+              className="min-h-11 self-start text-sm underline underline-offset-4 text-destructive disabled:opacity-50"
               onClick={() => void handleProjectNamed(job.projectId)}
               data-testid="byoc-setup-retry"
             >
-              Try again
+              Deploy to your cloud
             </button>
           </div>
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
@@ -521,11 +459,9 @@ export function ByocCloudSetupPage() {
           >
             Checking your agent home…
           </p>
-        ) : connectedBefore && !connectedNow ? (
+        ) : connectedBefore ? (
           // The revisit state: their cloud is already recorded and proven.
-          // Showing the naming form here read as "nothing ever happened"
-          // (audit finding, 2026-08-21); the truth is a connected cloud with
-          // one quiet way out for the person who genuinely wants to switch.
+          // An assigned pod cannot be moved by repeating first-time setup.
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
             data-testid="byoc-cloud-connected"
@@ -534,17 +470,8 @@ export function ByocCloudSetupPage() {
               Connected: {existing.projectId}
             </p>
             <p className="text-sm text-[var(--app-text-secondary)]">
-              {existing.rationale ||
-                "Your saved cloud. Change it only to switch projects."}
+              {existing.rationale || "Your private agent remains assigned to this project."}
             </p>
-            <button
-              type="button"
-              className="text-sm underline underline-offset-4"
-              onClick={() => setSwitching(true)}
-              data-testid="byoc-cloud-switch"
-            >
-              Switch project
-            </button>
           </div>
         ) : hostingMode === "pending" ? (
           <div
@@ -609,17 +536,7 @@ export function ByocCloudSetupPage() {
           </div>
         ) : choice === "own" ? (
           <div className="space-y-4">
-            {filesAvailable && hostingMode === "shared" ? (
-              <label className="flex items-start gap-3 rounded-2xl border border-[var(--app-border)] p-4">
-                <input type="checkbox" className="mt-1" checked={filesEnabled}
-                  onChange={event => setFilesEnabled(event.target.checked)} disabled={saving} />
-                <span className="space-y-1 text-sm">
-                  <span className="block font-semibold">Include a private Files library</span>
-                  <span className="block text-[var(--app-text-secondary)]">Store encrypted files in your Google Cloud bucket. Setup adds a Cloud Tasks queue and a dedicated worker identity. Your cloud pays storage and processing costs. Content analysis stays off until you enable it in Files.</span>
-                </span>
-              </label>
-            ) : null}
-            <ByocCloudCard onProjectNamed={handleProjectNamed} />
+            <ByocCloudCard busy={saving} onProjectNamed={handleProjectNamed} />
           </div>
         ) : hostingMode === "shared" || sharedChosen ? (
           <div className="space-y-3" data-testid="shared-hosting-selected">
@@ -756,98 +673,12 @@ export function ByocCloudSetupPage() {
           </div>
         ) : null}
 
-        {saved && !authorized ? (
-          // The grant step. `hushhCaller` appeared nowhere a person could see it
-          // before this, which made the documented journey impossible to complete.
-          <div
-            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
-            data-testid="byoc-cloud-authorize"
-          >
-            <p className="text-sm font-semibold">
-              One more step, in your own cloud
-            </p>
-            <p className="text-sm text-[var(--app-text-secondary)]">
-              Run this in your project to let us build your agent there. It
-              grants one role, to one account, and you can withdraw it with a
-              single command.
-            </p>
-            {instructions ? (
-              <>
-                <pre
-                  className="max-h-64 overflow-auto rounded-xl bg-[var(--app-surface-sunk)] p-3 text-xs"
-                  data-testid="byoc-authorize-script"
-                >
-                  {instructions.script}
-                </pre>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    className="rounded-full border border-[var(--app-border)] px-3 py-1 text-xs"
-                    data-testid="byoc-authorize-copy"
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(instructions.script);
-                        setCopied(true);
-                      } catch {
-                        // Clipboard can be refused; the script is on screen either way,
-                        // so this must never look like the step failed.
-                        setCopied(false);
-                      }
-                    }}
-                  >
-                    {copied ? "Copied" : "Copy script"}
-                  </button>
-                  <span className="text-xs text-[var(--app-text-secondary)]">
-                    Read it before you run it. It creates no key, and we never ask
-                    for one.
-                  </span>
-                </div>
-                <details className="text-xs text-[var(--app-text-secondary)]">
-                  <summary className="cursor-pointer">
-                    What this grants, exactly
-                  </summary>
-                  <ul className="mt-2 space-y-1">
-                    {(instructions.disclosure.grants_to_bootstrap_sa ?? []).map(
-                      (grant) => (
-                        <li key={grant.role}>
-                          <span className="font-mono">{grant.role}</span> — {grant.why}
-                        </li>
-                      ),
-                    )}
-                  </ul>
-                  {instructions.disclosure.hushh_never_receives?.length ? (
-                    <>
-                      <p className="mt-3 font-semibold">What we never receive</p>
-                      <ul className="mt-1 space-y-1">
-                        {instructions.disclosure.hushh_never_receives.map((item) => (
-                          <li key={item}>{item}</li>
-                        ))}
-                      </ul>
-                    </>
-                  ) : null}
-                  {instructions.disclosure.revocation ? (
-                    <p className="mt-3">{instructions.disclosure.revocation}</p>
-                  ) : null}
-                </details>
-              </>
-        ) : (
-              <p className="text-xs text-[var(--app-text-secondary)]">
-                Preparing the script for {saved.projectId}…
-              </p>
-            )}
-            <p className="text-xs text-[var(--app-text-secondary)]">
-              Then come back and confirm your project again. Nothing is created
-              until we can prove we can reach it.
-            </p>
-          </div>
-        ) : null}
-
         {authorized ? (
           <p
             className="text-sm text-[var(--app-success)]"
             data-testid="byoc-cloud-authorized"
           >
-            Connected. {saved?.nextStep}
+            Connected. Your private agent can be set up in your cloud.
           </p>
         ) : null}
       </AppPageContentRegion>

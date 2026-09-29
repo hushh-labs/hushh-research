@@ -438,11 +438,7 @@ class ByocProjectSuggestionResponse(BaseModel):
     editable: bool
     rationale: str
     creationModes: list[str]
-    filesAvailable: bool = Field(
-        default_factory=lambda: (
-            os.getenv("HUSSH_POD_FILES_ENABLED", "").lower() in {"1", "true", "yes", "on"}
-        )
-    )
+    filesAvailable: bool = False
 
 
 class ByocProjectCheckRequest(BaseModel):
@@ -477,11 +473,19 @@ async def suggest_byoc_project(
     same name. A suggestion that changed under someone between seeing it and accepting
     it would be a poor thing to do to a person naming infrastructure they will own.
     """
+    from hushh_mcp.services.byoc_oauth_authorizer import ByocAuthorizeError
+    from hushh_mcp.services.pod_files.selection import require_setup_admission
     from hushh_mcp.services.user_gcp_project import (
         CREATION_DELEGATED,
         CREATION_GUIDED,
         suggest_project_id,
     )
+
+    try:
+        await require_setup_admission(firebase_uid)
+        files_available = True
+    except ByocAuthorizeError:
+        files_available = False
 
     # THEIR saved cloud outranks the deterministic suggestion. The founder hit
     # the trap this closes: the per-person deterministic name collided with their
@@ -496,12 +500,14 @@ async def suggest_byoc_project(
         return ByocProjectSuggestionResponse(
             **payload,
             creationModes=[CREATION_GUIDED, CREATION_DELEGATED],
+            filesAvailable=files_available,
         )
 
     suggestion = suggest_project_id(firebase_uid)
     return ByocProjectSuggestionResponse(
         **suggestion.as_dict(),
         creationModes=[CREATION_GUIDED, CREATION_DELEGATED],
+        filesAvailable=files_available,
     )
 
 
@@ -1044,6 +1050,33 @@ class ByocSetupStatusResponse(BaseModel):
     updatedAt: str | None = None
 
 
+async def _require_unassigned_byoc(user_id: str) -> None:
+    """First-time cloud setup cannot migrate or replace an active owner pod."""
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        row = await PersonalAgentRegistryRepo().get(user_id)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "POD_ASSIGNMENT_UNVERIFIED",
+                "message": "Cloud setup could not verify your existing agent.",
+            },
+        ) from exc
+    if row and (
+        row.get("external_agent_id")
+        or row.get("status") in {"provisioning", "connecting", "provisioned"}
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "POD_ASSIGNMENT_PRESERVED",
+                "message": "Your existing pod is preserved. Cloud moves need a separate migration.",
+            },
+        )
+
+
 @router.post("/byoc/authorize/begin", response_model=ByocAuthorizeBeginResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def begin_byoc_authorize(
@@ -1063,6 +1096,7 @@ async def begin_byoc_authorize(
         raise HTTPException(
             status_code=422, detail={"code": "INVALID_PROJECT_ID", "reason": verdict.reason}
         )
+    await _require_unassigned_byoc(firebase_uid)
     try:
         if body.filesEnabled:
             from hushh_mcp.services.pod_files.selection import require_setup_admission
@@ -1148,6 +1182,7 @@ async def complete_byoc_authorize(
 
     try:
         project, files_enabled = oauth.verify_state_selection(body.state, firebase_uid)
+        await _require_unassigned_byoc(firebase_uid)
         token = await asyncio.to_thread(oauth.exchange_code, body.code)
     except oauth.ByocAuthorizeError as exc:
         raise HTTPException(
@@ -1156,12 +1191,23 @@ async def complete_byoc_authorize(
 
     suggestion = suggest_project_id(firebase_uid)
     job_id = jobs.new_job_id()
-    await jobs.ByocSetupJobRepo().start(
+    job_repo = jobs.ByocSetupJobRepo()
+    started = await job_repo.start(
         user_id=firebase_uid,
         job_id=job_id,
         project_id=project,
         **({"files_enabled": True} if files_enabled else {}),
     )
+    if not started:
+        current = await job_repo.get(firebase_uid)
+        if current and current.get("status") == "running" and current.get("project_id") == project:
+            return ByocSetupAcceptedResponse(
+                jobId=current["job_id"], projectId=project, status="running"
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "SETUP_IN_PROGRESS", "message": "A cloud setup is already running."},
+        )
 
     async def _save():
         return await _save_byoc_project(

@@ -17,10 +17,11 @@ from datetime import datetime, timedelta, timezone
 from hmac import compare_digest
 from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middlewares.rate_limit import RateLimits, limiter
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.account_service import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
@@ -101,6 +102,12 @@ class UpgradeApprovalRequest(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+
+class UpdateFailureReportRequest(BaseModel):
+    operation_id: str = Field(..., alias="operationId", pattern=r"^op_[0-9a-f]{32}$")
+
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
 
 class UpgradeDeferralRequest(BaseModel):
@@ -428,6 +435,16 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
             out["installedReleaseVerifiedAt"] = str(approval["verifiedAt"])
         if installed_digest == target_digest:
             out["updateVerified"] = True
+            # Keep the completed owner operation visible after a refresh. The
+            # receipt above binds its digest, service incarnation and release;
+            # a provider acknowledgement alone never reaches this projection.
+            out["update"] = {
+                "releaseId": approval["releaseId"],
+                "operationId": approval["operationId"],
+                "presentationState": "verified",
+                "phase": "verified",
+                "verifiedAt": approval.get("verifiedAt"),
+            }
     # The lease is the in-flight signal: it is taken before the copy starts and
     # cleared when the outcome is recorded, so "fresh lease" is "being updated now".
     if _lease_is_fresh(metadata.get("upgradeLease")):
@@ -809,6 +826,27 @@ async def defer_personal_agent_update(
     if not isinstance(stored, dict) or stored.get("releaseId") != release_id:
         raise HTTPException(status_code=409, detail="software update is already scheduled")
     return {"releaseId": release_id, "status": "deferred", "remindAt": stored["remindAt"]}
+
+
+@router.post("/update/failure-report")
+@limiter.limit(RateLimits.CONSENT_REQUEST)
+async def report_personal_agent_update_failure(
+    request: Request,
+    payload: UpdateFailureReportRequest = Body(...),
+    user_id: str = Depends(require_firebase_auth),
+) -> dict:
+    """An owner request sends bounded update events, never private pod logs."""
+    _require_enabled()
+    from hushh_mcp.services.pod_update_failure_report import report_blocked_update
+
+    try:
+        return await report_blocked_update(
+            user_id=user_id,
+            operation_id=payload.operation_id,
+            repo=PersonalAgentRegistryRepo(),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
 
 
 @router.get("/verification-keys")

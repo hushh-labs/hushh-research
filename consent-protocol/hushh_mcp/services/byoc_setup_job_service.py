@@ -24,11 +24,12 @@ lifetime, exactly as it lived in the request coroutine before. It is never
 written to the jobs table, never logged, never persisted. The table holds
 stage names, timestamps, a typed refusal, and coordinates only.
 
-ONE ROW PER PERSON, SUPERSEDED IN PLACE
----------------------------------------
-A new attempt overwrites the row with a new job id. A superseded task notices
-(its writes are guarded by job id) and exits without touching anything -- so
-two tabs racing produce one winner and zero interleaved records.
+ONE ACTIVE JOB PER PERSON
+-------------------------
+An atomic database claim prevents another OAuth callback from launching
+overlapping Google work. A terminal or genuinely stale job can be retried with
+the same project. The active worker refreshes its heartbeat during long IAM
+settling; a crashed worker eventually becomes retryable.
 
 DEV-LANE HONESTY
 ----------------
@@ -96,28 +97,46 @@ class ByocSetupJobRepo:
 
     async def start(
         self, *, user_id: str, job_id: str, project_id: str, files_enabled: bool = False
-    ) -> None:
-        row = {
-            "user_id": user_id,
-            "job_id": job_id,
-            "project_id": project_id,
-            "status": "running",
-            "stage": "starting",
-            "stages": [{"stage": "files_selection", "enabled": True, "version": 1}]
-            if files_enabled
-            else [],
-            "error_code": None,
-            "error_message": None,
-            "created_at": _now(),
-            "updated_at": _now(),
-        }
-        existing = (
-            self._db().table(_JOBS).select("user_id").eq("user_id", user_id).limit(1).execute()
+    ) -> bool:
+        stages = (
+            [{"stage": "files_selection", "enabled": True, "version": 1}] if files_enabled else []
         )
-        if existing.data:
-            self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
-        else:
-            self._db().table(_JOBS).insert(row).execute()
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """
+            INSERT INTO byoc_setup_jobs
+              (user_id, job_id, project_id, status, stage, stages, error_code,
+               error_message, created_at, updated_at)
+            VALUES (:owner, :job, :project, 'running', 'starting',
+                    CAST(:stages AS jsonb), NULL, NULL, now(), now())
+            ON CONFLICT (user_id) DO UPDATE SET
+              job_id = EXCLUDED.job_id, project_id = EXCLUDED.project_id,
+              status = 'running', stage = 'starting', stages = EXCLUDED.stages,
+              error_code = NULL, error_message = NULL,
+              created_at = now(), updated_at = now()
+            WHERE byoc_setup_jobs.status <> 'running'
+               OR byoc_setup_jobs.updated_at < now() - (:stale_seconds * interval '1 second')
+            RETURNING job_id
+            """,
+            {
+                "owner": user_id,
+                "job": job_id,
+                "project": project_id,
+                "stages": json.dumps(stages),
+                "stale_seconds": STALE_AFTER_SECONDS,
+            },
+        )
+        return bool(response.data)
+
+    async def touch(self, *, user_id: str, job_id: str) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            """UPDATE byoc_setup_jobs SET updated_at = now()
+               WHERE user_id = :owner AND job_id = :job AND status = 'running'
+               RETURNING job_id""",
+            {"owner": user_id, "job": job_id},
+        )
+        return bool(response.data)
 
     async def retain_authorization(
         self, *, user_id: str, job_id: str, intent: dict, receipt: dict | None = None
@@ -324,6 +343,22 @@ async def run_setup_job(
 
     jobs = repo or ByocSetupJobRepo()
     bootstrap_sa = f"{bootstrap_account_id}@{project}.iam.gserviceaccount.com"
+    touch = getattr(jobs, "touch", None)
+    if callable(touch):
+
+        async def pulse() -> None:
+            while True:
+                await asyncio.sleep(15)
+                try:
+                    if not await touch(user_id=user_id, job_id=job_id):
+                        return
+                except Exception as exc:  # heartbeat failure must not broaden authority
+                    logger.warning("byoc_setup_job.heartbeat_failed err=%s", type(exc).__name__)
+
+        pulse_task = asyncio.create_task(pulse())
+        owner_task = asyncio.current_task()
+        if owner_task is not None:
+            owner_task.add_done_callback(lambda _: pulse_task.cancel())
     try:
         await jobs.advance(user_id=user_id, job_id=job_id, stage="creating_project")
         await asyncio.to_thread(

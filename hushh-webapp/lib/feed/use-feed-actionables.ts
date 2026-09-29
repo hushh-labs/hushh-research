@@ -69,10 +69,10 @@ import {
   ConnectionsService,
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
-import { buildKaiMarketRoute } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
-import { updateActivityLabel } from "@/lib/feed/agent-update-status";
+import { updateActivityLabel, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 
 /** Subset of SettingsRow's icon-well tones (that type is not exported). */
 export type FeedIconTone =
@@ -109,6 +109,7 @@ export interface FeedActionable {
   spinning?: boolean;
   title: string;
   description: string;
+  updateProgress?: AgentUpdateStatus;
   /** Whole-row link (e.g. consent Review deep-link). */
   href?: string | null;
   /** Whole-row imperative action (e.g. resume a running debate). */
@@ -584,6 +585,8 @@ export function useFeedActionables(): UseFeedActionablesResult {
             ? agentUpdate.error || "Open Software updates to check recovery."
             : "Keep using Settings to follow this update. Completion will be verified."
           : agentUpdate.summary || "Keeps your private agent current.",
+        updateProgress: updateActivity ? agentUpdate : undefined,
+        href: updateActivity ? ROUTES.PROFILE_SOFTWARE_UPDATES : undefined,
         actions: updateActivity
           ? []
           : [

@@ -32,7 +32,9 @@ vi.mock("@/components/files/files-settings-panel", () => ({
 vi.mock("@/components/files/files-organization-history", () => ({
   FilesOrganizationHistory: () => null,
 }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: {} }));
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: vi.fn(async () => ({ filesActivationAvailable: false })) },
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 describe("Files form submission", () => {

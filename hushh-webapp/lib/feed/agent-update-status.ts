@@ -10,8 +10,8 @@ export type AgentUpdateStatus = {
   releaseId: string | null;
   summary: string | null;
   presentationState:
-    "ready" | "deferred" | "scheduled" | "updating" | "blocked" | null;
-  phase: "scheduled" | "preparing" | "installing" | "verifying" | "blocked" | null;
+    "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked" | null;
+  phase: "scheduled" | "preparing" | "installing" | "verifying" | "verified" | "blocked" | null;
   remindAt: string | null;
   operationId: string | null;
   verified: boolean;
@@ -59,6 +59,17 @@ export function updateActivityLabel(update: AgentUpdateStatus): string | null {
   return null;
 }
 
+/** Segment count reflects persisted milestones, not elapsed time or byte progress. */
+export function updateProgressStage(update: AgentUpdateStatus): number | null {
+  if (update.failed || update.presentationState === "blocked") return null;
+  if (update.verified && update.presentationState === "verified") return 4;
+  if (update.phase === "verifying") return 3;
+  if (update.phase === "installing") return 2;
+  if (update.phase === "preparing") return 1;
+  if (update.phase === "scheduled" || update.presentationState === "scheduled") return 0;
+  return null;
+}
+
 export function readUpdateStatus(
   res:
     | {
@@ -74,8 +85,8 @@ export function readUpdateStatus(
           releaseId?: string;
           summary?: string;
           presentationState?:
-            "ready" | "deferred" | "scheduled" | "updating" | "blocked";
-          phase?: "scheduled" | "preparing" | "installing" | "verifying" | "blocked";
+            "ready" | "deferred" | "scheduled" | "updating" | "verified" | "blocked";
+          phase?: "scheduled" | "preparing" | "installing" | "verifying" | "verified" | "blocked";
           remindAt?: string;
           operationId?: string;
         };

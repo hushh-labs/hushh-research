@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import { AgentUpdateProgress } from "@/components/agent/agent-update-progress";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
-import { FilesActivationPanel } from "@/components/profile/files-activation-panel";
 import {
   snapshotValidatedAuthSessionOwner,
   isValidatedAuthSessionOwnerCurrent,
@@ -185,6 +185,27 @@ export function AgentSettingsPanel({
     }
   }
 
+  async function sendFailureReport() {
+    if (busyRef.current || !update.failed || !update.operationId) return;
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await morphyToast.promise(
+        ApiService.reportPersonalAgentUpdateFailure({ operationId: update.operationId }),
+        {
+          loading: "Sending update report…",
+          success: "Report sent. Private files and conversations were not included.",
+          error: "The report could not be sent. Your pod is unchanged; try again later.",
+        },
+      ).unwrap();
+    } catch {
+      // A failed report never changes the update operation.
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  }
+
   async function recoverExistingPod() {
     if (busyRef.current || !needsLinkRecovery) return;
     const owner = snapshotValidatedAuthSessionOwner();
@@ -315,9 +336,6 @@ export function AgentSettingsPanel({
             </Button>
           ) : null}
         </div>
-        {mode === "byoc" && status?.filesActivationAvailable ? (
-          <FilesActivationPanel key={userId} disabled={busy || working} onScheduled={refresh} />
-        ) : null}
       </div>
     );
   }
@@ -368,6 +386,8 @@ export function AgentSettingsPanel({
           <SettingsRow title="New version" description={releaseLabel(release.version, release.releasedAt)} />
         ) : null}
       </SettingsGroup>
+
+      {isPod ? <AgentUpdateProgress update={update} /> : null}
 
       {release && update.available ? (
         <details className="text-sm">
@@ -420,7 +440,18 @@ export function AgentSettingsPanel({
         >
           Check for updates
         </Button>
+        {isPod && update.failed && update.operationId ? (
+          <Button variant="muted" disabled={busy} onClick={() => void sendFailureReport()}>
+            Send failure report
+          </Button>
+        ) : null}
       </div>
+
+      {isPod && update.failed && update.operationId ? (
+        <p className="text-xs text-muted-foreground">
+          This sends only update stages and error codes to Hussh when you choose to report it.
+        </p>
+      ) : null}
 
       {isPod &&
       (status?.releaseCheckedAt || status?.installedReleaseVerifiedAt) ? (
@@ -441,9 +472,6 @@ export function AgentSettingsPanel({
             ) : null}
           </div>
         </details>
-      ) : null}
-      {mode === "byoc" && status?.filesActivationAvailable ? (
-        <FilesActivationPanel key={userId} disabled={busy || working} onScheduled={refresh} />
       ) : null}
     </div>
   );
