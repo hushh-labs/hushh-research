@@ -3093,3 +3093,58 @@ within the model turn. The long pre-model interval remains under review.
 Simple direct probes of the Mac's local model endpoint took approximately
 15.6 seconds for e2b and 7.0 seconds for a warmed 12B model, so those probes
 cannot stand in for an owner-pod turn with full One instructions and tools.
+
+### 2026-09-29: Deployed cold, warm and cancellation readback
+
+Infrastructure source `701d2eae814f407e5cf64b8dd7260dd1c91362af` passed
+the local core mirror and hosted validation `36598215340`. The main-owned
+dev workflow `36601089830` succeeded on that exact branch SHA; frontend
+`hushh-webapp-00091-48h` served 100% of dev traffic on readback. The backend
+remained `consent-protocol-00116-phb`. No new pod image was installed: the
+owner's `hussh-one-pod` service still served
+`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00019-f79` at 100% with
+request concurrency eight. Hermes relay source was `08998d747a`. This was a
+frontend deployment, not another owner-approved software update.
+
+A browser turn following Cloud Monitoring observations of zero active and
+zero idle owner-pod instances completed with a nonempty local-model response.
+Elapsed time was 193.7 seconds: owner hosting confirmed at 0.25 seconds,
+device at 0.42 seconds, pod session admitted at 71.6 seconds, activation
+sent at 105.4 seconds, SSE opened at 115.5 seconds, first visible text at
+192.0 seconds, and completion at 193.7 seconds. The Hermes relay measured
+5.9 seconds from local-model headers to first content. The pod's ADK text
+turn measured 16.7 seconds to first visible text and 18.5 seconds total.
+These are separate stage observations; no edge response was counted as a pod
+response. A subsequent warm browser turn completed in 36.4 seconds, with
+admission at 3.6 seconds, SSE open at 16.3 seconds and first text at
+34.7 seconds. Neither sample establishes a latency percentile or cold-wake
+budget compliance.
+
+The cold pod logged two hydrations of the same 69 memory records and log
+sequence 242: the memory-status route completed one at 17:09:07 UTC, then
+the text turn completed another at 17:10:28 UTC. The warm turn again logged
+two hydrations, for 71 records at sequence 246. Source constructs a new
+memory service on each resolution and lazily replays its sealed log on first
+use. This is confirmed duplicate work, but the logs do not isolate its
+share of cold latency. A process cache requires owner/key/incarnation fencing,
+fresh revocation and erasure checks, and concurrency-safe turn reports;
+therefore no unverified cache or memory-custody change was deployed.
+
+A separate synthetic turn opened SSE at 13.85 seconds; browser cancellation
+then showed its terminal cancelled state and cleared the pending request
+within approximately 25 milliseconds. The pod and device did not produce a
+separate cancellation receipt for that attempt, so server-side interruption
+remains unverified. A following warm browser turn completed with a nonempty
+local response in 35.3 seconds after a fresh admission and SSE connection,
+which proves client reconnect after that cancellation, not a device-process
+restart. The machine catalog and chat/global selection, responsive
+grid alignment and update-operation readbacks above remain the evidence for
+those surfaces. The deployed build still did not expose the packaged
+`?perf=1` stream sample; a manual cold-turn animation-frame observation had
+p95 9.5 milliseconds with seven intervals over 50 milliseconds, and a
+three-second machine-sheet observation had p95 16.4 milliseconds with one
+interval over 50 milliseconds. A two-hour sampled dev backend query found no
+`one_text_vertex_failover` or `agent_chat_transient_retry` event; that is not
+an end-to-end 429 rate. Phone browser and Mac on independent active internet
+connections, live server-side cancellation, and a cold-wake latency target
+remain open acceptance evidence.
