@@ -101,12 +101,13 @@ enum AppLifecycleHandlers {
         OneSystemRequestInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
     }
 
-    /// Scene callbacks precede UIKit's active state on some OS versions. Retry
-    /// only until UIKit confirms activation; the shield still requires the
-    /// resumed JavaScript document's exact-generation acknowledgement to lift.
+    /// Scene callbacks precede UIKit's active state on some OS versions. A
+    /// busy WebKit/simulator resume can take longer than the old 200 ms fallback.
+    /// Wait for actual UIKit activation, bounded to five seconds; this never
+    /// acknowledges the cover on behalf of the resumed JavaScript document.
     static func didBecomeActiveFromScene(attempt: Int = 0) {
         guard UIApplication.shared.applicationState == .active else {
-            guard attempt < 4 else { return }
+            guard attempt < 100 else { return }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
                 didBecomeActiveFromScene(attempt: attempt + 1)
             }

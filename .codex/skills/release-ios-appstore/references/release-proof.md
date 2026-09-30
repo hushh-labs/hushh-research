@@ -11,12 +11,13 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
   green `main` SHA all the way to the public App Store: web build -> Capacitor sync -> archive ->
   Apple-managed sign -> export/upload to App Store Connect -> set per-version "What's New" ->
   attach the processed build -> (opt-in) submit for public review.
-- **Backend is UAT, on purpose.** The public binary is built against the **UAT backend + UAT
-  Firebase (`hushh-pda-uat`)** — the same latest frontend+backend that is live on UAT and
-  TestFlight. There is no separate production backend for the store binary. It still archives with
-  **production APNs** entitlements (correct for any store binary), so the UAT Firebase project must
-  hold a production APNs key for push to deliver. This is a deliberate decision, not a leak — state
-  it plainly in every report so nobody assumes a prod backend.
+- **Backend is selected per build.** `backend_target=uat` is the historical default;
+  `backend_target=production` binds the binary to `one.hushh.ai` and the production API.
+  The workflow reads production routing through production workload identity and refuses a
+  production/UAT Firebase identity mismatch. Signing and the shared native Firebase config
+  still come from `hushh-pda-uat` Secret Manager. Both targets archive with **production APNs**
+  entitlements. Record the selected backend and its serving SHA; never infer one from the
+  workflow's name or the Firebase secret project.
 - **Bundle** `com.hushh.app`; App Store Connect app id `6757718917`; team `WVDK9JW99C`;
   marketing version comes from `MARKETING_VERSION` in
   `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (App target, Debug + Release).
@@ -25,7 +26,7 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
 
 - **Gate 1 (every dispatch).** Stop and get an explicit "yes" before dispatching. Restate the
   workflow name, `--ref main`, the short SHA, the mode (dry-run / prepare-only / submit), the
-  backend (UAT `hushh-pda-uat`), and the bundle. The dispatcher
+  selected backend (`uat` or `production`), and the bundle. The dispatcher
   `scripts/release/dispatch-ios-appstore.mjs` also prints this and prompts.
 - **Gate 2 (public submission only).** `submit_for_review=true` is **IRREVERSIBLE** — it publishes
   to real users. It maps to `--submit --ack-blockers` on the CLI (a local safety gate the
@@ -39,7 +40,8 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
 The build is allowed only from a `main` SHA where **"Main Post-Merge Smoke Gate"** = `success`.
 The workflow re-checks with `scripts/ci/require-deploy-sha-on-main.sh` and refuses otherwise; fail
 fast locally too. This skill does **not** merge — if the work is not on `main`, tell the user to
-merge (and run the web deploy) first, then release. It ships what is already on `main`.
+merge and verify the selected backend's web/API deploy first, then release. It ships what is
+already on `main`.
 
 ## Identity / governance
 
@@ -52,8 +54,9 @@ the Apple ID password — those are the user's to perform.
 
 The ASC API key (`.p8`, **Admin** role) + Key ID + Issuer ID, the Apple Distribution Certificate `.p12` (`APPSTORE_DISTRIBUTION_CERT_P12_B64`), and the native
 `GoogleService-Info.plist`, live only in **GCP Secret Manager** (`hushh-pda-uat`), added by the
-user. The workflow authenticates with the `GCP_SA_KEY_UAT` GitHub secret (same as TestFlight) and
-fails fast with a runbook pointer if any of `APPSTORE_CONNECT_API_KEY_P8_B64` / `_KEY_ID` /
+user. The workflow uses `GCP_SA_KEY_UAT` for those shared signing/Firebase secrets; a
+production-backed build reads only routing values from `hushh-pda` through production workload
+identity. It fails fast with a runbook pointer if any of `APPSTORE_CONNECT_API_KEY_P8_B64` / `_KEY_ID` /
 `_ISSUER_ID` / `APPSTORE_DISTRIBUTION_CERT_P12_B64` / `IOS_GOOGLESERVICE_INFO_PLIST_B64` is missing. Never print, paste,
 `gcloud secrets versions access`, or ask the user to paste these into chat. If one is missing,
 point to the runbook — do not work around it.
@@ -85,12 +88,12 @@ review". Before calling a release done, capture:
 
 - SHA released (short) and that "Main Post-Merge Smoke Gate" was `success` on that exact SHA.
 - Run URL + final status; mode (dry-run / prepare-only / submitted).
-- Version + resolved build number (e.g. `1.3.6 (60)`).
+- Version + resolved build number from the exact upload run.
 - ASC state from the API or Job summary: uploaded / processing / "What's New" set / build attached
   to the version / review submission created — or, for prepare-only, explicitly "attached, NOT
   submitted for review"; for dry-run, "not uploaded".
-- On-device note: the build boots against the **UAT** backend (`hushh-pda-uat`, asserted during
-  prep) — the same backend as TestFlight.
+- On-device note: prove the selected UAT or production backend against the bundled routing
+  contract and the deployed service; TestFlight distribution alone does not establish it.
 
 Keep merge, smoke, dispatch, upload, and (if any) submission as separate evidence. Never call
 queued or processing work "done".
@@ -104,12 +107,14 @@ queued or processing work "done".
 - "I'll set the secret to unblock the run" — no. Secrets are user-owned in GCP Secret Manager;
   point to the runbook.
 - "Green run means it's on the store" — no. Confirm the ASC version/build/submission state.
-- "It's the prod release, so it must hit a prod backend" — no. This binary is intentionally
-  UAT-backed; say so.
+- "It's the prod release, so it must hit a prod backend" — no. The selected
+  `backend_target` and bundled routing determine the backend; prove and report them.
 
 ## Sibling & handoffs
 
-- TestFlight distribution (same UAT-backed binary, no review): the `ship-ios-testflight` skill.
+- UAT-backed TestFlight distribution uses the `ship-ios-testflight` sibling. For a
+  production-backed build, distribute the exact upload from this workflow with
+  `resume-ios-testflight.yml`; do not rebuild a UAT binary.
 - iOS native/Capacitor/entitlement/plist issues: `mobile-native`.
 - UAT Cloud Run + web deploy scope: `uat-scoped-deploy`; production Cloud Run authority: `repo-operations` and the canonical Admin release SOP.
 - Publish-safety, consent, or secret-boundary findings: `security-audit`.

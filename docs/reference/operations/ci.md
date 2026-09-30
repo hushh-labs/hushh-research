@@ -331,7 +331,7 @@ Protected branches are expected to enforce the same CI contract documented here:
 - repository setting
   - auto-merge enabled so `gh pr merge` can hand green PRs to merge queue instead of failing before queue placement
 - `main`
-  - `0` blanket approving reviews
+- `1` independent approving review of the latest push (the governed bypass cohort is separate)
   - required status checks: `CI Status Gate`
   - strict/up-to-date checks enabled
   - conversation resolution required
