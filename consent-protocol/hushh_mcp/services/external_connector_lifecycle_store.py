@@ -83,8 +83,13 @@ class ExternalConnectorLifecycleStore:
             params,
         )
 
-    async def read(self, *, user_id: str, connector_id: str) -> dict[str, Any] | None:
-        await self.purge_expired()
+    async def read(
+        self, *, user_id: str, connector_id: str, purge: bool = True
+    ) -> dict[str, Any] | None:
+        # Retention runs opportunistically on lifecycle transitions; a hot read
+        # path (every chat step) opts out to save two round trips per call.
+        if purge:
+            await self.purge_expired()
         return await self._transaction(
             lambda connection: self._row(
                 connection,
@@ -588,7 +593,13 @@ class ExternalConnectorLifecycleStore:
         )
 
     async def record_revocation(
-        self, *, user_id: str, connector_id: str, generation: int, outcome: str
+        self,
+        *,
+        user_id: str,
+        connector_id: str,
+        generation: int,
+        outcome: str,
+        release_fence: bool = False,
     ) -> bool:
         if outcome not in {"revoked", "failed", "unavailable"}:
             raise ValueError("invalid revocation outcome")
@@ -598,7 +609,7 @@ class ExternalConnectorLifecycleStore:
                     connection,
                     """
             UPDATE user_external_connector_connections SET revocation_outcome = :outcome,
-                revocation_pending_until = CASE WHEN :outcome = 'revoked' THEN NULL
+                revocation_pending_until = CASE WHEN :outcome = 'revoked' OR :release_fence THEN NULL
                   ELSE revocation_pending_until END
             WHERE user_id = :user_id AND connector_id = :connector_id
               AND connection_generation = :generation AND status = 'revoked'
@@ -609,6 +620,7 @@ class ExternalConnectorLifecycleStore:
                         connector_id=connector_id,
                         generation=generation,
                         outcome=outcome,
+                        release_fence=release_fence,
                     ),
                 )
                 is not None

@@ -30,6 +30,7 @@ if str(ROOT) not in sys.path:
 
 from db.db_client import get_db  # noqa: E402
 from hushh_mcp.services.external_mcp_client import (  # noqa: E402
+    ExternalMcpAuthError,
     ExternalMcpError,
     list_tools,
 )
@@ -51,33 +52,54 @@ def _redacted_summary(descriptor: ValidatedExternalMcpConnectorDescriptor) -> di
 
 
 async def _probe(descriptor: ValidatedExternalMcpConnectorDescriptor) -> dict[str, Any]:
-    """A probe never has a real per-user credential to send -- it only
-    confirms the endpoint is a live MCP server and lists what it offers, so
-    an operator can sanity-check a descriptor before any user can reach it."""
+    """A probe never has a real per-user credential to send. When the server
+    allows anonymous tool discovery this confirms reachability and lists what
+    it offers, so an operator can sanity-check a descriptor before any user
+    can reach it. Many real MCP servers (Notion, HubSpot confirmed live) gate
+    every call, including list_tools, behind authentication -- getting an
+    auth challenge back still proves the endpoint is live and speaking MCP
+    correctly. Only a request that never lands at all (DNS failure, connection
+    refused, timeout, non-MCP response) means the descriptor itself is wrong."""
     raw = descriptor.raw
     try:
         tools = await list_tools(endpoint=str(raw["mcpEndpoint"]))
+    except ExternalMcpAuthError:
+        return {"toolCount": None, "toolNames": None, "requiresAuthForDiscovery": True}
     except ExternalMcpError as error:
         raise ExternalMcpConnectorDescriptorError(
             f"Could not reach {raw['mcpEndpoint']}: {error}"
         ) from error
-    return {"toolCount": len(tools), "toolNames": sorted(tool["name"] for tool in tools)}
+    return {
+        "toolCount": len(tools),
+        "toolNames": sorted(tool["name"] for tool in tools),
+        "requiresAuthForDiscovery": False,
+    }
 
 
 def _apply(descriptor: ValidatedExternalMcpConnectorDescriptor, *, operator: str) -> dict[str, Any]:
     raw = descriptor.raw
     db = get_db()
     scopes_csv = " ".join(raw.get("oauthScopes") or [])
+    capability_policy = json.dumps(
+        {
+            "version": 1,
+            "chat": raw.get("chatAdmission"),
+            **({"tools": raw["toolAllowlist"]} if "toolAllowlist" in raw else {}),
+        }
+    )
+    redirect_uris = json.dumps(raw.get("registeredRedirectUris") or [])
     result = db.execute_raw(
         """INSERT INTO external_mcp_connectors (
              connector_id, display_name, description, mcp_endpoint, auth_style,
              oauth_authorize_url, oauth_token_url, oauth_scopes,
              oauth_client_id_env, oauth_client_secret_env, api_key_header_name,
+             transport_kind, capability_policy, registered_redirect_uris,
              is_active, created_by, created_at, updated_at
            ) VALUES (
              :connector_id, :display_name, :description, :mcp_endpoint, :auth_style,
              :oauth_authorize_url, :oauth_token_url, :oauth_scopes,
              :oauth_client_id_env, :oauth_client_secret_env, :api_key_header_name,
+             'mcp', CAST(:capability_policy AS JSONB), CAST(:redirect_uris AS JSONB),
              TRUE, :operator, NOW(), NOW()
            ) ON CONFLICT (connector_id) DO UPDATE SET
              display_name = EXCLUDED.display_name,
@@ -90,8 +112,16 @@ def _apply(descriptor: ValidatedExternalMcpConnectorDescriptor, *, operator: str
              oauth_client_id_env = EXCLUDED.oauth_client_id_env,
              oauth_client_secret_env = EXCLUDED.oauth_client_secret_env,
              api_key_header_name = EXCLUDED.api_key_header_name,
+             transport_kind = EXCLUDED.transport_kind,
+             capability_policy = EXCLUDED.capability_policy,
+             registered_redirect_uris = EXCLUDED.registered_redirect_uris,
              is_active = TRUE,
              updated_at = NOW()
+           -- A private (per-user) registration shares this table but is never
+           -- writable from here -- this CLI is the operator/curated path only.
+           -- Without this guard, applying an operator descriptor for an id a
+           -- user had privately registered would silently overwrite their row.
+           WHERE external_mcp_connectors.user_id IS NULL
            RETURNING connector_id""",
         {
             "connector_id": raw["connectorId"],
@@ -105,11 +135,16 @@ def _apply(descriptor: ValidatedExternalMcpConnectorDescriptor, *, operator: str
             "oauth_client_id_env": raw.get("oauthClientIdEnv"),
             "oauth_client_secret_env": raw.get("oauthClientSecretEnv"),
             "api_key_header_name": raw.get("apiKeyHeaderName"),
+            "capability_policy": capability_policy,
+            "redirect_uris": redirect_uris,
             "operator": operator,
         },
     )
     if not result.data:
-        raise ExternalMcpConnectorDescriptorError("Failed to write the connector registry row.")
+        raise ExternalMcpConnectorDescriptorError(
+            "Failed to write the connector registry row (it may be a private "
+            "registration this CLI must never overwrite)."
+        )
     return {"connectorId": raw["connectorId"], "status": "active"}
 
 

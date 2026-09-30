@@ -734,6 +734,7 @@ describe("global One Location Feed-first notification policy", () => {
     });
 
     expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(mocks.startTask).not.toHaveBeenCalled();
   });

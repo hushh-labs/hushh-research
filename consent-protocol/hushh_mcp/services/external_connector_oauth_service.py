@@ -70,6 +70,19 @@ class ExternalConnectorOAuthService:
             db=self.db, registry=self._registry, credentials=self._credentials, state_codec=self
         )
 
+    def curated(self):
+        # Operator-registered connectors (HubSpot, ...) sharing this same
+        # signed-state/PKCE codec and registry/credentials -- generic over
+        # connector_id, unlike drive(). Never used for a private (per-user)
+        # registration; those aren't admitted to chat at all.
+        from hushh_mcp.services.external_connector_curated_oauth import (
+            ExternalConnectorCuratedOAuth,
+        )
+
+        return ExternalConnectorCuratedOAuth(
+            registry=self._registry, credentials=self._credentials, state_codec=self
+        )
+
     async def _execute(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -116,6 +129,15 @@ class ExternalConnectorOAuthService:
         if connector_id == "google_drive":
             return await self.drive().start(
                 user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
+            )
+        from hushh_mcp.services.external_connector_curated_oauth import (
+            is_curated_oauth_connector,
+        )
+
+        curated_connector = await self._registry.get_connector(connector_id)
+        if is_curated_oauth_connector(curated_connector):
+            return await self.curated().start(
+                connector_id=connector_id, user_id=user_id, redirect_uri=redirect_uri, flow=flow
             )
         if profile != "selected":
             raise ExternalConnectorOAuthError("This connector does not support live access")
@@ -185,6 +207,16 @@ class ExternalConnectorOAuthService:
             return await self.drive().complete(
                 state=state, code=code, expected_user_id=expected_user_id
             )
+        if row:
+            from hushh_mcp.services.external_connector_curated_oauth import (
+                is_curated_oauth_connector,
+            )
+
+            curated_connector = await self._registry.get_connector(row["connector_id"])
+            if is_curated_oauth_connector(curated_connector):
+                return await self.curated().complete(
+                    state=state, code=code, expected_user_id=expected_user_id
+                )
         if not row or row.get("consumed_at") is not None:
             raise ExternalConnectorOAuthError("This connection attempt has already been used")
         if _clean(row["user_id"]) != _clean(expected_user_id):

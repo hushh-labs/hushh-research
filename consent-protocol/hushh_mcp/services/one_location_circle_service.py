@@ -2251,6 +2251,56 @@ class OneLocationCircleService:
             if (user_id := str(row.get("user_id") or "").strip())
         ]
 
+    def _notify_circle_roster_changed(
+        self,
+        *,
+        circle_id: str,
+        member_user_id: str,
+        change: str,
+        extra_user_ids: tuple[str, ...] = (),
+        skip_user_ids: tuple[str, ...] = (),
+    ) -> None:
+        """Best-effort post-commit sync for every viewer of the changed roster."""
+
+        recipients = {user_id for user_id in extra_user_ids if user_id}
+        try:
+            rows = (
+                self._db.execute_raw(
+                    """
+                SELECT user_id
+                FROM one_location_circle_memberships
+                WHERE circle_id = CAST(:circle_id AS UUID)
+                  AND status = 'active'
+                """,
+                    {"circle_id": circle_id},
+                ).data
+                or []
+            )
+            recipients.update(str(row.get("user_id") or "").strip() for row in rows)
+        except Exception:  # noqa: BLE001 - notifications cannot undo a committed mutation
+            logger.warning(
+                "circle.roster_sync_audience_failed circle_id=%s", circle_id, exc_info=True
+            )
+
+        recipients.difference_update(skip_user_ids)
+        recipients.discard("")
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_roster_changed_push
+        except Exception:  # noqa: BLE001 - a committed mutation cannot be undone by delivery
+            logger.warning("circle.roster_sync_unavailable circle_id=%s", circle_id, exc_info=True)
+            return
+
+        for user_id in sorted(recipients):
+            try:
+                send_circle_roster_changed_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    member_user_id=member_user_id,
+                    change=change,
+                )
+            except Exception:  # noqa: BLE001 - attempt remaining recipients
+                logger.warning("circle.roster_sync_failed circle_id=%s", circle_id, exc_info=True)
+
     @staticmethod
     def _notify_circle_renamed(
         *,
@@ -3059,12 +3109,12 @@ class OneLocationCircleService:
                 # membership is already durable, so a push failure must never
                 # undo a join that succeeded. Sending inside the transaction
                 # would also notify on a row that could still roll back.
+                inviter_user_id = str(invite_row.get("created_by_user_id") or "")
                 try:
                     from hushh_mcp.services.push_notifications import (
                         send_circle_code_joined_push,
                     )
 
-                    inviter_user_id = str(invite_row.get("created_by_user_id") or "")
                     # The joiner is now a member, so their display name is
                     # already in the detail payload -- no second lookup, and no
                     # raw identifier in a notification body.
@@ -3089,6 +3139,13 @@ class OneLocationCircleService:
                         circle_id,
                         exc_info=True,
                     )
+                self._notify_circle_roster_changed(
+                    circle_id=circle_id,
+                    member_user_id=user_id,
+                    change="added",
+                    extra_user_ids=(user_id,),
+                    skip_user_ids=(inviter_user_id,),
+                )
             return {
                 "circle": circle,
                 "joined": joined,
@@ -4331,6 +4388,13 @@ class OneLocationCircleService:
                         )
                     except Exception:
                         logger.warning("one_location.circle_member_notification_failed")
+                self._notify_circle_roster_changed(
+                    circle_id=cleaned_circle_id,
+                    member_user_id=added_user_ids[0],
+                    change="added",
+                    extra_user_ids=(actor_user_id,),
+                    skip_user_ids=tuple(added_user_ids),
+                )
             return result
 
         except ActionDirectiveAuthorityError:
@@ -4752,11 +4816,11 @@ class OneLocationCircleService:
                         result="accepted",
                     )
             if accepted:
+                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
                 from hushh_mcp.services.push_notifications import (
                     send_circle_member_invite_accepted_push,
                 )
 
-                inviter_user_id = str(invite_row.get("inviter_user_id") or "")
                 invitee_display_name = str(invite_row.get("invitee_display_name") or "")
                 try:
                     send_circle_member_invite_accepted_push(
@@ -4769,6 +4833,13 @@ class OneLocationCircleService:
                     )
                 except Exception:
                     logger.exception("circle.notify_invite_accepted_failed")
+                self._notify_circle_roster_changed(
+                    circle_id=circle_id,
+                    member_user_id=user_id,
+                    change="added",
+                    extra_user_ids=(user_id,),
+                    skip_user_ids=(inviter_user_id,),
+                )
             if command_result is not None:
                 return command_result
             return {
@@ -5478,8 +5549,8 @@ class OneLocationCircleService:
         except Exception as exc:
             raise self._safe_db_failure("end_membership", exc) from exc
 
-    @staticmethod
     def _notify_membership_end(
+        self,
         *,
         owner_user_id: str,
         target_user_id: str,
@@ -5516,6 +5587,13 @@ class OneLocationCircleService:
                 cleaned_circle_id,
                 status,
             )
+        self._notify_circle_roster_changed(
+            circle_id=cleaned_circle_id,
+            member_user_id=target_user_id,
+            change=status,
+            extra_user_ids=(owner_user_id, target_user_id),
+            skip_user_ids=(target_user_id,) if status == "removed" else (owner_user_id,),
+        )
 
     def _end_membership_command(
         self,

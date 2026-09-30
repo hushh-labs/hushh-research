@@ -119,6 +119,7 @@ def test_governed_uat_workflow_wires_every_flag_and_cohort_as_environment_data()
         "UAT_DRIVE_DOCUMENT_SHARING": ("DRIVE_DOCUMENT_SHARING_UAT", "--drive-document-sharing"),
         "UAT_GMAIL_CHAT_READS": ("GMAIL_CHAT_READS_UAT", "--gmail-chat-reads"),
         "UAT_GOOGLE_DRIVE_CHAT_READS": ("GOOGLE_DRIVE_CHAT_READS_UAT", "--google-drive-chat-reads"),
+        "UAT_CURATED_MCP_CONNECTORS": ("CURATED_MCP_CONNECTORS_UAT", "--curated-mcp-connectors"),
     }
     for env_name, (variable, argument) in expected.items():
         assert f"{env_name}: ${{{{ vars.{variable} || 'false' }}}}" in step

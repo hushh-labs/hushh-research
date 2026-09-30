@@ -118,6 +118,26 @@ for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT
     echo "Drive secret settings are missing ${_required}." >&2; exit 1
   fi
 done
+# Curated HubSpot OAuth pins are UAT-only until their operator-owned app is
+# configured. Pack both optional names into one Cloud Build env entry.
+IFS=',' read -r -a _hubspot_secret_pairs <<< "${_HUBSPOT_OAUTH_SECRET_SETTINGS:?missing HubSpot secret settings}"
+if [[ "${#_hubspot_secret_pairs[@]}" -ne 2 ]]; then
+  echo "HubSpot secret settings must contain two keys." >&2; exit 1
+fi
+for _pair in "${_hubspot_secret_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid HubSpot secret settings." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    id) _HUBSPOT_OAUTH_CLIENT_ID_SECRET="${_value}" ;;
+    secret) _HUBSPOT_OAUTH_CLIENT_SECRET_SECRET="${_value}" ;;
+    *) echo "HubSpot secret settings carry an unknown key." >&2; exit 1 ;;
+  esac
+done
+for _required in _HUBSPOT_OAUTH_CLIENT_ID_SECRET _HUBSPOT_OAUTH_CLIENT_SECRET_SECRET; do
+  if ! declare -p "${_required}" >/dev/null 2>&1; then
+    echo "HubSpot secret settings are missing ${_required}." >&2; exit 1
+  fi
+done
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
 # entry. Keep all four values explicit so a missing substitution cannot enable
 # the drain or silently drop its OIDC identity.
@@ -198,6 +218,8 @@ append_optional_secret "${_GOOGLE_OAUTH_REDIRECT_URI_SECRET}" "GOOGLE_OAUTH_REDI
 append_optional_secret "${_GOOGLE_OAUTH_TOKEN_KEY_SECRET}" "GOOGLE_OAUTH_TOKEN_KEY"
 append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET}" "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
 append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET}" "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
+append_optional_secret "${_HUBSPOT_OAUTH_CLIENT_ID_SECRET}" "HUBSPOT_OAUTH_CLIENT_ID"
+append_optional_secret "${_HUBSPOT_OAUTH_CLIENT_SECRET_SECRET}" "HUBSPOT_OAUTH_CLIENT_SECRET"
 append_optional_secret "${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET}" "GOOGLE_DRIVE_PICKER_API_KEY"
 append_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
 append_optional_secret "${_DRIVE_DOCUMENT_KEY_V1_SECRET}" "DRIVE_DOCUMENT_KEY_V1"

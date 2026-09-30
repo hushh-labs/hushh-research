@@ -226,8 +226,30 @@ class ExternalConnectorRegistryService:
         )
         return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
 
+    async def list_curated_connectors(
+        self, *, include_inactive: bool = False
+    ) -> list[ExternalMcpConnectorDefinition]:
+        """List operator-owned rows only.
+
+        Settings uses the explicit inactive form solely to retain an owner's
+        recovery/disconnect row after an operator deactivates a connector. It
+        never turns an inactive row back into an executable catalog entry.
+        """
+        rows = await self._execute(
+            """SELECT * FROM external_mcp_connectors
+               WHERE user_id IS NULL
+                 AND (:include_inactive = TRUE OR is_active = TRUE)
+               ORDER BY display_name ASC, connector_id ASC""",
+            {"include_inactive": include_inactive},
+        )
+        return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+
     async def get_connector(
-        self, connector_id: str, *, user_id: str | None = None
+        self,
+        connector_id: str,
+        *,
+        user_id: str | None = None,
+        include_inactive: bool = False,
     ) -> ExternalMcpConnectorDefinition | None:
         if user_id:
             rows = await self._execute(
@@ -238,11 +260,20 @@ class ExternalConnectorRegistryService:
                 {"connector_id": _clean(connector_id), "user_id": user_id},
             )
             return ExternalMcpConnectorDefinition.from_row(rows[0]) if rows else None
-        rows = await self._execute(
-            """SELECT * FROM external_mcp_connectors
-               WHERE connector_id = :connector_id AND is_active = TRUE""",
-            {"connector_id": _clean(connector_id)},
-        )
+        if include_inactive:
+            # Never widen anonymous/internal lookup to private owner rows:
+            # this escape hatch exists only for a curated OAuth disconnect.
+            rows = await self._execute(
+                """SELECT * FROM external_mcp_connectors
+                   WHERE connector_id = :connector_id AND user_id IS NULL""",
+                {"connector_id": _clean(connector_id)},
+            )
+        else:
+            rows = await self._execute(
+                """SELECT * FROM external_mcp_connectors
+                   WHERE connector_id = :connector_id AND is_active = TRUE""",
+                {"connector_id": _clean(connector_id)},
+            )
         if not rows:
             return None
         return ExternalMcpConnectorDefinition.from_row(rows[0])

@@ -12,6 +12,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import os
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -43,8 +44,16 @@ from hushh_mcp.one_adk.mcp_result_projection import (
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_credentials_service import (
+    ExternalConnectorCredentialError,
     get_external_connector_credentials_service,
+)
+from hushh_mcp.services.external_connector_curated_oauth import (
+    CuratedConnectorOAuthError,
+    curated_free_read_tools,
+    curated_policy_hash,
+    is_curated_oauth_connector,
 )
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 from hushh_mcp.services.external_connector_registry_service import (
@@ -57,6 +66,21 @@ from hushh_mcp.services.external_mcp_client import (
     _list_session_tools,
 )
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+
+
+def mcp_call_timeout_seconds() -> float:
+    """Per-step budget for connector discovery and an approved call.
+
+    Defaults to 20s. A development machine that reaches the database over a
+    high-latency link may raise it with MCP_TOOLSET_TIMEOUT_SECONDS; the value is
+    clamped to the same 60s ceiling the toolset enforces, and a malformed value
+    falls back to the default rather than disabling the bound.
+    """
+    try:
+        value = float(os.getenv("MCP_TOOLSET_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return 20.0
+    return value if 0 < value <= 60 else 20.0
 
 
 @dataclass(frozen=True)
@@ -79,6 +103,9 @@ class McpConnectionBinding:
 
 # Founder decision 2026-09-27, "it's the user's MCP, let it be used freely":
 #   always         every call needs exact-call review (curated first-party rows).
+#   reviewed_writes a curated first-party row whose reviewed read tools run without
+#                  a card, provided the server also marks them read-only; every
+#                  other call, including every write, keeps exact-call review.
 #   credentialed   the person's own connector, holding their credential.
 #   credentialless the person's own connector, holding no credential.
 # Calls on the person's own connectors run without review, whatever the tool's
@@ -86,7 +113,7 @@ class McpConnectionBinding:
 # them is the owner's own rule (a blocked tool whose contract changed). The two
 # own-connector policies differ only in how the owner's Activity labels a call.
 # Unknown policy fails closed.
-McpReviewPolicy = Literal["always", "credentialed", "credentialless"]
+McpReviewPolicy = Literal["always", "reviewed_writes", "credentialed", "credentialless"]
 MCP_REVIEW_POLICIES: frozenset[str] = frozenset(get_args(McpReviewPolicy))
 OWN_CONNECTOR_POLICIES: frozenset[str] = frozenset({"credentialed", "credentialless"})
 # Why a call ran unreviewed, for the owner's Activity. Only "read_only" claims
@@ -108,13 +135,19 @@ def _annotated_read_only(descriptor: object) -> bool:
 
 
 def mcp_review_outcome(
-    policy: object, descriptor: object, *, forced: bool = False
+    policy: object, descriptor: object, *, forced: bool = False, free_read: bool = False
 ) -> McpReviewOutcome:
-    """Fail closed: only the person's own connector runs unreviewed.
+    """Fail closed: only the person's own connector, or a reviewed read, runs unreviewed.
 
     `forced` is an owner rule (e.g. a block whose tool contract changed).
+    `free_read` says the tool is on the application's reviewed list of reads for
+    a "reviewed_writes" connector; the server's own read-only hint must agree.
     """
-    if forced or policy not in OWN_CONNECTOR_POLICIES:
+    if forced:
+        return "required"
+    if policy == "reviewed_writes":
+        return "read_only" if free_read and _annotated_read_only(descriptor) else "required"
+    if policy not in OWN_CONNECTOR_POLICIES:
         return "required"
     if _annotated_read_only(descriptor):
         return "read_only"
@@ -132,12 +165,16 @@ class ResolvedMcpConnection:
     # tool's contract the block no longer matches it; it then always needs
     # review, so editing a description can never turn a block into execution.
     forced_review_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
+    # Opaque ids of tools the application has reviewed as reads that may skip the
+    # review card under "reviewed_writes". Empty for every other policy.
+    free_read_tool_ids: frozenset[str] = field(default=frozenset(), repr=False, compare=False)
 
 
 # Founder decision 2026-09-25: this project is not enrolled in Google's hosted
 # Workspace MCP developer preview. Curated Google connectors run over the GA
 # REST APIs in the Workspace adapter, so no curated row is dialed as hosted MCP.
 HOSTED_WORKSPACE_MCP_ENROLLED = False
+CURATED_FEATURE = "curated_mcp_connectors"
 
 
 def native_registration_admitted(connector: Any, owner: str) -> bool:
@@ -150,11 +187,96 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
         return False
     if connector.owner_user_id == owner:
         return bool(connector.transport_kind == "mcp")
+    # Operator-registered non-Google connector (HubSpot, ...): admitted only
+    # when its own registry policy marks it chat-ready and the rollout flag is on.
+    if (
+        is_curated_oauth_connector(connector)
+        and connector.is_active
+        and connector_feature_enabled(CURATED_FEATURE, owner)
+    ):
+        return True
     return bool(
         connector.owner_user_id is None
         and HOSTED_WORKSPACE_MCP_ENROLLED
         and connector.transport_kind == "mcp"
         and connector.connector_id in {"google_drive", "google_gmail", "google_calendar"}
+    )
+
+
+def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
+    """The registry row's tool allowlist, if it declares one.
+
+    A declared list is exact (an empty list admits no tools). No list means the
+    operator did not restrict the server's catalog; review still applies.
+    """
+    allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
+    if not isinstance(allowed, list):
+        return None
+    names = frozenset(item for item in allowed if isinstance(item, str))
+
+    def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [item for item in catalog if item.get("name") in names]
+
+    return admitted
+
+
+async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcpConnection:
+    """Bind an operator-registered OAuth connector (refreshing if near expiry).
+
+    Requires a verified connection whose policy hash still matches the live
+    registry row. A provider with reviewed read tools (see
+    curated_free_read_tools) gets "reviewed_writes"; every other call keeps the
+    default exact-call review.
+    """
+    from hushh_mcp.services.external_connector_oauth_service import (
+        get_external_connector_oauth_service,
+    )
+
+    adapter = get_external_connector_oauth_service().curated()
+    try:
+        row, secret = await adapter.current_credential(
+            connector_id=connector.connector_id, user_id=owner, connector=connector
+        )
+    except CuratedConnectorOAuthError as error:
+        code = "MCP_CREDENTIAL_EXPIRED" if error.status_code == 401 else "MCP_CONNECTION_CHANGED"
+        raise ExternalMcpError("Reconnect this service.", code=code) from None
+    except ExternalConnectorCredentialError:
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID") from None
+    if row.get("status") != "connected" or row.get("verified_policy_hash") != curated_policy_hash(
+        connector
+    ):
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CONNECTION_CHANGED")
+    token = secret.get("accessToken")
+    if (
+        not isinstance(token, str)
+        or not token.strip()
+        or any(ord(c) < 32 or ord(c) == 127 for c in token)
+    ):
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
+    # A token refresh bumps credential_version but is not a change of authority,
+    # so it must not invalidate an open review card or an in-flight call: bind on
+    # the connection generation (moves on connect, reconnect and disconnect) and
+    # the live policy hash instead. Headers always come from the fresh resolve.
+    binding = McpConnectionBinding(
+        owner,
+        connector.connector_id,
+        int(row["connection_generation"]),
+        1,
+        connector.mcp_endpoint,
+        (curated_policy_hash(connector),),
+    )
+    validate_mcp_endpoint(binding.endpoint)
+    # Reads the application has reviewed may skip the card; every other call,
+    # every write, and any provider not on the list keeps exact-call review.
+    free_reads = curated_free_read_tools(connector.connector_id)
+    return ResolvedMcpConnection(
+        binding,
+        {"Authorization": f"Bearer {token}"},
+        catalog_policy=_curated_tool_allowlist(connector),
+        review_policy="reviewed_writes" if free_reads else "always",
+        free_read_tool_ids=frozenset(
+            mcp_tool_name(connector.connector_id, name) for name in free_reads
+        ),
     )
 
 
@@ -201,6 +323,8 @@ async def resolve_registered_connection(
             resolved = await resolve_native_workspace_connection(context, "gmail")
         elif connector_id == "google_calendar":
             resolved = await resolve_native_workspace_connection(context, "calendar")
+        elif is_curated_oauth_connector(connector):
+            return await _resolve_curated_connection(owner, connector)
         else:
             raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
         if connector.auth_style != "oauth" or connector.mcp_endpoint != resolved.binding.endpoint:
@@ -362,13 +486,16 @@ class GovernedMcpToolset(McpToolset):
         binding: McpConnectionBinding,
         resolve_connection: ResolveConnection,
         authorize_call: AuthorizeCall,
-        timeout_seconds: float = 20,
+        timeout_seconds: float | None = None,
         catalog_policy: CatalogPolicy | None = None,
         result_policy: ResultPolicy | None = None,
         review_policy: McpReviewPolicy = "always",
         forced_review_tool_ids: frozenset[str] = frozenset(),
+        free_read_tool_ids: frozenset[str] = frozenset(),
     ) -> None:
         validate_mcp_endpoint(binding.endpoint)
+        if timeout_seconds is None:
+            timeout_seconds = mcp_call_timeout_seconds()
         if not binding.owner_id or not binding.connector_id or binding.generation < 1:
             raise ValueError("Invalid MCP connection binding")
         if binding.credential_version < 1 or not 0 < timeout_seconds <= 60:
@@ -377,6 +504,10 @@ class GovernedMcpToolset(McpToolset):
             raise ValueError("Invalid MCP review policy")
         if not isinstance(forced_review_tool_ids, frozenset) or not all(
             isinstance(item, str) for item in forced_review_tool_ids
+        ):
+            raise ValueError("Invalid MCP review policy")
+        if not isinstance(free_read_tool_ids, frozenset) or not all(
+            isinstance(item, str) for item in free_read_tool_ids
         ):
             raise ValueError("Invalid MCP review policy")
         self.binding = binding
@@ -390,6 +521,7 @@ class GovernedMcpToolset(McpToolset):
         self.result_policy = result_policy
         self.review_policy: McpReviewPolicy = review_policy
         self.forced_review_tool_ids = forced_review_tool_ids
+        self.free_read_tool_ids = free_read_tool_ids
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
@@ -413,7 +545,10 @@ class GovernedMcpToolset(McpToolset):
 
     def review_outcome(self, tool_id: str, descriptor: object) -> McpReviewOutcome:
         return mcp_review_outcome(
-            self.review_policy, descriptor, forced=tool_id in self.forced_review_tool_ids
+            self.review_policy,
+            descriptor,
+            forced=tool_id in self.forced_review_tool_ids,
+            free_read=tool_id in self.free_read_tool_ids,
         )
 
     async def _current_headers(self, context: Any) -> dict[str, str]:
@@ -431,6 +566,7 @@ class GovernedMcpToolset(McpToolset):
             current.binding != self.binding
             or current.review_policy != self.review_policy
             or current.forced_review_tool_ids != self.forced_review_tool_ids
+            or current.free_read_tool_ids != self.free_read_tool_ids
         ):
             raise ExternalMcpError("Connector connection changed.", code="MCP_CONNECTION_CHANGED")
         return dict(current.headers)

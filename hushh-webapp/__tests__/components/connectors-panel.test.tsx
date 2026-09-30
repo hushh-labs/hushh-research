@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   calendarStartNativeConnect: vi.fn(),
   calendarCompleteNativeConnect: vi.fn(),
   connectCalendar: vi.fn(),
+  disconnect: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
@@ -52,6 +53,7 @@ vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: {
     overview: state.overview,
     startOAuthConnect: state.startOAuthConnect,
+    disconnect: state.disconnect,
     documents: state.documents,
     liveBackground: state.liveBackground,
     setLiveBackground: state.setLiveBackground,
@@ -258,6 +260,163 @@ describe("supported connector catalog", () => {
     for (const provider of ["gmail", "drive", "calendar", "plaid"]) {
       expect(container.querySelector(`img[src="/icons/connectors/${provider}.svg"]`)).not.toBeNull();
     }
+  });
+
+  describe("curated CRM connector (HubSpot)", () => {
+    const hubspot = {
+      ...catalogItem,
+      connectorId: "hubspot",
+      displayName: "HubSpot",
+      available: true,
+    } as typeof catalogItem & { available: boolean };
+    const withFlag = (connectors: object[], enabled = true) => ({
+      connectors,
+      features: { connections_panel_v2: true, curated_mcp_connectors: enabled },
+    });
+    const realLocation = window.location;
+    let assign: ReturnType<typeof vi.fn>;
+    beforeEach(() => {
+      assign = vi.fn();
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: { origin: "https://uat.one.hushh.ai", assign },
+      });
+      state.startOAuthConnect.mockReset().mockResolvedValue({
+        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=signed",
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
+        connectorId: "hubspot",
+      });
+      state.disconnect.mockReset().mockResolvedValue({ status: "revoked", connectorId: "hubspot" });
+    });
+    afterEach(() => {
+      Object.defineProperty(window, "location", { configurable: true, value: realLocation });
+      // eslint-disable-next-line no-restricted-globals -- Clear the synthetic handoff marker.
+      sessionStorage.clear();
+    });
+
+    it("stays hidden while the rollout flag is off", async () => {
+      state.overview.mockResolvedValue(withFlag([hubspot, catalogItem], false));
+      render(panel());
+      expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+      expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
+    });
+
+    it("keeps a connected connector reachable for disconnect while rollout is off", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "connected" }], false));
+      render(panel());
+      const connected = screen.getByRole("region", { name: "Connected" });
+      expect(await within(connected).findByText("HubSpot")).toBeInTheDocument();
+      fireEvent.click(within(connected).getByRole("button", { name: "Disconnect HubSpot" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+      await waitFor(() =>
+        expect(state.disconnect).toHaveBeenCalledWith({
+          vaultOwnerToken: "synthetic-owner-token",
+          connectorId: "hubspot",
+        }),
+      );
+    });
+
+    it("does not offer a stale grant a reconnect path while rollout is off", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "verifying" }], false));
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "HubSpot" }));
+      const details = screen.getByRole("region", { name: "HubSpot details" });
+      expect(within(details).getByText("Unavailable")).toBeInTheDocument();
+      expect(within(details).queryByRole("button", { name: "Reconnect" })).not.toBeInTheDocument();
+      expect(within(details).getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+      expect(state.startOAuthConnect).not.toHaveBeenCalled();
+    });
+
+    it("stays hidden when unavailable and not connected", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, available: false }, catalogItem]));
+      render(panel());
+      expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+      expect(screen.queryByText("HubSpot")).not.toBeInTheDocument();
+    });
+
+    it("starts the web sign-in with a curated handoff marker", async () => {
+      state.overview.mockResolvedValue(withFlag([hubspot]));
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Connect HubSpot" }));
+      await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+      expect(state.startOAuthConnect).toHaveBeenCalledWith({
+        vaultOwnerToken: "synthetic-owner-token",
+        connectorId: "hubspot",
+        redirectUri: "https://uat.one.hushh.ai/one/profile/connectors/oauth/return",
+        flow: "web",
+      });
+      expect(assign).toHaveBeenCalledWith(
+        "https://mcp.hubspot.com/oauth/authorize/user?state=signed",
+      );
+      // eslint-disable-next-line no-restricted-globals -- Read the redacted correlation marker.
+      const marker = JSON.parse(sessionStorage.getItem("one_drive_chat_recovery_handoff_v1") ?? "null");
+      expect(marker).toMatchObject({
+        ownerUserId: "owner-a",
+        curatedConnector: { connectorId: "hubspot" },
+        returnTo: "connector_settings",
+      });
+    });
+
+    it("re-enables Connect when the page is restored from the back/forward cache", async () => {
+      state.overview.mockResolvedValue(withFlag([hubspot]));
+      render(panel());
+      const connect = await screen.findByRole("button", { name: "Connect HubSpot" });
+      fireEvent.click(connect);
+      await waitFor(() => expect(assign).toHaveBeenCalledOnce());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect" })).toBeDisabled());
+      act(() => {
+        window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+      });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled());
+    });
+
+    it("refuses a non-https authorize URL", async () => {
+      state.startOAuthConnect.mockResolvedValue({
+        authorizeUrl: "http://evil.invalid/authorize",
+        expiresAt: new Date(Date.now() + 600_000).toISOString(),
+        attemptId: "attempt-abcdefghijklmnopqrstuvwxyz0123456789",
+        connectorId: "hubspot",
+      });
+      state.overview.mockResolvedValue(withFlag([hubspot]));
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Connect HubSpot" }));
+      await waitFor(() => expect(state.startOAuthConnect).toHaveBeenCalled());
+      expect(assign).not.toHaveBeenCalled();
+    });
+
+    it("offers Disconnect for a connected connector and confirms first", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "connected" }]));
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Disconnect HubSpot" }));
+      expect(state.disconnect).not.toHaveBeenCalled();
+      fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+      await waitFor(() =>
+        expect(state.disconnect).toHaveBeenCalledWith({
+          vaultOwnerToken: "synthetic-owner-token",
+          connectorId: "hubspot",
+        }),
+      );
+    });
+
+    it("treats a connection stuck before verification as needing sign-in", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "verifying" }]));
+      render(panel());
+      const available = screen.getByRole("region", { name: "Available" });
+      const connected = screen.getByRole("region", { name: "Connected" });
+      expect(
+        await within(available).findByRole("button", { name: "Reconnect HubSpot" }),
+      ).toBeInTheDocument();
+      expect(within(connected).queryByText("HubSpot")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Disconnect HubSpot" })).not.toBeInTheDocument();
+      expect(screen.queryByText(/choose files/)).not.toBeInTheDocument();
+    });
+
+    it("offers Reconnect when sign-in is needed", async () => {
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "needs_reauth" }]));
+      render(panel());
+      expect(await screen.findByRole("button", { name: "Reconnect HubSpot" })).toBeInTheDocument();
+    });
   });
 
   it("does not describe a failed Drive status check as disconnected", async () => {

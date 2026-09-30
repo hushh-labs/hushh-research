@@ -81,6 +81,8 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/connected-systems`
 - `/one/connected-systems`
 - `/one/connected-systems/[systemId]`
+- `/one/profile/connectors`
+- `/one/profile/connectors/oauth/return`
 - `/one/profile/gmail`
 - `/one/profile/gmail/connection`
 - `/one/profile/gmail/actions`
@@ -178,6 +180,13 @@ by `hushh-webapp/lib/navigation/profile-routes.ts`.
 `/one/profile/integrations` address is a compatibility redirect only and must
 not be reintroduced as a Connected apps settings surface. Calendar OAuth
 returns through `/one/profile/google/oauth/return` and routes back to Calendar.
+
+`/one/profile/connectors` is the authenticated connector-management surface.
+Its curated OAuth return route is a transient web callback: it consumes only
+the opaque, same-tab handoff and redirects to Connector Settings after
+completion. Native clients may use an already connected curated connector but
+must complete the initial curated OAuth grant on the web until a native callback
+contract is added.
 
 The access manager is the One-owned `/one/consent` workspace. Legacy
 `/consents` links redirect there while preserving transient query state such as

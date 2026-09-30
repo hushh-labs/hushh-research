@@ -1579,6 +1579,14 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
         db=_TransactionDb(conn),  # type: ignore[arg-type]
         hmac_key="a" * 32,
     )
+    service._db.execute_raw = lambda *_args, **_kwargs: SimpleNamespace(  # type: ignore[attr-defined]
+        data=[
+            {"user_id": "owner-user"},
+            {"user_id": "friend-one"},
+            {"user_id": "friend-two"},
+            {"user_id": "existing-user"},
+        ]
+    )
     origin_calls: list[dict] = []
     monkeypatch.setattr(
         circle_service_module,
@@ -1586,10 +1594,16 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
         lambda _conn, **kwargs: origin_calls.append(kwargs) or {},
     )
     push_calls: list[dict] = []
+    roster_calls: list[dict] = []
     monkeypatch.setattr(
         push_notifications_module,
         "send_circle_member_added_push",
         lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_roster_changed_push",
+        lambda **kwargs: roster_calls.append(kwargs) or 1,
     )
     monkeypatch.setattr(
         push_notifications_module,
@@ -1620,6 +1634,7 @@ def test_adding_connections_writes_memberships_and_tells_each_person(
     # And each is told, by name. "Someone added you to a Circle" is the one
     # thing this notification must never be able to say.
     assert [call["member_user_id"] for call in push_calls] == ["friend-one", "friend-two"]
+    assert {call["user_id"] for call in roster_calls} == {"owner-user", "existing-user"}
     assert all(call["added_by_display_name"] == "Owner" for call in push_calls)
     assert all(call["circle_name"] == "Family" for call in push_calls)
     event_params = [
@@ -3950,14 +3965,23 @@ def test_remove_member_notifies_the_removed_member(monkeypatch: pytest.MonkeyPat
         db=_TransactionDb(conn),  # type: ignore[arg-type]
         hmac_key="a" * 32,
     )
+    service._db.execute_raw = lambda *_args, **_kwargs: SimpleNamespace(  # type: ignore[attr-defined]
+        data=[{"user_id": "owner-user"}, {"user_id": "existing-member"}]
+    )
     monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_a, **_kw: None)
     monkeypatch.setattr(service, "_reconcile_circle_sourced_grants", lambda *_a, **_kw: None)
     monkeypatch.setattr(service, "_cleanup_ineligible_sms_contacts", lambda *_a, **_kw: None)
     push_calls: list[dict] = []
+    roster_calls: list[dict] = []
     monkeypatch.setattr(
         push_notifications_module,
         "send_circle_member_removed_push",
         lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_roster_changed_push",
+        lambda **kwargs: roster_calls.append(kwargs) or 1,
     )
 
     service.remove_member(
@@ -3967,6 +3991,7 @@ def test_remove_member_notifies_the_removed_member(monkeypatch: pytest.MonkeyPat
     assert push_calls == [
         {"member_user_id": "member-user", "circle_id": circle_id, "circle_name": "Family"}
     ]
+    assert {call["user_id"] for call in roster_calls} == {"owner-user", "existing-member"}
 
 
 def test_leave_circle_notifies_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4005,6 +4030,50 @@ def test_leave_circle_notifies_the_owner(monkeypatch: pytest.MonkeyPatch) -> Non
     ]
 
 
+@pytest.mark.parametrize(
+    ("change", "extra_user_ids", "skip_user_ids", "expected"),
+    [
+        ("added", ("owner",), ("new-member",), {"owner", "existing-member"}),
+        ("removed", ("owner", "departed"), ("departed",), {"owner", "existing-member"}),
+        ("left", ("owner", "departed"), ("owner",), {"departed", "existing-member"}),
+    ],
+)
+def test_roster_sync_reaches_every_affected_viewer_without_duplicate_alert(
+    monkeypatch: pytest.MonkeyPatch,
+    change: str,
+    extra_user_ids: tuple[str, ...],
+    skip_user_ids: tuple[str, ...],
+    expected: set[str],
+) -> None:
+    db = SimpleNamespace(
+        execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+            data=[
+                {"user_id": "owner"},
+                {"user_id": "existing-member"},
+                *([{"user_id": "new-member"}] if change == "added" else []),
+            ]
+        )
+    )
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+    notified = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_roster_changed_push",
+        lambda **kwargs: notified.append(kwargs) or 1,
+    )
+
+    service._notify_circle_roster_changed(
+        circle_id="circle-1",
+        member_user_id="new-member" if change == "added" else "departed",
+        change=change,
+        extra_user_ids=extra_user_ids,
+        skip_user_ids=skip_user_ids,
+    )
+
+    assert {call["user_id"] for call in notified} == expected
+    assert all(call["change"] == change for call in notified)
+
+
 def test_notify_failure_does_not_break_leave_circle(monkeypatch: pytest.MonkeyPatch) -> None:
     """The write must survive a broken notifier -- best-effort, never load-bearing."""
     circle_id = "550e8400-e29b-41d4-a716-446655440000"
@@ -4024,6 +4093,7 @@ def test_notify_failure_does_not_break_leave_circle(monkeypatch: pytest.MonkeyPa
         raise RuntimeError("fcm is down")
 
     monkeypatch.setattr(push_notifications_module, "send_circle_member_left_push", _boom)
+    monkeypatch.delattr(push_notifications_module, "send_circle_roster_changed_push")
 
     service.leave_circle(user_id="member-user", circle_id=circle_id)
 

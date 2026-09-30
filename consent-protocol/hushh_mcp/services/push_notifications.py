@@ -191,6 +191,62 @@ def _lookup_display_name(user_id: str) -> str:
     return resolve_requester_label(user_id)
 
 
+def _publish_connection_user_event(user_id: str, payload: dict[str, str]) -> None:
+    """Wake every SSE worker, retaining the local queue as a startup fallback."""
+
+    try:
+        from api.consent_listener import (
+            publish_user_state_event_threadsafe,
+            push_to_consent_queue_threadsafe,
+        )
+
+        if not publish_user_state_event_threadsafe(user_id, payload):
+            push_to_consent_queue_threadsafe(user_id, payload)
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+        logger.warning("push.sse_queue_failed type=%s error=%s", payload.get("type"), exc)
+
+
+def send_connection_graph_changed_push(
+    user_id: str,
+    *,
+    transition_id: str,
+    connection_id: str = "",
+) -> int:
+    """Silently reconcile an activated graph edge on all of one user's devices."""
+
+    user_id = str(user_id or "").strip()
+    connection_id = str(connection_id or "").strip()
+    transition_id = str(transition_id or "").strip()
+    if not user_id or not transition_id:
+        return 0
+    message_id = f"connection-graph-changed:{transition_id}:{user_id}"
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    data = {"message_id": message_id, "connection_id": connection_id, "sync_only": "true"}
+    _publish_connection_user_event(
+        user_id,
+        {
+            "type": "connection_graph_changed",
+            "user_id": user_id,
+            "title": "Connections updated",
+            "body": "Your connections changed.",
+            "deep_link": deep_link,
+            "request_url": deep_link,
+            **data,
+        },
+    )
+    return send_user_data_push(
+        user_id,
+        notification_type="connection_graph_changed",
+        title="Connections updated",
+        body="Your connections changed.",
+        deep_link=deep_link,
+        notification_tag=message_id,
+        notification_category="ONE_CONNECTIONS",
+        data=data,
+        show_alert=False,
+    )
+
+
 def send_connection_request_push(
     addressee_user_id: str,
     requester_user_id: str,
@@ -221,7 +277,7 @@ def send_connection_request_push(
     body = connection_request_body(requester_name)
     deep_link = _connection_request_link(connection_request_id)
     request_id = str(connection_request_id or "").strip()
-    message_id = f"connection-request:{request_id}" if request_id else ""
+    message_id = f"connection-request:{request_id or uuid.uuid4()}"
 
     # Identity and routing fields the CLIENT needs, as opposed to the banner the
     # OS renders. The in-app toast reads only this data map -- it never sees
@@ -237,46 +293,28 @@ def send_connection_request_push(
         "request_id": request_id,
     }
 
-    try:
-        import asyncio
-
-        from api.consent_listener import _push_to_consent_queue
-
-        sse_payload = {
-            "type": "connection_request",
-            "action": "REQUESTED",
-            # The real row id, not the old synthetic `conn_req:<uid>`. That value
-            # was stable per *requester* rather than per request, so the SSE
-            # de-dup in api/routes/sse.py silently swallowed every follow-up
-            # request from the same person on one connection — and any client
-            # promoting it into `?requestId` would resolve nothing.
-            "request_id": request_id or f"conn_req:{requester_user_id}",
-            "user_id": addressee_user_id,
-            "requester_user_id": requester_user_id,
-            # "" rather than "Someone": baking the placeholder into transport
-            # meant the client's own (richer) fallback ladder could never fire,
-            # because it received a label that merely looked real.
-            "requester_label": requester_name,
-            "title": "New connection request",
-            "body": body,
-            "deep_link": deep_link,
-            "request_url": deep_link,
-        }
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
-        except RuntimeError:
-            # No running loop: we are on a FastAPI threadpool worker, which is
-            # where BOTH production callers actually run (`def
-            # create_connection_request`, `def request_nearby_connection` are
-            # sync). This used to `pass`, which silently discarded the event and
-            # left the SSE lane dead for connection requests -- so a web client
-            # without a push subscription could never learn about one.
-            from api.consent_listener import push_to_consent_queue_threadsafe
-
-            push_to_consent_queue_threadsafe(addressee_user_id, sse_payload)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.sse_queue_failed error=%s", exc)
+    sse_payload = {
+        "type": "connection_request",
+        "action": "REQUESTED",
+        "message_id": message_id,
+        # The real row id, not the old synthetic `conn_req:<uid>`. That value
+        # was stable per *requester* rather than per request, so the SSE
+        # de-dup in api/routes/sse.py silently swallowed every follow-up
+        # request from the same person on one connection — and any client
+        # promoting it into `?requestId` would resolve nothing.
+        "request_id": request_id or f"conn_req:{requester_user_id}",
+        "user_id": addressee_user_id,
+        "requester_user_id": requester_user_id,
+        # "" rather than "Someone": baking the placeholder into transport
+        # meant the client's own (richer) fallback ladder could never fire,
+        # because it received a label that merely looked real.
+        "requester_label": requester_name,
+        "title": "New connection request",
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(addressee_user_id, sse_payload)
 
     return send_user_data_push(
         addressee_user_id,
@@ -284,11 +322,11 @@ def send_connection_request_push(
         title="New connection request",
         body=body,
         deep_link=deep_link,
-        # Legacy callers without a row id use one generic replacement tag.
-        # Never substitute the raw requester uid into an OS-visible tag or
-        # client message id; without an id, omitting message_id also prevents
-        # unrelated requests from being collapsed by the in-app deduper.
-        notification_tag=message_id or "connection-request",
+        # Legacy callers without a row id keep one generic OS replacement tag,
+        # but each delivery still needs a unique client/SSE transition id.
+        notification_tag=(
+            f"connection-request:{request_id}" if request_id else "connection-request"
+        ),
         notification_category="ONE_CONNECTIONS",
         data=client_data,
     )
@@ -319,38 +357,27 @@ def send_connection_request_cancelled_push(
     deep_link = CONNECTION_REQUEST_LIST_LINK
     request_id = str(connection_request_id or "").strip()
 
+    message_id = f"connection-request-cancelled:{request_id or uuid.uuid4()}"
     client_data = {
-        "message_id": f"connection-request-cancelled:{request_id}" if request_id else "",
+        "message_id": message_id,
         "requester_label": requester_name,
         "request_id": request_id,
     }
 
-    try:
-        import asyncio
-
-        from api.consent_listener import _push_to_consent_queue
-
-        sse_payload = {
-            "type": "connection_request_cancelled",
-            "action": "CANCELLED",
-            "request_id": request_id or f"conn_req:{requester_user_id}",
-            "user_id": addressee_user_id,
-            "requester_user_id": requester_user_id,
-            "requester_label": requester_name,
-            "title": "Connection request withdrawn",
-            "body": body,
-            "deep_link": deep_link,
-            "request_url": deep_link,
-        }
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
-        except RuntimeError:
-            from api.consent_listener import push_to_consent_queue_threadsafe
-
-            push_to_consent_queue_threadsafe(addressee_user_id, sse_payload)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.sse_queue_failed error=%s", exc)
+    sse_payload = {
+        "type": "connection_request_cancelled",
+        "action": "CANCELLED",
+        "message_id": message_id,
+        "request_id": request_id or f"conn_req:{requester_user_id}",
+        "user_id": addressee_user_id,
+        "requester_user_id": requester_user_id,
+        "requester_label": requester_name,
+        "title": "Connection request withdrawn",
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(addressee_user_id, sse_payload)
 
     return send_user_data_push(
         addressee_user_id,
@@ -405,7 +432,7 @@ def send_connection_request_resolved_push(
     # longer has anything to review.
     deep_link = CONNECTION_REQUEST_LIST_LINK
     request_id = str(connection_request_id or "").strip()
-    message_id = f"connection-request-resolved:{request_id}" if request_id else ""
+    message_id = f"connection-request-resolved:{request_id or uuid.uuid4()}"
 
     client_data = {
         "message_id": message_id,
@@ -414,35 +441,20 @@ def send_connection_request_resolved_push(
         "accepted": "true" if accepted else "false",
     }
 
-    try:
-        import asyncio
-
-        from api.consent_listener import _push_to_consent_queue
-
-        sse_payload = {
-            "type": "connection_request_resolved",
-            "action": "ACCEPTED" if accepted else "DECLINED",
-            "request_id": request_id or f"conn_req_resolved:{resolver_user_id}",
-            "user_id": requester_user_id,
-            "resolver_user_id": resolver_user_id,
-            "resolver_label": resolver_name,
-            "title": title,
-            "body": body,
-            "deep_link": deep_link,
-            "request_url": deep_link,
-        }
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_push_to_consent_queue(requester_user_id, sse_payload))
-        except RuntimeError:
-            # No running loop: both real callers (accept_request, reject_request)
-            # run on a FastAPI threadpool worker. See send_connection_request_push's
-            # identical fallback for why this cannot be `pass`.
-            from api.consent_listener import push_to_consent_queue_threadsafe
-
-            push_to_consent_queue_threadsafe(requester_user_id, sse_payload)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.sse_queue_failed error=%s", exc)
+    sse_payload = {
+        "type": "connection_request_resolved",
+        "action": "ACCEPTED" if accepted else "DECLINED",
+        "message_id": message_id,
+        "request_id": request_id or f"conn_req_resolved:{resolver_user_id}",
+        "user_id": requester_user_id,
+        "resolver_user_id": resolver_user_id,
+        "resolver_label": resolver_name,
+        "title": title,
+        "body": body,
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(requester_user_id, sse_payload)
 
     return send_user_data_push(
         requester_user_id,
@@ -450,7 +462,11 @@ def send_connection_request_resolved_push(
         title=title,
         body=body,
         deep_link=deep_link,
-        notification_tag=message_id or "connection-request-resolved",
+        notification_tag=(
+            f"connection-request-resolved:{request_id}"
+            if request_id
+            else "connection-request-resolved"
+        ),
         notification_category="ONE_CONNECTIONS",
         data=client_data,
     )
@@ -490,34 +506,21 @@ def send_connection_removed_push(
         "revocation_id": revocation_id,
     }
 
-    try:
-        import asyncio
-
-        from api.consent_listener import _push_to_consent_queue
-
-        sse_payload = {
-            "type": "connection_removed",
-            "action": "REMOVED",
-            "message_id": message_id,
-            "connection_id": connection_id,
-            "user_id": recipient_user_id,
-            "counterpart_user_id": counterpart_user_id,
-            "actor_user_id": actor_user_id,
-            "revocation_id": revocation_id,
-            "title": "Connection updated",
-            "body": "Your connections changed.",
-            "deep_link": deep_link,
-            "request_url": deep_link,
-        }
-        try:
-            loop = asyncio.get_running_loop()
-            loop.create_task(_push_to_consent_queue(recipient_user_id, sse_payload))
-        except RuntimeError:
-            from api.consent_listener import push_to_consent_queue_threadsafe
-
-            push_to_consent_queue_threadsafe(recipient_user_id, sse_payload)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("push.sse_queue_failed error=%s", exc)
+    sse_payload = {
+        "type": "connection_removed",
+        "action": "REMOVED",
+        "message_id": message_id,
+        "connection_id": connection_id,
+        "user_id": recipient_user_id,
+        "counterpart_user_id": counterpart_user_id,
+        "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
+        "title": "Connection updated",
+        "body": "Your connections changed.",
+        "deep_link": deep_link,
+        "request_url": deep_link,
+    }
+    _publish_connection_user_event(recipient_user_id, sse_payload)
 
     return send_user_data_push(
         recipient_user_id,
@@ -669,6 +672,43 @@ def send_circle_member_added_push(
             "added_by_user_id": added_by_user_id,
             "added_by_label": adder,
         },
+    )
+
+
+def send_circle_roster_changed_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    member_user_id: str,
+    change: str,
+) -> int:
+    """Silent roster doorbell for a member's other devices and Circle viewers.
+
+    A visible notification is sent separately to the person directly affected.
+    This carries no roster or personal details and never creates a Feed item.
+    """
+
+    notification_type = {
+        "added": "location_circle_member_added",
+        "removed": "location_circle_member_removed",
+        "left": "location_circle_member_left",
+    }.get(change)
+    if not notification_type or not user_id or not circle_id or not member_user_id:
+        return 0
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
+        user_id,
+        notification_type=notification_type,
+        title="Circle updated",
+        body="Your Circle changed.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-roster:{circle_id}",
+        data={
+            "circle_id": circle_id,
+            **({"member_user_id": member_user_id} if user_id == member_user_id else {}),
+            "sync_only": "true",
+        },
+        show_alert=False,
     )
 
 

@@ -22,7 +22,10 @@ def _api_key_descriptor(**overrides: object) -> dict:
         "version": "external-mcp-connector.v1",
         "connectorId": "hubspot",
         "displayName": "HubSpot",
-        "mcpEndpoint": "https://mcp.hubspot.com/mcp",
+        # The real endpoint (confirmed against
+        # https://mcp.hubspot.com/.well-known/oauth-authorization-server);
+        # .../mcp 404s.
+        "mcpEndpoint": "https://mcp.hubspot.com/",
         "authStyle": "api_key",
         "apiKeyHeaderName": "Private-App-Token",
     }
@@ -83,6 +86,27 @@ def test_non_https_endpoint_is_rejected(tmp_path: Path) -> None:
         load_and_validate_descriptor(path)
 
 
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://127.0.0.1/mcp",
+        "https://169.254.169.254/",
+        "https://metadata.internal/",
+        "https://user:secret@example.com/",
+        "https://example.com/?token=secret",
+        "https://example.com:8443/",
+    ],
+)
+@pytest.mark.parametrize("field", ["mcpEndpoint", "oauthAuthorizeUrl", "oauthTokenUrl"])
+def test_oauth_descriptor_rejects_non_public_endpoint(
+    tmp_path: Path, field: str, endpoint: str
+) -> None:
+    path = _write(tmp_path, _oauth_descriptor(**{field: endpoint}))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
 def test_unknown_auth_style_is_rejected(tmp_path: Path) -> None:
     path = _write(tmp_path, _api_key_descriptor(authStyle="basic"))
 
@@ -97,8 +121,95 @@ def test_api_key_descriptor_requires_header_name(tmp_path: Path) -> None:
         load_and_validate_descriptor(path)
 
 
-def test_oauth_descriptor_requires_scopes(tmp_path: Path) -> None:
+def test_oauth_descriptor_allows_empty_scopes(tmp_path: Path) -> None:
+    # HubSpot's real MCP server advertises scopes_supported: [] and rejects a
+    # non-empty scope parameter -- an empty list is a real, valid request.
     path = _write(tmp_path, _oauth_descriptor(oauthScopes=[]))
+
+    descriptor = load_and_validate_descriptor(path)
+
+    assert descriptor.raw["oauthScopes"] == []
+
+
+def test_oauth_descriptor_rejects_non_list_scopes(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(oauthScopes="default"))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+def test_oauth_descriptor_rejects_non_string_scope_entries(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(oauthScopes=["read", 1]))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+@pytest.mark.parametrize("connector_id", ["custom_hubspot", "google_hubspot"])
+def test_reserved_connector_id_prefix_is_rejected(tmp_path: Path, connector_id: str) -> None:
+    path = _write(tmp_path, _api_key_descriptor(connectorId=connector_id))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+def test_registered_redirect_uris_accepted_when_valid(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        _oauth_descriptor(
+            registeredRedirectUris=["https://uat.one.hushh.ai/one/profile/connectors/oauth/return"]
+        ),
+    )
+
+    descriptor = load_and_validate_descriptor(path)
+
+    assert descriptor.raw["registeredRedirectUris"] == [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+    ]
+
+
+def test_registered_redirect_uris_rejects_empty_list(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(registeredRedirectUris=[]))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+def test_registered_redirect_uris_rejects_non_https(tmp_path: Path) -> None:
+    path = _write(
+        tmp_path,
+        _oauth_descriptor(registeredRedirectUris=["http://uat.one.hushh.ai/return"]),
+    )
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+def test_chat_admission_accepts_reviewed(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(chatAdmission="reviewed"))
+
+    descriptor = load_and_validate_descriptor(path)
+
+    assert descriptor.raw["chatAdmission"] == "reviewed"
+
+
+def test_chat_admission_rejects_unknown_value(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(chatAdmission="unreviewed"))
+
+    with pytest.raises(ExternalMcpConnectorDescriptorError):
+        load_and_validate_descriptor(path)
+
+
+def test_tool_allowlist_accepts_a_list_of_names(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(toolAllowlist=["search", "read_page"]))
+
+    descriptor = load_and_validate_descriptor(path)
+
+    assert descriptor.raw["toolAllowlist"] == ["search", "read_page"]
+
+
+def test_tool_allowlist_rejects_too_many_entries(tmp_path: Path) -> None:
+    path = _write(tmp_path, _oauth_descriptor(toolAllowlist=[f"tool_{i}" for i in range(201)]))
 
     with pytest.raises(ExternalMcpConnectorDescriptorError):
         load_and_validate_descriptor(path)

@@ -314,6 +314,7 @@ export function orderCircles(circles: readonly OneLocationCircleSummary[]): {
 export function ConnectCirclesTab({
   onStateChange,
   currentUserId = null,
+  isActive = true,
   onRequestConnection,
   onCancelConnectionRequest,
   refreshToken = 0,
@@ -322,6 +323,8 @@ export function ConnectCirclesTab({
    *  hoisting circle state into a 2,400-line component. */
   onStateChange?: (state: ConnectCirclesSnapshot) => void;
   currentUserId?: string | null;
+  /** The swipe pane stays mounted when Connections is selected. */
+  isActive?: boolean;
   /**
    * Opens the SAME capability review the Connect directory opens.
    *
@@ -528,6 +531,8 @@ export function ConnectCirclesTab({
     },
     [router, searchParams],
   );
+  const goRef = useRef(go);
+  goRef.current = go;
 
   /** Publish a successful local mutation through the same account-scoped
    *  channel remote notifications use. That updates this tab and every other
@@ -575,6 +580,38 @@ export function ConnectCirclesTab({
       setReloadToken((token) => token + 1);
     });
   }, [circleIdParam, currentUserId, go]);
+
+  useEffect(() => {
+    if (!currentUserId || !vaultOwnerToken || !isActive) return;
+    // Push/SSE is the fast path. A visible-only read repairs a dropped push
+    // without requiring a user to blur the app or manually refresh the tab.
+    let cancelled = false;
+    let inFlight = false;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      void OneLocationService.listCircles(vaultOwnerToken)
+        .then((next) => {
+          if (cancelled) return;
+          setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: next });
+          setError(null);
+          setLoading(false);
+          if (circleIdParam && !next.some((circle) => circle.id === circleIdParam)) {
+            goRef.current({ action: null, circleId: null, code: null }, "replace");
+            return;
+          }
+          if (circleIdParam) setDetailReloadToken((token) => token + 1);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [circleIdParam, currentUserId, isActive, vaultOwnerToken]);
 
   const closeFlow = useCallback((refreshList = true) => {
     // `replace`, not push. This runs after leaving and after deleting, so the

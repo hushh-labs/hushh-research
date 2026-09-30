@@ -1297,7 +1297,8 @@ export function ConsentNotificationProvider({
                 payload.type === "connection_request" ||
                 payload.type === "connection_request_cancelled" ||
                 payload.type === "connection_request_resolved" ||
-                payload.type === "connection_removed";
+                payload.type === "connection_removed" ||
+                payload.type === "connection_graph_changed";
               const preservesDomainType =
                 preservesConnectionType ||
                 payload.type === "information_request_updated" ||
@@ -1725,7 +1726,9 @@ export function ConsentNotificationProvider({
       // Push is a wake-up signal; Feed remains the only routine in-app
       // presentation surface. This also covers notification families added in
       // the future even when they have no provider-specific branch yet.
-      dispatchFeedStateChanged("action");
+      if (String(data.sync_only || "").toLowerCase() !== "true") {
+        dispatchFeedStateChanged("action");
+      }
 
       if (documentShareRequestId) {
         // Do not render push copy or invoke a sharing action. The canonical
@@ -1941,6 +1944,12 @@ export function ConsentNotificationProvider({
           reconcile: true,
           connectionId: String(data.connection_id || "").trim() || undefined,
         });
+      } else if (msgType === "connection_graph_changed") {
+        // Silent post-commit wake-up for contact sync, invite-link linking and
+        // the accepting person's other devices. Never surface an alert here.
+        if (user?.uid) {
+          CacheSyncService.onConnectionGraphMutated(user.uid);
+        }
       }
     };
 

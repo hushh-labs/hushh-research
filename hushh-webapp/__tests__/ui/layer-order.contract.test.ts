@@ -207,11 +207,22 @@ describe("layer ladder", () => {
       // must stay a solid colour in both themes for the same WebKit reason.
       expect(mobileSurface).toMatch(/(^|\s)bg-\[color:var\(--one-chat-sidebar\)\](\s|$)/);
       expect(mobileSurface).not.toMatch(/bg-background\/\d+|backdrop-blur|chrome-glass-surface/);
-      const sidebarTokens = [
-        ...read("app/globals.css").matchAll(/--one-chat-sidebar:\s*([^;]+);/g),
-      ].map((match) => match[1].trim());
-      expect(sidebarTokens.length).toBeGreaterThanOrEqual(2);
-      for (const value of sidebarTokens) expect(value).toMatch(/^#[0-9a-f]{6}$/i);
+      const css = read("app/globals.css");
+      const assertOpaqueToken = (token: string, ancestors: string[] = []) => {
+        expect(ancestors, `Circular color alias: ${token}`).not.toContain(token);
+        const values = [...css.matchAll(new RegExp(`${token}:\\s*([^;]+);`, "g"))]
+          .map((match) => match[1].trim());
+        expect(values.length, `Missing color token: ${token}`).toBeGreaterThan(0);
+        for (const value of values) {
+          const alias = value.match(/^var\((--[a-z-]+)\)$/)?.[1];
+          if (alias) assertOpaqueToken(alias, [...ancestors, token]);
+          else expect(value, `${token} must resolve to an opaque color`).toMatch(/^#[0-9a-f]{6}$/i);
+        }
+      };
+      // Shared aliases are safe only when every light/dark definition resolves
+      // to a solid color; transparent values and circular/missing aliases fail.
+      expect([...css.matchAll(/--one-chat-sidebar:/g)].length).toBeGreaterThanOrEqual(2);
+      assertOpaqueToken("--one-chat-sidebar");
     });
   });
 

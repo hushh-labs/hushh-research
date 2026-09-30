@@ -618,6 +618,30 @@ describe("connection-request Feed-first foreground policy", () => {
     expect(detail.accepted).toBe(true);
   });
 
+  it("reconciles a silent graph activation without presenting an alert", async () => {
+    await renderProvider();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "connection_graph_changed",
+              user_id: "recipient-user",
+              message_id: "connection-graph-changed:transition-1:recipient-user",
+              sync_only: "true",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+  });
+
   it("accepts Circle-removal pushes so mounted Location surfaces can reconcile", async () => {
     await renderProvider();
 

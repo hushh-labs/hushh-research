@@ -8,9 +8,25 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import type { AgentChatStreamHandlers } from "@/lib/services/agent-chat-client";
 import type { McpCallPreview } from "@/lib/agent/mcp-call-review";
+import { serverNow } from "@/lib/agent/server-clock";
+import { ReviewArguments } from "@/components/agent/mcp-call-review-values";
 
 export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0];
 type Phase = "loading" | "ready" | "busy" | "unavailable" | "unknown";
+
+// A real approval lives minutes; a far-future value would only be noise.
+const COUNTDOWN_MAX_SECONDS = 3600;
+const URGENT_SECONDS = 60;
+
+/** Seconds left on the server's clock, using the review's own expiry. */
+function countdownFor(expiresAt: string, now: number): { label: string; urgent: boolean } | null {
+  const expires = Date.parse(expiresAt);
+  if (!Number.isFinite(expires)) return null;
+  const seconds = Math.max(0, Math.ceil((expires - now) / 1000));
+  if (seconds > COUNTDOWN_MAX_SECONDS) return null;
+  const label = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+  return { label, urgent: seconds <= URGENT_SECONDS };
+}
 
 /** A transient authority-bearing review, deliberately excluded from chat history. */
 export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
@@ -20,6 +36,8 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
 }) {
   const [preview, setPreview] = useState<McpCallPreview | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
+  const [expired, setExpired] = useState(false);
+  const [now, setNow] = useState(() => serverNow());
   const lifetime = useRef<AbortController | null>(null);
   const attempted = useRef(false);
 
@@ -27,28 +45,40 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
     const controller = new AbortController();
     lifetime.current = controller;
     setPreview(null);
+    setExpired(false);
     if (attempted.current) {
       setPhase("unknown");
       return () => controller.abort();
     }
     setPhase("loading");
-    const remaining = Date.parse(review.reference.expiresAt) - Date.now();
+    const remainingNow = () => Date.parse(review.reference.expiresAt) - serverNow();
+    const remaining = remainingNow();
+    let timeout: ReturnType<typeof setTimeout> | undefined;
     const expire = () => {
       controller.abort();
       setPreview(null);
+      // Time ran out before a decision: say so, rather than a generic failure.
+      if (!attempted.current) setExpired(true);
       setPhase(attempted.current ? "unknown" : "unavailable");
     };
     if (remaining <= 0 || !review.isCurrent()) {
       expire();
       return () => controller.abort();
     }
-    const timeout = setTimeout(expire, Math.min(remaining, 2_147_483_647));
+    // Re-armed once the first response has taught us the server's clock.
+    const arm = () => {
+      clearTimeout(timeout);
+      timeout = setTimeout(expire, Math.min(Math.max(remainingNow(), 0), 2_147_483_647));
+    };
+    arm();
     void (async () => ExternalConnectorService.reviewMcpCall({
       configuration: await review.loadConfiguration?.(),
       vaultOwnerToken, chatKey: review.chatKey, conversationId: review.conversationId,
       reference: review.reference, signal: controller.signal, isEffectCurrent: review.isCurrent,
     }))().then((value) => {
       if (controller.signal.aborted || !review.isCurrent()) return;
+      arm();
+      setNow(serverNow());
       setPreview(value);
       setPhase("ready");
     }).catch(() => {
@@ -56,6 +86,16 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
     });
     return () => { clearTimeout(timeout); controller.abort(); };
   }, [review, vaultOwnerToken]);
+
+  // Tick only while the person can still act, so the card never re-renders idly.
+  const ticking = phase === "loading" || phase === "ready";
+  useEffect(() => {
+    if (!ticking) return;
+    setNow(serverNow());
+    const timer = setInterval(() => setNow(serverNow()), 1000);
+    return () => clearInterval(timer);
+  }, [ticking]);
+  const countdown = ticking ? countdownFor(review.reference.expiresAt, now) : null;
 
   const decide = async (confirmed: boolean) => {
     const controller = lifetime.current;
@@ -98,21 +138,23 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
       <SurfaceCardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
           {phase === "unknown" ? "We could not verify the outcome. Check the connector before trying again. This call will not be retried automatically."
+            : phase === "unavailable" && expired ? "This review expired and is no longer available. Ask One to prepare it again."
             : phase === "unavailable" ? "This review is no longer available. Unlock or reconnect if needed, then ask One to prepare it again."
               : phase === "busy" ? "Waiting for the connector step to settle."
                 : phase === "loading" ? "Checking the exact call for your review…"
                   : "Allow this exact call once. Content returned by a connector cannot approve another action."}
         </p>
+        {countdown ? (
+          <p
+            role="timer"
+            className={`text-xs tabular-nums ${countdown.urgent ? "font-medium text-foreground" : "text-muted-foreground"}`}
+          >
+            Expires in {countdown.label}
+          </p>
+        ) : null}
         {visible ? <>
           <p className="break-words text-sm font-medium">{visible.connectorLabel} · {visible.toolLabel.replaceAll("_", " ")}</p>
-          <dl aria-label="Call details" className="max-h-[40vh] overflow-y-auto overscroll-contain divide-y">
-            {Object.entries(visible.arguments).map(([key, value]) => (
-              <div key={key} className="grid gap-1 py-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,2fr)] sm:gap-3">
-                <dt className="break-words text-sm text-muted-foreground">{key.replaceAll("_", " ")}</dt>
-                <dd className="whitespace-pre-wrap break-words text-sm">{typeof value === "string" ? value : JSON.stringify(value, null, 2)}</dd>
-              </div>
-            ))}
-          </dl>
+          <ReviewArguments args={visible.arguments} />
           {Object.keys(visible.arguments).length === 0 ? <p className="text-sm">No additional inputs.</p> : null}
         </> : null}
         {phase === "unavailable" || phase === "unknown" ? (

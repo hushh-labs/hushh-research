@@ -842,6 +842,51 @@ describe("a roster row on Connect behaves like a directory row", () => {
 });
 
 describe("somebody else acting on your Circle", () => {
+  it("repairs a missed push while the Circle tab stays visible", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    mocks.listCircles
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([circle("remote-circle", "Friends", 2)]);
+
+    render(<ConnectCirclesTab currentUserId="owner-user" isActive />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => {
+      (tick as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Friends")).toBeInTheDocument();
+  });
+
+  it("closes an open Circle when a repair read finds membership was removed", async () => {
+    const intervalSpy = vi.spyOn(window, "setInterval");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    mocks.listCircles
+      .mockResolvedValueOnce([circle("mine", "Friends", 2)])
+      .mockResolvedValueOnce([]);
+
+    render(<ConnectCirclesTab currentUserId="owner-user" isActive />);
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
+
+    const tick = intervalSpy.mock.calls.find(([, delay]) => delay === 30_000)?.[0];
+    intervalSpy.mockRestore();
+    expect(tick).toBeDefined();
+    act(() => {
+      (tick as () => void)();
+    });
+
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalled());
+    const href = String(mocks.routerReplace.mock.calls.at(-1)?.[0]);
+    expect(href).toContain("tab=circles");
+    expect(href).not.toContain("circleId=");
+  });
+
   it("re-reads when the shared Circle channel announces a change", async () => {
     // A person joining with a code, accepting an invitation, or being added by
     // another owner changes this list without the viewer touching anything.

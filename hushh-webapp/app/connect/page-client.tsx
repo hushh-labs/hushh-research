@@ -1050,6 +1050,18 @@ export default function ConnectPageClient() {
     };
   }, [reconcileConnectionSurfaces, user?.uid]);
 
+  useEffect(() => {
+    if (!user?.uid || surface === "circles") return;
+    // A remote graph push is the immediate path. Keep a bounded repair read
+    // while Connect remains visible, since FCM and SSE are best-effort.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [reconcileConnectionSurfaces, surface, user?.uid]);
+
   // Push is the primary "your request was accepted" signal, but native has no
   // SSE fallback. While a sent request is pending and this screen is visible,
   // confirm it every few seconds so an acceptance lands without a refresh.
@@ -2874,6 +2886,7 @@ export default function ConnectPageClient() {
               <ConnectCirclesTab
                 onStateChange={setCirclesState}
                 currentUserId={user?.uid ?? null}
+                isActive={surface === "circles"}
                 onRequestConnection={sendConnectRequest}
                 onCancelConnectionRequest={cancelConnectionRequest}
                 refreshToken={circleRefreshToken}
@@ -3767,6 +3780,7 @@ export default function ConnectPageClient() {
                     <ConnectCirclesTab
                       onStateChange={setCirclesState}
                       currentUserId={user?.uid ?? null}
+                      isActive={surface === "circles"}
                       // The roster's Connect opens the SAME capability review the
                       // directory opens, rather than sending outright.
                       onRequestConnection={sendConnectRequest}

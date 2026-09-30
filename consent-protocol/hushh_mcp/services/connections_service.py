@@ -18,7 +18,7 @@ from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
@@ -270,6 +270,31 @@ def _default_disconnect_notifier(
         connection_id=connection_id,
         revocation_id=revocation_id,
     )
+
+
+def _notify_connection_graph_changed(
+    *,
+    user_ids: set[str],
+    connection_id: str = "",
+) -> None:
+    """Post-commit, silent graph reconciliation for remote devices."""
+
+    try:
+        from hushh_mcp.services.push_notifications import send_connection_graph_changed_push
+    except Exception:  # noqa: BLE001 - notifications cannot undo a committed mutation
+        logger.warning("connection.graph_sync_unavailable", exc_info=True)
+        return
+
+    transition_id = str(uuid4())
+    for user_id in sorted(user_ids - {""}):
+        try:
+            send_connection_graph_changed_push(
+                user_id,
+                transition_id=transition_id,
+                connection_id=connection_id,
+            )
+        except Exception:  # noqa: BLE001 - one failed device must not fail the mutation
+            logger.warning("connection.graph_sync_failed", exc_info=True)
 
 
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
@@ -2722,6 +2747,12 @@ class ConnectionsService:
             accepted=True,
             connection_request_id=source_request_id,
         )
+        # The requester receives the accepted alert above. The accepting
+        # person's other devices need a silent graph wake-up as well.
+        _notify_connection_graph_changed(
+            user_ids={user_id},
+            connection_id=str(connection_id or ""),
+        )
 
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
@@ -2787,6 +2818,10 @@ class ConnectionsService:
         # location/SOS readers treat this as a full mutual connection.
         self._mirror_trusted_edge(user_id, peer_user_id)
         self._mirror_trusted_edge(peer_user_id, user_id)
+        _notify_connection_graph_changed(
+            user_ids={user_id, peer_user_id},
+            connection_id=str((conn or {}).get("id") or ""),
+        )
         return {"status": "connected", "connectionId": (conn or {}).get("id")}
 
     def _log_request_report(
@@ -3771,6 +3806,7 @@ class ConnectionsService:
         )
         outcomes: list[dict[str, Any]] = []
         trusted_projection_pairs: list[tuple[str, str]] = []
+        activated_target_ids: set[str] = set()
         with self._transaction():
             transaction_connection = getattr(self, "_transaction_connection", None)
             if transaction_connection is None:
@@ -4087,6 +4123,16 @@ class ConnectionsService:
 
         if trusted_projection_pairs:
             self._join_trusted_system_circles_bulk(pairs=trusted_projection_pairs)
+
+        newly_connected_user_ids = {
+            str(item["userId"])
+            for item in outcomes
+            if item["outcome"] == "auto_connected" and str(item["userId"]) in activated_target_ids
+        }
+        if newly_connected_user_ids:
+            _notify_connection_graph_changed(
+                user_ids={requester_id, *newly_connected_user_ids},
+            )
 
         counts = {
             "auto_connected": sum(item["outcome"] == "auto_connected" for item in outcomes),

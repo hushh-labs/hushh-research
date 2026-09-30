@@ -24,6 +24,7 @@ def registry():
         "INSERT INTO external_mcp_connectors VALUES (?, ?, ?, ?, ?, ?, ?)",
         [
             ("public", "Public", "https://public.example/mcp", "oauth", None, True, False),
+            ("retired", "Retired", "https://retired.example/mcp", "oauth", None, False, False),
             ("a-private", "Private", "https://a.example/mcp", "oauth", "a", False, True),
             ("b-private", "Private", "https://b.example/mcp", "api_key", "b", False, True),
             ("a-disabled", "Disabled", "https://a.example/old", "oauth", "a", False, False),
@@ -61,6 +62,19 @@ async def test_exact_id_does_not_bypass_owner_or_disabled_state(registry):
     assert item is not None and item.is_active and item.owner_user_id == "a"
     public = item.to_public_dict()
     assert "owner_user_id" not in public and "mcp_endpoint" not in public
+
+
+@pytest.mark.asyncio
+async def test_inactive_curated_rows_require_explicit_recovery_lookup(registry):
+    service, _ = registry
+    assert {item.connector_id for item in await service.list_curated_connectors()} == {"public"}
+    assert {
+        item.connector_id for item in await service.list_curated_connectors(include_inactive=True)
+    } == {"public", "retired"}
+    assert await service.get_connector("retired") is None
+    retired = await service.get_connector("retired", include_inactive=True)
+    assert retired is not None and retired.connector_id == "retired"
+    assert await service.get_connector("a-private", include_inactive=True) is None
 
 
 def test_private_row_cannot_be_published_to_legacy_readers(registry):

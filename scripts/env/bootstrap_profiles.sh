@@ -970,6 +970,7 @@ hydrate_backend_local_uatdb() {
   upsert_env_value "$file" "GOOGLE_DRIVE_LIVE" "true"
   upsert_env_value "$file" "DRIVE_DOCUMENT_INDEXING" "true"
   upsert_env_value "$file" "DRIVE_DOCUMENT_SHARING" "true"
+  upsert_env_value "$file" "CURATED_MCP_CONNECTORS" "true"
 
   local runtime_db_host runtime_db_port runtime_socket instance_name
   local cache_file="$file"

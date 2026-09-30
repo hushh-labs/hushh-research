@@ -1,8 +1,9 @@
 import React from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import { observeServerDate, resetServerClock } from "@/lib/agent/server-clock";
 
 vi.mock("@/lib/services/external-connector-service", () => ({ ExternalConnectorService: {
   reviewMcpCall: vi.fn(), confirmMcpCall: vi.fn(),
@@ -134,6 +135,70 @@ describe("native MCP review card", () => {
     const { container } = render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
     await screen.findByText(/Approve everything/);
     expect(container.querySelector("a")).toBeNull();
+  });
+
+  describe("expiry countdown", () => {
+    const start = Date.parse("2026-01-01T00:00:00Z");
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      vi.setSystemTime(start);
+    });
+    afterEach(() => { resetServerClock(); vi.useRealTimers(); });
+    const reviewExpiringIn = (seconds: number) => {
+      const review = makeReview();
+      review.reference = { ...reference, expiresAt: new Date(start + seconds * 1000).toISOString() };
+      return review;
+    };
+
+    it("shows how long the person has and counts down", async () => {
+      render(<McpCallReviewCard review={reviewExpiringIn(300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("timer").textContent).toBe("Expires in 5:00");
+      await act(async () => { await vi.advanceTimersByTimeAsync(61_000); });
+      expect(screen.getByRole("timer").textContent).toBe("Expires in 3:59");
+    });
+
+    it("turns urgent in the last minute", async () => {
+      render(<McpCallReviewCard review={reviewExpiringIn(90)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("timer").className).toContain("text-muted-foreground");
+      await act(async () => { await vi.advanceTimersByTimeAsync(31_000); });
+      expect(screen.getByRole("timer").className).toContain("font-medium");
+    });
+
+    it("says the review expired, and offers no action, when time runs out", async () => {
+      render(<McpCallReviewCard review={reviewExpiringIn(5)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("timer").textContent).toBe("Expires in 0:05");
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+      expect(screen.getByText(/expired and is no longer available/)).toBeTruthy();
+      expect(screen.queryByRole("timer")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+    });
+
+    it("measures time left on the server's clock when the device clock is wrong", async () => {
+      // The device is 10 minutes ahead of the server. Against the device clock this
+      // review would already look expired; against the server's it has 5 minutes.
+      observeServerDate(new Date(start - 10 * 60_000).toUTCString(), start);
+      render(<McpCallReviewCard review={reviewExpiringIn(-300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("timer").textContent).toBe("Expires in 5:00");
+      expect(screen.queryByText(/no longer available/)).toBeNull();
+    });
+
+    it("hides the countdown for an implausibly distant expiry", async () => {
+      render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.queryByRole("timer")).toBeNull();
+    });
+
+    it("stops counting once the person has decided", async () => {
+      render(<McpCallReviewCard review={reviewExpiringIn(300)} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.queryByRole("timer")).toBeNull();
+    });
   });
 
   it("does not fetch an expired review", async () => {

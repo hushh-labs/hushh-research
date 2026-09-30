@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import json
-import resource
 import sys
+
+try:
+    import resource
+except ImportError:  # Windows has no POSIX resource-limit module.
+    resource = None
 
 if __package__:
     from .document_index_limits import CHUNK_CHARACTERS, INDEX_TEXT_BYTES, MAX_CHUNKS
@@ -71,6 +75,11 @@ def prepare_payload(client: EmbeddingClient, parsed: ParsedText) -> dict:
 
 
 def main() -> None:
+    # Do not run an untrusted-content embedding child where the POSIX resource
+    # boundary is absent. The parent's wall-clock timeout is not equivalent.
+    if resource is None:
+        sys.stdout.write(json.dumps({"error": "processor_unavailable"}))
+        return
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_CPU, (80, 80))
     if sys.platform == "linux":

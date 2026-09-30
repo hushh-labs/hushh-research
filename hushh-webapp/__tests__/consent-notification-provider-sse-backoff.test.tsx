@@ -299,6 +299,41 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     );
   });
 
+  it("preserves a silent graph activation delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: connection-graph-changed:transition-1:recipient-user",
+      `data: ${JSON.stringify({
+        type: "connection_graph_changed",
+        user_id: "recipient-user",
+        message_id: "connection-graph-changed:transition-1:recipient-user",
+        sync_only: "true",
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("recipient-user");
+  });
+
   it("preserves a Circle lifecycle type delivered by the SSE fallback", async () => {
     const frame = [
       "event: consent_update",

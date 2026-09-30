@@ -50,6 +50,11 @@ def _is_user_state_event_type(event_type: str) -> bool:
     return event_type.startswith("location_circle_") or event_type in {
         "location_settings_changed",
         "location_pkm_changed",
+        "connection_request",
+        "connection_request_cancelled",
+        "connection_request_resolved",
+        "connection_removed",
+        "connection_graph_changed",
     }
 
 

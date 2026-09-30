@@ -162,12 +162,17 @@ def test_pdf_only_extracts_bounded_pages(monkeypatch):
 @pytest.mark.parametrize(
     "content,mime,code",
     [
-        (b"", "text/plain", "no_extractable_text"),
-        (b"\xff", "text/plain", "invalid_document"),
-        (b" \n\t", "text/plain", "no_extractable_text"),
-        (b"not-pdf", "application/pdf", "invalid_document"),
-        (b"MZ", "application/x-msdownload", "unsupported_format"),
-        (b"x" * (MAX_INPUT_BYTES + 1), "text/plain", "file_too_large"),
+        pytest.param(b"", "text/plain", "no_extractable_text", id="empty-text"),
+        pytest.param(b"\xff", "text/plain", "invalid_document", id="invalid-utf8"),
+        pytest.param(b" \n\t", "text/plain", "no_extractable_text", id="whitespace"),
+        pytest.param(b"not-pdf", "application/pdf", "invalid_document", id="invalid-pdf"),
+        pytest.param(b"MZ", "application/x-msdownload", "unsupported_format", id="unsupported"),
+        pytest.param(
+            b"x" * (MAX_INPUT_BYTES + 1),
+            "text/plain",
+            "file_too_large",
+            id="oversized-text",
+        ),
     ],
 )
 def test_safe_parser_errors(content, mime, code):
@@ -205,6 +210,12 @@ def test_docx_does_not_expand_entities():
 @pytest.mark.asyncio
 async def test_real_isolated_parser_and_redacted_failure():
     parser = IsolatedDocumentParser()
+    if sys.platform == "win32":
+        # Windows lacks the POSIX resource boundary required by the private
+        # parser child, so the worker must reject before it reads input.
+        with pytest.raises(DriveReadError, match="^processor_unavailable$"):
+            await parser.parse(content=pdf(), mime_type="application/pdf")
+        return
     assert (
         (await parser.parse(content=pdf(), mime_type="application/pdf"))
         .pages[0]

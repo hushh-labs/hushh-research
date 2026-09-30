@@ -105,6 +105,7 @@ def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, obj
         "connection_request_cancelled",
         "connection_request_resolved",
         "connection_removed",
+        "connection_graph_changed",
     }:
         return payload
     metadata = _payload_map(payload.get("metadata"))

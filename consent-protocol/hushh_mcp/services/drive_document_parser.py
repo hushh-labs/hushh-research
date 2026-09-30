@@ -10,13 +10,17 @@ import csv
 import io
 import json
 import re
-import resource
 import sys
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import PurePosixPath
 
 from defusedxml import ElementTree
+
+try:
+    import resource
+except ImportError:  # Windows has no POSIX resource-limit module.
+    resource = None
 
 MAX_INPUT_BYTES = 4 * 1024 * 1024
 MAX_TEXT_BYTES = 256 * 1024
@@ -205,7 +209,11 @@ def parse_live_document(content: bytes, mime_type: str) -> ParsedText:
 
 
 def main() -> None:
-    # Linux worker hard limits; parent also kills/reaps on wall-clock timeout.
+    # These untrusted-content leaves fail closed without an OS resource
+    # boundary. A parent wall-clock timeout alone is not a memory/CPU sandbox.
+    if resource is None:
+        sys.stdout.write(json.dumps({"error": "processor_unavailable"}))
+        return
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
     resource.setrlimit(resource.RLIMIT_CPU, (20, 20))
     if sys.platform == "linux":

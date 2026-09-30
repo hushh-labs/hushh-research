@@ -776,7 +776,10 @@ def test_deactivation_does_not_hide_owner_disconnect_status(route_client, monkey
     monkeypatch.setattr(
         routes,
         "get_external_connector_registry_service",
-        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[])),
+        lambda: SimpleNamespace(
+            list_active_connectors=AsyncMock(return_value=[]),
+            list_curated_connectors=AsyncMock(return_value=[]),
+        ),
     )
     credentials = SimpleNamespace(
         list_statuses=AsyncMock(
@@ -941,3 +944,181 @@ def test_pod_mcp_machine_body_is_bounded_before_auth_and_errors_never_echo(opera
     assert response.status_code == 422 and "synthetic-secret" not in response.text
     authenticate.assert_not_called()
     mutate.assert_not_called()
+
+
+# --- curated (operator-registered) OAuth connector, e.g. HubSpot ----------------
+
+
+def _hubspot_definition(**overrides):
+    base = dict(
+        connector_id="hubspot",
+        display_name="HubSpot",
+        description="CRM",
+        auth_style="oauth",
+        owner_user_id=None,
+        transport_kind="mcp",
+        capability_policy={"chat": "reviewed"},
+    )
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _wire_curated_service(monkeypatch, curated):
+    service = SimpleNamespace(curated=lambda: curated)
+    monkeypatch.setattr(routes, "get_external_connector_oauth_service", lambda: service)
+
+
+@pytest.mark.parametrize("configured", [False, True])
+def test_curated_catalog_availability_comes_from_the_curated_adapter(
+    route_client, monkeypatch, configured
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    curated = SimpleNamespace(connection_available=AsyncMock(return_value=configured))
+    _wire_curated_service(monkeypatch, curated)
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(
+            list_active_connectors=AsyncMock(return_value=[_hubspot_definition()])
+        ),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+    body = client.get("/api/connectors").json()
+    assert body["connectors"][0]["available"] is configured
+    assert "curated_mcp_connectors" in body["features"]
+    curated.connection_available.assert_awaited_once_with("hubspot", user_id="verified-owner")
+
+
+def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    registry = SimpleNamespace(
+        list_active_connectors=AsyncMock(return_value=[]),
+        list_curated_connectors=AsyncMock(return_value=[_hubspot_definition(is_active=False)]),
+    )
+    monkeypatch.setattr(routes, "get_external_connector_registry_service", lambda: registry)
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(
+            list_statuses=AsyncMock(
+                return_value=[
+                    {
+                        "connectorId": "hubspot",
+                        "status": "connected",
+                        "accountLabel": "owner@example.invalid",
+                    }
+                ]
+            )
+        ),
+    )
+
+    response = client.get("/api/connectors")
+
+    assert response.status_code == 200
+    assert response.json()["connectors"] == [
+        {
+            "connectorId": "hubspot",
+            "displayName": "HubSpot",
+            "description": "CRM",
+            "authStyle": "oauth",
+            "registrationKind": "curated",
+            "status": "connected",
+            "accountLabel": "owner@example.invalid",
+            "connectedAt": None,
+            "validationState": "unverified",
+            "profile": None,
+            "revocationOutcome": "not_attempted",
+            "lastErrorCode": None,
+            "available": False,
+        }
+    ]
+    registry.list_curated_connectors.assert_awaited_once_with(include_inactive=True)
+
+
+def test_curated_oauth_start_and_disconnect_use_the_curated_lifecycle(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    curated = SimpleNamespace(
+        disconnect=AsyncMock(
+            return_value={
+                "status": "revoked",
+                "connectorId": "hubspot",
+                "revocationOutcome": "unavailable",
+            }
+        )
+    )
+    service = SimpleNamespace(
+        curated=lambda: curated,
+        start=AsyncMock(
+            side_effect=routes.CuratedConnectorOAuthError(
+                "redirect_not_registered", status_code=400
+            )
+        ),
+    )
+    monkeypatch.setattr(routes, "get_external_connector_oauth_service", lambda: service)
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(get_connector=AsyncMock(return_value=_hubspot_definition())),
+    )
+    started = client.post(
+        "/api/connectors/hubspot/connect/oauth/start",
+        json={"redirectUri": "https://evil.invalid/return"},
+    )
+    assert started.status_code == 400
+    assert started.json()["detail"] == "redirect_not_registered"
+    disconnected = client.post("/api/connectors/hubspot/disconnect")
+    assert disconnected.status_code == 200
+    assert disconnected.json()["revocationOutcome"] == "unavailable"
+    curated.disconnect.assert_awaited_once_with(connector_id="hubspot", user_id="verified-owner")
+
+
+def test_deactivated_curated_connector_can_still_be_scrubbed_by_owner(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    curated = SimpleNamespace(
+        disconnect=AsyncMock(
+            return_value={
+                "status": "revoked",
+                "connectorId": "hubspot",
+                "revocationOutcome": "unavailable",
+            }
+        )
+    )
+    _wire_curated_service(monkeypatch, curated)
+    registry = SimpleNamespace(
+        get_connector=AsyncMock(return_value=_hubspot_definition(is_active=False))
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: registry,
+    )
+    assert client.post("/api/connectors/hubspot/disconnect").status_code == 200
+    registry.get_connector.assert_awaited_once_with("hubspot", include_inactive=True)
+    curated.disconnect.assert_awaited_once_with(connector_id="hubspot", user_id="verified-owner")
+
+
+def test_unknown_deactivated_connector_still_scrubs_legacy_credentials(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    credentials = SimpleNamespace(
+        disconnect=AsyncMock(return_value={"status": "revoked", "connectorId": "unknown"})
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(get_connector=AsyncMock(return_value=None)),
+    )
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", lambda: credentials)
+
+    assert client.post("/api/connectors/unknown/disconnect").status_code == 200
+    credentials.disconnect.assert_awaited_once_with(
+        user_id="verified-owner", connector_id="unknown"
+    )

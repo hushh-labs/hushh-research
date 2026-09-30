@@ -14,7 +14,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+
+from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint, validate_mcp_endpoint
 
 _CONNECTOR_ID_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 
@@ -29,9 +30,10 @@ def _text(value: Any) -> str:
 
 def _require_https_url(value: Any, label: str) -> str:
     candidate = _text(value)
-    parsed = urlparse(candidate)
-    if parsed.scheme != "https" or not parsed.netloc:
-        raise ExternalMcpConnectorDescriptorError(f"{label} must be an HTTPS URL.")
+    try:
+        validate_mcp_endpoint(candidate)
+    except UnsafeMcpEndpoint:
+        raise ExternalMcpConnectorDescriptorError(f"{label} must be a public HTTPS URL.") from None
     return candidate
 
 
@@ -42,6 +44,15 @@ def _safe_env_name(value: Any, label: str) -> str:
             f"{label} must name an uppercase environment variable."
         )
     return name
+
+
+_RESERVED_CONNECTOR_ID_PREFIXES = ("custom_", "google_")
+# The only chat-admission mode this registry currently knows how to grant a
+# curated (operator-owned) connector: every tool call still gets a review
+# card, matching Gmail/Drive/Calendar -- see governed_mcp_toolset.py's
+# founder-decision comment on why a curated row never runs unreviewed.
+_ALLOWED_CHAT_ADMISSION = {"reviewed"}
+_MAX_TOOL_ALLOWLIST = 200
 
 
 @dataclass(frozen=True)
@@ -75,6 +86,12 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
         raise ExternalMcpConnectorDescriptorError(
             "connectorId must be lowercase snake_case, e.g. 'notion'."
         )
+    if connector_id.startswith(_RESERVED_CONNECTOR_ID_PREFIXES):
+        raise ExternalMcpConnectorDescriptorError(
+            "connectorId may not start with 'custom_' or 'google_' -- those "
+            "namespaces are managed outside this registry (vault custom "
+            "connectors and the Google Workspace adapters, respectively)."
+        )
     if not _text(raw.get("displayName")):
         raise ExternalMcpConnectorDescriptorError("displayName is required.")
     _require_https_url(raw.get("mcpEndpoint"), "mcpEndpoint")
@@ -92,11 +109,42 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
         _require_https_url(raw.get("oauthAuthorizeUrl"), "oauthAuthorizeUrl")
         _require_https_url(raw.get("oauthTokenUrl"), "oauthTokenUrl")
         scopes = raw.get("oauthScopes")
-        if not isinstance(scopes, list) or not scopes or not all(_text(s) for s in scopes):
+        # An empty list is a real, valid scope request some providers require
+        # (HubSpot's remote MCP server advertises scopes_supported: [] and
+        # rejects a non-empty scope parameter) -- only the TYPE is enforced
+        # here, never non-emptiness.
+        if not isinstance(scopes, list) or not all(isinstance(s, str) and _text(s) for s in scopes):
             raise ExternalMcpConnectorDescriptorError(
-                "oauthScopes must be a non-empty list of scope strings."
+                "oauthScopes must be a list of scope strings (may be empty)."
             )
         _safe_env_name(raw.get("oauthClientIdEnv"), "oauthClientIdEnv")
         _safe_env_name(raw.get("oauthClientSecretEnv"), "oauthClientSecretEnv")
+
+    if "registeredRedirectUris" in raw:
+        uris = raw.get("registeredRedirectUris")
+        if not isinstance(uris, list) or not uris:
+            raise ExternalMcpConnectorDescriptorError(
+                "registeredRedirectUris must be a non-empty list when present."
+            )
+        for uri in uris:
+            _require_https_url(uri, "registeredRedirectUris entry")
+
+    if "chatAdmission" in raw:
+        admission = _text(raw.get("chatAdmission"))
+        if admission not in _ALLOWED_CHAT_ADMISSION:
+            raise ExternalMcpConnectorDescriptorError(
+                f"chatAdmission must be one of {sorted(_ALLOWED_CHAT_ADMISSION)}."
+            )
+
+    if "toolAllowlist" in raw:
+        tools = raw.get("toolAllowlist")
+        if (
+            not isinstance(tools, list)
+            or len(tools) > _MAX_TOOL_ALLOWLIST
+            or not all(isinstance(t, str) and _text(t) for t in tools)
+        ):
+            raise ExternalMcpConnectorDescriptorError(
+                f"toolAllowlist must be a list of at most {_MAX_TOOL_ALLOWLIST} tool-name strings."
+            )
 
     return ValidatedExternalMcpConnectorDescriptor(raw=raw)

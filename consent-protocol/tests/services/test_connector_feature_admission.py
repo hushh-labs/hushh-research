@@ -30,6 +30,7 @@ def test_connection_and_read_only_chat_available_without_rollout_flags():
             "google_drive_picker",
             "google_drive_chat_reads",
             "gmail_chat_reads",
+            "curated_mcp_connectors",
         )
     )
     assert not features["google_drive_live"]
@@ -37,6 +38,23 @@ def test_connection_and_read_only_chat_available_without_rollout_flags():
     assert not features["drive_document_sharing"]
     assert not connector_feature_enabled("google_drive_chat_writes", "owner")
     assert not connector_feature_enabled("google_drive_downloads", "owner")
+
+
+@pytest.mark.parametrize("environment", ["production", "uat", "test", "development", ""])
+def test_curated_connectors_are_available_to_every_owner_in_every_environment(
+    monkeypatch, environment
+):
+    """No flag and no owner cohort: what is offered is decided by the provider's
+    registry row and secrets, not by who the person is."""
+    monkeypatch.setenv("ENVIRONMENT", environment)
+    assert connector_feature_enabled("curated_mcp_connectors", "any-firebase-uid")
+    assert connector_feature_enabled("curated_mcp_connectors", "another-firebase-uid")
+    assert connector_features("any-firebase-uid")["curated_mcp_connectors"] is True
+
+
+@pytest.mark.parametrize("user_id", ["", "   ", " padded "])
+def test_curated_connectors_still_need_a_real_owner(user_id):
+    assert not connector_feature_enabled("curated_mcp_connectors", user_id)
 
 
 @pytest.mark.parametrize(

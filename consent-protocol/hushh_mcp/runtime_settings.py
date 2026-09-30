@@ -112,6 +112,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
+    "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
     "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",
     "connector_uat_all_users": "CONNECTOR_UAT_ALL_USERS",
     # Nearby check-in admission. Both are required to open the flow in

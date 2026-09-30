@@ -22,6 +22,13 @@ function validCustomReference(value: CustomConnectorRecoveryReference | undefine
     /^[a-f0-9-]{36}$/i.test(value.revision));
 }
 
+/** An operator-registered OAuth connector (e.g. HubSpot). Never a Google or vault-custom id. */
+export type CuratedConnectorRecoveryReference = { connectorId: string };
+function validCuratedReference(value: CuratedConnectorRecoveryReference | undefined): boolean {
+  return value === undefined || Boolean(value && /^[a-z][a-z0-9_]{1,63}$/.test(value.connectorId) &&
+    !value.connectorId.startsWith("google_") && !value.connectorId.startsWith("custom_"));
+}
+
 export type DriveChatRecoveryState = {
   conversationId: string | null;
   input: string;
@@ -49,6 +56,7 @@ type DriveChatRecoveryMarker = {
   reason: DriveChatRecoveryReason;
   expiresAt: number;
   customConnector?: CustomConnectorRecoveryReference;
+  curatedConnector?: CuratedConnectorRecoveryReference;
   returnTo?: "connector_settings";
 };
 
@@ -61,7 +69,8 @@ function readMarker(key: string): DriveChatRecoveryMarker | null {
       !ATTEMPT_ID.test(value.attemptId || "") ||
       !["web_full_page", "native_oauth", "native_picker"].includes(value.reason || "") ||
       !Number.isFinite(value.expiresAt) ||
-      (value.expiresAt ?? 0) <= Date.now() || !validCustomReference(value.customConnector)
+      (value.expiresAt ?? 0) <= Date.now() || !validCustomReference(value.customConnector) ||
+      !validCuratedReference(value.curatedConnector)
       || (value.returnTo !== undefined && value.returnTo !== "connector_settings")
     ) return null;
     return value as DriveChatRecoveryMarker;
@@ -92,6 +101,28 @@ export function saveCustomConnectorSettingsHandoff(input: {
     reason: "web_full_page",
     expiresAt: Date.now() + DRIVE_CHAT_RECOVERY_TTL_MS,
     customConnector: input.customConnector,
+    returnTo: "connector_settings",
+  } satisfies DriveChatRecoveryMarker));
+  window.sessionStorage.removeItem(RETURN_KEY);
+}
+
+/** A curated-connector sign-in started from Settings: correlation only, no Chat draft. */
+export function saveCuratedConnectorSettingsHandoff(input: {
+  ownerUserId: string;
+  attemptId: string;
+  curatedConnector: CuratedConnectorRecoveryReference;
+}): void {
+  if (!input.ownerUserId || !ATTEMPT_ID.test(input.attemptId) ||
+      !input.curatedConnector || !validCuratedReference(input.curatedConnector)) {
+    throw new Error("Invalid connector sign-in handoff.");
+  }
+  window.sessionStorage.setItem(HANDOFF_KEY, JSON.stringify({
+    version: 1,
+    ownerUserId: input.ownerUserId,
+    attemptId: input.attemptId,
+    reason: "web_full_page",
+    expiresAt: Date.now() + DRIVE_CHAT_RECOVERY_TTL_MS,
+    curatedConnector: input.curatedConnector,
     returnTo: "connector_settings",
   } satisfies DriveChatRecoveryMarker));
   window.sessionStorage.removeItem(RETURN_KEY);

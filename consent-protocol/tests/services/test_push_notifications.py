@@ -13,6 +13,8 @@ from hushh_mcp.services.push_notifications import (
     send_circle_member_left_push,
     send_circle_member_removed_push,
     send_circle_renamed_push,
+    send_circle_roster_changed_push,
+    send_connection_graph_changed_push,
     send_connection_removed_push,
     send_connection_request_cancelled_push,
     send_connection_request_push,
@@ -229,7 +231,8 @@ def test_connection_request_push_falls_back_to_the_list_without_an_id(monkeypatc
 
     assert captured["deep_link"] == "/one/consent?tab=connections"
     assert captured["data"]["request_id"] == ""
-    assert captured["data"]["message_id"] == ""
+    assert captured["data"]["message_id"].startswith("connection-request:")
+    assert "requester-1" not in captured["data"]["message_id"]
     assert captured["notification_tag"] == "connection-request"
     assert "requester-1" not in str(captured["data"])
     assert "requester-1" not in captured["notification_tag"]
@@ -322,6 +325,42 @@ def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):
     assert payload["request_id"] == "req-42"
     assert payload["body"] == "John Smith wants to connect with you on Hussh."
     assert payload["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
+
+
+def test_request_then_cancellation_has_distinct_sse_transition_ids(monkeypatch):
+    """A live SSE stream must not discard cancellation of the same request."""
+    from api.routes.sse import _sse_event_id
+
+    pushes: list[dict] = []
+    events: list[dict] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_user_data_push",
+        lambda _user_id, **kwargs: pushes.append(kwargs) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda _user_id, payload: events.append(payload) or True,
+    )
+
+    send_connection_request_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert [event["request_id"] for event in events] == ["req-42", "req-42"]
+    assert len({_sse_event_id(event) for event in events}) == 2
+    assert [event["message_id"] for event in events] == [
+        push["data"]["message_id"] for push in pushes
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -502,6 +541,30 @@ def test_connection_removed_push_reaches_the_sse_reconcile_path(monkeypatch):
     assert payload["connection_id"] == "conn-42"
     assert payload["counterpart_user_id"] == "user-a"
     assert payload["message_id"].endswith(":2026-09-19T10:15:30+00:00:user-b")
+
+
+def test_connection_graph_doorbell_uses_cross_worker_channel_and_stays_silent(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    published = []
+    local = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, payload: published.append((user_id, payload)) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, payload: local.append((user_id, payload)) or True,
+    )
+
+    send_connection_graph_changed_push("member-1", transition_id="transition-1")
+
+    assert len(published) == 1
+    assert published[0][0] == "member-1"
+    assert published[0][1]["type"] == "connection_graph_changed"
+    assert published[0][1]["message_id"] == captured["data"]["message_id"]
+    assert captured["show_alert"] is False
+    assert captured["data"]["sync_only"] == "true"
+    assert local == []
 
 
 def test_connection_removed_push_uses_a_new_delivery_id_for_each_revocation(monkeypatch):
@@ -875,6 +938,39 @@ def test_circle_delivery_uses_one_message_id_for_fcm_and_sse(monkeypatch):
     assert streamed[0][1]["type"] == "location_circle_member_removed"
     assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
     assert streamed[0][1]["circle_id"] == "circle-1"
+
+
+def test_circle_roster_doorbell_is_silent_and_carries_no_roster(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    streamed = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streamed.append((user_id, data)) or True,
+    )
+
+    send_circle_roster_changed_push(
+        user_id="viewer-1",
+        circle_id="circle-1",
+        member_user_id="departed-1",
+        change="removed",
+    )
+
+    assert captured["show_alert"] is False
+    assert captured["notification_type"] == "location_circle_member_removed"
+    assert captured["data"] == {
+        "circle_id": "circle-1",
+        "sync_only": "true",
+        "message_id": captured["data"]["message_id"],
+    }
+    assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
+
+    send_circle_roster_changed_push(
+        user_id="departed-1",
+        circle_id="circle-1",
+        member_user_id="departed-1",
+        change="left",
+    )
+    assert captured["data"]["member_user_id"] == "departed-1"
 
 
 def test_circle_renamed_push_can_silently_wake_the_owners_other_devices(monkeypatch):

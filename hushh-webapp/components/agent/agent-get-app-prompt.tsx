@@ -82,7 +82,7 @@ function GetAppBody({
               target="_blank"
               rel="noopener noreferrer"
               data-testid={`agent-get-app-link-${target.store}`}
-              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--one-chat-field-strong)] px-4 text-[15px] font-medium text-foreground transition-colors hover:bg-[color:var(--one-chat-row-active)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
+              className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] px-4 text-[15px] font-medium text-[color:var(--app-accent-fg)] transition-colors hover:bg-[color:var(--app-accent-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60"
             >
               <Smartphone className="h-4 w-4" aria-hidden="true" />
               {targets.length > 1 ? `Get it on ${target.label}` : "Get the app"}

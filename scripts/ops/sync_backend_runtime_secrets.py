@@ -24,6 +24,7 @@ CONNECTOR_ROLLOUT_FLAGS = (
     "drive_document_sharing",
     "gmail_chat_reads",
     "google_drive_chat_reads",
+    "curated_mcp_connectors",
 )
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
@@ -252,6 +253,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
+        "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
         "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
         "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
@@ -408,6 +410,7 @@ def main() -> int:
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
     parser.add_argument("--connector-internal-owner-cohort", default="")
     parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
     # Nearby check-in admission. Blank leaves the flow closed in production and

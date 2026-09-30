@@ -15,7 +15,10 @@ from google.adk.tools.tool_context import ToolContext
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.agui_turn_timing import record_connector_discovery
-from hushh_mcp.one_adk.governed_mcp_toolset import native_registration_admitted
+from hushh_mcp.one_adk.governed_mcp_toolset import (
+    mcp_call_timeout_seconds,
+    native_registration_admitted,
+)
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 from hushh_mcp.one_adk.mcp_turn_scope import current_mcp_turn
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
@@ -141,7 +144,7 @@ class RegisteredMcpToolset(BaseToolset):
         if context.state.get("hussh:conversation_id") != scope.conversation_id:
             raise ExternalMcpError("Connector turn changed.", code="MCP_TURN_UNAVAILABLE")
         scope.track_catalog_view(self)
-        async with asyncio.timeout(20):
+        async with asyncio.timeout(mcp_call_timeout_seconds()):
             definitions = []
             if not scope.vault_only:
                 definitions = (

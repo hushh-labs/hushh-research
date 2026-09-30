@@ -70,7 +70,8 @@ def _reviewed_mcp_tool(tool: Any) -> bool:
     # or its read-only annotation. Only the Chat-owned governed toolset, with
     # its canonical approval port, stays callable after the barrier. Whether a
     # call is reviewed is the toolset's own decision (the person's connectors
-    # run freely; curated first-party rows keep exact-call review).
+    # run freely; a curated first-party row runs only its reviewed reads freely
+    # and keeps exact-call review for everything else).
     from hushh_mcp.one_adk.governed_mcp_toolset import _GovernedMcpTool
     from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
 

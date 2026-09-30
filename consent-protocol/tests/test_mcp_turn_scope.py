@@ -488,3 +488,18 @@ def test_vault_owner_token_cannot_be_forwarded_as_oauth_access_token(value):
     with pytest.raises(ExternalMcpError) as caught:
         module.validate_mcp_turn_configurations([record])
     assert caught.value.code == "MCP_CONFIGURATION_INVALID"
+
+
+async def test_scope_forwards_the_reviewed_read_list_to_the_native_toolset(runtime, monkeypatch):
+    free = frozenset({"mcp_" + "a" * 40})
+    resolved = ResolvedMcpConnection(
+        McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp"),
+        {"Authorization": "synthetic"},
+        review_policy="reviewed_writes",
+        free_read_tool_ids=free,
+    )
+    monkeypatch.setattr(module, "resolve_registered_connection", AsyncMock(return_value=resolved))
+    async with module.mcp_turn_scope("thread") as scope:
+        native = await scope.acquire(context(), "provider", authorize_call=AsyncMock())
+        assert native.review_policy == "reviewed_writes"
+        assert native.free_read_tool_ids == free

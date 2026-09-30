@@ -18,17 +18,24 @@ FEATURES = {
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
+    "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
 }
 
 # These are ordinary owner-initiated capabilities, not UAT rollout effects.
 # Keeping their response keys preserves existing clients while removing the
 # environment/cohort dependency from connection and read-only Chat use.
+# curated_mcp_connectors (an operator-registered provider such as HubSpot) is
+# available to every owner: whether a provider is offered is decided by its
+# active registry row, its OAuth secrets being present in this environment, and
+# a registered return address, and every change it makes is still reviewed. An
+# environment without the provider's secrets never offers it.
 OWNER_AVAILABLE = frozenset(
     {
         "google_drive_connection",
         "google_drive_picker",
         "google_drive_chat_reads",
         "gmail_chat_reads",
+        "curated_mcp_connectors",
     }
 )
 

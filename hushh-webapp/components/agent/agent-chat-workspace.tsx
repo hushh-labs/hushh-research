@@ -2362,7 +2362,6 @@ export function chatHeaderSubtitle(input: {
  * conversation (Muse-style); below it, the existing full-height drawer.
  */
 const DESKTOP_HISTORY_QUERY = "(min-width: 1024px)";
-const DESKTOP_HISTORY_COLLAPSED_KEY = "one.chat.desktop-history-collapsed";
 
 function subscribeDesktopHistoryLayout(onChange: () => void): () => void {
   const query = window.matchMedia(DESKTOP_HISTORY_QUERY);
@@ -2376,24 +2375,6 @@ function useDesktopHistoryLayout(): boolean {
     () => window.matchMedia(DESKTOP_HISTORY_QUERY).matches,
     () => false,
   );
-}
-
-/** A per-viewer layout preference only; unreadable storage means expanded. */
-function readDesktopHistoryCollapsed(): boolean {
-  try {
-    return window.localStorage.getItem(DESKTOP_HISTORY_COLLAPSED_KEY) === "1";
-  } catch {
-    return false;
-  }
-}
-
-function writeDesktopHistoryCollapsed(collapsed: boolean): void {
-  try {
-    if (collapsed) window.localStorage.setItem(DESKTOP_HISTORY_COLLAPSED_KEY, "1");
-    else window.localStorage.removeItem(DESKTOP_HISTORY_COLLAPSED_KEY);
-  } catch {
-    // Private mode or blocked storage: the column simply stays as toggled.
-  }
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -2798,10 +2779,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   const desktopHistoryLayout = useDesktopHistoryLayout();
-  const [desktopHistoryCollapsed, setDesktopHistoryCollapsed] = useState(false);
-  useEffect(() => {
-    setDesktopHistoryCollapsed(readDesktopHistoryCollapsed());
-  }, []);
+  const [desktopHistoryCollapsed, setDesktopHistoryCollapsed] = useState(true);
   const desktopHistoryVisible = desktopHistoryLayout && !desktopHistoryCollapsed;
   const [driveReviewSignal, setDriveReviewSignal] = useState<{ ownerId: string | null; epoch: number; count: number }>(
     { ownerId: null, epoch: vaultSessionEpoch, count: 0 },
@@ -8045,10 +8023,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
   const toggleDesktopHistory = useCallback(() => {
-    setDesktopHistoryCollapsed((collapsed) => {
-      writeDesktopHistoryCollapsed(!collapsed);
-      return !collapsed;
-    });
+    setDesktopHistoryCollapsed((collapsed) => !collapsed);
   }, []);
   // The column needs the list as soon as it is on screen (the drawer loads on
   // open); the history cache makes a repeat of this cheap.
@@ -8056,8 +8031,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!desktopHistoryVisible || isPuppySurface) return;
     void loadConversationList().catch(() => undefined);
   }, [desktopHistoryVisible, isPuppySurface, loadConversationList]);
-  // Widening past the breakpoint with the phone drawer open hands the list to
-  // the column rather than leaving a modal drawer over a two-column layout.
+  // Widening past the breakpoint closes the phone drawer; desktop history
+  // remains controlled by its hamburger toggle.
   useEffect(() => {
     if (desktopHistoryLayout && isHistoryDrawerOpen && drawerMode === "chats")
       handleHistoryDrawerOpenChange(false);

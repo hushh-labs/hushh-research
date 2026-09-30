@@ -58,6 +58,12 @@ export function connectorConfirmCopy(target: string): ConnectorConfirmCopy {
         "This removes its connected financial records from your vault. Other banks stay connected.",
       action: "Disconnect",
     };
+  if (target.startsWith("curated:"))
+    return {
+      title: "Disconnect this connector?",
+      description: "Your information in that service is unchanged.",
+      action: "Disconnect",
+    };
   return {
     title: "Remove this file from One?",
     description: "The original in Google Drive is unchanged.",

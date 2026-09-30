@@ -5447,13 +5447,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* One chat surface (Muse-inspired layout, 2026-09-29). Scoped to the chat
    workspace, its history column/drawer and the Get the app prompt through
-   [data-one-chat-surface]; no other page reads these tokens. Light is a clean
-   white canvas with soft grey bubbles, dark a neutral near-black with raised
+   [data-one-chat-surface]; no other page reads these tokens. Light shares the
+   launcher’s grey canvas with soft grey bubbles, dark a neutral near-black with raised
    greys. The accent (user bubbles, focus) stays One's own blue. */
 [data-one-chat-surface] {
-  --one-chat-canvas: #ffffff;
+  --one-chat-canvas: var(--one-launcher-background);
   /* One surface with the chat, as in the reference: the hairline divides. */
-  --one-chat-sidebar: #ffffff;
+  --one-chat-sidebar: var(--one-chat-canvas);
   --one-chat-search-border: rgba(0, 0, 0, 0.12);
   --one-chat-search-bg: transparent;
   --one-chat-divider: rgba(0, 0, 0, 0.075);

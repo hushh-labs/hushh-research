@@ -249,6 +249,8 @@ class IsolatedDocumentParser:
             )
             if "error" in result:
                 code = result["error"]
+                if code == "processor_unavailable":
+                    raise DriveReadError(code)
                 raise DriveReadError(code if code in PARSE_CODES else "invalid_document")
             pages = result["pages"]
             if (

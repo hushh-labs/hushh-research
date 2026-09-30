@@ -4235,6 +4235,51 @@ export function OneLocationAgentPageContent({
     });
   }, [auth.userId, refresh, refreshSmsRoster, router, searchParams]);
 
+  const openCircleIdForRepair = String(searchParams.get("circleId") || "").trim();
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || !openCircleIdForRepair) return;
+    let cancelled = false;
+    let inFlight = false;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible" || inFlight) return;
+      inFlight = true;
+      // The open roster must recover even if both live transports miss a
+      // transition. A removed member must leave the invalid detail route.
+      void OneLocationService.listCircles(vaultOwnerToken)
+        .then((circles) => {
+          if (cancelled) return;
+          if (!circles.some((circle) => circle.id === openCircleIdForRepair)) {
+            router.replace(`${ROUTES.ONE_LOCATION}?view=people`, { scroll: false });
+            return;
+          }
+          setCircleStateRevision((current) => current + 1);
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    }, 30_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [auth.userId, openCircleIdForRepair, router, vaultOwnerToken]);
+
+  const isPeopleViewForRepair = searchParams.get("view") === "people";
+  useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || !isPeopleViewForRepair || openCircleIdForRepair) {
+      return;
+    }
+    // The people/Circle overview also needs a missed-push repair while it
+    // stays open; the normal focus and notification paths remain immediate.
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void refresh({ background: true });
+      }
+    }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [auth.userId, isPeopleViewForRepair, openCircleIdForRepair, refresh, vaultOwnerToken]);
+
   const scheduleOneLocationStateRefresh = useCallback(
     (
       notificationType: string,

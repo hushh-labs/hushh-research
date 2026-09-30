@@ -163,6 +163,8 @@ class TestCrossProcessUserStateNotifications:
             "location_circle_renamed",
             "location_settings_changed",
             "location_pkm_changed",
+            "connection_graph_changed",
+            "connection_removed",
         ],
     )
     def test_postgres_callback_delivers_to_every_stream_owned_by_this_worker(

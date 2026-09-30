@@ -1305,6 +1305,19 @@ Security invariant:
 | GET    | `/api/consent/events/{user_id}/poll/{request_id}`                  | Deprecated and disabled (`410`, `CONSENT_POLL_DEPRECATED`)                                                                                                                                                          |
 | GET    | `/api/v1/consent-events?user_id={user_id}&request_id={request_id}` | Developer-authenticated SSE for the outside agent; prefer `Authorization: Bearer <developer-token>`; emits `snapshot`, `consent_update`, and `heartbeat`; scoped to the developer app that owns the consent request |
 
+The first-party `/api/consent/events/{user_id}` stream also carries metadata-only
+Circle and Connection state doorbells when enabled. Committed membership changes
+wake active Circle viewers; accepted, removed, invite-linked, and contact-sync
+connections wake the affected accounts. `connection_graph_changed` and
+`location_circle_member_*` with `sync_only=true` request an authenticated
+re-read without creating an alert or Feed item. The same transition is sent
+over FCM; the Postgres user-state channel fans SSE out across backend workers.
+Delivery is best-effort, not replayed, so visible Connect and Circle surfaces
+perform bounded reconciliation if a push is missed: every 30 seconds on an
+open Circle surface and every 60 seconds on the Connection or People overview.
+Those reads do not delay an event that arrives live. These events carry no
+roster, location, or private-information contents and grant no authority.
+
 ### Deprecated (410 Gone)
 
 | Method | Path                                       | Replacement                                                                                                                                                                                    |
@@ -1665,14 +1678,16 @@ routes remain default-off and do **not** enable chat reads or indexing.
 
 | Route | Authority | Contract |
 | --- | --- | --- |
-| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive keeps owner recovery status with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
+| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive and a curated OAuth connector with an existing owner grant keep a recovery row with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
 | `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + UAT admission/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
-| `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
+| `POST /api/connectors/{connector_id}/connect/oauth/start` | Vault Owner + active operator registry row + provider OAuth secrets present | For a reviewed curated OAuth MCP connector, requires its exact registered web return URI and returns only a provider authorization URL, opaque attempt ID, connector ID and expiry. |
+| `POST /api/connectors/oauth/complete` | Vault Owner | Dispatches the signed, atomically claimed owner attempt to its adapter. Drive uses verified Google identity/scopes; curated OAuth seals the owner-bound grant then verifies its MCP endpoint before reporting `connected`. |
 | `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Requires `code`, signed `state` and matching opaque `attemptId` before exchange. Popup-only completion exception; no opener Vault Owner token transfer. |
 | `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
 | `GET /api/connectors/oauth/native/pending` | Original Vault Owner | Returns only the current opaque staged native `attemptId` and expiry for restart recovery. It never returns provider credentials, codes, tokens, subjects, or callback data. |
 | `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current rollout admission before activation. |
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
+| `POST /api/connectors/{connector_id}/disconnect` | Vault Owner; curated OAuth recovery remains available when rollout is off or the row is inactive | Finds an operator-curated OAuth row even when inactive, invalidates its lifecycle state and scrubs the local credential. An unknown retired ID falls back only to owner credential scrubbing; it does not reactivate or execute any connector. |
 | `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
 | `POST /api/connectors/google_drive/documents/select` | Same Vault Owner + current single-use session + explicit `confirmed=true` | At most 25 unique candidate IDs. Revalidates fixed provider metadata/policy; atomically consumes the session and inserts encrypted internal catalog references in `queued` state. Does not claim indexing completed. |
 | `POST /api/connectors/google_drive/picker/native/start` | Vault Owner + Picker cohort/flag | Requires the exact registered HTTPS callback. Starts a separate ten-minute PKCE One Picker attempt with only `drive.file`, `trigger_onepick=true`, and `allow_multiple=true`; returns an authorization URL, opaque attempt ID and expiry only. |
@@ -1707,6 +1722,39 @@ Migration 228 adds an encrypted source catalog under separate `DRIVE_DOCUMENT_KE
 client-key PKM or OAuth credential storage. Source metadata is owner/document/generation bound;
 source IDs are owner-keyed HMAC fingerprints. Disconnect/account switch atomically deletes
 selected sources and sessions. This checkpoint stores no raw content, chunks or embeddings.
+
+### Curated OAuth MCP connector rollout
+
+HubSpot is the first curated OAuth MCP connector. Its initial contract is
+**web onboarding and mobile use after a web connection**: native does not yet
+own a curated OAuth callback. A non-terminal stored grant remains visible for
+Disconnect if an operator deactivates the
+registry row; it does not become connectable or executable again.
+
+The checked-in UAT descriptor is not activation. An authorized operator must
+run the descriptor's validation/probe/apply workflow against the intended UAT
+registry, with the matching OAuth app callback and UAT-only secrets already
+provisioned. Deployment does not apply that row implicitly. Source wiring for
+the provider secrets is therefore not proof that the registry row is live.
+Curated connectors are owner-initiated and available to every Vault Owner; an
+environment without the provider's secrets or an active row never offers one.
+
+Descriptor validation and runtime configuration admit only public HTTPS MCP,
+authorization, and token endpoints: no credentials/userinfo, query/fragment,
+non-443 port, loopback, private-address literal, or private DNS suffix.
+For an enabled curated provider, reviewed runtime pins must also match its
+endpoint, scopes, client-ID variable, and client-secret variable; an
+operator-writable registry row alone cannot select another process secret.
+Token exchange and refresh use the public-only transport with redirects and
+environment proxies disabled, public-address DNS pinning, identity encoding,
+and a bounded response before JSON parsing. Curated chat admission separately
+requires a verified owner grant, the reviewed policy, and the connector's
+allowlisted tools. Connecting a provider grants no unreviewed change: only tools
+on a per-provider list reviewed in application code (never in the operator
+registry), and which the server itself also marks read-only, run without a
+per-call review card, each logged as an unreviewed read call. Every other tool,
+including every write, needs exact-call review, and a provider absent from that
+list keeps review on every call.
 
 The existing left drawer mounts Chats and Connections together. Mail uses the existing
 Gmail connection service; Drive uses a synchronously opened popup with exact origin/source/

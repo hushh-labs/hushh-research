@@ -372,6 +372,7 @@ class McpTurnResources:
             result_policy=resolved.result_policy,
             review_policy=resolved.review_policy,
             forced_review_tool_ids=resolved.forced_review_tool_ids,
+            free_read_tool_ids=resolved.free_read_tool_ids,
         )
         self._toolsets[resolved.binding] = toolset
         return toolset

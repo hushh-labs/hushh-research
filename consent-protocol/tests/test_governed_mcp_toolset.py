@@ -923,13 +923,22 @@ def _owner_context(**state):
     return SimpleNamespace(user_id="owner", tool_confirmation=None, state=dict(state))
 
 
-def _policy_toolset(policy, tools, *, headers=None, forced=frozenset(), catalog_policy=None):
+def _policy_toolset(
+    policy,
+    tools,
+    *,
+    headers=None,
+    forced=frozenset(),
+    catalog_policy=None,
+    free_reads=frozenset(),
+):
     binding = McpConnectionBinding("owner", "custom_one", 1, 1, "https://example.com/mcp")
     connection = ResolvedMcpConnection(
         binding,
         headers if headers is not None else {"Authorization": "Bearer synthetic"},
         review_policy=policy,
         forced_review_tool_ids=forced,
+        free_read_tool_ids=free_reads,
     )
     approve = AsyncMock(return_value={"status": "review_required"})
     toolset = GovernedMcpToolset(
@@ -938,6 +947,7 @@ def _policy_toolset(policy, tools, *, headers=None, forced=frozenset(), catalog_
         authorize_call=approve,
         review_policy=policy,
         forced_review_tool_ids=forced,
+        free_read_tool_ids=free_reads,
         catalog_policy=catalog_policy,
     )
     session = SimpleNamespace(
@@ -1492,3 +1502,419 @@ async def test_confirmed_resume_still_consumes_its_receipt(boundary_toolset):
         h.audit.info.assert_not_called()
     finally:
         await h.toolset.close()
+
+
+# --- curated non-Google OAuth connector (HubSpot-shaped) ---------------------
+
+
+def _curated_definition(**overrides):
+    base = {
+        "owner_user_id": None,
+        "connector_id": "hubspot",
+        "is_active": True,
+        "transport_kind": "mcp",
+        "mcp_endpoint": "https://mcp.hubspot.com/",
+        "auth_style": "oauth",
+        "oauth_authorize_url": "https://mcp.hubspot.com/oauth/authorize/user",
+        "oauth_token_url": "https://mcp.hubspot.com/oauth/v3/token",
+        "oauth_scopes": (),
+        "oauth_client_id_env": "HUBSPOT_OAUTH_CLIENT_ID",
+        "oauth_client_secret_env": "HUBSPOT_OAUTH_CLIENT_SECRET",
+        "capability_policy": {"version": 1, "chat": "reviewed"},
+    }
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.parametrize(
+    "overrides,flag,expected",
+    [
+        ({}, True, True),
+        ({}, False, False),
+        ({"capability_policy": {}}, True, False),
+        ({"is_active": False}, True, False),
+        ({"auth_style": "api_key"}, True, False),
+        ({"transport_kind": "google_drive_rest"}, True, False),
+    ],
+)
+def test_curated_oauth_admission_matrix(monkeypatch, overrides, flag, expected):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    monkeypatch.setattr(module, "connector_feature_enabled", lambda *_: flag)
+    assert native_registration_admitted(_curated_definition(**overrides), "owner") is expected
+
+
+def _wire_curated(registry_harness, monkeypatch, *, row, credential):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+    from hushh_mcp.services import external_connector_oauth_service as oauth_service
+    from hushh_mcp.services.external_connector_curated_oauth import curated_policy_hash
+
+    definition = _curated_definition()
+    registry_harness.registry.get_connector.return_value = definition
+    monkeypatch.setattr(module, "connector_feature_enabled", lambda *_: True)
+    adapter = SimpleNamespace(current_credential=AsyncMock(return_value=(row, credential)))
+    monkeypatch.setattr(
+        oauth_service,
+        "get_external_connector_oauth_service",
+        lambda: SimpleNamespace(curated=lambda: adapter),
+    )
+    return definition, adapter, curated_policy_hash(definition)
+
+
+async def test_curated_oauth_resolves_reviewed_bearer_binding(registry_harness, monkeypatch):
+    row = dict(
+        status="connected", connection_generation=5, credential_version=7, verified_policy_hash=None
+    )
+    definition, adapter, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    result = await resolve_registered_connection(registry_harness.context, "hubspot")
+    adapter.current_credential.assert_awaited_once_with(
+        connector_id="hubspot", user_id="owner", connector=definition
+    )
+    assert result.headers == {"Authorization": "Bearer synthetic-token"}
+    assert result.binding.generation == 5
+    assert result.binding.authority_revision == (hash_,)
+    # Reviewed reads skip the card; the two write tools are not on the list.
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_name
+    from hushh_mcp.services.external_connector_curated_oauth import curated_free_read_tools
+
+    assert result.review_policy == "reviewed_writes"
+    assert result.free_read_tool_ids == frozenset(
+        mcp_tool_name("hubspot", name) for name in curated_free_read_tools("hubspot")
+    )
+    assert mcp_tool_name("hubspot", "manage_crm_objects") not in result.free_read_tool_ids
+    assert mcp_tool_name("hubspot", "manage_custom_properties") not in result.free_read_tool_ids
+    assert "synthetic-token" not in repr(result)
+
+
+async def test_curated_oauth_binding_survives_a_token_refresh(registry_harness, monkeypatch):
+    row = dict(
+        status="connected", connection_generation=5, credential_version=7, verified_policy_hash=None
+    )
+    _, adapter, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    before = await resolve_registered_connection(registry_harness.context, "hubspot")
+    # A refresh advances credential_version and swaps the access token, nothing else.
+    refreshed = dict(row, credential_version=8)
+    adapter.current_credential.return_value = (refreshed, {"accessToken": "refreshed-token"})
+    after = await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert after.binding == before.binding
+    assert after.headers == {"Authorization": "Bearer refreshed-token"}
+    # A reconnect (new generation) is a real change of authority.
+    adapter.current_credential.return_value = (
+        dict(row, connection_generation=6),
+        {"accessToken": "synthetic-token"},
+    )
+    reconnected = await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert reconnected.binding != before.binding
+
+
+@pytest.mark.parametrize("failure", ["unverified", "stale_hash", "verifying", "no_token"])
+async def test_curated_oauth_refuses_unverified_or_drifted_connection(
+    registry_harness, monkeypatch, failure
+):
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    credential = {"accessToken": "synthetic-token"}
+    _, _, hash_ = _wire_curated(registry_harness, monkeypatch, row=row, credential=credential)
+    row["verified_policy_hash"] = None if failure == "unverified" else hash_
+    if failure == "stale_hash":
+        row["verified_policy_hash"] = "stale"
+    if failure == "verifying":
+        row["status"] = "verifying"
+    if failure == "no_token":
+        credential["accessToken"] = ""
+    with pytest.raises(ExternalMcpError):
+        await resolve_registered_connection(registry_harness.context, "hubspot")
+
+
+async def test_curated_oauth_maps_reconnect_required_to_credential_expired(
+    registry_harness, monkeypatch
+):
+    from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
+
+    _, adapter, _ = _wire_curated(registry_harness, monkeypatch, row={}, credential={})
+    adapter.current_credential.side_effect = CuratedConnectorOAuthError(
+        "reconnect_required", status_code=401
+    )
+    with pytest.raises(ExternalMcpError) as error:
+        await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert error.value.code == "MCP_CREDENTIAL_EXPIRED"
+
+
+async def test_curated_oauth_catalog_is_limited_to_the_registry_allowlist(
+    registry_harness, monkeypatch
+):
+    from hushh_mcp.services.external_connector_curated_oauth import curated_policy_hash
+
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    definition, _, hash_without_allowlist = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    definition.capability_policy = {
+        "version": 1,
+        "chat": "reviewed",
+        "tools": ["search_crm_objects"],
+    }
+    # Editing the allowlist never changes the reconnect hash.
+    assert curated_policy_hash(definition) == hash_without_allowlist
+    row["verified_policy_hash"] = hash_without_allowlist
+    resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
+    catalog = [{"name": "search_crm_objects"}, {"name": "create_landing_page"}]
+    assert resolved.catalog_policy is not None
+    assert resolved.catalog_policy(catalog) == [{"name": "search_crm_objects"}]
+
+
+async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricted(
+    registry_harness, monkeypatch
+):
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    _, _, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert resolved.catalog_policy is None
+
+
+async def test_curated_oauth_empty_allowlist_admits_no_tools(registry_harness, monkeypatch):
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    definition, _, _ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    definition.capability_policy = {"version": 1, "chat": "reviewed", "tools": []}
+    from hushh_mcp.services.external_connector_curated_oauth import curated_policy_hash
+
+    row["verified_policy_hash"] = curated_policy_hash(definition)
+    resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert resolved.catalog_policy is not None
+    assert resolved.catalog_policy([{"name": "search_crm_objects"}]) == []
+
+
+# --- per-step MCP budget knob ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (None, 20.0),
+        ("", 20.0),
+        ("45", 45.0),
+        ("60", 60.0),
+        ("61", 20.0),
+        ("0", 20.0),
+        ("-5", 20.0),
+        ("not-a-number", 20.0),
+    ],
+)
+def test_mcp_call_timeout_is_opt_in_and_bounded(monkeypatch, value, expected):
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_call_timeout_seconds
+
+    if value is None:
+        monkeypatch.delenv("MCP_TOOLSET_TIMEOUT_SECONDS", raising=False)
+    else:
+        monkeypatch.setenv("MCP_TOOLSET_TIMEOUT_SECONDS", value)
+    assert mcp_call_timeout_seconds() == expected
+
+
+def test_toolset_uses_the_configured_budget_unless_given_one(monkeypatch):
+    monkeypatch.setenv("MCP_TOOLSET_TIMEOUT_SECONDS", "40")
+    binding = McpConnectionBinding("owner", "hubspot", 1, 1, "https://mcp.hubspot.com/")
+    resolver = AsyncMock()
+    default = GovernedMcpToolset(
+        binding=binding, resolve_connection=resolver, authorize_call=AsyncMock()
+    )
+    explicit = GovernedMcpToolset(
+        binding=binding, resolve_connection=resolver, authorize_call=AsyncMock(), timeout_seconds=5
+    )
+    assert default.timeout_seconds == 40.0
+    assert explicit.timeout_seconds == 5
+
+
+# --- reviewed_writes: reviewed reads run freely, everything else is reviewed ----
+
+
+@pytest.mark.parametrize(
+    ("descriptor", "forced", "free_read", "expected"),
+    [
+        # The only way to skip review: on the reviewed list AND the server agrees.
+        ({"annotations": READ_ONLY}, False, True, "read_only"),
+        (
+            {"annotations": {"readOnlyHint": True, "destructiveHint": False}},
+            False,
+            True,
+            "read_only",
+        ),
+        # On the list but the server does not call it a read (or is contradictory).
+        ({"annotations": {"readOnlyHint": False}}, False, True, "required"),
+        ({"annotations": {"readOnlyHint": True, "destructiveHint": True}}, False, True, "required"),
+        ({"annotations": {"readOnlyHint": "true"}}, False, True, "required"),
+        ({"name": "unannotated"}, False, True, "required"),
+        (None, False, True, "required"),
+        # Annotated as a read but not on the reviewed list.
+        ({"annotations": READ_ONLY}, False, False, "required"),
+        # An owner rule always wins.
+        ({"annotations": READ_ONLY}, True, True, "required"),
+    ],
+)
+def test_reviewed_writes_frees_only_reviewed_reads_the_server_agrees_are_reads(
+    descriptor, forced, free_read, expected
+):
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_review_outcome
+
+    assert (
+        mcp_review_outcome("reviewed_writes", descriptor, forced=forced, free_read=free_read)
+        == expected
+    )
+
+
+def test_free_read_flag_cannot_free_any_other_policy():
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_review_outcome
+
+    assert mcp_review_outcome("always", {"annotations": READ_ONLY}, free_read=True) == "required"
+    assert mcp_review_outcome("bogus", {"annotations": READ_ONLY}, free_read=True) == "required"
+    assert mcp_review_outcome(None, {"annotations": READ_ONLY}, free_read=True) == "required"
+
+
+def _free_ids(*names):
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_name
+
+    return frozenset(mcp_tool_name("custom_one", name) for name in names)
+
+
+async def test_reviewed_write_policy_runs_a_listed_read_without_a_card_and_audits_it(
+    native_ok, monkeypatch
+):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    audited = Mock()
+    monkeypatch.setattr(module, "_audit_unreviewed_call", audited)
+    toolset, approve, _ = _policy_toolset(
+        "reviewed_writes",
+        [_tool("search", SimpleNamespace(readOnlyHint=True))],
+        free_reads=_free_ids("search"),
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=_owner_context())
+        assert result["status"] == "ok" and result["review"] == "read_only"
+        approve.assert_not_awaited()
+        native_ok.assert_awaited_once()
+        audited.assert_called_once()
+        assert audited.call_args.args[3] == "read_only"
+    finally:
+        await toolset.close()
+
+
+async def test_reviewed_write_policy_still_reviews_a_write_tool(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "reviewed_writes",
+        [
+            _tool("search", SimpleNamespace(readOnlyHint=True)),
+            _tool("manage", SimpleNamespace(readOnlyHint=False, destructiveHint=True)),
+        ],
+        free_reads=_free_ids("search"),
+    )
+    try:
+        tools = {
+            t.descriptor["name"]: t
+            for t in await toolset.get_tools(SimpleNamespace(user_id="owner"))
+        }
+        result = await tools["manage"].run_async(args={}, tool_context=_owner_context())
+        assert result == {"status": "review_required", "connectorId": "custom_one"}
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+@pytest.mark.parametrize(
+    "annotations",
+    [
+        None,
+        SimpleNamespace(readOnlyHint=False),
+        SimpleNamespace(readOnlyHint=True, destructiveHint=True),
+    ],
+)
+async def test_a_listed_tool_the_server_stops_calling_a_read_is_reviewed(native_ok, annotations):
+    toolset, approve, _ = _policy_toolset(
+        "reviewed_writes", [_tool("search", annotations)], free_reads=_free_ids("search")
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        result = await tool.run_async(args={}, tool_context=_owner_context())
+        assert result["status"] == "review_required"
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_a_read_annotated_tool_that_is_not_on_the_reviewed_list_is_reviewed(native_ok):
+    """A server cannot free a new tool just by labelling it read-only."""
+    toolset, approve, _ = _policy_toolset(
+        "reviewed_writes",
+        [
+            _tool("search", SimpleNamespace(readOnlyHint=True)),
+            _tool("sneaky", SimpleNamespace(readOnlyHint=True)),
+        ],
+        free_reads=_free_ids("search"),
+    )
+    try:
+        tools = {
+            t.descriptor["name"]: t
+            for t in await toolset.get_tools(SimpleNamespace(user_id="owner"))
+        }
+        result = await tools["sneaky"].run_async(args={}, tool_context=_owner_context())
+        assert result["status"] == "review_required"
+        approve.assert_awaited_once()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+async def test_a_change_to_the_reviewed_read_list_is_a_connection_change(native_ok):
+    toolset, approve, _ = _policy_toolset(
+        "reviewed_writes",
+        [
+            _tool("search", SimpleNamespace(readOnlyHint=True)),
+            _tool("other", SimpleNamespace(readOnlyHint=True)),
+        ],
+        free_reads=_free_ids("search"),
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        current = toolset.resolve_connection.return_value
+        toolset.resolve_connection.return_value = replace(
+            current, free_read_tool_ids=_free_ids("search", "other")
+        )
+        result = await tool.run_async(args={}, tool_context=_owner_context())
+        assert result["error"] == "MCP_CONNECTION_CHANGED"
+        approve.assert_not_awaited()
+        native_ok.assert_not_awaited()
+    finally:
+        await toolset.close()
+
+
+@pytest.mark.parametrize("bad", [["a"], {"a"}, None, frozenset({1}), "a"])
+def test_free_read_ids_must_be_a_frozenset_of_strings(bad):
+    binding = McpConnectionBinding("owner", "custom_one", 1, 1, "https://example.com/mcp")
+    with pytest.raises(ValueError, match="Invalid MCP review policy"):
+        GovernedMcpToolset(
+            binding=binding,
+            resolve_connection=AsyncMock(),
+            authorize_call=AsyncMock(),
+            review_policy="reviewed_writes",
+            free_read_tool_ids=bad,  # type: ignore[arg-type]
+        )
