@@ -51,6 +51,8 @@ interface VaultLockGuardProps {
   children: React.ReactNode;
 }
 
+const VAULT_PRESENCE_RETRY_DELAYS_MS = [2_000, 5_000, 10_000] as const;
+
 // ============================================================================
 // Component
 // ============================================================================
@@ -79,6 +81,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
   const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
+  const vaultRecoveryAttemptRef = useRef(0);
   const [revealedUserId, setRevealedUserId] = useState<string | null>(null);
   const [canRetainMountedRoute, setCanRetainMountedRoute] = useState(true);
   const disableRouteRetention = useCallback(() => setCanRetainMountedRoute(false), []);
@@ -135,6 +138,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   useEffect(() => {
     setVaultCheckFailed(false);
+    vaultRecoveryAttemptRef.current = 0;
     if (!userId) {
       setHasVault(null);
       setNativeVaultCheckAttempt(0);
@@ -152,6 +156,27 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     setHasVault(cached === true ? true : null);
     setNativeVaultCheckAttempt(0);
   }, [isVaultUnlocked, userId]);
+
+  useEffect(() => {
+    if (!vaultCheckFailed || !userId || authLoading ||
+        sessionVerificationRequired || isVaultUnlocked) return;
+    const delay = VAULT_PRESENCE_RETRY_DELAYS_MS[vaultRecoveryAttemptRef.current];
+    if (delay === undefined) return;
+
+    let timer: ReturnType<typeof setTimeout>;
+    const retry = () => {
+      if (document.visibilityState !== "visible" || navigator.onLine === false) {
+        timer = setTimeout(retry, delay);
+        return;
+      }
+      // A failed presence read cannot authorize a route or select an unlock
+      // method. Reprobe through the same service while the gate stays closed.
+      vaultRecoveryAttemptRef.current += 1;
+      setNativeVaultCheckAttempt((attempt) => attempt + 1);
+    };
+    timer = setTimeout(retry, delay);
+    return () => clearTimeout(timer);
+  }, [vaultCheckFailed, userId, authLoading, sessionVerificationRequired, isVaultUnlocked]);
 
   // Redirect unauthenticated users (side-effect outside render)
   useEffect(() => {
@@ -387,6 +412,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     return renderSessionGate(
       <SessionVerificationRecovery
         onRetry={() => {
+          vaultRecoveryAttemptRef.current = 0;
           setVaultCheckFailed(false);
           setNativeVaultCheckAttempt((attempt) => attempt + 1);
         }}

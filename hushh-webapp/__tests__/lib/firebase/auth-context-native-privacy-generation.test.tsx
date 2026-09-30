@@ -208,6 +208,58 @@ describe("AuthProvider native privacy generations", () => {
 
   afterEach(() => vi.useRealTimers());
 
+  it("automatically recovers a transient native restore failure before a UID is known", async () => {
+    vi.useFakeTimers();
+    mocks.restoreNativeSession
+      .mockRejectedValueOnce(new Error("bridge temporarily unavailable"))
+      .mockResolvedValueOnce(makeUser());
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    const view = render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.getByTestId("published-user")).toHaveTextContent("anonymous");
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_001); });
+    expect(mocks.restoreNativeSession).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Verification required")).not.toBeInTheDocument();
+    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.restoreNativeSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("cancels anonymous native recovery when unmounted before the retry", async () => {
+    vi.useFakeTimers();
+    mocks.restoreNativeSession.mockRejectedValue(new Error("bridge unavailable"));
+    const view = render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.restoreNativeSession).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not overlap automatic native restoration with manual retries", async () => {
+    vi.useFakeTimers();
+    const restoration = deferred<User | null>();
+    mocks.restoreNativeSession.mockRejectedValueOnce(new Error("bridge unavailable"))
+      .mockReturnValueOnce(restoration.promise);
+    mocks.apiGetAccountSessionStatus.mockResolvedValue(activeSessionResponse());
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_001); });
+    await act(async () => {
+      screen.getByRole("button", { name: "Retry session" }).click();
+      screen.getByRole("button", { name: "Retry session" }).click();
+    });
+    expect(mocks.restoreNativeSession).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("published-user")).toHaveTextContent("anonymous");
+    expect(mocks.apiGetAccountSessionStatus).not.toHaveBeenCalled();
+    await act(async () => { restoration.resolve(makeUser()); });
+    expect(mocks.apiGetAccountSessionStatus).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("Verification required")).not.toBeInTheDocument();
+  });
+
   it("exits a stalled native restore and retries without publishing its late result", async () => {
     vi.useFakeTimers();
     const stalledRestore = deferred<User | null>();

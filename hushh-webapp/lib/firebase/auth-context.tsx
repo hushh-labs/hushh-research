@@ -1159,8 +1159,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [validateAccountSession],
   );
 
+  const retrySessionVerification = useCallback(async () => {
+    if (IS_NATIVE && !userRef.current) {
+      if (!nativeRestoreSettledRef.current) return;
+      setLoading(true);
+      await checkAuth();
+      return;
+    }
+    await validateActiveSession({ force: true });
+  }, [checkAuth, validateActiveSession]);
+
   useEffect(() => {
-    if (!sessionVerificationRequired || !userId) return;
+    if (!sessionVerificationRequired || (!userId && !IS_NATIVE)) return;
 
     let cancelled = false;
     let attempt = 0;
@@ -1183,7 +1193,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
 
-        void validateActiveSession({ force: true }).finally(() => {
+        void retrySessionVerification().finally(() => {
           if (cancelled || !authGateRef.current.sessionVerificationRequired) {
             return;
           }
@@ -1200,7 +1210,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       cancelled = true;
       if (retryTimer !== null) globalThis.clearTimeout(retryTimer);
     };
-  }, [sessionVerificationRequired, userId, validateActiveSession]);
+  }, [sessionVerificationRequired, userId, retrySessionVerification]);
 
   useEffect(() => {
     const handleAuthInvalidated = (event: Event) => {
@@ -1810,15 +1820,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     },
     [applyAuthUser, confirmationResult, nativeVerificationId, refreshUser],
   );
-
-  const retrySessionVerification = useCallback(async () => {
-    if (IS_NATIVE && !userRef.current) {
-      setLoading(true);
-      await checkAuth();
-      return;
-    }
-    await validateActiveSession({ force: true });
-  }, [checkAuth, validateActiveSession]);
 
   const beginPostAuthSettlement = useCallback(
     (nextUser: User) => {

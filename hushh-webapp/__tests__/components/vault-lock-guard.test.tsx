@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createPortal } from "react-dom";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
@@ -99,6 +99,7 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 describe("VaultLockGuard", () => {
+  afterEach(() => vi.useRealTimers());
   const dialogPrototype = HTMLDialogElement.prototype;
   const originalShowModal = Object.getOwnPropertyDescriptor(dialogPrototype, "showModal");
   const originalClose = Object.getOwnPropertyDescriptor(dialogPrototype, "close");
@@ -225,6 +226,45 @@ describe("VaultLockGuard", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
     expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
+  });
+
+  it("automatically retries a failed Vault read without revealing protected content", async () => {
+    vi.useFakeTimers();
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValueOnce(new Error("temporarily unavailable"))
+      .mockResolvedValueOnce(true);
+    const view = render(<VaultLockGuard><div>Protected route</div></VaultLockGuard>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    view.unmount();
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(2);
+  });
+
+  it("bounds automatic Vault retries and cancels recovery when the owner signs out", async () => {
+    vi.useFakeTimers();
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValue(new Error("offline"));
+    const page = () => <VaultLockGuard><div>Protected route</div></VaultLockGuard>;
+    const view = render(page());
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    for (const delay of [2_000, 5_000, 10_000, 30_000]) {
+      await act(async () => { await vi.advanceTimersByTimeAsync(delay); });
+    }
+    expect(mocks.checkVault).toHaveBeenCalledTimes(4);
+    expect(screen.queryByText("Protected route")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(5);
+    mocks.authState.user = null;
+    view.rerender(page());
+    await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+    expect(mocks.checkVault).toHaveBeenCalledTimes(5);
   });
 
   beforeEach(() => {
