@@ -20,6 +20,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { FilesEntryRow, type FileEdit } from "./files-entry-row";
 import { FilesSettingsPanel } from "./files-settings-panel";
 import { FilesOrganizationHistory } from "./files-organization-history";
+import { FilesMovePicker } from "./files-move-picker";
 import {
   FilesService,
   type FileEntry,
@@ -48,6 +49,7 @@ export function FilesWorkspace() {
   const [progress, setProgress] = useState<number | null>(null);
   const [resume, setResume] = useState<FileEntry | undefined>();
   const [edit, setEdit] = useState<FileEdit | null>(null);
+  const [movePickerLoading, setMovePickerLoading] = useState(true);
   const input = useRef<HTMLInputElement>(null);
   const work = useRef(new AbortController());
   const parent = folders[folders.length - 1]?.id ?? "root";
@@ -169,7 +171,7 @@ export function FilesWorkspace() {
           actions={
             <Button
               variant="outline"
-              disabled={!available || loading || busy}
+              disabled={!available || loading || busy || Boolean(edit)}
               onClick={() => void act(() => load(), "Files refreshed")}
             >
               <RefreshCw className="mr-2 size-4" />
@@ -218,7 +220,7 @@ export function FilesWorkspace() {
               <Button
                 key={folder.id}
                 variant="ghost"
-                disabled={busy}
+                disabled={busy || Boolean(edit)}
                 onClick={() => setFolders(folders.slice(0, index + 1))}
               >
                 {folder.name}
@@ -234,7 +236,7 @@ export function FilesWorkspace() {
               className="flex-1"
             />
             <Button
-              disabled={loading || busy || Boolean(message)}
+              disabled={loading || busy || Boolean(message) || Boolean(edit)}
               onClick={() => {
                 setResume(undefined);
                 input.current?.click();
@@ -245,14 +247,14 @@ export function FilesWorkspace() {
             </Button>
             <Button
               variant="outline"
-              disabled={loading || busy || Boolean(message)}
+              disabled={loading || busy || Boolean(message) || Boolean(edit)}
               onClick={() => setEdit({ operation: "create", value: "" })}
             >
               New folder
             </Button>
             <Button
               variant="ghost"
-              disabled={loading || busy}
+              disabled={loading || busy || Boolean(edit)}
               onClick={() => setTrash(!trash)}
             >
               {trash ? "Library" : "Trash"}
@@ -306,7 +308,7 @@ export function FilesWorkspace() {
           ) : null}
           {edit ? (
             <form
-              className="flex gap-2"
+              className="space-y-3"
               onSubmit={(event) => {
                 event.preventDefault();
                 void act(async () => {
@@ -330,34 +332,17 @@ export function FilesWorkspace() {
               }}
             >
               {edit.operation === "move" ? (
-                <select
-                  aria-label="Destination folder"
-                  className="min-w-0 flex-1 rounded-xl border bg-background p-2"
-                  value={edit.value}
-                  onChange={(event) =>
-                    setEdit({ ...edit, value: event.target.value })
-                  }
-                >
-                  {[
-                    ...folders,
-                    ...entries.filter(
-                      (item) =>
-                        item.kind === "folder" &&
-                        item.state === "ready" &&
-                        item.id !== edit.entry?.id,
-                    ),
-                  ]
-                    .filter(
-                      (item, index, all) =>
-                        all.findIndex((other) => other.id === item.id) ===
-                        index,
-                    )
-                    .map((folder) => (
-                      <option key={folder.id} value={folder.id}>
-                        {folder.name}
-                      </option>
-                    ))}
-                </select>
+                edit.entry ? (
+                  <FilesMovePicker
+                    key={edit.entry.id}
+                    entry={edit.entry}
+                    signal={work.current.signal}
+                    onDestinationChange={(id) =>
+                      setEdit((current) => current ? { ...current, value: id } : null)
+                    }
+                    onLoadingChange={setMovePickerLoading}
+                  />
+                ) : null
               ) : (
                 <Input
                   autoFocus
@@ -368,16 +353,23 @@ export function FilesWorkspace() {
                   }
                 />
               )}
-              <Button type="submit" disabled={busy}>
-                Save
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setEdit(null)}
-              >
-                Cancel
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="submit"
+                  disabled={busy || (edit.operation === "move" && (
+                    movePickerLoading || edit.value === edit.entry?.parent
+                  ))}
+                >
+                  {edit.operation === "move" ? "Move here" : "Save"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setEdit(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
             </form>
           ) : null}
           {loading ? (
@@ -390,12 +382,15 @@ export function FilesWorkspace() {
                 <FilesEntryRow
                   key={`${user?.uid}:${parent}:${entry.id}`}
                   entry={entry}
-                  busy={busy}
+                  busy={busy || Boolean(edit)}
                   trash={trash}
                   signal={work.current.signal}
                   settings={settings}
                   act={act}
-                  setEdit={setEdit}
+                  setEdit={(next) => {
+                    if (next.operation === "move") setMovePickerLoading(true);
+                    setEdit(next);
+                  }}
                   onOpen={(folder) =>
                     setFolders([
                       ...folders,
@@ -421,7 +416,7 @@ export function FilesWorkspace() {
           {cursor ? (
             <Button
               variant="outline"
-              disabled={busy}
+              disabled={busy || Boolean(edit)}
               onClick={() =>
                 void act(() => load(cursor), "More files loaded", false)
               }
@@ -441,7 +436,7 @@ export function FilesWorkspace() {
               key={`settings:${user?.uid}`}
               settings={settings}
               signal={work.current.signal}
-              busy={busy}
+              busy={busy || Boolean(edit)}
               unavailable={Boolean(message)}
               act={act}
             />

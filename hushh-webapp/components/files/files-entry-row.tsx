@@ -1,7 +1,8 @@
 "use client";
 import { useState } from "react";
-import { FolderLock, FileText } from "@/components/icons";
+import { FolderLock, FileText, MoreHorizontal } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { ActionMenu, type ActionMenuItem } from "@/components/app-ui/action-menu";
 import {
   FilesService,
   DownloadPaused,
@@ -45,22 +46,98 @@ export function FilesEntryRow({
       ? { [entry.id]: { id: entry.id, ...entry.organization } }
       : {},
   );
+  const actions: ActionMenuItem[] = [];
+  if (!trash) {
+    actions.push(
+      {
+        id: "rename",
+        label: "Rename",
+        onSelect: () => setEdit({ entry, operation: "rename", value: entry.name }),
+      },
+      {
+        id: "move",
+        label: "Move",
+        onSelect: () => setEdit({ entry, operation: "move", value: "root" }),
+      },
+      {
+        id: "undo",
+        label: "Undo",
+        onSelect: () => void act(
+          () => FilesService.mutate(entry, "undo", {}, signal),
+          "Change undone",
+        ),
+      },
+    );
+  }
+  if (settings && !trash) {
+    const currentSettings = settings;
+    actions.push({
+      id: "analysis",
+      label: currentSettings.excluded.includes(entry.id) ? "Allow analysis" : "Exclude analysis",
+      onSelect: () => void act(
+        () => FilesService.configure({
+          ...currentSettings,
+          excluded: currentSettings.excluded.includes(entry.id)
+            ? currentSettings.excluded.filter((id) => id !== entry.id)
+            : [...currentSettings.excluded, entry.id],
+        }, signal),
+        "Analysis exclusion saved",
+      ),
+    });
+  }
+  if (
+    entry.kind === "file" && entry.state === "ready" &&
+    settings?.analysis && settings.backgroundAvailable &&
+    !settings.excluded.includes(entry.id)
+  ) {
+    actions.push({
+      id: "organize",
+      label: "Organize",
+      onSelect: () => void act(async () => {
+        const job = await FilesService.organize(entry.id, false, signal);
+        signal.throwIfAborted();
+        setJobs((previous) => ({ ...previous, [entry.id]: job }));
+      }, "Organization requested", false),
+    });
+  }
+  actions.push({
+    id: trash ? "restore" : "trash",
+    label: trash ? "Restore" : "Trash",
+    onSelect: () => {
+      if (!trash && !window.confirm(
+        `Move “${entry.name}” to Trash? Trash keeps its stored bytes; this release does not permanently delete them.`,
+      )) return;
+      void act(
+        () => FilesService.mutate(
+          entry,
+          trash ? "restore" : "trash",
+          { confirmed: true },
+          signal,
+        ),
+        trash ? "File restored" : "Moved to Trash",
+      );
+    },
+  });
   return (
-    <div className="flex flex-wrap items-center gap-3 p-4">
+    <div className="flex min-w-0 flex-wrap items-center gap-2 p-3 sm:gap-3 sm:p-4">
       {entry.kind === "folder" ? (
         <FolderLock className="size-5 shrink-0" />
       ) : (
         <FileText className="size-5 shrink-0" />
       )}
-      <div className="min-w-0 flex-1">
-        <button
-          className="max-w-full truncate text-left font-medium"
-          disabled={busy || entry.kind !== "folder" || trash}
-          onClick={() => onOpen(entry)}
-        >
-          {entry.name}
-        </button>
-        <p className="text-xs text-muted-foreground">
+      <div className="min-w-0 flex-[1_1_6rem]">
+        {entry.kind === "folder" && !trash ? (
+          <button
+            className="block max-w-full truncate text-left font-medium"
+            disabled={busy}
+            onClick={() => onOpen(entry)}
+          >
+            {entry.name}
+          </button>
+        ) : (
+          <p className="truncate font-medium">{entry.name}</p>
+        )}
+        <p className="truncate text-xs text-muted-foreground">
           {entry.kind === "folder"
             ? "Folder"
             : `${(entry.size / 1024 / 1024).toFixed(1)} MB`}{" "}
@@ -71,17 +148,23 @@ export function FilesEntryRow({
       {entry.state === "uploading" ? (
         <Button
           variant="outline"
+          size="compact"
           disabled={busy}
+          aria-label="Resume upload"
           onClick={() => {
             onResume(entry);
           }}
         >
-          Resume upload
+          <span aria-hidden="true">
+            Resume<span className="hidden sm:inline"> upload</span>
+          </span>
         </Button>
       ) : entry.kind === "file" && !trash ? (
         <Button
           variant="outline"
+          size="compact"
           disabled={busy}
+          aria-label={downloads[entry.id] ? "Resume download" : "Download"}
           onClick={() =>
             void act(
               () =>
@@ -111,176 +194,77 @@ export function FilesEntryRow({
             )
           }
         >
-          {downloads[entry.id] ? "Resume download" : "Download"}
+          <span aria-hidden="true">
+            {downloads[entry.id] ? (
+              <>Resume<span className="hidden sm:inline"> download</span></>
+            ) : "Download"}
+          </span>
         </Button>
       ) : null}
-      {!trash ? (
-        <>
+      <ActionMenu
+        label={`Actions for ${entry.name}`}
+        title={entry.name}
+        items={actions.map((action) => ({ ...action, disabled: busy }))}
+        trigger={
           <Button
+            type="button"
             variant="ghost"
+            size="icon-touch"
             disabled={busy}
-            onClick={() =>
-              setEdit({
-                entry,
-                operation: "rename",
-                value: entry.name,
-              })
-            }
+            aria-label={`Actions for ${entry.name}`}
           >
-            Rename
+            <MoreHorizontal className="size-5" aria-hidden="true" />
           </Button>
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() => setEdit({ entry, operation: "move", value: "root" })}
-          >
-            Move
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                () => FilesService.mutate(entry, "undo", {}, signal),
-                "Change undone",
-              )
-            }
-          >
-            Undo
-          </Button>
-        </>
-      ) : null}
-      {settings && !trash ? (
-        <Button
-          variant="ghost"
-          disabled={busy}
-          onClick={() =>
-            void act(
-              () =>
-                FilesService.configure(
-                  {
-                    ...settings,
-                    excluded: settings.excluded.includes(entry.id)
-                      ? settings.excluded.filter((id) => id !== entry.id)
-                      : [...settings.excluded, entry.id],
-                  },
-                  signal,
-                ),
-              "Analysis exclusion saved",
-            )
-          }
-        >
-          {settings.excluded.includes(entry.id)
-            ? "Allow analysis"
-            : "Exclude analysis"}
-        </Button>
-      ) : null}
-      {entry.kind === "file" &&
-      entry.state === "ready" &&
-      settings?.analysis &&
-      settings.backgroundAvailable &&
-      !settings.excluded.includes(entry.id) ? (
-        <Button
-          variant="ghost"
-          disabled={busy}
-          onClick={() =>
-            void act(
-              async () => {
-                const job = await FilesService.organize(
-                  entry.id,
-                  false,
-                  signal,
-                );
-                signal.throwIfAborted();
-                setJobs((previous) => ({
-                  ...previous,
-                  [entry.id]: job,
-                }));
-              },
-              "Organization requested",
-              false,
-            )
-          }
-        >
-          Organize
-        </Button>
-      ) : null}
+        }
+      />
       {jobs[entry.id] ? (
         <div className="w-full rounded-xl bg-muted/40 p-3 text-sm">
           <p role="status">Organization: {jobs[entry.id]?.state}</p>
           {jobs[entry.id]?.result ? (
             <p>{jobs[entry.id]?.result?.explanation}</p>
           ) : null}
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                async () => {
-                  const job = await FilesService.job(entry.id, signal);
-                  signal.throwIfAborted();
-                  setJobs((previous) => ({
-                    ...previous,
-                    [entry.id]: job,
-                  }));
-                },
-                "Organization status refreshed",
-                false,
-              )
-            }
-          >
-            Check status
-          </Button>
-          <Button
-            variant="ghost"
-            disabled={busy}
-            onClick={() =>
-              void act(
-                async () => {
-                  const job = await FilesService.organize(
-                    entry.id,
-                    true,
-                    signal,
-                  );
-                  signal.throwIfAborted();
-                  setJobs((previous) => ({
-                    ...previous,
-                    [entry.id]: job,
-                  }));
-                },
-                "Organization cancelled",
-                false,
-              )
-            }
-          >
-            Cancel organization
-          </Button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              variant="ghost"
+              size="compact"
+              disabled={busy}
+              aria-label="Check organization status"
+              onClick={() =>
+                void act(
+                  async () => {
+                    const job = await FilesService.job(entry.id, signal);
+                    signal.throwIfAborted();
+                    setJobs((previous) => ({ ...previous, [entry.id]: job }));
+                  },
+                  "Organization status refreshed",
+                  false,
+                )
+              }
+            >
+              Check status
+            </Button>
+            <Button
+              variant="ghost"
+              size="compact"
+              disabled={busy}
+              aria-label="Cancel organization"
+              onClick={() =>
+                void act(
+                  async () => {
+                    const job = await FilesService.organize(entry.id, true, signal);
+                    signal.throwIfAborted();
+                    setJobs((previous) => ({ ...previous, [entry.id]: job }));
+                  },
+                  "Organization cancelled",
+                  false,
+                )
+              }
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
       ) : null}
-      <Button
-        variant="ghost"
-        disabled={busy}
-        onClick={() => {
-          if (
-            trash ||
-            window.confirm(
-              `Move “${entry.name}” to Trash? Trash keeps its stored bytes; this release does not permanently delete them.`,
-            )
-          )
-            void act(
-              () =>
-                FilesService.mutate(
-                  entry,
-                  trash ? "restore" : "trash",
-                  { confirmed: true },
-                  signal,
-                ),
-              trash ? "File restored" : "Moved to Trash",
-            );
-        }}
-      >
-        {trash ? "Restore" : "Trash"}
-      </Button>
     </div>
   );
 }

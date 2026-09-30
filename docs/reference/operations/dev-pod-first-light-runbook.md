@@ -12,9 +12,24 @@ flowchart LR
   F --> G["Publish owner-bound endpoint"]
 ```
 
+## Owner-project first-light checks (2026-08-11 rehearsal)
+
+For a new `user_gcp` bootstrap, treat API enablement as asynchronous. Verify Cloud
+Resource Manager is enabled and required API operations have completed before
+using them. Verify that the Cloud Storage service agent can use the bucket's KMS
+key and that the deployer has `iam.serviceAccounts.actAs` on the **exact** pod
+service account. Read back the rendered service identity and live IAM; a correct
+helper without a production caller does not establish custody. Keep opaque
+billing identifiers separate from the owner's selected space name, and verify
+the pod's machine-route wall before publishing direct readiness. These are
+dated rehearsal findings to recheck per project, not fleet-wide acceptance.
+The [recovery guide](./pod-backup-and-recovery.md) owns the pod's conditional
+first-boot key creation and encrypted recovery contract.
+
 ## Maintaining an existing owner's software release
 
-This section governs upgrades; the dated first-light walkthrough below is historical.
+This section governs upgrades; the dated first-light checks above and legacy
+bootstrap exception below are historical.
 Dev's control plane is `hushh-pda-dev`. A user-cloud deployment can live in a
 different project: resolve the named owner's registry entry before inspecting its
 service. Shared-project service inventory does not prove an owner has no pod.

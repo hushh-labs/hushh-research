@@ -71,8 +71,12 @@ permission grant or proof that a tool is callable. One has two execution paths:
 
 - A remote, owner-registered HTTPS MCP server is discovered through the
   owner-bound `RegisteredMcpToolset`. The ADK toolset validates schemas,
-  connection revision, credentials and exact-call review. Adding a compatible
-  custom server does not require a provider-specific Python tool dispatcher.
+  connection revision, credentials and current owner authority. Ordinary calls
+  on the person's own connector run without exact-call review; an owner-blocked
+  tool whose contract changed still requires review. Curated connectors follow
+  their reviewed policy, and a review-required call uses the existing one-use
+  app ledger. Adding a compatible custom server does not require a
+  provider-specific Python tool dispatcher.
 - Google Drive, Gmail and Calendar can use their existing OAuth-backed API
   services. Their typed Chat reads and reviewed actions retain those services'
   scope and confirmation checks. An OAuth API capability is not a Google-hosted
@@ -92,8 +96,10 @@ The Founder Wiki at `https://mcp.hushh.ai/mcp` is a custom-connector contract
 example: its HTTPS endpoint and owner-supplied authorization fit the generic
 vault connector path without a Wiki-specific dispatcher. The coding agent's
 Wiki credential is not available to app owners. A live Chat read requires the
-owner to connect it in-app and approve the exact call; synthetic contract
-tests prove compatibility only, not live authorization.
+owner to connect it in-app and satisfy current admission and consent; ordinary
+owner-private calls do not require an exact-call review. A review-required
+connector fixture still needs a dev owner journey. Synthetic contract tests
+prove compatibility only, not live authorization.
 
 Apply these questions to each orchestration change at the pinned ADK revision:
 

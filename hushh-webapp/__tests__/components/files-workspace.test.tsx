@@ -12,6 +12,7 @@ const files = vi.hoisted(() => ({
     excluded: [],
   })),
   createFolder: vi.fn(async () => ({})),
+  mutate: vi.fn(async () => ({})),
   upload: vi.fn(),
 }));
 vi.mock("@/lib/files/service", () => ({ FilesService: files }));
@@ -40,7 +41,9 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 describe("Files form submission", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    files.list.mockReset();
     files.list.mockResolvedValue({ entries: [], cursor: "" });
+    files.mutate.mockResolvedValue({});
     files.upload.mockReset();
   });
   it("waits for the initial library read before enabling file actions", async () => {
@@ -121,6 +124,49 @@ describe("Files form submission", () => {
         screen.queryByRole("textbox", { name: "Name", exact: true }),
       ).toBeNull(),
     );
+  });
+
+  it("moves into a nested folder discovered after an empty cursor page", async () => {
+    const source: FileEntry = {
+      id: "source-file", name: "source.txt", originalName: "source.txt",
+      parent: "root", kind: "file", size: 8, received: 8,
+      receivedHash: "synthetic-hash", state: "ready", revision: 3,
+    };
+    const later: FileEntry = {
+      ...source, id: "later-folder", name: "Later", originalName: "Later",
+      kind: "folder", size: 0, received: 0,
+    };
+    const nested: FileEntry = {
+      ...later, id: "nested-folder", name: "Nested", originalName: "Nested",
+      parent: later.id,
+    };
+    files.list
+      .mockResolvedValueOnce({ entries: [source], cursor: "" })
+      .mockResolvedValueOnce({ entries: [], cursor: "next-page" })
+      .mockResolvedValueOnce({ entries: [later], cursor: "" })
+      .mockResolvedValueOnce({ entries: [nested], cursor: "" })
+      .mockResolvedValueOnce({ entries: [], cursor: "" });
+
+    render(<FilesWorkspace />);
+    const actions = await screen.findByRole("button", { name: "Actions for source.txt" });
+    fireEvent.keyDown(actions, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Move" }));
+    const more = await screen.findByRole("button", { name: "Load more folders" });
+    expect(screen.getByRole("button", { name: "Move here" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Open Later" })).toBeNull();
+    fireEvent.click(more);
+    fireEvent.click(await screen.findByRole("button", { name: "Open Later" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Nested" }));
+    const moveHere = screen.getByRole("button", { name: "Move here" });
+    await waitFor(() => expect(moveHere).toBeEnabled());
+    fireEvent.click(moveHere);
+
+    await waitFor(() => expect(files.mutate).toHaveBeenCalledExactlyOnceWith(
+      source, "move", { parent: nested.id }, expect.any(AbortSignal),
+    ));
+    expect(files.list).toHaveBeenCalledWith("root", "next-page", false, expect.any(AbortSignal));
+    expect(files.list).toHaveBeenCalledWith(later.id, "", false, expect.any(AbortSignal));
+    expect(files.list).toHaveBeenCalledWith(nested.id, "", false, expect.any(AbortSignal));
   });
 
   it("discovers an interrupted upload and resumes its retained file identity", async () => {
