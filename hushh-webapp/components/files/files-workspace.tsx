@@ -104,10 +104,12 @@ export function FilesWorkspace() {
           }
         }
       })()
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!signal.aborted)
             setMessage(
-              "Your private Files library is not connected. Check your BYOC pod and software version.",
+              error instanceof Error && error.message === "FILES_NOT_ENABLED"
+                ? "Files is not enabled on this pod. Review setup below."
+                : "Your private Files library is not connected. Check your BYOC pod and software version.",
             );
         })
         .finally(() => {

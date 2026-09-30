@@ -90,6 +90,12 @@ describe("Files form submission", () => {
     await screen.findByText(/Your private Files library is not connected/);
     expect(files.list).toHaveBeenCalledTimes(1);
   });
+  it("explains when an existing pod has not enabled Files", async () => {
+    files.list.mockRejectedValueOnce(new Error("FILES_NOT_ENABLED"));
+    render(<FilesWorkspace />);
+    await screen.findByText("Files is not enabled on this pod. Review setup below.");
+    expect(files.list).toHaveBeenCalledTimes(1);
+  });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());

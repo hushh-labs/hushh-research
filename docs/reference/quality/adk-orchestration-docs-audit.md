@@ -3633,3 +3633,33 @@ Mac check on independent active internet connections.
 | Puppy cancellation and withdrawal | Browser cancellation returned the link to idle; owner withdrawal revoked the pod subject and ended the old relay; re-enable plus relay restart returned a fresh reply. | Observe cancellation at the device/model boundary; make the rehearsal close the machine dialog before grant controls. |
 | Hub availability | Exact-SHA dev deployment and bounded postdeploy platform-429 check passed. | Staged concurrent load, ten-minute soak, and capacity envelope remain unmeasured. |
 | Production BYOC | No main merge, UAT/production deploy, stable-channel offer, or owner-pod update occurred. | Graduate pod migrations and release provenance, verify IAM/billing and recovery, repeat Files, update and Puppy journeys in UAT. |
+
+### 2026-09-30 Files activation refusal on existing pods
+
+The canonical dev reviewer browser opened Files with its configured
+review-minted identity and received a signed endpoint and verification key.
+Browser self-enrolment then returned 403. Source review found the exact
+boundary: a review-minted session is intentionally refused trusted-device
+self-enrolment (`TRUSTED_DEVICE_REVIEW_SESSION_REFUSED`). The reviewer browser
+harness cannot prove this direct Files journey; weakening that rule to make a
+test pass would grant a review session new device authority. No reviewer pod
+or account was changed by this read-only attempt.
+
+The separately authorized personal owner's normal browser session verified
+vault unlock, signed pod admission and a direct Files list request. That pod
+returned 503; owner-project Cloud Run readback showed its existing `00020-k2n`
+revision still has no `POD_FILES_ENABLED` setting. The owner UI offered a
+review of Files setup, but the read-only plan returned 409:
+`compatibility for this software update is not verified`. No Files approval,
+capability activation, resource provisioning or pod update was attempted.
+This is a release-compatibility gate for the installed image, not an identity
+or relay failure. A recovery-proven, immutable dev release compatible with
+this exact predecessor is needed before this owner can approve Files setup.
+
+The current source correction distinguishes an inactive Files capability
+from a broken connection and presents a setup refusal without implying
+that setup started. The nearest Files workspace test and frontend
+typecheck passed locally. This correction still requires exact-SHA CI and
+dev serving readback before it is called live. The personal browser's
+temporary subject was revoked at both pod and hub (both 200). The existing
+Hermes device and Puppy grant were preserved.

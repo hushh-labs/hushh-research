@@ -24,7 +24,9 @@ export function FilesActivationPanel({ disabled, onScheduled }: {
       await morphyToast.promise(request, {
         loading: "Checking your cloud setup…",
         success: "Files setup is ready to review.",
-        error: "Files setup could not be verified. Your pod has not been changed.",
+        error: (cause: unknown) => cause instanceof Error && cause.message === "FILES_ACTIVATION_UNAVAILABLE:409"
+          ? "Files setup isn't ready for this pod yet. Your pod has not changed."
+          : "Files setup could not be verified. Your pod has not changed.",
       }).unwrap();
       setOffer(await request);
     } catch {
