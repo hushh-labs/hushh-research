@@ -3576,3 +3576,60 @@ resources and admission limits are unchanged. This correction requires its own
 exact-SHA CI, governed dev deployment, serving readback, and a new owner grant
 cycle before claiming success. A separate-network device/browser rehearsal and
 direct observation of the device's cancellation frame remain unverified.
+
+### 2026-09-30 governed dev deployment and Puppy grant cycle
+
+The infrastructure branch's exact application candidate was
+`1d90942a7b18d1e5f5ff84168a37d4a12bf64f65`. It includes the frozen local
+ADK integration and main through `033c51a3`; main and the independently active
+ADK worktree advanced afterward. The local core mirror passed on the exact
+candidate, and [hosted PR Validation run 36755011818](https://github.com/hushh-labs/hushh-research/actions/runs/36755011818)
+passed. [Main-owned dev workflow 36757584302](https://github.com/hushh-labs/hushh-research/actions/runs/36757584302)
+completed successfully with that branch SHA and pod-image building enabled.
+This did not merge the application branch into main or install a new owner pod
+image.
+
+Live Cloud Run readback showed frontend `hushh-webapp-00099-wxx` serving 100% of
+dev traffic at digest
+`sha256:ec799c20622dabc401ed10373db20a2aab271fe2637a7107e131d38cb9c87df6`
+and backend `consent-protocol-00120-6gz` serving 100% at digest
+`sha256:aac946939e70bb3ac7b67f2af66c684b71ccad650e1584cd52d4a4df916e2281`.
+Both revisions carried the exact deploy SHA and workflow run ID. The backend
+retains request concurrency 20 and now allows at most five demand-scaled hub
+instances; the owner pod's one-instance configuration did not change. Public
+frontend and backend health probes returned 200. The backend Cloud Run request
+log contained zero platform HTTP 429 responses from 18:45 to 19:56 UTC after
+the new revision was ready at 18:37 UTC. This bounded observation does not
+establish a sustainable hub capacity envelope.
+
+The existing dev Hermes identity and personal BYOC pod were used without
+re-enrollment or pod upgrade. Owner UI first enabled the existing device's
+Puppy grant. A synthetic browser Puppy turn returned a nonempty response from
+the Mac's local model over the direct pod path; the pod status showed the
+device trusted with only `puppy.inference` scope and an idle relay link. A
+subsequent browser cancellation posted a bound turn and the pod link returned
+to `busy=false`. The current rehearsal did not independently observe the
+device's cancellation frame or prove that the model stopped work immediately.
+
+The first withdrawal attempt after cancellation timed out before a grant
+request was sent; the rehearsal still had a machine dialog open, and the
+exact navigation cause was not established. It is not evidence of a failed
+server withdrawal.
+
+The second owner UI withdrawal succeeded: hub readback showed `enabled=false`,
+pod status marked the device subject `revoked` and removed its relay link, and
+the existing Hermes process exited with a binding refusal. The same owner UI
+then re-enabled the grant. Restarting only the existing dev-profile relay
+restored a fresh direct inference turn with a nonempty response. Final hub
+readback showed `enabled=true`; pod readback showed the same trusted,
+inference-only device and `busy=false`. The temporary rehearsal browser
+subject was revoked at both pod and hub (both returned 200). This proves
+withdrawal and reconnection on the existing dev pod, not a phone/browser and
+Mac check on independent active internet connections.
+
+| Acceptance area | Dev evidence | Remaining gate |
+|---|---|---|
+| Puppy owner grant and direct response | Existing device, owner UI grant, signed pod admission, nonempty local-model reply, narrow scope, and responsive pod status passed. | Independent active internet connections and cold-turn timing need a guided physical-device run. |
+| Puppy cancellation and withdrawal | Browser cancellation returned the link to idle; owner withdrawal revoked the pod subject and ended the old relay; re-enable plus relay restart returned a fresh reply. | Observe cancellation at the device/model boundary; make the rehearsal close the machine dialog before grant controls. |
+| Hub availability | Exact-SHA dev deployment and bounded postdeploy platform-429 check passed. | Staged concurrent load, ten-minute soak, and capacity envelope remain unmeasured. |
+| Production BYOC | No main merge, UAT/production deploy, stable-channel offer, or owner-pod update occurred. | Graduate pod migrations and release provenance, verify IAM/billing and recovery, repeat Files, update and Puppy journeys in UAT. |
