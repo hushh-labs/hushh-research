@@ -3551,7 +3551,28 @@ Source review identified a client activation error: after the hub accepted a
 new owner-approved activation, polling treated the previous revoked pod
 subject as a final refusal instead of allowing fresh device admission. The
 focused correction waits within the existing 35-second bound while retaining
-the hub's 403 refusal. Its nearest 20-case service suite and frontend typecheck
-pass locally; hosted CI and dev serving verification are still required for
-that correction. A separate-network device/browser rehearsal and direct
-observation of the device's cancellation frame remain unverified.
+the hub's 403 refusal. Its nearest 20-case service suite, frontend typecheck,
+local core mirror, and exact-SHA hosted validation passed. Governed dev run
+[36711923224](https://github.com/hushh-labs/hushh-research/actions/runs/36711923224)
+deployed source `bd314f569975f1f972102bc7feade7f5ade195a7` to frontend
+revision `hushh-webapp-00098-mqs` at 100% traffic; backend remained at
+`consent-protocol-00119-46s`. The browser/device re-enable rehearsal on this
+frontend is still incomplete, so source and serving proof do not establish the
+live Puppy acceptance row.
+
+The dev rehearsal exposed a separate hub capacity failure. While the owner
+withdrew Puppy access, the pod was sleeping; the hub accepted the disabled
+grant but reported direct revocation pending. After the pod woke, its
+heartbeats received platform HTTP 429 or timed out, so the signed revocation
+courier could not complete. Cloud Run request logs identified the 429 cause as
+**no available instance**: all three backend instances were active at the
+configured concurrency of 20, with low CPU utilization. Long-running consent
+event streams occupied the request slots; this was a hub capacity failure, not
+a Gemini 429. The same interval showed ordinary owner and webhook requests
+receiving platform 429s. The web consent SSE proxy did not carry browser
+cancellation to its backend fetch. The candidate now propagates cancellation
+and gives only the dev hub five demand-scaled instance slots; owner-pod
+resources and admission limits are unchanged. This correction requires its own
+exact-SHA CI, governed dev deployment, serving readback, and a new owner grant
+cycle before claiming success. A separate-network device/browser rehearsal and
+direct observation of the device's cancellation frame remain unverified.

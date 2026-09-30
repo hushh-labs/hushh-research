@@ -802,18 +802,16 @@ append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
 env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
 deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
 
-# Long-lived requests retain the 3600s timeout and best-effort affinity.
-# Active sockets remain billable; these settings do not establish relay readiness.
-# The main-owned dev workflow still passes the legacy template capacity. Its
-# two-worker hub repeatedly exceeded 1Gi during the owner-update rehearsal on
-# 2026-09-27. Use the existing UAT hub envelope for dev's default values; explicit
-# capacity overrides and other environments retain their declared values. This
-# applies only to the hub, never to an owner's single-worker pod.
+# Dev hub uses UAT-sized resources; owner pods retain their own limits.
+# Five demand-scaled instances give consent SSE and pod heartbeats headroom
+# (2026-09-30 incident). Declared database pools allow at most 40 connections.
+# Only legacy template defaults change; explicit overrides stay authoritative.
 # BEGIN DEV HUB CAPACITY DEFAULTS
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   [[ "${_CLOUD_RUN_MEMORY}" != "1Gi" ]] || _CLOUD_RUN_MEMORY="4Gi"
   [[ "${_CLOUD_RUN_CPU}" != "1" ]] || _CLOUD_RUN_CPU="2"
   [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="20"
+  [[ "${_CLOUD_RUN_MAX_INSTANCES}" != "3" ]] || _CLOUD_RUN_MAX_INSTANCES="5"
 fi
 # END DEV HUB CAPACITY DEFAULTS
 
