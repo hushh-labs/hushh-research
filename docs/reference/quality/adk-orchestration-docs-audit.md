@@ -3656,10 +3656,25 @@ This is a release-compatibility gate for the installed image, not an identity
 or relay failure. A recovery-proven, immutable dev release compatible with
 this exact predecessor is needed before this owner can approve Files setup.
 
-The current source correction distinguishes an inactive Files capability
-from a broken connection and presents a setup refusal without implying
-that setup started. The nearest Files workspace test and frontend
-typecheck passed locally. This correction still requires exact-SHA CI and
-dev serving readback before it is called live. The personal browser's
-temporary subject was revoked at both pod and hub (both 200). The existing
-Hermes device and Puppy grant were preserved.
+The Files UI now distinguishes an inactive capability from a broken
+connection and presents a setup refusal without implying that setup
+started. Focused Files tests (8/8), frontend typecheck, docs verification
+and the local core mirror passed. Exact-SHA hosted CI
+[`36775950543`](https://github.com/hushh-labs/hushh-research/actions/runs/36775950543)
+passed for `01429e94d`. Governed dev run
+[`36778215277`](https://github.com/hushh-labs/hushh-research/actions/runs/36778215277)
+resolved to frontend-only, completed healthy, and served revision
+`hushh-webapp-00100-xnh` at 100% traffic with that SHA and immutable digest
+`sha256:d8a248e986033d95bfd8ea661f49672bf558d3efc63d9c71d0ab20521e673980`.
+Backend `consent-protocol-00120-6gz` stayed on `1d90942a7`; the previous
+frontend `00099-wxx` remains the recorded rollback target. The release
+artifact separately reports degraded `ria_stage1_query_only` dependency
+health, so its overall healthy disposition does not prove that capability.
+
+The personal owner's live dev browser then unlocked, admitted directly to
+the same existing pod, received Files list HTTP 503, and displayed the
+new "Files is not enabled on this pod" message. Its temporary browser
+subject was revoked at both pod and hub (both HTTP 200); the access guard
+reported no blocked requests. This verifies truthful refusal, not Files
+activation. The existing Hermes device, Puppy grant, pod image, and
+one-instance, minimum-zero configuration were preserved.
