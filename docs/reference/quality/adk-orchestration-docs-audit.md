@@ -3231,3 +3231,71 @@ the Drive route, services, and nearest tests (one new function finding,
 thirteen worsened existing measurements). The original budgets and
 dependency/import checks are unchanged. This is inherited debt, not a
 claim that the Drive seam is optimally structured.
+
+## 2026-09-29/30: BYOC dev release and acceptance boundary
+
+Infrastructure revision `ccb593e8587742a69b58ea97c47e1c58c5c580aa`
+passed the local core mirror and hosted PR Validation `36650161443`.
+Main-owned dev workflow `36651691305` deployed that exact application SHA
+and finished **healthy**. Independent Cloud Run readback found backend
+`consent-protocol-00117-zln` at 100% traffic on digest
+`sha256:4a07dbf8065f6435a30f0e47c26ec2509e9ccfd451ad60aea9729294da68f580`
+and frontend `hushh-webapp-00092-ljj` at 100% on digest
+`sha256:8200a732817e37f1b4c2a936c403cc2643b00a1fc567616181878b46194c54b1`.
+Both carry the exact source and workflow labels. Postdeploy schema head 260,
+provenance, parity and semantic verification passed. Backend
+`consent-protocol-00116-phb` and frontend `hushh-webapp-00091-48h` are the
+recorded rollback revisions. Cloud Build took 480 seconds for the backend and
+106 seconds for the frontend.
+
+The candidate's managed-Vertex job passed seven of nine synthetic probes;
+`adk:gemini-3.6-flash@us` and `location_command:semantics` timed out. The
+workflow classified this as advisory provider unavailability and continued.
+Its generic message that every probe was refused is inaccurate for this
+receipt. Release classification also marked `ria_stage1_query_only` degraded.
+A single bounded repeat of the same synthetic readiness job on the deployed
+backend image (`consent-protocol-genai-readiness-qjv72`) passed all nine probes
+with `dependency_ok`; the initial two timeouts were not repeatable in this
+rehearsal. This is a successful point check, not a provider availability
+target or a resolution of the separate RIA degradation.
+
+The dev-only `2026.09-dev.7+ccb593e85877.570e49f7` pod image was published
+at immutable digest
+`sha256:570e49f7a9c8fd52cce394167fe78f98c5b36ac2ee5eeffa8c1eec9cff5c16e5`.
+Its compatibility list contains only the rehearsed `.6` predecessor digest
+`sha256:d278e7a2ae1164a3a1f79e65fca67f20bc029aab49f3bfcb2a154ac91a34472a`.
+Publication did not install it. The personal Hermes-owner pod still serves
+that predecessor at 100% with min zero, max one instance, one worker, one
+vCPU/1 GiB and concurrency eight. Its last available instance-count sample
+was zero at 2026-09-29 19:48 UTC; no recent sample was returned, so that
+point does not prove current idle state. A relay attempt using the default
+Hermes profile selected UAT and was stopped before connection. The existing
+dev-profile relay now waits for owner activation without holding a pod socket.
+
+The canonical reviewer is a separate owner. Its authenticated status is
+`byoc`, `active`, `healthy`, with `.5` installed and verified; `.7` is visible
+but correctly neither offerable nor installable for that different predecessor.
+An unlocked read-only browser session rendered Hosting, Software updates and
+Files at 390, 768 and 1280 CSS pixel widths without horizontal overflow or
+vault loss. A focused Files geometry readback found zero-pixel differences
+between header, content and explorer start lines at each width, with no
+horizontal overflow. A second rehearsal blocked browser self-enrolment, so
+its Files connection warning is a harness refusal, not a proven library
+outage. These checks establish responsive geometry, not full visual review,
+Files operations, billing recovery or update continuity.
+The reviewer pressed **Check for updates** on the deployed page: the outcome
+toast correctly explained that an update exists but this pod is not ready to
+install it, **Update now** was absent, and the unlocked vault remained active.
+
+| Gate | Evidence | Decision |
+|---|---|---|
+| Branch source | Exact-SHA local core and hosted CI passed. | Ready for dev rehearsal; application unmerged. |
+| Dev hub/frontend | Governed workflow healthy; serving images and schema 260 read back; bounded model recheck 9/9 passed. | Deployed; initial model timeouts and RIA degradation retained as evidence. |
+| Dev BYOC update | Immutable `.7` offer matches the personal `.6` predecessor; service/configuration preserved. | Exact Settings approval, handoff, recovery and installed digest pending. |
+| Files/billing | Explorer and one-click setup passed source and responsive checks. | Live transfer, organization and missing-billing return pending on this revision. |
+| Puppy | Dev-profile relay awaits activation; older direct turns remain evidence. | Post-release response, cancellation and independent-internet acceptance pending. |
+| UAT/production | Neither environment received this application or pod release. | Separate migration, IAM, billing, channel, recovery and UAT acceptance gates remain. |
+
+The affected private Founder Wiki pod article was updated and read back. No
+main merge, UAT/production deployment, stable-channel publication or automatic
+owner-pod upgrade occurred. Both owners' existing resources were preserved.
