@@ -2837,8 +2837,8 @@ workflow `36494890057` deployed only the frontend. Cloud Run readback found
 digest `sha256:37188d7dfb9857ea7542d5e2a0602ee9c8a473b0e9907efd91cf34f7ed2a55bb`.
 The backend remained `consent-protocol-00115-npd`. Authenticated maintenance
 preserved the owner's pod image, service identity, and durable key across the
-concurrency revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00016-xjl`
-and idle-grace revision `one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00017-8cv`.
+personal dev pod concurrency revision `00016-xjl`
+and idle-grace revision `00017-8cv`.
 
 The owner-project pod readback confirmed minimum zero and maximum one instance,
 request-based CPU, 1 vCPU, 1 GiB, and request concurrency eight. The existing
@@ -2899,18 +2899,17 @@ This rehearsal used the existing personal dev BYOC owner pod. The published dev-
 `sha256:c08727d520955162db221198d710f7ee8661acd7255abf72a775326307aea701`.
 Two authenticated, unlocked owner browser sessions were used. A synthetic
 legacy pod chat returned HTTP 200; before Settings approval, the pod reported
-one active handoff permit. Settings approval created operation
-`op_15b895d1996146e0b28c3c63a9421001`, and the duplicate exact approval
+one active handoff permit. Settings approval created a durable operation,
+and the duplicate exact approval
 returned that same operation. An idle handoff receipt was observed. The poll
 did not catch active work after approval began, so this is **not** conclusive
 live overlap or uninterrupted drain evidence. The old image lacked the newer
 AG-UI chat route; its authenticated legacy turn was the available work source.
 
 Owner status later reported the release installed and verified. Cloud Run
-readback found revision
-`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00018-pdz` at 100% traffic,
+readback found personal dev pod revision `00018-pdz` at 100% traffic,
 target digest `sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d`,
-and the same service UID `a33135b3-1328-4379-9127-5ee9571a2f3a`. Minimum
+and the same service UID. Minimum
 zero, maximum one instance, request-based CPU, one vCPU, one GiB, concurrency
 eight and the 600-second relay idle grace remained configured. Cold-session
 unlock and a new private AG-UI chat returned HTTP 200 with a nonempty completed
@@ -2942,8 +2941,7 @@ and no new offer. The display label is derived from immutable release metadata;
 the underlying release ID and digest remain the approval authority. Feed's
 post-install view was not independently read back.
 
-The owner's updated pod still served revision
-`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00018-pdz` and digest
+The owner's updated pod still served revision `00018-pdz` and digest
 `sha256:f8464e858ef884601567b223b8612de4b06e98dddd7b944ad02eb6cbaa23f00d`.
 Cloud Monitoring observed both active and idle instance counts at zero for
 this revision at 2026-09-29 02:47 UTC, followed by startup and a direct relay
@@ -3017,11 +3015,10 @@ The dev-only pod release `2026.09-dev.6+0f25ee51b374.d278e7a2` targeted
 immutable digest `sha256:d278e7a2ae1164a3a1f79e65fca67f20bc029aab49f3bfcb2a154ac91a34472a`.
 Publishing it did not install it.
 
-The named owner approved that exact release in Settings. Operation
-`op_15b87217ec894798b7d88439d8bf2e53` progressed through scheduled,
+The named owner approved that exact release in Settings. One durable operation
+progressed through scheduled,
 preparing, installing and verifying before the installed digest was reported
-verified. The owner's same Cloud Run service now serves revision
-`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00019-f79` at 100% traffic
+verified. The owner's same Cloud Run service now serves revision `00019-f79` at 100% traffic
 and the target digest. Service UID, service account, owner storage and keys
 were preserved. Minimum zero, maximum one instance, one worker, 1 vCPU,
 1 GiB, concurrency eight and the 600-second relay idle grace remain in place.
@@ -3101,8 +3098,7 @@ the local core mirror and hosted validation `36598215340`. The main-owned
 dev workflow `36601089830` succeeded on that exact branch SHA; frontend
 `hushh-webapp-00091-48h` served 100% of dev traffic on readback. The backend
 remained `consent-protocol-00116-phb`. No new pod image was installed: the
-owner's `hussh-one-pod` service still served
-`one-pod-ha1-7o6wt3s4mtydneyytqfswsxtafdlpjwz-00019-f79` at 100% with
+owner's dev pod service still served revision `00019-f79` at 100% with
 request concurrency eight. Hermes relay source was `08998d747a`. This was a
 frontend deployment, not another owner-approved software update.
 
@@ -3292,10 +3288,232 @@ install it, **Update now** was absent, and the unlocked vault remained active.
 | Branch source | Exact-SHA local core and hosted CI passed. | Ready for dev rehearsal; application unmerged. |
 | Dev hub/frontend | Governed workflow healthy; serving images and schema 260 read back; bounded model recheck 9/9 passed. | Deployed; initial model timeouts and RIA degradation retained as evidence. |
 | Dev BYOC update | Immutable `.7` offer matches the personal `.6` predecessor; service/configuration preserved. | Exact Settings approval, handoff, recovery and installed digest pending. |
-| Files/billing | Explorer and one-click setup passed source and responsive checks. | Live transfer, organization and missing-billing return pending on this revision. |
+| Files/billing | Explorer and one-click setup passed source and responsive checks; the separate Files follow-up below records live transfer acceptance on the reviewer's existing pod. | Automatic organization and missing-billing return remain pending on this revision. |
 | Puppy | Dev-profile relay awaits activation; older direct turns remain evidence. | Post-release response, cancellation and independent-internet acceptance pending. |
 | UAT/production | Neither environment received this application or pod release. | Separate migration, IAM, billing, channel, recovery and UAT acceptance gates remain. |
+
+### 2026-09-30 Files follow-up
+
+On the deployed `ccb593e85` frontend, the reviewer could submit **New folder**
+before the initial Files read settled. The pod returned 200 for the create,
+but the concurrently loading explorer did not show it. A later authenticated
+read found the exact synthetic folder; it was moved to Trash under the
+documented retention policy. Revision
+`eb410b0298079512de0be1fe3073ce780ea5a23b` disables refresh, upload,
+folder creation and Trash navigation while the initial library read is
+pending. Its local core mirror, hosted CI `36662340360` and main-owned dev
+workflow `36664217448` passed. Independent readback found frontend
+`hushh-webapp-00093-jwz` at 100% on digest
+`sha256:c314e6dc80546f80a1209891c9e1a528a0257e62bce107b18a3488ac3d238045`,
+labeled with that exact SHA; the backend remained on its earlier revision.
+The focused component regression and frontend typecheck also passed.
+
+With the original frontend and a settled initial read, a bounded canonical
+reviewer rehearsal passed folder creation, interrupted 5 MiB upload and
+resume, byte-exact download, rename and undo, trash and restore, and
+same-session vault continuity. The synthetic file and folder were moved to
+Trash; the rehearsal browser device was revoked at both pod and hub. The
+authenticated readback found the folder created during the racing attempt
+and its later cleanup. The final ignored receipt records the
+successful transfer journey. This proves those Files operations on the
+reviewer’s existing `.5` pod, not a `.7` image installation or automatic
+organization acceptance.
+
+The first deployed Files smoke after this frontend rollout encountered a
+separate cold admission issue: the initial settings read reached the reviewer
+pod, but the parallel list read did not reach its API and the explorer showed
+the connection warning. A signed direct list read then returned 200; an
+immediate warm browser repeat completed both reads and showed no warning.
+Both runs revoked their temporary browser binding at pod and hub. Revision
+`9a925889f33b342de2b9928ef17066e2c1a4aac5` added one bounded retry.
+Its local core mirror and hosted CI `36666282259` attempt 2 passed; attempt
+1 had an unrelated Agent Chat test timeout that passed on a focused local
+run and the exact-SHA rerun. Main-owned dev workflow `36668042419` passed,
+and frontend `hushh-webapp-00094-dqz` serves 100% on digest
+`sha256:15e500c21dc9c742be76b1e693f5d4a18a951cd5b618010bfdf3ac12319768a5`,
+with the correct source and workflow labels. Backend `consent-protocol-00117-zln`
+was unchanged.
+
+A controlled reviewer browser rehearsal interrupted the first Files list
+request. Both settings requests returned 200, but the retried list did not
+complete, so this was a **failed** live acceptance result. The temporary
+browser binding was revoked at pod and hub (both 200). Readback confirmed
+the reviewer's owner-project Cloud Run pod has request concurrency **one**;
+the explorer was issuing list and settings in parallel. Revision
+`ade31f3da960fd1304565049f2b60622f8891446` serializes those reads and
+retains one bounded cold-read retry. Its six focused Files tests, frontend
+typecheck and local core mirror passed. Hosted CI and a second live dev
+rehearsal remain pending for that correction.
 
 The affected private Founder Wiki pod article was updated and read back. No
 main merge, UAT/production deployment, stable-channel publication or automatic
 owner-pod upgrade occurred. Both owners' existing resources were preserved.
+
+### 2026-09-30 ADK freshness and Files connection follow-up
+
+The local ADK tree was frozen clean at `de7a91daf0a146b3676e41adc44f8ab888507b7f`
+and merged into the existing infrastructure branch without changing that
+worktree. One later, directly affected editor correction from ADK
+`178fd096f242bf2aa21dd49d806109331ddd0979` was cherry-picked. The
+branch candidate at that checkpoint was `5ff85436aa285462491a21ef3088276e9aeb0aea`.
+The merge retains the pod's owner routing and direct access while adding the
+ADK connector review, queued-input, presentation and model changes. Generated
+registries and topology were regenerated from their owners. The architecture
+fitness baseline records 55 reviewed ADK size findings, plus the one-line
+editor change, without changing thresholds or import-direction findings.
+The complete local core mirror passed on the combined branch: 8,103 backend
+tests passed, the shared-database lane passed, the production web build and
+PKM upgrade gate passed. An earlier isolated-worktree attempt reached the web
+build after passing source checks but Turbopack rejected the worktree's
+out-of-root `node_modules` symlink; the final run used the normal workspace.
+
+The interim source `92021c29fd13199c3a9508b60df8586218cd1cc3` passed
+[hosted validation](https://github.com/hushh-labs/hushh-research/actions/runs/36673232821)
+and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/36675544438).
+Live Cloud Run readback found frontend `hushh-webapp-00095-sqn` on digest
+`sha256:289310bde816665bc4950776ebb9e281f895ba7abd4367b28c55391ad60d5f14`
+and backend `consent-protocol-00118-5x2` on digest
+`sha256:4a07dbf8065f6435a30f0e47c26ec2509e9ccfd451ad60aea9729294da68f580`,
+both Ready, labeled with the exact source and serving 100% of dev traffic.
+The backend digest was unchanged from its predecessor; the current `auto`
+selector still builds a backend revision when a backend test file changes.
+This is a pipeline efficiency follow-up, not a reason to weaken verification.
+
+The first controlled reviewer browser test on that deployed frontend reset
+one Files list request and failed before a successful list or settings read.
+Its temporary browser binding was revoked at pod and hub (both 200). An
+immediate second run with the same injected reset passed: the subsequent
+list and settings reads returned 200, the Files actions became available,
+same-session vault continuity held, and both cleanup revocations returned
+200. This is **intermittent cold-read evidence**, not a reliable cold-start
+acceptance claim. The combined branch now limits initial retry to two
+additional idempotent reads for transient transport or 429/502/503/504
+failures; owner or signature refusals are not retried. Seven focused Files
+tests and frontend typecheck pass. A fresh deployed cold rehearsal remains
+required for this correction.
+
+The newer `b51a59397` combined candidate passed hosted validation
+`36679518109`. The subsequent `bb4f64f2` candidate failed the macOS editor
+performance gate in hosted run `36683377502`; no deployment was dispatched
+for it. The imported ADK editor correction replaces an absolute latency
+comparison with a same-run native textarea control and defers idle search
+work. A local macOS 320px sample still failed both its relative and absolute
+tail checks under high native-control latency; this remains evidence, not a
+waiver. The exact `5ff85436` core mirror passed, including the architecture
+ratchet after a reviewed two-entry size baseline update. Hosted validation
+`36686245068` then completed successfully, including macOS editor performance,
+browser contracts, iOS and the CI Status Gate. The governed dev deployment
+`36688544966` completed successfully from main against that exact branch SHA.
+Independent Cloud Run readback found frontend `hushh-webapp-00096-g7n` at
+100% on digest `sha256:da998ff7616205956d9f3f1daac888cb03e93745eb085260a4aef6b2a7214648`
+and backend `consent-protocol-00119-46s` at 100% on digest
+`sha256:dbfdc39ecf1857987fe97be834213b3eb4a39de27ca349b4550303988bd42934`.
+Both revisions carry the exact `5ff85436` source and workflow run labels. The
+governed postdeploy schema gate passed. The prior frontend and backend
+revisions `00095-sqn` and `00118-5x2` remain the recorded rollback targets.
+The dev-only `.8` pod release is published at immutable digest
+`sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392`.
+An unlocked owner status read shows it offered and installable from the
+personal Hermes pod's verified `.6` predecessor; publication has not
+installed it. The canonical
+reviewer's existing pod has a different predecessor digest. No source or
+frontend check establishes a normal Settings-approved update, missing-billing
+return, automatic Files organization, independent-internet Puppy turn, or
+UAT/production readiness. Those journeys retain their separate live gates.
+
+The postdeploy reviewer Files cold test found two distinct boundaries. The
+ordinary reviewer test session was refused at trusted-browser enrollment with
+`TRUSTED_DEVICE_REVIEW_SESSION_REFUSED`, as the server's review-session rule
+requires. A memory-only unmarked owner session then enrolled a synthetic
+browser, received its exact pod binding, and revoked that browser at the hub
+after the test. Its direct pod challenge nevertheless exceeded the browser's
+60-second general fetch ceiling; the pod request log records a 200 response
+after 89.6 seconds, while the browser had aborted. No Files list reached the
+pod. Source now gives only owner-pod admission and status routes a 120-second
+ceiling; unrelated direct reads and hub calls retain 60 seconds. The nearest
+12-case timeout suite, frontend typecheck and architecture ratchet pass.
+At that point the fix still needed exact-SHA CI, dev deployment and a cold
+browser rehearsal. The reviewer pod retains its selected single-request, half-vCPU
+configuration; its cold latency is a usability finding even if the longer
+client deadline makes admission complete.
+
+### 2026-09-30 dev deployment and owner-approved update follow-up
+
+Revision `fb12e5e301bc387c893d56deb7daf8ff9a7820a7` passed the local core
+mirror, focused web timeout test, frontend typecheck and architecture ratchet.
+[Hosted validation](https://github.com/hushh-labs/hushh-research/actions/runs/36694452132)
+completed successfully, including the CI Status Gate. The main-owned
+[dev workflow](https://github.com/hushh-labs/hushh-research/actions/runs/36697031133)
+completed successfully with `build_pod_image=false`. Cloud Run readback found
+frontend `hushh-webapp-00097-8pg` serving 100% of dev traffic on immutable
+digest `sha256:b9eb3af9b02f6bf980dccaacd2155f31c29d3f84d85944a3603789567a2e6790`,
+labeled with the exact `fb12e5e3` SHA and workflow ID. Backend
+`consent-protocol-00119-46s` remained unchanged. The previous frontend
+revision `00096-g7n` is the observed rollback target.
+
+The first cold reviewer Files rehearsal on that frontend obtained an exact
+device binding, and the pod challenge and admission returned 200. Its injected
+first list request reset, but no retried Files list reached the pod before the
+120-second browser rehearsal bound. The explorer still showed **Opening
+Files…**. Both temporary device revocations returned 200. An immediate warm
+repeat of the same injected-reset rehearsal passed: list and settings both
+returned 200, Files controls were usable, same-session vault continuity held,
+and pod/hub revocations again returned 200. The admission ceiling correction
+is deployed; reliable cold Files readiness is **not accepted**. The reviewer
+pod's selected half-vCPU, concurrency-one configuration remains a measured
+latency and contention factor, not a configuration to change without owner
+selection.
+
+The named personal dev owner retained the existing BYOC service. Before
+approval, owner status verified the
+`.6` predecessor digest and an installable immutable `.8` dev-only release.
+Two normally authenticated, unlocked owner tabs started a synthetic pod chat;
+the pod reported `activeWork=1` when Settings approved that exact release.
+Approval and a duplicate request resolved to the same durable operation; its
+exact receipt remains in the restricted rehearsal record. The handoff observed active work,
+then durable idle, and the synthetic turn completed. Cloud Run replaced the
+same service with revision `00020-k2n` at 100% traffic on digest
+`sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392`.
+Readback confirmed the original service UID and account, 1 vCPU, 1 GiB,
+concurrency eight, minimum zero and maximum one instance. Owner status then
+reported this exact digest installed and verified for the same operation.
+Settings displayed **Current version · 30.09.26 · Dev 8**. Publication alone
+had not installed the release; the Settings approval did.
+
+Cold postinstall private chat returned HTTP 200 from the updated pod, but the
+first browser rehearsal hit its 120-second terminal wait. The pod request log
+records a 200 completion after about 131 seconds. A bounded warm repeat with
+a longer observation window completed with a nonempty assistant response and
+same-session vault continuity. Its two synthetic conversations were deleted
+(both 200), and its temporary browser was revoked at pod and hub (both 200).
+The active-update rehearsal's immediate synthetic cleanup returned 500 during
+the handoff. A later owner-authenticated history read found exactly one
+conversation with that rehearsal title; its deletion and the cleanup browser's
+pod/hub revocations all returned 200. The longer cold turn is a usability
+failure to measure and correct,
+not evidence of a provider-specific cause; no prompt or credential was added
+to operational logs or this report.
+
+After the update, the existing direct Hermes relay remained active and its
+owner-approved Puppy grant remained enabled. A fresh browser turn returned a
+nonempty Mac response through the direct stream on the updated pod. The pod
+reported the same trusted device with only `puppy.inference` scope and an idle
+relay link after the turn. The first browser rehearsal failed because its
+ignored network guard allowed the former `/turn` path but blocked the deployed
+`/turn/stream`; no product authority was loosened. The corrected rehearsal
+passed. This proves a fresh bound turn after restart. Independent active
+internet connections, cancellation, withdrawal after this update, and a
+measured cold-to-first-token envelope are still separate acceptance rows.
+
+| Dev journey | Observed result | Remaining acceptance |
+|---|---|---|
+| Exact-SHA application deploy | CI, workflow and serving revision readback passed. | No UAT or production release implied. |
+| Existing BYOC update | Owner approval, active-work drain, durable idle, same-service replacement, installed-digest verification and synthetic cleanup passed. | Test failure reporting and recovery in a controlled isolated fault. |
+| Private chat | Warm postinstall turn and encrypted-session continuity passed. | Cold latency and terminal timing need a bounded service objective. |
+| Files | Warm interrupted-read retry and prior transfer journey passed. | Cold initial library read, automatic organization and missing-billing resume remain unverified. |
+| Puppy | Existing trusted identity, grant, direct postupdate inference and narrow scope passed. | Independent-network, cancellation and withdrawal rehearsal remain unverified on this image. |
+| Production gate | No main merge or UAT/production deployment occurred. | Pod migration graduation, provenance/channel/IAM, recovery and UAT repetition remain required. |
+
+The independently active local ADK worktree had advanced to `3752ada65e45fbde91f1983ca3385a3e82f009a9`
+at final readback. That moving head is beyond the frozen integration checkpoint;
+its later changes were not silently included in the deployed `fb12e5e3` source.
