@@ -43,6 +43,19 @@ describe("Files form submission", () => {
     files.list.mockResolvedValue({ entries: [], cursor: "" });
     files.upload.mockReset();
   });
+  it("waits for the initial library read before enabling file actions", async () => {
+    let completeRead!: (value: { entries: FileEntry[]; cursor: string }) => void;
+    files.list.mockImplementationOnce(
+      () => new Promise((resolve) => { completeRead = resolve; }),
+    );
+    render(<FilesWorkspace />);
+    const create = screen.getByRole("button", { name: "New folder", exact: true });
+    expect(create).toBeDisabled();
+    fireEvent.click(create);
+    expect(files.createFolder).not.toHaveBeenCalled();
+    completeRead({ entries: [], cursor: "" });
+    await waitFor(() => expect(create).toBeEnabled());
+  });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());

@@ -147,7 +147,7 @@ export function FilesWorkspace() {
           actions={
             <Button
               variant="outline"
-              disabled={!available || busy}
+              disabled={!available || loading || busy}
               onClick={() => void act(() => load(), "Files refreshed")}
             >
               <RefreshCw className="mr-2 size-4" />
@@ -212,7 +212,7 @@ export function FilesWorkspace() {
               className="flex-1"
             />
             <Button
-              disabled={busy || Boolean(message)}
+              disabled={loading || busy || Boolean(message)}
               onClick={() => {
                 setResume(undefined);
                 input.current?.click();
@@ -223,14 +223,14 @@ export function FilesWorkspace() {
             </Button>
             <Button
               variant="outline"
-              disabled={busy || Boolean(message)}
+              disabled={loading || busy || Boolean(message)}
               onClick={() => setEdit({ operation: "create", value: "" })}
             >
               New folder
             </Button>
             <Button
               variant="ghost"
-              disabled={busy}
+              disabled={loading || busy}
               onClick={() => setTrash(!trash)}
             >
               {trash ? "Library" : "Trash"}
