@@ -1,22 +1,22 @@
 {
-  "version": "2026.09-dev.8",
+  "version": "2026.09-dev.9",
   "channel": "dev",
-  "summary": "More reliable private conversations and clearer connector review.",
+  "summary": "Your private Files workspace and steadier conversations.",
   "notes": {
     "improvements": [
-      "Follow-up messages can wait safely while your private agent finishes a response.",
-      "Connector review identifies the exact tool request before you decide."
+      "Files has its own workspace for folders, transfers, and organization history.",
+      "You can move files into folders beyond the first page of results."
     ],
     "fixes": [
-      "Private chat keeps its conversation context when connector review resumes.",
-      "The Files workspace retries temporary cold connection failures without retrying access refusals."
+      "A disconnected chat checks queued-message delivery before sending another turn.",
+      "Files search keeps its current-page scope visible on smaller screens."
     ],
     "security": [
-      "First-party owner authorization stays out of third-party connector probes.",
-      "Untrusted connector content cannot grant itself access to private information."
+      "Files setup still requires your exact approval before changing your pod.",
+      "Connector review remains bound to the requested tool and owner."
     ]
   },
   "supportedUpgradeDigests": [
-    "sha256:d278e7a2ae1164a3a1f79e65fca67f20bc029aab49f3bfcb2a154ac91a34472a"
+    "sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392"
   ]
 }
