@@ -12866,7 +12866,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1398
+      "value": 1401
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18535,6 +18535,12 @@
       "scope": "Reviewed 16 combined-file size deltas for accidental duplication and authority changes; focused Files, recovery, reviewer, connector, voice and generated-contract checks passed. All 46 are size findings; no new dependency-direction, import-initialization or parse findings. Defer bounded extraction to the owning modules; do not treat the baseline as an optimality claim.",
       "worsened_findings": 39
     },
+    "compatible_graph_projection_20260930": {
+      "report_sha256": "625c8743c9763a3b628727a37f7ba8e108aa33123a5158cbbc5a1af2856a73d1",
+      "reviewed_regressions": 1,
+      "scope": "The owning capability-graph generator preserved three exact merged-main predecessor revisions after the merge base advanced. Its generated Location card catalog grew by three lines; current graph semantics did not change. No authored module, budget, comparator, dependency or import-init rule changed.",
+      "source_revision": "0718468f3"
+    },
     "completion_integration": {
       "adk": "d751afaf71982e9b86ea8cbb12234b9fc1524ab7",
       "evidence_revision": "5feb09a0d",
@@ -18628,9 +18634,9 @@
       "scope": "Existing reviewer harness +10 lines, justified by reproduced live rehearsal failures. Nineteen focused tests pass. No threshold, comparator or other finding changed.",
       "source_revision": "249b3b600eb0eee4fe484ca5b1e2a908346ddef2"
     },
-    "revision": "0122dc145",
+    "revision": "0718468f3",
     "scope": "Reviewed Files-led BYOC candidate after one ADK/main integration. Size debt is measured and retained; budgets, comparator, dependency direction and import initialization checks are unchanged. This baseline does not establish live readiness.",
-    "source_revision": "0122dc14587cc481892746c3f1d1964ab1c2016d",
+    "source_revision": "0718468f3",
     "update_failure_receipt_20260929": {
       "scope": "Two additional lines convert the owner update failure-report service result into a concrete mapping at the FastAPI boundary. The service package is intentionally skipped by the current gradual mypy scan. The route remains owner-authorized and returns the same receipt; no budget or comparator changed.",
       "source_revision": "067a51caf"
