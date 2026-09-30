@@ -36,6 +36,14 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath("/api/account/session-status")).toBe(60_000);
   });
 
+  it("keeps cold owner-pod admission alive while ordinary direct reads stay bounded", () => {
+    const origin = "https://owner-pod.example.test";
+    expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/session/challenge`)).toBe(120_000);
+    expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/session/admit`)).toBe(120_000);
+    expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/status`)).toBe(120_000);
+    expect(webFetchTimeoutMsForPath(`${origin}/api/one/pod/files/list`)).toBe(60_000);
+  });
+
   it("outlasts the connector proxy for an allowed Drive question's search", () => {
     const id = "11111111-1111-4111-8111-111111111111";
     expect(

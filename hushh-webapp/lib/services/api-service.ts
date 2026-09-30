@@ -474,6 +474,10 @@ async function classifyVaultOwnerAuthFailure(
  */
 const WEB_FETCH_TIMEOUT_MS = 60_000;
 const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
+// A scale-to-zero owner pod may need longer than a hub request to wake and
+// answer its first admission request. Keep the longer ceiling on these exact
+// direct routes; normal app and hub requests retain the 60-second bound.
+const OWNER_POD_WAKE_FETCH_TIMEOUT_MS = 120_000;
 
 /**
  * Keep the browser alive long enough to receive the KYC scan proxy's bounded
@@ -498,7 +502,12 @@ function isLongDriveSharingPath(path: string): boolean {
 const ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS = 180_000;
 
 export function webFetchTimeoutMsForPath(path: string): number {
-  const pathname = path.split("?", 1)[0];
+  const pathname = /^https?:\/\//i.test(path)
+    ? new URL(path).pathname
+    : path.split("?", 1)[0] ?? "";
+  if (/^\/api\/one\/pod\/(?:status|session\/(?:challenge|admit|renew))$/.test(pathname)) {
+    return OWNER_POD_WAKE_FETCH_TIMEOUT_MS;
+  }
   if (isLongDriveSharingPath(path)) return 180_000;
   if (pathname === "/api/account/delete") return ACCOUNT_DELETE_WEB_FETCH_TIMEOUT_MS;
   return pathname === "/api/one/email/information-requests/scan"

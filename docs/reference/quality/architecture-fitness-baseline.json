@@ -11408,7 +11408,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6049
+      "value": 6058
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18421,6 +18421,12 @@
       "editor_value": 863,
       "previous_browser_test_value": 626,
       "browser_test_value": 668
+    },
+    "owner_pod_cold_admission_20260930": {
+      "source_revision": "5ff85436aa285462491a21ef3088276e9aeb0aea",
+      "scope": "One existing API module grows nine lines to recognize absolute owner-pod admission and status URLs. A live reviewer-pod challenge returned 200 after 89.6 seconds, beyond the prior browser 60-second ceiling. The exact route ceiling becomes 120 seconds; unrelated direct and hub requests remain at 60 seconds. The nearest timeout test covers both. No budget, comparator, route authority, or import-direction rule changed; live retry remains required.",
+      "previous_value": 6049,
+      "value": 6058
     },
     "endpoint_publication_delta": "Six reviewed existing size entries for explicit endpoint authority arguments, refusal before signing, the core regression and compatible rehearsal fake. Parent and read-only authority review; evidence base 9c4379f0125850ab3a63896ee21d430447f3b556. No other entries or budgets changed.",
     "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
