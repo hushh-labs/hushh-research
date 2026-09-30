@@ -523,6 +523,9 @@ substitutions:
   # encryption domains. Empty keeps all Drive runtime bindings absent.
   _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET: ""
   _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET: ""
+  # Curated HubSpot OAuth app is UAT-only until its operator pins are supplied.
+  _HUBSPOT_OAUTH_CLIENT_ID_SECRET: ""
+  _HUBSPOT_OAUTH_CLIENT_SECRET_SECRET: ""
   _GOOGLE_DRIVE_PICKER_API_KEY_SECRET: ""
   _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET: ""
   _DRIVE_DOCUMENT_KEY_V1_SECRET: ""
