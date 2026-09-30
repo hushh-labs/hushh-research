@@ -1185,6 +1185,7 @@ export class VaultService {
       if (Capacitor.isNativePlatform()) {
         try {
           const authToken = await this.getFirebaseToken();
+          if (!authToken) throw new VaultAuthSessionNotReadyError();
           const result = await HushhVault.getVault({ userId, authToken });
           const wrapperProbe = (result as { wrappers?: unknown }).wrappers;
           const extractedCount = this.extractWrappers(wrapperProbe).length;
@@ -1236,6 +1237,7 @@ export class VaultService {
 
       const url = this.getApiUrl(`/api/vault/get?userId=${userId}`);
       const authToken = await this.getFirebaseToken();
+      if (!authToken) throw new VaultAuthSessionNotReadyError();
       const headers: HeadersInit = {};
       if (authToken) {
         headers["Authorization"] = `Bearer ${authToken}`;

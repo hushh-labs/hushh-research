@@ -33,6 +33,14 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Functional Checks
 
+- [ ] Existing vault accounts and completed-setup accounts do not re-enter phone
+  onboarding during login, refresh, invitation return, or a direct phone-page
+  visit. New incomplete accounts still verify after Google authentication.
+- [ ] Missing identity shadows resolve before admission; unavailable bootstrap
+  or identity reads show recovery without inventing an unverified-phone claim.
+  OTP entry survives token refresh, and account switching clears the old flow.
+
+
 1. Persona switch restores `last_active_persona`.
 2. Investor and RIA route trees enforce actor gates.
 3. Marketplace tabs render expected public-card data.

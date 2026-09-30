@@ -96,7 +96,7 @@ vi.mock("@/lib/services/onboarding-route-cookie", () => ({
   setOnboardingRequiredCookie: vi.fn(),
 }));
 vi.mock("@/lib/services/post-auth-route-service", () => ({
-  PostAuthRouteService: { resolveAfterLogin: vi.fn() },
+  PostAuthRouteService: { resolveAfterLogin: vi.fn().mockResolvedValue("/register-phone?redirect=%2Fone%2Fsetup") },
 }));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
@@ -159,7 +159,7 @@ describe("the phone mandate page survives an auth re-validation", () => {
   it("clears the pending code when the authenticated owner changes", async () => {
     authState.current = { user: { uid: "owner-a" }, loading: false };
     const view = render(<PhoneMandatePageContent />);
-    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Send code" }));
     await screen.findByText("step: code");
     authState.current = { user: { uid: "owner-b" }, loading: false };
     view.rerender(<PhoneMandatePageContent />);

@@ -413,4 +413,70 @@ describe("PhoneMandateGuard", () => {
     });
     expect(bootstrapStateMock).toHaveBeenCalledTimes(1);
   });
+  it.each([
+    { hasVault: true, setupCompleted: false, phoneVerified: false },
+    { hasVault: true, setupCompleted: null, phoneVerified: null },
+    { hasVault: false, setupCompleted: true, phoneVerified: false },
+    { hasVault: null, setupCompleted: true, phoneVerified: null },
+  ])("keeps established accounts out of phone onboarding on refresh: %j", async (state) => {
+    pathnameValue = "/";
+    bootstrapStateMock.mockResolvedValue(state);
+    const view = render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    view.unmount();
+    getCachedBootstrapStateMock.mockReturnValue(state);
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    expect(replace).not.toHaveBeenCalled();
+    expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
+  });
+
+  it("offers recovery on bootstrap failure without inventing a phone requirement", async () => {
+    bootstrapStateMock.mockRejectedValueOnce(new Error("offline"));
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByText("home content")).toBeNull();
+    bootstrapStateMock.mockResolvedValue({ hasVault: true, phoneVerified: null });
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText("home content");
+    expect(bootstrapStateMock).toHaveBeenLastCalledWith("user-1", { force: true });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it.each(["null", "rejected"])("does not turn a %s identity read into phone onboarding", async (failure) => {
+    bootstrapStateMock.mockResolvedValue({ hasVault: false, phoneVerified: null });
+    if (failure === "rejected") refreshCurrentUserIdentityMock.mockRejectedValue(new Error("offline"));
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not let a bootstrap hint override a verified identity", async () => {
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: false, phoneVerified: false });
+    peekCachedIdentityMock.mockReturnValue({ data: { phone_verified: true }, isStale: false });
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect while authentication is still settling", async () => {
+    authValue.loading = true;
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: false, phoneVerified: false });
+    render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("Checking session...");
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("does not carry the previous owner's admission into a new account", async () => {
+    getCachedBootstrapStateMock.mockReturnValue({ hasVault: true, phoneVerified: true });
+    const view = render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await screen.findByText("home content");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    authValue = { ...authValue, user: { uid: "new-user" } };
+    view.rerender(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/register-phone?redirect=%2Fone%2Fprofile"));
+    expect(screen.queryByText("home content")).toBeNull();
+  });
+
 });

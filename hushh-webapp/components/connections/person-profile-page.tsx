@@ -11,11 +11,12 @@ import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
-import { CheckCircle2, Copy, LockKeyhole } from "@/components/icons";
+import { CheckCircle2, LockKeyhole, MoreHorizontal, FileText, Share2, Settings, ChevronRight, MapPin, CreditCard, UserRound, ShoppingBag, FolderSimpleIcon } from "@/components/icons";
 import { toast } from "sonner";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from "@/components/ui/dropdown-menu";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
-import { PageHeader } from "@/components/app-ui/page-sections";
+import styles from "./person-profile-page.module.css";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -68,6 +69,17 @@ import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+
+function renderCategoryIcon(domain: string) {
+  const presentation = {
+    location: { Icon: MapPin, tone: "blue" },
+    financial: { Icon: CreditCard, tone: "green" },
+    identity: { Icon: UserRound, tone: "purple" },
+    shopping: { Icon: ShoppingBag, tone: "orange" },
+  }[domain.toLowerCase()] ?? { Icon: FolderSimpleIcon, tone: "blue" };
+  const { Icon, tone } = presentation;
+  return <Icon className={styles.categoryIcon} data-tone={tone} color="currentColor" weight="regular" aria-hidden="true" />;
+}
 
 /**
  * Where a request stands, in the requester's words. Localhost run 4 (S3)
@@ -706,15 +718,30 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
   return (
     <AppPageShell width="agent" fitContent>
-      <div className="space-y-8 sm:space-y-10 pb-28 sm:pb-36" data-native-route="native-route-person-profile">
-        <section className="flex flex-col items-center text-center py-2">
+      <div className={styles.page} data-native-route="native-route-person-profile">
+        <SectionCard className={styles.hero}>
+          {viewerProfile?.relationship.status === "connected" ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button type="button" variant="none" effect="fade" className={styles.overflow} aria-label="Profile options">
+                  <MoreHorizontal className="h-5 w-5" aria-hidden="true" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem variant="destructive" disabled={relationshipBusy} onSelect={() => void updateRelationship("remove")} data-voice-control-id="person-profile-remove-connection">
+                  Remove connection
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
           <ConnectionPersonAvatar
             photoUrl={profile.photoUrl}
             label={profile.displayName}
             verified={Boolean(profile.verifiedRole)}
             size="profile"
+            className={styles.avatar}
           />
-          <h1 className="mt-3.5 text-3xl font-semibold tracking-tight">
+          <h1 className={styles.name}>
             {profile.displayName}
           </h1>
           {profile.verifiedRole ? (
@@ -725,7 +752,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           ) : null}
           {viewerProfile ? (
             <div className="mt-2.5 flex justify-center">
-              <StatusPill tone="neutral">
+              <StatusPill tone={viewerProfile.relationship.status === "connected" ? "ready" : "neutral"}>
+                {viewerProfile.relationship.status === "connected" ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" /> : null}
                 {viewerProfile.relationship.status === "connected"
                   ? "Connected"
                   : viewerProfile.relationship.status.startsWith("pending")
@@ -734,9 +762,36 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </StatusPill>
             </div>
           ) : null}
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5" aria-label="Relationship actions">
+          <div className={styles.actions} aria-label="Relationship actions">
+            {viewerProfile ? (
+              <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                <FileText className="h-5 w-5" aria-hidden="true" />
+                Request
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              className={styles.share}
+              aria-label="Share profile"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href);
+                toast.success("Profile link copied");
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Share2 className="h-5 w-5" aria-hidden="true" />
+                <span>Share</span>
+              </span>
+            </Button>
             {viewerProfile ? (
               <>
+                <Button type="button" variant="none" effect="fade" className={styles.manage} data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
+                  <Settings className="h-5 w-5" aria-hidden="true" />
+                  Manage access
+                  <ChevronRight className="h-4 w-4" aria-hidden="true" />
+                </Button>
                 {viewerProfile.relationship.status === "none" ? (
                   <Button
                     type="button"
@@ -745,6 +800,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     disabled={relationshipBusy}
                     onClick={() => void updateRelationship("connect")}
                     data-voice-control-id="person-profile-connect"
+                    className={styles.relationship}
                   >
                     Connect
                   </Button>
@@ -757,44 +813,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     disabled={relationshipBusy}
                     onClick={() => void updateRelationship("cancel")}
                     data-voice-control-id="person-profile-cancel-connection"
+                    className={styles.relationship}
                   >
                     Cancel request
                   </Button>
                 ) : null}
-                {viewerProfile.relationship.status === "connected" ? (
-                  <Button
-                    type="button"
-                    variant="none"
-                    effect="fade"
-                    disabled={relationshipBusy}
-                    onClick={() => void updateRelationship("remove")}
-                    data-voice-control-id="person-profile-remove-connection"
-                  >
-                    Remove connection
-                  </Button>
-                ) : null}
-                <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
-                  Manage access
-                </Button>
                 {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
               </>
             ) : null}
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => {
-                void navigator.clipboard.writeText(window.location.href);
-                toast.success("Profile link copied");
-              }}
-            >
-              <span className="inline-flex items-center gap-2">
-                <Copy className="h-4 w-4" />
-                <span>Share profile</span>
-              </span>
-            </Button>
+
           </div>
-        </section>
+        </SectionCard>
 
         {!user && !authLoading ? (
           <SectionCard>
@@ -816,18 +845,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           <>
             <section
               id="shared-with-you"
-              aria-labelledby="shared-with-you"
+              aria-labelledby="shared-with-you-heading"
               className="space-y-4"
               ref={sharedSectionRef}
             >
-              <PageHeader
-                title="Shared with you"
-                description={
-                  <span className="text-sm">
-                    End-to-end encrypted information shared with your account, opened on this device only.
-                  </span>
-                }
-              />
+              <h2 id="shared-with-you-heading" className={styles.heading}>Shared with you</h2>
+              <p className="sr-only">End-to-end encrypted information shared with your account, opened on this device only.</p>
 
               {sharedCardItems.length ? (
                 <SharedWithYouCard
@@ -840,15 +863,15 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   variant="profile"
                 />
               ) : (
-                <SectionCard className="py-8 text-center">
+                <SectionCard className={styles.empty}>
                   <div className="flex flex-col items-center justify-center space-y-2">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                    <div className={styles.emptyIcon}>
                       <LockKeyhole className="h-5 w-5" />
                     </div>
                     <p className="text-sm font-semibold text-foreground">
-                      No information shared yet
+                      Nothing shared yet
                     </p>
-                    <p className="text-xs text-muted-foreground max-w-sm">
+                    <p className="sr-only">
                       Information this person shares with you appears here.
                     </p>
                   </div>
@@ -858,18 +881,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
             <section
               aria-labelledby="available-to-request"
-              className="space-y-3"
+              className={`space-y-3 ${styles.available}`}
               ref={availableSectionRef}
               data-testid="person-profile-available"
             >
-              <PageHeader
-                title="Available to request"
-                description={
-                  <span className="text-sm">
-                    Choose only what is needed. The person reviews every request before anything is shared.
-                  </span>
-                }
-              />
+              <h2 id="available-to-request" className={styles.heading}>Available to request</h2>
               {/*
                 One nested list, the same one the Memory route uses.
 
@@ -882,6 +898,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               */}
               <ConsentScopeNestedList
                 items={scopeItems}
+                renderDomainLeading={renderCategoryIcon}
+                searchPlaceholder="Search categories"
+                showDomainFilter
+                categorySelectionInDetail
                 rootLabel="All"
                 emptyText="This person has nothing available to ask for."
                 testIdPrefix="person-profile-scope"
@@ -903,31 +923,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   </Button>
                 </div>
               ) : null}
-              {allScopes.length ? (
-                <div className="flex justify-end pt-1">
-                  <Button
-                    type="button"
-                    variant="blue-gradient"
-                    effect="fill"
-                    disabled={!selectedScopes.length}
-                    onClick={openRequestReview}
-                    data-voice-control-id="person-profile-review-information"
-                  >
-                    Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
-                  </Button>
-                </div>
-              ) : null}
             </section>
 
             <section aria-labelledby="request-history" className="space-y-3">
-              <PageHeader
-                title="Request history"
-                description={
-                  <span className="text-sm">
-                    Requests you sent to this person and their current status.
-                  </span>
-                }
-              />
+              <h2 id="request-history" className={styles.heading}>Request history</h2>
               {currentHistory?.failed ? (
                 <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
               ) : null}
@@ -1009,11 +1008,26 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   ) : null}
                 </SectionCard>
               ) : (
-                <SectionCard>
-                  <p className="text-sm text-muted-foreground">No information requests yet.</p>
+                <SectionCard className={styles.empty}>
+                  <div className={styles.emptyIcon}><FileText className="h-5 w-5" aria-hidden="true" /></div>
+                  <p className="text-sm font-semibold text-muted-foreground">No requests yet</p>
                 </SectionCard>
               )}
             </section>
+            {allScopes.length ? (
+              <div className={styles.review}>
+                <Button
+                  type="button"
+                  variant="blue-gradient"
+                  effect="fill"
+                  disabled={!selectedScopes.length}
+                  onClick={openRequestReview}
+                  data-voice-control-id="person-profile-review-information"
+                >
+                  Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
+                </Button>
+              </div>
+            ) : null}
           </>
         ) : viewerUnavailable && user ? (
           <SectionCard className="py-8 text-center">
@@ -1021,7 +1035,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               <p className="text-sm font-semibold text-foreground">
                 We couldn&rsquo;t load your connection with {profile.displayName} right now.
               </p>
-              <p className="text-xs text-muted-foreground max-w-sm">
+              <p className="sr-only">
                 Your connection status, what you can request, and anything shared with you will appear here once this loads.
               </p>
               <Button

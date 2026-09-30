@@ -39,6 +39,8 @@ function resolveInitialBackendPhoneVerified(params: {
   if (!params.userId) return null;
   if (params.firebasePhoneVerified) return true;
 
+  const cached = AccountIdentityService.peekCachedIdentity(params.userId);
+  if (cached && AccountIdentityService.hasVerifiedPhone(cached.data)) return true;
   const bootstrap = PreVaultUserStateService.getCachedBootstrapState(
     params.userId,
   );
@@ -46,13 +48,20 @@ function resolveInitialBackendPhoneVerified(params: {
     return bootstrap.phoneVerified;
   }
 
-  const cached = AccountIdentityService.peekCachedIdentity(params.userId);
   return cached
     ? AccountIdentityService.hasVerifiedPhone(cached.data)
     : null;
 }
 
-export function PhoneMandateGuard({
+export function PhoneMandateGuard(props: {
+  children: React.ReactNode;
+  exemptVaultUsers?: boolean;
+}) {
+  const { user } = useAuth();
+  return <AccountPhoneMandateGuard key={user?.uid ?? "signed-out"} {...props} />;
+}
+
+function AccountPhoneMandateGuard({
   children,
   exemptVaultUsers = false,
 }: {
@@ -94,6 +103,11 @@ export function PhoneMandateGuard({
       firebasePhoneVerified,
     }),
   );
+  const [setupResolved, setSetupResolved] = useState(() =>
+    !!user?.uid && PreVaultUserStateService.getCachedBootstrapState(user.uid)?.setupCompleted === true,
+  );
+  const [admissionError, setAdmissionError] = useState(false);
+  const [retryAttempt, setRetryAttempt] = useState(0);
   const redirectTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -113,6 +127,8 @@ export function PhoneMandateGuard({
       CACHE_KEYS.ACCOUNT_IDENTITY(userId),
     ]);
     const reconcileFromCache = () => {
+      const bootstrap = PreVaultUserStateService.getCachedBootstrapState(userId);
+      if (bootstrap) setSetupResolved(bootstrap.setupCompleted === true);
       const nextVaultPresence = resolveInitialVaultPresence({
         userId,
       });
@@ -171,6 +187,7 @@ export function PhoneMandateGuard({
     }
 
     let cancelled = false;
+    setAdmissionError(false);
     // `boolean | null`, because the bootstrap state now reports "not read
     // yet" as null instead of flattening it to false. This component already
     // handles that: null holds the redirect (`hasVault !== null` below) and
@@ -183,7 +200,11 @@ export function PhoneMandateGuard({
     };
     const setPhoneVerified = (next: boolean) => {
       if (!cancelled) {
-        setBackendPhoneVerified((current) => (current === next ? current : next));
+        setBackendPhoneVerified(
+          next || AccountIdentityService.hasVerifiedPhone(
+            AccountIdentityService.peekCachedIdentity(userId)?.data,
+          ),
+        );
       }
     };
 
@@ -201,21 +222,24 @@ export function PhoneMandateGuard({
       }
       try {
         const { identity } = await AccountIdentityService.getIdentitySwr(user);
+        if (!identity) throw new Error("Account identity is unavailable");
         setPhoneVerified(AccountIdentityService.hasVerifiedPhone(identity));
       } catch (error) {
         console.warn("[PhoneMandateGuard] Failed to check account phone claim:", error);
-        setPhoneVerified(false);
+        if (!cancelled) setAdmissionError(true);
       }
     };
 
     const cachedBootstrap = PreVaultUserStateService.getCachedBootstrapState(userId);
-    if (cachedBootstrap) {
+    if (cachedBootstrap && retryAttempt === 0 &&
+        (cachedBootstrap.hasVault !== null || cachedBootstrap.setupCompleted === true)) {
+      setSetupResolved(cachedBootstrap.setupCompleted === true);
       setVaultPresence(cachedBootstrap.hasVault);
       if (firebasePhoneVerified) {
         setPhoneVerified(true);
-      } else if (cachedBootstrap.phoneVerified !== null) {
+      } else if (cachedBootstrap.phoneVerified != null) {
         setPhoneVerified(cachedBootstrap.phoneVerified);
-      } else {
+      } else if (cachedBootstrap.hasVault !== true && cachedBootstrap.setupCompleted !== true) {
         void resolveIdentityFallback();
       }
       return () => {
@@ -228,22 +252,26 @@ export function PhoneMandateGuard({
     // onboarding guard, so a cold route transition performs one request for
     // vault presence, phone claim, and journey state rather than independent
     // vault and identity checks from each layout.
-    void PreVaultUserStateService.bootstrapState(userId)
+    void PreVaultUserStateService.bootstrapState(userId, { force: retryAttempt > 0 || cachedBootstrap?.hasVault === null })
       .then((state) => {
+        if (cancelled) return;
+        if (state.hasVault === null && state.setupCompleted !== true) {
+          throw new Error("Account onboarding is unavailable");
+        }
+        setSetupResolved(state.setupCompleted === true);
         setVaultPresence(state.hasVault);
         if (firebasePhoneVerified) {
           setPhoneVerified(true);
-        } else if (state.phoneVerified !== null) {
+        } else if (state.phoneVerified != null) {
           setPhoneVerified(state.phoneVerified);
-        } else {
+        } else if (state.hasVault !== true && state.setupCompleted !== true) {
           void resolveIdentityFallback();
         }
       })
       .catch((error) => {
         console.warn("[PhoneMandateGuard] Failed to load admission state:", error);
-        // Fail closed when the shared admission record cannot be verified.
-        setVaultPresence(true);
-        setPhoneVerified(firebasePhoneVerified);
+        // A failed read says nothing about vault ownership or phone status.
+        if (!cancelled) setAdmissionError(true);
       });
 
     return () => {
@@ -253,6 +281,7 @@ export function PhoneMandateGuard({
     // object during token refreshes, but that must not restart admission.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
+    retryAttempt,
     firebasePhoneVerified,
     hostnameResolved,
     localPhoneMandateBypassed,
@@ -266,6 +295,8 @@ export function PhoneMandateGuard({
   }, [pathname, searchParams]);
 
   const shouldRedirect =
+    !loading &&
+    !admissionError &&
     !sessionVerificationRequired &&
     !!user &&
     hostnameResolved &&
@@ -275,6 +306,7 @@ export function PhoneMandateGuard({
       phoneNumber,
       phoneVerified: backendPhoneVerified,
       hasVault,
+      setupResolved,
       exemptVaultUsers,
       hostname,
       pathname,
@@ -311,12 +343,22 @@ export function PhoneMandateGuard({
     return <>{children}</>;
   }
 
+  if (admissionError) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => setRetryAttempt((attempt) => attempt + 1)}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
+    );
+  }
+
   // A null hostname is the intentional SSR/client-hydration state from
   // useHostname. Redirecting before it resolves treats localhost as an
   // untrusted host for one render and can bounce a locally bypassed session
   // straight back to /register-phone. Hold the protected surface briefly
   // instead; once the host is known the normal mandate policy applies.
-  if (!hostnameResolved || hasVault === null || backendPhoneVerified === null) {
+  if (!hostnameResolved ||
+      (!setupResolved && hasVault !== true && (hasVault === null || backendPhoneVerified === null))) {
     return <HushhLoader label="Checking phone requirement..." />;
   }
 

@@ -160,6 +160,14 @@ function jsonResponse(status: number, body: unknown): Response {
 describe("VaultService.checkVault (web) — session-restore / 401 handling", () => {
   let fetchMock: ReturnType<typeof vi.fn>;
 
+  it.each([false, true])("does not send metadata without a ready token (native=%s)", async (native) => {
+    nativePlatform.current = native;
+    mockGetIdToken.mockResolvedValue(null);
+    await expect(VaultService.getVaultState(`token-not-ready-${native}`)).rejects.toBeInstanceOf(VaultAuthSessionNotReadyError);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockGetVault).not.toHaveBeenCalled();
+  });
+
   const wrapper = {
     method: "passphrase" as const,
     encryptedVaultKey: "encrypted",

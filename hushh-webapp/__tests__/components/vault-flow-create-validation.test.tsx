@@ -182,6 +182,59 @@ describe("VaultFlow create validation", () => {
     expect(screen.queryByLabelText("Passphrase")).toBeNull();
   });
 
+  it.each([
+    Object.assign(new Error("unavailable"), { status: 503 }),
+    new Error("HTTP 503: temporarily unavailable"),
+  ])("recovers a transient metadata read without unlocking", async (failure) => {
+    vi.useFakeTimers();
+    try {
+      checkVaultMock.mockResolvedValue(true);
+      getVaultStateMock.mockRejectedValueOnce(failure);
+      const onSuccess = vi.fn();
+      render(<VaultFlow user={user} onSuccess={onSuccess} />);
+      await act(async () => {});
+      expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+      await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+      expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
+      expect(getVaultStateMock).toHaveBeenCalledTimes(2);
+      expect(unlockVaultMock).not.toHaveBeenCalled();
+      expect(onSuccess).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("bounds metadata retries and cancels them when unmounted", async () => {
+    vi.useFakeTimers();
+    try {
+      checkVaultMock.mockResolvedValue(true);
+      getVaultStateMock.mockRejectedValue(Object.assign(new Error("unavailable"), { status: 503 }));
+      const view = render(<VaultFlow user={user} onSuccess={vi.fn()} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(getVaultStateMock).toHaveBeenCalledTimes(4);
+      expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await act(async () => {});
+      expect(getVaultStateMock).toHaveBeenCalledTimes(5);
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(getVaultStateMock).toHaveBeenCalledTimes(5);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("does not retry metadata after sign-out starts", async () => {
+    vi.useFakeTimers();
+    try {
+      checkVaultMock.mockResolvedValue(true);
+      getVaultStateMock.mockRejectedValue(Object.assign(new Error("unavailable"), { status: 503 }));
+      const onSignOut = vi.fn(() => new Promise<void>(() => {}));
+      render(<VaultFlow user={user} onSuccess={vi.fn()} onSignOut={onSignOut} />);
+      await act(async () => {});
+      fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(60000); });
+      expect(onSignOut).toHaveBeenCalledTimes(1);
+      expect(getVaultStateMock).toHaveBeenCalledTimes(1);
+    } finally { vi.useRealTimers(); }
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     cancelAuthenticationMock.mockResolvedValue(undefined);

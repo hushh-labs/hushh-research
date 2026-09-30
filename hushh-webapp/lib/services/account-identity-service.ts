@@ -136,6 +136,20 @@ export class AccountIdentityService {
     return payload?.identity ?? null;
   }
 
+  static async refreshIdentityForSession(
+    userId: string,
+    idToken: string,
+    options?: { force?: boolean },
+  ): Promise<AccountIdentity | null> {
+    const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
+    const identity = await this.identityFromResponse(response);
+    // The caller's owner and a restored global token can diverge during an
+    // account switch. Never return or cache another owner's identity.
+    if (identity?.user_id !== userId) return null;
+    this.cacheIdentity(userId, identity);
+    return identity;
+  }
+
   static async refreshCurrentUserIdentity(
     user: User | null | undefined,
     options?: { force?: boolean }
@@ -163,10 +177,7 @@ export class AccountIdentityService {
         return null;
       }
 
-      const response = await ApiService.refreshAccountIdentityShadow(idToken, options);
-      const identity = await this.identityFromResponse(response);
-      this.cacheIdentity(uid, identity);
-      return identity;
+      return this.refreshIdentityForSession(uid, idToken, options);
     })();
 
     if (!force) {

@@ -22,7 +22,9 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, Search } from "@/components/icons";
+import { ChevronLeft, Search, SlidersHorizontal } from "@/components/icons";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
+import { Button } from "@/lib/morphy-ux/button";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
@@ -58,6 +60,12 @@ export type ConsentScopeNestedListProps = {
   /** Kept so an adopting surface does not lose the test ids it already had. */
   testIdPrefix?: string;
   className?: string;
+  /** Optional domain decoration; selection and navigation remain owned here. */
+  renderDomainLeading?: (domainKey: string) => React.ReactNode;
+  searchPlaceholder?: string;
+  showDomainFilter?: boolean;
+  /** Keep overview rows quiet while retaining bulk selection inside the category. */
+  categorySelectionInDetail?: boolean;
 };
 
 export function ConsentScopeNestedList({
@@ -70,9 +78,16 @@ export function ConsentScopeNestedList({
   emptyText = "Nothing here yet.",
   testIdPrefix = "consent-scope",
   className,
+  renderDomainLeading,
+  searchPlaceholder = "Search",
+  showDomainFilter = false,
+  categorySelectionInDetail = false,
 }: ConsentScopeNestedListProps) {
   const [pathStack, setPathStack] = useState<string[]>([]);
   const [query, setQuery] = useState("");
+  const [domainFilter, setDomainFilter] = useState("__all");
+  const domains = useMemo(() => [...new Map(items.map((item) => [item.domainKey, item.domainLabel])).entries()], [items]);
+  const visibleItems = useMemo(() => showDomainFilter && domainFilter !== "__all" ? items.filter((item) => item.domainKey === domainFilter) : items, [items, domainFilter, showDomainFilter]);
 
   const searching = query.trim().length > 0;
 
@@ -85,13 +100,13 @@ export function ConsentScopeNestedList({
    * orients the person with a breadcrumb on the row instead.
    */
   const matches = useMemo(
-    () => (searching ? filterScopeItems(items, query) : []),
-    [items, query, searching],
+    () => (searching ? filterScopeItems(visibleItems, query) : []),
+    [visibleItems, query, searching],
   );
 
   const level = useMemo(
-    () => resolveConsentScopeLevel({ items, pathStack, rootLabel }),
-    [items, pathStack, rootLabel],
+    () => resolveConsentScopeLevel({ items: visibleItems, pathStack, rootLabel }),
+    [visibleItems, pathStack, rootLabel],
   );
 
   const atRoot = pathStack.length === 0;
@@ -108,6 +123,7 @@ export function ConsentScopeNestedList({
 
   const selectedCountIn = (ids: readonly string[]) =>
     ids.filter((id) => isSelected(id)).length;
+  const currentBranchIds = consentScopeItemsUnder(items, pathStack).map((item) => item.id);
 
   const renderLeafRow = (item: ConsentScopeItem, key: string) => {
     const isGranted = Boolean(selection?.grantedIds?.has(item.id));
@@ -122,6 +138,7 @@ export function ConsentScopeNestedList({
       <SettingsRow
         key={key}
         title={item.label}
+        leading={renderDomainLeading?.(item.domainKey)}
         density="compact"
         description={item.description || undefined}
         disabled={disabled}
@@ -201,11 +218,22 @@ export function ConsentScopeNestedList({
           <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-foreground">
             {level.title}
           </h2>
+          {categorySelectionInDetail && pathStack.length === 1 && selection ? (
+            <label className="inline-flex min-h-11 items-center gap-3 text-sm">
+              <input type="checkbox" checked={allSelected(currentBranchIds)}
+                ref={(node) => { if (node) node.indeterminate = selectedCountIn(currentBranchIds) > 0 && !allSelected(currentBranchIds); }}
+                onChange={() => selection.onToggleMany(currentBranchIds, !allSelected(currentBranchIds))}
+                className="h-5 w-5 accent-[color:var(--app-accent)]"
+                data-testid={`${testIdPrefix}-group-toggle-${pathStack[0]}`} />
+              Select all in {level.title}
+            </label>
+          ) : null}
         </div>
       ) : null}
 
       {showSearch ? (
-        <div className="relative">
+        <div className="flex items-start gap-3">
+        <div className="relative min-w-0 flex-1">
           <Search
             className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden
@@ -213,11 +241,28 @@ export function ConsentScopeNestedList({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search"
+            placeholder={searchPlaceholder}
             aria-label="Search this list"
             className="pl-9"
             data-testid={`${testIdPrefix}-search`}
           />
+        </div>
+        {showDomainFilter ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="none" effect="fade" aria-label="Filter categories" className="h-11 w-11 shrink-0 border border-border p-0">
+                <SlidersHorizontal className="h-5 w-5" aria-hidden="true" />
+                {domainFilter !== "__all" ? <span className="sr-only">Filter active</span> : null}
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuRadioGroup value={domainFilter} onValueChange={(value) => { setDomainFilter(value); setPathStack([]); }}>
+                <DropdownMenuRadioItem value="__all">All categories</DropdownMenuRadioItem>
+                {domains.map(([key, label]) => <DropdownMenuRadioItem key={key} value={key}>{label}</DropdownMenuRadioItem>)}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
         </div>
       ) : null}
 
@@ -255,6 +300,7 @@ export function ConsentScopeNestedList({
               <SettingsRow
                 key={entry.key}
                 title={entry.label}
+                leading={renderDomainLeading?.(pathStack[0] ?? entry.segment)}
                 density="compact"
                 onClick={() => setPathStack((stack) => [...stack, entry.segment])}
                 chevron
@@ -265,7 +311,7 @@ export function ConsentScopeNestedList({
                     <span className="text-[15px] tabular-nums text-muted-foreground">
                       {selection && chosen ? `${chosen}/${entry.childCount}` : entry.childCount}
                     </span>
-                    {selection ? (
+                    {selection && !(categorySelectionInDetail && atRoot) ? (
                       <input
                         type="checkbox"
                         checked={everything}

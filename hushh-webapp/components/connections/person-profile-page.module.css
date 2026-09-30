@@ -1,0 +1,65 @@
+.page {
+  --foundation-title3-size: clamp(20px, 2.5vw, 24px);
+  --foundation-title3-weight: 600;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding-bottom: 32px;
+  overflow-wrap: anywhere;
+}
+
+.hero {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 20px 16px;
+  text-align: center;
+}
+
+.hero .overflow { position: absolute; top: 8px; right: 8px; width: 44px; height: 44px; padding: 0; color: var(--muted-foreground); }
+.actions .manage { font-size: 14px; font-weight: 500; }
+
+.avatar { width: 64px; height: 64px; flex-shrink: 0; }
+.page .hero .avatar [data-slot="avatar-fallback"] {
+  background: var(--app-warning);
+  /* The global helper-text selectors also match the avatar's small-size class. */
+  color: var(--app-warning-fg, #fff) !important;
+  font-size: 28px !important;
+  font-weight: 600 !important;
+}
+.name { margin: 12px 0 0; max-width: 100%; font-size: clamp(24px, 4vw, 32px); line-height: 1.2; font-weight: 700; letter-spacing: -0.035em; text-wrap: balance; }
+.heading { margin: 0; font-size: clamp(20px, 2.5vw, 24px); line-height: 1.25; font-weight: 600; letter-spacing: -0.025em; }
+
+.actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; width: 100%; max-width: 480px; margin-top: 16px; align-items: stretch; }
+.actions button { display: inline-flex; align-items: center; justify-content: center; min-height: 48px; height: auto; min-width: 0; padding-block: 12px; white-space: normal; gap: 8px; border-radius: var(--app-card-radius-compact, 20px); font-size: 15px; line-height: 1.4; font-weight: 600; }
+.actions button svg { flex-shrink: 0; }
+.actions button > span { gap: 8px; }
+.actions .request, .actions .share { padding-inline: 8px; overflow-wrap: normal; }
+.actions .share, .actions .manage, .actions .relationship { color: var(--foreground); }
+.request { grid-column: 1; grid-row: 1; }
+.share { grid-column: 2; grid-row: 1; border: 1px solid var(--border); }
+.share:only-child { grid-column: 1 / -1; }
+.manage { grid-column: 1 / -1; grid-row: 2; background: transparent; }
+.relationship { grid-column: 1 / -1; grid-row: 3; justify-self: center; font-size: 13px; }
+.actions .relationship { min-height: 44px; margin-top: 4px; padding: 10px 20px; font-size: 13px; font-weight: 500; }
+
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; padding: 16px; text-align: center; }
+.emptyIcon { display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--app-radius-pill, 999px); background: var(--muted); color: var(--foreground); }
+.available { scroll-margin-top: calc(var(--top-shell-height, 80px) + 24px); }
+.available input[type="text"] { min-height: 46px; border-radius: var(--app-card-radius-compact, 20px); }
+.categoryIcon { width: 24px; height: 24px; color: var(--app-accent); }
+.categoryIcon[data-tone="green"] { color: var(--app-success); }
+.categoryIcon[data-tone="purple"] { color: var(--app-purple); }
+.categoryIcon[data-tone="orange"] { color: var(--app-warning); }
+.review button { width: 100%; min-height: 48px; white-space: normal; border-radius: var(--app-card-radius-compact, 20px); }
+.review button:disabled { opacity: 1; }
+
+@media (min-width: 768px) {
+  .page { gap: 28px; }
+  .hero { padding: 20px 32px 20px; }
+  .avatar { width: 72px; height: 72px; }
+  .actions button { min-height: 52px; }
+  .actions .relationship { min-height: 44px; }
+  .empty { min-height: 104px; }
+}

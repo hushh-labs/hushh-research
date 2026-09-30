@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
@@ -22,6 +23,7 @@ import {
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   buildOneSetupRoute,
+  normalizeStaticExportPathname,
   KAI_MARKET_PATH,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -32,6 +34,7 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { RiaService } from "@/lib/services/ria-service";
 import {
   buildRiaClaimRoute,
@@ -69,6 +72,8 @@ export function PhoneMandatePageContent() {
     user,
     loading,
     phoneNumber,
+    sessionVerificationRequired,
+    retrySessionVerification,
     startPhoneVerification,
     confirmPhoneVerification,
     refreshUser,
@@ -181,6 +186,47 @@ export function PhoneMandatePageContent() {
   const [verificationStep, setVerificationStep] = useState<
     "phone" | "code" | "linked"
   >("phone");
+  const [admission, setAdmission] = useState<{
+    userId: string;
+    status: "ready" | "redirecting" | "error";
+  } | null>(null);
+  const [admissionRetry, setAdmissionRetry] = useState(0);
+
+  useEffect(() => {
+    if (!user || sessionVerificationRequired) return;
+    const userId = user.uid;
+    let cancelled = false;
+    setAdmission(null);
+    // An explicit local visit remains usable for the development phone flow.
+    // The route guard, rather than this page, owns any localhost exemption.
+    if (shouldBypassPhoneMandateForLocalhost(window.location.hostname)) {
+      setAdmission({ userId, status: "ready" });
+      return;
+    }
+    void (async () => {
+      if (admissionRetry > 0) {
+        await PreVaultUserStateService.bootstrapState(userId, { force: true });
+      }
+      const nextPath = await PostAuthRouteService.resolveAfterLogin({
+        userId,
+        redirectPath,
+        phoneNumber,
+        hostname: window.location.hostname,
+      });
+      if (cancelled) return;
+      const needsPhone = normalizeStaticExportPathname(
+        new URL(nextPath, window.location.origin).pathname,
+      ) === ROUTES.PHONE_MANDATE;
+      setAdmission({ userId, status: needsPhone ? "ready" : "redirecting" });
+      if (!needsPhone) router.replace(nextPath);
+    })().catch(() => {
+      if (!cancelled) setAdmission({ userId, status: "error" });
+    });
+    return () => { cancelled = true; };
+    // Admission is per owner, not per token refresh or OTP callback. Once the
+    // form opens, keep it mounted until its completion handler settles.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.uid, redirectPath, admissionRetry, sessionVerificationRequired]);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -193,15 +239,10 @@ export function PhoneMandatePageContent() {
     }
   }, [signOut]);
 
-  // This screen never host-redirects away. It used to detect localhost/dev
-  // hostnames and bounce straight to the setup hub, which turned the one
-  // reachable phone screen into a dead end while the server still required a
-  // verified phone before recording a cloud (observed on dev, 2026-08-19). The
-  // GUARD may exempt localhost from forcing this screen (Firebase reCAPTCHA
-  // cannot complete there), but an explicit visit always renders the flow, and
-  // the fictitious-number allowlist (+1 555 0100-0199) completes it without
-  // captcha or SMS in development lanes; production numbers ride the real SMS
-  // challenge.
+  // Admission moves an established account to its owning route. An explicit
+  // localhost visit remains on the phone flow; the route guard owns any local
+  // exemption. The development number allowlist can complete this flow without
+  // SMS, while production numbers use the real challenge.
   usePublishVoiceSurfaceMetadata(
     !loading && user
       ? {
@@ -276,6 +317,27 @@ export function PhoneMandatePageContent() {
     );
   }
 
+  if (sessionVerificationRequired) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => void retrySessionVerification()}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
+
+  if (admission?.userId === user.uid && admission.status === "error") {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => setAdmissionRetry((attempt) => attempt + 1)}
+        onSignOut={() => void handleSignOut()}
+      />
+    );
+  }
+
+  if (admission?.userId !== user.uid || admission.status !== "ready") {
+    return <HushhLoader label="Checking phone requirement..." variant="fullscreen" />;
+  }
   const shell = (
     <main
       className={cn("relative w-full overflow-hidden bg-white dark:bg-background", verificationStep === "phone" && styles.refinedScreen, verificationStep === "code" && styles.codeScreen)}

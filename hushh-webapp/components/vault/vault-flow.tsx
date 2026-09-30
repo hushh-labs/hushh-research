@@ -28,6 +28,7 @@ import {
   VaultAuthSessionNotReadyError,
   VaultService,
 } from "@/lib/services/vault-service";
+import { isRetryableVaultReadError, VAULT_READ_RETRY_DELAYS_MS } from "@/lib/vault/vault-read-recovery";
 import { downloadTextFile } from "@/lib/utils/native-download";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -665,9 +666,12 @@ export function VaultFlow({
   // Initial Vault Status Check
   useEffect(() => {
     let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    const isCurrent = () => !cancelled && currentUserIdRef.current === user.uid && !signOutRequestedRef.current;
     const MAX_SESSION_RESTORE_ATTEMPTS = 3;
 
-    const checkStatus = async (restoreAttempt = 0) => {
+    const checkStatus = async (restoreAttempt = 0, readAttempt = 0) => {
+      if (!isCurrent()) return;
       try {
         setIsRestoringSession(false);
         // Start the vault-state read in parallel with the existence check so a
@@ -680,7 +684,7 @@ export function VaultFlow({
         vaultStatePromise.catch(() => undefined);
 
         const hasVault = await VaultService.checkVault(user.uid);
-        if (cancelled) return;
+        if (!isCurrent()) return;
         if (!hasVault) {
           if (!allowVaultCreation) {
             setStep("setup_required");
@@ -700,7 +704,7 @@ export function VaultFlow({
         try {
           setUnlockHint(null);
           const vaultData = await vaultStatePromise;
-          if (cancelled) return;
+          if (!isCurrent()) return;
           const preferPassphraseForAutomation =
             shouldSkipGeneratedVaultUnlockForAutomation();
           const primaryWrapper = VaultService.getPrimaryWrapper(vaultData);
@@ -718,7 +722,7 @@ export function VaultFlow({
               ? VaultQuickUnlockTrustLocalService.load(user.uid)
               : Promise.resolve(null),
           ]);
-          if (cancelled) return;
+          if (!isCurrent()) return;
           const quickMethod =
             quickMethodCandidates
               .map((method) => VaultService.getWrapperByMethod(vaultData, method,
@@ -776,7 +780,7 @@ export function VaultFlow({
         }
         setStep("unlock");
       } catch (err) {
-        if (cancelled) return;
+        if (!isCurrent()) return;
         // A Firebase session still restoring is not a Vault failure -- it is
         // evidence we asked before a token existed. Show a transient
         // "restoring" state and retry a bounded number of times instead of
@@ -786,13 +790,26 @@ export function VaultFlow({
           err instanceof VaultAuthSessionNotReadyError &&
           restoreAttempt < MAX_SESSION_RESTORE_ATTEMPTS
         ) {
-          if (cancelled) return;
+          if (!isCurrent()) return;
           setIsRestoringSession(true);
           setError(null);
           await new Promise((resolve) => setTimeout(resolve, 500));
-          if (cancelled) return;
-          await checkStatus(restoreAttempt + 1);
+          if (!isCurrent()) return;
+          await checkStatus(restoreAttempt + 1, readAttempt);
           return;
+        }
+
+        if (isRetryableVaultReadError(err) && readAttempt < VAULT_READ_RETRY_DELAYS_MS.length) {
+          const retry = () => {
+            if (!isCurrent()) return;
+            if (!navigator.onLine || document.visibilityState === "hidden") {
+              retryTimer = setTimeout(retry, VAULT_READ_RETRY_DELAYS_MS[readAttempt]);
+              return;
+            }
+            setError(null);
+            void checkStatus(restoreAttempt, readAttempt + 1);
+          };
+          retryTimer = setTimeout(retry, VAULT_READ_RETRY_DELAYS_MS[readAttempt]);
         }
 
         console.error("Vault status check failed:", err);
@@ -815,6 +832,7 @@ export function VaultFlow({
     void checkStatus();
     return () => {
       cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
   }, [
     allowVaultCreation,

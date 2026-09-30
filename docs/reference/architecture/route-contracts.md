@@ -221,6 +221,23 @@ Auth-only routes can still be mandatory even when they intentionally bypass the 
 - `/register-phone`
 - `/logout`
 
+## Phone onboarding admission
+
+`/register-phone` is the phone step for unfinished new-account onboarding after
+provider authentication. `PostAuthRouteService` and `PhoneMandateGuard` share
+`shouldRequirePhoneMandate`: an existing vault or completed root setup exempts
+an established account on every route, including invitation returns. This is
+an onboarding decision, not a replacement for backend verified-phone, consent,
+or vault authorization on individual operations.
+
+Firebase phone absence alone does not establish an unverified account: backend
+phone claims and newer positive identity-cache claims also count. A missing
+bootstrap phone claim is resolved through identity refresh; a failed or null
+lookup presents retry recovery instead of starting verification. The phone page
+checks admission before showing its form, including direct links and refreshes.
+Once admitted, token revalidation must preserve the pending OTP; an owner change
+must discard it. Incomplete new accounts still resume the phone step.
+
 ## Public SEO and answer-engine projection
 
 Route playbooks and public search semantics share stable route and playbook identifiers,

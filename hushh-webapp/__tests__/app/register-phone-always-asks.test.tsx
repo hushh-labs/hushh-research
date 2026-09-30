@@ -21,11 +21,13 @@ const {
   resolveAfterLoginMock,
   bootstrapStateMock,
   syncOnboardingJourneyMock,
+  shouldBypassLocalPhoneMandateMock,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
   resolveAfterLoginMock: vi.fn(),
   bootstrapStateMock: vi.fn(),
   syncOnboardingJourneyMock: vi.fn(),
+  shouldBypassLocalPhoneMandateMock: vi.fn(),
 }));
 
 const user = {
@@ -90,6 +92,9 @@ vi.mock("@/lib/services/onboarding-route-cookie", () => ({
 vi.mock("@/lib/services/post-auth-route-service", () => ({
   PostAuthRouteService: { resolveAfterLogin: resolveAfterLoginMock },
 }));
+vi.mock("@/lib/services/phone-mandate-service", () => ({
+  shouldBypassPhoneMandateForLocalhost: shouldBypassLocalPhoneMandateMock,
+}));
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   PreVaultUserStateService: {
     bootstrapState: bootstrapStateMock,
@@ -111,6 +116,8 @@ describe("PhoneMandatePageContent always asks", () => {
     resolveAfterLoginMock.mockReset();
     bootstrapStateMock.mockReset();
     syncOnboardingJourneyMock.mockReset();
+    shouldBypassLocalPhoneMandateMock.mockReset();
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
     resolveAfterLoginMock.mockResolvedValue("/one/setup");
     bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
     syncOnboardingJourneyMock.mockResolvedValue(undefined);
@@ -119,6 +126,7 @@ describe("PhoneMandatePageContent always asks", () => {
   it("shows the verification flow to an unverified visitor and never redirects away", async () => {
     // jsdom serves this test from localhost — the exact host the deleted
     // bypass used to redirect. The flow must render and stay.
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(true);
     render(<PhoneMandatePageContent />);
 
     expect(
@@ -130,12 +138,12 @@ describe("PhoneMandatePageContent always asks", () => {
   it("keeps a freshly verified account in One setup before resolving any generic destination", async () => {
     // This models a stale generic resolver result. The fresh root state—not a
     // destination computed before verification—owns the account gate.
-    resolveAfterLoginMock.mockResolvedValue("/one/profile");
+    resolveAfterLoginMock.mockResolvedValue("/register-phone?redirect=%2Fone%2Fsetup");
     bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
 
     render(<PhoneMandatePageContent />);
     fireEvent.click(
-      screen.getByRole("button", { name: "Complete phone verification" }),
+      await screen.findByRole("button", { name: "Complete phone verification" }),
     );
 
     await waitFor(() => {
@@ -144,7 +152,7 @@ describe("PhoneMandatePageContent always asks", () => {
     expect(bootstrapStateMock).toHaveBeenCalledWith("local-user", {
       force: true,
     });
-    expect(resolveAfterLoginMock).not.toHaveBeenCalled();
+    expect(resolveAfterLoginMock).toHaveBeenCalledTimes(1);
     expect(syncOnboardingJourneyMock).toHaveBeenCalledWith({
       userId: "local-user",
       phase: "setup_hub",
@@ -152,4 +160,27 @@ describe("PhoneMandatePageContent always asks", () => {
       callbackState: "none",
     });
   });
+  it("does not show the phone form to an established account on a direct refresh", async () => {
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    resolveAfterLoginMock.mockResolvedValue("/");
+    render(<PhoneMandatePageContent />);
+    expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
+    expect(syncOnboardingJourneyMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed admission out of the phone form and supports retry", async () => {
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    resolveAfterLoginMock.mockRejectedValueOnce(new Error("offline"));
+    render(<PhoneMandatePageContent />);
+    await screen.findByRole("heading", { name: "Reconnect to continue securely" });
+    expect(replace).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Complete phone verification" })).toBeNull();
+    resolveAfterLoginMock.mockResolvedValue("/register-phone?redirect=%2Fone%2Fsetup");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("button", { name: "Complete phone verification" });
+    expect(bootstrapStateMock).toHaveBeenCalledWith("local-user", { force: true });
+  });
+
 });

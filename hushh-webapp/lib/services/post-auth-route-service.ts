@@ -1,5 +1,7 @@
 "use client";
 
+import { AccountIdentityService } from "@/lib/services/account-identity-service";
+import { AuthService } from "@/lib/services/auth-service";
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -169,14 +171,16 @@ export class PostAuthRouteService {
     );
     // Native auth bridges can restore a valid Firebase session before their
     // local user object has hydrated `phoneNumber`. A positive backend claim
-    // is authoritative for this login decision; an unknown/false claim still
-    // follows the normal fail-closed phone mandate.
-    const phoneVerified =
-      params.phoneVerified === true || remoteState.phoneVerified === true;
+    // is authoritative for this login decision. Unknown claims must not be
+    // turned into a new-account phone challenge.
+    const cachedPhoneVerified = AccountIdentityService.hasVerifiedPhone(
+      AccountIdentityService.peekCachedIdentity(params.userId)?.data,
+    );
+    let phoneVerified = params.phoneVerified === true ||
+      remoteState.phoneVerified === true || cachedPhoneVerified;
     if (remoteState.hasVault) {
       const setupResolved =
         PreVaultUserStateService.isSetupResolved(remoteState);
-      const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
       if (remoteState.setupCompleted === false && !setupResolved) {
         if (
           hasExplicitRedirect &&
@@ -196,20 +200,6 @@ export class PostAuthRouteService {
         setupResolved
       ) {
         return setupReturnTo || DEFAULT_HOME_ROUTE;
-      }
-      if (
-        inviteRedirectTarget &&
-        shouldRequirePhoneMandate({
-          phoneNumber: params.phoneNumber,
-          phoneVerified,
-          hasVault: true,
-          hostname:
-            params.hostname ??
-            (typeof window === "undefined" ? null : window.location.hostname),
-          pathname: fallbackRoute,
-        })
-      ) {
-        return buildPhoneMandateRoute(fallbackRoute);
       }
       if (setupResolved && fallbackRoute === DEFAULT_HOME_ROUTE) {
         return PostAuthRouteService.applyFirstRunSetupGate({
@@ -276,16 +266,40 @@ export class PostAuthRouteService {
         ? NO_VAULT_DEFAULT_ROUTE
         : PRE_VAULT_ROUTE;
 
+    // Brand-new Google accounts may not have an identity shadow yet. Resolve
+    // that missing claim through the existing identity refresh before deciding;
+    // retrying bootstrap alone would keep returning unknown indefinitely.
+    let phoneStatusKnown = remoteState.phoneVerified != null || params.phoneVerified != null;
+    if (!phoneStatusKnown && shouldRequirePhoneMandate({
+      phoneNumber: params.phoneNumber,
+      phoneVerified,
+      hasVault: remoteState.hasVault,
+      setupResolved,
+      hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+    })) {
+      const idToken = params.idToken || await AuthService.getIdToken();
+      const identity = idToken
+        ? await AccountIdentityService.refreshIdentityForSession(params.userId, idToken)
+        : null;
+      phoneStatusKnown = typeof identity?.phone_verified === "boolean";
+      phoneVerified = AccountIdentityService.hasVerifiedPhone(identity);
+    }
+
     if (
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
         phoneVerified,
-        hasVault: false,
+        hasVault: remoteState.hasVault,
+        setupResolved,
         hostname:
           params.hostname ??
           (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
+      if (remoteState.hasVault !== false ||
+          !phoneStatusKnown) {
+        throw new Error("Unable to verify account onboarding. Please try again.");
+      }
       return buildPhoneMandateRoute(
         inviteRedirectTarget ?? resolvedNoVaultRoute,
       );

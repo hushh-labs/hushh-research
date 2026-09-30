@@ -381,7 +381,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(screen.getByTestId("person-profile-scope-back")).toHaveTextContent("All");
   });
 
-  it("renders Review request after Financial rows without sticky viewport positioning", async () => {
+  it("renders Review request after History without sticky viewport positioning", async () => {
     mocks.user = {
       uid: "viewer",
       getIdToken: vi.fn().mockResolvedValue("viewer-token"),
@@ -404,12 +404,15 @@ describe("PersonProfilePage native profile route", () => {
       name: "Review request",
     });
     const historyHeading = screen.getByRole("heading", { name: "Request history" });
-    expect(reviewButton.parentElement).toHaveClass("flex");
-    expect(reviewButton.parentElement).toHaveClass("justify-end");
+    expect(reviewButton).toBeDisabled();
+    const actions = document.querySelectorAll('[aria-label="Relationship actions"] button');
+    expect(Array.from(actions, (button) => button.getAttribute("aria-label") || button.textContent?.trim())).toEqual([
+      "Request", "Share profile", "Manage access",
+    ]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");
     expect(
-      reviewButton.compareDocumentPosition(historyHeading) &
+      historyHeading.compareDocumentPosition(reviewButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -438,7 +441,8 @@ describe("PersonProfilePage native profile route", () => {
     }));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
-    fireEvent.click(await screen.findByTestId("person-profile-scope-group-toggle-professional"));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    fireEvent.click(screen.getByTestId("person-profile-scope-group-toggle-professional"));
     fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
     expect(screen.getByText("This includes all available information in this area, not just one detail.")).toBeInTheDocument();
     fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Review synthetic professional information" } });
