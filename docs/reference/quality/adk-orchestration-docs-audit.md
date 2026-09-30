@@ -3517,3 +3517,41 @@ measured cold-to-first-token envelope are still separate acceptance rows.
 The independently active local ADK worktree had advanced to `3752ada65e45fbde91f1983ca3385a3e82f009a9`
 at final readback. That moving head is beyond the frozen integration checkpoint;
 its later changes were not silently included in the deployed `fb12e5e3` source.
+
+### 2026-09-30 release authority follow-up
+
+Hosted validation for audit revision `e4e1a973` completed successfully in
+[run 36704597066](https://github.com/hushh-labs/hushh-research/actions/runs/36704597066).
+This is a source and CI result; the application serving revision remains the
+separately verified `fb12e5e3` dev deployment above.
+
+The production environment governance check passed, but the live deploy-identity
+provenance check reported `deploy_authority_drift`. The reviewed IAM setup record
+omits four roles used by the current production workflow for backup posture,
+Cloud SQL proxy access, account-deletion scheduling, and scheduler completion
+logs. Live IAM also includes a broader Cloud SQL viewer role that the inspected
+workflow does not require, and the setup record omits the exact scheduler
+service-account act-as binding. No production IAM was changed. Production
+readiness remains blocked until the reviewed record and live least-privilege
+bindings are reconciled through production governance and the live checker
+passes. Source edits alone cannot remove a live extra role.
+
+The owner-browser Puppy rehearsal then cancelled a bound direct turn; the pod
+reported the device idle with only `puppy.inference` scope. The same owner
+withdrew access and read back `enabled=false`, then re-enabled the existing
+Hermes identity and read back `enabled=true`. A turn started immediately after
+re-enable failed before dispatch with a revoked-access message. The old pod
+subject was still revoked while the device reconnected, and the Mac relay
+process had exited. Restarting the existing direct relay under its dev profile
+restored admission; a fresh synthetic browser turn returned a nonempty local
+reply and the pod again reported an idle, inference-only link. The browser
+rehearsal's temporary subjects were revoked at both pod and hub.
+
+Source review identified a client activation error: after the hub accepted a
+new owner-approved activation, polling treated the previous revoked pod
+subject as a final refusal instead of allowing fresh device admission. The
+focused correction waits within the existing 35-second bound while retaining
+the hub's 403 refusal. Its nearest 20-case service suite and frontend typecheck
+pass locally; hosted CI and dev serving verification are still required for
+that correction. A separate-network device/browser rehearsal and direct
+observation of the device's cancellation frame remain unverified.

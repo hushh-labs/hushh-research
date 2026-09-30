@@ -43,7 +43,10 @@ export async function activatePuppyWhenIdle(
     signal?.throwIfAborted();
     const status = await ports.status(deviceId);
     if (status?.inference_ready) return;
-    if (status?.state === "revoked") throw new Error("PUPPY_REVOKED");
+    // A withdrawn device keeps its revoked pod subject until the approved
+    // device obtains a fresh binding and readmits. The successful hub
+    // activation above proves the current owner grant; this pod observation
+    // may still describe the previous incarnation while Hermes reconnects.
   }
   throw new Error("PUPPY_OFFLINE");
 }
