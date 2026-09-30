@@ -26,6 +26,12 @@ import {
   type FilesSettings,
 } from "@/lib/files/service";
 
+function transientFilesRead(error: unknown): boolean {
+  if (error instanceof TypeError) return true;
+  return error instanceof Error &&
+    /^(?:FILES_UNAVAILABLE|POD_DIRECT_UNAVAILABLE|ENDPOINT_UNAVAILABLE):(429|502|503|504)$/.test(error.message);
+}
+
 export function FilesWorkspace() {
   const { user } = useAuth();
   const { vaultKey } = useVault();
@@ -85,15 +91,17 @@ export function FilesWorkspace() {
     const signal = work.current.signal;
     if (available)
       void (async () => {
-        try {
-          await load();
-        } catch {
-          signal.throwIfAborted();
-          // A cold pod can still lose its first read. Retry these idempotent
-          // reads once on the same owner pod before showing an error.
-          await new Promise((resolve) => setTimeout(resolve, 600));
-          signal.throwIfAborted();
-          await load();
+        for (const delay of [600, 1800, 0]) {
+          try {
+            await load();
+            return;
+          } catch (error) {
+            signal.throwIfAborted();
+            if (!delay || !transientFilesRead(error)) throw error;
+            // Retry only idempotent reads during a cold pod connection.
+            await new Promise((resolve) => setTimeout(resolve, delay));
+            signal.throwIfAborted();
+          }
         }
       })()
         .catch(() => {

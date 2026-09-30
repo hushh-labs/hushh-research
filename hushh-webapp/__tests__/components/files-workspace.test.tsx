@@ -77,13 +77,18 @@ describe("Files form submission", () => {
       screen.queryByText(/Your private Files library is not connected/),
     ).toBeNull();
   });
-  it("shows the connection action after the bounded retry also fails", async () => {
-    files.list.mockRejectedValueOnce(new TypeError("Cold connection"));
-    files.list.mockRejectedValueOnce(new TypeError("Connection still unavailable"));
+  it("shows the connection action after bounded transient retries fail", async () => {
+    files.list.mockRejectedValue(new TypeError("Cold connection"));
+    render(<FilesWorkspace />);
+    await screen.findByText(/Your private Files library is not connected/, {}, { timeout: 5000 });
+    expect(files.list).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+  });
+  it("does not retry an authorization refusal", async () => {
+    files.list.mockRejectedValueOnce(new Error("POD_DIRECT_OWNER_MISMATCH"));
     render(<FilesWorkspace />);
     await screen.findByText(/Your private Files library is not connected/);
-    expect(files.list).toHaveBeenCalledTimes(2);
-    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+    expect(files.list).toHaveBeenCalledTimes(1);
   });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
     render(<FilesWorkspace />);
