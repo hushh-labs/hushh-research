@@ -54,11 +54,15 @@ export function FilesWorkspace() {
     async (next = "") => {
       if (!available) return;
       const signal = work.current.signal;
-      const [page, config] = await Promise.all([
+      const [pageResult, configResult] = await Promise.allSettled([
         FilesService.list(parent, next, trash, signal),
         FilesService.settings(signal),
       ]);
       signal.throwIfAborted();
+      if (pageResult.status === "rejected") throw pageResult.reason;
+      if (configResult.status === "rejected") throw configResult.reason;
+      const page = pageResult.value;
+      const config = configResult.value;
       setEntries((previous) =>
         next ? [...previous, ...page.entries] : page.entries,
       );
@@ -83,7 +87,19 @@ export function FilesWorkspace() {
     setBusy(false);
     const signal = work.current.signal;
     if (available)
-      void load()
+      void (async () => {
+        try {
+          await load();
+        } catch {
+          signal.throwIfAborted();
+          // A cold pod can admit one of the two initial reads while the other
+          // loses its connection. Retry these idempotent reads once, on the
+          // same owner pod, after both first attempts have settled.
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          signal.throwIfAborted();
+          await load();
+        }
+      })()
         .catch(() => {
           if (!signal.aborted)
             setMessage(

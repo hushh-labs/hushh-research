@@ -56,6 +56,25 @@ describe("Files form submission", () => {
     completeRead({ entries: [], cursor: "" });
     await waitFor(() => expect(create).toBeEnabled());
   });
+  it("recovers one failed cold library read without changing pod authority", async () => {
+    files.list.mockRejectedValueOnce(new TypeError("Connection interrupted"));
+    render(<FilesWorkspace />);
+    await waitFor(() => expect(files.list).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "New folder" })).toBeEnabled(),
+    );
+    expect(
+      screen.queryByText(/Your private Files library is not connected/),
+    ).toBeNull();
+  });
+  it("shows the connection action after the bounded retry also fails", async () => {
+    files.list.mockRejectedValueOnce(new TypeError("Cold connection"));
+    files.list.mockRejectedValueOnce(new TypeError("Connection still unavailable"));
+    render(<FilesWorkspace />);
+    await screen.findByText(/Your private Files library is not connected/);
+    expect(files.list).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("button", { name: "New folder" })).toBeDisabled();
+  });
   it("submits a new folder from Save using the shared button's real behavior", async () => {
     render(<FilesWorkspace />);
     await waitFor(() => expect(files.list).toHaveBeenCalled());

@@ -40,12 +40,15 @@ Canonical visual owner: [Operations Index](./README.md). Companion contracts:
 [consent-protocol/docs/reference/dev-environment-setup.md](../../../consent-protocol/docs/reference/dev-environment-setup.md)
 (environment).
 
-## Candidate pipeline update — 2026-09-24
+## Governed pipeline evidence — 2026-09-29
 
 The governed pipeline prerequisite landed on main as `a4a42abe2` through the
-authorized Admin PR path. Its exact-SHA post-merge smoke passed. The pod
-application candidate has **not** established a live dev acceptance result;
-deploy it only from an exact CI-green application SHA.
+authorized Admin PR path. Main-owned dev workflow `36651691305` later deployed
+application SHA `ccb593e8587742a69b58ea97c47e1c58c5c580aa`; its terminal
+status was healthy, and backend and frontend serving revisions carried that
+SHA at 100% traffic. This proves that application deployment, not owner-pod
+installation or complete dev journey acceptance. Deploy subsequent candidates
+only from an exact CI-green application SHA.
 
 The candidate builds and pins the backend before migration, checks each selected
 revision's Ready condition, SHA/run labels and environment, resolved image digest,
@@ -56,9 +59,8 @@ promotion. Retention follows acceptance and preserves the captured rollback revi
 An explicit `build_pod_image` input defaults to false; publishing a dev artifact
 does not authorize installation or production stable-channel promotion.
 
-These additions do not yet prove migration recovery, release metadata, changed-SHA
-verification selection, load capacity, or live owner/device acceptance. Their
-current disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
+The current migration, release, capacity and owner/device acceptance
+disposition is recorded in the [integration audit](../quality/adk-orchestration-docs-audit.md).
 
 ## The rule in one screen
 
@@ -217,51 +219,22 @@ current voice behavior or successful rollback.
 
 ## Pod fleet
 
-Dev is the only environment where per-user personal-agent pods run, because the registry
-tables ship as parked, dev-only migrations
+The branch's per-user pod registry tables ship as parked, dev-only migrations
 (`consent-protocol/db/migrations/parked/900_personal_agent_registry.sql`, applied through
 `consent-protocol/db/dev_migration_manifest.json` and never through the release manifest).
-Everything below is therefore a dev procedure; none of it applies to UAT or production,
-where the tables do not exist at all.
+This is a dev procedure. The UAT and production release contracts do not include
+these tables; verify deployed schema separately for each environment before a
+rollout decision.
 
-### The registry table has never been created (verified 2026-08-06)
+### Registry and serving state (verified 2026-09-29)
 
-`personal_agent_registry` does not exist in the dev database, and every pod procedure
-below is inert until it does. This is a deploy-history fact, not a code defect — the
-mechanism is sound and simply has never been exercised:
-
-- `db/migrate.py` runs from the **deployed SHA**, not from `main`. The dev-extra lane and
-  the parked `900` / `905` migrations live only on the feature branch that introduced
-  them, so a dispatch that deploys `main` or the `integration/pr-train` default runs a
-  `migrate.py` with no dev-extra lane at all.
-- The one dispatch that named the feature branch was made **from** that branch, and
-  `Assert manual dispatch originates from main` refused it in one second, before a runner
-  was even assigned. No step ran.
-
-So the two halves have to be combined, and they are easy to conflate: **dispatch from
-`main` (the workflow definition), with `ref` set to the feature branch (the content).**
-Dispatching *from* the branch is refused; dispatching from `main` without a `ref` deploys
-the train head and silently skips the migrations.
-
-Two consequences worth knowing before debugging anything downstream:
-
-- `_fleet_cap_reached` fails **open** when the count query raises (deliberately — a DB
-  blip must not break agent setup for everyone), so a missing table does not surface as a
-  cap error. It warns and continues.
-- `/health/ready` reports `pod_fleet: "unknown"` rather than failing, by design. A green
-  dev deploy and a healthy service therefore prove nothing about this table.
-
-Partial application is the state most likely to mislead: `905` (which adds
-`health_state`, `last_heartbeat_at`, `liveness_mode`) landed after `900`, so a deploy
-carrying only the earlier commit would create the table **without** the columns the
-liveness sweep reads. The sweep tolerates it — each pass is wrapped, so it logs
-`pod_liveness.pass_failed` and continues rather than dying — but it will do so every 120
-seconds indefinitely. Check `schema_migrations` for the `90x` rows, not just for the
-table:
-
-```sql
-SELECT migration_id, status FROM schema_migrations WHERE migration_id LIKE '90%';
-```
+The dev registry and existing owner pod services are now live. The 2026-08-06
+observation that the registry had not yet been created is historical. A dev
+deploy still runs `db/migrate.py` from the selected application SHA, while the
+workflow definition runs from `main`: dispatch from `main` with `ref` and the
+exact verified branch SHA. Check the dev migration ledger and registry state
+separately from workflow health; a green deploy alone does not establish the
+schema or owner-pod state.
 
 **Two sources of truth, and only one is authoritative.** The `personal_agent_registry` row
 is the authority for provisioning state; a Cloud Run service is the compute that row points
@@ -272,66 +245,59 @@ becomes a real, billable Cloud Run service only when `PERSONAL_AGENT_BACKEND=gcp
 plan-mode handle — never `live` — **without making any GCP call**, so `gcloud` shows nothing
 while registry rows still read `provisioned`. Check the registry first, then the fleet.
 
-**List the fleet.** The filter comes from the labels
+**List the authorized portion of the fleet.** The filter comes from the labels
 `GcpBackend.render_deploy_config` actually sets — `app`, `hussh-billing-space`, `hussh-tier`,
 `hussh-env`, `hussh-purpose`. `app=hussh-one-pod` is the only one that is unconditional, so
-filter on it and use the rest to narrow:
+filter on it and use the rest to narrow. This dev-project query sees only
+services hosted in that project; BYOC services live in their owners' projects:
 
 ```bash
-# Every pod in dev, with its cost labels
+# Hub-project pod services only; owner-project BYOC services are elsewhere.
 gcloud run services list --project hushh-pda-dev --region us-central1 \
   --filter="metadata.labels.app=hussh-one-pod" \
   --format="table(metadata.name, metadata.labels.hussh-env, metadata.labels.hussh-tier, status.url)"
 
-# Fallback if your gcloud renders labels under a different key: pods are named
-# one-pod-<lowercased HusshID>, per GcpBackend._service_name
+# Fallback for labels rendered under a different key in this same project.
 gcloud run services list --project hushh-pda-dev --region us-central1 \
   --filter="metadata.name ~ ^one-pod-"
 ```
 
 ```sql
 -- The authority. Run against the dev Cloud SQL instance.
-SELECT status, count(*) FROM personal_agent_registry GROUP BY status ORDER BY 2 DESC;
+SELECT status, deployment_target, count(*)
+FROM personal_agent_registry
+GROUP BY status, deployment_target
+ORDER BY status, deployment_target;
 ```
 
-A pod count that disagrees with the `provisioned` row count is the signal worth chasing.
+A count of this one Cloud Run project cannot be compared with all provisioned
+registry rows. Reconcile a BYOC row against its recorded owner project and
+service identity under the owner's authorized access; do not scan unrelated
+owner projects. A mismatch within the same deployment target and project is
+the signal worth chasing.
 `GET /health/ready` reports the same divergence as a `pod_fleet` check once
 `POD_FLEET_HEALTH_SIGNAL_ENABLED` is on — see `consent-protocol/api/routes/health.py`. That
 check is reported, never gating: broken pods are separate hosts and must never pull the
 control plane out of rotation.
 
-**Force-reap one pod.** The supported route is the owner-authorized API in
-`consent-protocol/api/routes/one/personal_agent.py`: `POST /api/one/personal-agent/deprovision`
-with that owner's `VAULT_OWNER` token. It revokes the standing `pkm.read` first, writes the
-retained tombstone, then deletes the registry row — the ordering in
-`consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py`. Prefer it
-whenever it is available; it is the only route that leaves consent state correct. Note the
-route returns 404 while `PERSONAL_AGENT_ENABLED` is off.
+**Preserve owner pods.** Do not delete an owner's Cloud Run service to resolve a
+health, admission or update issue. The service, registry assignment, encrypted
+recovery and owner approval form one lifecycle. Use the owner-authorized
+deprovision flow only for an actual owner-requested teardown. For a failed
+deployment or upgrade, follow the [first-light maintenance runbook](./dev-pod-first-light-runbook.md)
+and [pod recovery procedure](./pod-backup-and-recovery.md), retaining the same
+identity and recovery resources. An out-of-band service deletion leaves the
+registry and grants inconsistent and is an incident operation, not fast-lane
+cleanup.
 
-When the API is not reachable (feature flag off, no owner token), delete the compute
-directly. This is the one sanctioned exception to "never fix dev by hand" above — a pod is a
-disposable resource, not infrastructure config:
-
-```bash
-gcloud run services delete one-pod-<husshid-slug> \
-  --project hushh-pda-dev --region us-central1 --quiet
-```
-
-Be honest about what that leaves behind: **only the compute is gone.** The registry row still
-says `provisioned`, and the standing `pkm.read` grant for that user is still live. Close the
-gap by re-running the API deprovision once the flag is back on — do not assume the reconcile
-sweep will clean it up, because nothing starts that sweep today (see below). A hand-deleted
-pod that nobody reconciles is exactly the divergence the `pod_fleet` health signal exists to
-surface.
-
-**Read the reconcile worker's logs.** The sweep that retries stalled provisions and reaps
-idle pods is `consent-protocol/hushh_mcp/services/personal_agent_reconcile_worker.py`. Three
-things about it matter operationally. **Nothing starts it automatically** — `server.py` has no
-attach point for it, deliberately — so if you see no reconcile lines at all, the most likely
-reason is that no one has wired it up in this environment. It sits behind its own kill-switch,
-`PERSONAL_AGENT_RECONCILE_ENABLED`, on top of `PERSONAL_AGENT_ENABLED`, because reaping
-**deletes compute**. And reaping removes only the host — the registry row, the HusshID, and
-the A2A address survive, so the agent re-provisions on the owner's next activity.
+**Read the reconcile worker's logs.** `server.py` now registers the worker at
+startup. Dev enables it behind `PERSONAL_AGENT_RECONCILE_ENABLED` to retry stalled
+provisioning. Its current startup adapter returns no idle-reap candidates and
+refuses a reap if reached: registry row age is not proof of inactivity. The
+separate image sweep is enabled in dev with
+`PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED=true`; an image offer alone cannot
+upgrade an owner pod. Check the exact owner-approved operation before treating
+an upgrade log as expected.
 
 It follows the log convention of `consent-protocol/hushh_mcp/services/revocation_worker.py`,
 the worker it is modeled on: every line the loop emits is prefixed with the module's own
@@ -353,14 +319,16 @@ gcloud logging read \
 | `not scheduled: reconcile sweep is disabled` | `PERSONAL_AGENT_RECONCILE_ENABLED` is off |
 | `personal_agent.retried status=…` | a stalled row was re-driven through provisioning |
 | `personal_agent.retry_failed status=…` | that retry raised; the row stays stalled |
-| `personal_agent.reaped idle_since=…` | an idle pod's host was torn down |
-| `personal_agent.reap_failed` | the host teardown raised; the pod is still billing |
-| `Reconcile scan: N retried, M reaped, K failed of T in Xs` | the per-pass summary |
-| *(nothing at all)* | either the loop was never started, or every pass is being skipped because a kill-switch is off — a skipped pass writes no line |
+| `personal_agent.reaped idle_since=…` | Worker capability only; the current startup adapter supplies no idle-reap candidates. Investigate if observed. |
+| `personal_agent.reap_failed` | Worker capability only; the current startup adapter refuses reap. Investigate if observed. |
+| `upgraded hushh_id=…` | A stale-image candidate passed the separately gated owner-approved upgrade path; verify the exact operation and installed digest. |
+| `upgrade failed hushh_id=…` | Candidate failed; inspect the operation and preserve prior-image recovery evidence. |
+| `Reconcile scan: … retried, … reaped, … upgraded, … orphans erased …` | Per-pass summary; inspect each nonzero category. |
+| *(nothing at all)* | Check startup, environment flags and log routing; the startup hook exists, but a disabled loop does not run passes. |
 
-No owner identifier appears on any of those lines by design — only `hushh_id_present=true`
-— so a log grep can tell you how many pods are stuck but never which person is behind one.
-Use the registry query above for that, under the usual owner-gated access.
+Current worker logs can include a HusshID and image fragment. Treat the output as
+private operational evidence; do not copy raw lines into public reports. Use the
+registry under owner-gated access when an operator must resolve the affected pod.
 
 The sweep runs in the hub, not in a pod: `pod_mode` in
 `consent-protocol/hushh_mcp/runtime_settings.py` keeps fleet-wide singleton workers out of
