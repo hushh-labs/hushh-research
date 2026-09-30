@@ -766,15 +766,15 @@ describe("PostAuthRouteService", () => {
   });
 
   it("does not exempt the dev deployment from the phone mandate", async () => {
-    // The dead-loop regression trip-wire: dev.one.hushh.ai must ask, exactly
-    // like production, because the server requires a verified phone before the
-    // cloud save (observed stranding a fresh account, 2026-08-19).
+    // A fresh dev account must verify its phone before provisioning. A
+    // completed account is exempt regardless of host, as tested above.
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "development");
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
-      setupCompleted: true,
-      setupCompletedAt: 1,
-      setupSkipped: false,
+      phoneVerified: false,
+      setupCompleted: false,
+      setupCompletedAt: null,
+      setupSkipped: null,
     });
     loadPendingOnboardingMock.mockResolvedValue(null);
 
@@ -784,7 +784,7 @@ describe("PostAuthRouteService", () => {
         phoneNumber: null,
         hostname: "dev.one.hushh.ai",
       })
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.HOME));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
   });
 
   describe("first-run One Setup gate", () => {
