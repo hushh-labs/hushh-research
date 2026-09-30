@@ -14576,7 +14576,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
       "symbol": null,
-      "value": 861
+      "value": 863
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16583,7 +16583,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts",
       "symbol": null,
-      "value": 626
+      "value": 668
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18413,6 +18413,14 @@
       "scope": "One-line guard avoids an unnecessary mirror-scroll style write during plain typing in the existing pasted-text editor. The 500-line advisory budget and ratchet stay unchanged; the focused 22-case editor suite passed. Hosted macOS latency remains an independent gate and is not waived.",
       "source_revision": "ef0b6b0914d3c1423e41a51c62d108bab4d2f56d",
       "value": 861
+    },
+    "editor_latency_20260930": {
+      "source_revision": "d008ce680a8a00d4c48b41d14ccaeffa44d35793",
+      "scope": "Reviewed two size-only increases from the imported ADK editor fix: the existing editor adds a longer idle debounce (+2), and its existing browser layout test adds a same-run native textarea latency control (+42). No new authority, import-direction, or initialization finding. The advisory budgets and comparison logic remain unchanged. This records measured debt; hosted browser latency remains an independent release gate.",
+      "previous_editor_value": 861,
+      "editor_value": 863,
+      "previous_browser_test_value": 626,
+      "browser_test_value": 668
     },
     "endpoint_publication_delta": "Six reviewed existing size entries for explicit endpoint authority arguments, refusal before signing, the core regression and compatible rehearsal fake. Parent and read-only authority review; evidence base 9c4379f0125850ab3a63896ee21d430447f3b556. No other entries or budgets changed.",
     "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
