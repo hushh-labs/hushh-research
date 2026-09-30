@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2034,
+  "finding_count": 2041,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -653,7 +653,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 493
+      "value": 498
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -3744,6 +3744,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/utils/firebase_auth.py|verify_firebase_bearer|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/utils/firebase_auth.py",
+      "symbol": "verify_firebase_bearer",
+      "value": 167
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_email_kyc_service.py|_update_workflow|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3786,15 +3795,6 @@
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "attach_pod_public_key",
       "value": 166
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/api/utils/firebase_auth.py|verify_firebase_bearer|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/api/utils/firebase_auth.py",
-      "symbol": "verify_firebase_bearer",
-      "value": 165
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5517,6 +5517,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_one_roster_tools|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+      "symbol": "_one_roster_tools",
+      "value": 122
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/location_chat_service.py|_function_declarations|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -5567,15 +5576,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/agents/kai/valuation_agent.py",
       "symbol": "analyze",
-      "value": 121
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py|_one_roster_tools|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-      "symbol": "_one_roster_tools",
       "value": 121
     },
     {
@@ -5891,6 +5891,15 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/pod_live_courier.py",
       "symbol": "run_live_courier",
+      "value": 117
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py|run|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
+      "symbol": "run",
       "value": 117
     },
     {
@@ -6534,15 +6543,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/api/routes/health.py|issue_app_review_mode_session|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/api/routes/health.py",
-      "symbol": "issue_app_review_mode_session",
-      "value": 109
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_directive_frames.py|one_directive_frames|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6576,6 +6576,15 @@
       "path": "consent-protocol/tests/test_information_sharing_lifecycle_e2e.py",
       "symbol": "test_audit_trail_shows_every_decision_to_the_owner",
       "value": 109
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/api/routes/health.py|issue_app_review_mode_session|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/api/routes/health.py",
+      "symbol": "issue_app_review_mode_session",
+      "value": 108
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -7430,15 +7439,6 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/pkm_routes_shared.py",
       "symbol": "delete_domain_data_confirmed",
-      "value": 101
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py|run|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
-      "symbol": "run",
       "value": 101
     },
     {
@@ -11336,7 +11336,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 9822
+      "value": 10101
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11412,21 +11412,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
+      "symbol": null,
+      "value": 5902
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/one_email_kyc_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_email_kyc_service.py",
       "symbol": null,
       "value": 5885
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_one_adk_agent_tree.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
-      "symbol": null,
-      "value": 5857
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11453,7 +11453,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": null,
-      "value": 5420
+      "value": 5443
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11480,7 +11480,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/profile-workspace-page.tsx",
       "symbol": null,
-      "value": 4979
+      "value": 4988
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11507,7 +11507,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/personal-knowledge-model-service.ts",
       "symbol": null,
-      "value": 4725
+      "value": 4741
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11538,21 +11538,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/app/connect/page-client.tsx",
+      "symbol": null,
+      "value": 4075
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/kai/kai-flow.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/kai/kai-flow.tsx",
       "symbol": null,
       "value": 4072
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/app/connect/page-client.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/app/connect/page-client.tsx",
-      "symbol": null,
-      "value": 4059
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11565,21 +11565,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/consent/consent-center-page.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/consent/consent-center-page.tsx",
+      "symbol": null,
+      "value": 3954
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/portfolio_import_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/portfolio_import_service.py",
       "symbol": null,
       "value": 3889
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/consent/consent-center-page.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/consent/consent-center-page.tsx",
-      "symbol": null,
-      "value": 3871
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11772,6 +11772,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/agent-chat-client.ts",
+      "symbol": null,
+      "value": 2738
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/account_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -11790,6 +11799,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
+      "symbol": null,
+      "value": 2680
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/one-location/onboarding/one-location-onboarding-flow.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -11799,30 +11817,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/one_adk/agent_tree.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
-      "symbol": null,
-      "value": 2671
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/profile/connected-systems-panel.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/profile/connected-systems-panel.tsx",
       "symbol": null,
       "value": 2667
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/services/agent-chat-client.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/services/agent-chat-client.ts",
-      "symbol": null,
-      "value": 2603
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11916,6 +11916,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/connectors-panel.tsx",
+      "symbol": null,
+      "value": 2354
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/one-location/service.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -11952,21 +11961,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx",
+      "symbol": null,
+      "value": 2231
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_connected_systems_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_connected_systems_service.py",
       "symbol": null,
       "value": 2175
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/components/consent-center-page-deeplink.test.tsx",
-      "symbol": null,
-      "value": 2168
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12042,12 +12051,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/components/agent/connectors-panel.tsx",
+      "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2075
+      "value": 2069
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12084,15 +12093,6 @@
       "path": "hushh-webapp/components/developers/developer-docs-hub.tsx",
       "symbol": null,
       "value": 2045
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/account.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/account.py",
-      "symbol": null,
-      "value": 2044
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12312,6 +12312,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
+      "symbol": null,
+      "value": 1746
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/one_location_nearby_presence_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12435,15 +12444,6 @@
       "path": "hushh-webapp/app/one/kai/analysis/page.tsx",
       "symbol": null,
       "value": 1636
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/agent-chat-client.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/agent-chat-client.test.ts",
-      "symbol": null,
-      "value": 1621
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12996,19 +12996,19 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/agents/kai/debate_engine.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/agents/kai/debate_engine.py",
-      "symbol": null,
-      "value": 1299
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts",
+      "symbol": null,
+      "value": 1302
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/agents/kai/debate_engine.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/agents/kai/debate_engine.py",
       "symbol": null,
       "value": 1299
     },
@@ -13208,7 +13208,16 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1220
+      "value": 1222
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
+      "symbol": null,
+      "value": 1216
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13254,6 +13263,15 @@
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
       "value": 1195
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
+      "symbol": null,
+      "value": 1192
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13308,15 +13326,6 @@
       "path": "consent-protocol/api/routes/one/command_proposals.py",
       "symbol": null,
       "value": 1175
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
-      "symbol": null,
-      "value": 1172
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13392,15 +13401,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/agent-pkm-memory.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/agent-pkm-memory.test.ts",
-      "symbol": null,
-      "value": 1158
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/drive_live_reader.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13461,6 +13461,15 @@
       "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
       "symbol": null,
       "value": 1133
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_one_external_read_boundary.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_one_external_read_boundary.py",
+      "symbol": null,
+      "value": 1132
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13536,15 +13545,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_one_external_read_boundary.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_one_external_read_boundary.py",
-      "symbol": null,
-      "value": 1110
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_ria_brochure_profile.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13559,7 +13559,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
       "symbol": null,
-      "value": 1094
+      "value": 1098
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13635,6 +13635,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/agent/agent-pkm-memory.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
+      "symbol": null,
+      "value": 1056
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|.codex/skills/reviewer-app-testing/scripts/verify-byoc-journey.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13689,15 +13698,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/agent/agent-pkm-memory.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/agent/agent-pkm-memory.ts",
-      "symbol": null,
-      "value": 1032
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/api/routes/one/personal_agent.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13722,6 +13722,15 @@
       "path": "consent-protocol/tests/test_ria_iam_routes.py",
       "symbol": null,
       "value": 1025
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/agent_chat.py",
+      "symbol": null,
+      "value": 1024
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14094,21 +14103,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/one/agent_chat.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/one/agent_chat.py",
-      "symbol": null,
-      "value": 948
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/pkm_upgrade_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
       "symbol": null,
       "value": 948
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_hushh_tech_routes.py",
+      "symbol": null,
+      "value": 947
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14184,21 +14193,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/agent-structured-experience.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/agent-structured-experience.tsx",
+      "symbol": null,
+      "value": 935
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/e2e/document-share-review.layout.spec.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/e2e/document-share-review.layout.spec.ts",
       "symbol": null,
       "value": 934
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/agent-structured-experience.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/agent/agent-structured-experience.tsx",
-      "symbol": null,
-      "value": 932
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14307,15 +14316,6 @@
       "path": "consent-protocol/hushh_mcp/services/push_notifications.py",
       "symbol": null,
       "value": 914
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_hushh_tech_routes.py",
-      "symbol": null,
-      "value": 910
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14463,21 +14463,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/agent/agui-structured-experiences.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/agent/agui-structured-experiences.ts",
+      "symbol": null,
+      "value": 878
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_one_wallet_card_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_one_wallet_card_service.py",
       "symbol": null,
       "value": 877
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/agent/agui-structured-experiences.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/agent/agui-structured-experiences.ts",
-      "symbol": null,
-      "value": 874
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14566,6 +14566,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/services/test_location_command_finalize_postgres.py",
+      "symbol": null,
+      "value": 860
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-editor.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
       "symbol": null,
       "value": 860
     },
@@ -14661,6 +14670,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/observability/route-map.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/observability/route-map.ts",
+      "symbol": null,
+      "value": 836
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/components/ria-nearby-around-you.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14685,6 +14703,15 @@
       "path": ".codex/skills/autonomous-rca-governance/scripts/rca_runner.py",
       "symbol": null,
       "value": 832
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
+      "symbol": null,
+      "value": 830
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14724,12 +14751,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/observability/route-map.ts||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/personal-knowledge-model/manifest.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/lib/observability/route-map.ts",
+      "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
       "symbol": null,
-      "value": 824
+      "value": 823
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14765,16 +14792,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/consent-center-service.ts",
       "symbol": null,
-      "value": 810
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/personal-knowledge-model/manifest.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/personal-knowledge-model/manifest.ts",
-      "symbol": null,
-      "value": 809
+      "value": 811
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14904,6 +14922,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
+      "symbol": null,
+      "value": 787
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/services/test_nws_nearby_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15012,6 +15039,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts",
+      "symbol": null,
+      "value": 775
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/profile/pkm-profile-presentation.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15084,12 +15120,48 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_firebase_auth_split.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_firebase_auth_split.py",
+      "symbol": null,
+      "value": 763
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_trusted_device_routes.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_trusted_device_routes.py",
+      "symbol": null,
+      "value": 763
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/services/test_google_calendar_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/services/test_google_calendar_service.py",
       "symbol": null,
       "value": 761
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/external-connector-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/external-connector-service.ts",
+      "symbol": null,
+      "value": 761
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/hushh_tech.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/hushh_tech.py",
+      "symbol": null,
+      "value": 760
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15126,24 +15198,6 @@
       "path": "consent-protocol/api/routes/one_wallet_card.py",
       "symbol": null,
       "value": 758
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/services/external-connector-service.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/services/external-connector-service.ts",
-      "symbol": null,
-      "value": 758
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts",
-      "symbol": null,
-      "value": 757
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15225,15 +15279,6 @@
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
       "value": 745
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/hushh_tech.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/hushh_tech.py",
-      "symbol": null,
-      "value": 743
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15399,15 +15444,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/one_adk/agui_turn_timing.py",
-      "symbol": null,
-      "value": 727
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/app/profile/gmail/oauth/return/page.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15426,19 +15462,10 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_trusted_device_routes.py||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/pkm/pkm-memory-cards.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/tests/test_trusted_device_routes.py",
-      "symbol": null,
-      "value": 726
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
+      "path": "hushh-webapp/lib/pkm/pkm-memory-cards.ts",
       "symbol": null,
       "value": 724
     },
@@ -15502,15 +15529,6 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/scripts/audit_legacy_pkm_readonly.py",
-      "symbol": null,
-      "value": 720
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/pkm/pkm-memory-cards.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/pkm/pkm-memory-cards.ts",
       "symbol": null,
       "value": 720
     },
@@ -15804,6 +15822,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/pkm/pkm-natural-language-ingestion.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/pkm/pkm-natural-language-ingestion.ts",
+      "symbol": null,
+      "value": 697
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/ticker_db.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15957,15 +15984,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_health_review_mode.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_health_review_mode.py",
-      "symbol": null,
-      "value": 677
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_consent_redaction.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15990,15 +16008,6 @@
       "path": "scripts/env/doctor.sh",
       "symbol": null,
       "value": 676
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_firebase_auth_split.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_firebase_auth_split.py",
-      "symbol": null,
-      "value": 675
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16146,15 +16155,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/pkm/pkm-natural-language-ingestion.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/pkm/pkm-natural-language-ingestion.ts",
-      "symbol": null,
-      "value": 660
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/portfolio-share/client.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16197,6 +16197,15 @@
       "path": "hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts",
       "symbol": null,
       "value": 658
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
+      "symbol": null,
+      "value": 657
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16326,19 +16335,19 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/one/voice.py",
-      "symbol": null,
-      "value": 644
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/components/connections-panel.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connections-panel.test.tsx",
+      "symbol": null,
+      "value": 645
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/voice.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/voice.py",
       "symbol": null,
       "value": 644
     },
@@ -16569,6 +16578,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/text-attachment-viewer.layout.spec.ts",
+      "symbol": null,
+      "value": 626
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/one-location/encryption.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16611,6 +16629,15 @@
       "path": "hushh-webapp/components/ria/nearby/nearby-around-you.tsx",
       "symbol": null,
       "value": 622
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/wallet/wallet-workspace.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/wallet/wallet-workspace.tsx",
+      "symbol": null,
+      "value": 621
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16695,6 +16722,24 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-viewer.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/agent-text-attachment-viewer.tsx",
+      "symbol": null,
+      "value": 616
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/one-voice-panel.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/one-voice-panel.layout.spec.ts",
+      "symbol": null,
+      "value": 616
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_hushh_tech_client_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16710,15 +16755,6 @@
       "path": "consent-protocol/hushh_mcp/services/ria_dossier_service.py",
       "symbol": null,
       "value": 614
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/agent-text-attachment-viewer.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/agent/agent-text-attachment-viewer.tsx",
-      "symbol": null,
-      "value": 613
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16803,6 +16839,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/agent/agent-pkm-context-store.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/agent/agent-pkm-context-store.ts",
+      "symbol": null,
+      "value": 608
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_connected_systems_routes.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16827,15 +16872,6 @@
       "path": "hushh-webapp/__tests__/voice/kai-action-gateway.test.ts",
       "symbol": null,
       "value": 606
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/e2e/one-voice-panel.layout.spec.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/e2e/one-voice-panel.layout.spec.ts",
-      "symbol": null,
-      "value": 605
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16881,15 +16917,6 @@
       "path": "hushh-webapp/__tests__/lib/one-location/saved-locations.test.ts",
       "symbol": null,
       "value": 602
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
-      "symbol": null,
-      "value": 657
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16971,6 +16998,15 @@
       "path": "scripts/ops/sync_backend_runtime_secrets.py",
       "symbol": null,
       "value": 594
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": ".codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
+      "symbol": null,
+      "value": 593
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17069,16 +17105,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/drive-query-request-card.tsx",
       "symbol": null,
-      "value": 585
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": ".codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs",
-      "symbol": null,
-      "value": 583
+      "value": 584
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17097,15 +17124,6 @@
       "path": "consent-protocol/tests/test_hushh_tech_client_migration.py",
       "symbol": null,
       "value": 581
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/navbar.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/navbar.tsx",
-      "symbol": null,
-      "value": 580
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17131,6 +17149,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/agent/puppy-machine-sheet-reported-lists.test.tsx",
+      "symbol": null,
+      "value": 579
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/navbar.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/navbar.tsx",
       "symbol": null,
       "value": 579
     },
@@ -17325,6 +17352,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/drive-query-request-card.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/drive-query-request-card.test.tsx",
+      "symbol": null,
+      "value": 565
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|.codex/skills/agent-orchestration-governance/scripts/delegation_router.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17358,15 +17394,6 @@
       "path": ".claude/skills/impeccable/scripts/live/session-store.mjs",
       "symbol": null,
       "value": 563
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/components/drive-query-request-card.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/components/drive-query-request-card.test.tsx",
-      "symbol": null,
-      "value": 562
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17460,15 +17487,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/agent/agent-pkm-context-store.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/agent/agent-pkm-context-store.ts",
-      "symbol": null,
-      "value": 555
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17509,6 +17527,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_nav_a2a_agent.py",
+      "symbol": null,
+      "value": 550
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/navigation/profile-routes.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/navigation/profile-routes.ts",
       "symbol": null,
       "value": 550
     },
@@ -17676,10 +17703,10 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/mcp_connector_probe.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/api/routes/health.py",
+      "path": "consent-protocol/hushh_mcp/services/mcp_connector_probe.py",
       "symbol": null,
       "value": 533
     },
@@ -18099,6 +18126,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/agent-chat-pasted-text-attachment.test.tsx",
+      "symbol": null,
+      "value": 512
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/renaissance_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18114,6 +18150,15 @@
       "path": "consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py",
       "symbol": null,
       "value": 511
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/health.py",
+      "symbol": null,
+      "value": 510
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18198,6 +18243,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_registered_mcp_toolset.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_registered_mcp_toolset.py",
+      "symbol": null,
+      "value": 506
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/one_adk/encrypted_session_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18229,6 +18283,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/kai/onboarding/KaiPreferencesWizard.tsx",
+      "symbol": null,
+      "value": 504
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/e2e/agent-markdown.layout.spec.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/e2e/agent-markdown.layout.spec.ts",
       "symbol": null,
       "value": 504
     },
@@ -18270,6 +18333,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/app-ui/native-test-bootstrap.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/app-ui/native-test-bootstrap.tsx",
+      "symbol": null,
+      "value": 503
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/services/observability-schema.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18297,15 +18369,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/app-ui/native-test-bootstrap.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/app-ui/native-test-bootstrap.tsx",
-      "symbol": null,
-      "value": 501
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18314,7 +18377,7 @@
       "value": 501
     }
   ],
-  "inspected_files": 5349,
+  "inspected_files": 5398,
   "review": {
     "adk_byoc_integration_20260929": {
       "adk_revision": "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
@@ -18323,6 +18386,14 @@
       "scope": "Reviewed combined ADK/BYOC debt baseline after source integration: 54 new and 163 worsened size measurements (22 class, 74 function, 121 module), all confined to existing/backend and frontend owners. No new dependency-direction or import-initialization findings. This records measured debt, not an optimality or live-readiness claim; thresholds and comparison logic are unchanged.",
       "size_findings_sha256": "78750e624f18dfb4e21fbdca8d619d999a0d50933931a89b25e1bf13ce9b64ea",
       "source_revision": "846d9079a"
+    },
+    "adk_final_integration_20260930": {
+      "adk_revision": "de7a91daf0a146b3676e41adc44f8ab888507b7f",
+      "merge_revision": "e25ee4e4ac01e725ca744cb3df376c40fdc60da9",
+      "reviewed_regressions": 55,
+      "root_revision": "92021c29fd13199c3a9508b60df8586218cd1cc3",
+      "scope": "Reviewed the frozen ADK import: 8 new and 47 worsened size measurements (51 module, 3 function, 1 class). Dependency-direction and import-initialization findings, budgets, and comparison logic are unchanged. The imported capabilities retain their existing owners; this is measured debt, not an optimality or production-readiness claim. Focused agent, reviewer-auth, connector, frontend and generated-contract checks passed. The editor performance gate remains separately blocking until resolved.",
+      "size_findings_sha256": "a7a9e262fdd35f13bd6826f8366c9f83ff99e88793a12511b7f9bfad6555bef8"
     },
     "adk_revision": "91bc9f7cbfa9a9d544623808b9e3ab36dc3a050c",
     "completion_integration": {
