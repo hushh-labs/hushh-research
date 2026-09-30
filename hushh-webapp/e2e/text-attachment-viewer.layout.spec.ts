@@ -292,8 +292,10 @@ const EDITOR_WIDTHS = [
   { width: 393, height: 852 },
   { width: 1440, height: 900 },
 ] as const;
-// keydown to the frame after it painted, per keystroke, in a 100 KB paste.
-const LATENCY_P95_BUDGET_MS = 50;
+// Keydown to the frame after it painted, per keystroke, in a 100 KB paste.
+// Compare with a same-run native textarea, allowing at most one 60 Hz frame
+// for editor overhead; the hard tail limit remains independent of the runner.
+const LATENCY_P95_NATIVE_MARGIN_MS = 17;
 const LATENCY_MAX_BUDGET_MS = 120;
 
 async function openEditor(page: Page) {
@@ -406,11 +408,9 @@ function assertEditorGeometry(geometry: EditorGeometry, viewportWidth: number, l
 }
 
 /** Per-keystroke latency: keydown to the task after the next frame painted. */
-async function typeAndMeasure(page: Page, text: string, delay: number) {
-  await page.evaluate(() => {
-    const textarea = document.querySelector<HTMLTextAreaElement>(
-      '[data-testid="text-attachment-editor-textarea"]',
-    )!;
+async function typeAndMeasure(page: Page, selector: string, text: string, delay: number) {
+  await page.evaluate((target) => {
+    const textarea = document.querySelector<HTMLTextAreaElement>(target)!;
     const samples: number[] = [];
     (window as unknown as { __latency: number[] }).__latency = samples;
     textarea.addEventListener("keydown", () => {
@@ -420,7 +420,8 @@ async function typeAndMeasure(page: Page, text: string, delay: number) {
       const start = performance.now();
       requestAnimationFrame(() => setTimeout(() => samples.push(performance.now() - start), 0));
     });
-  });
+  }, selector);
+  await page.locator(selector).focus();
   await page.keyboard.type(text, { delay });
   await page.waitForTimeout(250);
   const samples = await page.evaluate(() => (window as unknown as { __latency: number[] }).__latency);
@@ -431,6 +432,43 @@ async function typeAndMeasure(page: Page, text: string, delay: number) {
     p95: sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!,
     max: sorted.at(-1)!,
   };
+}
+
+async function measureNativeBaseline(page: Page, text: string, delay: number) {
+  const geometryDelta = await page.evaluate(() => {
+    const textarea = document.querySelector<HTMLTextAreaElement>(
+      '[data-testid="text-attachment-editor-textarea"]',
+    )!;
+    const native = textarea.cloneNode(true) as HTMLTextAreaElement;
+    native.removeAttribute("id");
+    native.removeAttribute("aria-label");
+    native.removeAttribute("data-testid");
+    native.dataset.nativeEditorBaseline = "";
+    native.value = textarea.value;
+    native.setSelectionRange(textarea.selectionStart, textarea.selectionEnd);
+    textarea.style.visibility = "hidden";
+    textarea.after(native);
+    const appBox = textarea.getBoundingClientRect();
+    const nativeBox = native.getBoundingClientRect();
+    return Math.max(
+      Math.abs(appBox.left - nativeBox.left),
+      Math.abs(appBox.top - nativeBox.top),
+      Math.abs(appBox.width - nativeBox.width),
+      Math.abs(appBox.height - nativeBox.height),
+    );
+  });
+  try {
+    expect(geometryDelta, "native control matches editor geometry").toBeLessThanOrEqual(0.5);
+    return await typeAndMeasure(page, '[data-native-editor-baseline]', text, delay);
+  } finally {
+    await page.evaluate(() => {
+      document.querySelector('[data-native-editor-baseline]')?.remove();
+      const textarea = document.querySelector<HTMLTextAreaElement>(
+        '[data-testid="text-attachment-editor-textarea"]',
+      );
+      if (textarea) textarea.style.visibility = "";
+    });
+  }
 }
 
 async function placeCaret(page: Page, fraction: number) {
@@ -472,7 +510,8 @@ test.describe("pasted text editor", () => {
       // Typing in the middle of the paste lands where the caret is.
       const at = await placeCaret(page, 0.5);
       const plainText = "reconciled twice, ".repeat(3);
-      const plain = await typeAndMeasure(page, plainText, 20);
+      const nativePlain = await measureNativeBaseline(page, plainText, 20);
+      const plain = await typeAndMeasure(page, '[data-testid="text-attachment-editor-textarea"]', plainText, 20);
       const value = await page.getByLabel("Pasted text, editable text").inputValue();
       expect(value.slice(at, at + plainText.length)).toBe(plainText);
 
@@ -498,16 +537,19 @@ test.describe("pasted text editor", () => {
       expect(rebuilds, `${label}: highlight rebuilds for 20 keystrokes`).toBe(1);
 
       await placeCaret(page, 0.25);
-      const withFind = await typeAndMeasure(page, "audit note ".repeat(4), 150);
+      const findText = "audit note ".repeat(4);
+      const nativeFind = await measureNativeBaseline(page, findText, 150);
+      const withFind = await typeAndMeasure(page, '[data-testid="text-attachment-editor-textarea"]', findText, 150);
       info.annotations.push({
         type: "latency",
-        description: `${label} plain ${JSON.stringify(plain)} withFind ${JSON.stringify(withFind)} rebuilds ${rebuilds}`,
+        description: `${label} plain ${JSON.stringify(plain)} nativePlain ${JSON.stringify(nativePlain)} withFind ${JSON.stringify(withFind)} nativeFind ${JSON.stringify(nativeFind)} rebuilds ${rebuilds}`,
       });
-      for (const [name, sample] of [["plain", plain], ["find", withFind]] as const) {
+      for (const [name, sample, native] of [["plain", plain, nativePlain], ["find", withFind, nativeFind]] as const) {
         // A 12-18 key sample makes its empirical p95 the same observation as
         // max, so the separate 120 ms tail budget has no effect.
         expect.soft(sample.count, `${label} ${name} sample count`).toBeGreaterThanOrEqual(40);
-        expect.soft(sample.p95, `${label} ${name} p95`).toBeLessThan(LATENCY_P95_BUDGET_MS);
+        expect.soft(native.count, `${label} ${name} native sample count`).toBeGreaterThanOrEqual(40);
+        expect.soft(sample.p95, `${label} ${name} p95 versus native ${native.p95}`).toBeLessThanOrEqual(native.p95 + LATENCY_P95_NATIVE_MARGIN_MS);
         expect.soft(sample.max, `${label} ${name} max`).toBeLessThan(LATENCY_MAX_BUDGET_MS);
       }
       // The highlights lay out exactly like the text they sit behind: same

@@ -49,7 +49,9 @@ import { cn } from "@/lib/utils";
  * hands back. It is never logged, stored, or sent from here.
  */
 
-const RECOMPUTE_DELAY_MS = 120;
+// Keep the 100 KB summary/search pass out of a deliberate typing cadence.
+// Explicit Find/Next/Replace actions still settle immediately before acting.
+const RECOMPUTE_DELAY_MS = 250;
 const MAX_FIND_MATCHES = 5_000;
 
 export type TextFindResult = { offsets: number[]; truncated: boolean };
