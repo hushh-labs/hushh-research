@@ -439,7 +439,7 @@ describe("access ending clears the values at once", () => {
       personRef: PERSON, profilePath: null, label: "Tax record", purpose: null, expiresAt: null }]);
     render(<SharedWithYouCard person={MANISH} items={[taxItem({ bundleId: null, requestId: null })]} />);
     expect(await screen.findByTestId("shared-with-you-values")).toHaveTextContent("85000");
-    expect(liveAccessWatchSnapshot()).toEqual({ bundles: [BUNDLE], shares: true });
+    await waitFor(() => expect(liveAccessWatchSnapshot()).toEqual({ bundles: [BUNDLE], shares: true }));
     // Control: the share still listed keeps the values.
     await act(async () => { await readSharedWithMe({ vaultOwnerToken: "owner-token" }); });
     expect(screen.getByText("85000")).toBeInTheDocument();
