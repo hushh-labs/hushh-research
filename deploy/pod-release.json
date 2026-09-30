@@ -1,20 +1,19 @@
 {
-  "version": "2026.09-dev.7",
+  "version": "2026.09-dev.8",
   "channel": "dev",
-  "summary": "Simpler cloud setup, a dedicated Files workspace, and clearer software updates.",
+  "summary": "More reliable private conversations and clearer connector review.",
   "notes": {
     "improvements": [
-      "Deploy your private agent to your cloud from one guided action; new setups include the encrypted Files library.",
-      "Browse folders and files in a dedicated workspace with upload, search, and organization controls."
+      "Follow-up messages can wait safely while your private agent finishes a response.",
+      "Connector review identifies the exact tool request before you decide."
     ],
     "fixes": [
-      "Missing cloud billing now offers a direct setup link and resumes the recorded project after fresh authorization.",
-      "Settings and Feed show the same verified update stages and retain the installed version during refresh.",
-      "A failed update can send a bounded diagnostic report only after the owner chooses to send it."
+      "Private chat keeps its conversation context when connector review resumes.",
+      "The Files workspace retries temporary cold connection failures without retrying access refusals."
     ],
     "security": [
-      "Files content analysis remains off until the owner opts in.",
-      "Update completion requires installed-image and recovery verification; logs are not sent automatically."
+      "First-party owner authorization stays out of third-party connector probes.",
+      "Untrusted connector content cannot grant itself access to private information."
     ]
   },
   "supportedUpgradeDigests": [
