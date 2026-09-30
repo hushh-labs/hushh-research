@@ -12794,7 +12794,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 1387
+      "value": 1388
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16889,7 +16889,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": null,
-      "value": 601
+      "value": 657
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18354,6 +18354,12 @@
       "main_revision": "d1bb6c82c",
       "reviewed_findings": 14,
       "scope": "Fourteen size-only findings from the main Drive request relevance fix (one new function and thirteen worsened existing measurements). The affected 115 backend and 86 frontend tests pass. No dependency-direction or import-initialization finding was introduced; this records inherited source debt rather than accepting a quality or release claim."
+    },
+    "main_drive_setup_20260929": {
+      "main_revision": "463452cc342a681e0857e99e02371e076066be10",
+      "reviewed_regressions": 2,
+      "scope": "Two inherited test-module size measurements increased after the Drive paused-request setup fix: document review +1 line and sharing-center tests +56 lines. No threshold or comparator changed. This records measured test debt; the focused backend tests pass and frontend acceptance is checked separately.",
+      "source_revision": "035026125f073c28e923ba821ecb51ec837821fd"
     },
     "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",
     "main_voice_mail_20260929": {
