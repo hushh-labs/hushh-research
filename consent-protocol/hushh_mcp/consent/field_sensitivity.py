@@ -77,6 +77,26 @@ def _value_patterns() -> tuple[tuple[re.Pattern[str], bool], ...]:
     )
 
 
+@lru_cache(maxsize=1)
+def sensitive_topic_words() -> frozenset[str]:
+    """Every word that names a sensitive topic, across the contract's topics."""
+    return frozenset(
+        str(word).lower()
+        for topic in _contract()["sensitive_topics"].values()
+        for word in topic["words"]
+    )
+
+
+@lru_cache(maxsize=1)
+def sensitive_topic_phrases() -> frozenset[tuple[str, str]]:
+    """Two-word phrases whose words are harmless alone ("social", "account")."""
+    return frozenset(
+        (str(left).lower(), str(right).lower())
+        for topic in _contract()["sensitive_topics"].values()
+        for left, right in topic["phrases"]
+    )
+
+
 def _key_words_of(segment: str) -> list[str]:
     """Whole words of one key, camelCase-aware, plural folded, filler removed."""
     words = _WORD.findall(humanize_segment(segment).lower())

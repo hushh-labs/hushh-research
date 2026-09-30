@@ -34,6 +34,7 @@ import {
   ConnectorReadReceipt,
   WorkspaceConnectorSetupCard,
 } from "@/components/agent/connector-read-receipt";
+import { CustomConnectorProbeCard } from "@/components/agent/custom-connector-probe-card";
 import type { DriveCompilationUiState } from "@/lib/agent/drive-batch-progress";
 import type { DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
@@ -136,6 +137,8 @@ export function AgentStructuredExperienceView({
         driveCompilation={driveCompilation} />;
     case "one.workspace_connector_setup.v1":
       return <WorkspaceConnectorSetupCard experience={experience} onOpenConnections={onOpenConnections} />;
+    case "one.custom_connector_probe.v1":
+      return <CustomConnectorProbeCard experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person to continue." icon={<UserRound className="size-5" />}>

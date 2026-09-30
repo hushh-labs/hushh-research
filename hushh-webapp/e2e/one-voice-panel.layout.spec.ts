@@ -34,6 +34,7 @@ const VOICE_PILL_PATH = "components/one-voice/voice-state-pill.tsx";
 const VOICE_PANEL_PATH = "components/one-voice/one-voice-panel.tsx";
 const VOICE_CONTROL_PATH = "components/one-voice/one-voice-control.tsx";
 const VOICE_TRANSCRIPT_PATH = "components/one-voice/voice-transcript.tsx";
+const BOTTOM_CHROME_COLUMN_PATH = "components/app-ui/bottom-chrome-column.ts";
 
 const VIEWPORTS = [
   { name: "narrow phone", width: 320, height: 568 },
@@ -102,6 +103,12 @@ function extractSource(): Source {
   const panel = read(VOICE_PANEL_PATH);
   const control = read(VOICE_CONTROL_PATH);
   const transcript = read(VOICE_TRANSCRIPT_PATH);
+  const bottomChromeColumn = read(BOTTOM_CHROME_COLUMN_PATH);
+  if (!control.includes("BOTTOM_CHROME_COLUMN_CLASSNAME")) {
+    throw new Error(
+      "one-voice-panel-layout: dock no longer uses the shared bottom-chrome column.",
+    );
+  }
   const toggleStart = pill.indexOf('data-testid="one-voice-toggle-panel"');
   const toggleEnd = pill.indexOf("</button>", toggleStart);
   if (toggleStart < 0 || toggleEnd < toggleStart) {
@@ -150,7 +157,11 @@ function extractSource(): Source {
       "One Voice dock classes",
       VOICE_CONTROL_PATH,
     )[1],
-    dockWidthClass: stringConstant(control, "DOCK_WIDTH_SLOT", VOICE_CONTROL_PATH),
+    dockWidthClass: stringConstant(
+      bottomChromeColumn,
+      "BOTTOM_CHROME_COLUMN_CLASSNAME",
+      BOTTOM_CHROME_COLUMN_PATH,
+    ),
     primaryClass: required(
       pill,
       /data-testid="one-voice-agent-bar-start-icon"[\s\S]*?className="([^"]+)"/,

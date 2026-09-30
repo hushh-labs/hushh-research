@@ -15,6 +15,7 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import { mergeWithSupersedeHistory } from "@/lib/pkm/pkm-supersede-merge";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
 import { Capacitor } from "@capacitor/core";
@@ -741,7 +742,24 @@ export class PersonalKnowledgeModelService {
       return existing;
     }
 
+    // A memory-pipeline decision (the merge agent chose create, extend or
+    // correct) evolves stored information: a changed value stays current and
+    // the earlier one is kept under `superseded`. Structured writers pass no
+    // memory decision and keep their plain merge, so no connector or runtime
+    // secret ever accumulates history.
+    const evolvesMemory = Boolean(params.mergeDecision) &&
+      (mergeMode === "create_entity" || mergeMode === "extend_entity" || mergeMode === "correct_entity");
+    const nowIso = new Date().toISOString();
+
     if (!incoming) {
+      if (evolvesMemory) {
+        // A correction that is not entity-shaped used to be dropped here while
+        // the save still reported success.
+        return mergeWithSupersedeHistory(existing, candidate, {
+          nowIso,
+          mode: mergeMode === "correct_entity" ? "correct" : "extend",
+        }).merged;
+      }
       if (mergeMode === "correct_entity") {
         return existing;
       }
@@ -755,7 +773,6 @@ export class PersonalKnowledgeModelService {
       scopeObject.entities = {};
     }
     const entities = scopeObject.entities as Record<string, unknown>;
-    const nowIso = new Date().toISOString();
     const incomingEntity = this.cloneRecord(incoming.entity);
     if (!incomingEntity.entity_id) {
       incomingEntity.entity_id = targetEntityId;
@@ -789,9 +806,9 @@ export class PersonalKnowledgeModelService {
           observations.push(observation);
         }
       }
+      const { observations: _incomingObservations, ...incomingFields } = incomingEntity;
       entities[targetEntityId] = {
-        ...existingEntity,
-        ...incomingEntity,
+        ...mergeWithSupersedeHistory(existingEntity, incomingFields, { nowIso, mode: "extend" }).merged,
         entity_id: targetEntityId,
         observations,
         status: "active",
@@ -802,8 +819,7 @@ export class PersonalKnowledgeModelService {
 
     if (mergeMode === "correct_entity") {
       entities[targetEntityId] = {
-        ...existingEntity,
-        ...incomingEntity,
+        ...mergeWithSupersedeHistory(existingEntity, incomingEntity, { nowIso, mode: "correct" }).merged,
         entity_id: targetEntityId,
         created_at: existingEntity.created_at || incomingEntity.created_at || nowIso,
         status: "active",

@@ -227,7 +227,7 @@ describe("circle discovery actions", () => {
     );
     expect(screen.getByText(starter.description)).toBeVisible();
     expect(
-      screen.getByRole("button", { name: `Create a Circle — ${starter.name}` }),
+      screen.getByRole("button", { name: `Create a Circle, ${starter.name}` }),
     ).toBeEnabled();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.sms).not.toHaveBeenCalled();
@@ -303,7 +303,7 @@ describe("circle discovery actions", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));
     expect(callbacks.onFindPeople).toHaveBeenCalledOnce();
     const create = screen.getByRole("button", {
-      name: "Create a Circle — Finance Circle",
+      name: "Create a Circle, Finance Circle",
     });
     fireEvent.click(create);
     fireEvent.click(create);
@@ -330,7 +330,7 @@ describe("circle discovery actions", () => {
   it("uses the real SMS system roster, never an ordinary circle named SMS", async () => {
     render(ui({ ...ready, circles: [circle({ name: "SMS Circle" })] }));
     fireEvent.click(screen.getByRole("button", { name: "Explore SMS Circle" }));
-    fireEvent.click(screen.getByRole("button", { name: "Create a Circle — SMS Circle" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create a Circle, SMS Circle" }));
     await waitFor(() =>
       expect(mocks.sms).toHaveBeenCalledExactlyOnceWith({
         vaultOwnerToken: "test-token",
@@ -365,7 +365,7 @@ describe("circle discovery actions", () => {
     expect(screen.getByText("5 people in your circle")).toBeTruthy();
     view.rerender(ui());
     expect(
-      screen.getByRole("button", { name: "Create a Circle — Finance Circle" }),
+      screen.getByRole("button", { name: "Create a Circle, Finance Circle" }),
     ).toBeTruthy();
   });
 
@@ -433,16 +433,16 @@ describe("circle discovery actions", () => {
     mocks.create.mockRejectedValueOnce(new Error("offline"));
     render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle, Family Circle" }),
     );
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
+        screen.getByRole("button", { name: "Create a Circle, Family Circle" }),
       ).toBeEnabled(),
     );
     expect(mocks.push).not.toHaveBeenCalled();
     fireEvent.click(
-      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle, Family Circle" }),
     );
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2));
   });
@@ -467,7 +467,7 @@ describe("circle discovery actions", () => {
     );
     const view = render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle, Family Circle" }),
     );
     view.rerender(ui(ready, null));
     await act(async () => {
@@ -499,7 +499,7 @@ describe("circle discovery actions", () => {
     });
     render(ui());
     fireEvent.click(
-      screen.getByRole("button", { name: "Create a Circle — Family Circle" }),
+      screen.getByRole("button", { name: "Create a Circle, Family Circle" }),
     );
     await waitFor(() =>
       expect(mocks.push).toHaveBeenCalledWith(

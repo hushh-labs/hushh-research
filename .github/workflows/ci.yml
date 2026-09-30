@@ -479,6 +479,37 @@ jobs:
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
 
+  # Linux WebKit remains in the browser layout pack. Its software-rendered
+  # native 100 KB textarea takes longer than our editor on the same runner,
+  # so absolute key-to-paint latency is verified on macOS, the closer Safari
+  # environment. Keep the 50 ms p95 / 120 ms max contract and both engines.
+  web-editor-performance-check:
+    name: "Web Editor Performance (macOS)"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web dependencies and browsers
+        working-directory: hushh-webapp
+        run: |
+          npm ci
+          npx playwright install chromium webkit
+
+      - name: Verify 100 KB editor latency on macOS
+        working-directory: hushh-webapp
+        run: npm run test:layout-editor-performance
+
   # The whole Vitest suite (~9,600 tests) plus the contract verifiers that used
   # to run only in Queue Validation. It gates every PR that touches the
   # frontend and runs in parallel with web-core, so it adds little to the
@@ -1046,6 +1077,7 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
+      - web-editor-performance-check
       - web-full-suite-check
       - ios-native-check
       - android-native-check
@@ -1068,6 +1100,7 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
+          WEB_EDITOR_PERF="${{ needs['web-editor-performance-check'].result }}"
           WEB_FULL_SUITE="${{ needs['web-full-suite-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
@@ -1084,6 +1117,7 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
+          printf 'web-editor-performance-check=%s\n' "$WEB_EDITOR_PERF"
           printf 'web-full-suite-check=%s\n' "$WEB_FULL_SUITE"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
@@ -1099,6 +1133,10 @@ jobs:
             echo "Changed frontend sources require a successful full Vitest suite run."
             fail=1
           fi
+          if [ "${{ needs.paths.outputs.frontend }}" = "true" ] && [ "$WEB_EDITOR_PERF" != "success" ]; then
+            echo "Changed frontend sources require a successful macOS editor performance run."
+            fail=1
+          fi
           if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
             echo "Changed iOS sources require a successful native build and XCTest run."
             fail=1
@@ -1107,7 +1145,7 @@ jobs:
             echo "Changed Android sources require a successful native compile and unit run."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$WEB_EDITOR_PERF" "$WEB_FULL_SUITE" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

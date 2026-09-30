@@ -73,7 +73,7 @@ it("returns Settings sign-in to Settings without arming Chat draft recovery", as
   })));
   expect(mocks.markReturned).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Return to Connectors" }));
-  expect(mocks.replace).toHaveBeenCalledWith("/one/profile/connectors");
+  expect(mocks.replace).toHaveBeenCalledWith("/one?profile_pane=1&profile_panel=connectors");
 });
 
 it("does not replay completion after lock during refresh and preserves the saved outcome", async () => {

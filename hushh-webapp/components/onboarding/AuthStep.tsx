@@ -443,8 +443,11 @@ export function AuthStep({
                 reviewerUid: nativeTestConfig.autoReviewerLogin
                   ? nativeTestConfig.expectedUserId
                   : null,
+                // The backend mint requires the reviewer passphrase; only
+                // native test mode holds it. See app-review-mode-config.md.
                 smokePassphrase: nativeTestConfig.autoReviewerLogin
-                  ? nativeTestConfig.vaultPassphrase
+                  ? nativeTestConfig.reviewerSessionPassphrase ||
+                    nativeTestConfig.vaultPassphrase
                   : null,
               },
             );
@@ -513,6 +516,7 @@ export function AuthStep({
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
     nativeTestConfig.expectedUserId,
+    nativeTestConfig.reviewerSessionPassphrase,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,

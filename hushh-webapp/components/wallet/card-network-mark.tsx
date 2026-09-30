@@ -95,6 +95,50 @@ export function hasOfficialCardMark(brand: string | null | undefined): boolean {
   return Boolean(CARD_MARK_ASSETS[normalizeBrand(brand)]);
 }
 
+/**
+ * The network as it appears on a card face: the official artwork when it is
+ * recorded (unmodified), otherwise a plain white wordmark. No recognition
+ * tile, because the face already is the surface.
+ */
+export function CardNetworkWordmark({
+  brand,
+  className,
+}: {
+  brand: string | null | undefined;
+  className?: string;
+}) {
+  const key = normalizeBrand(brand);
+  const network = NETWORKS[key];
+  const asset = CARD_MARK_ASSETS[key];
+
+  if (asset) {
+    return (
+      <span
+        role="img"
+        aria-label={network.label}
+        data-testid={`card-network-wordmark-${key}`}
+        className={cn("inline-flex h-5 w-11 shrink-0 items-center justify-end", className)}
+      >
+        <Image src={asset} alt="" width={44} height={20} className="h-auto w-full object-contain" />
+      </span>
+    );
+  }
+
+  return (
+    <span
+      role="img"
+      aria-label={network.label}
+      data-testid={`card-network-wordmark-${key}`}
+      className={cn(
+        "shrink-0 text-[13px] font-bold leading-5 tracking-[0.08em] text-white",
+        className,
+      )}
+    >
+      {network.short}
+    </span>
+  );
+}
+
 export function CardNetworkMark({
   brand,
   className,

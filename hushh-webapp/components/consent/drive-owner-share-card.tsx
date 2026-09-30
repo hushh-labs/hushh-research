@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -10,7 +9,7 @@ import {
 } from "@/lib/vault/session-epoch";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
 import { Button } from "@/lib/morphy-ux/button";
 import { BodyText, HelperText, MediumRowLabel } from "@/components/app-ui/typography";
 import {
@@ -249,7 +248,7 @@ function UnlockedDriveOwnerShareCard({
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {notice && /Reconnect Google Drive/.test(notice) ? (
         <Button asChild size="standard">
-          <Link href={ROUTES.PROFILE_CONNECTORS}>Reconnect Google Drive</Link>
+          <ProfileConnectorsLink connectorId="google_drive">Reconnect Google Drive</ProfileConnectorsLink>
         </Button>
       ) : null}
       {view?.status === "no_match" && view.message ? (

@@ -22,7 +22,9 @@ const mocks = vi.hoisted(() => ({
   search:
     "tab=pending&requestId=req_deep&from=%2Fone%2Fconnected-systems%2Fsalesforce-fsc-customer0",
   getSummary: vi.fn(),
+  getCenter: vi.fn(),
   listEntries: vi.fn(),
+  listConnectionsPage: vi.fn(),
   lookupPendingRequests: vi.fn(),
   handleApprove: vi.fn(),
   handleDeny: vi.fn(),
@@ -125,6 +127,7 @@ vi.mock("@/lib/services/connections-service", () => ({
   ConnectionsService: {
     accept: mocks.connectionAccept,
     reject: mocks.connectionReject,
+    listConnectionsPage: mocks.listConnectionsPage,
   },
 }));
 
@@ -228,6 +231,7 @@ vi.mock("@/lib/services/consent-center-service", () => ({
   CONSENT_CENTER_PAGE_SIZE: 20,
   ConsentCenterService: {
     getSummary: mocks.getSummary,
+    getCenter: mocks.getCenter,
     listEntries: mocks.listEntries,
     lookupPendingRequests: mocks.lookupPendingRequests,
     // Only ever called by HandshakeTimeline, which must NOT render for
@@ -425,6 +429,10 @@ describe("ConsentCenterPage requestId deep links", () => {
     mocks.isVaultUnlocked = true;
     mocks.vaultKey = null;
     mocks.getSummary.mockResolvedValue(summaryResponse());
+    mocks.getCenter.mockResolvedValue({ connection_requests: [] });
+    mocks.listConnectionsPage.mockResolvedValue({
+      items: [], page: 1, hasMore: false, totalCount: 0, audience: "all",
+    });
     mocks.listEntries.mockResolvedValue(emptyListResponse());
     mocks.handleApprove.mockResolvedValue(undefined);
     mocks.handleDeny.mockResolvedValue(undefined);
@@ -453,6 +461,60 @@ describe("ConsentCenterPage requestId deep links", () => {
       missing_request_ids: [],
     });
     installDesktopMediaQuery();
+  });
+
+  it("shows active people and their first connection date, not resolved request logs", async () => {
+    mocks.search = "tab=connections&requestId=connection-active-1";
+    mocks.getCenter.mockResolvedValue({
+      connection_requests: [{
+        id: "old-request-1",
+        kind: "connection_request",
+        status: "revoked",
+        action: "REVOKED",
+        counterpart_type: "person",
+        counterpart_label: "Former contact",
+      }],
+    });
+    mocks.listConnectionsPage.mockResolvedValue({
+      items: [{
+        connectionId: "connection-active-1",
+        userId: "other-owner",
+        displayName: "Current contact",
+        photoUrl: null,
+        email: null,
+        createdAt: "2026-09-22T09:00:00.000Z",
+      }],
+      page: 1,
+      hasMore: false,
+      totalCount: 1,
+      audience: "all",
+    });
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByRole("dialog", { name: "Current contact" })).toBeTruthy();
+    expect(screen.queryByText("Former contact")).toBeNull();
+    expect(screen.getAllByText("First connected").length).toBeGreaterThan(0);
+    expect(mocks.listConnectionsPage).toHaveBeenCalledWith({
+      idToken: "id-token",
+      page: 1,
+      limit: 20,
+      query: "",
+      audience: "all",
+    });
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+  });
+
+  it("does not call an unavailable connection graph an empty list", async () => {
+    mocks.search = "tab=connections";
+    mocks.listConnectionsPage.mockRejectedValue(new Error("provider detail must stay private"));
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Could not check connections")).toBeTruthy();
+    expect(mocks.getCenter).not.toHaveBeenCalled();
+    expect(screen.queryByText("No connections yet.")).toBeNull();
+    expect(screen.queryByText(/provider detail must stay private/)).toBeNull();
   });
 
   it("opens a twelve-item person bundle's sheet straight from its row, with no Review expansion", async () => {
@@ -878,11 +940,11 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.getByRole("button", { name: "Don't allow" })).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
     expect(screen.queryByText("Request details")).toBeNull();
-    expect(screen.queryByLabelText("Close detail panel")).toBeNull();
+    expect(screen.getByLabelText("Close detail panel")).toBeTruthy();
     expect(screen.queryByText("Technical details")).toBeNull();
   });
 
-  it("uses the canonical no-X mobile decision sheet", async () => {
+  it("offers a close control on the mobile decision sheet", async () => {
     installMobileMediaQuery();
     render(<ConsentCenterPage />);
 
@@ -897,8 +959,9 @@ describe("ConsentCenterPage requestId deep links", () => {
         document.querySelector('[data-slot="sheet-drag-handle"]'),
       ).toBeTruthy();
     });
-    expect(screen.queryByLabelText("Close detail panel")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(mocks.handleDeny).not.toHaveBeenCalled();
   });
 
   it("uses connection actions without showing an ignored access duration", async () => {

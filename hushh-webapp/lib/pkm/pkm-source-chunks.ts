@@ -156,7 +156,17 @@ function proseBlocks(
   return blocks;
 }
 
-export function planPkmSourceChunks(source: string): PkmSourceChunk[] {
+/**
+ * `maxBlocks` bounds how many source sections share one proposal. An explicit
+ * save of a long context document plans one section per proposal: each section
+ * then fits the segmentation agent's eight-card limit on the first call instead
+ * of spending a round trip on a six-section chunk that can only answer "split".
+ */
+export function planPkmSourceChunks(
+  source: string,
+  options: { maxBlocks?: number } = {},
+): PkmSourceChunk[] {
+  const maxBlocks = Math.max(1, Math.floor(options.maxBlocks ?? MAX_BLOCKS));
   const blocks: SourceBlock[] = [];
   let start = 0;
   let offset = 0;
@@ -208,7 +218,7 @@ export function planPkmSourceChunks(source: string): PkmSourceChunk[] {
   for (const block of blocks) {
     if (
       pending.length &&
-      (pending.length >= MAX_BLOCKS ||
+      (pending.length >= maxBlocks ||
         block.end - pending[0]!.start > PKM_PROPOSAL_CHARS)
     ) {
       chunks.push({ blocks: pending });
@@ -218,6 +228,66 @@ export function planPkmSourceChunks(source: string): PkmSourceChunk[] {
   }
   if (pending.length) chunks.push({ blocks: pending });
   return chunks;
+}
+
+/**
+ * One proposal per document section, for an explicit save of a long document.
+ *
+ * A pasted context transfer is usually one `#` title wrapping many `##`
+ * sections. The packed planner keeps a section together with everything nested
+ * under its heading, so that shape arrives as ONE protected block of the whole
+ * document (measured 2026-09-29 on a 10,290 character synthetic transfer: 16
+ * sections, 2 chunks), which the eight-fact segmenter can only answer with
+ * "split". This splits at the shallowest Markdown heading level that has
+ * siblings and carries the enclosing headings as context, so each section keeps
+ * its attribution. Context is transport only; ranges still cover every
+ * character exactly once. Returns null when the text has no such level.
+ */
+export function planPkmSourceSections(source: string): PkmSourceChunk[] | null {
+  const lines = lineSpans(source, 0, source.length);
+  const levelOf = (span: PkmSourceSpan) => {
+    const markdown = MARKDOWN_HEADING.exec(source.slice(span.start, span.end));
+    return markdown ? markdown[1]!.length : null;
+  };
+  const counts = new Map<number, number>();
+  for (const span of lines) {
+    const level = levelOf(span);
+    if (level !== null) counts.set(level, (counts.get(level) ?? 0) + 1);
+  }
+  const sectionLevel = [...counts.entries()]
+    .filter(([, count]) => count >= 2)
+    .map(([level]) => level)
+    .sort((left, right) => left - right)[0];
+  if (sectionLevel === undefined) return null;
+
+  const chunks: PkmSourceChunk[] = [];
+  const ancestors: Array<{ span: PkmSourceSpan; level: number }> = [];
+  let start = 0;
+  let context: PkmSourceSpan[] = [];
+  const close = (end: number) => {
+    if (end > start && source.slice(start, end).trim()) {
+      chunks.push({
+        blocks: [{ start, end, protectedContext: true }],
+        ...(context.length ? { context } : {}),
+      });
+    }
+  };
+  for (const span of lines) {
+    const level = levelOf(span);
+    if (level === null) continue;
+    if (level < sectionLevel) {
+      while (ancestors.length && ancestors[ancestors.length - 1]!.level >= level) ancestors.pop();
+      ancestors.push({ span, level });
+      continue;
+    }
+    if (level !== sectionLevel) continue;
+    close(span.start);
+    start = span.start;
+    // An enclosing heading already inside an earlier block still attributes this one.
+    context = ancestors.map((entry) => entry.span).filter((heading) => heading.end <= start);
+  }
+  close(source.length);
+  return chunks.length > 1 ? chunks : null;
 }
 
 /**

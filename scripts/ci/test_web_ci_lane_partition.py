@@ -6,6 +6,8 @@ PR Validation runs two web lanes as matrices to shorten the critical path:
 * ``Web Targeted Contracts`` as a ``node`` leg and a ``browser`` leg
   (``WEB_TARGETED_PART``), and
 * ``Web Full Suite (Vitest)`` as Vitest shards (``WEB_FULL_SUITE_SHARD``).
+* 100 KB editor latency as a required macOS browser job, outside Linux's
+  software-rendered WebKit layout pack.
 
 A split is only safe while it is a partition: every matched pack runs in exactly
 one leg, the legs together run what a single ``all`` run does, every shard of
@@ -178,6 +180,12 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     assert "WEB_TARGETED_PART: ${{ matrix.part }}" in targeted
     assert "fail-fast: false" in targeted
 
+    editor_perf = _job_block(workflow, "web-editor-performance-check", "web-full-suite-check")
+    assert "runs-on: macos-15" in editor_perf
+    assert "npm run test:layout-editor-performance" in editor_perf
+    scripts = json.loads(PACKAGE_JSON.read_text(encoding="utf-8"))["scripts"]
+    assert "test:layout-editor-performance" not in scripts["test:layout-contracts"]
+
     full = _job_block(workflow, "web-full-suite-check", "ios-native-check")
     shards = re.search(r"shard: \[([0-9, ]+)\]", full)
     assert shards, "web-full-suite-check has no shard matrix"
@@ -191,6 +199,8 @@ def test_workflow_schedules_every_leg_and_shard() -> None:
     gate = workflow[workflow.index('name: "CI Status Gate"') :]
     assert '[ "$WEB_FULL_SUITE" != "success" ]' in gate
     assert "WEB_TARGETED=\"${{ needs['web-targeted-check'].result }}\"" in gate
+    assert "WEB_EDITOR_PERF=\"${{ needs['web-editor-performance-check'].result }}\"" in gate
+    assert '[ "$WEB_EDITOR_PERF" != "success" ]' in gate
 
 
 def main() -> int:

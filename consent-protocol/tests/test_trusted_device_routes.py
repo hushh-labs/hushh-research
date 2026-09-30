@@ -325,6 +325,43 @@ async def test_browser_firebase_session_can_approve_device_enrollment(
     assert await account._verify_browser_enrollment_identity("Bearer firebase-id-token") == "user-1"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("minted_for", "status_code"),
+    [("uat", 403), ("dev", 401)],
+)
+async def test_review_session_cannot_approve_device_enrollment(
+    monkeypatch: pytest.MonkeyPatch,
+    minted_for: str,
+    status_code: int,
+) -> None:
+    """The exchange mints a device token that cannot carry the lane claim.
+
+    Approving a device from a review session would therefore launder a
+    lane-confined session into an unconfined sign-in. The unmarked control is
+    test_browser_firebase_session_can_approve_device_enrollment.
+    """
+    from firebase_admin import auth as firebase_auth
+
+    async def _run_in_threadpool(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setattr(account, "run_in_threadpool", _run_in_threadpool)
+    monkeypatch.setattr(account, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda *_args, **_kwargs: {"uid": "user-1", "hushh_review_mint": minted_for},
+    )
+
+    with pytest.raises(HTTPException) as raised:
+        await account._verify_browser_enrollment_identity("Bearer firebase-id-token")
+
+    assert raised.value.status_code == status_code
+
+
 def test_trusted_device_authorization_accepts_only_x25519_handoff_public_keys() -> None:
     valid = base64.b64encode(b"k" * 32).decode("ascii")
     request = account.TrustedDeviceAuthorizationRequest(

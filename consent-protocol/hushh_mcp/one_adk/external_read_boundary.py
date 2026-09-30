@@ -54,6 +54,9 @@ READ_TOOLS = {
     # Per-provider admission and owner authority are checked inside the tool.
     # Establish the content barrier before dispatch, regardless of provider.
     "read_workspace_tool": None,
+    # A probe returns untrusted server text (names, tool descriptions). Nothing
+    # after it in the same turn may act on first-party information.
+    "probe_private_connector": None,
 }
 
 

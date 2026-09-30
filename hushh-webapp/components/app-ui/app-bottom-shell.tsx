@@ -9,6 +9,10 @@ import {
 } from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
@@ -104,11 +108,12 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
-        className="pointer-events-none fixed inset-x-0 bottom-0 z-[118] px-3 pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]"
+        className={`pointer-events-none fixed inset-x-0 bottom-0 z-[118] ${BOTTOM_CHROME_INSET_CLASSNAME} pb-[max(0.75rem,var(--app-safe-area-bottom-effective))]`}
       >
+        {/* The one column both bars fill. Neither bar sets its own width. */}
         <div
           data-bottom-shell-motion-stack
-          className="flex flex-col items-center gap-1.5 transform-gpu"
+          className={`mx-auto flex ${BOTTOM_CHROME_COLUMN_CLASSNAME} flex-col items-center gap-1.5 transform-gpu`}
           style={{
             transform: model.navigationHidden
               ? undefined

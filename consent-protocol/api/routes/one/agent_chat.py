@@ -122,6 +122,8 @@ from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
 )
+from hushh_mcp.one_adk.queued_input import QueuedInputError
+from hushh_mcp.one_adk.queued_input import registry as queued_input_registry
 from hushh_mcp.one_adk.request_secrets import (
     consume_request_secret,
     resolve_request_secret,
@@ -884,6 +886,80 @@ async def delete_conversation(
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     return {"conversation_id": conversation_id, "deleted": True}
+
+
+# ── Queued input: messages sent while One is still working ─────────────────
+# Owner-bound by the VAULT_OWNER token. No chat key: nothing sealed is read
+# here. Queued text is held in memory until the running turn seals it into the
+# conversation, or dropped when it is returned or withdrawn. See queued_input.py.
+
+
+class EnqueueQueuedInput(BaseModel):
+    client_message_id: str = Field(min_length=8, max_length=64)
+    text: str = Field(min_length=1, max_length=4000)
+
+
+def _queued_input_receipt(receipt: Any) -> dict[str, str]:
+    return {"clientMessageId": receipt.client_message_id, "status": receipt.status}
+
+
+@router.post("/api/one/agent-chat/runs/{conversation_id}/queue")
+async def enqueue_queued_input(
+    conversation_id: str,
+    payload: EnqueueQueuedInput,
+    token: dict = Depends(require_vault_owner_token),
+):
+    try:
+        receipt = queued_input_registry.enqueue(
+            str(token["user_id"]), conversation_id, payload.client_message_id, payload.text
+        )
+    except QueuedInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _queued_input_receipt(receipt)
+
+
+@router.delete("/api/one/agent-chat/runs/{conversation_id}/queue/{client_message_id}")
+async def withdraw_queued_input(
+    conversation_id: str,
+    client_message_id: str,
+    token: dict = Depends(require_vault_owner_token),
+):
+    try:
+        receipt = queued_input_registry.withdraw(
+            str(token["user_id"]), conversation_id, client_message_id
+        )
+    except QueuedInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return _queued_input_receipt(receipt)
+
+
+@router.get("/api/one/agent-chat/runs/{conversation_id}/queue")
+async def queued_input_status(
+    conversation_id: str,
+    ids: list[str] = Query(default_factory=list, max_length=16),
+    token: dict = Depends(require_vault_owner_token),
+):
+    try:
+        receipts = queued_input_registry.status(str(token["user_id"]), conversation_id, ids)
+    except QueuedInputError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+    return {"receipts": [_queued_input_receipt(receipt) for receipt in receipts]}
+
+
+@router.post("/api/one/agent-chat/runs/{conversation_id}/stop")
+async def stop_agent_turn(
+    conversation_id: str,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """End the running turn at its next step; queued messages come back unsent.
+
+    ``stopped`` is false when no turn of this conversation runs in this process;
+    the client then stops reading and sends what it queued as the next turn.
+    """
+    settlement = queued_input_registry.request_stop(str(token["user_id"]), conversation_id)
+    if settlement is None:
+        return {"stopped": False, "returned": []}
+    return {"stopped": True, "returned": list(settlement.returned)}
 
 
 # ── Proposal mode: action search and structured proposals ────────────────────

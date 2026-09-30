@@ -336,6 +336,14 @@
       ]
     },
     {
+      "id": "memory.save_pasted_context",
+      "family": "memory",
+      "prompt": "Please save all of this to my memory.\n# Context transfer (synthetic)\n## Role\n- Staff engineer at Example Labs since 2026.\n- Base pay USD 150,000 (synthetic).\n## Housing\n- Rents in Synthetic City.\n## Information not known\n- Date of birth and home address are not known.",
+      "expected": [
+        "add_to_pkm"
+      ]
+    },
+    {
       "id": "memory.read_health",
       "family": "memory",
       "prompt": "what do you know about my health",

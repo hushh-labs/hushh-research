@@ -53,6 +53,43 @@
     {"name": "private_key", "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY-----"},
     {"name": "secret_key", "pattern": "\\b(?:sk|rk|pk)_(?:live|test)_[0-9A-Za-z]{16,}"}
   ],
+  "$comment_topics": "Words and two-word phrases that name a sensitive TOPIC: the founder's five categories (2026-09-28) plus pay and immigration (2026-09-29). consent-protocol/hushh_mcp/consent/scope_sensitivity.py reads them for scope and path names. The client manifest walk (hushh-webapp/lib/personal-knowledge-model/manifest.ts) reads them for path words AND stated values, so a salary saved under a general profile scope is still labelled; only the label leaves the device, never the value. Labels only escalate. Words are matched whole, camelCase and separators split, one trailing plural s folded (so taxes is listed as taxe).",
+  "sensitive_topics": {
+    "tax": {
+      "label": "restricted",
+      "words": ["1040", "1099", "agi", "irs", "tax", "taxe", "w2", "w9"],
+      "phrases": [["tax", "id"], ["w", "2"], ["w", "9"]]
+    },
+    "financial": {
+      "label": "confidential",
+      "words": ["bank", "banking", "bonu", "bonuse", "brokerage", "compensation", "credit", "cvv", "debit", "equity", "finance", "financial", "holding", "iban", "income", "investment", "loan", "mortgage", "payroll", "paystub", "plaid", "portfolio", "routing", "rsu", "salarie", "salary", "stipend", "wage", "wallet"],
+      "phrases": [["account", "number"], ["insurance", "policy"], ["net", "worth"]]
+    },
+    "identity": {
+      "label": "restricted",
+      "words": ["aadhaar", "birthdate", "citizenship", "dob", "ein", "identity", "immigration", "itin", "passport", "ssn", "visa"],
+      "phrases": [["birth", "date"], ["date", "birth"], ["driver", "license"], ["drivers", "license"], ["gov", "id"], ["government", "id"], ["green", "card"], ["license", "number"], ["national", "id"], ["social", "security"], ["work", "permit"]]
+    },
+    "health": {
+      "label": "restricted",
+      "words": ["allergie", "allergy", "diagnose", "diagnosis", "disability", "health", "hipaa", "medical", "medication", "prescription", "therapy", "vaccination", "vaccine"],
+      "phrases": [["lab", "result"], ["mental", "health"]]
+    },
+    "credentials": {
+      "label": "restricted",
+      "words": ["credential", "otp", "passcode", "password", "pin", "secret", "token"],
+      "phrases": []
+    }
+  },
+  "topic_cases": [
+    {"text": "Base salary: USD 182,000 per year", "label": "confidential", "why": "Pay stated as a value under a general profile scope (live synthetic run, 2026-09-29)."},
+    {"text": "Annual bonus target: 12 percent of base", "label": "confidential", "why": "Pay without the word salary."},
+    {"text": "Visa renewal is due in June 2027", "label": "restricted", "why": "Immigration status."},
+    {"text": "Green card application has not been filed yet", "label": "restricted", "why": "A phrase whose words are harmless alone."},
+    {"text": "workPermitExpiry", "label": "restricted", "why": "camelCase path segment."},
+    {"text": "Prefers aisle seats on long flights", "label": null, "why": "Ordinary preference stays unlabelled."},
+    {"text": "Writes code in VS Code with a vim keymap; loves the syntax highlighting", "label": null, "why": "syntax is not tax: whole words only."}
+  ],
   "cases": [
     {"key": "fein", "value": null, "sensitive": true, "why": "The S3 finding: an EIN named 'Fein' inside a standard Legal entity item."},
     {"key": "entity fein", "value": null, "sensitive": true, "why": "The client's humanized path segment for entity_fein."},

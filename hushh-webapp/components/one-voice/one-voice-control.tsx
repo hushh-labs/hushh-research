@@ -12,8 +12,9 @@
  * Keeps the launcher identity the shell, the native shells and the contract
  * tests rely on: data-testid="one-voice-agent-bar",
  * data-native-voice-control-id="one_voice_agent_bar_start",
- * data-agent-dock="one-agent-dock", the shell's var(--app-agent-bar-max-width)
- * width, and the "var(--agent-bar-with-nav-bottom)" seat for layout="fixed".
+ * data-agent-dock="one-agent-dock", the shared bottom chrome column
+ * (components/app-ui/bottom-chrome-column.ts), and the
+ * "var(--agent-bar-with-nav-bottom)" seat for layout="fixed".
  *
  * Every visible state here is read from the session store, which derives it
  * only from typed frames; nothing on this surface is set from transcript text.
@@ -41,6 +42,10 @@ import {
   useVoiceSessionStore,
 } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
 
 import {
   OneVoicePanel,
@@ -57,13 +62,6 @@ import { transcriptStatusLine } from "./voice-transcript";
  * the launcher. The control test pins the two strings together.
  */
 const FOCUS_PENDING_EVENT = "one-voice:focus-pending";
-
-// The same column as the tab bar under it and every card above it (16 px
-// gutters). At 1.5rem the dock ran 4 px wider than the tab bar on each side,
-// two stacked pills of different widths.
-const DOCK_WIDTH_SLOT =
-  "max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]";
-const DOCK_WIDTH_FIXED = "max-w-[min(calc(100vw-2rem),34rem)]";
 
 /** Native only: the OS microphone settings screen. Web has no such door. */
 function openMicrophoneSettings(): void {
@@ -188,7 +186,9 @@ export function OneVoiceControl({
       data-ambient-chrome-ignore
       className={cn(
         "pointer-events-none flex flex-col items-center gap-2",
-        layout === "slot" ? "w-full" : "fixed inset-x-0 z-[540] px-4",
+        layout === "slot"
+          ? "w-full"
+          : cn("fixed inset-x-0 z-[540]", BOTTOM_CHROME_INSET_CLASSNAME),
       )}
       style={
         layout === "fixed"
@@ -202,8 +202,8 @@ export function OneVoiceControl({
     >
       <div
         className={cn(
-          "pointer-events-none flex w-full flex-col gap-2",
-          DOCK_WIDTH_SLOT,
+          "pointer-events-none flex flex-col gap-2",
+          BOTTOM_CHROME_COLUMN_CLASSNAME,
         )}
       >
         {panelOpen ? (
@@ -264,8 +264,8 @@ export function OneVoiceControl({
         role="group"
         aria-label="One private agent"
         className={cn(
-          "bottom-chrome-surface pointer-events-auto relative flex w-full items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
-          layout === "slot" ? DOCK_WIDTH_SLOT : DOCK_WIDTH_FIXED,
+          "bottom-chrome-surface pointer-events-auto relative flex items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
+          BOTTOM_CHROME_COLUMN_CLASSNAME,
         )}
       >
         {active ? (

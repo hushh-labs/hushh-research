@@ -35,7 +35,11 @@ from api.middlewares.rate_limit import (
     limiter,
 )
 from api.utils.firebase_admin import get_firebase_auth_app
-from api.utils.firebase_auth import verify_firebase_bearer
+from api.utils.firebase_auth import (
+    carries_review_mint,
+    refuse_foreign_review_mint,
+    verify_firebase_bearer,
+)
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.developer_registry_service import TOOL_GROUP_HUSHH_TECH_CLIENT
 from hushh_mcp.services.hushh_tech_client_service import (
@@ -354,6 +358,11 @@ async def _require_recent_firebase_auth(
             detail={"code": "UNAUTHENTICATED", "message": "Recent sign-in required."},
         ) from None
 
+    if refuse_foreign_review_mint(decoded):
+        raise _product_http_error(
+            status_code=401,
+            detail={"code": "UNAUTHENTICATED", "message": "Recent sign-in required."},
+        )
     token_uid = str(decoded.get("uid") or "")
     auth_time = decoded.get("auth_time")
     current = int(time.time()) if now_seconds is None else int(now_seconds)
@@ -488,6 +497,14 @@ async def _authorize_firebase_watermark(
             status_code=401,
             detail={"code": "UNAUTHENTICATED", "message": "Sign-in required."},
         ) from None
+    # Launch exchange mints a fresh custom token that cannot carry the
+    # review-mint lane claim, so no review session may authorize one, on any
+    # lane: it would launder a lane-confined session into an unconfined one.
+    if refuse_foreign_review_mint(decoded) or carries_review_mint(decoded):
+        raise _product_http_error(
+            status_code=401,
+            detail={"code": "UNAUTHENTICATED", "message": "Sign-in required."},
+        )
     token_uid = str(decoded.get("uid") or "")
     issued_at = decoded.get("iat")
     if (

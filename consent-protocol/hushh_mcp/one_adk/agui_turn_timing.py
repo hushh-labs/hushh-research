@@ -28,6 +28,7 @@ from uuid import uuid4
 
 from ag_ui.core import (
     BaseEvent,
+    CustomEvent,
     EventType,
     Interrupt,
     RunAgentInput,
@@ -37,6 +38,7 @@ from ag_ui.core import (
 from ag_ui_adk import ADKAgent
 from google.adk.models.llm_response import LlmResponse
 
+from hushh_mcp.one_adk import queued_input
 from hushh_mcp.one_adk.drive_result_privacy import (
     ConfirmationWireProjection,
     governed_call_ids,
@@ -510,6 +512,7 @@ class TimedADKAgent(ADKAgent):
         detach_watch = self._detach_watch(input)
         detach_context = _CURRENT_DETACH.set(detach_watch)
         interrupted = False
+        queued_key: queued_input.RunKey | None = None
         private_call_ids: set[str] = set()
         confirmations = ConfirmationWireProjection()
         summary_replays = ThoughtSummaryReplayFilter()
@@ -524,6 +527,12 @@ class TimedADKAgent(ADKAgent):
                 conversation_id=input.thread_id,
             )
             async with (
+                queued_input.run_scope(
+                    str(state.get("hussh:user_id") or "") if self.head == HEAD_ONE else "",
+                    str(input.thread_id or ""),
+                    str(input.run_id or ""),
+                    accepting=queued_input.clubbing_admitted(state, resuming=_is_resume(input)),
+                ) as queued_key,
                 pending_resume_scope(state.get("temp:hussh:mcp_approval")),
                 self._mcp_turn_resources(
                     input.thread_id,
@@ -559,7 +568,14 @@ class TimedADKAgent(ADKAgent):
                                 timing.observe(CHAT_KEY_RUN_ERROR)
                                 yield CHAT_KEY_RUN_ERROR
                                 return
+                            terminal = _is_terminal(projected)
+                            if terminal and (notice := _queued_notice(queued_key, settled=True)):
+                                yield notice
                             yield projected
+                            if not terminal and (
+                                notice := _queued_notice(queued_key, settled=False)
+                            ):
+                                yield notice
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
             # Consumers commonly close immediately after the terminal event.
@@ -584,6 +600,8 @@ class TimedADKAgent(ADKAgent):
             safe_error = safe_exception_event(exc)
             timing.observe(safe_error)
             timing.error_class = "escaped_exception"
+            if notice := _queued_notice(queued_key, settled=True):
+                yield notice
             yield safe_error
         finally:
             if interrupted or timing.outcome in (OUTCOME_ERROR, OUTCOME_CLIENT_DISCONNECT):
@@ -607,7 +625,12 @@ class TimedADKAgent(ADKAgent):
         write would fail. The binding still has a hard ceiling in ``chat_key``.
         """
         with retain_request_chat_key():
-            result = await super()._run_adk_in_background(*args, **kwargs)
+            try:
+                result = await super()._run_adk_in_background(*args, **kwargs)
+            finally:
+                # A reader that left never received the settlement; close the
+                # inbox when the run itself ends so nothing waits in memory.
+                queued_input.settle(queued_input.current_run())
             # Still inside the retained binding: the hook reads the sealed
             # session with the key this turn received and never stores it.
             await self._settle_detached_turn()
@@ -664,6 +687,43 @@ class TimedADKAgent(ADKAgent):
                 registry.pop(key, None)
         except Exception:  # noqa: BLE001 - never let slot release mask the run outcome
             logger.debug("one_agent_chat_execution_release_failed", exc_info=True)
+
+
+def _is_terminal(event: BaseEvent) -> bool:
+    return getattr(event, "type", None) in (EventType.RUN_FINISHED, EventType.RUN_ERROR)
+
+
+def _is_resume(input: RunAgentInput) -> bool:
+    """A confirmation or tool-result resume, which never takes queued input."""
+    if getattr(input, "resume", None):
+        return True
+    messages = input.messages or []
+    return bool(messages) and getattr(messages[-1], "role", None) == "tool"
+
+
+def _queued_notice(key: queued_input.RunKey | None, *, settled: bool) -> CustomEvent | None:
+    """Where queued messages landed, as ids only. Never message text."""
+    if key is None:
+        return None
+    if settled:
+        settlement = queued_input.settle(key)
+        joined, returned = settlement.delivered, settlement.returned
+        if not joined and not returned:
+            return None
+    else:
+        joined = tuple(
+            queued_input.registry.take_announcements(key.owner_id, key.conversation_id, key.run_id)
+        )
+        returned = ()
+        if not joined:
+            return None
+    return CustomEvent(
+        type=EventType.CUSTOM,
+        name=queued_input.QUEUED_INPUT_EVENT,
+        value=queued_input.queued_input_event_value(
+            joined=joined, returned=returned, settled=settled
+        ),
+    )
 
 
 def _request_text(value: Any) -> str:

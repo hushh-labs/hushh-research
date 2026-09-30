@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import contract from "@/contracts/consent/field-sensitivity.v1.json";
-import { fieldSensitivity } from "@/lib/consent/field-sensitivity";
+import { fieldSensitivity, sensitiveTopicLabel } from "@/lib/consent/field-sensitivity";
 import { knownFieldLabel } from "@/lib/consent/field-labels";
 
 /**
@@ -12,6 +12,13 @@ import { knownFieldLabel } from "@/lib/consent/field-labels";
  * an EIN the device would send while the server believes it never left.
  */
 describe("field-level sensitivity contract (C7)", () => {
+  it("labels a stated topic the way the shared topic table says", () => {
+    expect(contract.topic_cases.length).toBeGreaterThan(4);
+    for (const testCase of contract.topic_cases) {
+      expect(sensitiveTopicLabel(testCase.text), testCase.why).toBe(testCase.label);
+    }
+  });
+
   it("has cases to check", () => {
     // An emptied contract would make every case below pass vacuously.
     expect(contract.cases.length).toBeGreaterThan(10);

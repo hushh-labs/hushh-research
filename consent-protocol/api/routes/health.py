@@ -15,6 +15,7 @@ from fastapi.responses import JSONResponse
 
 from api.middlewares.rate_limit import limiter
 from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+from api.utils.firebase_auth import review_mint_developer_claims
 from db.connection import get_pool
 
 logger = logging.getLogger(__name__)
@@ -136,51 +137,28 @@ def _match_reviewer_identity(
     return None
 
 
-def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, str] | None:
-    provided_passphrase = str(smoke_passphrase or "").strip()
-    if _is_production_runtime():
-        return None
-    if not provided_passphrase:
-        return None
-    return _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+def _authenticate_review_identity(
+    smoke_passphrase: object,
+    requested_uid: object = None,
+) -> tuple[str, str] | None:
+    """Return ``(uid, subject)`` only for a request that proves a reviewer pair.
 
-
-def _select_review_mode_identity(
-    smoke_passphrase: str | None,
-    requested_uid: str | None = None,
-) -> tuple[str, str]:
-    """Select a configured identity; a client UID never grants that identity.
-
-    The no-passphrase reviewer button and unmatched-passphrase fallback retain
-    the primary identity. A counterpart needs its configured passphrase. When
-    the client supplies an expected UID, reject a mismatch instead of silently
-    signing it into a different account.
+    The credential is the configured vault passphrase of the identity being
+    minted, which every legitimate caller (reviewer tooling, the native test
+    bridge, deploy smoke) already holds from process env or the env resolver.
+    A request naming a configured reviewer uid must carry THAT pair's
+    passphrase, so a shared passphrase can never resolve one reviewer to the
+    other. A request naming no configured uid is matched on passphrase alone.
+    No passphrase, or one matching no pair, returns None: there is no default
+    identity any more. Values are never logged.
     """
-    primary = (_resolve_reviewer_uid(), "reviewer")
-    # The configured primary is already available to the review-mode button
-    # without a passphrase. An explicit primary selection must not resolve to
-    # the counterpart merely because they share a vault passphrase.
-    if (
-        requested_uid is not None
-        and primary[0]
-        and str(requested_uid).strip() == primary[0]
-        and not _is_production_runtime()
-    ):
-        return primary
-    provided_passphrase = str(smoke_passphrase or "").strip()
-    matched = (
-        _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
-        if provided_passphrase and not _is_production_runtime()
-        else None
-    )
-    selected = matched or primary
-    if requested_uid is not None and str(requested_uid).strip() != selected[0]:
-        raise HTTPException(
-            status_code=403,
-            detail="Reviewer identity mismatch",
-            headers=NO_STORE_HEADERS,
-        )
-    return selected
+    provided = str(smoke_passphrase or "").strip()
+    if not provided or _is_production_runtime():
+        return None
+    configured = _configured_reviewer_identities()
+    clean_requested = str(requested_uid or "").strip()
+    named = tuple(pair for pair in configured if clean_requested and pair[0] == clean_requested)
+    return _match_reviewer_identity(provided, named or configured)
 
 
 def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
@@ -427,16 +405,16 @@ async def issue_app_review_mode_session(request: Request):
     Mint a Firebase custom token for app-review login.
 
     Security:
-    - Never mints in production. A review-mode session is a sign-in with no
-      credential, so on production it would hand the reviewer account to
-      anyone who asks. Production refuses with the same response as a
-      disabled lane, whatever APP_REVIEW_MODE says.
-    - Outside production: enabled when APP_REVIEW_MODE is true, or when the
-      request carries a passphrase matching a configured reviewer pair
-    - Mints only server-configured identities: REVIEWER_UID by default, or the
-      pair (primary or REVIEWER_COUNTERPART_UID) whose passphrase matches
-    - With review mode on, a passphrase matching no pair mints the primary,
-      unchanged from before the counterpart pair existed
+    - Never mints in production. Production refuses with the same response as
+      a disabled lane, whatever APP_REVIEW_MODE says.
+    - Outside production, requires proof of a configured reviewer pair: the
+      request's ``smoke_passphrase`` must equal that pair's vault passphrase,
+      compared in constant time. A bare request, or a wrong passphrase, gets
+      403 whatever APP_REVIEW_MODE says; the flag only advertises the button.
+    - Rate-limited (10/minute per key) like before.
+    - Mints only server-configured identities (REVIEWER_UID or
+      REVIEWER_COUNTERPART_UID), stamped with the hushh_review_mint lane claim
+      so no other lane accepts the session.
     - Never returns any reviewer passphrase to clients, and never logs one
     """
     if _is_production_runtime():
@@ -454,34 +432,28 @@ async def issue_app_review_mode_session(request: Request):
     if not isinstance(payload, dict):
         payload = {}
 
-    session_subject = "reviewer"
-    reviewer_uid = ""
-    failure_reason = "missing_reviewer_uid"
-
-    if _is_app_review_mode_enabled():
-        reviewer_uid, session_subject = _select_review_mode_identity(
-            payload.get("smoke_passphrase"),
-            requested_uid=payload.get("reviewer_uid"),
-        )
-    else:
-        smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))
-        if smoke_overlay:
-            reviewer_uid, session_subject = smoke_overlay
-            failure_reason = "missing_uat_smoke_user_id"
+    identity = _authenticate_review_identity(
+        payload.get("smoke_passphrase"),
+        requested_uid=payload.get("reviewer_uid"),
+    )
+    if identity is None:
+        # Reasons are literal format text, not arguments: the process-wide log
+        # redactor (mcp_modules/log_redaction.py) scrubs long underscored
+        # argument values as if they were uids.
+        if not str(payload.get("smoke_passphrase") or "").strip():
+            logger.warning("app_review_mode.session_refused reason=credential_missing")
+        elif not _configured_reviewer_identities():
+            # Operator signal: this backend holds no reviewer passphrase in its
+            # process env, so no request can succeed (see reviewer_mode.sh).
+            logger.warning("app_review_mode.session_refused reason=credential_not_configured")
         else:
-            raise HTTPException(
-                status_code=403,
-                detail="App review mode is disabled",
-                headers=NO_STORE_HEADERS,
-            )
-
-    if not reviewer_uid:
-        logger.error("app_review_mode.session_failed reason=%s", failure_reason)
+            logger.warning("app_review_mode.session_refused reason=credential_mismatch")
         raise HTTPException(
-            status_code=503,
-            detail="Review session identity not configured",
+            status_code=403,
+            detail="Review session credential required",
             headers=NO_STORE_HEADERS,
         )
+    reviewer_uid, session_subject = identity
 
     # ── Offline mode: skip Firebase Admin SDK, return local token ──
     query_params = dict(request.query_params)
@@ -508,8 +480,11 @@ async def issue_app_review_mode_session(request: Request):
     try:
         from firebase_admin import auth as firebase_auth
 
+        # The claim confines the resulting session to this lane: every other
+        # lane sharing the Firebase authority refuses it (api/utils/firebase_auth.py).
         custom_token = firebase_auth.create_custom_token(
             reviewer_uid,
+            review_mint_developer_claims(),
             app=get_firebase_auth_app(),
         )
         token_str = (
@@ -525,8 +500,10 @@ async def issue_app_review_mode_session(request: Request):
 
     client_ip = request.client.host if request.client else "unknown"
     logger.info(
-        "app_review_mode.session_issued reviewer_uid_present=true subject=%s project_id=%s client_ip=%s",
+        "app_review_mode.session_issued reviewer_uid_present=true subject=%s lane=%s "
+        "project_id=%s client_ip=%s",
         session_subject,
+        review_mint_developer_claims()["hushh_review_mint"],
         project_id or "unknown",
         client_ip,
     )

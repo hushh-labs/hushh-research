@@ -758,15 +758,12 @@
       "route": "/one/profile/connectors",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
-      "expectedMarker": "native-route-profile-connectors",
+      "expectedMarker": "native-route-profile",
       "expectedRoute": "/one/profile/connectors",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
+        "loaded"
       ]
     },
     {

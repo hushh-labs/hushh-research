@@ -24,7 +24,8 @@
   ],
 
   "$comment_branches": "Whole branches that are app state wherever they appear, at any depth. `domain_intent` is already in internal_keys, but it was reaching the catalogue nested as `profile.domain_intent.primary` because the only structural check looked at depth 1 only.",
-  "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state"],
+  "$comment_superseded": "`superseded` holds the earlier values of a detail the person later changed, each with the time it was replaced (hushh-webapp/lib/pkm/pkm-supersede-merge.ts). It is the owner's history, kept so an update never deletes what they said. It is not current information and must never be offered, requested or shared.",
+  "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state", "superseded"],
 
   "cases": [
     {"path": "employment.observations._items", "internal": false, "why": "Scalar arrays have eligible leaf values at the terminal item marker."},
@@ -62,6 +63,16 @@
       "path": "profile.preferences.investment_horizon",
       "internal": false,
       "why": "The answer itself. This is a real preference and must survive the filter -- a denylist that eats the signal is worse than none."
+    },
+    {
+      "path": "career.compensation.superseded.base_salary",
+      "internal": true,
+      "why": "An earlier salary kept as history after the person stated a new one. Sharing it would share something they have since replaced."
+    },
+    {
+      "path": "career.compensation.base_salary",
+      "internal": false,
+      "why": "The current value beside that history is ordinary information, shared only under consent."
     },
     {
       "path": "profile.preferences.risk_profile",

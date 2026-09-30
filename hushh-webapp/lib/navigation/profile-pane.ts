@@ -2,7 +2,11 @@ import type {
   ProfileDetail,
   ProfilePanel,
 } from "@/lib/navigation/profile-routes";
-import { normalizeProfileDetail, normalizeProfilePanel } from "@/lib/navigation/profile-routes";
+import {
+  normalizeConnectorDetailId,
+  normalizeProfileDetail,
+  normalizeProfilePanel,
+} from "@/lib/navigation/profile-routes";
 
 export const PROFILE_PANE_OPEN_EVENT = "hushh:profile-pane-open";
 export const PROFILE_PANE_QUERY = "profile_pane";
@@ -53,6 +57,34 @@ function toSearchParams(
     if (next !== null) params.set(key, next);
   }
   return params;
+}
+
+/**
+ * The Connectors section inside Profile, optionally opened on one connector.
+ * Every "open Connectors" entry (the Profile row, a Drive card's reconnect,
+ * an OAuth return) resolves here so there is one destination, not one per
+ * caller.
+ */
+export function profileConnectorsLocation(
+  connectorId?: string | null,
+): ProfilePaneLocation {
+  const id = normalizeConnectorDetailId(connectorId ?? null);
+  return { panel: "connectors", detail: id ? `connector:${id}` : null };
+}
+
+/**
+ * An address that opens the Connectors section in the Profile pane over One.
+ * For screens that are not already inside the app shell (an OAuth return
+ * page); in-app callers open the pane over their own route instead.
+ */
+export function buildProfileConnectorsPaneHref(
+  connectorId?: string | null,
+): string {
+  return profilePaneHref(
+    "/one",
+    null,
+    profileConnectorsLocation(connectorId),
+  );
 }
 
 export function profilePaneLocationKey(location: ProfilePaneLocation): string {

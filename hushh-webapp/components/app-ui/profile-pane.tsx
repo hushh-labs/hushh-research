@@ -15,6 +15,7 @@ import {
   resolveProfilePaneUrlState,
   type ProfilePaneLocation,
 } from "@/lib/navigation/profile-pane";
+import { connectorDetailTitle } from "@/lib/navigation/profile-routes";
 import {
   Sheet,
   SheetClose,
@@ -167,6 +168,8 @@ export const ProfilePane = memo(function ProfilePane({
       ? "Memory"
       : location.panel === "connected-systems"
         ? "Connected Systems"
+        : location.panel === "connectors"
+          ? "Connectors"
         : location.panel === "gmail"
           ? "Mail receipts"
           : location.panel === "account"
@@ -188,7 +191,7 @@ export const ProfilePane = memo(function ProfilePane({
   // Details without a fixed name (a domain, a connection) keep the panel's.
   const detail = location.detail;
   const title = detail
-    ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle)
+    ? (PROFILE_DETAIL_TITLES[detail] ?? connectorDetailTitle(detail) ?? panelTitle)
     : panelTitle;
 
   // URL state requests a destination, not admission. Keep it for resume, but

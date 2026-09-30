@@ -1108,3 +1108,25 @@ def test_drive_evidence_guard_does_not_capture_other_provider_failures():
             SimpleNamespace(name=name), arguments, context, {"status": "unavailable"}
         )
     assert boundary.STATE_DRIVE_READ_OUTCOME not in context.state
+
+
+def test_probe_result_is_untrusted_so_first_party_actions_stop_for_the_turn():
+    """Server-authored tool descriptions reach the model; nothing may act after them."""
+    from hushh_mcp.one_adk.registered_mcp_toolset import probe_private_connector
+
+    probe = FunctionTool(probe_private_connector)
+    gmail_change = FunctionTool(agent_tree.propose_gmail_mailbox_change)
+    context = SimpleNamespace(
+        invocation_id="turn", state={STATE_EXECUTION_SURFACE: "typed_chat"}, user_id="owner"
+    )
+    # Negative control: before any probe the same first-party tool is admitted.
+    assert before_external_read_tool(gmail_change, {}, context) is None
+    assert (
+        before_external_read_tool(probe, {"endpoint": "https://mcp.example.com/mcp"}, context)
+        is None
+    )
+    assert context.state[STATE_EXTERNAL_READ] == "turn"
+    assert (
+        before_external_read_tool(gmail_change, {}, context)["reason"] == "connector_read_complete"
+    )
+    assert before_external_read_tool(probe, {}, context)["reason"] == "connector_read_complete"

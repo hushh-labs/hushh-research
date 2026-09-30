@@ -37,11 +37,21 @@ BUNDLE = "0f0e0d0c-0b0a-4908-8706-050403020100"
         "attr.financial.summary.*",
         "attr.banking.accounts.*",
         "attr.professional.salary_history",
+        # A pasted context document files pay and status under career and
+        # immigration branches, not under the words above (2026-09-29).
+        "attr.career.compensation.*",
+        "attr.career.compensation.base_pay",
+        "attr.career.annual_bonus",
+        "attr.career.equity_grant",
         "attr.ria.*",
         "attr.wallet.summary.*",
         # Identity or government id
         "attr.identity.*",
         "attr.personal.passport_number",
+        "attr.immigration.*",
+        "attr.profile.citizenship",
+        "attr.status.green_card",
+        "attr.employment.work_permit",
         "attr.personal.socialSecurityNumber",
         "attr.documents.drivers_license",
         # An identifier FIELD is sensitive in any domain (run 4, S3): the EIN

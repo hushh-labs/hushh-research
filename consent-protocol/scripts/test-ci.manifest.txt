@@ -73,6 +73,8 @@ tests/test_email_agent_a2a.py
 tests/test_adk_specialist_chat_services.py
 tests/test_one_external_read_boundary.py
 tests/test_one_external_read_projection.py
+# Queued messages join a live turn only at a step boundary, exactly once, owner-bound.
+tests/test_one_queued_input.py
 tests/test_private_agent_telemetry.py
 tests/test_mcp_log_redaction.py
 

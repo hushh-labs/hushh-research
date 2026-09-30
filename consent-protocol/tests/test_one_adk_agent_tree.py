@@ -39,6 +39,7 @@ from hushh_mcp.one_adk.action_tools import (
     _is_journey_startable,
     _journey_slots,
     _navigation_journey_definition,
+    add_to_pkm,
     continue_app_goal,
     discover_person_information,
     get_location_circle_members,
@@ -88,6 +89,7 @@ from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
 )
+from hushh_mcp.one_adk.queued_input import club_queued_input
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
@@ -147,8 +149,13 @@ class TestAgentTreeShape:
         agent = build_one_root_agent()
         assert agent.name == "one"
         # Consent redaction runs first, so timing measures the request actually sent.
-        assert agent.canonical_before_model_callbacks[-1] is timed_one_before_model
-        assert agent.canonical_before_model_callbacks[0].__name__ == "_one_consent_before_model"
+        # Queued input joins last: the timing callback can still answer for the
+        # model (the read barrier), and a message must never be drained into a
+        # call that is not made.
+        callbacks = agent.canonical_before_model_callbacks
+        assert callbacks[0].__name__ == "_one_consent_before_model"
+        assert callbacks[1] is timed_one_before_model
+        assert callbacks[-1] is club_queued_input
         assert agent.after_model_callback is timed_one_after_model
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
@@ -4494,6 +4501,44 @@ class TestReadMyPkmDomainSummary:
             result = await read_my_pkm_domain_summary("financial", _tool_context(state))
         assert result["status"] == "failed"
         assert "try again" in result["message"].lower()
+
+
+class TestAddToPkmNeverClaimsASave:
+    """add_to_pkm hands work to the device; it must never read as a completed save.
+
+    Production 2026-09-29: the tool returned "Saving eligible details
+    privately." and One told the person their document had been "queued and
+    submitted" to memory. Nothing had been saved.
+    """
+
+    @pytest.mark.asyncio
+    async def test_the_result_says_nothing_is_saved_yet(self) -> None:
+        ctx = SimpleNamespace(state={})
+        result = await add_to_pkm("I prefer window seats", "owner asked", ctx)
+        assert result["saved"] is False
+        assert result["status"] == "handed_to_device"
+        assert "Nothing is saved yet" in result["message"]
+        assert "Do not say it is saved" in result["message"]
+        directive = ctx.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"]
+        assert directive["payload"] == {
+            "actionId": "pkm.add",
+            "slots": {"source_text": "I prefer window seats"},
+        }
+
+    @pytest.mark.asyncio
+    async def test_a_pasted_document_is_read_from_the_turn_not_copied(self) -> None:
+        ctx = SimpleNamespace(state={})
+        result = await add_to_pkm("", "owner pasted context", ctx, whole_message=True)
+        assert result["saved"] is False
+        slots = ctx.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"]["payload"]["slots"]
+        assert slots["source_scope"] == "turn"
+
+    @pytest.mark.asyncio
+    async def test_an_empty_single_detail_is_refused(self) -> None:
+        ctx = SimpleNamespace(state={})
+        result = await add_to_pkm("  ", "none", ctx)
+        assert result["status"] == "missing_text"
+        assert not ctx.state
 
 
 class TestSettledActionJourneys:

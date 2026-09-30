@@ -209,7 +209,10 @@ export function CircleDiscoveryCard({
       data-testid="connect-living-connections"
       data-circle-discovery-card=""
       data-auto-tour={autoTourActive ? "running" : "stopped"}
-      className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
+      // No entrance motion. The card is the page's first content and arrives
+      // with the route; a mount slide on top of that read as the card, and the
+      // Trusted Circle row in it, bouncing as Connect loaded.
+      className={CONNECT_HERO_CLASSNAME}
     >
       <div className="relative grid grid-cols-[2.75rem_minmax(0,1fr)_2.75rem] items-center text-center md:block">
         <h2 id={headingId} className="ui-text-major-section-title col-start-2 text-[color:var(--app-label)] sm:!text-2xl">
@@ -304,7 +307,7 @@ export function CircleDiscoveryCard({
                   "--circle-node-desktop-top": `${50 + Math.sin(angle) * 40}%`,
                 } as CSSProperties}
               >
-                <span className="motion-step-enter flex flex-col items-center gap-0.5" style={{ animationDelay: `${80 + index * 45}ms` }}>
+                <span className="flex flex-col items-center gap-0.5">
                   <span
                     data-circle-starter-icon={item.id}
                     className={cn(
@@ -334,24 +337,44 @@ export function CircleDiscoveryCard({
         </div>
 
         <div className="min-w-0 md:max-w-[22rem]">
+          {/* Every starter's copy sits in the same grid cell, so the box is
+              always as tall as the longest description and the tour never
+              moves the actions or the footer below it (the Location copy wraps
+              one line more than Family at a phone width). The swap is an
+              opacity crossfade in place: nothing slides. */}
           <div
             id={descriptionId}
-            key={selected}
             data-testid="circle-discovery-preview"
             data-circle-discovery-preview=""
-            className="motion-step-enter rounded-[var(--app-radius-sm)] bg-[color:var(--app-secondary-surface)] px-3 py-2.5 text-center md:rounded-[var(--app-card-radius-compact)] md:border md:border-[color:var(--app-card-border-standard)] md:bg-[color:var(--app-card-surface-default-solid)] md:px-5 md:py-5 md:text-left"
+            className="grid rounded-[var(--app-radius-sm)] bg-[color:var(--app-secondary-surface)] px-3 py-2.5 text-center md:rounded-[var(--app-card-radius-compact)] md:border md:border-[color:var(--app-card-border-standard)] md:bg-[color:var(--app-card-surface-default-solid)] md:px-5 md:py-5 md:text-left"
             aria-live={autoTourActive ? "off" : "polite"}
             aria-atomic="true"
           >
-            <p className="hidden text-xs font-medium text-[color:var(--app-secondary-label)] md:block">
-              {circle ? "Your circle" : "Make it yours"}
-            </p>
-            <h3 className="text-sm font-semibold leading-5 text-[color:var(--app-label)] md:mt-1 md:text-lg">
-              {circle?.name ?? starter.name}
-            </h3>
-            <p className="ui-text-caption mx-auto mt-1 max-w-[28rem] !text-xs !leading-[1.35] !text-[color:var(--app-secondary-label)] sm:!text-sm sm:!leading-5 md:mx-0 md:mt-2">
-              {starter.description}
-            </p>
+            {CIRCLE_STARTERS.map((item) => {
+              const itemCircle = findStarterCircle(snapshot.circles, item);
+              const shown = item.id === selected;
+              return (
+                <div
+                  key={item.id}
+                  data-circle-discovery-preview-layer={item.id}
+                  aria-hidden={shown ? undefined : true}
+                  className={cn(
+                    "[grid-area:1/1] transition-[opacity,visibility] duration-200 ease-out motion-reduce:transition-none",
+                    shown ? "visible opacity-100" : "invisible opacity-0",
+                  )}
+                >
+                  <p className="hidden text-xs font-medium text-[color:var(--app-secondary-label)] md:block">
+                    {itemCircle ? "Your circle" : "Make it yours"}
+                  </p>
+                  <h3 className="text-sm font-semibold leading-5 text-[color:var(--app-label)] md:mt-1 md:text-lg">
+                    {itemCircle?.name ?? item.name}
+                  </h3>
+                  <p className="ui-text-caption mx-auto mt-1 max-w-[28rem] !text-xs !leading-[1.35] !text-[color:var(--app-secondary-label)] sm:!text-sm sm:!leading-5 md:mx-0 md:mt-2">
+                    {item.description}
+                  </p>
+                </div>
+              );
+            })}
           </div>
           <div className={cn(
             "mt-1 grid gap-1.5 sm:gap-2 md:mt-4 md:grid-cols-1",
@@ -380,7 +403,7 @@ export function CircleDiscoveryCard({
                 onPointerDown={stopAutoTour}
                 onFocus={stopAutoTour}
                 onClick={handlePrimaryAction}
-                aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle — ${starter.name}`}
+                aria-label={creating ? "Creating…" : snapshot.loading ? "Loading circles…" : circle ? "Open circle" : `Create a Circle, ${starter.name}`}
                 className="!h-11 w-full !rounded-[var(--app-card-radius-compact)] !px-3"
                 data-testid="circle-discovery-primary"
               >
@@ -402,7 +425,12 @@ export function CircleDiscoveryCard({
         </div>
       </div>
 
-      <div className="mx-auto mt-1 flex max-w-[52rem] min-w-0 items-center justify-center gap-2 border-t border-[color:var(--app-card-border-standard)] pt-1 text-xs leading-4 text-[color:var(--app-secondary-label)] md:justify-start md:pt-3">
+      {/* One height from the first frame: 36px on a phone (the avatar row plus padding),
+          44px from `sm`, where the Trusted Circle link (a 44px target) can
+          appear. It grew 16 -> 28 -> 44px as connections and then circles
+          answered, and pushed everything under the card down twice. The link
+          takes the trailing end, so its arrival moves nothing beside it. */}
+      <div data-circle-discovery-footer="" className="mx-auto mt-1 flex min-h-9 max-w-[52rem] min-w-0 items-center justify-center gap-2 border-t border-[color:var(--app-card-border-standard)] pt-1 text-xs leading-4 text-[color:var(--app-secondary-label)] sm:min-h-11 sm:justify-start md:pt-3">
         {loading ? (
           <p>Loading your connections…</p>
         ) : connectionsUnavailable ? (
@@ -430,9 +458,10 @@ export function CircleDiscoveryCard({
             {trusted ? (
               <button
                 type="button"
+                data-circle-discovery-trusted=""
                 disabled={Boolean(creating)}
                 onClick={() => onOpenCircle(trusted.id)}
-                className="hidden min-h-11 items-center gap-1 rounded-full px-1 text-xs text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:inline-flex"
+                className="hidden min-h-11 items-center gap-1 rounded-full px-1 text-xs text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:ml-auto sm:inline-flex"
               >
                 <ShieldCheck aria-hidden="true" className="size-3.5" />
                 Your Trusted Circle <ArrowRight aria-hidden="true" className="size-3" />

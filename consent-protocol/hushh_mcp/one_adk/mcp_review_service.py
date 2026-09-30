@@ -14,6 +14,7 @@ from google.adk.sessions import InMemorySessionService, Session
 
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.governed_mcp_toolset import (
+    _annotated_read_only,
     mcp_review_outcome,
     mcp_tool_fingerprint,
     native_registration_admitted,
@@ -97,6 +98,9 @@ async def discover_catalog(
                     )
                     == "required"
                     else "not_required",
+                    # Additive: the same fail-closed read-only rule review uses,
+                    # so "Connect read-only" can block every tool that may change.
+                    "access": "read" if _annotated_read_only(tool.descriptor) else "write",
                 }
                 for tool in tools
             ],

@@ -6,6 +6,7 @@ import {
   PROFILE_PANE_DETAIL_QUERY,
   PROFILE_PANE_PANEL_QUERY,
   PROFILE_PANE_QUERY,
+  buildProfileConnectorsPaneHref,
   buildProfilePaneCloseHref,
   buildProfilePaneHref,
   canGoBackProfilePane,
@@ -19,6 +20,10 @@ import {
   replaceProfilePaneLocation,
   resolveProfilePaneUrlState,
 } from "@/lib/navigation/profile-pane";
+import {
+  buildProfileRoute,
+  resolveProfileRouteState,
+} from "@/lib/navigation/profile-routes";
 
 const ACCOUNT = { panel: "account" as const, detail: null };
 const PHONE = { panel: "account" as const, detail: "phone" as const };
@@ -49,6 +54,42 @@ describe("Profile pane navigation state", () => {
       panel: null,
       detail: null,
     });
+  });
+
+  it("addresses Connectors as a Profile section with a Back-able connector detail", () => {
+    const drive = resolveProfilePaneUrlState(
+      "profile_pane=1&profile_panel=connectors&profile_detail=connector:google_drive",
+    );
+    expect(drive).toEqual({
+      open: true,
+      location: { panel: "connectors", detail: "connector:google_drive" },
+    });
+    // The pane header's Back leaves the connector for the Connectors list.
+    expect(profilePaneParentLocation(drive.location)).toEqual({
+      panel: "connectors",
+      detail: null,
+    });
+    // An address-bar value that is not a catalog id opens the list instead.
+    expect(
+      resolveProfilePaneUrlState(
+        "profile_pane=1&profile_panel=connectors&profile_detail=connector:%3Cscript%3E",
+      ).location,
+    ).toEqual({ panel: "connectors", detail: null });
+
+    expect(buildProfileConnectorsPaneHref()).toBe(
+      "/one?profile_pane=1&profile_panel=connectors",
+    );
+    expect(buildProfileConnectorsPaneHref("gmail")).toBe(
+      "/one?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agmail",
+    );
+
+    // The legacy route (rendered by the native bundle) means the same place.
+    expect(
+      resolveProfileRouteState("/one/profile/connectors?connector=gmail"),
+    ).toEqual({ panel: "connectors", detail: "connector:gmail" });
+    expect(
+      buildProfileRoute({ panel: "connectors", detail: "connector:gmail" }),
+    ).toBe("/one/profile/connectors?connector=gmail");
   });
 
   it("builds pane URLs on the current route and preserves route-owned query parameters", () => {

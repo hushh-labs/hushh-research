@@ -217,6 +217,8 @@ export const Search = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const SearchCheck = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const SearchX = createCanonicalIcon(Phosphor.MagnifyingGlass, "regular");
 export const Send = createCanonicalIcon(Phosphor.PaperPlaneRight);
+// Stop a running reply. Filled: a duotone square reads as a checkbox, not stop.
+export const StopSquare = createCanonicalIcon(Phosphor.Square, "fill");
 export const SendHorizontal = createCanonicalIcon(Phosphor.PaperPlaneRight);
 export const Settings = createCanonicalIcon(Phosphor.GearSix);
 export const Settings2 = createCanonicalIcon(Phosphor.Sliders);

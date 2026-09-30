@@ -17,6 +17,14 @@ import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent }
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import { resolveTurnLocation } from "@/lib/agent/turn-location";
 import {
+  QUEUED_INPUT_EVENT,
+  parseQueuedInputNotice,
+  parseQueuedInputStatus,
+  type QueuedInputNotice,
+  type QueuedInputPorts,
+  type QueuedInputStatus,
+} from "@/lib/agent/agent-chat-live-turn-queue";
+import {
   ChatKeyUnavailableError,
   chatKeyRefusalCode,
   noteChatKeyAccepted,
@@ -32,6 +40,10 @@ import {
   parseStoredTextAttachments,
   type AgentTextAttachment,
 } from "@/lib/agent/large-text-attachment";
+import {
+  classifyBackendStrain,
+  type AgentStreamHealthSignal,
+} from "@/lib/agent/agent-chat-slow-notice";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -61,6 +73,8 @@ export type AgentChatMessage = {
     turnActivity?: { activityType?: string; content?: unknown } | null;
     /** Pasted text sent with a user turn, restored as a chip (never as message text). */
     attachments?: AgentTextAttachment[];
+    /** A message sent while One was working, which joined that reply. */
+    queuedInput?: "joined";
     /** The information request this outcome chip or continuation answer belongs to. */
     consentBundleId?: string;
     /** The server hid this answer because sharing it relied on has ended. */
@@ -233,6 +247,13 @@ export type AgentChatStreamHandlers = {
    * be joined to the turn, or matched after a reload (history uses event ids).
    */
   onServerMessageId?: (serverMessageId: string) => void;
+  /** Where messages queued during this turn landed, by client id only. */
+  onQueuedInput?: (notice: QueuedInputNotice) => void;
+  /**
+   * Transport health for the slow-reply notice: bytes, the first visible work,
+   * or server strain from a typed code or status. Never content.
+   */
+  onStreamHealth?: (signal: AgentStreamHealthSignal) => void;
 };
 
 /** The last assistant message with content in a messages snapshot: this turn's answer. */
@@ -323,6 +344,17 @@ function readString(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * Server events that show One is working on the turn: answer text, a tool or
+ * agent step, activity, a custom notice, a thought. Run bookkeeping (started,
+ * state and message snapshots) is not work the person is waiting on.
+ */
+const VISIBLE_WORK_EVENT_PREFIXES = ["TEXT_MESSAGE_", "TOOL_CALL_", "ACTIVITY_", "REASONING_", "THINKING_"] as const;
+
+function isVisibleWorkEvent(type: string): boolean {
+  return type === "CUSTOM" || VISIBLE_WORK_EVENT_PREFIXES.some((prefix) => type.startsWith(prefix));
+}
+
 const GENERIC_AGENT_CHAT_ERROR =
   "One couldn't complete that response. Please try again.";
 
@@ -365,6 +397,7 @@ const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
  */
 function createAgentStreamLiveness(
   onSilent: () => void,
+  onBytes: () => void = () => undefined,
   transport: (init: RequestInit | undefined) => Promise<Response> = (init) => nativeStreamFetch("/api/one/agent-chat", init),
 ) {
   let lastBytesAtMs = Date.now();
@@ -380,10 +413,12 @@ function createAgentStreamLiveness(
     fetch: async (init: RequestInit | undefined): Promise<Response> => {
       const response = await transport(init);
       touch();
+      onBytes();
       if (!response.ok || !response.body) return response;
       const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
         transform(chunk, controller) {
           touch();
+          onBytes();
           controller.enqueue(chunk);
         },
       }));
@@ -560,6 +595,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Connectors",
     message: "Checking your saved connectors.",
     activity: "Checking your connectors",
+  },
+  probe_private_connector: {
+    label: "Connectors",
+    message: "Checking that server.",
+    activity: "Checking the server",
   },
   discover_workspace_tools: {
     label: "Connector access",
@@ -945,6 +985,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     if (rawStatus === "interrupted") message = "This step did not finish.";
     else if (toolName === "discover_workspace_tools" || toolName === "read_workspace_tool") message = "Connector access checked.";
     else if (toolName === "inspect_private_connectors") message = "One checked your connectors.";
+    else if (toolName === "probe_private_connector") message = "One checked that server.";
     else if (toolName === "read_selected_drive_search_result") {
       message = step.readStatus === "ok" ? "Drive file checked."
         : step.readStatus === "input_required" ? "Choose the file again."
@@ -966,6 +1007,14 @@ const CHAT_KEY_REFUSAL_MESSAGES: Record<string, string> = {
   CHAT_KEY_INVALID: "Unlock your vault, then try again. If this keeps happening, update or refresh the app.",
   CHAT_KEY_MISMATCH: "Your chat history did not open with this vault. Unlock your vault again, then try again.",
   CHAT_CONVERSATION_RETIRED: "This conversation is no longer available. Start a new chat.",
+};
+
+const MODEL_CAPACITY_MESSAGE = "One is temporarily at capacity. Please try again in a moment.";
+
+const AUTHORED_RETRYABLE_RUN_ERRORS: Record<string, string> = {
+  RESOURCE_EXHAUSTED: MODEL_CAPACITY_MESSAGE,
+  MODEL_UNAVAILABLE: "One's model service was briefly unavailable. Please try again.",
+  SERVER_RESTARTING: "One was interrupted because the service restarted. Please send that again.",
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
@@ -1006,6 +1055,10 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
     return "One's conversation history is temporarily unavailable. Please try again.";
   }
+  // The server's own retryable terminal errors (hushh_mcp/one_adk/run_errors.py)
+  // carry a fixed, content-free message; keyed by code, never by that text.
+  const authoredRetryable = code ? AUTHORED_RETRYABLE_RUN_ERRORS[code] : undefined;
+  if (authoredRetryable) return authoredRetryable;
   // AG-UI may deliver provider failures as an untyped RunErrorEvent when the
   // ADK bridge cannot preserve the backend error code. Recognize only the
   // stable provider markers and keep the raw message out of the transcript.
@@ -1015,7 +1068,7 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
     normalizedMessage.includes("TOO MANY REQUESTS") ||
     /\b429\b/.test(normalizedMessage)
   ) {
-    return "One is temporarily at capacity. Please try again in a moment.";
+    return MODEL_CAPACITY_MESSAGE;
   }
   // AG-UI RunErrorEvent.message may be derived from str(exception). Database
   // drivers append SQL and bound values there, so unknown runtime text is
@@ -1101,6 +1154,8 @@ export type PendingEmailDraftContext = {
 export async function streamAgentChat(input: {
   userId: string;
   message: string;
+  /** Stable id for this turn's user message, so a resend is recognised as the same one. */
+  messageId?: string;
   /** Pasted text sent as separate document parts, never folded into `message`. */
   attachments?: readonly AgentTextAttachment[];
   conversationId?: string | null;
@@ -1215,7 +1270,8 @@ export async function streamAgentChat(input: {
   const liveness = createAgentStreamLiveness(() => {
     loseStream();
     agent.abortRun();
-  }, (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
+  }, () => handlers.onStreamHealth?.({ kind: "bytes" }),
+  (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
     (hushhId) => {
       if (!mcpSessionCurrent()) return;
       lastPodConversation = {
@@ -1229,7 +1285,7 @@ export async function streamAgentChat(input: {
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}`, ...chatKeyHeaders },
     initialMessages: [{
-      id: crypto.randomUUID(),
+      id: input.messageId || crypto.randomUUID(),
       role: "user",
       content: buildAgentUserMessageContent(input.message, input.attachments),
     }],
@@ -1375,6 +1431,7 @@ export async function streamAgentChat(input: {
     onEvent: ({ event }) => {
       serverEvents += 1;
       if (event.type === "RUN_FINISHED" || event.type === "RUN_ERROR") serverTerminal = true;
+      if (isVisibleWorkEvent(String(event.type))) handlers.onStreamHealth?.({ kind: "activity" });
       if (event.type === "REASONING_MESSAGE_CONTENT") {
         const delta = (event as { delta?: unknown }).delta;
         const metadata = (event as { metadata?: unknown }).metadata;
@@ -1401,6 +1458,11 @@ export async function streamAgentChat(input: {
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
       handlers.onToken?.(event.delta);
+    },
+    onCustomEvent: ({ event }) => {
+      if (event.name !== QUEUED_INPUT_EVENT) return;
+      const notice = parseQueuedInputNotice(event.value);
+      if (notice) handlers.onQueuedInput?.(notice);
     },
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
@@ -1446,7 +1508,7 @@ export async function streamAgentChat(input: {
         toolCallName === "read_workspace_tool";
       const safeArgs = workspaceConnectorTool
         ? { provider: toolCallArgs.provider }
-        : toolCallName === "inspect_private_connectors"
+        : toolCallName === "inspect_private_connectors" || toolCallName === "probe_private_connector"
           ? {}
         : toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files" || toolCallName === "read_selected_drive_search_result"
           ? {}
@@ -1509,6 +1571,19 @@ export async function streamAgentChat(input: {
             : "Drive file could not be checked.";
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
+        return;
+      }
+      if (toolName === "probe_private_connector") {
+        // Server-authored names and descriptions reach only the parsed card,
+        // never the generic debug payload or the parked-directive parser.
+        const experience = parseAgentToolResultExperience(toolName, event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        payload.message = experience?.type === "one.custom_connector_probe.v1" && experience.status !== "failed"
+          ? "One checked that server." : "That server could not be checked.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) handlers.onStructuredExperience?.(experience, event.toolCallId);
         return;
       }
       // External-read receipts are display-only, even if an invalid result attempts to
@@ -1812,6 +1887,8 @@ export async function streamAgentChat(input: {
         return;
       }
       const refusal = chatKeyRefusalCode(event.code || "");
+      const strain = classifyBackendStrain({ code: event.code });
+      if (strain) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
       failure = refusal
         ? routeChatKeyRefusal(refusal, mcpVaultEpoch)
         : new Error(formatAgentChatErrorMessage(event.message || "", event.code || undefined));
@@ -1828,6 +1905,10 @@ export async function streamAgentChat(input: {
       }
       const refusal = chatKeyRefusalCode((error as Error & { payload?: unknown }).payload)
         ?? chatKeyRefusalCode(error.message || "");
+      // @ag-ui/client puts a refused request's HTTP status on the error.
+      const httpStatus = (error as Error & { status?: unknown }).status;
+      const strain = classifyBackendStrain({ httpStatus: typeof httpStatus === "number" ? httpStatus : null });
+      if (strain && !refusal) handlers.onStreamHealth?.({ kind: "backend_strain", strain });
       failure = refusal
         ? routeChatKeyRefusal(refusal, mcpVaultEpoch,
             !runStarted && (error as Error & { status?: number }).status === 403)
@@ -1976,6 +2057,60 @@ export async function streamAgentIntro(input: {
   if (!runTerminal) loseStream();
   if (failure) throw failure;
   return { conversationId: threadId, model: null, text };
+}
+
+/**
+ * The live-turn queue's transport. Owner-bound by the vault-owner token; no chat
+ * key, because nothing sealed is read. The text is sent once, to the running
+ * turn, and is never written to storage or logged on this device.
+ */
+export function createQueuedInputPorts(getVaultOwnerToken: () => string | null): QueuedInputPorts {
+  const call = async (path: string, init: RequestInit = {}): Promise<Record<string, unknown>> => {
+    const token = getVaultOwnerToken();
+    if (!token) throw new Error("Vault access expired.");
+    const response = await ApiService.apiFetch(path, {
+      ...init,
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(init.body ? { "Content-Type": "application/json" } : {}),
+      },
+    });
+    if (!response.ok) throw new Error(await readError(response));
+    return ((await response.json()) ?? {}) as Record<string, unknown>;
+  };
+  const base = (conversationId: string) =>
+    `/api/one/agent-chat/runs/${encodeURIComponent(conversationId)}`;
+  return {
+    enqueue: async (conversationId, clientMessageId, text) =>
+      parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
+        method: "POST",
+        body: JSON.stringify({ client_message_id: clientMessageId, text }),
+      })).status),
+    withdraw: async (conversationId, clientMessageId) =>
+      parseQueuedInputStatus((await call(
+        `${base(conversationId)}/queue/${encodeURIComponent(clientMessageId)}`,
+        { method: "DELETE" },
+      )).status),
+    status: async (conversationId, clientMessageIds) => {
+      const query = clientMessageIds.map((id) => `ids=${encodeURIComponent(id)}`).join("&");
+      const payload = await call(`${base(conversationId)}/queue?${query}`);
+      const statuses: Record<string, QueuedInputStatus> = {};
+      for (const receipt of Array.isArray(payload.receipts) ? payload.receipts : []) {
+        const record = asRecord(receipt);
+        const id = record ? readString(record, "clientMessageId") : "";
+        if (id) statuses[id] = parseQueuedInputStatus(record?.status);
+      }
+      return statuses;
+    },
+    stop: async (conversationId) => {
+      const payload = await call(`${base(conversationId)}/stop`, { method: "POST" });
+      const returned = Array.isArray(payload.returned)
+        ? payload.returned.filter((id): id is string => typeof id === "string")
+        : [];
+      return { stopped: payload.stopped === true, returned };
+    },
+  };
 }
 
 export async function listAgentChatConversations(input: {

@@ -65,7 +65,6 @@ vi.mock("@/components/consent/document-share-review", () => ({
 import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import { DriveSharingError } from "@/lib/services/drive-sharing-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
-import { ROUTES } from "@/lib/navigation/routes";
 
 const requestId = "11111111-1111-4111-8111-111111111111";
 const view = (overrides: Partial<DriveQueryView> = {}): DriveQueryView => ({
@@ -362,7 +361,11 @@ describe("Drive question card", () => {
     state.service.getQuery.mockResolvedValue(view({ lastError: "reconnect_required" }));
     const rendered = mount({ direction: "incoming" });
     const link = await screen.findByRole("link", { name: "Reconnect Google Drive" });
-    expect(link).toHaveAttribute("href", ROUTES.PROFILE_CONNECTORS);
+    // Opens Drive inside Profile's Connectors, not a separate page.
+    expect(link).toHaveAttribute(
+      "href",
+      "/one?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agoogle_drive",
+    );
     rendered.unmount();
     state.service.getQuery.mockResolvedValue(view({ lastError: "drive_query_unavailable" }));
     const other = mount({ direction: "incoming" });

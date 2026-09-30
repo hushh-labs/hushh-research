@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -11,7 +10,7 @@ import {
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
-import { ROUTES } from "@/lib/navigation/routes";
+import { ProfileConnectorsLink } from "@/components/profile/profile-connectors-link";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
@@ -437,7 +436,7 @@ function UnlockedDriveQueryCard({
       {lastError ? <HelperText>{lastError}</HelperText> : null}
       {showReconnect ? (
         <Button asChild size="standard">
-          <Link href={ROUTES.PROFILE_CONNECTORS}>Reconnect Google Drive</Link>
+          <ProfileConnectorsLink connectorId="google_drive">Reconnect Google Drive</ProfileConnectorsLink>
         </Button>
       ) : null}
       {view?.answer ? (

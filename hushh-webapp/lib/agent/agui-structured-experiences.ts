@@ -9,6 +9,7 @@ import {
   type ConnectorReadExperience,
   type WorkspaceConnectorSetupExperience,
 } from "./connector-read-receipt";
+import { parseCustomConnectorProbe, type CustomConnectorProbeExperience } from "./custom-connector-probe";
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -227,6 +228,7 @@ export type AgentStructuredExperience =
   | PersonSelectionExperience
   | ConnectorReadExperience
   | WorkspaceConnectorSetupExperience
+  | CustomConnectorProbeExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | DocumentRequestReviewExperience
@@ -790,6 +792,8 @@ export function parseAgentToolResultExperience(
     toolArguments,
   );
   if (connectorSetup) return connectorSetup;
+  const probe = parseCustomConnectorProbe(toolName, content);
+  if (probe) return probe;
   // C6: whichever tool the backend names for it, a result that carries the
   // shared-with-me card renders it.
   const sharedCard = parseSharedWithMeCard(content);

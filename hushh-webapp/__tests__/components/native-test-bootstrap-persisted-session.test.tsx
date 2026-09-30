@@ -48,7 +48,10 @@ vi.mock("@/lib/testing/native-test", () => ({
   useNativeTestConfig: () => ({
     enabled: true,
     autoReviewerLogin: true,
+    // The locked-vault rehearsal withholds vaultPassphrase (no auto-unlock)
+    // but must still prove the reviewer credential to the backend mint.
     vaultPassphrase: null,
+    reviewerSessionPassphrase: "mint-only-credential",
     expectedUserId: "reviewer-minted",
     expectedMarker: null,
     initialRoute: null,
@@ -87,7 +90,10 @@ describe("NativeTestBootstrap with a session persisted on the device", () => {
     await waitFor(() => expect(services.createAppReviewModeSession).toHaveBeenCalledTimes(1));
     expect(services.createAppReviewModeSession).toHaveBeenCalledWith(
       "reviewer",
-      expect.objectContaining({ reviewerUid: "reviewer-minted" }),
+      expect.objectContaining({
+        reviewerUid: "reviewer-minted",
+        smokePassphrase: "mint-only-credential",
+      }),
     );
     await waitFor(() => {
       const bridge = (window as Window & { __HUSHH_NATIVE_TEST__?: Bridge }).__HUSHH_NATIVE_TEST__;

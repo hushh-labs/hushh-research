@@ -102,6 +102,11 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
    open an approved encrypted export in the unlocked browser; the update itself
    contains no shared values and grants no read authority. A silent push or SSE
    delivery is best effort, so revisit still rechecks the authoritative bundle.
+8. The Consent Center Connections tab reads the owner-scoped active relationship
+   page, including the original connection creation time. It does not treat
+   accepted or revoked request logs as the current people graph. Historical
+   request records remain available to their owning workflow and deep links;
+   a relationship alone still grants no information access.
 
 ## Ecosystem Contract Mapping
 

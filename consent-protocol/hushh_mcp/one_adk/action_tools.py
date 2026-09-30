@@ -5249,29 +5249,52 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
     }
 
 
-async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Save or queue durable personal context to the user's encrypted PKM through the frontend PKM writer.
+async def add_to_pkm(
+    memory_text: str,
+    reason: str,
+    tool_context: ToolContext,
+    whole_message: bool = False,
+) -> dict[str, Any]:
+    """Hand information the person asked you to save to their device, which saves it to their private memory.
 
-    Use only when the user explicitly asks to save, remember, store, or add information to PKM or memory.
+    Use only when the person explicitly asks to save, remember, store, or add information to
+    their memory. Set whole_message=true when they pasted a document or a long passage and
+    asked to save it: their device reads their own message, so pass a one-line summary as
+    memory_text instead of copying the text. For one detail stated in conversation, pass that
+    detail as memory_text.
+
+    This call saves nothing by itself. The device prepares, reconciles and encrypts the
+    details, and its result card reports what was saved, updated, merged or skipped.
     """
     clean_text = str(memory_text or "").strip()
-    if not clean_text:
+    if not clean_text and not whole_message:
         return {
             "status": "missing_text",
             "message": "Specify the exact information to save to memory.",
         }
 
-    # If PKM write uses source_text in slots, let's match the AgentChatActionPlan logic:
+    slots: dict[str, Any] = {"source_text": clean_text[:50_000]}
+    if whole_message:
+        # The browser substitutes the owner's own message for this turn. The
+        # model never has to reproduce a long document as a tool argument.
+        slots["source_scope"] = "turn"
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:pkm_add"] = {
         "kind": "action",
-        "payload": {
-            "actionId": "pkm.add",
-            "slots": {"source_text": clean_text[:50_000]},
-        },
+        "payload": {"actionId": "pkm.add", "slots": slots},
     }
+    # Measured on production 2026-09-29: this used to return "Saving eligible
+    # details privately.", and One told the person their document had been
+    # "queued and submitted" to memory when nothing had been saved. The truth at
+    # this point is only that the device has the request.
     return {
-        "status": "directive_parked",
-        "message": "Saving eligible details privately.",
+        "status": "handed_to_device",
+        "saved": False,
+        "message": (
+            "Nothing is saved yet. The person's device is preparing and saving this privately, "
+            "and its card will show what was saved, updated, merged or skipped. Say it is "
+            "being saved on their device. Do not say it is saved, queued or submitted, and do "
+            "not list the details."
+        ),
     }
 
 

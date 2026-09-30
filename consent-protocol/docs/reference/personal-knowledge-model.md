@@ -281,6 +281,72 @@ Each automatic write carries an `owner_auto_save_policy` receipt that records
 the enabled policy version rather than claiming that the owner reviewed that
 individual memory.
 
+### Explicit saves from chat
+
+When the owner asks One to save something ("save this to my memory"), One calls
+`add_to_pkm`. The tool saves nothing itself: it returns `status: handed_to_device` with
+`saved: false`, and for a pasted document (`whole_message=true`) the browser reads the
+owner's own message instead of a copy in the tool argument. The device then:
+
+1. prepares the text one source section per proposal (`granularity: "section"`, a
+   300 second budget), so a long document is not packed into six-section chunks the
+   eight-fact segmenter can only answer with "split";
+2. sends each section with up to ten of the owner's existing details most related
+   to it (`simulated_state.memories`: entity id, scope, and a summary clipped to 200
+   characters, chosen on the device by word overlap from the unlocked working set),
+   so the merge agent can choose extend, correct or no_op instead of creating a
+   second copy. This is the same owner information One's chat already receives as
+   consented turn information; nothing is stored server-side;
+3. drops what the agents judged not to be facts (disclaimers, lists of unknowns),
+   exact duplicates of what is already stored, and restatements the merge agent
+   matched to a stored detail (`no_op` with a target), which count as already known;
+4. writes every remaining card with an `owner_confirmed` receipt, except identifier-class
+   details and details that would change what the owner already shares, which wait for
+   the owner's tap on the receipt card; secrets are never written;
+5. reports a receipt built only from server-acknowledged commits (a `data_version`):
+   saved, updated, merged, already known, skipped as not facts, waiting for the owner,
+   failed, and sections not read. A section that could not be prepared is reported; it
+   does not stop the prepared sections from saving.
+
+One is told that receipt on the next turn, as counts and category names only, and its
+instruction forbids claiming a save without one. Every capture job has a deadline and
+always publishes a terminal status, so a memory status line can no longer stay on
+"Checking for details worth remembering" after the vault session lapses.
+
+Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer
+with 16 sections, the real proposal service and the real client merge path with only
+storage and encryption stubbed): the first save prepared 17 sections in 175 seconds and
+saved 85 details, skipped 12 that were not facts (the "Information not known" section
+produced none), and held one for the owner's tap. Every one of its 97 cards was
+`confirm_first`, so the previous auto-save filter could never have saved any of them,
+and 97 of 97 were `create_entity` because no existing details were offered. A second
+paste with six changed facts produced: 9 new, 8 updated (15 earlier values kept in
+history, including the promotion, the salary, the move and the vendor switch), 1 merged,
+78 already known, 3 skipped, 3 sections unread after the 45 second per-proposal budget,
+and no duplicate details. A vault-unlocked browser run was not performed.
+
+### Memory evolves: superseded values stay in history
+
+A memory write whose merge agent chose create, extend or correct keeps the stored
+information current without losing any of it. When a stated value changes, the new
+value is current and the earlier one moves to a sibling `superseded` list with the time
+it was replaced (`hushh-webapp/lib/pkm/pkm-supersede-merge.ts`). Lists extend by union;
+a correction replaces a list and keeps the old one in history. A correction whose
+payload is not entity-shaped is applied (it used to be dropped while the save reported
+success). `superseded` is an internal branch in `contracts/pkm/internal-path-keys.v1.json`:
+it is encrypted with the domain, recoverable by the owner, and never requestable or
+shareable. Memory cards and One's context packet skip it too, so an earlier value is
+never presented as a current fact.
+
+Sensitivity of saved details: the client manifest walk labels a path `restricted` or
+`confidential` when its canonical path, its concrete path (entity ids) or its stated
+value names a sensitive topic from `contracts/consent/field-sensitivity.v1.json`
+(pay, immigration, identity, health, tax, credentials). The server's
+`scope_sensitivity` reads the same topic table. Only the label leaves the device, and
+labels only escalate, so a salary saved under a general profile scope makes that
+scope sensitive for consent sharing. Structured writers (runtime settings, connectors, financial replace) pass no
+memory merge decision and keep their plain merge, so no credential accumulates history.
+
 KYC onboarding has a separate first-party owner-confirmed path. It requires an
 unlocked private vault before the identity form is shown; an account without a
 vault is first sent through the vault-create flow. The person's `Save &

@@ -72,7 +72,10 @@ vi.mock("@/lib/capacitor", () => ({
 }));
 vi.mock("@/components/icons", () => ({
   ArrowLeftIcon: () => null,
+  CaretRightIcon: () => null,
   ChevronRightIcon: () => null,
+  Loader2: () => null,
+  Loader2Icon: () => null,
   SearchIcon: () => null,
   XIcon: () => null,
 }));
@@ -163,8 +166,10 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
     expect(state.push).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
-    expect(screen.getByText(/remove its connected financial records/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this bank?" });
+    expect(within(dialog).getByText(/removes its connected financial records/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(state.push).not.toHaveBeenCalled();
   });
 
@@ -265,19 +270,39 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("button", { name: "Retry Drive" })).toBeEnabled();
   });
 
-  it("opens the requested provider directly from the Settings catalog", async () => {
-    render(
+  it("lets Profile hold the open connector and draws no header of its own", async () => {
+    const onActiveConnectorChange = vi.fn();
+    const view = render(
       <ConnectorsPanel
         open
-        surface="settings"
-        initialConnector="gmail"
+        surface="profile"
+        activeConnector={null}
+        onActiveConnectorChange={onActiveConnectorChange}
         {...callbacks}
       />,
     );
-    expect((await screen.findAllByRole("heading", { name: "Gmail" })).length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Back to connectors" })).toBeInTheDocument();
+    // Profile's pane header owns the title and Back.
+    expect(await screen.findByRole("heading", { name: "Available" })).toBeInTheDocument();
+    // Nothing is connected, so there is no empty "Connected" group to read past.
+    expect(screen.queryByRole("heading", { name: "Connected" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to connectors" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Close connectors" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Connect Mail" })).toBeInTheDocument();
+    expect(screen.queryByRole("searchbox", { name: "Search connectors" })).not.toBeInTheDocument();
+    const gmailRow = screen.getByRole("button", { name: /^Gmail/ });
+    fireEvent.click(gmailRow);
+    fireEvent.click(gmailRow);
+    // Asked once: a double tap never stacks two identical history entries.
+    expect(onActiveConnectorChange).toHaveBeenCalledExactlyOnceWith("gmail");
+    view.rerender(
+      <ConnectorsPanel
+        open
+        surface="profile"
+        activeConnector="gmail"
+        onActiveConnectorChange={onActiveConnectorChange}
+        {...callbacks}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "Connect Mail" })).toBeInTheDocument();
   });
 
   it("offers explicit Gmail draft permission only for a connected account without it", async () => {
@@ -312,13 +337,18 @@ describe("supported connector catalog", () => {
     }
   });
 
-  it("shows a compact Gmail disconnect action and asks before changing access", async () => {
+  it("asks before a Gmail disconnect without leaving the list", async () => {
     state.gmailStatus = { connected: true, compose_permission_granted: true };
     render(panel());
     const connected = within(screen.getByRole("region", { name: "Connected" }));
     fireEvent.click(await connected.findByRole("button", { name: "Disconnect Gmail" }));
-    expect(screen.getByText("Disconnect Mail? Drive stays connected.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
+    const dialog = await screen.findByRole("alertdialog", { name: "Disconnect Mail?" });
+    expect(within(dialog).getByText("Drive stays connected.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    // The question floated over the list; the person never left it.
+    expect(screen.getByRole("region", { name: "Connected" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Back to connectors" })).not.toBeInTheDocument();
   });
 
   it("never duplicates the built-in Drive connection", async () => {
@@ -370,11 +400,87 @@ describe("supported connector catalog", () => {
     state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
     view.rerender(panel());
     fireEvent.click(screen.getByRole("button", { name: "Disconnect Calendar" }));
-    expect(screen.getByText("Disconnect Calendar from One? Other connections stay active.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm" })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Disconnect Calendar?" });
+    expect(within(dialog).getByText("Other connections stay active.")).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledExactlyOnceWith("synthetic-firebase-token", "owner-a"));
     await waitFor(() => expect(state.calendarRefresh).toHaveBeenCalledOnce());
+  });
+
+  describe("disconnect state transitions", () => {
+    const connectedCalendar = () => {
+      state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    };
+    const askAndConfirm = async () => {
+      fireEvent.click(await screen.findByRole("button", { name: "Disconnect Calendar" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect Calendar?" });
+      return within(dialog).getByRole("button", { name: "Disconnect" });
+    };
+
+    it("sends one disconnect for a double tap and shows the row pending in place", async () => {
+      connectedCalendar();
+      let settle!: (value: unknown) => void;
+      state.calendarDisconnect.mockImplementation(() => new Promise((done) => { settle = done; }));
+      render(panel());
+      const confirm = await askAndConfirm();
+      fireEvent.click(confirm);
+      fireEvent.click(confirm);
+      await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledOnce());
+      const connected = within(screen.getByRole("region", { name: "Connected" }));
+      expect(connected.getByText("Disconnecting…")).toBeInTheDocument();
+      expect(connected.getByRole("button", { name: "Disconnect Calendar" })).toBeDisabled();
+      await act(async () => settle({ connected: false, status: "disconnected" }));
+      await waitFor(() => expect(connected.queryByText("Disconnecting…")).not.toBeInTheDocument());
+      expect(state.calendarDisconnect).toHaveBeenCalledOnce();
+    });
+
+    it("says a failed disconnect failed and lets the same row retry", async () => {
+      connectedCalendar();
+      state.calendarDisconnect
+        .mockRejectedValueOnce(new Error("network"))
+        .mockResolvedValueOnce({ connected: false, status: "disconnected" });
+      render(panel());
+      fireEvent.click(await askAndConfirm());
+      const connected = within(screen.getByRole("region", { name: "Connected" }));
+      expect(await connected.findByText("Couldn't disconnect. Try again.")).toBeInTheDocument();
+      expect(connected.getByRole("button", { name: "Disconnect Calendar" })).toBeEnabled();
+      fireEvent.click(await askAndConfirm());
+      await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(connected.queryByText("Couldn't disconnect. Try again.")).not.toBeInTheDocument());
+      expect(state.calendarRefresh).toHaveBeenCalledOnce();
+    });
+
+    it("keeps a disconnected row where it was until the list is revisited", async () => {
+      connectedCalendar();
+      const view = render(panel());
+      fireEvent.click(await askAndConfirm());
+      await waitFor(() => expect(state.calendarRefresh).toHaveBeenCalledOnce());
+      state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
+      view.rerender(panel());
+      // Updated in place: same section, new action, no re-sort under the finger.
+      const connected = within(screen.getByRole("region", { name: "Connected" }));
+      expect(connected.getByRole("button", { name: "Connect Calendar" })).toBeInTheDocument();
+      fireEvent.click(connected.getByRole("button", { name: "Calendar" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Back to connectors" }));
+      const available = within(await screen.findByRole("region", { name: "Available" }));
+      expect(available.getByRole("button", { name: "Connect Calendar" })).toBeInTheDocument();
+    });
+
+    it("asks on the native app with a sheet rather than a dialog", async () => {
+      connectedCalendar();
+      vi.spyOn(Capacitor, "isNativePlatform").mockReturnValue(true);
+      try {
+        render(panel());
+        fireEvent.click(await screen.findByRole("button", { name: "Disconnect Calendar" }));
+        const sheet = await screen.findByTestId("connector-confirm-sheet");
+        expect(within(sheet).getByText("Disconnect Calendar?")).toBeInTheDocument();
+        expect(screen.queryByTestId("connector-confirm-dialog")).not.toBeInTheDocument();
+        fireEvent.click(within(sheet).getByRole("button", { name: "Disconnect" }));
+        await waitFor(() => expect(state.calendarDisconnect).toHaveBeenCalledOnce());
+      } finally {
+        vi.mocked(Capacitor.isNativePlatform).mockRestore();
+      }
+    });
   });
 
   it("does not claim an unchecked Calendar connection is manageable", async () => {

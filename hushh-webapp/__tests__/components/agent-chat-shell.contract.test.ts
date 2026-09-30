@@ -76,7 +76,18 @@ describe("private-agent chat shell contract", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain("drainOperationQueue");
-    expect(workspace).toContain("agent-chat-prompt-queue");
+    expect(workspace).toContain("<AgentQueuedStack");
+    expect(read("components/agent/agent-queued-stack.tsx")).toContain("agent-chat-prompt-queue");
+    // Queued text reaches the running turn only through enqueuePrompt, which
+    // the card-number guard calls; an edit is screened the same way.
+    const edit = workspace.slice(
+      workspace.indexOf("const editQueuedPrompt = async"),
+      workspace.indexOf("const removeQueuedPrompt = async"),
+    );
+    expect(edit).toContain("detectLikelyPan(text)");
+    expect(edit).toContain("enqueueGuardedTurn({ typedText: text");
+    expect(edit.indexOf("detectLikelyPan(text)")).toBeLessThan(edit.indexOf("reclaimQueuedPrompt(id)"));
+    expect(workspace.match(/queue\.offer\(/g)).toHaveLength(1);
     expect(workspace).toContain("enqueueCalendarDirective");
     // Calendar and reviewed Gmail changes share one serialized runner.
     expect(workspace).toContain('pendingText: "Scheduling…"');
@@ -127,10 +138,15 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("shouldCaptureLargePaste(pasted)");
     expect(workspace).toContain("event.preventDefault()");
     expect(workspace).toContain("createPendingTextAttachment(nextText)");
-    expect(workspace).toContain('data-testid="agent-chat-text-attachment"');
-    expect(workspace).toContain("getTextAttachmentTitle(longPromptAttachment.text)");
-    expect(workspace).toContain('aria-label="Remove text attachment"');
-    expect(workspace).toContain("openLongPromptAttachment");
+    // The chip and its editor live in their own module; the workspace only
+    // hands them the draft and the edit, remove and collapse callbacks.
+    const chip = read("components/agent/agent-text-attachment-editor.tsx");
+    expect(workspace).toContain("<AgentComposerTextAttachment");
+    expect(workspace).toContain("onChange={editLongPromptAttachment}");
+    expect(workspace).toContain("onRemove={removeLongPromptAttachment}");
+    expect(chip).toContain('data-testid="agent-chat-text-attachment"');
+    expect(chip).toContain("getTextAttachmentTitle(attachment.text)");
+    expect(chip).toContain('aria-label="Remove text attachment"');
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
     expect(workspace).toContain("await submitComposerText()");

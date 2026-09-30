@@ -134,9 +134,11 @@ from hushh_mcp.one_adk.finance_market_tools import (
 from hushh_mcp.one_adk.follow_up_suggestions import follow_up_instruction, suggest_follow_ups
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.pending_email_draft import pending_email_draft_instruction
+from hushh_mcp.one_adk.queued_input import club_queued_input
 from hushh_mcp.one_adk.registered_mcp_toolset import (
     RegisteredMcpToolset,
     inspect_private_connectors,
+    probe_private_connector,
 )
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.selected_drive_status import inspect_selected_drive_files
@@ -2460,6 +2462,7 @@ def _one_roster_tools(
                 propose_drive_file_share,
                 propose_drive_file_trash,
                 inspect_private_connectors,
+                probe_private_connector,
                 RegisteredMcpToolset(),
             ]
         )
@@ -2564,7 +2567,13 @@ def build_one_text_agent(
         before_agent_callback=[timed_one_before_agent, _track_one_consent_access],
         before_tool_callback=_before_one_tool,
         after_tool_callback=after_external_read_tool,
-        before_model_callback=[_one_consent_before_model, timed_one_before_model],
+        # Queued messages join at a step boundary; last, so only a real model
+        # call that no earlier callback answered takes them (queued_input.py).
+        before_model_callback=[
+            _one_consent_before_model,
+            timed_one_before_model,
+            club_queued_input,
+        ],
         after_model_callback=timed_one_after_model,
         # Preserve the configured Chat thinking level for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(

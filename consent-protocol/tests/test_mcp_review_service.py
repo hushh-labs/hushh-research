@@ -148,6 +148,8 @@ async def test_vault_configuration_reviews_without_private_registry(harness, mon
             "permission": "ask_first",
             # The person's own server, with their credential: runs freely.
             "review": "not_required",
+            # No read-only claim: the tool may change things.
+            "access": "write",
         }
     ]
     assert "synthetic-secret" not in str(catalog)
@@ -434,6 +436,10 @@ async def test_settings_review_field_mirrors_the_chat_review_decision(
     # Additive: the permission contract older apps parse is unchanged.
     assert catalog["tools"][0]["permission"] == "ask_first"
     assert catalog["tools"][0]["review"] == review
+    # "Connect read-only" blocks every tool not explicitly, consistently read-only.
+    assert catalog["tools"][0]["access"] == (
+        "read" if annotations == {"readOnlyHint": True} else "write"
+    )
     # Hints never re-key a saved block preference.
     assert catalog["tools"][0]["fingerprint"] == module.mcp_tool_fingerprint(
         {key: value for key, value in h.tool.descriptor.items() if key != "annotations"}

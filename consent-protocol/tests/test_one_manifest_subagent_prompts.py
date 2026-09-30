@@ -186,3 +186,54 @@ def test_one_knows_a_question_needs_no_google_step():
     assert "Ask as a question gets an answer and file names only, with no Google step" in composed
     assert "carry on with the request they were making" in composed
     assert "The card sends only after a direct tap and fresh Google identity check" not in composed
+
+
+# One's root instruction is a contract, not prose: its priority order, its
+# memory honesty rule and its punctuation are what the founder reviewed.
+# Measured 2026-09-29 with Gemini countTokens: authored 5,833 -> 6,005 tokens,
+# composed (empty state) 12,133 -> 12,305 tokens.
+_COMPOSED_INSTRUCTION_CHAR_BUDGET = 60_000
+
+
+def test_one_states_its_operating_principles_in_priority_order():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction)
+    head = authored[: authored.index("# Who does what")]
+    assert "# Operating principles, in priority order" in head
+    assert "When two rules conflict, the earlier one wins." in head
+    order = [
+        head.index(f"{n}. {name}")
+        for n, name in enumerate(
+            [
+                "Consent and safety",
+                "Honesty about results",
+                "The person's request",
+                "Tool discipline",
+                "Voice",
+            ],
+            1,
+        )
+    ]
+    assert order == sorted(order)
+
+
+def test_one_never_claims_a_memory_save_the_device_has_not_confirmed():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction)
+    memory = authored[authored.index("# Memory") : authored.index("# Model choice")]
+    assert "whole_message=true" in memory
+    assert "Never say saved, queued, or submitted" in memory
+    assert "LATEST MEMORY SAVE RECEIPT" in memory
+    assert "claim nothing more" in memory
+    assert "never stored twice" in memory
+    assert "If the vault is locked" in memory
+    # The old rule sent every explicit save through "the exact passage", which
+    # made One copy a pasted document into a tool argument.
+    assert "with the exact passage to keep" not in authored
+
+
+def test_one_writes_without_em_dashes_and_within_its_prompt_budget():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction)
+    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    assert "\u2014" not in composed and "\u2013" not in composed
+    assert "Never use an em dash or en dash as punctuation" in authored
+    assert "The company is Hussh" in authored
+    assert len(composed) <= _COMPOSED_INSTRUCTION_CHAR_BUDGET, len(composed)

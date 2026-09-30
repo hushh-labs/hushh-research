@@ -30,11 +30,11 @@ describe("Navbar bottom chrome contract", () => {
     const agentBar = read("components/agent/command-agent-bar.tsx");
     const providers = read("app/providers.tsx");
 
-    expect(navbar).toContain("const bottomNavWidth =");
-    expect(navbar).toContain(
-      '"min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"',
-    );
-    expect(navbar).toContain("style={{ width: bottomNavWidth }}");
+    // One column for both bars: the pill fills the shared bottom chrome
+    // column and carries no viewport or route arithmetic of its own.
+    expect(navbar).toContain("BOTTOM_CHROME_COLUMN_CLASSNAME");
+    expect(navbar).not.toContain("100vw");
+    expect(navbar).not.toContain("45rem");
     expect(navbar).not.toContain('data-testid="bottom-agent-trigger"');
 
     // The Kai search chrome must no longer render its own Agent launcher; the
@@ -108,7 +108,10 @@ describe("Navbar bottom chrome contract", () => {
     expect(dockClass).toContain("bottom-chrome-surface");
     expect(dockClass).not.toContain("backdrop-blur");
     expect(agentBar).not.toContain('? "h-11 rounded-[22px] px-2.5"');
-    expect(agentBar).toContain("var(--app-agent-bar-max-width)");
+    expect(agentBar).toContain("BOTTOM_CHROME_COLUMN_CLASSNAME");
+    expect(agentBar).not.toContain("100vw");
+    expect(bottomShell).toContain("BOTTOM_CHROME_COLUMN_CLASSNAME");
+    expect(bottomShell).toContain("BOTTOM_CHROME_INSET_CLASSNAME");
     expect(bottomShell).not.toContain("<AmbientChromeMask");
     expect(bottomShell).toContain("--app-bottom-shell-height");
     expect(bottomShell).not.toContain("xl:hidden");

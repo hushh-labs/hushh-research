@@ -18,6 +18,7 @@ import {
   type GoogleOAuthPopupAttempt,
 } from "@/lib/google/google-oauth-popup";
 import { ROUTES } from "@/lib/navigation/routes";
+import { buildProfileConnectorsPaneHref } from "@/lib/navigation/profile-pane";
 import { ApiService } from "@/lib/services/api-service";
 import { trackEvent } from "@/lib/observability/client";
 import {
@@ -302,7 +303,7 @@ function GoogleOAuthReturnContent() {
       <p role="status">{message}</p>
       <Link
         className="inline-flex min-h-11 items-center text-primary underline"
-        href={ROUTES.PROFILE_CONNECTORS}
+        href={buildProfileConnectorsPaneHref()}
       >
         Back to connections
       </Link>

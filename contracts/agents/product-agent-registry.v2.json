@@ -3952,13 +3952,19 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "379398c0770a620d6760130fa6b63a97f59d07be621f5a83eaa4e0c685a994ee",
+      "system_instruction_sha256": "06b37145a55740bffbb4317ca92fbc218a1c2e99a4e8d7b6a1a64942d6974ae4",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
           "description": "Check whether the authenticated owner can open private connector setup in Chat. Returns safe saved names and setup state, not credentials or callable authority.",
           "name": "inspect_private_connectors",
           "py_func": "hushh_mcp.one_adk.registered_mcp_toolset.inspect_private_connectors",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Check an MCP server address the owner gave, without connecting it. Returns the server's name, its tools grouped by read versus may-change, and whether connecting needs nothing, an access key, or sign-in. Saves nothing and sends no credential.",
+          "name": "probe_private_connector",
+          "py_func": "hushh_mcp.one_adk.registered_mcp_toolset.probe_private_connector",
           "required_scope": "vault.owner"
         },
         {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   planPkmSourceChunks,
+  planPkmSourceSections,
   planPkmSourceSelection,
   sourceChunkRange,
   sourceChunkText,
@@ -8,6 +9,24 @@ import {
 } from "@/lib/pkm/pkm-source-chunks";
 
 describe("source-preserving Memory transport planning", () => {
+  it("plans one proposal per section when one title wraps every section", () => {
+    // The usual pasted context transfer: one # title over many ## sections.
+    // The packed planner keeps that as a single protected block of the whole
+    // document; the section planner must not (2026-09-29, 16 sections -> 2 chunks).
+    const source = "Please save this to my memory.\n# Context transfer\nIntro line.\n" +
+      Array.from({ length: 8 }, (_, index) =>
+        `## ${index + 1}. Section\n- Synthetic fact ${index + 1}a\n- Synthetic fact ${index + 1}b\n`,
+      ).join("");
+    expect(planPkmSourceChunks(source, { maxBlocks: 1 }).length).toBeLessThan(3);
+    const sections = planPkmSourceSections(source)!;
+    expect(sections).toHaveLength(9);
+    // Ranges cover every character once; the title travels only as context.
+    expect(sections.map((chunk) => source.slice(sourceChunkRange(chunk).start, sourceChunkRange(chunk).end)).join(""))
+      .toBe(source);
+    expect(sourceChunkText(source, sections[4]!)).toMatch(/^# Context transfer\n## 4\. Section\n/);
+    expect(planPkmSourceSections("No headings here.\nJust prose.")).toBeNull();
+  });
+
   it("treats numbered one-line facts as bounded items rather than heading-only lines", () => {
     const source = Array.from(
       { length: 33 },

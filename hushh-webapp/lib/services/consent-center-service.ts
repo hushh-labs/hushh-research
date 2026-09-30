@@ -25,6 +25,7 @@ export interface ConsentCenterEntry {
     | "active_grant"
     | "history"
     | "invite"
+    | "connection"
     | "connection_request";
   status: string;
   active?: boolean;

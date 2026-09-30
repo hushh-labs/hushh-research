@@ -61,6 +61,7 @@ path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 path.chmod(0o600)
 PY
     echo "Reviewer mode and canonical reviewer subject enabled in ignored consent-protocol/.env.local. Passphrase remains memory-only. Restart the local backend before rehearsal."
+    echo "The review-session mint requires the reviewer passphrase: start the backend from a shell that ran eval \"\$(node hushh-webapp/scripts/testing/export-reviewer-test-env.mjs)\" so REVIEWER_VAULT_PASSPHRASE is in its process env only."
     ;;
   disable)
     if [ -f "$OVERLAY" ]; then

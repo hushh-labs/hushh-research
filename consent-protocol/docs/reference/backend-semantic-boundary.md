@@ -195,6 +195,37 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Live eval before promotion: none yet. Mocked contract tests only; extraction
   quality on real mailboxes and calendars is unmeasured.
 
+### Declared: explicit memory save from chat
+
+- Owning agents: `agent_one` decides that the person asked to save (tool `add_to_pkm`,
+  with `whole_message` for a pasted document); `agent_memory_segmentation`,
+  `agent_memory_intent`, `agent_memory_merge` and `agent_pkm_structure` decide what the
+  facts are, where they go, and whether each creates, extends or corrects. Manifests under
+  `consent-protocol/hushh_mcp/agents/`.
+- Structured output: the existing `POST /api/pkm/memory/proposals` preview cards.
+- Host policy (`hushh-webapp/lib/agent/agent-pkm-explicit-save.ts`) enforces authority only.
+  The owner's request is the confirmation for the content they supplied, so a card the
+  agents marked `confirm_first` is written with an `owner_confirmed` receipt. It never
+  changes a card's domain, path, payload or merge mode. It holds back, for the owner's
+  direct tap, a card whose payload has an identifier-class key or value
+  (`contracts/consent/field-sensitivity.v1.json`) or whose save would change what the owner
+  already shares, and it never writes a reserved, degraded, secret or `do_not_save` card.
+- Reconciliation context, not a decision: for each section the device offers up to ten
+  of the owner's existing entity summaries chosen by local word overlap
+  (`AgentPkmContextStore.findReconciliationCandidates`) as `simulated_state.memories`.
+  The merge agent alone decides create, extend, correct or no_op. A `no_op` that names
+  the stored entity it matched is reported as already known; the host never
+  re-derives a merge mode.
+- Display only: `classifyMergeOutcome` (`hushh-webapp/lib/pkm/pkm-supersede-merge.ts`)
+  labels each acknowledged write as new, updated, merged or already known from the stored
+  state the write merged into. It decides nothing about meaning.
+- The KYC keyword route `isExplicitKycIdentitySaveRequest` predates this contract. It is
+  narrowed to a single short section (at most 1,200 characters) so it can no longer take a
+  whole document away from the semantic agents (production, 2026-09-29).
+- Live eval before promotion: the synthetic context-transfer run recorded in
+  `personal-knowledge-model.md`; mocked contract tests in
+  `hushh-webapp/__tests__/services/agent-pkm-explicit-save.test.ts`.
+
 ### Declared: consent scope catalog search (contract C4)
 
 Keyword and synonym matching in `consent-protocol/hushh_mcp/consent/scope_matcher.py`

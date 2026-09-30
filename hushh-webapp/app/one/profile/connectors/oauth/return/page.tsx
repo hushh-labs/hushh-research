@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 
 import { ROUTES } from "@/lib/navigation/routes";
+import { buildProfileConnectorsPaneHref } from "@/lib/navigation/profile-pane";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/hooks/use-auth";
@@ -178,8 +179,10 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, ownerTokenStatus } = useVault();
   const router = useRouter();
+  // A sign-in started from Profile returns to Connectors inside the Profile
+  // pane; one started from chat returns to the chat's Connectors sheet.
   const returnHref = details.returnTo === "connector_settings"
-    ? ROUTES.PROFILE_CONNECTORS : `${ROUTES.HOME}?panel=connectors`;
+    ? buildProfileConnectorsPaneHref() : `${ROUTES.HOME}?panel=connectors`;
   const returnLabel = details.returnTo === "connector_settings" ? "Connectors" : "Chat";
   const started = useRef(false);
   const mounted = useRef(true);

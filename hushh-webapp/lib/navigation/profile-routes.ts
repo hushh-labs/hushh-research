@@ -8,6 +8,7 @@ export type ProfilePanel =
   | "software-updates"
   | "my-data"
   | "connected-systems"
+  | "connectors"
   | "preferences"
   | "security"
   | "referrals"
@@ -17,6 +18,7 @@ export type ProfilePanel =
 export type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
+  | `connector:${string}`
   | "sharing"
   | "phone"
   | "kai-preferences"
@@ -62,6 +64,7 @@ export function normalizeProfilePanel(
     value === "account" ||
     value === "my-data" ||
     value === "connected-systems" ||
+    value === "connectors" ||
     value === "preferences" ||
     value === "security" ||
     value === "referrals" ||
@@ -71,6 +74,37 @@ export function normalizeProfilePanel(
     return value;
   }
   return null;
+}
+
+/**
+ * A connector detail names one connector by its catalog id. The id arrives
+ * from the address bar, so only the catalog's own shape is accepted; anything
+ * else falls back to the Connectors list rather than a half-drawn detail.
+ */
+const CONNECTOR_DETAIL_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+export function normalizeConnectorDetailId(value: string | null): string | null {
+  const id = String(value || "").trim();
+  return CONNECTOR_DETAIL_ID.test(id) ? id : null;
+}
+
+const BUILT_IN_CONNECTOR_TITLES: Record<string, string> = {
+  gmail: "Gmail",
+  google_drive: "Google Drive",
+  calendar: "Calendar",
+  plaid: "Plaid",
+};
+
+/**
+ * The name a connector detail is shown under in the Profile header and the
+ * top bar. Catalog connectors beyond the built-ins are named by the panel
+ * once it has loaded them; until then the header says "Connector".
+ */
+export function connectorDetailTitle(detail: string | null): string | null {
+  if (!detail?.startsWith("connector:")) return null;
+  const id = normalizeConnectorDetailId(detail.slice("connector:".length));
+  if (!id) return null;
+  return BUILT_IN_CONNECTOR_TITLES[id] ?? "Connector";
 }
 
 function normalizeSupportMessageKind(
@@ -103,6 +137,10 @@ export function normalizeProfileDetail(
   }
   if (panel === "my-data" && detail === "sharing") {
     return detail;
+  }
+  if (panel === "connectors" && detail.startsWith("connector:")) {
+    const id = normalizeConnectorDetailId(detail.slice("connector:".length));
+    return id ? `connector:${id}` : null;
   }
   if (panel === "account" && detail === "phone") {
     return detail;
@@ -314,6 +352,18 @@ export function buildProfileRoute(params?: {
     );
   }
 
+  if (panel === "connectors") {
+    return appendQuery(
+      ROUTES.PROFILE_CONNECTORS,
+      {
+        connector: detail?.startsWith("connector:")
+          ? detail.slice("connector:".length)
+          : null,
+      },
+      params?.searchParams,
+    );
+  }
+
   if (panel === "gmail") {
     return appendQuery(ROUTES.GMAIL, {}, params?.searchParams);
   }
@@ -435,6 +485,14 @@ export function resolveProfileRouteState(
 
   if (normalizedPath === ROUTES.PROFILE_CONNECTED_SYSTEMS) {
     return { panel: "connected-systems", detail: null };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_CONNECTORS) {
+    const connectorId = normalizeConnectorDetailId(query.get("connector"));
+    return {
+      panel: "connectors",
+      detail: connectorId ? `connector:${connectorId}` : null,
+    };
   }
 
   if (normalizedPath === ROUTES.PROFILE_GMAIL) {

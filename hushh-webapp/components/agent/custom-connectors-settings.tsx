@@ -2,12 +2,12 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { HushhOAuthReturn, isNativeCustomConnectorReturnUri } from "@/lib/capacitor/oauth-return";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService, McpCatalogAuthenticationError } from "@/lib/services/external-connector-service";
-import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, isVaultOwnerCredential, bearerAuthorizationValue, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorSnapshot, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, removeInvalidCustomConnectorConfiguration, type CustomConnectorConfiguration, type InvalidCustomConnector } from "@/lib/connections/custom-connector-configuration";
+import { beginCustomConnectorSignIn, ConnectorSetupError, newCustomConnectorConfiguration, verifyAndSaveCustomConnector } from "@/lib/connections/custom-connector-setup";
 import { takeRefreshedMcpCatalog } from "@/lib/connections/custom-mcp-catalog-handoff";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
@@ -15,12 +15,11 @@ import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vau
 import type { CustomConnectorRecoveryReference, DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
 
 type Access = { userId: string; vaultKey: string; vaultOwnerToken: string };
+type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review?: "required" | "not_required"; access?: "read" | "write" };
 type SavedConnector = Pick<CustomConnectorConfiguration, "connectorId" | "displayName" | "revision" | "enabled"> & {
   authenticationKind: CustomConnectorConfiguration["authentication"]["kind"];
   hasOAuthRegistration: boolean;
 };
-type CatalogTool = { id: string; name: string; revision: string; fingerprint: string; permission: "ask_first" | "blocked"; review?: "required" | "not_required" };
-class ConnectorSetupError extends Error {}
 
 function savedConnector(record: CustomConnectorConfiguration): SavedConnector {
   return {
@@ -84,41 +83,21 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const operation = (async () => {
-      if (credential && isVaultOwnerCredential(credential))
-        throw new ConnectorSetupError("Vault tokens cannot connect other servers. Use this connector’s sign-in.");
-      const configuration: CustomConnectorConfiguration = {
-        version: 1, connectorId: `custom_${crypto.randomUUID().replaceAll("-", "")}`,
-        revision: crypto.randomUUID(), displayName: name.trim(), endpoint: endpoint.trim(), enabled: true,
+      const configuration = newCustomConnectorConfiguration({
+        displayName: name, endpoint,
+        credential: credential.trim() ? { header: "Authorization", value: credential } : null,
         ...(oauthIssuer || oauthClientId || oauthClientSecret ? { oauthRegistration: {
           issuer: oauthIssuer.trim(), clientId: oauthClientId.trim(),
           ...(oauthAuthMethod !== "none" && oauthClientSecret ? { clientSecret: oauthClientSecret } : {}),
           tokenEndpointAuthMethod: oauthAuthMethod,
         } } : {}),
-        authentication: credential.trim()
-          ? { kind: "api_key", header: "Authorization", value: bearerAuthorizationValue(credential) }
-          : { kind: "none" },
-      };
-      // A saved definition is not a connection. Verify non-OAuth servers before
-      // writing anything to the vault; OAuth registrations remain sign-in pending.
-      let discovered: CatalogTool[] | null = null;
-      let signInNeeded = Boolean(configuration.oauthRegistration);
-      if (!configuration.oauthRegistration) {
-        try {
-          discovered = await ExternalConnectorService.refreshMcpCatalog({
-            vaultOwnerToken: access.vaultOwnerToken, configuration,
-            signal: refreshAbort.current?.signal ?? new AbortController().signal,
-            isEffectCurrent: current,
-          });
-          if (!discovered.length) throw new Error("No callable tools found.");
-        } catch (error) {
-          // A verified 401 is a pending OAuth setup, never a connected state.
-          // A rejected supplied credential or any other failure is not saved.
-          if (!(error instanceof McpCatalogAuthenticationError) || credential) throw error;
-          signInNeeded = true;
-        }
-      }
-      const saved = await saveCustomConnectorConfiguration(access, configuration,
-        { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" }, null, current);
+      });
+      // A saved definition is not a connection: the shared path verifies first.
+      const { configuration: saved, tools: discovered, signInNeeded } = await verifyAndSaveCustomConnector({
+        access, configuration, isCurrent: current,
+        signal: refreshAbort.current?.signal ?? new AbortController().signal,
+        confirmation: { confirmedByUser: true, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web", source: "connector_settings" },
+      });
       if (!current()) return;
       setItems(previous => [...previous, savedConnector(saved)]);
       if (discovered) setCatalogs(previous => ({ ...previous, [saved.connectorId]: discovered }));
@@ -176,42 +155,17 @@ export function CustomConnectorsSettings({ access, onPrepareRecovery }: { access
     inFlight.current = true; setBusy(true);
     const current = lifetime.current;
     const controller = new AbortController(); refreshAbort.current = controller;
-    let attemptId: string | undefined;
     const operation = (async () => {
       const records = (await loadCustomConnectorSnapshot(access, true)).configurations;
       if (!current()) throw new Error("Session changed.");
       const configuration = records.find(record => record.connectorId === item.connectorId);
-      if (!configuration || !configuration.enabled || configuration.revision !== item.revision) throw new Error("Connector changed.");
-      if (configuration.authentication.kind === "api_key") throw new Error("This connector uses a saved credential.");
-      const result = await ExternalConnectorService.privateMcpOAuth({
-        vaultOwnerToken: access.vaultOwnerToken, connectorId: item.connectorId, operation: "begin",
-        payload: { revision: item.revision, endpoint: configuration.endpoint,
-          ...(configuration.oauthRegistration ? { registeredClient: configuration.oauthRegistration } : {}) },
-        signal: controller.signal, isEffectCurrent: current,
-      }) as { attemptId?: unknown; authorizeUrl?: unknown; redirectUri?: unknown };
-      if (!result || typeof result.attemptId !== "string" || !/^[A-Za-z0-9_-]{43}$/.test(result.attemptId) || typeof result.authorizeUrl !== "string") throw new Error("Invalid connection response.");
-      attemptId = result.attemptId;
-      const url = new URL(result.authorizeUrl);
-      if (url.protocol !== "https:" || url.username || url.password || url.hash || result.authorizeUrl.length > 16000) throw new Error("Invalid authorization address.");
-      if (Capacitor.isNativePlatform() && !isNativeCustomConnectorReturnUri(result.redirectUri)) throw new Error("This connection cannot return to the app.");
-      const ready = await onPrepareRecovery({ attemptId, reason: "web_full_page", customConnector: {
-        connectorId: item.connectorId, revision: item.revision,
-      } });
-      if (!current() || ready !== "ready") throw new Error("Finish the current chat action first.");
-      // Explicit tap only. The app-owned HTTPS callback resumes the same
-      // conversation; no provider credential is handed to the native plugin.
-      if (Capacitor.isNativePlatform()) {
-        await HushhOAuthReturn.openAuthorization({ authorizeUrl: url.href,
-          redirectUri: result.redirectUri as string, attemptId, expectedUserId: access.userId });
-      } else window.location.assign(url.href);
+      if (!configuration || configuration.revision !== item.revision) throw new Error("Connector changed.");
+      await beginCustomConnectorSignIn({ access, configuration, prepareRecovery: onPrepareRecovery,
+        signal: controller.signal, isCurrent: current });
     })();
     morphyToast.promise(operation, { loading: "Preparing sign-in…", success: "Continue at your provider.", error: "Could not start sign-in. Check this server supports OAuth and try again." });
-    try { await operation; } catch {
-      if (attemptId && current()) await ExternalConnectorService.privateMcpOAuth({
-        vaultOwnerToken: access.vaultOwnerToken, connectorId: item.connectorId, operation: "cancel",
-        payload: { revision: item.revision, attemptId }, signal: controller.signal, isEffectCurrent: current,
-      }).catch(() => undefined);
-    } finally { if (current()) { inFlight.current = false; setBusy(false); } }
+    try { await operation; } catch { /* The shared path cancels its attempt; the toast owns the failure. */ }
+    finally { if (current()) { inFlight.current = false; setBusy(false); } }
   };
 
   const setToolBlocked = async (item: SavedConnector, tool: CatalogTool) => {

@@ -45,7 +45,11 @@ from api.middleware import (
 )
 from api.routes.account_legal_acceptance import router as legal_acceptance_router
 from api.utils.firebase_admin import get_firebase_auth_app
-from api.utils.firebase_auth import verify_firebase_bearer
+from api.utils.firebase_auth import (
+    carries_review_mint,
+    refuse_foreign_review_mint,
+    verify_firebase_bearer,
+)
 from hushh_mcp.services.account_deletion_lifecycle_service import (
     AccountDeletionLifecycleService,
     CleanupIntentKind,
@@ -417,6 +421,19 @@ async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
         )
     except Exception as exc:
         raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from exc
+    if refuse_foreign_review_mint(claims):
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    if carries_review_mint(claims):
+        # The device token minted at exchange cannot inherit the review-mint
+        # lane claim, so a review session must not be able to create one: it
+        # would turn a lane-confined session into an unconfined sign-in.
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_REVIEW_SESSION_REFUSED",
+                "message": "A review session cannot approve a trusted device.",
+            },
+        )
     if str(claims.get("trusted_device_id") or "").strip():
         raise HTTPException(
             status_code=403,
@@ -1584,6 +1601,14 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
         ) from exc
 
     claims: dict[str, Any] = dict(decoded or {})
+    if refuse_foreign_review_mint(claims):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "INVALID_PHONE_ID_TOKEN",
+                "message": "The phone verification token is invalid or expired.",
+            },
+        )
     firebase_claims = claims.get("firebase")
     sign_in_provider = (
         str(firebase_claims.get("sign_in_provider") or "").strip()

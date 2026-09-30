@@ -20,6 +20,13 @@ declare global {
       pkmProofExpectation?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmExpectation;
       pkmProof?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmBridge | null;
       vaultPassphrase?: string;
+      /**
+       * Credential for minting the reviewer session only. The backend mint
+       * requires the reviewer's vault passphrase; a harness that must prove
+       * the app presents the locked-vault challenge supplies it here and
+       * withholds `vaultPassphrase`, which is what drives auto-unlock.
+       */
+      reviewerSessionPassphrase?: string;
       expectedUserId?: string;
       expectedMarker?: string;
       initialRoute?: string;
@@ -110,6 +117,8 @@ export type NativeTestConfig = {
   enabled: boolean;
   autoReviewerLogin: boolean;
   vaultPassphrase: string | null;
+  /** Mint-only credential; never used to unlock the vault. */
+  reviewerSessionPassphrase?: string | null;
   expectedUserId: string | null;
   expectedMarker: string | null;
   initialRoute: string | null;
@@ -322,6 +331,11 @@ export function getNativeTestConfig(): NativeTestConfig {
       typeof raw.vaultPassphrase === "string" &&
       raw.vaultPassphrase.trim().length > 0
         ? raw.vaultPassphrase
+        : null,
+    reviewerSessionPassphrase:
+      typeof raw.reviewerSessionPassphrase === "string" &&
+      raw.reviewerSessionPassphrase.trim().length > 0
+        ? raw.reviewerSessionPassphrase
         : null,
     expectedUserId: sanitizeConfiguredValue(raw.expectedUserId),
     expectedMarker:

@@ -459,6 +459,94 @@ def test_verify_firebase_bearer_invalid_id_token_returns_401(monkeypatch):
     assert exc.value.detail == "Invalid Firebase ID token"
 
 
+def _verifier_returning(monkeypatch, claims: dict) -> None:
+    import firebase_admin.auth as firebase_auth
+
+    monkeypatch.setattr(
+        "api.utils.firebase_auth.ensure_firebase_auth_admin",
+        lambda: (True, "hushh-pda"),
+    )
+    monkeypatch.setattr("api.utils.firebase_auth.get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(
+        firebase_auth,
+        "verify_id_token",
+        lambda _token, *, app, check_revoked: dict(claims),
+    )
+
+
+def _serve_as_lane(monkeypatch, lane: str) -> None:
+    # Deployed services set ENVIRONMENT and leave APP_RUNTIME_PROFILE unset.
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setenv("ENVIRONMENT", lane)
+
+
+def test_production_refuses_a_uat_review_mint_that_uat_accepts(monkeypatch, caplog):
+    """UAT and production verify tokens for the same Firebase authority.
+
+    A review session minted on UAT is a valid hushh-pda token, so before the
+    lane claim existed production accepted it. Refusal is the same 401 an
+    invalid token gets, and the log line never carries the token.
+    """
+    _verifier_returning(monkeypatch, {"uid": "reviewer", "hushh_review_mint": "uat"})
+
+    # Negative control: the minting lane accepts its own review session.
+    _serve_as_lane(monkeypatch, "uat")
+    assert verify_firebase_bearer("Bearer uat-minted-id-token") == "reviewer"
+
+    _serve_as_lane(monkeypatch, "production")
+    with caplog.at_level("WARNING", logger=firebase_auth_module.logger.name):
+        with pytest.raises(HTTPException) as exc:
+            verify_firebase_bearer("Bearer uat-minted-id-token")
+
+    assert exc.value.status_code == 401
+    assert exc.value.detail == "Invalid Firebase ID token"
+    assert "one.auth.review_mint_rejected env=production minted_for=uat" in caplog.text
+    assert "uat-minted-id-token" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    ("serving_lane", "minted_for"),
+    [
+        ("uat", "dev"),
+        ("dev", "uat"),
+        ("uat", "development"),
+        # Production never mints, so a claim naming it is refused too.
+        ("production", "production"),
+        ("uat", ""),
+        ("uat", None),
+    ],
+)
+def test_review_mint_is_refused_outside_its_own_lane(monkeypatch, serving_lane, minted_for):
+    _verifier_returning(monkeypatch, {"uid": "reviewer", "hushh_review_mint": minted_for})
+    _serve_as_lane(monkeypatch, serving_lane)
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer review-minted-id-token")
+
+    assert exc.value.status_code == 401
+
+
+def test_production_runtime_profile_refuses_review_mint_whatever_environment_says(monkeypatch):
+    _verifier_returning(monkeypatch, {"uid": "reviewer", "hushh_review_mint": "uat"})
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "production")
+
+    with pytest.raises(HTTPException) as exc:
+        verify_firebase_bearer("Bearer review-minted-id-token")
+
+    assert exc.value.status_code == 401
+
+
+@pytest.mark.parametrize("serving_lane", ["development", "dev", "uat", "production"])
+def test_unmarked_tokens_are_unaffected_on_every_lane(monkeypatch, serving_lane):
+    _verifier_returning(
+        monkeypatch, {"uid": "person", "firebase": {"sign_in_provider": "google.com"}}
+    )
+    _serve_as_lane(monkeypatch, serving_lane)
+
+    assert verify_firebase_bearer("Bearer ordinary-id-token") == "person"
+
+
 def test_verify_firebase_bearer_maps_firebase_outage_to_503(monkeypatch):
     import firebase_admin.auth as firebase_auth
     from firebase_admin import exceptions as firebase_exceptions

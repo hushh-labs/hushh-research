@@ -372,6 +372,40 @@ describe("agent PKM memory helpers", () => {
     ).toMatchObject({ kind: "exact", domain: "preferences" });
   });
 
+  it("offers the merge agent the owner's related existing details, so a changed fact updates", async () => {
+    // 2026-09-29: the product never sent existing details, so 97 of 97 live
+    // cards were create_entity and a promotion would have stored a second role.
+    pkmBlob = {
+      ...pkmBlob,
+      professional: {
+        profile: { entities: {
+          role_senior: { entity_id: "role_senior", summary: "Senior Platform Engineer at Example Labs since March 2024." },
+          commute: { entity_id: "commute", summary: "Commutes by bike most days." },
+        } },
+      },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [...METADATA.domains, { ...METADATA.domains[0], key: "professional", displayName: "Professional" }],
+    });
+    const passage = "## Current role\n- Staff Platform Engineer at Example Labs, promoted in September 2026";
+    expect(AgentPkmContextStore.findReconciliationCandidates({ userId: "user_1", text: passage })).toEqual([]);
+    await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "role" });
+    const candidates = AgentPkmContextStore.findReconciliationCandidates({ userId: "user_1", text: passage });
+    expect(candidates).toEqual([{
+      domain: "professional", entity_id: "role_senior", entity_scope: "profile",
+      message: "Senior Platform Engineer at Example Labs since March 2024.", active: true,
+    }]);
+
+    apiFetchMock.mockResolvedValue({ ok: true, json: async () => ({ agent_id: "a", agent_name: "A", model: "m", used_fallback: false, preview_cards: [] }) });
+    await previewAgentPkmMemory({
+      userId: "user_1", vaultOwnerToken: "t", message: passage, currentDomains: ["professional"],
+      reconciliationCandidates: candidates,
+    });
+    const body = JSON.parse(apiFetchMock.mock.calls.at(-1)![1].body as string);
+    expect(body.simulated_state).toEqual({ memories: candidates });
+  });
+
   it("returns the full agent-safe packet regardless of prompt wording", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",

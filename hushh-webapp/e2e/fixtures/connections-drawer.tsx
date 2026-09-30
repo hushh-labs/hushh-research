@@ -8,7 +8,9 @@ import {
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
-import ExternalConnectorsPage from "../../app/one/profile/connectors/page";
+import { ProfileConnectorsSection } from "../../components/profile/profile-connectors-section";
+import { AppPageShell } from "../../components/app-ui/app-page-shell";
+import { SettingsPresentationProvider } from "../../components/profile/settings-ui";
 import {
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
@@ -277,9 +279,15 @@ function Fixture() {
 }
 const root = createRoot(document.getElementById("root")!);
 root.render(<Fixture />);
-// The shipped Profile > Connectors route, mounted in place of the chat fixture.
+// Profile's shipped Connectors section inside its shipped reading-width shell.
 Object.assign(window, {
-  __renderConnectorsSettingsPage: () => root.render(<ExternalConnectorsPage />),
+  __renderConnectorsSettingsPage: () => root.render(
+    <AppPageShell as="main" width="reading" fitContent>
+      <SettingsPresentationProvider density="compact">
+        <ProfileConnectorsSection connectorId={null} onConnectorChange={() => undefined} />
+      </SettingsPresentationProvider>
+    </AppPageShell>
+  ),
 });
 // The Gmail callback's settlement, built from the same exported helpers the
 // real /one/profile/gmail/oauth/return page uses.

@@ -239,6 +239,37 @@ async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_meta
     assert (await module.inspect_private_connectors(context()))["status"] == "unavailable"
 
 
+async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch):
+    authority = AsyncMock(return_value=True)
+    probe = AsyncMock(
+        return_value=SimpleNamespace(to_dict=lambda: {"status": "ready", "tools": []})
+    )
+    monkeypatch.setattr(module, "validate_first_party_owner_token", authority)
+    monkeypatch.setattr(module, "probe_mcp_server", probe)
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    result = await module.probe_private_connector("https://mcp.example.com/mcp", candidate)
+    assert result["status"] == "ok" and result["probe"] == {"status": "ready", "tools": []}
+    # The probe receives the address only: no owner token, header or vault record.
+    probe.assert_awaited_once_with("https://mcp.example.com/mcp")
+    assert "synthetic-owner-token" not in str(result)
+    for mutate in (
+        lambda c: setattr(c, "user_id", "other"),
+        lambda c: c.state.__setitem__("temp:one_execution_surface", "voice"),
+    ):
+        blocked = context()
+        blocked.state["hussh:consent_token"] = "synthetic-owner-token"
+        mutate(blocked)
+        assert (await module.probe_private_connector("https://x.example/mcp", blocked))[
+            "status"
+        ] == "blocked"
+    authority.return_value = False
+    assert (await module.probe_private_connector("https://x.example/mcp", candidate))[
+        "status"
+    ] == "blocked"
+    assert probe.await_count == 1
+
+
 async def test_private_connector_setup_does_not_claim_an_unavailable_vault_catalog(monkeypatch):
     monkeypatch.setattr(
         turn_module, "validate_first_party_owner_token", AsyncMock(return_value=False)

@@ -103,6 +103,8 @@ test.beforeAll(async () => {
 });
 
 test.beforeEach(async ({ page }) => {
+  const fixtureErrors: string[] = [];
+  page.on("pageerror", (error) => fixtureErrors.push(error.message));
   let status = "connected";
   let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route(/\/icons\/connectors\/(?:gmail|drive|calendar|plaid)\.svg$/, (route) =>
@@ -193,18 +195,18 @@ test.beforeEach(async ({ page }) => {
   });
   await page.goto("http://localhost/connections-fixture");
   await page.addScriptTag({ content: script });
+  expect(fixtureErrors, "Connections fixture initialized").toEqual([]);
   await awaitProductFont(page);
 });
 
 for (const width of [390, 1440])
-  test(`Profile Connectors page keeps the reading width at ${width}px`, async ({ page }) => {
-    // Founder report: the settings page spanned the whole desktop window
-    // (width="standard" is 90rem, i.e. 1440px). It now shares Profile's measure.
+  test(`Profile Connectors section keeps the reading width at ${width}px`, async ({ page }) => {
+    // The shipped section uses Profile's reading-width shell. Keep this
+    // bounded on desktop and viewport-wide without overflow on a phone.
     await page.setViewportSize({ width, height: 820 });
     await page.evaluate(() => (window as unknown as { __renderConnectorsSettingsPage: () => void }).__renderConnectorsSettingsPage());
     const shell = page.locator('main[data-app-shell-width]');
-    const panel = shell.locator('[data-surface="settings"]');
-    await expect(panel.getByRole("heading", { name: "Connected" })).toBeVisible();
+    await expect(shell.getByRole("heading", { name: "Connected" })).toBeVisible();
     const readingMeasure = await page.evaluate(() =>
       parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--app-shell-reading")) *
       parseFloat(getComputedStyle(document.documentElement).fontSize));
@@ -676,13 +678,13 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await page
     .getByRole("button", { name: "Remove <script>untrusted filename</script>" })
     .click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Remove this file from One?" }).getByRole("button", { name: "Remove" }).click();
   await expect(
     page.getByRole("list", { name: "Selected Drive files" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   await expect(
     page.getByText(/Google revocation was not confirmed/),
   ).toBeVisible();
@@ -770,7 +772,7 @@ test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, asyn
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   await page.evaluate(() => {
     window.open = () => null;
   });
@@ -830,7 +832,7 @@ test("real popup ignores forged settlement and stays revoked when sign-in is can
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await page.getByRole("button", { name: "Google Drive", exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
-  await page.getByRole("button", { name: "Confirm", exact: true }).click();
+  await page.getByRole("alertdialog", { name: "Disconnect Google Drive?" }).getByRole("button", { name: "Disconnect" }).click();
   const popupEvent = page.waitForEvent("popup");
   await page
     .getByRole("button", { name: "Connect Drive", exact: true })

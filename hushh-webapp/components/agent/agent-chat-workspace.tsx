@@ -17,7 +17,16 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
-import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import {
+  applyOwnerConfirmedSave,
+  formatPkmSaveReceiptForAgent,
+  pkmSaveReceiptWrote,
+  runExplicitPkmSave,
+  saveOwnerConfirmedCards,
+  type PkmSaveReceipt,
+} from "@/lib/agent/agent-pkm-explicit-save";
+import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import {
   AgentConsentContinuationContext,
   AgentPersonSelectionContext,
@@ -25,6 +34,7 @@ import {
   type AgentConsentContinuationHandler,
   type InformationRequestSubmissionReceipt,
 } from "@/components/agent/agent-structured-experience";
+import { CustomConnectorChatContext } from "@/components/agent/custom-connector-probe-card";
 import {
   claimConsentContinuation,
   collectOutgoingRequestCards,
@@ -72,12 +82,11 @@ import {
   LogIn,
   Mail,
   Mic,
-  Pencil,
   RotateCcw,
   Send,
+  StopSquare,
   ThumbsDown,
   ThumbsUp,
-  Trash2,
   User,
   X,
 } from "@/components/icons";
@@ -156,7 +165,10 @@ import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
-import { CHAT_USER_BUBBLE_CLASSNAME } from "@/components/agent/chat-message-styles";
+import {
+  CHAT_USER_BUBBLE_CLASSNAME,
+  ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
+} from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
@@ -266,6 +278,7 @@ import {
 import {
   AGENT_CHAT_STREAM_LOST_ERROR,
   AgentChatStreamLostError,
+  createQueuedInputPorts,
   deleteAgentChatConversation,
   getAgentChatConsentOutcomes,
   getLostAgentTurnOutcome,
@@ -356,26 +369,31 @@ import {
 } from "@/lib/agent/one-conversation-session";
 import { dedupeAdjacentAgentMessages } from "@/lib/agent/agent-chat-turn-safety";
 import {
+  canJoinAgentTurn,
+  combineQueuedPromptText,
   editQueuedAgentPrompt,
   removeQueuedAgentPrompt,
   SerialAgentOperationQueue,
+  takeJoinableRun,
   type QueuedAgentPrompt,
 } from "@/lib/agent/agent-chat-prompt-queue";
+import { LiveTurnQueue } from "@/lib/agent/agent-chat-live-turn-queue";
+import { AgentQueuedStack, QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
+import { useAgentChatSlowNotice } from "@/components/agent/agent-chat-slow-notice";
 import {
   combineAttachmentAndComposerText,
   composeTurnSourceText,
   createAgentTextAttachment,
   createPendingTextAttachment,
-  getTextAttachmentTitle,
   mergePastedText,
   parseStoredTextAttachments,
-  PASTED_TEXT_ATTACHMENT_NAME,
+  replaceTextAttachmentForResend,
   shouldCaptureLargePaste,
   type AgentTextAttachment,
   type PendingTextAttachment,
 } from "@/lib/agent/large-text-attachment";
 import { AgentMessageAttachments } from "@/components/agent/agent-message-attachments";
-import { AgentTextAttachmentViewButton } from "@/components/agent/agent-text-attachment-viewer";
+import { AgentComposerTextAttachment } from "@/components/agent/agent-text-attachment-editor";
 import {
   findPendingAssistantTurn,
   measureTranscriptReveal,
@@ -403,6 +421,11 @@ import {
   type GmailInformationRequestSourcePreview,
 } from "@/lib/services/gmail-information-requests-service";
 
+// Every memory capture job ends: auto-capture prepares within 120 s, an
+// explicit save of a long document within 300 s, and each leaves time to write.
+const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
+const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
+
 type AgentMessage = {
   id: string;
   /**
@@ -425,6 +448,8 @@ type AgentMessage = {
   ephemeral?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
   kind?: "selection";
+  /** Sent while One was working and taken into that reply at its next step. */
+  queuedPlacement?: "joined";
   /** Session-only source handle for the owner-selected Gmail KYC request. */
   gmailInformationRequestWorkflowId?: string;
   // Calendar proposal status is already a bounded confirmation/result. Keep
@@ -562,7 +587,8 @@ type AgentDebugEvent = {
 type QueuedWorkspaceOperation = {
   id: string;
   prompt?: QueuedAgentPrompt;
-  run: () => Promise<void>;
+  /** Receives the operation as it is when dequeued, so an edited prompt sends its edit. */
+  run: (current: QueuedWorkspaceOperation) => Promise<void>;
 };
 
 function upsertVisibleStreamEvent(
@@ -624,12 +650,6 @@ function clearDriveCompilationFromMessages(messages: AgentMessage[]): AgentMessa
     : message);
 }
 
-type AgentPkmActivity = {
-  id: string;
-  text: string;
-  status: "streaming" | "done" | "error";
-};
-
 /**
  * Inline secure card widget in the chat surface. The decrypted values live
  * only in this client state; they are never written into messages, model
@@ -657,6 +677,11 @@ type AgentRunTurnOptions = {
   deferPkmContext?: boolean;
   /** Pasted text sent as separate document parts beside the typed text. */
   attachments?: AgentTextAttachment[];
+  /**
+   * Queued messages sent together as this one turn, in order. Each shows as
+   * its own bubble; the first one's id identifies the turn's message.
+   */
+  queuedPrompts?: QueuedAgentPrompt[];
 };
 
 type ConsentRequiredDirectivePayload = {
@@ -1748,6 +1773,9 @@ export function AgentBubble({
   onReport,
   gmailInformationRequestAttachment,
   driveMemoryReview,
+  onResendAttachment,
+  onConfirmMemoryNeedsOwner,
+  onUnlockVault,
 }: {
   message: AgentMessage;
   onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
@@ -1773,6 +1801,10 @@ export function AgentBubble({
   onReport?: (reason: AgentResponseReportReason) => Promise<void>;
   gmailInformationRequestAttachment?: ReactNode;
   driveMemoryReview?: ReactNode;
+  /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
+  onResendAttachment?: (index: number, editedText: string) => boolean | void;
+  onConfirmMemoryNeedsOwner?: () => Promise<void>;
+  onUnlockVault?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   // The rating is owned by the workspace so it survives a reload; the bubble
@@ -1979,7 +2011,10 @@ export function AgentBubble({
               ) : null}
               {message.attachments?.length ? (
                 <div className={cn(message.text && "mt-2")}>
-                  <AgentMessageAttachments attachments={message.attachments} />
+                  <AgentMessageAttachments
+                    attachments={message.attachments}
+                    onResend={onResendAttachment}
+                  />
                 </div>
               ) : null}
               {gmailInformationRequestAttachment}
@@ -2030,7 +2065,8 @@ export function AgentBubble({
             </p>
           ) : null}
         </div>
-        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
+        {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
+        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
         {showResponseActions ? (
         <div
@@ -2079,13 +2115,6 @@ export function AgentBubble({
     </div>
   );
 }
-
-/**
- * Muse-style assistant surface, scoped to One's chat. The shared
- * `CHAT_ASSISTANT_BODY_CLASSNAME` stays as it is for the product introduction.
- */
-const ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME =
-  "rounded-[24px] bg-[color:var(--one-chat-bubble)] px-[18px] py-3 text-[15px] leading-[1.6] text-foreground";
 
 /** The centered date/time line that opens a group of messages. */
 function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
@@ -2246,6 +2275,9 @@ export function storedMessageToAgentMessage(
     ...(message.metadata?.consentBundleId ? { consentBundleId: message.metadata.consentBundleId } : {}),
     ...(message.metadata?.consentAccessEnded ? { consentAccessEnded: true } : {}),
     ...(message.metadata?.consentAccess ? { consentAccess: message.metadata.consentAccess } : {}),
+    ...(message.role === "user" && message.metadata?.queuedInput === "joined"
+      ? { queuedPlacement: "joined" as const }
+      : {}),
   };
 }
 
@@ -2522,6 +2554,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
   const [composerExpanded, setComposerExpandedState] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
+  // A typed turn is running that Stop can end at its next step.
+  const [stoppableTurn, setStoppableTurn] = useState(false);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
   >(null);
@@ -2795,6 +2829,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const operationQueueRef = useRef(
     new SerialAgentOperationQueue<QueuedWorkspaceOperation>(),
   );
+  // Messages sent while One works: offered to the running turn in queue
+  // order (one chain), settled from the server's record before the next turn.
+  const vaultOwnerTokenGetterRef = useRef(getVaultOwnerToken);
+  vaultOwnerTokenGetterRef.current = getVaultOwnerToken;
+  // One calm notice when a reply is slow or the server is strained.
+  const slowNotice = useAgentChatSlowNotice();
+  const liveTurnQueueRef = useRef<LiveTurnQueue | null>(null);
+  if (liveTurnQueueRef.current === null) {
+    liveTurnQueueRef.current = new LiveTurnQueue(
+      createQueuedInputPorts(() => vaultOwnerTokenGetterRef.current()),
+    );
+  }
+  const queuedOfferChainRef = useRef<Promise<void>>(Promise.resolve());
+  const liveAssistantMessageIdRef = useRef<string | null>(null);
+  const stopActiveTurnRef = useRef<(() => Promise<void>) | null>(null);
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
   const handoffPromptSubmitRef = useRef<
     ((prompt: string) => Promise<void>) | null
@@ -2802,6 +2851,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
   const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
   const pkmCaptureReceiptsRef = useRef(new Map<string, Map<string, AgentPkmCaptureStatus>>());
+  // The newest explicit-save receipt in this conversation. One is told it on
+  // the next turn, so it never has to guess whether a save finished.
+  const latestPkmSaveReceiptRef = useRef<PkmSaveReceipt | null>(null);
+  // Details that need the owner's direct tap, per assistant message. Session
+  // memory only: they hold the owner's words and are dropped with the turn.
+  const pkmNeedsOwnerCardsRef = useRef(new Map<string, { cards: AgentPkmPreviewCard[]; sourceMessage: string }>());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   // Set by the FCM effect below; lets a server tool result (pending requests
@@ -2860,6 +2915,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pkmAbortControllersRef.current.clear();
     pkmCaptureJobsRef.current.clear();
     pkmCaptureReceiptsRef.current.clear();
+    latestPkmSaveReceiptRef.current = null;
+    pkmNeedsOwnerCardsRef.current.clear();
     setActivePkmToolCount(0);
   }, []);
 
@@ -4742,6 +4799,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     isPuppySurface, longPromptAttachment, pendingAppAction, pendingMcpReviews.length,
     pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
   ]);
+  const customConnectorChat = useMemo(() => ({ prepareRecovery: prepareDriveChatRecovery }), [prepareDriveChatRecovery]);
 
   const clearPreparedDriveChatRecovery = useCallback(async () => {
     if (user?.uid) await clearDriveChatRecovery(user.uid);
@@ -5039,6 +5097,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       sourceMessage: string;
       currentDomains: string[];
       kycInformationSaveConfirmed?: boolean;
+      /** The owner asked One to save this; see lib/agent/agent-pkm-explicit-save.ts. */
+      explicitRequest?: boolean;
     }): Promise<AgentPkmCaptureStatus> => {
       // Private source text is used only in this transient deduplication key.
       const jobKey = JSON.stringify([params.assistantMessageId, params.sourceMessage]);
@@ -5046,7 +5106,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       if (existing) return existing;
       const token = getVaultOwnerToken();
       const ownerConfirmedKycSave = params.kycInformationSaveConfirmed === true;
-      if (!user?.uid || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave)) {
+      const explicitRequest = params.explicitRequest === true;
+      if (explicitRequest && (!user?.uid || !vaultKey || !token)) {
+        const locked: AgentPkmCaptureStatus = { phase: "needs_unlock", saved: 0 };
+        setMessages((current) => current.map((message) =>
+          message.id === params.assistantMessageId ? { ...message, memoryCapture: locked } : message,
+        ));
+        return Promise.resolve(locked);
+      }
+      if (!user?.uid || !vaultKey || !token || (!pkmCaptureEnabledRef.current && !ownerConfirmedKycSave && !explicitRequest)) {
         return Promise.resolve({ phase: "review", saved: 0 });
       }
       const userId = user.uid;
@@ -5054,22 +5122,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const controller = new AbortController();
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        isEnabled: () => ownerConfirmedKycSave || (
-          pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
-          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)
-        ),
+        // An explicit request does not depend on the background auto-save
+        // policy; it still needs the same unlocked, unexpired vault session.
+        isEnabled: () => ownerConfirmedKycSave ||
+          (explicitRequest && isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)) || (
+            pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
+            isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token)
+          ),
       });
       pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);
+      let timedOut = false;
+      // Every job ends. Before this deadline a vault token that expired by the
+      // clock (no React change) made the guard false, the final status was
+      // dropped, and "Checking for details worth remembering" stayed forever.
+      const deadline = globalThis.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
       const settle = (status: AgentPkmCaptureStatus) => {
-        if (guard.isCurrent()) {
-          const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
-          receipts.set(jobKey, status);
-          pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
-          const aggregate = aggregateAgentPkmCaptures([...receipts.values()]);
-          setMessages((current) => current.map((message) =>
-            message.id === params.assistantMessageId ? { ...message, memoryCapture: aggregate } : message,
-          ));
+        // Progress is published only while the session is current. A terminal
+        // status is always published: it is display only, and a status that
+        // never resolves is itself a false claim that work is happening.
+        if (!shouldPublishAgentPkmCapture(status, guard.isCurrent())) return status;
+        const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
+        receipts.set(jobKey, status);
+        pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
+        const aggregate = aggregateAgentPkmCaptures([...receipts.values()]);
+        setMessages((current) => current.map((message) =>
+          message.id === params.assistantMessageId ? { ...message, memoryCapture: aggregate } : message,
+        ));
+        if (!isAgentPkmCaptureRunning(status) && status.receipt) {
+          latestPkmSaveReceiptRef.current = status.receipt;
         }
         return status;
       };
@@ -5108,6 +5192,51 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ? (ingestion.save.failed ? "partial" : "saved")
                 : "failed",
               saved: ingestion.save.saved,
+            });
+          }
+          if (explicitRequest) {
+            const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+            await guard.assertCurrent();
+            const { receipt, needsOwnerCards } = await runExplicitPkmSave({
+              userId,
+              message: params.sourceMessage,
+              currentDomains: params.currentDomains,
+              currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
+              vaultKey,
+              vaultOwnerToken: token,
+              findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
+              findReconciliationCandidates: (passage) =>
+                AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
+              beforeEffect: guard.assertCurrent,
+              isEffectCurrent: guard.isCurrent,
+              mayPublish: guard.isCurrent,
+              onProgress: (progress) => {
+                settle({ phase: progress.stage === "saving" ? "saving" : "preparing", saved: 0, progress });
+              },
+            });
+            if (needsOwnerCards.length) {
+              pkmNeedsOwnerCardsRef.current.set(params.assistantMessageId, {
+                cards: needsOwnerCards, sourceMessage: params.sourceMessage,
+              });
+            }
+            const wrote = pkmSaveReceiptWrote(receipt);
+            appendDebugEvent(params.turnId, "pkm_explicit_save_result", {
+              saved: receipt.saved, updated: receipt.updated, merged: receipt.merged,
+              unchanged: receipt.unchanged, skipped: receipt.skipped, needs_owner: receipt.needsOwner,
+              failed: receipt.failed, unprepared: receipt.unprepared,
+            });
+            trackEvent("agent_pkm_save_confirmation_completed", {
+              route_id: "agent", result: wrote > 0 ? "success" : "expected_error",
+              saved_count_bucket: toPkmFactCountBucket(wrote), failed_count_bucket: toPkmFactCountBucket(receipt.failed),
+              has_active_recipients: false,
+            });
+            const incomplete = receipt.failed + receipt.unprepared + receipt.needsOwner > 0;
+            return settle({
+              phase: wrote > 0 || receipt.unchanged > 0
+                ? (incomplete ? "partial" : "saved")
+                : incomplete ? "failed" : "skipped",
+              saved: wrote,
+              receipt,
             });
           }
           const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
@@ -5153,8 +5282,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
           return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
         } catch {
-          return settle({ phase: "failed", saved: 0 });
+          if (timedOut) return settle({ phase: "failed", saved: 0, reason: "timeout" });
+          return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
+          globalThis.clearTimeout(deadline);
           // A canceled old job must not decrement a new conversation's count.
           if (pkmAbortControllersRef.current.delete(controller)) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
@@ -5166,6 +5297,31 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     },
     [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
   );
+
+  // The owner tapped "Save these too" on a memory receipt card: their direct
+  // confirmation for the details an explicit save held back.
+  const confirmMemoryNeedsOwner = useCallback(async (messageId: string) => {
+    const pending = pkmNeedsOwnerCardsRef.current.get(messageId);
+    const token = getVaultOwnerToken();
+    if (!pending || !user?.uid || !vaultKey || !token) {
+      throw new Error("Unlock your vault to save these details.");
+    }
+    const result = await saveOwnerConfirmedCards({
+      userId: user.uid, cards: pending.cards, sourceMessage: pending.sourceMessage,
+      vaultKey, vaultOwnerToken: token,
+    });
+    const remaining = pending.cards.filter((_, index) => !isCommittedPkmSave(result.results[index]));
+    if (remaining.length === pending.cards.length) throw new Error("Nothing was saved.");
+    if (remaining.length) pkmNeedsOwnerCardsRef.current.set(messageId, { ...pending, cards: remaining });
+    else pkmNeedsOwnerCardsRef.current.delete(messageId);
+    setMessages((current) => current.map((message) => {
+      const receipt = message.id === messageId ? message.memoryCapture?.receipt : undefined;
+      if (!receipt || !message.memoryCapture) return message;
+      const next = applyOwnerConfirmedSave(receipt, pending.cards, result);
+      latestPkmSaveReceiptRef.current = next;
+      return { ...message, memoryCapture: { ...message.memoryCapture, receipt: next, saved: pkmSaveReceiptWrote(next) } };
+    }));
+  }, [getVaultOwnerToken, user?.uid, vaultKey]);
 
   const runAgentTurn = async (
     textInput: string,
@@ -5226,7 +5382,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const executedToolCalls = new Set<string>();
     let pkmToolHandledFullTurn = false;
     let toolStatusMessageId: string | null = null;
-    let pkmStatusItemId: string | null = null;
     let turnPkmContext = EMPTY_PKM_CONTEXT;
     let pendingAssistantDelta = "";
     let assistantFlushFrame: number | null = null;
@@ -5294,33 +5449,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
     };
 
-    const upsertPkmStatusMessage = (
-      messageText: string,
-      status: AgentPkmActivity["status"] = "streaming",
-    ) => {
-      if (latestVisibleTurnIdRef.current !== debugTurnId) return;
-      const cleanText = messageText.trim();
-      if (!cleanText) {
-        if (pkmStatusItemId) upsertTurnStreamEvent({
-          id: pkmStatusItemId,
-          label: "Memory",
-          message: "No new information needed saving.",
-          status: "done",
-          createdAtMs: Date.now(),
-        });
-        return;
-      }
-      const nextStatusItemId = pkmStatusItemId || `pkm-status-${turnId}`;
-      pkmStatusItemId = nextStatusItemId;
-      upsertTurnStreamEvent({
-        id: nextStatusItemId,
-        label: "Memory",
-        message: cleanText,
-        status: status === "error" ? "error" : status === "done" ? "done" : "running",
-        createdAtMs: Date.now(),
-      });
-    };
-
     const toolResultStatus = (
       result: AgentActionRuntimeResult,
     ): AgentMessage["status"] => {
@@ -5335,15 +5463,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
 
     const executePkmAddTool = async (toolEvent: AgentChatToolEvent) => {
-      if (!vaultKey || !token) {
-        upsertPkmStatusMessage(
-          "Unlock your vault before saving to Memory.",
-          "error",
-        );
-        return { phase: "failed", saved: 0 } as AgentPkmCaptureStatus;
-      }
-
+      // `source_scope: "turn"` means the person asked to save what they pasted
+      // this turn. The device reads it directly, so the model never has to copy
+      // a long document into a tool argument (where it would be cut short).
+      const wholeTurn = toolEvent.slots.source_scope === "turn";
       const sourceText =
+        !wholeTurn &&
         typeof toolEvent.slots.source_text === "string" &&
         toolEvent.slots.source_text.trim()
           ? toolEvent.slots.source_text.trim()
@@ -5357,6 +5482,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         assistantMessageId,
         sourceMessage: sourceText,
         currentDomains: turnPkmContext.domains,
+        explicitRequest: true,
       });
     };
 
@@ -5372,6 +5498,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         const capture = await executePkmAddTool(toolEvent);
         return {
           status: capture.phase === "saved" || capture.phase === "skipped" ? "succeeded" : "blocked",
+          ...(capture.phase === "needs_unlock" ? { reason: "vault_locked" } : {}),
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
@@ -5631,6 +5758,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       sentAtMs,
       gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
     };
+    // Queued messages sent together keep one bubble each, in the order sent.
+    const userMessages: AgentMessage[] = options.queuedPrompts?.length
+      ? options.queuedPrompts.map((prompt, index) => ({
+          ...userMessage,
+          id: `msg-${turnId}-user-${index}`,
+          text: prompt.text,
+        }))
+      : [userMessage];
     const assistantMessage: AgentMessage = {
       id: assistantMessageId,
       role: "assistant",
@@ -5665,11 +5800,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       return [
         ...current,
-        ...(appendUserMessage ? [userMessage] : []),
+        ...(appendUserMessage ? userMessages : []),
         assistantMessage,
       ];
     });
     latestVisibleTurnIdRef.current = debugTurnId;
+    liveAssistantMessageIdRef.current = assistantMessageId;
     setActiveToolCalls([]);
     setIsChatLoading(true);
     setIsStreaming(true);
@@ -5854,11 +5990,37 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         });
       }
 
+      // Stop: settle the bubble now, ask the running turn to end at its next
+      // step, and keep reading quietly until it does. Anything it held comes
+      // back to the queue and is sent next, as after any interrupt.
+      let turnStopped = false;
+      const stopThisTurn = async () => {
+        if (turnStopped || streamAbortController.signal.aborted) return;
+        turnStopped = true;
+        slowNotice.finish("stopped");
+        flushAssistantDelta();
+        updateMessage(assistantMessageId, (message) => ({
+          ...message,
+          text: message.text || "Stopped.",
+          status: "done",
+          streamEvents: settleVisibleStreamEvents(message.streamEvents, "blocked"),
+        }));
+        setIsChatLoading(false);
+        setIsStreaming(false);
+        setStoppableTurn(false);
+        const result = await liveTurnQueueRef.current?.stop();
+        if (result?.waiting.length) setQueuedPlacement(result.waiting, "waiting");
+        // No server process runs this turn for us to stop: stop reading it.
+        if (!result?.stopped) streamAbortController.abort();
+      };
+
       performance.mark("hushh:agent-chat:dispatch-start");
+      slowNotice.begin();
       const streamResult = await streamAgentChat({
         userId,
         message: text,
         attachments,
+        messageId: options.queuedPrompts?.[0]?.id,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
@@ -5866,7 +6028,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (!vaultKey) throw new Error("Unlock your vault to use connectors.");
           return (await loadCustomConnectorSnapshot({ userId, vaultKey, vaultOwnerToken: token }, true)).configurations;
         },
-        pkmContext: agentPkmContext.text || undefined,
+        // The latest save receipt leads the packet so the server's length clip
+        // can never drop it. Counts and category names only.
+        pkmContext: [
+          latestPkmSaveReceiptRef.current
+            ? formatPkmSaveReceiptForAgent(latestPkmSaveReceiptRef.current)
+            : "",
+          agentPkmContext.text || "",
+        ].filter(Boolean).join("\n\n") || undefined,
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         driveSearchSelection: options.driveSearchSelection,
@@ -5886,6 +6055,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         handlers: {
           // No onThinkingSummary: the model's reasoning is never shown in
           // chat, live or restored. Only the answer and Activity render.
+          onStreamHealth: (signal) => {
+            if (streamAbortController.signal.aborted || turnStopped) return;
+            slowNotice.signal(signal);
+          },
           onMcpReview: (review) => {
             if (streamAbortController.signal.aborted || !review.isCurrent()) return;
             // Ephemeral only: never copy pending references or private previews
@@ -5913,7 +6086,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) {
               updateConversationId(nextConversationId);
+              // The turn is running: messages sent now can join it.
+              liveTurnQueueRef.current?.begin(nextConversationId);
+              stopActiveTurnRef.current = stopThisTurn;
+              if (!turnStopped) setStoppableTurn(true);
+              offerQueuedPromptsToLiveTurn();
             }
+          },
+          onQueuedInput: (notice) => {
+            if (streamAbortController.signal.aborted) return;
+            const settled = liveTurnQueueRef.current?.apply(notice);
+            if (!settled) return;
+            landJoinedPrompts(settled.joined);
+            if (settled.waiting.length) setQueuedPlacement(settled.waiting, "waiting");
           },
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
@@ -5986,7 +6171,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             upsertTurnStreamEvent(visibleEvent);
           },
           onToken: (delta) => {
-            if (streamAbortController.signal.aborted) return;
+            if (streamAbortController.signal.aborted || turnStopped) return;
             queueAssistantDelta(delta);
           },
           onSources: (sources) => {
@@ -6031,6 +6216,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // AG-UI interrupts are the normal boundary for a visible action
             // card. The card remains actionable, but the assistant turn has
             // finished thinking until the owner confirms or cancels it.
+            slowNotice.finish("answered");
             flushAssistantDelta();
             if (nextConversationId) {
               updateConversationId(nextConversationId);
@@ -6054,6 +6240,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            slowNotice.finish("answered");
             flushAssistantDelta();
             if (nextConversationId) {
               updateConversationId(nextConversationId);
@@ -6071,6 +6258,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            // The error in the transcript owns this turn; only server strain
+            // keeps the notice up, as the heavy-usage explanation.
+            slowNotice.finish("failed");
             flushAssistantDelta();
             updateMessage(assistantMessageId, (current) =>
               settleAssistantMessageError(current, message),
@@ -6132,6 +6322,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         finishCanceledTurn();
         return;
       }
+      slowNotice.finish("failed");
       flushAssistantDelta();
       const message =
         error instanceof Error && error.message
@@ -6160,10 +6351,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsChatLoading(false);
       setIsStreaming(false);
     } finally {
+      // Detached, cancelled or settled above: never leave this turn timing.
+      slowNotice.finish("stopped");
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
       }
+      // Before the next queued turn may start, every message this turn held is
+      // resolved from the server's record: joined, or back in the queue.
+      await settleLiveTurn();
     }
   };
 
@@ -6297,6 +6493,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     streamAbortControllerRef.current = streamAbortController;
 
     try {
+      slowNotice.begin();
       const streamResult = await streamAgentChat({
         userId,
         message,
@@ -6323,6 +6520,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // onPkmResults are intentionally omitted; only the events a delegated
         // confirmation turn can actually emit are wired here.
         handlers: {
+          onStreamHealth: (signal) => {
+            if (streamAbortController.signal.aborted) return;
+            slowNotice.signal(signal);
+          },
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) updateConversationId(nextConversationId);
@@ -6346,6 +6547,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
+            slowNotice.finish("answered");
             flushAssistantDelta();
             if (nextConversationId) updateConversationId(nextConversationId);
             updateMessage(assistantMessageId, (message) => ({
@@ -6357,6 +6559,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           },
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
+            slowNotice.finish("failed");
             flushAssistantDelta();
             if (consentBundleId) {
               consentFailure ??= { reason: message };
@@ -6404,6 +6607,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
       return "answered";
     } catch (error) {
+      slowNotice.finish(streamAbortController.signal.aborted ? "stopped" : "failed");
       flushAssistantDelta();
       let result: FollowUpTurnResult = "failed";
       if (streamAbortController.signal.aborted) {
@@ -6431,6 +6635,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setIsStreaming(false);
       return result;
     } finally {
+      slowNotice.finish("stopped");
       cancelAssistantFlush();
       if (streamAbortControllerRef.current === streamAbortController) {
         streamAbortControllerRef.current = null;
@@ -6643,7 +6848,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const drainOperationQueue = async () => {
     await operationQueueRef.current.drain(async (operation) => {
       syncQueuedPrompts();
-      await operation.run();
+      await operation.run(operation);
     });
   };
 
@@ -6651,6 +6856,85 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     operationQueueRef.current.enqueue(operation);
     syncQueuedPrompts();
     void drainOperationQueue();
+  };
+
+  // ── Messages sent while One works ──────────────────────────────────────
+  const updateQueuedPrompt = (
+    id: string,
+    update: (prompt: QueuedAgentPrompt) => QueuedAgentPrompt,
+  ) => {
+    operationQueueRef.current.replace(
+      operationQueueRef.current.snapshot().map((operation) =>
+        operation.prompt?.id === id
+          ? { ...operation, prompt: update(operation.prompt) }
+          : operation,
+      ),
+    );
+    syncQueuedPrompts();
+  };
+
+  const setQueuedPlacement = (ids: readonly string[], placement: "waiting" | "joining") => {
+    for (const id of ids) updateQueuedPrompt(id, (prompt) => ({ ...prompt, placement }));
+  };
+
+  /** Joined messages leave the queue and show above the reply they joined. */
+  const landJoinedPrompts = (ids: readonly string[]) => {
+    if (ids.length === 0) return;
+    const wanted = new Set(ids);
+    const landed = operationQueueRef.current
+      .snapshot()
+      .flatMap((operation) =>
+        operation.prompt && wanted.has(operation.prompt.id) ? [operation.prompt] : [],
+      );
+    operationQueueRef.current.replace(
+      operationQueueRef.current
+        .snapshot()
+        .filter((operation) => !operation.prompt || !wanted.has(operation.prompt.id)),
+    );
+    syncQueuedPrompts();
+    if (editingQueuedPromptId && wanted.has(editingQueuedPromptId)) {
+      setEditingQueuedPromptId(null);
+      setEditingQueuedPromptText("");
+    }
+    if (landed.length === 0) return;
+    const anchorId = liveAssistantMessageIdRef.current;
+    const bubbles: AgentMessage[] = landed.map((prompt) => ({
+      id: `msg-queued-${prompt.id}`,
+      role: "user",
+      text: prompt.text,
+      ...stampNow(),
+      status: "done",
+      queuedPlacement: "joined",
+    }));
+    setMessages((current) => {
+      const index = anchorId ? current.findIndex((message) => message.id === anchorId) : -1;
+      return index < 0
+        ? [...current, ...bubbles]
+        : [...current.slice(0, index), ...bubbles, ...current.slice(index)];
+    });
+  };
+
+  /**
+   * Offer waiting messages to the running turn, oldest first, one request at a
+   * time so the server receives them in queue order. A message may join only
+   * when every message ahead of it is joining too; otherwise it would overtake
+   * one that must wait for its own turn.
+   */
+  const offerQueuedPromptsToLiveTurn = () => {
+    const queue = liveTurnQueueRef.current;
+    if (!queue) return;
+    queuedOfferChainRef.current = queuedOfferChainRef.current.then(async () => {
+      for (const operation of [...operationQueueRef.current.snapshot()]) {
+        const prompt = operation.prompt;
+        if (!prompt) return;
+        if (prompt.placement === "joining") continue;
+        if (!canJoinAgentTurn(prompt) || queue.liveConversationId === null) return;
+        if (queue.liveConversationId !== conversationIdRef.current) return;
+        const placement = await queue.offer(prompt.id, prompt.text);
+        if (placement !== "joining") return;
+        setQueuedPlacement([prompt.id], "joining");
+      }
+    }).catch(() => undefined);
   };
 
   const enqueuePrompt = (
@@ -6677,63 +6961,127 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // instead ("remove the account number"), so it confirms no save.
       kycInformationSaveConfirmed:
         Boolean(gmailKycReplyRequest?.workflow_id) && !emailDraftOpen,
+      // Plain typed text only; a picker choice carries its own authority.
+      joinable: hasChatAccess && !personSelectionHandle,
+      placement: "waiting",
     };
     const operation: QueuedWorkspaceOperation = {
       id: prompt.id,
       prompt,
-      run: async () => {
+      run: async (dequeued) => {
+        const current = dequeued.prompt ?? prompt;
         if (hasChatAccess) {
           // One is still finishing a turn the app left: queue behind it and its
           // reload rather than start a second run in the same conversation.
           await waitForWatchedAgentTurn(user?.uid, conversationIdRef.current);
           await reattachRestoreRef.current;
-          await runAgentTurn(operation.prompt?.text ?? "", {
+          // This prompt and any plain messages queued right behind it go out
+          // together as one turn, in order.
+          const head = operationQueueRef.current.snapshot();
+          if (canJoinAgentTurn(current)) {
+            const { taken, rest } = takeJoinableRun(head);
+            operationQueueRef.current.replace(rest);
+            syncQueuedPrompts();
+            const together = [current, ...taken.flatMap((item) => (item.prompt ? [item.prompt] : []))];
+            await runAgentTurn(combineQueuedPromptText(together), {
+              source: "typed",
+              deferPkmContext: together.some((item) => item.deferPkmContext),
+              ...(together.length > 1 ? { queuedPrompts: together } : {}),
+            });
+            return;
+          }
+          await runAgentTurn(current.text, {
             source: "typed",
             personSelectionHandle,
-            attachments: operation.prompt?.attachments,
-            deferPkmContext: operation.prompt?.deferPkmContext,
-            driveSearchSelection: operation.prompt?.driveSearchSelection,
-            gmailInformationRequestWorkflowId:
-              operation.prompt?.gmailInformationRequestWorkflowId,
-            kycInformationSaveConfirmed:
-              operation.prompt?.kycInformationSaveConfirmed,
+            attachments: current.attachments,
+            deferPkmContext: current.deferPkmContext,
+            driveSearchSelection: current.driveSearchSelection,
+            gmailInformationRequestWorkflowId: current.gmailInformationRequestWorkflowId,
+            kycInformationSaveConfirmed: current.kycInformationSaveConfirmed,
           });
           return;
         }
         // The pre-vault intro tier has no attachment channel; it reads the
         // whole turn as text, exactly as before.
         await runIntroTurn(
-          composeTurnSourceText(
-            operation.prompt?.text ?? "",
-            operation.prompt?.attachments ?? [],
-          ),
+          composeTurnSourceText(current.text, current.attachments ?? []),
         );
       },
     };
     enqueueWorkspaceOperation(operation);
+    offerQueuedPromptsToLiveTurn();
   };
 
-  const editQueuedPrompt = (id: string, textInput: string) => {
+  /** The turn ended: resolve what it held, exactly once, before anything else is sent. */
+  const settleLiveTurn = async () => {
+    const queue = liveTurnQueueRef.current;
+    stopActiveTurnRef.current = null;
+    setStoppableTurn(false);
+    if (!queue) return;
+    queue.stopAccepting();
+    await queuedOfferChainRef.current;
+    const { joined, waiting } = await queue.settle();
+    landJoinedPrompts(joined);
+    if (waiting.length) setQueuedPlacement(waiting, "waiting");
+  };
+
+  /** Take a message back from the running turn before it joins. */
+  const reclaimQueuedPrompt = async (id: string): Promise<boolean> => {
+    const queue = liveTurnQueueRef.current;
+    if (!queue?.holds(id)) return true;
+    const outcome = await queue.withdraw(id);
+    if (outcome === "joined") {
+      landJoinedPrompts([id]);
+      return false;
+    }
+    return outcome === "withdrawn";
+  };
+
+  const editQueuedPrompt = async (id: string, textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
+    if (detectLikelyPan(text)) {
+      // An edit is screened like a fresh message: the guard blocks it and
+      // opens the secure form; the queued message keeps its previous text.
+      enqueueGuardedTurn({ typedText: text, attachments: [], fromPaste: false });
+      setEditingQueuedPromptId(null);
+      setEditingQueuedPromptText("");
+      return;
+    }
+    const held = liveTurnQueueRef.current?.holds(id) ?? false;
+    if (!(await reclaimQueuedPrompt(id))) return;
+    // A withdrawn id is spent on the server, so the edited message is new.
+    const nextId = held ? crypto.randomUUID() : id;
     operationQueueRef.current.replace(
-      operationQueueRef.current
-        .snapshot()
-        .map((operation) =>
-          operation.prompt?.id === id
-            ? {
-                ...operation,
-                prompt: { ...operation.prompt, text, driveSearchSelection: undefined },
-              }
-            : operation,
-        ),
+      operationQueueRef.current.snapshot().map((operation) =>
+        operation.prompt?.id === id
+          ? {
+              ...operation,
+              id: nextId,
+              prompt: {
+                ...operation.prompt,
+                id: nextId,
+                text,
+                // As editQueuedAgentPrompt: a revised intent re-picks its file.
+                driveSearchSelection: undefined,
+                placement: "waiting" as const,
+              },
+            }
+          : operation,
+      ),
     );
-    setQueuedPrompts((current) => editQueuedAgentPrompt(current, id, text));
+    setQueuedPrompts((current) =>
+      editQueuedAgentPrompt(current, id, text).map((prompt) =>
+        prompt.id === id ? { ...prompt, id: nextId } : prompt,
+      ),
+    );
     setEditingQueuedPromptId(null);
     setEditingQueuedPromptText("");
+    offerQueuedPromptsToLiveTurn();
   };
 
-  const removeQueuedPrompt = (id: string) => {
+  const removeQueuedPrompt = async (id: string) => {
+    if (!(await reclaimQueuedPrompt(id))) return;
     operationQueueRef.current.replace(
       operationQueueRef.current
         .snapshot()
@@ -7224,21 +7572,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     generatedDriveSearchDraftRef.current = false;
     setLongPromptAttachment(null);
     setComposerExpanded(false);
+    enqueueGuardedTurn({
+      typedText,
+      // The paste leaves as its own attachment part: a chip in the transcript
+      // and a separate document for One, never text folded into the message.
+      attachments: attachmentText?.trim()
+        ? [createAgentTextAttachment(attachmentText.trimEnd())]
+        : [],
+      fromPaste: attachment !== null,
+      driveSearchSelection,
+    });
+  };
+
+  /**
+   * The card-number guard and the queue, shared by the composer and by
+   * "Edit and send again" on a sent paste, so an edited copy is screened
+   * exactly like a fresh one.
+   */
+  const enqueueGuardedTurn = ({
+    typedText,
+    attachments,
+    fromPaste,
+    driveSearchSelection,
+  }: {
+    typedText: string;
+    attachments: AgentTextAttachment[];
+    fromPaste: boolean;
+    driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
+  }) => {
     // A large paste is a dedicated browser-memory import lane. Redact payment
     // card numbers before the text can enter Chat, history, telemetry, or the
     // guarded background PKM proposal flow; ordinary typed PAN input remains a
     // hard block and is routed to the secure card form.
     const redactPaste =
-      attachment !== null &&
-      detectLikelyPan(`${typedText}\n\n${attachmentText ?? ""}`);
+      fromPaste &&
+      detectLikelyPan([typedText, ...attachments.map((item) => item.text)].join("\n\n"));
     const submittedText = redactPaste ? redactLikelyPans(typedText) : typedText;
-    const submittedAttachmentText =
-      attachmentText && redactPaste ? redactLikelyPans(attachmentText) : attachmentText;
-    // The paste leaves as its own attachment part: a chip in the transcript
-    // and a separate document for One, never text folded into the message.
-    const submittedAttachments = submittedAttachmentText?.trim()
-      ? [createAgentTextAttachment(submittedAttachmentText.trimEnd())]
-      : [];
+    const submittedAttachments = redactPaste
+      ? attachments.map((item) => createAgentTextAttachment(redactLikelyPans(item.text), item.name))
+      : attachments;
     if (
       detectLikelyPan(submittedText) ||
       submittedAttachments.some((item) => detectLikelyPan(item.text))
@@ -7260,10 +7632,21 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return;
     }
     enqueuePrompt(submittedText, undefined, {
-      deferPkmContext: attachment !== null,
+      deferPkmContext: fromPaste,
       driveSearchSelection,
       attachments: submittedAttachments,
     });
+  };
+
+  /** A sent message stays as it was; its edited paste goes out as a new turn. */
+  const resendTextAttachment = (message: AgentMessage, index: number, editedText: string) => {
+    if (isVoiceConnecting || voiceActive) return false;
+    const attachments = replaceTextAttachmentForResend(message.attachments ?? [], index, editedText);
+    if (!attachments) return false;
+    transcriptUserScrollRef.current = false;
+    scrollToSubmittedTurnRef.current = true;
+    enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
+    return true;
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -7298,17 +7681,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpanded(false);
   };
 
-  const openLongPromptAttachment = () => {
-    const attachment = longPromptAttachment;
-    if (!attachment) return;
-    const text = combineAttachmentAndComposerText({
-      attachmentText: attachment.text,
-      composerText: input,
-    });
-    setInput(text);
-    setLongPromptAttachment(createPendingTextAttachment(text, true));
-    setComposerExpanded(true);
-    requestAnimationFrame(() => composerTextareaRef.current?.focus());
+  const editLongPromptAttachment = (text: string) => {
+    // An edit that empties the paste removes it; the typed message stays.
+    if (!text.trim()) {
+      setLongPromptAttachment(null);
+      return;
+    }
+    setLongPromptAttachment(createPendingTextAttachment(text));
   };
 
   const collapseComposer = () => {
@@ -7849,6 +8228,23 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           <Mic className="h-4 w-4" />
         </ShellActionSurface>
       ) : null}
+      {stoppableTurn && (isStreaming || isChatLoading) && !canSend ? (
+        // While One works, an empty composer offers Stop in Send's place; any
+        // text turns it back into Send, which queues the message.
+        <ShellActionSurface
+          type="button"
+          rippleEffect="fill"
+          data-testid="agent-chat-stop-turn"
+          className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
+          aria-label="Stop One"
+          title="Stop One"
+          onClick={() => {
+            void stopActiveTurnRef.current?.();
+          }}
+        >
+          <StopSquare className="h-3.5 w-3.5" />
+        </ShellActionSurface>
+      ) : (
       <ShellActionSurface
         type="submit"
         rippleEffect="fill"
@@ -7867,6 +8263,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>
+      )}
     </>
   );
 
@@ -7920,6 +8317,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
         ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
+      <CustomConnectorChatContext.Provider value={customConnectorChat}>
       <AgentConsentContinuationContext.Provider value={hasChatAccess
         ? { conversationId, continueWithOutcome: continueWithConsentOutcome }
         : null}>
@@ -8377,6 +8775,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <AgentBubble
                       message={message}
                       driveMemoryReview={renderDriveMemoryReview(message)}
+                      onResendAttachment={
+                        message.role === "user" && message.attachments?.length
+                          ? (index, editedText) => resendTextAttachment(message, index, editedText)
+                          : undefined
+                      }
+                      onConfirmMemoryNeedsOwner={() => confirmMemoryNeedsOwner(message.id)}
+                      onUnlockVault={() => setVaultDialogOpen(true)}
                       onInformationRequestSubmitted={async (activityId, receipt) => {
                         const ownerUid = user?.uid;
                         const threadId = conversationIdRef.current;
@@ -9517,104 +9922,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   : "max-w-3xl",
               )}
             >
-              {queuedPrompts.length > 0 ? (
-                <div
-                  className="mb-2 rounded-[18px] bg-foreground/[0.045] px-3 py-2"
-                  data-testid="agent-chat-prompt-queue"
-                  aria-live="polite"
-                >
-                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
-                    <span>
-                      {queuedPrompts.length}{" "}
-                      {queuedPrompts.length === 1 ? "message" : "messages"}{" "}
-                      queued
-                    </span>
-                    <span>One will send these in order.</span>
-                  </div>
-                  <div className="mt-1.5 space-y-1.5">
-                    {queuedPrompts.map((prompt, index) => (
-                      <div
-                        key={prompt.id}
-                        className="flex min-w-0 items-center gap-2 rounded-xl bg-background/75 px-2 py-1.5 text-sm"
-                      >
-                        <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-                          {index + 1}
-                        </span>
-                        {editingQueuedPromptId === prompt.id ? (
-                          <input
-                            autoFocus
-                            aria-label="Edit queued message"
-                            className="min-w-0 flex-1 bg-transparent outline-none"
-                            value={editingQueuedPromptText}
-                            onChange={(event) =>
-                              setEditingQueuedPromptText(event.target.value)
-                            }
-                            onKeyDown={(event) => {
-                              if (event.key === "Enter") {
-                                event.preventDefault();
-                                editQueuedPrompt(
-                                  prompt.id,
-                                  editingQueuedPromptText,
-                                );
-                              }
-                              if (event.key === "Escape") {
-                                setEditingQueuedPromptId(null);
-                                setEditingQueuedPromptText("");
-                              }
-                            }}
-                          />
-                        ) : (
-                          <span className="min-w-0 flex-1 truncate">
-                            {prompt.text || prompt.attachments?.[0]?.name}
-                          </span>
-                        )}
-                        {prompt.text && prompt.attachments?.[0] ? <span className="shrink-0 text-xs text-muted-foreground">{prompt.attachments[0].name}</span> : null}
-                        {prompt.driveSearchSelection ? <span className="shrink-0 text-xs text-muted-foreground">Drive file selected</span> : null}
-                        {editingQueuedPromptId === prompt.id ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-xs"
-                            onClick={() =>
-                              editQueuedPrompt(
-                                prompt.id,
-                                editingQueuedPromptText,
-                              )
-                            }
-                          >
-                            Save
-                          </Button>
-                        ) : (
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="ghost"
-                            className="h-7 w-7"
-                            aria-label={`Edit queued message ${index + 1}`}
-                            onClick={() => {
-                              setEditingQueuedPromptId(prompt.id);
-                              setEditingQueuedPromptText(prompt.text);
-                            }}
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          size="icon"
-                          variant="ghost"
-                          className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                          aria-label={`Remove queued message ${index + 1}`}
-                          onClick={() => removeQueuedPrompt(prompt.id)}
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
+              <AgentQueuedStack
+                prompts={queuedPrompts}
+                editingId={editingQueuedPromptId}
+                editingText={editingQueuedPromptText}
+                onEditStart={(prompt) => {
+                  setEditingQueuedPromptId(prompt.id);
+                  setEditingQueuedPromptText(prompt.text);
+                }}
+                onEditChange={setEditingQueuedPromptText}
+                onEditSave={(id) => {
+                  void editQueuedPrompt(id, editingQueuedPromptText);
+                }}
+                onEditCancel={() => {
+                  setEditingQueuedPromptId(null);
+                  setEditingQueuedPromptText("");
+                }}
+                onRemove={(id) => {
+                  void removeQueuedPrompt(id);
+                }}
+              />
               {voiceActive ? (
                 <div className="rounded-[22px] bg-foreground/[0.045] p-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]">
                   <AgentVoiceWaveInput
@@ -9641,61 +9968,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     </div>
                   ) : null}
                   {longPromptAttachment ? (
-                    <div
-                      className={cn(
-                        "relative mb-2 rounded-[18px] border border-foreground/[0.12] bg-foreground/[0.045] p-3 text-sm",
-                        longPromptAttachment.isExpanded ? "pr-11" : "pr-20",
-                      )}
-                      data-testid="agent-chat-text-attachment"
-                    >
-                      <button
-                        type="button"
-                        className="flex w-full min-w-0 items-center gap-2 text-left outline-none focus-visible:rounded-lg focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
-                        aria-expanded={longPromptAttachment.isExpanded}
-                        aria-label={
-                          longPromptAttachment.isExpanded
-                            ? "Text attachment open for editing"
-                            : "Open text attachment to view and edit"
-                        }
-                        onClick={() => {
-                          if (longPromptAttachment.isExpanded) {
-                            collapseComposer();
-                            return;
-                          }
-                          openLongPromptAttachment();
-                        }}
-                      >
-                        <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">
-                            {getTextAttachmentTitle(longPromptAttachment.text)}
-                          </span>
-                          <span className="block text-xs text-muted-foreground">
-                            Pasted text · {(longPromptAttachment.byteSize / 1024).toFixed(1)} KB{longPromptAttachment.isExpanded ? " · editing" : ""}
-                          </span>
-                        </span>
-                      </button>
-                      {/* Read the paste before sending without opening it for
-                        * editing. Hidden while it is open in the editor, which
-                        * already shows the live text. */}
-                      {!longPromptAttachment.isExpanded ? (
-                        <AgentTextAttachmentViewButton
-                          name={PASTED_TEXT_ATTACHMENT_NAME}
-                          text={longPromptAttachment.text}
-                          className="absolute right-10 top-2 h-8 w-8"
-                        />
-                      ) : null}
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        className="absolute right-2 top-2 h-8 w-8"
-                        aria-label="Remove text attachment"
-                        onClick={removeLongPromptAttachment}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                    </div>
+                    <AgentComposerTextAttachment
+                      attachment={longPromptAttachment}
+                      onChange={editLongPromptAttachment}
+                      onRemove={removeLongPromptAttachment}
+                      onCollapse={collapseComposer}
+                    />
                   ) : null}
                   {/* One composer, two sizes. The compact pill and the expanded
                    * editor used to be separate text boxes in separate trees, so
@@ -9816,6 +10094,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       </AgentTranscriptRevealContext.Provider>
       </ConsentCardPhaseContext.Provider>
       </AgentConsentContinuationContext.Provider>
+      </CustomConnectorChatContext.Provider>
       </AgentPersonSelectionContext.Provider>
     </div>
   );

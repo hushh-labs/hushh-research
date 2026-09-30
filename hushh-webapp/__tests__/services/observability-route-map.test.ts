@@ -186,6 +186,16 @@ describe("observability route map", () => {
         "/api/one/agent-chat/history/conversation_123",
       ),
     ).toBe("/api/one/agent-chat/history/{conversation_id}");
+    // Queued-message ids and conversation ids never reach telemetry raw.
+    expect(
+      normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/queue/client-msg-1"),
+    ).toBe("/api/one/agent-chat/runs/{conversation_id}/queue/{client_message_id}");
+    expect(
+      normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/queue?ids=a&ids=b"),
+    ).toBe("/api/one/agent-chat/runs/{conversation_id}/queue");
+    expect(normalizeApiPathToTemplate("/api/one/agent-chat/runs/conversation_123/stop")).toBe(
+      "/api/one/agent-chat/runs/{conversation_id}/stop",
+    );
     expect(
       normalizeApiPathToTemplate(
         "/api/kai/analyze/run/run_987/stream?cursor=0",

@@ -56,9 +56,9 @@ describe("ephemeral MCP review", () => {
         fingerprint: "a".repeat(64), permission: "ask_first", ignored: "private" }] });
     const tools = await ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration });
     // The owner's per-tool setting is echoed back; unknown provider fields are dropped.
-    // An older server omits `review`: that means every call is reviewed.
+    // Missing review and access metadata fail closed to review and write.
     expect(tools).toEqual([{ id: reference.toolName, name: "search_files", revision: "rev1",
-      fingerprint: "a".repeat(64), permission: "ask_first", review: "required" }]);
+      fingerprint: "a".repeat(64), permission: "ask_first", review: "required", access: "write" }]);
     expect(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body).not.toContain("synthetic-refresh");
   });
 
@@ -68,9 +68,13 @@ describe("ephemeral MCP review", () => {
     respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
       status: "available", tools: [{ ...tool, review: "not_required" }] });
     expect(await ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration }))
-      .toEqual([{ ...tool, review: "not_required" }]);
+      .toEqual([{ ...tool, review: "not_required", access: "write" }]);
     respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
       status: "available", tools: [{ ...tool, review: "auto" }] });
+    await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration }))
+      .rejects.toThrow("Invalid connector tools");
+    respond({ connectorId: configuration.connectorId, configurationRevision: configuration.revision,
+      status: "available", tools: [{ ...tool, access: "auto" }] });
     await expect(ExternalConnectorService.refreshMcpCatalog({ ...input(), configuration }))
       .rejects.toThrow("Invalid connector tools");
   });

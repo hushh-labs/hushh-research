@@ -411,6 +411,27 @@ that exact message and payload shape (`400`). The row's Feed projection is held
 as a 10-minute in-memory request secret for the turn; no tool runs in it; the
 history restores the message as a `selection` chip.
 
+**Queued messages (Claude-Code-style queueing).** While One works on a typed
+turn, the composer stays usable. A message sent then is offered to the running
+turn with `POST /api/one/agent-chat/runs/{conversation_id}/queue`
+(`{client_message_id, text}`, VAULT_OWNER, no chat key). The turn reads it at
+its next model step, after a tool or agent step returns, and appends it to the
+sealed conversation as the person's own event (history metadata
+`queuedInput: "joined"`). A turn that is writing its final answer, was stopped,
+answers a consent continuation or a feed item, resumes a confirmation, or has
+passed the post-read barrier does not take it: the receipt or the settlement
+says `returned` and the client sends it as the next turn, several queued
+messages together in order. The stream reports placement as an AG-UI `CUSTOM`
+event named `hussh.queued_input` carrying only ids
+(`{phase: "joined" | "settled", joined, returned}`), never text. Every
+operation is idempotent by `client_message_id`; the client settles every id it
+offered from `GET .../queue?ids=` before the next turn starts, so nothing is
+sent twice or lost across retries and reconnects. `POST .../stop` ends the
+running turn at its next step with the answer `Stopped.` and returns what it
+held. Queued text is process memory until sealed or dropped; an enqueue that
+reaches an instance not running the turn is returned, so it degrades to
+next-turn delivery. Contract and fallbacks: `consent-protocol/hushh_mcp/one_adk/queued_input.py`.
+
 `GET /api/one/information-requests/shared-with-me` (VAULT_OWNER) lists the
 current approvals other people gave this person: display names, item labels,
 bundle and request ids, purpose and expiry, plus `grantRef` (the request id),
@@ -1073,6 +1094,10 @@ delete/absent lifecycle with cleanup.
 | PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
 | DELETE | `/api/one/agent-chat/conversations/{conversation_id}` | Delete an authenticated vault owner's Agent chat conversation and its encrypted messages                                                                      |
 | GET    | `/api/one/agent-chat/history/{conversation_id}`       | Read decrypted Agent chat history for the authenticated conversation owner; `turn.pending` is true while the newest turn is still running server-side (bounded at 300 s, the detached turn's chat-key ceiling), so a client that left mid-turn can reattach |
+| POST   | `/api/one/agent-chat/runs/{conversation_id}/queue`    | Offer a message sent while One works to the running turn; idempotent by `client_message_id`; returns `queued` or `returned` |
+| GET    | `/api/one/agent-chat/runs/{conversation_id}/queue`    | Outcome of queued messages by `ids`: `queued`, `delivered`, `returned`, `withdrawn` or `unknown` |
+| DELETE | `/api/one/agent-chat/runs/{conversation_id}/queue/{client_message_id}` | Withdraw a queued message before it joins; reports `delivered` if it already did |
+| POST   | `/api/one/agent-chat/runs/{conversation_id}/stop`     | End the running turn at its next step; returns the queued messages it held |
 | POST   | `/api/one/adk/relay-session`                          | Retired: HTTP 410; clients must use the Location command lifecycle                                     |
 | WS     | `/api/one/adk/live`                                   | Retired: policy close with an explicit command-runtime retirement response                                 |
 | GET    | `/api/kai/chat/history/{conversation_id}`             | Conversation history                                                                                                                                          |

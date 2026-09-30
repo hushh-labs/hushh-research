@@ -170,6 +170,7 @@ _ACTIVITY_TOOLS = frozenset(
         "inspect_selected_drive_files",
         "read_selected_drive_search_result",
         "inspect_private_connectors",
+        "probe_private_connector",
         "discover_workspace_tools",
         "read_workspace_tool",
         "ask_email_agent",

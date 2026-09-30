@@ -400,6 +400,43 @@ async def test_authorize_rejects_token_issued_before_current_revocation_watermar
     assert error.value.detail["code"] == "UNAUTHENTICATED"
 
 
+@pytest.mark.asyncio
+async def test_review_session_cannot_authorize_a_launch_token(monkeypatch: pytest.MonkeyPatch):
+    """Launch exchange mints a custom token that cannot carry the lane claim."""
+    from firebase_admin import auth as firebase_auth
+
+    claims = {"uid": UID, "iat": 200}
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.delenv("APP_RUNTIME_PROFILE", raising=False)
+    monkeypatch.setattr(hushh_tech, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setattr(firebase_auth, "verify_id_token", lambda *_a, **_k: dict(claims))
+
+    async def immediate(function, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    async def watermark(_firebase_uid: str):
+        return 100_000
+
+    monkeypatch.setattr(hushh_tech, "run_in_threadpool", immediate)
+    monkeypatch.setattr(hushh_tech, "_firebase_valid_after_ms", watermark)
+
+    # Negative control: an ordinary session authorizes.
+    assert (
+        await hushh_tech._authorize_firebase_watermark(
+            authorization="Bearer id-token", firebase_uid=UID
+        )
+        == 100_000
+    )
+
+    claims["hushh_review_mint"] = "uat"
+    with pytest.raises(HTTPException) as error:
+        await hushh_tech._authorize_firebase_watermark(
+            authorization="Bearer id-token", firebase_uid=UID
+        )
+    assert error.value.status_code == 401
+    assert error.value.detail["code"] == "UNAUTHENTICATED"
+
+
 def test_typed_service_state_is_preserved(monkeypatch: pytest.MonkeyPatch):
     class Service:
         async def get_link_status(self, **_):

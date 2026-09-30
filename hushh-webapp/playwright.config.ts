@@ -119,12 +119,29 @@ export default defineConfig({
       // own document.
       testMatch: [
         /chat-onboarding\.layout\.spec\.ts/,
+        // agent-markdown: One's answers are read on an iPhone first; the code
+        // and table scroll boxes, 24px link targets and chip baselines are
+        // measured in the engine the app ships in. Own document.
+        /agent-markdown\.layout\.spec\.ts/,
         // press-ripple: the md-ripple on pointerdown, no press scale, and the
         // reduced-motion layer are felt on an iPhone first; own document.
         /press-ripple\.layout\.spec\.ts/,
+        // agent-queued-stack: the queue above the composer is used while One
+        // replies on an iPhone, so its grid is measured in WebKit; own document.
+        /agent-queued-stack\.layout\.spec\.ts/,
+        // agent-chat-slow-notice: the slow-reply notice under the status bar's
+        // safe area and clear of the composer, read on an iPhone; own document.
+        /agent-chat-slow-notice\.layout\.spec\.ts/,
         /settings-row-surface\.layout\.spec\.ts/,
+        // wallet-workspace: the card stack's ISO geometry, its no-overshoot
+        // travel and the zero-shift open are felt on an iPhone first; the
+        // fixture builds its own document.
+        /wallet-workspace\.layout\.spec\.ts/,
         /consent-center-row\.layout\.spec\.ts/,
         /shared-with-you-card\.layout\.spec\.ts/,
+        // memory-save-card: the explicit-save receipt's pixel-grid contract
+        // (insets, tile grid, aligned tabular counts) in the shipped engine.
+        /memory-save-card\.layout\.spec\.ts/,
         /text-attachment-viewer\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,

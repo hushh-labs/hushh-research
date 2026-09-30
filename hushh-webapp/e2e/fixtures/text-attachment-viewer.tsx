@@ -2,12 +2,17 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 
 import { AgentMessageAttachments } from "../../components/agent/agent-message-attachments";
+import { AgentComposerTextAttachment } from "../../components/agent/agent-text-attachment-editor";
 import {
   findPendingAssistantTurn,
   measureTranscriptReveal,
   transcriptRevealScrollTop,
 } from "../../lib/agent/agent-chat-transcript-scroll";
-import { createAgentTextAttachment } from "../../lib/agent/large-text-attachment";
+import {
+  createAgentTextAttachment,
+  createPendingTextAttachment,
+  type PendingTextAttachment,
+} from "../../lib/agent/large-text-attachment";
 
 /**
  * One chat's geometry in miniature: a transcript that scrolls inside a fixed
@@ -18,10 +23,14 @@ import { createAgentTextAttachment } from "../../lib/agent/large-text-attachment
  *
  * `?reveal=legacy` swaps the send scroll for the old
  * `scrollIntoView({ block: "end" })`, the negative control.
+ * `?pending=<KB>` puts a pending paste of about that size in the composer, as
+ * the editor's chip; the sent chip offers "Edit and send again", which appends
+ * the edited copy as a NEW row.
  */
 const params = new URLSearchParams(window.location.hash.slice(1));
 const legacy = params.get("reveal") === "legacy";
 const lineCount = Number(params.get("lines") ?? "2000");
+const pendingKb = Number(params.get("pending") ?? "0");
 
 const PASTE = Array.from({ length: lineCount }, (_, index) =>
   index % 40 === 0
@@ -29,6 +38,20 @@ const PASTE = Array.from({ length: lineCount }, (_, index) =>
     : `  const row${index} = ledger.entries[${index}] ?? { amount: ${index} * 3, note: "row ${index}" };`,
 ).join("\n");
 const ATTACHMENTS = [createAgentTextAttachment(PASTE)];
+
+function pendingPaste(kilobytes: number): string {
+  const lines: string[] = [];
+  let size = 0;
+  for (let index = 0; size < kilobytes * 1024; index += 1) {
+    const line =
+      index % 25 === 0
+        ? `## Ledger section ${index / 25 + 1}`
+        : `ledger ${index}: paid ${index * 7} to vendor ${index % 13} for invoice ${1000 + index}, reconciled.`;
+    lines.push(line);
+    size += line.length + 1;
+  }
+  return lines.join("\n");
+}
 const LONG_PROMPT = Array.from(
   { length: 40 },
   (_, index) => `Line ${index + 1} of a long prompt the person typed before pressing Send.`,
@@ -46,6 +69,9 @@ const HISTORY: Row[] = Array.from({ length: 12 }, (_, index) => ({
 function Harness() {
   const [rows, setRows] = useState<Row[]>(HISTORY);
   const [draft, setDraft] = useState("half-typed reply");
+  const [pending, setPending] = useState<PendingTextAttachment | null>(() =>
+    pendingKb ? createPendingTextAttachment(pendingPaste(pendingKb)) : null,
+  );
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const endRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLDivElement | null>(null);
@@ -93,7 +119,21 @@ function Harness() {
             <div className="max-w-[76%] rounded-[22px] bg-[color:var(--app-accent)] px-4 py-2.5 text-sm text-[color:var(--app-accent-fg)]">
               <span>Summarize this</span>
               <div className="mt-2">
-                <AgentMessageAttachments attachments={ATTACHMENTS} />
+                <AgentMessageAttachments
+                  attachments={ATTACHMENTS}
+                  onResend={(_, text) => {
+                    setRows((current) => [
+                      ...current,
+                      {
+                        id: `resent-${current.length}`,
+                        role: "user",
+                        text: `Sent again: ${text.split("\n").length} lines`,
+                        status: "done",
+                      },
+                    ]);
+                    return true;
+                  }}
+                />
               </div>
             </div>
           </div>
@@ -102,7 +142,9 @@ function Harness() {
               key={row.id}
               data-message-role={row.role}
               data-message-status={row.status}
-              data-testid={row.id === "pending" ? "pending-turn" : undefined}
+              data-testid={
+                row.id === "pending" ? "pending-turn" : row.id.startsWith("resent-") ? "resent-turn" : undefined
+              }
               className={row.role === "user" ? "flex justify-end" : "flex"}
             >
               <div className="max-w-[76%] whitespace-pre-wrap rounded-[22px] bg-foreground/[0.06] px-4 py-2.5 text-sm">
@@ -120,6 +162,16 @@ function Harness() {
           send();
         }}
       >
+        {pending ? (
+          <div className="pointer-events-auto mx-auto max-w-xl">
+            <AgentComposerTextAttachment
+              attachment={pending}
+              onChange={(text) => setPending(text.trim() ? createPendingTextAttachment(text) : null)}
+              onRemove={() => setPending(null)}
+              onCollapse={() => undefined}
+            />
+          </div>
+        ) : null}
         <div ref={composerRef} data-testid="composer" className="pointer-events-auto mx-auto flex max-w-xl gap-2">
           <textarea
             aria-label="Message"

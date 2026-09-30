@@ -520,6 +520,18 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/one/agent-chat/history/{conversation_id}",
   },
   {
+    regex: /^\/api\/one\/agent-chat\/runs\/[^/?]+\/queue\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
+  },
+  {
+    regex: /^\/api\/one\/agent-chat\/runs\/[^/?]+\/queue(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/runs/{conversation_id}/queue",
+  },
+  {
+    regex: /^\/api\/one\/agent-chat\/runs\/[^/?]+\/stop(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/runs/{conversation_id}/stop",
+  },
+  {
     regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/market/insights/baseline/{user_id}",
   },

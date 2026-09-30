@@ -37,6 +37,10 @@ import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -403,10 +407,6 @@ export const Navbar = ({
     shellNavigationHidden,
   ]);
 
-  const bottomNavWidth =
-    navOptions.length > 0
-      ? "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"
-      : "0px";
   const routeActiveNav = resolveBottomNavActiveKey(
     normalizedPathname,
     bottomNavScope,
@@ -516,7 +516,10 @@ export const Navbar = ({
       className={cn(
         layout === "slot"
           ? "flex w-full justify-center"
-          : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+          : cn(
+              "fixed inset-x-0 flex justify-center transform-gpu",
+              BOTTOM_CHROME_INSET_CLASSNAME,
+            ),
         layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
         // No breakpoint gate here. The bottom pill IS the primary navigation on
         // every viewport — there is no desktop/sidebar nav that takes over at
@@ -533,28 +536,24 @@ export const Navbar = ({
           : undefined
       }
     >
+      {/* The shared bottom chrome column: the pill fills it edge to edge, so
+          it and the "Talk to One" bar above it share both edges. No route or
+          viewport arithmetic here; the shell owns the width. */}
       <div
         data-testid="app-bottom-nav-frame"
-        className="pointer-events-none mx-auto flex w-full justify-center"
-        style={{
-          maxWidth:
-            pathname?.startsWith("/one/location")
-              ? "min(calc(100vw - 1.5rem), 45rem)"
-              : "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
-        }}
+        className={cn(
+          "pointer-events-none mx-auto flex justify-center",
+          BOTTOM_CHROME_COLUMN_CLASSNAME,
+        )}
       >
         <div
           className={cn(
-            "relative flex items-stretch justify-center gap-2",
+            "relative flex w-full items-stretch justify-center gap-2",
             "pointer-events-none",
           )}
-          style={{ maxWidth: "calc(100vw - 2rem)" }}
           ref={pillRef}
         >
-          <div
-            className="min-w-0 pointer-events-auto"
-            style={{ width: bottomNavWidth }}
-          >
+          <div className="w-full min-w-0 pointer-events-auto">
             <SegmentedPill
               size="default"
               layout="stacked"

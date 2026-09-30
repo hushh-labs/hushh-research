@@ -266,8 +266,9 @@ export function NativeTestBootstrap() {
               localReviewerCredentials.password
             )
           : await (async () => {
+              // The backend mint requires the reviewer passphrase.
               const { token } = await ApiService.createAppReviewModeSession("reviewer", {
-                smokePassphrase: config.vaultPassphrase,
+                smokePassphrase: config.reviewerSessionPassphrase || config.vaultPassphrase,
                 reviewerUid: config.expectedUserId,
               });
               return AuthService.signInWithCustomToken(token);
@@ -325,6 +326,7 @@ export function NativeTestBootstrap() {
     config.autoReviewerLogin,
     config.enabled,
     config.expectedUserId,
+    config.reviewerSessionPassphrase,
     config.vaultPassphrase,
     setNativeUser,
     user,

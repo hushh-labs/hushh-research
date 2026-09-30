@@ -133,9 +133,9 @@ describe("Navbar bottom utilities", () => {
         .getByRole("radiogroup", { name: "Route navigation" })
         .getAttribute("style"),
     ).toContain("grid-template-columns: repeat(5, minmax(0, 1fr))");
-    expect(
-      screen.getByTestId("app-bottom-nav-frame").getAttribute("style"),
-    ).toContain("var(--app-bottom-shell-max-width)");
+    expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
+      "max-w-[var(--app-bottom-shell-max-width)]",
+    );
     expect(screen.getByTestId("app-bottom-nav-frame").className).toContain(
       "justify-center",
     );

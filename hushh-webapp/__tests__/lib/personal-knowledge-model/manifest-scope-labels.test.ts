@@ -31,6 +31,29 @@ function manifestOf(domainData: Record<string, unknown>) {
 }
 
 describe("manifest scope labels", () => {
+  it("labels pay and immigration saved under a general profile scope, and nothing else", () => {
+    // Live synthetic run, 2026-09-29: the structure agent filed salary and visa
+    // facts as entities under professional.profile with no sensitivity label.
+    const entity = (id: string, summary: string) => ({ entity_id: id, kind: "fact", summary, observations: [summary] });
+    const { manifest } = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "professional",
+      domainData: {
+        profile: { entities: {
+          mem_role: entity("mem_role", "Staff engineer at Example Labs."),
+          mem_e4e254416791: entity("mem_e4e254416791", "Base salary: USD 182,000 per year."),
+        } },
+        immigration_notes: { entities: { new_fact: entity("new_fact", "Visa renewal is due in June 2027.") } },
+        preferences: { seat: "Prefers aisle seats on long flights" },
+      },
+    });
+    const label = (jsonPath: string) => manifest.paths.find((path) => path.json_path === jsonPath)?.sensitivity_label ?? null;
+    const summaries = manifest.paths.filter((path) => path.json_path.endsWith(".summary"));
+    expect(summaries.length).toBeGreaterThan(0);
+    expect(summaries.find((path) => path.json_path.startsWith("profile."))?.sensitivity_label).toBe("confidential");
+    expect(summaries.find((path) => path.json_path.startsWith("immigration_notes."))?.sensitivity_label).toBe("restricted");
+    expect(label("preferences.seat")).toBeNull();
+  });
+
   it("projects normalized paths back to the unique stored spelling", () => {
     const domainData = { workDetails: { employerName: "Synthetic employer", privateNote: "unselected" } };
     const manifest = manifestOf(domainData);

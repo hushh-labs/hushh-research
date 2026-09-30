@@ -79,6 +79,7 @@ import { GeminiLogo } from "@/components/brand/gemini-logo";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { buildProfileConnectorsStackEntry } from "@/components/profile/profile-connectors-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
@@ -553,6 +554,7 @@ function profileRouteRequiresUnlockedVault(
   if (
     panel === "my-data" ||
     panel === "connected-systems" ||
+    panel === "connectors" ||
     panel === "gmail"
   ) {
     return true;
@@ -1821,7 +1823,7 @@ function ProfilePageContent({
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "connected-systems" | "gmail" | "security"
+      "my-data" | "connected-systems" | "connectors" | "gmail" | "security"
     >,
     detail: ProfileDetail | null = null,
   ) {
@@ -4388,6 +4390,13 @@ function ProfilePageContent({
       description: "Connected CRM systems.",
       content: connectedSystemsContent,
     });
+  } else if (!routeBlockedByVault && activePanel === "connectors") {
+    profileStackEntries.push(
+      buildProfileConnectorsStackEntry({
+        detail: activeDetail,
+        updateView: updateProfileView,
+      }),
+    );
   } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
@@ -4614,7 +4623,7 @@ function ProfilePageContent({
                 title="Connectors"
                 description="Google Workspace and finance connections"
                 chevron
-                onClick={() => router.push(ROUTES.PROFILE_CONNECTORS)}
+                onClick={() => openVaultBackedPanel("connectors")}
               />
               <SettingsRow
                 icon={InviteFriendsProfileIcon}

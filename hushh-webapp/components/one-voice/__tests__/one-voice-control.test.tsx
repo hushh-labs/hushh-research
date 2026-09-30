@@ -115,7 +115,9 @@ describe("OneVoiceControl", () => {
     expect(dock).toHaveAccessibleName("One private agent");
     expect(dock.className).toContain("bottom-chrome-surface");
     expect(dock.className).not.toContain("backdrop-blur");
-    expect(dock.className).toContain("var(--app-agent-bar-max-width)");
+    // The shared bottom chrome column, never a width of its own.
+    expect(dock.className).toContain("max-w-[var(--app-bottom-shell-max-width)]");
+    expect(dock.className).not.toContain("100vw");
 
     const start = screen.getByTestId("one-voice-agent-bar-start-icon");
     expect(start).toHaveAttribute(

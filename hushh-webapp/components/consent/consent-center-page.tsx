@@ -128,7 +128,7 @@ import {
   isInlineDecidableConsentEntry,
 } from "@/lib/consent/owner-consent-request";
 import { useConsentSharePreview } from "@/lib/consent/consent-share-preview";
-import { ConnectionsService } from "@/lib/services/connections-service";
+import { ConnectionsService, type ConnectionPage } from "@/lib/services/connections-service";
 
 import {
   CONSENT_CENTER_PAGE_SIZE,
@@ -264,7 +264,15 @@ function resolveConsentTab(
 }
 
 function formatStatus(status?: string | null) {
-  return String(status || "pending").replaceAll("_", " ");
+  const normalized = String(status || "pending").toLowerCase();
+  const labels: Record<string, string> = {
+    revoked: "Ended",
+    cancelled: "Withdrawn",
+    pending: "Waiting",
+    request_pending: "Waiting",
+    accepted: "Accepted",
+  };
+  return labels[normalized] || normalized.replaceAll("_", " ");
 }
 
 /**
@@ -376,18 +384,18 @@ function badgeClassName(status?: string | null) {
   switch (String(status || "").toLowerCase()) {
     case "approved":
     case "active":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+      return "border-transparent bg-emerald-500/10 text-emerald-800 dark:text-emerald-200";
     case "pending":
     case "request_pending":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700 dark:text-amber-300";
+      return "border-transparent bg-amber-500/10 text-amber-800 dark:text-amber-200";
     case "denied":
     case "revoked":
     case "cancelled":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700 dark:text-rose-300";
+      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
     case "expired":
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
     default:
-      return "border-border/70 bg-background/80 text-muted-foreground";
+      return "border-transparent bg-[color:var(--app-secondary-surface)] text-[color:var(--app-secondary-label)]";
   }
 }
 
@@ -508,12 +516,12 @@ function filterConsentSurfaceEntries(
   locallyHandledRequestIds: Set<string>,
   locallyRevokedScopes: Set<string>,
 ): ConsentCenterEntry[] {
-  // Both of these surfaces list requests that are still open, so a row the
-  // user just answered has to disappear from either one. Keying this on
-  // "pending" alone kept an accepted connection request on screen, because
-  // connections are a separate surface with their own tab.
-  const listsOpenRequests = surface === "pending" || surface === "connections";
   return source.filter((entry) => {
+    // The Connections tab shows active people. Only its selected legacy
+    // request deep link is an open request that can be handled locally.
+    const listsOpenRequests =
+      surface === "pending" ||
+      (surface === "connections" && entry.kind === "connection_request");
     if (
       listsOpenRequests &&
       entry.request_id &&
@@ -641,12 +649,31 @@ function relationshipSortValue(entry: ConsentCenterEntry) {
 }
 
 function buildConnectionEntries(
-  center: ConsentCenterResponse | null,
+  center: Pick<ConsentCenterResponse, "connection_requests"> | null,
+  activeConnections: ConnectionPage | null,
+  selectedId: string | null,
 ): ConsentCenterEntry[] {
-  if (!center) return [];
-  // Relationship metadata and ordinary consent rows must never become a
-  // connection review. The backend returns only explicit proposal envelopes.
-  return [...(center.connection_requests || [])].sort(
+  const active = (activeConnections?.items || []).map((connection): ConsentCenterEntry => ({
+    id: connection.connectionId,
+    kind: "connection",
+    status: "active",
+    action: "CONNECTED",
+    counterpart_type: "person",
+    counterpart_id: connection.userId,
+    counterpart_label: connection.displayName || "Someone",
+    counterpart_email: connection.email || null,
+    counterpart_image_url: connection.photoUrl || null,
+    issued_at: connection.createdAt,
+  }));
+  // Keep an explicit request deep link resolvable without turning old request
+  // logs into visible connections. The active relationship table owns the list.
+  const selectedRequest = selectedId
+    ? (center?.connection_requests || []).find((entry) =>
+        consentEntryMatchesSelectedId(entry, selectedId),
+      )
+    : null;
+  if (selectedRequest) active.push(selectedRequest);
+  return active.sort(
     (left, right) => relationshipSortValue(right) - relationshipSortValue(left),
   );
 }
@@ -755,7 +782,13 @@ function ConsentEntryRow({
       onClick={onSelect}
       leading={<ConsentCounterpartAvatar entry={entry} />}
       title={resolveCounterpartLabel(entry)}
-      description={
+      description={entry.kind === "connection" ? (
+        <span className="text-[color:var(--app-secondary-label)]">
+          {formatDate(entry.issued_at)
+            ? `First connected ${formatDate(entry.issued_at)}`
+            : "Connected"}
+        </span>
+      ) : (
         <span className="line-clamp-2">
           <span>{supportingCopy}</span>
           {counterpartSubtitle ? (
@@ -765,14 +798,15 @@ function ConsentEntryRow({
             </>
           ) : null}
         </span>
-      }
-      trailing={
+      )}
+      trailing={entry.kind === "connection" ? null : (
         <Badge
-          className={cn("shrink-0 capitalize", badgeClassName(entry.status))}
+          variant="outline"
+          className={cn("shrink-0", badgeClassName(entry.status))}
         >
           {formatStatus(entry.status)}
         </Badge>
-      }
+      )}
       className={selected ? "bg-accent-surface" : undefined}
     />
   );
@@ -1366,7 +1400,9 @@ function ConsentEntryDetail({
   const requestDeadline =
     entry.approval_timeout_at || (isPendingDecision ? entry.expires_at : null);
   const activityDateLabel =
-    entry.kind === "active_grant"
+    entry.kind === "connection"
+      ? "First connected"
+      : entry.kind === "active_grant"
       ? "Shared since"
       : entry.kind === "history"
         ? "Recorded"
@@ -1380,8 +1416,10 @@ function ConsentEntryDetail({
     : [
         consentEntryInformationLabel(entry),
       ];
-  const accessValue = isConnectionDecision
-    ? entry.scope_description || "Trusted connection"
+  const accessValue = entry.kind === "connection"
+    ? "Connection"
+    : isConnectionDecision
+      ? entry.scope_description || "Trusted connection"
     : joinInformationLabels(decisionLabels, decisionLabels.length);
   const detailItems = [
     [
@@ -1394,7 +1432,7 @@ function ConsentEntryDetail({
     canChooseItems
       ? null
       : [
-          isConnectionDecision
+          entry.kind === "connection" || isConnectionDecision
             ? "Relationship"
             : isBundleDecision
               ? `Access · ${countItems(decisionLabels.length)}`
@@ -2005,9 +2043,11 @@ export function ConsentCenterPage() {
   const [pendingLocalPage, setPendingLocalPage] = useState(1);
   const [activeLocalPage, setActiveLocalPage] = useState(1);
   const [previousLocalPage, setPreviousLocalPage] = useState(1);
+  const [connectionsLocalPage, setConnectionsLocalPage] = useState(1);
   const pendingPage = tab === "requests" ? page : pendingLocalPage;
   const activePage = tab === "active" ? page : activeLocalPage;
   const previousPage = tab === "history" ? page : previousLocalPage;
+  const connectionsPage = tab === "connections" ? page : connectionsLocalPage;
   const selectedId =
     searchParams.get("requestId") || searchParams.get("selected");
   // Bundle deep links (KYC/RIA emails and backend consent URLs carry bundleId
@@ -2636,9 +2676,9 @@ export function ConsentCenterPage() {
 
   const centerResource = useStaleResource({
     cacheKey: user?.uid
-      ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}`)
+      ? CACHE_KEYS.CONSENT_CENTER(user.uid, `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`)
       : "consent_center_guest",
-    refreshKey: `${actor}:${managerView}`,
+    refreshKey: `${actor}:${managerView}:active-connections:${deferredQuery}:${connectionsPage}:${selectedId || "list"}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("connections"),
     retainOnInvalidate: true,
     load: async (options) => {
@@ -2646,13 +2686,28 @@ export function ConsentCenterPage() {
       if (!user?.uid || !idToken) {
         throw new Error("Sign in to review consents");
       }
-      return ConsentCenterService.getCenter({
-        idToken,
-        userId: user.uid,
-        actor,
-        view: managerView,
-        force: Boolean(options?.force),
-      });
+      const [center, activeConnections] = await Promise.all([
+        selectedId ? ConsentCenterService.getCenter({
+          idToken,
+          userId: user.uid,
+          actor,
+          view: managerView,
+          force: Boolean(options?.force),
+        }) : Promise.resolve(null),
+        ConnectionsService.listConnectionsPage({
+          idToken,
+          page: connectionsPage,
+          limit: CONSENT_CENTER_PAGE_SIZE,
+          query: deferredQuery,
+          audience: "all",
+        }).catch(() => null),
+      ]);
+      // A connection check failure is not an empty graph. Consent audit rows
+      // remain independently available and the tab offers an explicit retry.
+      return {
+        connection_requests: center?.connection_requests || [],
+        activeConnections,
+      };
     },
   });
 
@@ -2941,10 +2996,14 @@ export function ConsentCenterPage() {
   const connectionItems = useMemo(
     () =>
       filterConnectionEntries(
-        buildConnectionEntries(centerResource.data || null),
+        buildConnectionEntries(
+          centerResource.data || null,
+          centerResource.data?.activeConnections ?? null,
+          selectedId,
+        ),
         deferredQuery,
       ),
-    [centerResource.data, deferredQuery],
+    [centerResource.data, deferredQuery, selectedId],
   );
   // Optimistic Active rows apply to the unfiltered first page only; a search
   // or a later page shows exactly what the server returned.
@@ -3691,21 +3750,44 @@ export function ConsentCenterPage() {
                       }
                       pagination={previousPagination}
                     />
-                    <ConsentSurfaceListSection
-                      loading={centerResource.loading}
-                      emptyMessage={
-                        tab === "connections"
-                          ? emptyListMessage
-                          : "No connections are available yet."
-                      }
-                      items={connectionsSurfaceItems}
-                      selectedEntry={selectedEntry}
-                      selectedId={selectedId}
-                      onSelectEntry={(entry) =>
-                        setParam({ requestId: driveSharingSelectionId(entry) })
-                      }
-                      pagination={null}
-                    />
+                    {centerResource.data && centerResource.data.activeConnections == null ? (
+                      <ApiRetryState
+                        title="Could not check connections"
+                        description="Your connected people could not be loaded. Try again."
+                        onRetry={() => void centerResource.refresh({ force: true })}
+                      />
+                    ) : (
+                      <ConsentSurfaceListSection
+                        loading={centerResource.loading}
+                        emptyMessage={
+                          tab === "connections"
+                            ? emptyListMessage
+                            : "No connections yet."
+                        }
+                        items={connectionsSurfaceItems}
+                        selectedEntry={selectedEntry}
+                        selectedId={selectedId}
+                        onSelectEntry={(entry) =>
+                          setParam({ requestId: driveSharingSelectionId(entry) })
+                        }
+                      pagination={centerResource.data?.activeConnections ? {
+                        page: centerResource.data.activeConnections.page,
+                        limit: CONSENT_CENTER_PAGE_SIZE,
+                        total: centerResource.data.activeConnections.totalCount,
+                        hasMore: centerResource.data.activeConnections.hasMore,
+                        onPrevious: () => {
+                          const next = Math.max(1, connectionsPage - 1);
+                          if (tab === "connections") setParam({ page: String(next), requestId: null });
+                          else setConnectionsLocalPage(next);
+                        },
+                        onNext: () => {
+                          const next = connectionsPage + 1;
+                          if (tab === "connections") setParam({ page: String(next), requestId: null });
+                          else setConnectionsLocalPage(next);
+                        },
+                      } : null}
+                      />
+                    )}
                   </SwipeViews>
                 </div>
               </SettingsGroup>
@@ -3727,7 +3809,9 @@ export function ConsentCenterPage() {
           }
           description={
             isQuerySelection ? "A question about Google Drive." : isDocumentSelection ? "Google Drive" : selectedEntry
-              ? selectedEntry.kind === "active_grant"
+              ? selectedEntry.kind === "connection"
+                ? "Connection details"
+                : selectedEntry.kind === "active_grant"
                 ? "Active access"
                 : selectedEntry.kind === "history"
                   ? `${formatStatus(selectedEntry.status)} access`
@@ -3739,7 +3823,6 @@ export function ConsentCenterPage() {
                 : "Choose a consent entry from the list to review details and next actions."
           }
           mobilePresentation="sheet"
-          showCloseButton={false}
           // Grouped background: the request's actionable sections read as cards.
           bodyClassName={
             isDocumentSelection

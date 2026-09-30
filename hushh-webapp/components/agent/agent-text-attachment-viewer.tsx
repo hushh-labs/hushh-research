@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from "react";
 
-import { ChevronDown, ChevronUp, Copy, Eye, Search } from "@/components/icons";
+import { ChevronDown, ChevronUp, Copy, PencilLine, Search } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -48,6 +48,20 @@ import { cn } from "@/lib/utils";
  * `content-visibility: auto`, so a 50k-character paste costs a few hundred
  * rows at open and nothing per scroll frame.
  */
+
+/**
+ * The frame both the viewer and the editor sit in: a large bottom sheet that
+ * stops 40px under the safe area and lifts above the keyboard, or a floating
+ * panel inset from the window's right edge.
+ */
+export const TEXT_ATTACHMENT_SHEET_FRAME = {
+  sheet:
+    "h-[calc(100dvh-var(--app-safe-area-top-effective,0px)-2.5rem-var(--kb-height,0px))] max-h-[calc(100dvh-var(--app-safe-area-top-effective,0px)-2.5rem-var(--kb-height,0px))]",
+  // Floats inset from the edges; the primitive's safe-area padding stays, so
+  // on an iPad shell the header clears the status bar.
+  panel:
+    "inset-y-3 right-3 h-auto w-[min(40rem,52vw)] rounded-[var(--app-card-radius-feature)] border sm:max-w-none",
+} as const;
 
 const CHUNK_LINES = 200;
 const INITIAL_BUILT_CHUNKS = 2;
@@ -256,6 +270,7 @@ function TextAttachmentViewerBody({
   sheet,
   findInputRef,
   scrollerRef,
+  onEditAndResend,
 }: {
   name: string;
   text: string;
@@ -263,6 +278,7 @@ function TextAttachmentViewerBody({
   sheet: boolean;
   findInputRef: RefObject<HTMLInputElement | null>;
   scrollerRef: RefObject<HTMLDivElement | null>;
+  onEditAndResend?: () => void;
 }) {
   const lines = useMemo(() => splitTextLines(text), [text]);
   const code = useMemo(() => looksLikeCodeText(text), [text]);
@@ -368,10 +384,13 @@ function TextAttachmentViewerBody({
           {summary}
         </SheetDescription>
       </div>
-      <div className="flex shrink-0 items-center gap-1.5 px-4 pb-3 pt-3">
+      <div
+        data-testid="text-attachment-viewer-toolbar"
+        className="flex shrink-0 items-center gap-1 px-4 pb-3 pt-3"
+      >
         <div className="relative min-w-0 flex-1">
           <Search
-            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[color:var(--app-secondary-label)]"
+            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[color:var(--app-secondary-label)]"
             aria-hidden="true"
           />
           <Input
@@ -388,13 +407,13 @@ function TextAttachmentViewerBody({
             autoCorrect="off"
             autoCapitalize="off"
             spellCheck={false}
-            className={cn("pl-10", matchLabel && "pr-24")}
+            className={cn("pl-9", matchLabel && "pr-24")}
           />
           {matchLabel ? (
             <span
               aria-live="polite"
               data-testid="text-attachment-viewer-match-count"
-              className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-xs tabular-nums text-[color:var(--app-secondary-label)]"
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs tabular-nums text-[color:var(--app-secondary-label)]"
             >
               {matchLabel}
             </span>
@@ -437,7 +456,12 @@ function TextAttachmentViewerBody({
         data-testid="text-attachment-viewer-body"
         className={cn(
           "min-h-0 flex-1 overflow-y-auto overscroll-contain border-t border-[color:var(--app-separator)] px-4 pt-3 outline-none [-webkit-overflow-scrolling:touch] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]",
-          sheet ? "pb-[calc(1.25rem+var(--app-safe-area-bottom-effective,0px))]" : "pb-5",
+          // The footer, when there is one, owns the bottom inset instead.
+          onEditAndResend
+            ? "pb-5"
+            : sheet
+              ? "pb-[calc(1.25rem+var(--app-safe-area-bottom-effective,0px))]"
+              : "pb-5",
         )}
       >
         <div
@@ -473,6 +497,27 @@ function TextAttachmentViewerBody({
           })}
         </div>
       </div>
+      {onEditAndResend ? (
+        // A sent message never changes: its one action is a NEW turn built
+        // from an edited copy.
+        <div
+          data-testid="text-attachment-viewer-footer"
+          className={cn(
+            "shrink-0 border-t border-[color:var(--app-separator)] px-4 pt-3",
+            sheet ? "pb-[calc(0.75rem+var(--app-safe-area-bottom-effective,0px))]" : "pb-3",
+          )}
+        >
+          <Button
+            type="button"
+            size="standard"
+            className="w-full"
+            onClick={onEditAndResend}
+          >
+            <PencilLine aria-hidden="true" />
+            Edit and send again
+          </Button>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -483,6 +528,7 @@ export function AgentTextAttachmentViewer({
   name,
   text,
   returnFocusRef,
+  onEditAndResend,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -490,6 +536,8 @@ export function AgentTextAttachmentViewer({
   text: string;
   /** The chip that opened the viewer; focus goes back to it on close. */
   returnFocusRef: RefObject<HTMLElement | null>;
+  /** Offered on a sent message: open an edited copy as a new turn. */
+  onEditAndResend?: () => void;
 }) {
   const isMobile = useIsMobile();
   const contentRef = useRef<HTMLDivElement | null>(null);
@@ -508,11 +556,7 @@ export function AgentTextAttachmentViewer({
         data-presentation={isMobile ? "sheet" : "panel"}
         className={cn(
           "gap-0 overflow-hidden p-0 motion-reduce:animate-none motion-reduce:transition-none",
-          isMobile
-            ? "h-[calc(100dvh-var(--app-safe-area-top-effective,0px)-2.5rem-var(--kb-height,0px))] max-h-[calc(100dvh-var(--app-safe-area-top-effective,0px)-2.5rem-var(--kb-height,0px))]"
-            : // Floats inset from the edges; the primitive's safe-area padding
-              // stays, so on an iPad shell the header clears the status bar.
-              "inset-y-3 right-3 h-auto w-[min(40rem,52vw)] rounded-[var(--app-card-radius-feature)] border sm:max-w-none",
+          isMobile ? TEXT_ATTACHMENT_SHEET_FRAME.sheet : TEXT_ATTACHMENT_SHEET_FRAME.panel,
         )}
         onOpenAutoFocus={(event) => {
           // Focus the text, not the find field: on a phone a focused field
@@ -563,51 +607,10 @@ export function AgentTextAttachmentViewer({
             sheet={isMobile}
             findInputRef={findInputRef}
             scrollerRef={scrollerRef}
+            onEditAndResend={onEditAndResend}
           />
         </div>
       </SheetContent>
     </Sheet>
-  );
-}
-
-/**
- * The composer's pending "Pasted text" chip opens for editing when tapped;
- * this is the read-only look beside it, before the paste is sent.
- */
-export function AgentTextAttachmentViewButton({
-  name,
-  text,
-  className,
-}: {
-  name: string;
-  text: string;
-  className?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement | null>(null);
-  return (
-    <>
-      <Button
-        ref={triggerRef}
-        type="button"
-        size="icon"
-        variant="ghost"
-        data-text-attachment-trigger=""
-        aria-haspopup="dialog"
-        aria-expanded={open}
-        aria-label="View pasted text"
-        className={className}
-        onClick={() => setOpen((current) => !current)}
-      >
-        <Eye className="h-4 w-4" aria-hidden="true" />
-      </Button>
-      <AgentTextAttachmentViewer
-        open={open}
-        onOpenChange={setOpen}
-        name={name}
-        text={text}
-        returnFocusRef={triggerRef}
-      />
-    </>
   );
 }

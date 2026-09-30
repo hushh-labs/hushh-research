@@ -8,9 +8,10 @@ import {
   type AgentPkmPreviewResponse,
   type AgentPkmSaveResult,
 } from "@/lib/agent/agent-pkm-memory";
+import type { PkmReconciliationCandidate } from "@/lib/agent/agent-pkm-context-store";
 import type { PkmWriteAuthorization } from "@/lib/personal-knowledge-model/mutation-plan";
 import {
-  PKM_PROPOSAL_CHARS, planPkmSourceChunks, planPkmSourceSelection, sourceChunkRange, sourceChunkText,
+  PKM_PROPOSAL_CHARS, planPkmSourceChunks, planPkmSourceSections, planPkmSourceSelection, sourceChunkRange, sourceChunkText,
   splitPkmSourceChunk, type PkmSourceChunk, type PkmSourceSpan,
 } from "@/lib/pkm/pkm-source-chunks";
 
@@ -27,6 +28,8 @@ const DEFAULT_PREPARATION_BUDGET_MS = 120_000;
 // import does not create a provider burst while still avoiding a serial wait
 // for every source block. Encrypted saves remain explicitly sequential.
 const MAX_CONCURRENT_PROPOSALS = 2;
+// Leave room under MAX_PROPOSAL_CHUNKS for sections the agent asks to split.
+const SECTION_PLAN_MAX_CHUNKS = 24;
 
 export type PkmNaturalLanguageIngestionResult = {
   preview: AgentPkmPreviewResponse;
@@ -123,12 +126,24 @@ const KYC_IDENTITY_FIELD_HINT =
   /\b(?:aadha{1,2}r|pan(?:\s+(?:number|no))?|passport(?:\s+number)?|driving\s+licen[cs]e(?:\s+number)?|voter\s*id(?:\s+number)?|roll\s*(?:number|no)|student\s*id|address)\b/i;
 
 /**
- * The person can explicitly request that a supplied KYC field is saved in
- * PKM. This gates the restricted KYC writer; ordinary chat remains on the
- * existing review/auto-save policy.
+ * The restricted KYC writer is one constrained extraction call over a fixed
+ * identity schema. It is for a short request that names an identity field
+ * ("save my passport number ..."), never for a long document. Measured on
+ * production 2026-09-29: a 17,120 character personal-context transfer that
+ * mentioned a passport and asked to be saved matched this rule, went to the
+ * KYC writer as ONE call, and came back as three identity cards. The other
+ * fourteen sections were never prepared. A message that plans into more than
+ * one source section, or is longer than one proposal, stays on the general
+ * semantic path, where every section is prepared.
  */
+const KYC_EXPLICIT_SAVE_MAX_CHARS = 1_200;
+
 export function isExplicitKycIdentitySaveRequest(message: string): boolean {
-  return EXPLICIT_PKM_SAVE_INTENT.test(message) && KYC_IDENTITY_FIELD_HINT.test(message);
+  if (message.length > KYC_EXPLICIT_SAVE_MAX_CHARS) return false;
+  if (!EXPLICIT_PKM_SAVE_INTENT.test(message) || !KYC_IDENTITY_FIELD_HINT.test(message)) {
+    return false;
+  }
+  return planPkmSourceChunks(message, { maxBlocks: 1 }).length <= 1;
 }
 
 function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
@@ -281,11 +296,23 @@ export async function prepareNaturalLanguagePkm(params: {
    */
   findDuplicate?: (candidate: string) => PkmNaturalLanguageDuplicateMatch;
   /**
+   * Existing details related to one passage, so the merge agent can extend or
+   * correct instead of creating a second copy. Local selection; see
+   * AgentPkmContextStore.findReconciliationCandidates.
+   */
+  findReconciliationCandidates?: (passage: string) => readonly PkmReconciliationCandidate[];
+  /**
    * Prepare only this previously reported block of `message` (a per-section
    * retry). Coverage ranges stay in `message` coordinates.
    */
   sourceSelection?: PkmNaturalLanguageSourceSelection;
   allowEmpty?: boolean;
+  /**
+   * `section` prepares one source section per proposal (explicit saves of a
+   * long document). It falls back to the packed plan when a document has too
+   * many sections to fit the proposal bound with room left for splits.
+   */
+  granularity?: "packed" | "section";
   /** Test/diagnostic override; production callers use the bounded default. */
   preparationBudgetMs?: number;
   beforeEffect?: () => Promise<void>;
@@ -304,11 +331,17 @@ export async function prepareNaturalLanguagePkm(params: {
   // cannot silently swallow the tail of a large profile import.
   // KYC imports are intentionally one constrained extraction call. Splitting
   // an export first loses cross-field context and reintroduces model fan-out.
+  const sectionPlan = params.granularity === "section" && !params.sourceSelection &&
+    params.memoryProfile !== "kyc_identity_v1"
+    ? planPkmSourceSections(message) ?? planPkmSourceChunks(message, { maxBlocks: 1 })
+    : null;
   let queue: PkmSourceChunk[] = params.memoryProfile === "kyc_identity_v1"
     ? [{ blocks: [{ start: 0, end: message.length, protectedContext: true }] }]
     : params.sourceSelection
       ? planPkmSourceSelection(message, params.sourceSelection.range, params.sourceSelection.context)
-      : planPkmSourceChunks(message);
+      : sectionPlan && sectionPlan.length <= SECTION_PLAN_MAX_CHUNKS
+        ? sectionPlan
+        : planPkmSourceChunks(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];
   const sourceCoverage: PkmNaturalLanguageSourceCoverage[] = [];
@@ -360,6 +393,9 @@ export async function prepareNaturalLanguagePkm(params: {
     oversized?: boolean;
   };
   const readyResults = new WeakMap<object, ChunkPreviewResult>();
+  // The header names each request once, in order. The wave offset it used to
+  // send made every production log line read chunk_index=1 or 2.
+  let requestSequence = 0;
   const requestChunkPreview = async (
     sourceChunk: PkmSourceChunk,
     index: number,
@@ -392,8 +428,9 @@ export async function prepareNaturalLanguagePkm(params: {
         currentManifests: params.currentManifests,
         vaultOwnerToken: params.vaultOwnerToken,
         ingestionId,
-        chunkIndex: index + 1,
+        chunkIndex: (requestSequence += 1),
         memoryProfile: params.memoryProfile,
+        reconciliationCandidates: params.findReconciliationCandidates?.(chunk),
         signal: preparationController.signal,
         isEffectCurrent: params.isEffectCurrent,
       });

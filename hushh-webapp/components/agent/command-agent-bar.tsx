@@ -15,6 +15,10 @@ import {
   ROUTES,
 } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
+import {
+  BOTTOM_CHROME_COLUMN_CLASSNAME,
+  BOTTOM_CHROME_INSET_CLASSNAME,
+} from "@/components/app-ui/bottom-chrome-column";
 
 /** Presentation only. The provider above route and chrome changes owns the task. */
 export function CommandAgentBar({
@@ -96,7 +100,9 @@ export function CommandAgentBar({
       data-ambient-chrome-ignore
       className={cn(
         "pointer-events-none flex flex-col items-center gap-2",
-        layout === "slot" ? "w-full" : "fixed inset-x-0 z-[540] px-4",
+        layout === "slot"
+          ? "w-full"
+          : cn("fixed inset-x-0 z-[540]", BOTTOM_CHROME_INSET_CLASSNAME),
       )}
       style={
         layout === "fixed"
@@ -108,7 +114,7 @@ export function CommandAgentBar({
           : undefined
       }
     >
-      <div className="pointer-events-none w-full max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]">
+      <div className={cn("pointer-events-none", BOTTOM_CHROME_COLUMN_CLASSNAME)}>
         <LocationCommandCard />
         {working && view.transcript && !collapsed ? (
           <p
@@ -127,10 +133,8 @@ export function CommandAgentBar({
         role="group"
         aria-label="One private agent"
         className={cn(
-          "bottom-chrome-surface pointer-events-auto relative flex w-full items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
-          layout === "slot"
-            ? "max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]"
-            : "max-w-[min(calc(100vw-2rem),34rem)]",
+          "bottom-chrome-surface pointer-events-auto relative flex items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
+          BOTTOM_CHROME_COLUMN_CLASSNAME,
           cancelArmed && "text-destructive",
         )}
       >

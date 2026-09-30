@@ -93,6 +93,47 @@ export function valueIsIdentifierShaped(value: unknown): boolean {
     [...text.matchAll(pattern)].some((match) => !luhn || luhnOk(match[0].replace(/\D+/g, ""))));
 }
 
+export type SensitiveTopicLabel = "restricted" | "confidential";
+
+function strongerTopicLabel(
+  left: SensitiveTopicLabel | null | undefined,
+  right: SensitiveTopicLabel | null | undefined,
+): SensitiveTopicLabel | null {
+  if (left === "restricted" || right === "restricted") return "restricted";
+  return left ?? right ?? null;
+}
+
+const TOPIC_WORDS = new Map<string, SensitiveTopicLabel>();
+const TOPIC_PHRASES = new Map<string, SensitiveTopicLabel>();
+for (const topic of Object.values(contract.sensitive_topics)) {
+  const label = topic.label as SensitiveTopicLabel;
+  for (const word of topic.words) {
+    TOPIC_WORDS.set(word, strongerTopicLabel(TOPIC_WORDS.get(word), label)!);
+  }
+  for (const [left, right] of topic.phrases) {
+    const key = `${left} ${right}`;
+    TOPIC_PHRASES.set(key, strongerTopicLabel(TOPIC_PHRASES.get(key), label)!);
+  }
+}
+
+/**
+ * Whether a path or a stated value names a sensitive topic (pay, immigration,
+ * identity, health, tax, credentials), from the same topic table the server's
+ * `scope_sensitivity` reads. `restricted` outranks `confidential`. Used by the
+ * manifest walk to label a path before encryption; only the label leaves the
+ * device. A label only ever escalates what a person can share.
+ */
+export function sensitiveTopicLabel(text: unknown): SensitiveTopicLabel | null {
+  if (typeof text !== "string" || !text.trim()) return null;
+  const words = keyWords(text);
+  let label: SensitiveTopicLabel | null = null;
+  words.forEach((word, index) => {
+    label = strongerTopicLabel(label, TOPIC_WORDS.get(word));
+    if (index > 0) label = strongerTopicLabel(label, TOPIC_PHRASES.get(`${words[index - 1]} ${word}`));
+  });
+  return label;
+}
+
 /** `"sensitive"` or `"standard"` for one field of a shared item. */
 export function fieldSensitivity(keyPath: string | readonly string[], value: unknown = null): FieldSensitivity {
   return fieldKeyIsSensitive(keyPath) || valueIsIdentifierShaped(value) ? "sensitive" : "standard";

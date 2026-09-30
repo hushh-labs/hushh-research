@@ -12,6 +12,7 @@ const authMock = vi.hoisted(() => ({
   user: { uid: "user_1" } as { uid: string } | null,
 }));
 const trackEventMock = vi.hoisted(() => vi.fn());
+const vaultMock = vi.hoisted(() => ({ locked: false }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
@@ -28,11 +29,15 @@ vi.mock("@/lib/observability/client", () => ({
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({ vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" }),
+  useVault: () =>
+    vaultMock.locked
+      ? { vaultKey: null, getVaultOwnerToken: () => null }
+      : { vaultKey: "vault_key", getVaultOwnerToken: () => "owner_token" },
 }));
 
-vi.mock("@/components/profile/pkm-settings-shell", () => ({
-  PkmSettingsShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+vi.mock("@/components/vault/vault-unlock-dialog", () => ({
+  VaultUnlockDialog: ({ open }: { open: boolean }) =>
+    open ? <div data-testid="vault-unlock-dialog" /> : null,
 }));
 
 vi.mock("@/components/app-ui/native-test-beacon", () => ({
@@ -42,6 +47,7 @@ vi.mock("@/components/app-ui/native-test-beacon", () => ({
 const serviceMock = vi.hoisted(() => ({
   listCardSummaries: vi.fn(),
   deleteCard: vi.fn(),
+  getCard: vi.fn(),
 }));
 
 vi.mock("@/lib/services/wallet-service", async () => {
@@ -55,6 +61,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
       isEnabled: () => true,
       listCardSummaries: serviceMock.listCardSummaries,
       deleteCard: serviceMock.deleteCard,
+      getCard: serviceMock.getCard,
       matchesQuery: actual.WalletService.matchesQuery,
     },
   };
@@ -84,7 +91,7 @@ describe("WalletWorkspace at scale", () => {
     const deleteSuccess = source.indexOf('action: "card_deleted", result: "success"');
     const deleteCatch = source.indexOf("} catch (error) {", deleteSuccess);
     const deleteError = source.indexOf('action: "card_deleted", result: "error"', deleteCatch);
-    const deleteRefresh = source.indexOf("await refresh();", deleteError);
+    const deleteRefresh = source.indexOf("await refresh(", deleteError);
     expect(deleteSuccess).toBeGreaterThan(-1);
     expect(deleteCatch).toBeGreaterThan(deleteSuccess);
     expect(deleteError).toBeGreaterThan(deleteCatch);
@@ -93,7 +100,7 @@ describe("WalletWorkspace at scale", () => {
     const addSuccess = source.indexOf('action: "card_added", result: "success"');
     const addCatch = source.indexOf("} catch (error) {", addSuccess);
     const addError = source.indexOf('action: "card_added", result: "error"', addCatch);
-    const addRefresh = source.indexOf("await refresh();", addError);
+    const addRefresh = source.indexOf("await refresh(", addError);
     expect(addSuccess).toBeGreaterThan(-1);
     expect(addCatch).toBeGreaterThan(addSuccess);
     expect(addError).toBeGreaterThan(addCatch);
@@ -103,6 +110,7 @@ describe("WalletWorkspace at scale", () => {
 
   beforeEach(() => {
     authMock.user = { uid: "user_1" };
+    vaultMock.locked = false;
     navigationMock.search = "";
     navigationMock.replace.mockReset();
     serviceMock.listCardSummaries.mockResolvedValue(makeCards(25));
@@ -118,7 +126,7 @@ describe("WalletWorkspace at scale", () => {
     await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
     expect(screen.getByTestId("one-wallet-list").querySelectorAll("li")).toHaveLength(10);
     expect(screen.getByText("Page 1 of 3")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Go to next page" }));
+    fireEvent.click(screen.getByLabelText("Go to next page"));
     expect(navigationMock.replace).toHaveBeenCalledWith("/one/wallet?page=2", { scroll: false });
   });
 
@@ -155,7 +163,9 @@ describe("WalletWorkspace at scale", () => {
     const view = render(<WalletWorkspace />);
     await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Remove" })[0]!);
+    fireEvent.click(screen.getByTestId("one-wallet-card-1000"));
+    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
     await waitFor(() => expect(finishDelete).toBeTypeOf("function"));
     authMock.user = { uid: "user_2" };
     view.rerender(<WalletWorkspace />);
@@ -165,5 +175,56 @@ describe("WalletWorkspace at scale", () => {
       "one_wallet_action",
       expect.objectContaining({ action: "card_deleted" }),
     );
+  });
+
+  it("asks before removing a card, and removes nothing until confirmed", async () => {
+    // Regression: Remove once deleted the card from the vault on a single tap.
+    render(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("one-wallet-card-1000"));
+    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    expect(await screen.findByTestId("one-wallet-remove-confirm")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("one-wallet-remove-cancel"));
+    await waitFor(() => expect(screen.queryByTestId("one-wallet-remove-confirm")).toBeNull());
+    expect(serviceMock.deleteCard).not.toHaveBeenCalled();
+
+    // Negative control: confirming does remove it.
+    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() =>
+      expect(serviceMock.deleteCard).toHaveBeenCalledWith(
+        expect.objectContaining({ cardId: "card_0" }),
+      ),
+    );
+  });
+
+  it("offers Unlock on a locked vault and never decrypts a card", async () => {
+    vaultMock.locked = true;
+    render(<WalletWorkspace />);
+    const unlock = await screen.findByTestId("one-wallet-unlock");
+    expect(screen.queryByTestId("one-wallet-list")).toBeNull();
+    expect(serviceMock.listCardSummaries).not.toHaveBeenCalled();
+    fireEvent.click(unlock);
+    expect(screen.getByTestId("vault-unlock-dialog")).toBeTruthy();
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
+  });
+
+  it("reveals a focused card only through Show card details", async () => {
+    serviceMock.getCard.mockResolvedValue({
+      summary: makeCards(1)[0],
+      secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Alex Rivera" },
+    });
+    render(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
+    expect(screen.getByTestId("one-wallet-list").textContent).not.toContain("4242 4242 4242 1000");
+    fireEvent.click(screen.getByTestId("one-wallet-card-1000"));
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
+    expect(await screen.findByTestId("secure-card-reveal")).toBeTruthy();
+    expect(serviceMock.getCard).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByTestId("secure-card-hide"));
+    await waitFor(() => expect(screen.queryByTestId("secure-card-reveal")).toBeNull());
+    expect(document.body.textContent).not.toContain("4242 4242 4242 1000");
   });
 });

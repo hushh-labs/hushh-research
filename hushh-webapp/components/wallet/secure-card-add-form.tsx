@@ -7,11 +7,15 @@
  */
 
 import { useMemo, useState } from "react";
-import { Eye, EyeOff } from "@/components/icons";
+import { ChevronDown, Eye, EyeOff } from "@/components/icons";
 
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
+import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
+import { cn } from "@/lib/utils";
 import { detectBrand, validateCardForRegion } from "@/lib/wallet/card-validation";
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import type { WalletCardInput } from "@/lib/services/wallet-service";
@@ -102,14 +106,17 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
 
   return (
     <div
-      className={`flex flex-col gap-3 rounded-xl border border-border bg-card p-4 ${compact ? "max-w-md" : "w-full"}`}
+      className={cn(
+        "flex flex-col gap-4 rounded-[var(--app-radius-lg)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4",
+        compact ? "w-full max-w-md" : "w-full",
+      )}
       data-testid="secure-card-add-form"
     >
-      <p className="text-xs text-muted-foreground">
+      <p className={TYPOGRAPHY_CLASSNAMES.helperText}>
         Encrypted on this device. Never enters chat.
       </p>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="flex flex-col gap-1">
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
           <Label htmlFor="card-nickname">Nickname</Label>
           <Input
             id="card-nickname"
@@ -119,7 +126,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
             maxLength={60}
           />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
           <Label htmlFor="card-holder">Name on card</Label>
           <Input
             id="card-holder"
@@ -130,8 +137,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
           />
         </div>
       </div>
-      <div className="flex flex-col gap-1">
-        <Label htmlFor="card-number">Card number{brand ? ` · ${brand}` : ""}</Label>
+      <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+        <Label htmlFor="card-number">Card number{brand ? ` · ${cardNetworkLabel(brand)}` : ""}</Label>
         <Input
           id="card-number"
           value={pan}
@@ -143,8 +150,8 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
           data-testid="secure-card-pan-input"
         />
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
-        <div className="flex flex-col gap-1">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
           <Label htmlFor="card-expiry">Expiry (MM/YY)</Label>
           <Input
             id="card-expiry"
@@ -156,7 +163,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
             maxLength={7}
           />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
           <Label htmlFor="card-cvv">CVV</Label>
           <Input
             id="card-cvv"
@@ -168,12 +175,12 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
             maxLength={4}
           />
         </div>
-        <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
           <div className="flex items-center justify-between">
             <Label htmlFor="card-pin">PIN (optional)</Label>
             <button
               type="button"
-              className="inline-flex items-center gap-1 text-xs text-muted-foreground"
+              className="-my-3 -mr-2 inline-flex h-11 items-center gap-1 px-2 text-xs text-muted-foreground outline-none focus-visible:text-foreground"
               onClick={() => setRevealSecrets((current) => !current)}
               aria-pressed={revealSecrets}
               aria-label={revealSecrets ? "Hide CVV and PIN" : "Show CVV and PIN"}
@@ -194,22 +201,28 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
           />
         </div>
       </div>
-      <div className="flex flex-col gap-1">
+      <div className="flex flex-col gap-[var(--app-form-field-gap)]">
         <Label htmlFor="card-region">Issuing region</Label>
-        <select
-          id="card-region"
-          className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-          value={issuingRegion}
-          onChange={(event) => setIssuingRegion(event.target.value)}
-          data-testid="secure-card-region-select"
-        >
-          <option value="">Select region…</option>
-          {COUNTRY_PHONE_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <div className="relative">
+          <select
+            id="card-region"
+            className={cn(INPUT_CLASSNAME, "appearance-none pr-10")}
+            value={issuingRegion}
+            onChange={(event) => setIssuingRegion(event.target.value)}
+            data-testid="secure-card-region-select"
+          >
+            <option value="">Select region…</option>
+            {COUNTRY_PHONE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          <ChevronDown
+            aria-hidden="true"
+            className="pointer-events-none absolute right-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+        </div>
       </div>
       {errors.length > 0 ? (
         <ul className="flex flex-col gap-1 text-sm text-destructive" data-testid="secure-card-errors">
@@ -221,16 +234,21 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact }: SecureCardAdd
       {submitError ? (
         <p className="text-sm text-destructive">{submitError}</p>
       ) : null}
-      <div className="flex items-center gap-2">
-        <Button onClick={handleSubmit} disabled={submitting} data-testid="secure-card-save">
-          {submitting ? "Encrypting…" : "Save card"}
-        </Button>
-        {onCancel ? (
-          <Button variant="ghost" onClick={onCancel} disabled={submitting}>
-            Cancel
+      <FlowActionGroup
+        stacked={compact}
+        primary={
+          <Button size="prominent" onClick={handleSubmit} disabled={submitting} data-testid="secure-card-save">
+            {submitting ? "Encrypting…" : "Save card"}
           </Button>
-        ) : null}
-      </div>
+        }
+        secondary={
+          onCancel ? (
+            <Button variant="secondary" size="prominent" onClick={onCancel} disabled={submitting}>
+              Cancel
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   );
 }

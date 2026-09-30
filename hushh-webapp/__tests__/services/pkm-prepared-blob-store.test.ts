@@ -602,12 +602,56 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
       created_at: "2026-05-01T00:00:00.000Z",
     });
     expect(entities.seat_pref_001.supersedes_entity_id).toBeUndefined();
+    // The corrected value is current and the earlier one stays recoverable.
+    const history = entities.seat_pref_001.superseded as Record<string, Array<{ value: unknown; superseded_at: string }>>;
+    expect(history.summary.map((entry) => entry.value)).toEqual(["Prefers aisle seats."]);
+    expect(typeof history.summary[0]!.superseded_at).toBe("string");
     expect(storeSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         domain: "travel",
         domainData: result.fullBlob.travel,
       }),
     );
+  });
+
+  it("applies a correction that is not entity-shaped instead of dropping it, and keeps history", async () => {
+    // Before 2026-09-29 this branch returned the stored domain unchanged while
+    // the save reported success, so a newer fact never replaced an older one.
+    vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      domain: "career",
+      baseFullBlob: {
+        career: { current_role: { title: "Engineer", employer: "Example Labs" } },
+      },
+      domainData: { current_role: { title: "Staff Engineer", employer: "Example Labs" } },
+      summary: {},
+      mergeDecision: { merge_mode: "correct_entity", target_domain: "career" },
+      vaultOwnerToken: "vault-owner-token",
+    });
+    const role = (result.fullBlob.career as { current_role: Record<string, unknown> }).current_role;
+    expect(role.title).toBe("Staff Engineer");
+    expect(role.employer).toBe("Example Labs");
+    expect((role.superseded as Record<string, Array<{ value: unknown }>>).title.map((entry) => entry.value))
+      .toEqual(["Engineer"]);
+    expect((role.superseded as Record<string, unknown>).employer).toBeUndefined();
+  });
+
+  it("keeps a structured writer's plain merge: no history accumulates outside memory writes", async () => {
+    // Runtime settings and connector records pass no memory merge decision. An
+    // old credential must be replaced, never retained under `superseded`.
+    vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+      userId: "user-1",
+      vaultKey: "vault-key-1",
+      domain: "profile_settings",
+      baseFullBlob: { profile_settings: { reply_style: { value: "short" } } },
+      domainData: { reply_style: { value: "detailed" } },
+      summary: {},
+      vaultOwnerToken: "vault-owner-token",
+    });
+    expect(result.fullBlob.profile_settings).toEqual({ reply_style: { value: "detailed" } });
   });
 
   it("applies delete_entity by removing the active entity from shareable domain data", async () => {

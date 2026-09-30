@@ -19,11 +19,13 @@ import {
 import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
+  type PkmReconciliationCandidate,
 } from "@/lib/agent/agent-pkm-context-store";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
 import { pkmScopeBreadcrumb } from "@/lib/pkm/pkm-memory-level";
+import { classifyMergeOutcome, type PkmMergeOutcome } from "@/lib/pkm/pkm-supersede-merge";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -133,8 +135,15 @@ export type AgentPkmSaveResult = {
     success: boolean;
     message?: string;
     result?: PkmWriteCoordinatorResult;
+    /**
+     * What this write did, classified against the same stored state the
+     * coordinator merged into. Present only for prepared memory cards.
+     */
+    outcome?: PkmMergeOutcome;
   }>;
 };
+
+export { isCommittedPkmSave } from "@/lib/agent/pkm-save-receipt";
 
 export class AgentPkmContextNotReadyError extends Error {
   readonly code = "AGENT_PKM_CONTEXT_NOT_READY";
@@ -303,6 +312,8 @@ export async function previewAgentPkmMemory(params: {
   ingestionId?: string;
   chunkIndex?: number;
   memoryProfile?: "general" | "kyc_identity_v1";
+  /** Existing details the merge agent may extend or correct (explicit saves). */
+  reconciliationCandidates?: readonly PkmReconciliationCandidate[];
   signal?: AbortSignal;
   isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
@@ -326,6 +337,9 @@ export async function previewAgentPkmMemory(params: {
       current_domains: params.currentDomains,
       current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
       memory_profile: params.memoryProfile || "general",
+      ...(params.reconciliationCandidates?.length
+        ? { simulated_state: { memories: params.reconciliationCandidates.slice(0, 10) } }
+        : {}),
     }),
   });
 
@@ -582,6 +596,8 @@ export async function addToPKM(params: {
           } as DomainManifest)
         : null;
 
+    let outcome: PkmMergeOutcome | undefined;
+    const mergeMode = readString(card.merge_mode) || readString(card.merge_decision?.merge_mode);
     try {
       const sharingImpact = card.sharing_impact;
       const ownerConfirmation = automatic
@@ -616,17 +632,24 @@ export async function addToPKM(params: {
         idempotencyScope: params.idempotencyScope
           ? `${params.idempotencyScope}:${cardId}`
           : undefined,
-        build: async () => ({
-          domainData: candidatePayload,
-          summary: {
-            ...nextSummaryProjection,
-            source: params.source || "agent_chat",
-          },
-          mergeDecision: card.merge_decision,
-          structureDecision: nextStructureDecision,
-          manifest: nextManifest || undefined,
-          scopePath: resolveCardScope(card) || undefined,
-        }),
+        build: async (context) => {
+          outcome = classifyMergeOutcome({
+            existing: context?.currentDomainData ?? {},
+            incoming: candidatePayload,
+            mergeMode,
+          });
+          return {
+            domainData: candidatePayload,
+            summary: {
+              ...nextSummaryProjection,
+              source: params.source || "agent_chat",
+            },
+            mergeDecision: card.merge_decision,
+            structureDecision: nextStructureDecision,
+            manifest: nextManifest || undefined,
+            scopePath: resolveCardScope(card) || undefined,
+          };
+        },
       });
       results[index] = {
         cardId,
@@ -636,6 +659,7 @@ export async function addToPKM(params: {
         success: result.success,
         message: result.message,
         result,
+        ...(result.success && outcome ? { outcome } : {}),
       };
     } catch (error) {
       results[index] = {

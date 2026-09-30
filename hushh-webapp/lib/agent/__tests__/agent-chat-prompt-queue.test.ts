@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  combineQueuedPromptText,
   editQueuedAgentPrompt,
   enqueueAgentPrompt,
   removeQueuedAgentPrompt,
   SerialAgentOperationQueue,
+  takeJoinableRun,
 } from "@/lib/agent/agent-chat-prompt-queue";
 
 describe("agent chat prompt queue", () => {
@@ -80,5 +82,25 @@ describe("agent chat prompt queue", () => {
       "start:third prompt",
       "end:third prompt",
     ]);
+  });
+
+  it("sends plain queued messages together as one turn, in order, stopping at one with its own authority", () => {
+    const plain = (id: string, text: string) => ({ prompt: { id, text, createdAtMs: 1, joinable: true } });
+    const withFile = {
+      prompt: {
+        id: "file",
+        text: "Summarise this",
+        createdAtMs: 1,
+        joinable: true,
+        driveSearchSelection: { jobId: "job", position: 0 },
+      },
+    };
+    const { taken, rest } = takeJoinableRun([plain("a", "Also X"), plain("b", "Actually Y"), withFile, plain("c", "Z")]);
+
+    expect(taken.map((item) => item.prompt.id)).toEqual(["a", "b"]);
+    expect(rest.map((item) => item.prompt.id)).toEqual(["file", "c"]);
+    expect(combineQueuedPromptText(taken.map((item) => item.prompt))).toBe("Also X\n\nActually Y");
+    // Negative control: a person-picker prompt (not joinable) never rides along.
+    expect(takeJoinableRun([{ prompt: { id: "p", text: "Pick", createdAtMs: 1, joinable: false } }]).taken).toEqual([]);
   });
 });

@@ -8,13 +8,16 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
+import re
 import threading
 import time
 from collections import OrderedDict
+from collections.abc import Mapping
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from functools import partial
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import HTTPException
 
@@ -39,6 +42,65 @@ _revocation_executor = ThreadPoolExecutor(
 
 class _FirebaseRevocationUnavailable(RuntimeError):
     """The bounded revocation verifier cannot currently establish token liveness."""
+
+
+# ── Review-mode mint containment ──
+#
+# Dev, UAT and production verify Firebase ID tokens for ONE Firebase authority
+# (UAT and production both hold `hushh-pda` Admin credentials). A token a
+# non-production lane mints for review mode is therefore cryptographically
+# valid on every lane that shares that authority. The mint stamps this
+# developer claim, which Firebase carries from the custom token into every ID
+# token of that sign-in, and every verifier refuses it outside the lane that
+# minted it. Production never accepts one, whatever it says.
+REVIEW_MINT_CLAIM = "hushh_review_mint"
+_PRODUCTION_LANE = "production"
+_LANE_LABEL = re.compile(r"^[a-z0-9_-]{1,32}$")
+
+
+def current_auth_lane() -> str:
+    """This service's lane, from the existing ENVIRONMENT identity.
+
+    Production is recognised the same way the review-mode route recognises it
+    (``ENVIRONMENT`` or ``APP_RUNTIME_PROFILE``), so the two can never
+    disagree about whether this process is production.
+    """
+    environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
+    profile = str(os.getenv("APP_RUNTIME_PROFILE") or "").strip().lower()
+    if _PRODUCTION_LANE in (environment, profile):
+        return _PRODUCTION_LANE
+    return environment or "development"
+
+
+def review_mint_developer_claims() -> dict[str, str]:
+    """Developer claims every review-mode custom token must carry."""
+    return {REVIEW_MINT_CLAIM: current_auth_lane()}
+
+
+def carries_review_mint(claims: Mapping[str, Any]) -> bool:
+    """Whether a verified token originated from a review-mode mint on any lane."""
+    return REVIEW_MINT_CLAIM in claims
+
+
+def refuse_foreign_review_mint(claims: Mapping[str, Any]) -> bool:
+    """Return True, and log, when this lane must refuse a verified token.
+
+    Call it on the claims of every verified Firebase ID token. A token with no
+    review-mint claim is never affected. One that carries it is accepted only
+    by a non-production service whose lane equals the claim. The token itself
+    is never logged; the claim value is logged only as a bounded label.
+    """
+    if not carries_review_mint(claims):
+        return False
+    lane = current_auth_lane()
+    minted_for = claims.get(REVIEW_MINT_CLAIM)
+    if lane != _PRODUCTION_LANE and isinstance(minted_for, str) and minted_for == lane:
+        return False
+    label = (
+        minted_for if isinstance(minted_for, str) and _LANE_LABEL.match(minted_for) else "malformed"
+    )
+    logger.warning("one.auth.review_mint_rejected env=%s minted_for=%s", lane, label)
+    return True
 
 
 def _revocation_token_key(id_token: str) -> str:
@@ -249,6 +311,8 @@ def verify_firebase_bearer(
         )
         uid = decoded.get("uid")
         if not isinstance(uid, str) or not uid:
+            raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+        if refuse_foreign_review_mint(decoded):
             raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
 
         if check_revoked:

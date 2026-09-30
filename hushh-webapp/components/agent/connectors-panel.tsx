@@ -14,10 +14,14 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon,
   ChevronRightIcon,
+  Loader2Icon,
   SearchIcon,
   XIcon,
 } from "@/components/icons";
+import { ConnectedSystemsAgentIcon } from "@/components/icons/agents";
 import { Button } from "@/components/ui/button";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { ConnectorConfirm } from "@/components/agent/connector-confirm";
 import { Switch } from "@/components/ui/switch";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
@@ -73,8 +77,20 @@ type Props = {
   /** Reports whether account-backed connector management is currently ready. */
   onAvailableChange?: (available: boolean) => void;
   onCatalogStateChange?: (state: "loading" | "loaded" | "unavailable-valid") => void;
-  surface?: "drawer" | "settings";
+  /**
+   * `drawer`: the chat's own Connectors sheet, with its own header and close.
+   * `profile`: a section inside Profile, whose pane header owns the title and
+   * Back, so the panel draws no header of its own.
+   */
+  surface?: "drawer" | "profile";
   initialConnector?: "google_drive" | "gmail" | null;
+  /**
+   * The open connector, when the host keeps it in its own address (Profile
+   * does, so Back and deep links behave like every other Profile detail).
+   * Leave undefined for the panel to hold it itself.
+   */
+  activeConnector?: string | null;
+  onActiveConnectorChange?: (connectorId: string | null) => void;
   onExternalModalChange?: (open: boolean) => void;
   onPrepareRecovery?: (input: {
     attemptId: string;
@@ -109,10 +125,72 @@ type ConnectorListEntry = {
   onOpen?: () => void;
   action?: { label: string; onClick: () => void; disabled?: boolean };
   trailingText?: string;
+  /** A change on this connector is in flight. */
+  pending?: "connect" | "disconnect";
+  /** The last disconnect did not finish; the row says so until it does. */
+  failure?: string;
 };
 
+/** The row's second line: in-flight and failed changes are always visible. */
+function connectorRowStatus(entry: ConnectorListEntry): string | undefined {
+  if (entry.pending === "disconnect") return "Disconnecting…";
+  if (entry.pending === "connect") return "Connecting…";
+  if (entry.failure) return entry.failure;
+  return undefined;
+}
+
+/**
+ * The row's action keeps one width whatever it says. Both verbs are laid in
+ * the same grid cell and only the live one is visible, so "Connect",
+ * "Disconnect" and the in-flight spinner occupy an identical box and nothing
+ * beside them moves when the state changes.
+ */
+function ConnectorActionLabel({ entry }: { entry: ConnectorListEntry }) {
+  const verb = entry.action?.label.split(" ")[0] ?? "";
+  return (
+    <span className="grid place-items-center">
+      <span aria-hidden="true" className="invisible [grid-area:1/1]">Disconnect</span>
+      <span aria-hidden="true" className="invisible [grid-area:1/1]">Connect</span>
+      {entry.pending ? (
+        <Loader2Icon
+          aria-hidden="true"
+          className="size-4 animate-spin [grid-area:1/1] motion-reduce:animate-none"
+        />
+      ) : (
+        <span className="[grid-area:1/1]">{verb}</span>
+      )}
+    </span>
+  );
+}
+
+const CONNECTOR_LOGOS: Record<string, string> = {
+  gmail: "gmail",
+  google_drive: "drive",
+  calendar: "calendar",
+  plaid: "plaid",
+};
+
+/**
+ * Profile's leading glyph: the connector's own mark, bare, in the same 28px
+ * well and 22px optical size as every other Profile row icon. No tile.
+ * A connector without a mark takes the registry's connections glyph.
+ */
+function ProfileConnectorGlyph({ id }: { id: string }) {
+  const logo = CONNECTOR_LOGOS[id];
+  return (
+    <span className="inline-flex size-7 shrink-0 items-center justify-center" aria-hidden="true">
+      {logo ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={`/icons/connectors/${logo}.svg`} alt="" className={`size-[22px] object-contain${id === "plaid" ? " dark:invert" : ""}`} />
+      ) : (
+        <ConnectedSystemsAgentIcon size={22} />
+      )}
+    </span>
+  );
+}
+
 function ConnectorGlyph({ id }: { id: string }) {
-  const logo = ({ gmail: "gmail", google_drive: "drive", calendar: "calendar", plaid: "plaid" } as Record<string, string>)[id];
+  const logo = CONNECTOR_LOGOS[id];
   return (
     <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
       {logo ? (
@@ -127,8 +205,13 @@ function ConnectorGlyph({ id }: { id: string }) {
 
 function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
   const detailId = useId();
+  const status = connectorRowStatus(entry);
   return (
-    <li className="flex min-h-14 min-w-0 items-center gap-3 border-b border-foreground/10 px-4 last:border-b-0">
+    <li
+      data-connector-row={entry.id}
+      aria-busy={entry.pending ? true : undefined}
+      className="flex min-h-14 min-w-0 items-center gap-3 border-b border-foreground/10 px-4 last:border-b-0"
+    >
       <ConnectorGlyph id={entry.id} />
       {entry.onOpen ? (
         <button
@@ -140,14 +223,18 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{entry.name}</span>
-            {entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
+            {status ? (
+              <span id={detailId} role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
+            ) : entry.detail ? <span id={detailId} className="sr-only">{entry.detail}</span> : null}
           </span>
           {!entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
         </button>
       ) : (
         <span className="min-w-0 flex-1">
           <span className="block truncate text-sm font-medium">{entry.name}</span>
-          {entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
+          {status ? (
+            <span role="status" className="block truncate text-xs text-muted-foreground">{status}</span>
+          ) : entry.detail ? <span className="sr-only">{entry.detail}</span> : null}
         </span>
       )}
       {entry.action ? (
@@ -155,15 +242,61 @@ function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
           type="button"
           className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           aria-label={entry.action.label}
-          disabled={entry.action.disabled}
+          disabled={entry.action.disabled || Boolean(entry.pending)}
           onClick={entry.action.onClick}
         >
-          {entry.action.label.split(" ")[0]}
+          <ConnectorActionLabel entry={entry} />
         </button>
       ) : entry.trailingText ? (
         <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * The same row every Profile section draws: title, one supporting line, and
+ * either a chevron into the connector or its connect/disconnect action.
+ */
+function ProfileConnectorRow({ entry }: { entry: ConnectorListEntry }) {
+  const status = connectorRowStatus(entry);
+  const description =
+    status ??
+    entry.detail ??
+    (entry.action || entry.onOpen
+      ? entry.connected
+        ? "Connected"
+        : "Not connected"
+      : undefined);
+  // No wrapper element: the group's first/last corners and hairlines are
+  // keyed to the row being a direct child of the group's list.
+  return (
+    <SettingsRow
+      leading={<ProfileConnectorGlyph id={entry.id} />}
+      title={entry.name}
+      description={description}
+      textOverflow="truncate"
+      onClick={entry.onOpen}
+      chevron={Boolean(entry.onOpen) && !entry.action && !entry.trailingText}
+      trailingInteractive={Boolean(entry.action)}
+      testId={`profile-connector-row-${entry.id}`}
+      trailing={
+        entry.action ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="compact"
+            className="px-3"
+            aria-label={entry.action.label}
+            aria-busy={entry.pending ? true : undefined}
+            disabled={entry.action.disabled || Boolean(entry.pending)}
+            onClick={entry.action.onClick}
+          >
+            <ConnectorActionLabel entry={entry} />
+          </Button>
+        ) : entry.trailingText
+      }
+    />
   );
 }
 
@@ -222,6 +355,8 @@ function OwnerConnectorsPanel({
   onClose = onBack,
   surface = "drawer",
   initialConnector = null,
+  activeConnector: hostActiveConnector,
+  onActiveConnectorChange,
   onAvailableChange,
   onCatalogStateChange,
   onExternalModalChange,
@@ -250,13 +385,47 @@ function OwnerConnectorsPanel({
   const [calendarMessage, setCalendarMessage] = useState("");
   const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
-  const [activeConnector, setActiveConnector] = useState<string | null>(initialConnector);
+  const [ownActiveConnector, setOwnActiveConnector] = useState<string | null>(initialConnector);
+  const connectorHeldByHost = hostActiveConnector !== undefined;
+  const activeConnector = connectorHeldByHost ? hostActiveConnector : ownActiveConnector;
+  const activeConnectorRef = useRef(activeConnector);
+  useLayoutEffect(() => {
+    activeConnectorRef.current = activeConnector;
+  }, [activeConnector]);
+  // Idempotent: asking for the connector already open is not a navigation,
+  // so a double tap never stacks two identical history entries in Profile.
+  const setActiveConnector = useCallback(
+    (next: string | null) => {
+      if (!connectorHeldByHost) {
+        setOwnActiveConnector(next);
+        return;
+      }
+      if (activeConnectorRef.current === next) return;
+      activeConnectorRef.current = next;
+      onActiveConnectorChange?.(next);
+    },
+    [connectorHeldByHost, onActiveConnectorChange],
+  );
+  // A disconnect that did not finish, per connector, until it does.
+  const [disconnectFailures, setDisconnectFailures] = useState<Record<string, string>>({});
+  // Disconnects in flight, per connector: the row's pending state is this,
+  // not a shared busy flag that other Drive work also raises.
+  const [disconnecting, setDisconnecting] = useState<Record<string, boolean>>({});
+  // The section a row sat in when the person acted on it from the list. The
+  // row keeps that place while they stay on the list; it moves only when they
+  // next arrive at the list, never under their finger.
+  const [pinnedSections, setPinnedSections] = useState<Record<string, boolean>>({});
+  // Synchronous single flight per change target. React state is not yet
+  // committed between two taps in one frame; a ref is.
+  const changesInFlight = useRef(new Set<string>());
   const [search, setSearch] = useState("");
   const driveBackgroundId = useId();
   const previousActiveConnector = useRef<string | null>(null);
   const appliedInitialConnector = useRef<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const detailBackRef = useRef<HTMLButtonElement>(null);
+  const detailRegionRef = useRef<HTMLDivElement>(null);
+  const panelRootRef = useRef<HTMLDivElement>(null);
   const controller = useRef<AbortController | null>(null);
   const currentToken = useRef(vaultOwnerToken);
   useLayoutEffect(() => {
@@ -396,7 +565,7 @@ function OwnerConnectorsPanel({
     if (!open || appliedInitialConnector.current === initialConnector) return;
     appliedInitialConnector.current = initialConnector;
     setActiveConnector(initialConnector);
-  }, [initialConnector, open]);
+  }, [initialConnector, open, setActiveConnector]);
   useEffect(() => {
     if (vaultOwnerToken) void refresh(controller.current?.signal);
     else onCatalogStateChange?.("unavailable-valid");
@@ -410,21 +579,44 @@ function OwnerConnectorsPanel({
       setActiveConnector(null);
       setSearch("");
       setConfirm(null);
+      setPinnedSections({});
     }
     if (open && vaultOwnerToken) void refresh(controller.current?.signal);
-  }, [open, vaultOwnerToken, refresh]);
+  }, [open, vaultOwnerToken, refresh, setActiveConnector]);
   useLayoutEffect(() => {
     const previous = previousActiveConnector.current;
     previousActiveConnector.current = activeConnector;
     if (!open || previous === activeConnector) return;
+    // Arriving at the list (or leaving it) is when rows may settle into their
+    // current sections; they never move while the person is on the list.
+    setPinnedSections({});
+    // A question asked about one connector never follows the person to
+    // another: Profile's Back and a native return both move the open
+    // connector without passing through the dialog's own Cancel.
+    setConfirm(null);
     // Picker review owns focus when a native return restores a pending choice.
     if (activeConnector === "google_drive" && pendingSelection.current) return;
     const frame = requestAnimationFrame(() => {
+      if (surface === "profile") {
+        // Profile's pane header owns Back. Land on the detail's content, and
+        // on return put focus back on the row the person opened: a search
+        // field would raise the keyboard on a phone for no reason.
+        if (activeConnector) {
+          detailRegionRef.current?.focus({ preventScroll: true });
+          return;
+        }
+        panelRootRef.current
+          ?.querySelector<HTMLElement>(
+            `[data-testid="profile-connector-row-${previous}"] button`,
+          )
+          ?.focus({ preventScroll: true });
+        return;
+      }
       if (activeConnector) detailBackRef.current?.focus();
       else searchRef.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeConnector, open]);
+  }, [activeConnector, open, surface]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
@@ -477,7 +669,7 @@ function OwnerConnectorsPanel({
       Math.max(0, pending.expiresAt - Date.now()),
     );
     return () => window.clearTimeout(timer);
-  }, [pending, updatePendingSelection]);
+  }, [pending, updatePendingSelection, setActiveConnector]);
   useEffect(() => {
     if (driveBusy || !restorePickerFocus.current) return;
     restorePickerFocus.current = false;
@@ -1270,10 +1462,40 @@ function OwnerConnectorsPanel({
     drive?.available !== false &&
     overview?.features.google_drive_picker === true &&
     ["connected", "verifying"].includes(drive?.status ?? "");
+  const DISCONNECT_FAILED = "Couldn't disconnect. Try again.";
+  const beginDisconnect = (id: string) => {
+    setDisconnectFailures((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    setDisconnecting((current) => ({ ...current, [id]: true }));
+  };
+  const endDisconnect = (id: string, failure?: string) => {
+    setDisconnecting((current) => {
+      if (!current[id]) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    if (failure) setDisconnectFailures((current) => ({ ...current, [id]: failure }));
+  };
+  /**
+   * Ask before a connection changes, without leaving where the person is. From
+   * the list the row also keeps its section until they next arrive at the list.
+   */
+  const askToDisconnect = (id: string, target: string, fromList: boolean) => {
+    if (fromList) setPinnedSections((current) => ({ ...current, [id]: true }));
+    setConfirm(target);
+  };
   const confirmAction = () => {
     const target = confirm;
+    // One change per target at a time: a second tap in the same frame reads
+    // the same `confirm`, so the guard has to be synchronous.
+    if (!target || changesInFlight.current.has(target)) return;
     setConfirm(null);
-    if (target?.startsWith("plaid:") && activeConnector === "plaid") {
+    if (target.startsWith("plaid:")) {
       const itemId = target.slice("plaid:".length);
       const financialData = financial.data?.data;
       const ownerId = user?.uid;
@@ -1282,26 +1504,35 @@ function OwnerConnectorsPanel({
       const signal = controller.current?.signal;
       if (!itemId || !financialData || !ownerId || !ownerToken || !key || !signal || signal.aborted || plaidBusy) return;
       if (!vaultConnections(financialData)[itemId]) return;
+      changesInFlight.current.add(target);
+      beginDisconnect("plaid");
       setPlaidBusy(true);
       void disconnectVaultPlaid({ userId: ownerId, vaultKey: key, vaultOwnerToken: ownerToken, itemId, financial: financialData, surface: Capacitor.getPlatform() === "ios" ? "ios" : Capacitor.getPlatform() === "android" ? "android" : "web" })
         .then(async (disconnected) => {
           if (signal.aborted || currentToken.current !== ownerToken) return;
           setPlaidMessage(disconnected ? "Bank disconnected." : "Could not disconnect this bank. Retry.");
+          endDisconnect("plaid", disconnected ? undefined : DISCONNECT_FAILED);
           if (disconnected) await financial.refresh({ force: true });
         })
         .catch(() => {
-          if (!signal.aborted && currentToken.current === ownerToken) setPlaidMessage("Could not disconnect this bank. Retry.");
+          if (!signal.aborted && currentToken.current === ownerToken) {
+            setPlaidMessage("Could not disconnect this bank. Retry.");
+            endDisconnect("plaid", DISCONNECT_FAILED);
+          }
         })
         .finally(() => {
+          changesInFlight.current.delete(target);
           if (!signal.aborted && currentToken.current === ownerToken) setPlaidBusy(false);
         });
       return;
     }
-    if (target === "calendar" && activeConnector === "calendar") {
+    if (target === "calendar") {
       const ownerId = user?.uid;
       const ownerToken = vaultOwnerToken;
       const signal = controller.current?.signal;
       if (!ownerId || !ownerToken || !user || !signal || signal.aborted || calendarBusy) return;
+      changesInFlight.current.add(target);
+      beginDisconnect("calendar");
       setCalendarBusy(true);
       void user.getIdToken()
         .then((idToken) => {
@@ -1311,63 +1542,100 @@ function OwnerConnectorsPanel({
         .then((result) => {
           if (!result || signal.aborted || user.uid !== ownerId || currentToken.current !== ownerToken) return;
           setCalendarMessage("Calendar disconnected.");
+          endDisconnect("calendar");
           calendar.refresh();
         })
         .catch(() => {
-          if (!signal.aborted && currentToken.current === ownerToken) setCalendarMessage("Could not disconnect Calendar. Try again.");
+          if (!signal.aborted && currentToken.current === ownerToken) {
+            setCalendarMessage("Could not disconnect Calendar. Try again.");
+            endDisconnect("calendar", DISCONNECT_FAILED);
+          }
         })
         .finally(() => {
-          if (!signal.aborted) setCalendarBusy(false);
+          changesInFlight.current.delete(target);
+          if (!signal.aborted) {
+            setCalendarBusy(false);
+            endDisconnect("calendar");
+          }
         });
       return;
     }
-    if (
-      !target ||
-      (target === "mail" && activeConnector !== "gmail") ||
-      (target !== "mail" && activeConnector !== "google_drive")
-    ) return;
     updatePendingSelection(null);
     if (target === "mail") {
       const signal = controller.current?.signal;
       if (mailLock.current || !signal || signal.aborted) return;
       mailLock.current = true;
+      changesInFlight.current.add(target);
+      beginDisconnect("gmail");
       setMailBusy(true);
       void gmail
         .disconnectGmail()
         .then(() => {
-          if (!signal.aborted)
-            setMailMessage("Mail disconnected. Drive is unchanged.");
+          if (signal.aborted) return;
+          setMailMessage("Mail disconnected. Drive is unchanged.");
+          endDisconnect("gmail");
         })
         .catch(() => {
-          if (!signal.aborted)
-            setMailMessage("Could not disconnect Mail. Check and retry.");
+          if (signal.aborted) return;
+          setMailMessage("Could not disconnect Mail. Check and retry.");
+          endDisconnect("gmail", DISCONNECT_FAILED);
         })
         .finally(() => {
           mailLock.current = false;
+          changesInFlight.current.delete(target);
           if (!signal.aborted) setMailBusy(false);
         });
-    } else if (target)
+      return;
+    }
+    if (target === "drive") {
+      if (driveLock.current) return;
+      changesInFlight.current.add(target);
+      beginDisconnect("google_drive");
       void runDrive(async (token, signal) => {
-        if (target === "drive") {
-          const result = await ExternalConnectorService.disconnect({
+        let result: Awaited<ReturnType<typeof ExternalConnectorService.disconnect>>;
+        try {
+          result = await ExternalConnectorService.disconnect({
             vaultOwnerToken: token,
             connectorId: "google_drive",
           });
-          if (signal.aborted) return;
-          setDocuments([]);
-          setDriveMessage(
-            result.revocationOutcome === "revoked"
-              ? "Drive disconnected. Mail is unchanged."
-              : "Drive is disabled in One. Google revocation was not confirmed; remove access in your Google account if needed.",
-          );
-        } else await ExternalConnectorService.removeDocument(token, target);
-        if (!signal.aborted) {
-          await refresh(signal);
-          await refreshDocuments(signal);
+        } catch (error) {
+          if (!signal.aborted) endDisconnect("google_drive", DISCONNECT_FAILED);
+          throw error;
         }
+        if (signal.aborted) return;
+        setDocuments([]);
+        setDriveMessage(
+          result.revocationOutcome === "revoked"
+            ? "Drive disconnected. Mail is unchanged."
+            : "Drive is disabled in One. Google revocation was not confirmed; remove access in your Google account if needed.",
+        );
+        endDisconnect("google_drive");
+        await refresh(signal);
+        await refreshDocuments(signal);
+      }).finally(() => {
+        changesInFlight.current.delete(target);
+        endDisconnect("google_drive");
       });
+      return;
+    }
+    // A selected Drive file, offered only from the Drive detail.
+    if (activeConnector !== "google_drive") return;
+    void runDrive(async (token, signal) => {
+      await ExternalConnectorService.removeDocument(token, target);
+      if (!signal.aborted) {
+        await refresh(signal);
+        await refreshDocuments(signal);
+      }
+    });
   };
-
+  const confirmBusy =
+    confirm === "mail"
+      ? mailBusy
+      : confirm === "calendar"
+        ? calendarBusy
+        : confirm?.startsWith("plaid:")
+          ? plaidBusy
+          : driveBusy;
   const mailConnected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const driveConnected = ["connected", "verifying"].includes(drive?.status ?? "");
   const showConnector = (id: string) => {
@@ -1381,8 +1649,10 @@ function OwnerConnectorsPanel({
       detail: gmail.status?.needs_reauth ? "Sign-in needed" : undefined,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
+      pending: disconnecting.gmail ? "disconnect" : mailPopupPending ? "connect" : undefined,
+      failure: disconnectFailures.gmail,
       action: mailConnected
-        ? { label: "Disconnect Gmail", onClick: () => { showConnector("gmail"); setConfirm("mail"); }, disabled: mailBusy }
+        ? { label: "Disconnect Gmail", onClick: () => askToDisconnect("gmail", "mail", true), disabled: mailBusy }
         : {
             label: "Connect Gmail",
             onClick: () => {
@@ -1402,8 +1672,10 @@ function OwnerConnectorsPanel({
           : undefined,
       connected: driveConnected,
       onOpen: () => showConnector("google_drive"),
+      pending: disconnecting.google_drive ? "disconnect" : drivePopupPending ? "connect" : undefined,
+      failure: disconnectFailures.google_drive,
       action: driveConnected
-        ? { label: "Disconnect Google Drive", onClick: () => { showConnector("google_drive"); setConfirm("drive"); }, disabled: driveBusy }
+        ? { label: "Disconnect Google Drive", onClick: () => askToDisconnect("google_drive", "drive", true), disabled: driveBusy }
         : !canConnectDrive
           ? undefined
         : {
@@ -1423,6 +1695,8 @@ function OwnerConnectorsPanel({
       name: "Calendar",
       connected: calendar.connected,
       onOpen: () => showConnector("calendar"),
+      pending: disconnecting.calendar ? "disconnect" : calendarPopupPending ? "connect" : undefined,
+      failure: disconnectFailures.calendar,
       detail: calendar.error
         ? "Status unavailable"
         : !calendar.loaded
@@ -1434,8 +1708,7 @@ function OwnerConnectorsPanel({
         label: calendar.connected ? "Disconnect Calendar" : "Connect Calendar",
         onClick: () => {
           if (calendar.connected) {
-            showConnector("calendar");
-            setConfirm("calendar");
+            askToDisconnect("calendar", "calendar", true);
             return;
           }
           showConnector("calendar");
@@ -1450,6 +1723,8 @@ function OwnerConnectorsPanel({
       name: "Plaid",
       connected: plaidConnections.length > 0,
       onOpen: () => showConnector("plaid"),
+      pending: disconnecting.plaid ? "disconnect" : undefined,
+      failure: disconnectFailures.plaid,
       detail: financial.error
         ? "Status unavailable"
         : financial.loading
@@ -1483,30 +1758,43 @@ function OwnerConnectorsPanel({
       !query ||
       `${entry.name} ${entry.detail ?? ""}`.toLocaleLowerCase().includes(query),
   );
-  const connectedEntries = matchingEntries.filter((entry) => entry.connected);
-  const availableEntries = matchingEntries.filter((entry) => !entry.connected);
+  // A row the person acted on from the list keeps its section until they next
+  // arrive at the list: the list never re-sorts under their finger.
+  const sitsInConnected = (entry: ConnectorListEntry) =>
+    pinnedSections[entry.id] ?? entry.connected;
+  const connectedEntries = matchingEntries.filter(sitsInConnected);
+  const availableEntries = matchingEntries.filter((entry) => !sitsInConnected(entry));
   const selectedCatalog = overview?.connectors.find(
     (item) => item.connectorId === activeConnector,
   );
 
+  const inProfile = surface === "profile";
+  const listSections = [
+    ["Connected", connectedEntries],
+    ["Available", availableEntries],
+  ] as const;
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-background text-foreground"
+      ref={panelRootRef}
+      className={
+        inProfile
+          ? "flex min-w-0 flex-col text-foreground"
+          : "flex h-full min-h-0 flex-col bg-background text-foreground"
+      }
       data-connections-panel
       data-connection-compact={activeConnector === "google_drive" && statusChecked && !loading && drive?.status === "connected" && !pending ? "" : undefined}
       data-surface={surface}
     >
-      <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
-        {activeConnector || surface === "settings" ? (
+      {inProfile ? null : <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
+        {activeConnector ? (
           <ShellActionSurface
             ref={detailBackRef}
             className="size-11"
             onClick={() => {
               setConfirm(null);
-              if (activeConnector) setActiveConnector(null);
-              else onBack();
+              setActiveConnector(null);
             }}
-            aria-label={activeConnector ? "Back to connectors" : "Back to profile"}
+            aria-label="Back to connectors"
           >
             <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
           </ShellActionSurface>
@@ -1517,24 +1805,43 @@ function OwnerConnectorsPanel({
             ? entries.find((entry) => entry.id === activeConnector)?.name || "Connector"
             : "Connectors"}
         </h2>
-        {surface === "drawer" ? (
-          <ShellActionSurface
-            className="size-11"
-            onClick={() => {
-              setConfirm(null);
-              onClose();
-            }}
-            aria-label="Close connectors"
-          >
-            <XIcon className="size-4" aria-hidden="true" />
-          </ShellActionSurface>
-        ) : null}
-      </header>
-      <div className="min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <ShellActionSurface
+          className="size-11"
+          onClick={() => {
+            setConfirm(null);
+            onClose();
+          }}
+          aria-label="Close connectors"
+        >
+          <XIcon className="size-4" aria-hidden="true" />
+        </ShellActionSurface>
+      </header>}
+      <div
+        className={
+          inProfile
+            ? "min-w-0 space-y-5"
+            : "min-h-0 flex-1 space-y-5 overflow-x-hidden overflow-y-auto overscroll-contain px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        }
+      >
         {!vaultOwnerToken ? (
           <p role="status" className="text-sm text-muted-foreground">
             Unlock your vault to manage connectors.
           </p>
+        ) : !activeConnector && inProfile ? (
+          <>
+            {listSections.map(([heading, items]) =>
+              items.length === 0 ? null : (
+                <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
+                  {items.map((entry) => <ProfileConnectorRow key={entry.id} entry={entry} />)}
+                </SettingsGroup>
+              ),
+            )}
+            {open && user?.uid && vaultKey && vaultOwnerToken ? <CustomConnectorsSettings
+              key={user.uid}
+              access={{ userId: user.uid, vaultKey, vaultOwnerToken }}
+              onPrepareRecovery={onPrepareRecovery}
+            /> : null}
+          </>
         ) : !activeConnector ? (
           <>
             <label className="flex min-h-11 items-center gap-2 rounded-full bg-foreground/10 px-4 text-muted-foreground focus-within:ring-2 focus-within:ring-inset focus-within:ring-ring">
@@ -1549,13 +1856,7 @@ function OwnerConnectorsPanel({
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
             </label>
-            {([[
-              "Connected",
-              connectedEntries,
-            ], [
-              "Available",
-              availableEntries,
-            ]] as const).map(([heading, items]) =>
+            {listSections.map(([heading, items]) =>
               query && items.length === 0 ? null : (
                 <section key={heading} aria-label={heading} className="space-y-2">
                   <h3 className="text-sm font-medium text-muted-foreground">{heading}</h3>
@@ -1579,7 +1880,13 @@ function OwnerConnectorsPanel({
             /> : null}
           </>
         ) : (
-          <>
+          <div
+            key={activeConnector}
+            ref={detailRegionRef}
+            tabIndex={-1}
+            data-connector-detail={activeConnector}
+            className="min-w-0 space-y-5 focus:outline-none motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-150"
+          >
             {activeConnector === "gmail" && <section
               aria-labelledby="connection-mail-title"
               className="space-y-3 rounded-xl border border-border p-3"
@@ -2033,43 +2340,15 @@ function OwnerConnectorsPanel({
                 <p role="status" className="text-sm">{labels[selectedCatalog.status] ?? "Status unavailable"}</p>
               </section>
             )}
-            {confirm && (
-              <section
-                className="space-y-3 rounded-xl border border-border p-3"
-                aria-label="Confirm connection change"
-              >
-                <p className="text-sm">
-                  {confirm === "mail"
-                    ? "Disconnect Mail? Drive stays connected."
-                    : confirm === "drive"
-                      ? "Disconnect Drive and remove its selected files from One? Existing Google sharing stays active until you revoke it. Mail stays connected."
-                      : confirm === "calendar"
-                        ? "Disconnect Calendar from One? Other connections stay active."
-                      : confirm.startsWith("plaid:")
-                        ? "Disconnect this bank and remove its connected financial records from your vault? Other banks stay connected."
-                      : "Remove this file from One? The original in Google Drive is unchanged."}
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <Button
-                    className={touch}
-                    disabled={mailBusy || driveBusy || plaidBusy || calendarBusy}
-                    onClick={confirmAction}
-                  >
-                    Confirm
-                  </Button>
-                  <Button
-                    className={touch}
-                    variant="outline"
-                    onClick={() => setConfirm(null)}
-                  >
-                    Cancel
-                  </Button>
-                </div>
-              </section>
-            )}
-          </>
+          </div>
         )}
       </div>
+      <ConnectorConfirm
+        target={confirm}
+        busy={confirmBusy}
+        onConfirm={confirmAction}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

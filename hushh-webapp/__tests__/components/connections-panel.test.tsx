@@ -175,13 +175,14 @@ describe("Connectors owner and mutation fences", () => {
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
   it("does not carry a Mail disconnect confirmation into Drive details", async () => {
-    render(<ConnectorsPanel {...props()} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Gmail", exact: true }));
-    fireEvent.click(screen.getByRole("button", { name: "Disconnect Mail" }));
-    expect(screen.getByRole("button", { name: "Confirm", exact: true })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Back to connectors" }));
-    await openDriveDetail();
-    expect(screen.queryByRole("button", { name: "Confirm", exact: true })).not.toBeInTheDocument();
+    // Profile's Back and a native return move the open connector without the
+    // dialog's own Cancel; the question must not follow the person.
+    const p = { ...props(), surface: "profile" as const, onActiveConnectorChange: vi.fn() };
+    const view = render(<ConnectorsPanel {...p} activeConnector="gmail" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Disconnect Mail" }));
+    expect(await screen.findByRole("alertdialog", { name: "Disconnect Mail?" })).toBeInTheDocument();
+    view.rerender(<ConnectorsPanel {...p} activeConnector="google_drive" />);
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
     expect(state.disconnectMail).not.toHaveBeenCalled();
   });
   it.each([
@@ -260,7 +261,7 @@ describe("Connectors owner and mutation fences", () => {
       screen.getByRole("button", { name: "Remove Synthetic file" }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: "Confirm", exact: true }),
+      await screen.findByRole("button", { name: "Remove", exact: true }),
     );
     await waitFor(() =>
       expect(screen.queryByText("Synthetic file")).toBeNull(),

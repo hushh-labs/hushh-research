@@ -99,6 +99,24 @@ export function createAgentTextAttachment(
   };
 }
 
+/**
+ * "Edit and send again": a sent message never changes, so an edit produces a
+ * NEW attachment list for a new turn. The edited entry keeps its name; every
+ * other attachment is carried over as it was sent. Returns null for an index
+ * that is not there or an edit that left nothing to send.
+ */
+export function replaceTextAttachmentForResend(
+  attachments: readonly AgentTextAttachment[],
+  index: number,
+  editedText: string,
+): AgentTextAttachment[] | null {
+  const original = attachments[index];
+  if (!original || !editedText.trim()) return null;
+  return attachments.map((attachment, position) =>
+    position === index ? createAgentTextAttachment(editedText, original.name) : attachment,
+  );
+}
+
 export function formatTextAttachmentSize({
   byteSize,
   lineCount,

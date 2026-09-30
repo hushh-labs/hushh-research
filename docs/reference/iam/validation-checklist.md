@@ -42,6 +42,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    Chat card rereads authority before browser-local encrypted readback. Wrong
    bundle, revoked grant, locked vault, and unavailable export must not reveal
    values; notification delivery must not become approval or read authority.
+   The Connections tab shows active people from the canonical relationship
+   page with their first-connected date, not resolved request logs. A failed
+   relationship read is retryable and must not appear as an empty graph;
+   closing a consent detail never submits a decision.
 5. Schema-missing compatibility:
    `GET /api/iam/persona` returns investor-safe `200`,
    `/api/ria/*` and `/api/marketplace/*` return `503 IAM_SCHEMA_NOT_READY`.

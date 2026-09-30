@@ -1,5 +1,6 @@
 "use client";
 
+import { SUPERSEDED_KEY } from "@/lib/pkm/pkm-supersede-merge";
 import {
   LINKED_ACCOUNTS_BRANCH,
   PLAID_VAULT_RECORD_BRANCHES,
@@ -170,6 +171,9 @@ function isInternalPkmKey(key: string): boolean {
   const normalized = normalizeKey(key);
   if (!normalized) return true;
   if (INTERNAL_KEYS.has(normalized)) return true;
+  // Earlier values of a changed detail are the owner's history, never a
+  // current fact for a Memory card or One's context packet.
+  if (normalized === SUPERSEDED_KEY) return true;
   if (INTERNAL_PKM_DOMAINS.has(normalized) || SECRET_KEY_PATTERN.test(normalized)) return true;
   if (normalized.endsWith("_id") && normalized !== "student_id") return true;
   if (normalized.includes("cipher") || normalized.includes("token")) return true;

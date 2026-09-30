@@ -4,6 +4,7 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
+import { normalizeConnectorDetailId } from "./lib/navigation/profile-routes";
 import {
   LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
   PUBLIC_LOCATION_VIEW_PREFIX,
@@ -110,6 +111,17 @@ export function proxy(request: NextRequest) {
       url.searchParams.set("profile_panel", parts[0]);
       if (parts[1]) {
         url.searchParams.set("profile_detail", parts.slice(1).join("/"));
+      }
+    }
+    // Connectors names its detail in the query (`?connector=google_drive`);
+    // carry it into the pane's detail instead of leaving a stray parameter.
+    if (rawSubpath === "connectors") {
+      const connectorId = normalizeConnectorDetailId(
+        url.searchParams.get("connector"),
+      );
+      url.searchParams.delete("connector");
+      if (connectorId) {
+        url.searchParams.set("profile_detail", `connector:${connectorId}`);
       }
     }
     return NextResponse.redirect(url);

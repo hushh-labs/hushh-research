@@ -71,3 +71,34 @@ export const CONNECT_WRAPPING_TITLE_ROW_CLASSNAME =
  */
 export const CONNECT_CONNECTION_LIST_CLASSNAME =
   "max-h-[min(42dvh,18rem)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
+
+/**
+ * Connect's section headings stand on the page's content column.
+ *
+ * The shared group heading carries a 4px inline inset of its own, and "My
+ * connections" then sat inside a bordered, filled pill with 12px of padding,
+ * so its label started 17px in from the column the Circles card, the tab
+ * rail and both lists share (founder, 2026-09-29: "the border and padding for
+ * the my connections can be removed ... it can be grid symmetrical"). With
+ * no inset the leading label starts on the column and the trailing control
+ * ends on it. 8px, not 6px, down to the list keeps the rhythm on the grid.
+ *
+ * Held by e2e/connect-page-grid.layout.spec.ts.
+ */
+export const CONNECT_SECTION_HEADING_CLASSNAME = "mb-2 px-0";
+
+/** A section title that is also a control: a bare label and its chevron,
+ * with no border, fill or padding box of its own, like "People". */
+export const CONNECT_SECTION_TITLE_CONTROL_CLASSNAME =
+  "group inline-flex min-h-11 max-w-full items-center gap-2 rounded-full border-0 bg-transparent px-0 text-left text-[color:var(--app-label)] shadow-none hover:bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]";
+
+/**
+ * A row's trailing action ends as far in from the row's right edge as its
+ * avatar starts from the left (16px), so every row is symmetric.
+ *
+ * The shared row keeps its trailing slot 2px (4px from `sm`) further in than
+ * its leading edge; on Connect, whose trailing actions are filled controls,
+ * that read as a lopsided row. The compensation lives here, not in the
+ * shared primitive, because every other surface's rows depend on it.
+ */
+export const CONNECT_ROW_TRAILING_CLASSNAME = "-mr-0.5 sm:-mr-1";

@@ -407,7 +407,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
       path: testInfo.outputPath("new-user-finance.png"),
       animations: "disabled",
     });
-    await page.getByRole("button", { name: "Create a Circle — Finance Circle" }).click();
+    await page.getByRole("button", { name: "Create a Circle, Finance Circle" }).click();
     await expect(
       page.getByRole("button", {
         name: "Explore Finance Circle, already created",

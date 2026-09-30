@@ -14,6 +14,15 @@ type PkmInventoryFact = {
   value: string;
 };
 
+/** One existing entity the merge agent may extend or correct. */
+export type PkmReconciliationCandidate = {
+  domain: string;
+  entity_id: string;
+  entity_scope: string;
+  message: string;
+  active: true;
+};
+
 export type LocalPkmDuplicateMatch =
   | { kind: "exact"; domain: string; path: string[] }
   | { kind: "possible"; domain: string; path: string[] }
@@ -457,6 +466,50 @@ export class AgentPkmContextStore {
       return candidateTokens.size >= 3 && overlap >= Math.min(3, candidateTokens.size);
     });
     return possible ? { kind: "possible", domain: possible.domain, path: [...possible.path] } : null;
+  }
+
+  /**
+   * The owner's existing details most related to a passage, for the merge
+   * agent. Its contract reads "recent active entity summaries" to choose
+   * create, extend or correct, but the product never sent any, so every save
+   * of a changed fact created a second copy (2026-09-29: 97 of 97 live cards
+   * were create_entity). Selection is local word overlap over the unlocked,
+   * memory-only working set; only entity summaries are offered, because only
+   * an entity is something the agent can extend or correct. The server keeps
+   * at most ten, each clipped to 200 characters, and treats them as context.
+   */
+  static findReconciliationCandidates(params: {
+    userId: string;
+    text: string;
+    limit?: number;
+  }): PkmReconciliationCandidate[] {
+    const inventory = workingSets.get(params.userId)?.inventory;
+    if (!inventory) return [];
+    const wanted = tokenize(params.text);
+    if (!wanted.size) return [];
+    const best = new Map<string, PkmReconciliationCandidate & { score: number }>();
+    for (const fact of inventory.facts) {
+      const at = fact.path.lastIndexOf("entities");
+      const entityId = at >= 0 ? fact.path[at + 1] : undefined;
+      if (!entityId || fact.path[fact.path.length - 1] !== "summary") continue;
+      const tokens = tokenize(fact.value);
+      const score = [...wanted].filter((token) => tokens.has(token)).length;
+      if (score < 2) continue;
+      const candidate = {
+        domain: fact.domain,
+        entity_id: entityId,
+        entity_scope: fact.path.slice(0, at).join("."),
+        message: fact.value.slice(0, 200),
+        active: true as const,
+        score,
+      };
+      const key = `${candidate.domain}|${candidate.entity_scope}|${entityId}`;
+      if ((best.get(key)?.score ?? -1) < score) best.set(key, candidate);
+    }
+    return [...best.values()]
+      .sort((left, right) => right.score - left.score)
+      .slice(0, Math.max(0, params.limit ?? 10))
+      .map(({ score: _score, ...candidate }) => candidate);
   }
 
   static async load(params: {

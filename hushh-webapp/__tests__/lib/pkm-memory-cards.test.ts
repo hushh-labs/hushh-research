@@ -154,6 +154,24 @@ describe("PKM memory cards", () => {
     expect(JSON.stringify(snapshot)).not.toContain("must-not-render");
   });
 
+  it("never shows a superseded value as a current fact, in Memory or in One's context", () => {
+    // An update keeps the earlier value under `superseded` (pkm-supersede-merge.ts).
+    const snapshot = buildPkmMemorySnapshot({
+      metadata,
+      fullBlob: {
+        professional: {
+          current_role: {
+            title: "Staff Engineer",
+            superseded: { title: [{ value: "Senior Engineer", superseded_at: "2026-09-29T00:00:00.000Z" }] },
+          },
+        },
+      },
+    });
+    expect(JSON.stringify(snapshot)).toContain("Staff Engineer");
+    expect(JSON.stringify(snapshot)).not.toContain("Senior Engineer");
+    expect(shouldSkipPkmAgentContextKey("superseded")).toBe(true);
+  });
+
   it("keeps entity-map identifiers internal while retaining exact mutation paths", () => {
     const snapshot = buildPkmMemorySnapshot({
       metadata,

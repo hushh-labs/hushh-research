@@ -1,3 +1,4 @@
+import { sensitiveTopicLabel, valueIsIdentifierShaped } from "@/lib/consent/field-sensitivity";
 import { isInternalManifestPath } from "@/lib/pkm/internal-path-keys";
 import {
   CURRENT_PKM_CONTRACT_VERSION,
@@ -161,7 +162,7 @@ function cloneValue<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
 }
 
-function inferSensitivityLabel(path: string): string | null {
+function inferSensitivityLabel(path: string, concretePath?: string, value?: unknown): string | null {
   const normalized = path.toLowerCase();
   if (
     normalized.includes("ssn") ||
@@ -186,7 +187,20 @@ function inferSensitivityLabel(path: string): string | null {
   ) {
     return "confidential";
   }
-  return null;
+  // The shared topic table (contracts/consent/field-sensitivity.v1.json), read
+  // over the canonical path, the concrete path (entity ids such as
+  // prof_salary_001), and a stated value. Measured 2026-09-29 on a synthetic
+  // context transfer: salary, bonus and visa facts landed under a general
+  // profile scope with no structure-agent label, so consent would have treated
+  // them as standard. Escalation only: an unlabelled ordinary fact stays so.
+  const topic = [
+    sensitiveTopicLabel(path),
+    sensitiveTopicLabel(concretePath),
+    typeof value === "string" ? sensitiveTopicLabel(value) : null,
+    valueIsIdentifierShaped(value) ? "restricted" : null,
+  ];
+  if (topic.includes("restricted")) return "restricted";
+  return topic.includes("confidential") ? "confidential" : null;
 }
 
 const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
@@ -363,7 +377,7 @@ function walkValue(
     const isArray = Array.isArray(value);
     const isObject =
       !!value && typeof value === "object" && !isArray;
-    const sensitivityLabel = inferSensitivityLabel(pathKey);
+    const sensitivityLabel = inferSensitivityLabel(pathKey, joinPath(concretePath), value);
     const pathType: PathDescriptor["path_type"] = isArray ? "array" : isObject ? "object" : "leaf";
     const nextDescriptor: PathDescriptor = {
       json_path: pathKey,

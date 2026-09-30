@@ -703,9 +703,20 @@ textarea {
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
   /* Fixed bottom navbar clearance fallback (before runtime measurement). */
   --bottom-nav-offset: 88px;
+  /* ONE column for the persistent bottom chrome. The "Talk to One" bar, the
+   * navigation pill and everything docked above them (the voice panel, the
+   * command transcript) take their width from these two tokens only, applied
+   * once by AppBottomShell (components/app-ui/bottom-chrome-column.ts). The
+   * voice bar used to carry its own 34rem cap and a viewport-relative gutter,
+   * so from ~576px up it sat 96 to 192px narrower than the navigation under it.
+   * The inset is symmetric and clears a landscape notch on either side.
+   * Held by e2e/bottom-chrome-width.layout.spec.ts. */
   --app-bottom-shell-max-width: 48rem;
-  /* Keep the voice launcher compact above the wider five-item navigation. */
-  --app-agent-bar-max-width: 34rem;
+  --app-bottom-shell-inline-inset: max(
+    1rem,
+    env(safe-area-inset-left, 0px),
+    env(safe-area-inset-right, 0px)
+  );
   /* Runtime-measured bottom fixed UI (Navbar / floating theme pill). Overridden by navbar at runtime. */
   --app-bottom-fixed-ui: var(--bottom-nav-offset);
   --app-bottom-route-group-width: 58px;
@@ -4504,6 +4515,44 @@ body:has([data-testid="one-location-onboarding"])
     font-weight: var(--foundation-subhead-weight) !important;
   }
 
+  /* Headings inside an answer: the second sanctioned exception to the
+     foundation heading lock, by the same mechanism as the hero title (same
+     layer, higher specificity, important). Without it an answer's "## Plan"
+     rendered at the app's title2 size, as large as the page's own title. The
+     scale tops out at 17px and every line box is 24px, the body rhythm. */
+  .agent-markdown :is(h2, h3, h4, h5) {
+    line-height: 24px !important;
+    letter-spacing: normal;
+  }
+
+  .agent-markdown h2 {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.01em;
+  }
+
+  .agent-markdown h3 {
+    font-size: 16px !important;
+    font-weight: 600 !important;
+  }
+
+  .agent-markdown h4 {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+  }
+
+  .agent-markdown h5 {
+    font-size: 15px !important;
+    font-weight: 500 !important;
+  }
+
+  .agent-markdown h2[data-agent-sources-label] {
+    font-size: 12px !important;
+    line-height: 16px !important;
+    font-weight: 500 !important;
+    letter-spacing: normal;
+  }
+
   [data-slot$="title"] {
     font-family: var(--font-app-display);
     font-size: var(--foundation-title3-size) !important;
@@ -5441,6 +5490,81 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   --one-chat-composer-border: rgba(255, 255, 255, 0.06);
   --one-chat-get-app-stage: #2a2a2f;
   --one-chat-get-app-bezel: #3a3a40;
+}
+
+/* Answer formatting (AgentMarkdown). One set of tokens for every surface that
+   renders an answer; the One chat surface points them at its bubble.
+   - link: 4.5:1 or better on the bubble in both themes and both accents. The
+     raw accent is a fill tone (#007aff is 3.4:1 on the grey bubble), so light
+     mode deepens it; dark mode uses the accent's bright partner.
+   - surface: what a sticky table column paints over, i.e. the bubble.
+   - well: code blocks, table headers and link chips, one step off the bubble. */
+.agent-markdown {
+  --agent-md-surface: var(--background);
+  --agent-md-well: var(--muted);
+  --agent-md-rule: color-mix(in oklab, var(--foreground) 12%, transparent);
+  --agent-md-rule-strong: color-mix(in oklab, var(--foreground) 28%, transparent);
+  --agent-md-muted: color-mix(in oklab, var(--foreground) 62%, transparent);
+  --agent-md-quote: color-mix(in oklab, var(--foreground) 80%, transparent);
+  --agent-md-link: color-mix(in oklab, var(--app-accent-deep) 76%, black);
+  --agent-md-link-rule: color-mix(in oklab, var(--agent-md-link) 35%, transparent);
+}
+
+.dark .agent-markdown {
+  --agent-md-link: var(--app-accent-bright);
+}
+
+[data-one-chat-surface] .agent-markdown {
+  --agent-md-surface: var(--one-chat-bubble);
+  --agent-md-well: var(--one-chat-raised);
+}
+
+/* Nested lists sit tight under their parent item. */
+.agent-markdown li > :is(ul, ol) {
+  margin-block: 4px;
+}
+
+/* Wide tables scroll inside their box; the first column stays put so each row
+   keeps its name. Row rules are inset shadows, which a sticky cell carries
+   with it (a collapsed border would not). */
+.agent-md-table tr > :first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--agent-md-surface);
+}
+
+.agent-md-table thead tr > :first-child {
+  background: var(--agent-md-well);
+}
+
+.agent-md-table tbody tr:not(:last-child) > td {
+  box-shadow: inset 0 -1px 0 var(--agent-md-rule);
+}
+
+/* Sources: each row opens with the same numbered pill as its citation. */
+.agent-md-source-list {
+  counter-reset: agent-md-source;
+}
+
+.agent-md-source::before {
+  counter-increment: agent-md-source;
+  content: counter(agent-md-source);
+  display: grid;
+  flex: none;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--agent-md-well);
+  box-shadow: inset 0 0 0 1px var(--agent-md-rule);
+  color: var(--agent-md-link);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* The composer: a quiet rounded field on the canvas, as in the reference.
