@@ -45,22 +45,23 @@ def test_dev_hub_capacity_preserves_other_lanes_and_explicit_overrides(environme
                 "-eu",
                 "-c",
                 guard
-                + '\nprintf "%s %s %s" "$_CLOUD_RUN_MEMORY" "$_CLOUD_RUN_CPU" "$_CLOUD_RUN_CONCURRENCY"',
+                + '\nprintf "%s %s %s %s" "$_CLOUD_RUN_MEMORY" "$_CLOUD_RUN_CPU" "$_CLOUD_RUN_CONCURRENCY" "$_CLOUD_RUN_MAX_INSTANCES"',
             ],
             env={
                 "_DEPLOY_ENV": environment,
                 "_CLOUD_RUN_MEMORY": memory,
                 "_CLOUD_RUN_CPU": cpu,
                 "_CLOUD_RUN_CONCURRENCY": concurrency,
+                "_CLOUD_RUN_MAX_INSTANCES": "3",
             },
             text=True,
             capture_output=True,
             check=True,
         )
         expected = (
-            "4Gi 2 20"
+            "4Gi 2 20 5"
             if environment == "dev" and memory == "1Gi"
-            else f"{memory} {cpu} {concurrency}"
+            else f"{memory} {cpu} {concurrency} {5 if environment == 'dev' else 3}"
         )
         assert result.stdout == expected
 

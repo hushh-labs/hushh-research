@@ -3805,7 +3805,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3851,7 +3851,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-3.7-flash",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3952,7 +3952,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "06b37145a55740bffbb4317ca92fbc218a1c2e99a4e8d7b6a1a64942d6974ae4",
+      "system_instruction_sha256": "264e231037c4b02f8ea142db0dac531fe6b5ddaeaf3681858a07d0bc7e3698ea",
       "telemetry_namespace": "agent.one",
       "tools": [
         {

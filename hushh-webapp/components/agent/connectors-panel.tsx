@@ -609,7 +609,7 @@ function OwnerConnectorsPanel({
     // A question asked about one connector never follows the person to
     // another: Profile's Back and a native return both move the open
     // connector without passing through the dialog's own Cancel.
-    setConfirm(null);
+    if (confirm !== `curated:${activeConnector}`) setConfirm(null);
     // Picker review owns focus when a native return restores a pending choice.
     if (activeConnector === "google_drive" && pendingSelection.current) return;
     const frame = requestAnimationFrame(() => {
@@ -632,7 +632,7 @@ function OwnerConnectorsPanel({
       else searchRef.current?.focus();
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeConnector, open, surface]);
+  }, [activeConnector, confirm, open, surface]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );

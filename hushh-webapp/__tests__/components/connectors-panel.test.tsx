@@ -308,7 +308,7 @@ describe("supported connector catalog", () => {
       const connected = screen.getByRole("region", { name: "Connected" });
       expect(await within(connected).findByText("HubSpot")).toBeInTheDocument();
       fireEvent.click(within(connected).getByRole("button", { name: "Disconnect HubSpot" }));
-      fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+      fireEvent.click(within(await screen.findByTestId("connector-confirm-dialog")).getByRole("button", { name: "Disconnect" }));
       await waitFor(() =>
         expect(state.disconnect).toHaveBeenCalledWith({
           vaultOwnerToken: "synthetic-owner-token",
@@ -390,7 +390,7 @@ describe("supported connector catalog", () => {
       render(panel());
       fireEvent.click(await screen.findByRole("button", { name: "Disconnect HubSpot" }));
       expect(state.disconnect).not.toHaveBeenCalled();
-      fireEvent.click(await screen.findByRole("button", { name: "Confirm" }));
+      fireEvent.click(within(await screen.findByTestId("connector-confirm-dialog")).getByRole("button", { name: "Disconnect" }));
       await waitFor(() =>
         expect(state.disconnect).toHaveBeenCalledWith({
           vaultOwnerToken: "synthetic-owner-token",
