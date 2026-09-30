@@ -14576,7 +14576,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-text-attachment-editor.tsx",
       "symbol": null,
-      "value": 860
+      "value": 861
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18408,6 +18408,12 @@
     },
     "date": "2026-09-27",
     "device_sync_delta": "Three existing size entries reviewed against live TIMESTAMPTZ response failure: service class/module +4 lines and existing owner-bound route test +8. Parent and read-only API reviewer; only timestamp projection and its regression. No threshold or unrelated entry changed.",
+    "editor_mirror_scroll_20260930": {
+      "previous_value": 860,
+      "scope": "One-line guard avoids an unnecessary mirror-scroll style write during plain typing in the existing pasted-text editor. The 500-line advisory budget and ratchet stay unchanged; the focused 22-case editor suite passed. Hosted macOS latency remains an independent gate and is not waived.",
+      "source_revision": "ef0b6b0914d3c1423e41a51c62d108bab4d2f56d",
+      "value": 861
+    },
     "endpoint_publication_delta": "Six reviewed existing size entries for explicit endpoint authority arguments, refusal before signing, the core regression and compatible rehearsal fake. Parent and read-only authority review; evidence base 9c4379f0125850ab3a63896ee21d430447f3b556. No other entries or budgets changed.",
     "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
     "freshness_main_revision": "6aba9e7f7b1b6b0ea953ec19fdea324812338553",
