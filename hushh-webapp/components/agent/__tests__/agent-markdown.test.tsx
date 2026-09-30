@@ -14,6 +14,13 @@ describe("AgentMarkdown", () => {
     expect(screen.queryByText(/\*\*Gmail\*\*/)).not.toBeInTheDocument();
   });
 
+  it("keeps a wide answer table readable in its own horizontal scroller", () => {
+    render(<AgentMarkdown text={"| Holding | Quantity | Price | Value |\n| --- | ---: | ---: | ---: |\n| Example | 120 | $32 | $3,840 |"} />);
+    const scroller = screen.getByRole("region", { name: "Table" });
+    expect(scroller).toHaveClass("overflow-x-auto", "max-w-full");
+    expect(scroller.querySelector("table")).toHaveClass("min-w-max");
+  });
+
   it("gives each answer its own source ids, so a citation never jumps to another answer's sources", () => {
     const answer = "Nonstop fares start at $842[^1].\n\n[^1]: [TAP fares](https://www.flytap.com/)";
     render(

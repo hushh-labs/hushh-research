@@ -310,8 +310,10 @@ owner's own message instead of a copy in the tool argument. The device then:
 
 One is told that receipt on the next turn, as counts and category names only, and its
 instruction forbids claiming a save without one. Every capture job has a deadline and
-always publishes a terminal status, so a memory status line can no longer stay on
-"Checking for details worth remembering" after the vault session lapses.
+settles to a terminal outcome. Explicit Save keeps its progress and failure visible;
+automatic preparation adds a line to an ordinary answer only after a confirmed
+save, so a general question does not acquire an unrelated Memory error or a
+stuck "Checking for details worth remembering" line.
 
 Live evidence, 2026-09-29 (Gemini 3.6, synthetic 10,290 character context transfer
 with 16 sections, the real proposal service and the real client merge path with only

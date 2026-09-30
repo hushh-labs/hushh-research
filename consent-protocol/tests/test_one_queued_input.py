@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncGenerator, Callable
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from ag_ui.core import EventType, RunAgentInput, UserMessage
@@ -245,7 +247,9 @@ def test_withdraw_only_removes_a_message_that_has_not_joined():
     registry.enqueue(OWNER, THREAD, "client-msg-0002", "second")
 
     assert registry.withdraw(OWNER, THREAD, "client-msg-0002").status == "withdrawn"
-    assert [item.text for item in registry.drain(OWNER, THREAD, "run-a")] == ["first"]
+    items = registry.drain(OWNER, THREAD, "run-a")
+    assert [item.text for item in items] == ["first"]
+    registry.persisted(OWNER, THREAD, "run-a", items[0])
     assert registry.withdraw(OWNER, THREAD, "client-msg-0001").status == "delivered"
     # A withdrawn id stays withdrawn: a late retry of its enqueue cannot revive it.
     assert registry.enqueue(OWNER, THREAD, "client-msg-0002", "second").status == "withdrawn"
@@ -256,7 +260,8 @@ def test_reconnect_reads_each_outcome_after_the_run_settled():
     registry = queued_input.registry
     registry.open_run(OWNER, THREAD, "run-a", accepting=True)
     registry.enqueue(OWNER, THREAD, "client-msg-0001", "joins")
-    registry.drain(OWNER, THREAD, "run-a")
+    for item in registry.drain(OWNER, THREAD, "run-a"):
+        registry.persisted(OWNER, THREAD, "run-a", item)
     registry.enqueue(OWNER, THREAD, "client-msg-0002", "comes back")
     # The background run and the stream each close the run, in either order;
     # both see the same settlement, so the stream's notice is never empty.
@@ -270,6 +275,50 @@ def test_reconnect_reads_each_outcome_after_the_run_settled():
         OWNER, THREAD, ["client-msg-0001", "client-msg-0002", "client-msg-0003"]
     )
     assert [receipt.status for receipt in receipts] == ["delivered", "returned", "unknown"]
+
+
+def test_stream_close_waits_for_an_inflight_session_append():
+    registry = queued_input.registry
+    registry.open_run(OWNER, THREAD, "run-a", accepting=True)
+    registry.enqueue(OWNER, THREAD, "client-msg-0001", "first")
+    (inflight,) = registry.drain(OWNER, THREAD, "run-a")
+    registry.enqueue(OWNER, THREAD, "client-msg-0002", "second")
+    early = registry.close_run(OWNER, THREAD, "run-a")
+    assert early == queued_input.Settlement(returned=("client-msg-0002",))
+    assert registry.status(OWNER, THREAD, ["client-msg-0001"])[0].status == "queued"
+    registry.persisted(OWNER, THREAD, "run-a", inflight)
+    final = registry.close_run(OWNER, THREAD, "run-a")
+    assert final == queued_input.Settlement(
+        delivered=("client-msg-0001",), returned=("client-msg-0002",)
+    )
+    assert registry.status(OWNER, THREAD, ["client-msg-0001"])[0].status == "delivered"
+
+
+@pytest.mark.asyncio
+async def test_failed_session_append_never_reports_unsaved_input_as_delivered():
+    registry = queued_input.registry
+    service = SimpleNamespace(
+        append_event=AsyncMock(side_effect=[None, RuntimeError("store down")])
+    )
+    invocation = SimpleNamespace(
+        invocation_id="invocation", branch="", session_service=service, session=object()
+    )
+    context = SimpleNamespace(_invocation_context=invocation, state={}, invocation_id="invocation")
+    request = SimpleNamespace(contents=[])
+    async with queued_input.run_scope(OWNER, THREAD, "run-a", accepting=True):
+        registry.enqueue(OWNER, THREAD, "client-msg-0001", "persisted")
+        registry.enqueue(OWNER, THREAD, "client-msg-0002", "not persisted")
+        with pytest.raises(RuntimeError, match="store down"):
+            await queued_input.club_queued_input(context, request)
+        assert [
+            receipt.status
+            for receipt in registry.status(OWNER, THREAD, ["client-msg-0001", "client-msg-0002"])
+        ] == ["delivered", "returned"]
+        assert registry.take_announcements(OWNER, THREAD, "run-a") == ["client-msg-0001"]
+        assert len(request.contents) == 1
+        assert registry.close_run(OWNER, THREAD, "run-a") == queued_input.Settlement(
+            delivered=("client-msg-0001",), returned=("client-msg-0002",)
+        )
 
 
 def test_routes_bind_every_queue_operation_to_the_token_owner(monkeypatch):

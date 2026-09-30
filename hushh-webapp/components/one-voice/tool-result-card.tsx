@@ -867,6 +867,9 @@ export function mailCoverageLine(coverage: unknown): string | null {
   const scope = text(row.scope);
   if (returned !== null) {
     parts.push(
+      Array.isArray(row.analysis_requested) && assessed !== null && assessed < returned
+        ? `${assessed} of ${returned} message texts checked`
+        :
       assessed !== null && assessed > returned
         ? `${returned} of ${assessed} checked`
         : scope === "newest"
@@ -1014,6 +1017,21 @@ function MailDetail({
         .filter(Boolean)
     : [];
   const coverage = mailCoverageLine(result.coverage);
+  const analysisCoverage =
+    result.coverage && typeof result.coverage === "object"
+      ? (result.coverage as Row)
+      : null;
+  const requested = Array.isArray(analysisCoverage?.analysis_requested)
+    ? analysisCoverage.analysis_requested
+    : [];
+  const failed = Array.isArray(analysisCoverage?.analysis_failed)
+    ? analysisCoverage.analysis_failed
+    : [];
+  const categoryLabels: Record<string, string> = {
+    personal_info: "Personal-information requests",
+    action_items: "Action items",
+    meetings: "Meetings in Mail",
+  };
   // Every returned row is shown, in the order the server returned it.
   //
   // Dropping the ones with no subject or sender renumbered the list: the person
@@ -1040,6 +1058,23 @@ function MailDetail({
           ))}
         </div>
       ) : null}
+      {requested.length > 0 ? (
+        <div className="flex flex-wrap gap-2" data-testid="one-voice-mail-analysis-headings">
+          {requested.map((value) => {
+            const category = text(value);
+            if (!category || !categoryLabels[category]) return null;
+            const amount = count(analysisCoverage?.[`findings_${category}`]);
+            return (
+              <span
+                key={category}
+                className="rounded-full bg-[color:var(--app-neutral-fill)] px-2.5 py-1 text-[12px] text-[color:var(--app-label)]"
+              >
+                {categoryLabels[category]}: {failed.includes(category) ? "unavailable" : amount ?? "—"}
+              </span>
+            );
+          })}
+        </div>
+      ) : null}
       {items.length > 0 ? (
         <ul className="flex flex-col gap-0.5" aria-label="Mail">
           {items.map((row, index) => {
@@ -1052,6 +1087,7 @@ function MailDetail({
             // absent one here means there was nothing to summarise, not that
             // summarising failed.
             const gist = text(row.gist);
+            const analysis = Array.isArray(row.analysis) ? row.analysis : [];
             const byline = [sender, when].filter(Boolean).join(" · ") || null;
             // The server's own ordinal, read off the ref rather than counted
             // here, so the number the person sees is the number "the second
@@ -1100,6 +1136,21 @@ function MailDetail({
                         {gist}
                       </span>
                     ) : null}
+                    {analysis.map((value, findingIndex) => {
+                      if (!value || typeof value !== "object") return null;
+                      const finding = value as Row;
+                      const category = text(finding.category);
+                      const detail = text(finding.detail);
+                      if (!category || !categoryLabels[category] || !detail) return null;
+                      return (
+                        <span
+                          key={`${category}:${findingIndex}`}
+                          className="text-[13px] leading-[1.35] text-[color:var(--app-label)]"
+                        >
+                          <span className="font-medium">{categoryLabels[category]}:</span> {detail}
+                        </span>
+                      );
+                    })}
                   </div>
                   {canOpen && ref && position ? (
                     <Button

@@ -43,8 +43,10 @@ _NUDGE_QUERY = "in:inbox category:primary newer_than:30d -in:spam -in:trash"
 # Per-message reads for one listing page run concurrently, bounded so a page
 # never opens more than this many provider requests at once.
 _FETCH_CONCURRENCY = 8
-_BODY_OPERATIONS = frozenset({"read_message", "read_thread", "read_message_by_id"})
+_BODY_OPERATIONS = frozenset({"read_message", "read_thread", "read_message_by_id", "analyze_mail"})
 MAX_BODY_MESSAGES = 5
+# Analysis examines actual text, not just a heading, over one bounded page.
+MAX_ANALYSIS_MESSAGES = 12
 # A thread answer reads its newest messages; older ones are reported as omitted.
 _MAX_THREAD_MESSAGES = 10
 # Readable text shared by every message in one answer, inside the 24-KB result.
@@ -57,6 +59,7 @@ MailOperation = Literal[
     "read_message",
     "read_thread",
     "read_message_by_id",
+    "analyze_mail",
 ]
 _OPERATIONS: dict[str, frozenset[str]] = {
     "list_needs_reply": frozenset({"limit", "mailbox"}),
@@ -67,6 +70,7 @@ _OPERATIONS: dict[str, frozenset[str]] = {
     # Reads exactly the messages named, with no listing and so no search. The
     # ids come from an offer this server minted, never from a model.
     "read_message_by_id": frozenset({"message_ids", "mailbox"}),
+    "analyze_mail": frozenset({"limit", "query", "mailbox"}),
 }
 Mailbox = Literal["inbox", "sent", "anywhere"]
 RequireAccess = Callable[[], Awaitable[None]]
@@ -131,7 +135,13 @@ def _arguments(operation: str, arguments: dict[str, Any]) -> tuple[int, str, str
             raise GmailMetadataError("invalid_argument")
         message_ids = tuple(raw_ids)
     limit = arguments.get("limit", 1 if reads_bodies else 10)
-    maximum = MAX_BODY_MESSAGES if reads_bodies else 25
+    maximum = (
+        MAX_ANALYSIS_MESSAGES
+        if operation == "analyze_mail"
+        else MAX_BODY_MESSAGES
+        if reads_bodies
+        else 25
+    )
     if type(limit) is not int or not 1 <= limit <= maximum:
         raise GmailMetadataError("invalid_argument")
     query = arguments.get("query", "")
@@ -588,9 +598,11 @@ class GmailMetadataReader:
         # the newest matches, so older mail beyond the page is not an omission.
         # Search and needs-reply still report a next page as truncation because
         # matches were left out.
-        matches_beyond_page = operation in {"list_needs_reply", "search_inbox"} and bool(
-            listing.get("nextPageToken")
-        )
+        matches_beyond_page = operation in {
+            "list_needs_reply",
+            "search_inbox",
+            "analyze_mail",
+        } and bool(listing.get("nextPageToken"))
         # Three different facts, not one. "More matches exist beyond this page",
         # "results were dropped to fit", and "text was shortened" lead the person
         # to do different things, and a single `truncated` bool made One say
@@ -612,11 +624,22 @@ class GmailMetadataReader:
                 [m for payload in payloads for m in payload["messages"]] if is_threads else payloads
             )
             assessed = len(messages)
-            if len(messages) > _MAX_THREAD_MESSAGES:
+            if operation == "read_thread" and len(messages) > _MAX_THREAD_MESSAGES:
                 messages = messages[-_MAX_THREAD_MESSAGES:]
                 items_omitted = True
             raw_items = [self._message_item(m, mailbox, with_body=True) for m in messages]
             ordered_ids = [str(message.get("id") or "") for message in messages]
+            if operation == "analyze_mail":
+                # Local grouping only. Provider thread IDs never leave the reader;
+                # the analyzer can still compare a later update with its earlier
+                # message in the same bounded page.
+                thread_refs: dict[str, str] = {}
+                for item, message in zip(raw_items, messages, strict=True):
+                    thread_id = str(message.get("threadId") or "")
+                    if thread_id:
+                        item["thread_ref"] = thread_refs.setdefault(
+                            thread_id, f"thread:{len(thread_refs) + 1}"
+                        )
             # Every message shares one readable-text allowance.
             allowance = max(800, min(12000, _BODY_TEXT_BUDGET // max(1, len(raw_items))))
             for item in raw_items:
@@ -645,6 +668,8 @@ class GmailMetadataReader:
             if "body" in item:
                 projected["body"] = item["body"]
                 projected["body_truncated"] = item["body_truncated"]
+            if "thread_ref" in item:
+                projected["thread_ref"] = item["thread_ref"]
             items.append(projected)
         result: dict[str, Any] = {
             "status": "ok",

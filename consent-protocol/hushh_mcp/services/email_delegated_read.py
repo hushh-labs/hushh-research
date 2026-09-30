@@ -9,6 +9,7 @@ operation in this hop. The existing Email/ADK genes own all semantics.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import re
 from collections.abc import Awaitable, Callable
@@ -21,24 +22,62 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.agents.email.runtime import run_email_gene
 from hushh_mcp.services.gmail_metadata_reader import (
+    MAX_ANALYSIS_MESSAGES,
     MAX_BODY_MESSAGES,
     GmailMetadataError,
     GmailMetadataReader,
     MailOperation,
     RequireAccess,
 )
+from hushh_mcp.services.gmail_personal_information_request_service import (
+    SensitiveRequestAssessment,
+    get_personal_gmail_information_request_service,
+)
+
+AnalysisCategory = Literal["personal_info", "action_items", "meetings"]
+_ANALYSIS_CATEGORIES = ("personal_info", "action_items", "meetings")
+_CATEGORY_TITLES = {
+    "personal_info": "personal-information request",
+    "action_items": "action item",
+    "meetings": "meeting",
+}
 
 
 class MailReadPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     operation: Literal[
-        "list_needs_reply", "list_recent", "search_inbox", "read_message", "read_thread", "clarify"
+        "list_needs_reply",
+        "list_recent",
+        "search_inbox",
+        "read_message",
+        "read_thread",
+        "analyze_mail",
+        "clarify",
     ]
     query: str = Field(default="", max_length=512)
     # Omitted means the operation's default: ten listed, one message read.
     limit: int | None = Field(default=None, ge=1, le=25)
     mailbox: Literal["inbox", "sent", "anywhere"] = "inbox"
     clarification: str = Field(default="", max_length=500)
+    categories: list[AnalysisCategory] = Field(default_factory=list, max_length=3)
+
+
+class MailAnalysisFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    category: Literal["action_items", "meetings"]
+    source_ref: str = Field(pattern=r"^mail:(?:[1-9]|1[0-9]|2[0-5])$")
+    # A later message in the same retrieved thread can resolve or cancel an
+    # earlier one. The analyzer cites every message it used for that conclusion.
+    update_refs: list[str] = Field(default_factory=list, max_length=12)
+    detail: str = Field(min_length=1, max_length=280)
+    state: Literal["active", "completed", "cancelled", "rescheduled", "unclear"]
+    due_at: str | None = Field(default=None, max_length=40)
+    event_at: str | None = Field(default=None, max_length=40)
+
+
+class MailAnalysisAnswer(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    findings: list[MailAnalysisFinding] = Field(default_factory=list, max_length=12)
 
 
 class MailItemGist(BaseModel):
@@ -113,6 +152,131 @@ def _epoch_date_terms(query: str, zone: ZoneInfo) -> str:
     return _DATE_TERM.sub(convert, query)
 
 
+async def _assess_personal_row(row: dict[str, Any]) -> SensitiveRequestAssessment:
+    """Reuse the Email monitor's nonpersisting classifier for an owner read."""
+    body = str(row.get("body") or "")
+    encoded = base64.urlsafe_b64encode(body.encode("utf-8")).decode("ascii")
+    message = {
+        "payload": {
+            "headers": [{"name": "Subject", "value": str(row.get("subject") or "")}],
+            "mimeType": "text/plain",
+            "body": {"data": encoded},
+        }
+    }
+    return await get_personal_gmail_information_request_service().assess_without_recording(message)
+
+
+def _analysis_time(value: str | None) -> bool:
+    if value is None:
+        return True
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return parsed.tzinfo is not None
+
+
+async def _analyze_rows(
+    *,
+    rows: list[dict[str, Any]],
+    categories: list[AnalysisCategory],
+    message: str,
+    time_context: dict[str, str],
+    user_id: str,
+    consent_token: str,
+    gene_runner: Callable[..., Awaitable[dict[str, Any]]],
+    personal_assessor: Callable[[dict[str, Any]], Awaitable[SensitiveRequestAssessment]],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Classify one bounded page; category failures remain explicit and separate."""
+    if not rows:
+        return [], []
+    findings: list[dict[str, Any]] = []
+    failed: list[str] = []
+
+    async def personal() -> list[dict[str, Any]]:
+        semaphore = asyncio.Semaphore(4)
+
+        async def one(row: dict[str, Any]) -> dict[str, Any] | None:
+            async with semaphore:
+                assessment = await asyncio.wait_for(personal_assessor(row), timeout=25)
+            if not assessment.is_information_request:
+                return None
+            fields = list(assessment.requested_fields[:3])
+            detail = (
+                "Requests " + ", ".join(fields) + "."
+                if fields
+                else "Requests personal information."
+            )
+            return {
+                "category": "personal_info",
+                "source_ref": row["source_ref"],
+                "update_refs": [],
+                "detail": detail,
+                "state": "active",
+                "due_at": None,
+                "event_at": None,
+            }
+
+        results = await asyncio.gather(*(one(row) for row in rows))
+        return [result for result in results if result is not None]
+
+    async def tasks_and_meetings(category: AnalysisCategory) -> list[dict[str, Any]]:
+        parsed = MailAnalysisAnswer.model_validate(
+            await gene_runner(
+                gene_id="agent_email_read_analyzer",
+                prompt=json.dumps(
+                    {
+                        "user_request": message,
+                        "requested_categories": [category],
+                        "retrieved_messages": rows,
+                        **time_context,
+                    },
+                    ensure_ascii=False,
+                ),
+                user_id=user_id,
+                consent_token=consent_token,
+                output_schema=MailAnalysisAnswer,
+                timeout_seconds=25,
+            )
+        )
+        by_ref = {row["source_ref"]: row for row in rows}
+        seen: set[tuple[str, str]] = set()
+        result: list[dict[str, Any]] = []
+        for finding in parsed.findings:
+            if finding.category != category or finding.source_ref not in by_ref:
+                raise ValueError("invalid_mail_sources")
+            if not _analysis_time(finding.due_at) or not _analysis_time(finding.event_at):
+                raise ValueError("invalid_mail_analysis_time")
+            key = (finding.category, finding.source_ref)
+            if key in seen or len(set(finding.update_refs)) != len(finding.update_refs):
+                raise ValueError("duplicate_mail_analysis")
+            seen.add(key)
+            origin_thread = by_ref[finding.source_ref].get("thread_ref")
+            if any(
+                ref not in by_ref
+                or not origin_thread
+                or by_ref[ref].get("thread_ref") != origin_thread
+                for ref in finding.update_refs
+            ):
+                raise ValueError("invalid_mail_update_sources")
+            result.append(finding.model_dump())
+        return result
+
+    jobs: list[tuple[list[str], Awaitable[list[dict[str, Any]]]]] = []
+    if "personal_info" in categories:
+        jobs.append((["personal_info"], personal()))
+    for category in categories:
+        if category != "personal_info":
+            jobs.append(([category], tasks_and_meetings(category)))
+    outcomes = await asyncio.gather(*(job for _, job in jobs), return_exceptions=True)
+    for (owned_categories, _), outcome in zip(jobs, outcomes, strict=True):
+        if isinstance(outcome, BaseException):
+            failed.extend(owned_categories)
+        else:
+            findings.extend(outcome)
+    return findings, failed
+
+
 def _result(
     conversation_id: str,
     text: str,
@@ -124,6 +288,7 @@ def _result(
     items=(),
     coverage=None,
     offer=None,
+    failure_stage: str | None = None,
 ) -> dict[str, Any]:
     """The specialist turn, plus what a surface needs to show the person.
 
@@ -159,6 +324,7 @@ def _result(
         # the message it named. Absent when the operation cannot name one per
         # row, which makes a later positional request refuse instead of guess.
         "offer": dict(offer) if offer else None,
+        "failure_stage": failure_stage,
     }
 
 
@@ -176,6 +342,9 @@ async def run_delegated_mail_read(
     expect_account: str = "",
     gene_runner: Callable[..., Awaitable[dict[str, Any]]] = run_email_gene,
     reader_factory: Callable[..., GmailMetadataReader] = GmailMetadataReader,
+    personal_assessor: Callable[
+        [dict[str, Any]], Awaitable[SensitiveRequestAssessment]
+    ] = _assess_personal_row,
     clock: Callable[[], datetime] = lambda: datetime.now(datetime_timezone.utc),
 ) -> dict[str, Any]:
     # No history, chat store, provider credentials or user IDs enter the model
@@ -189,8 +358,9 @@ async def run_delegated_mail_read(
         "current_time_utc": clock().astimezone(datetime_timezone.utc).isoformat(),
         "user_timezone": zone.key,
     }
+    stage = "planning"
     try:
-        async with asyncio.timeout(65):
+        async with asyncio.timeout(105):
             if message_ids:
                 # The person named a position in a list this server minted, so
                 # there is nothing to plan: the operation and its target are both
@@ -219,6 +389,11 @@ async def run_delegated_mail_read(
                     "input_required",
                 )
             operation: MailOperation = plan.operation
+            if operation == "analyze_mail":
+                if not plan.categories or len(set(plan.categories)) != len(plan.categories):
+                    raise GmailMetadataError("invalid_argument")
+            elif plan.categories:
+                raise GmailMetadataError("invalid_argument")
             if operation == "search_inbox" and not plan.query.strip():
                 # A search with no criteria is a request for the newest inbox
                 # page ("my last 10 emails"). Decided from the plan's shape,
@@ -235,9 +410,14 @@ async def run_delegated_mail_read(
                 # Reading bodies is bounded tighter than listing; a larger plan
                 # limit is normalized to that bound, never widened.
                 arguments["limit"] = min(plan.limit or 1, MAX_BODY_MESSAGES)
+            elif operation == "analyze_mail":
+                arguments["limit"] = min(plan.limit or 10, MAX_ANALYSIS_MESSAGES)
             elif operation != "read_thread":
                 arguments["limit"] = plan.limit or 10
-            if operation in {"search_inbox", "read_message", "read_thread"} and plan.query:
+            if (
+                operation in {"search_inbox", "read_message", "read_thread", "analyze_mail"}
+                and plan.query
+            ):
                 arguments["query"] = _epoch_date_terms(plan.query, zone)
             reader = reader_factory(
                 gmail=gmail,
@@ -248,14 +428,124 @@ async def run_delegated_mail_read(
                 # rather than reading whatever now holds that position.
                 expect_account=expect_account,
             )
+            stage = "retrieval"
             metadata = await reader.read(operation, arguments)
             await reader.require_current()
+            if operation == "analyze_mail":
+                stage = "analysis"
+                rows = metadata["untrusted_external_content"]
+                readable = [row for row in rows if str(row.get("body") or "").strip()]
+                if rows and not readable:
+                    return _result(
+                        conversation_id,
+                        "Mail was fetched, but its message text was unavailable for analysis.",
+                        "unavailable",
+                        failure_stage="analysis",
+                    )
+                findings, failed = await _analyze_rows(
+                    rows=readable,
+                    categories=plan.categories,
+                    message=message,
+                    time_context=time_context,
+                    user_id=user_id,
+                    consent_token=consent_token,
+                    gene_runner=gene_runner,
+                    personal_assessor=personal_assessor,
+                )
+                await reader.require_current()
+                if len(failed) == len(plan.categories):
+                    return _result(
+                        conversation_id,
+                        "Mail was fetched, but I couldn't complete the requested analysis.",
+                        "unavailable",
+                        failure_stage="analysis",
+                    )
+                coverage = dict(metadata.get("coverage") or {})
+                coverage["assessed"] = len(readable)
+                coverage["analysis_unassessable"] = len(rows) - len(readable)
+                coverage["plan_source"] = "planner"
+                coverage["analysis_requested"] = list(plan.categories)
+                coverage["analysis_failed"] = failed
+                for category in _ANALYSIS_CATEGORIES:
+                    if category in plan.categories and category not in failed:
+                        coverage[f"findings_{category}"] = sum(
+                            finding["category"] == category for finding in findings
+                        )
+                by_ref: dict[str, list[dict[str, Any]]] = {}
+                for finding in findings:
+                    by_ref.setdefault(finding["source_ref"], []).append(finding)
+                items = [{**row, "analysis": by_ref.get(row["source_ref"], [])} for row in rows]
+                lines = [f"I checked {len(readable)} Mail messages in this bounded page."]
+                for category in plan.categories:
+                    title = _CATEGORY_TITLES[category]
+                    if category in failed:
+                        lines.append(f"I couldn't complete the {title} analysis.")
+                        continue
+                    matches = [item for item in findings if item["category"] == category]
+                    if not matches:
+                        lines.append(f"No {title}s found among the messages checked.")
+                    else:
+                        finding_title = (
+                            (
+                                "meeting finding in Mail"
+                                if len(matches) == 1
+                                else "meeting findings in Mail"
+                            )
+                            if category == "meetings"
+                            else title + ("" if len(matches) == 1 else "s")
+                        )
+                        lines.append(f"{len(matches)} {finding_title} found:")
+                        lines.extend(
+                            f"• {item['detail']} (email {item['source_ref'].split(':')[1]}; {item['state']})"
+                            for item in matches
+                        )
+                if "meetings" in plan.categories:
+                    lines.append("These are findings from Mail, not a check of your Calendar.")
+                if coverage.get("matches_beyond_page") or coverage.get("items_omitted"):
+                    lines.append("More matching mail may be outside this page.")
+                if coverage.get("content_shortened"):
+                    lines.append(
+                        "Some message text was shortened; open the original for the full text."
+                    )
+                if coverage["analysis_unassessable"]:
+                    lines.append("Some messages had no readable text and were not analyzed.")
+                cited = list(
+                    dict.fromkeys(
+                        ref
+                        for item in findings
+                        for ref in [item["source_ref"], *item["update_refs"]]
+                    )
+                )
+                coverage["cited"] = len(cited)
+                offered_ids = reader.offered_message_ids()
+                return _result(
+                    conversation_id,
+                    "\n\n".join(lines),
+                    "ok",
+                    sources=[
+                        {"source_ref": ref, "label": "Mail", "kind": "message"} for ref in cited
+                    ],
+                    truncated=metadata["truncated"],
+                    metadata_only=False,
+                    items=items,
+                    coverage=coverage,
+                    offer=(
+                        {
+                            "message_ids": list(offered_ids),
+                            "account": reader.account,
+                            "mailbox": plan.mailbox,
+                        }
+                        if offered_ids
+                        else None
+                    ),
+                )
             # Coverage is server bookkeeping, not evidence. Handing counts to the
             # interpreter would invite it to author its own totals in prose, and
             # the whole point of computing them here is that prose cannot be
             # trusted with a number. Its prompt stays exactly what it was.
             coverage = dict(metadata.get("coverage") or {})
             evidence = {k: v for k, v in metadata.items() if k != "coverage"}
+            stage = "interpretation"
             answer = MailReadAnswer.model_validate(
                 await gene_runner(
                     gene_id="agent_email_read_interpreter",
@@ -349,6 +639,7 @@ async def run_delegated_mail_read(
             conversation_id,
             _ERRORS.get(exc.code, "Mail is temporarily unavailable. Please try again."),
             exc.code if exc.code in _ERRORS else "unavailable",
+            failure_stage=stage,
         )
     except PermissionError:
         raise
@@ -356,5 +647,8 @@ async def run_delegated_mail_read(
         # Provider exceptions may contain prompts/headers. Do not log them or
         # let partial metadata masquerade as a successful inbox read.
         return _result(
-            conversation_id, "Mail is temporarily unavailable. Please try again.", "unavailable"
+            conversation_id,
+            "Mail is temporarily unavailable. Please try again.",
+            "unavailable",
+            failure_stage=stage,
         )

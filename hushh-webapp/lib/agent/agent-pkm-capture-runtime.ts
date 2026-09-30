@@ -41,12 +41,21 @@ export function isAgentPkmCaptureRunning(status: AgentPkmCaptureStatus): boolean
   return RUNNING_PHASES.has(status.phase);
 }
 
+/** Automatic preparation is background work, not part of an ordinary answer.
+ * Show it only when it actually saved something; an explicit Save remains fully
+ * visible, including failure and unlock guidance. */
+export function shouldPresentAgentPkmCapture(
+  status: AgentPkmCaptureStatus,
+  userRequestedSave: boolean,
+): boolean {
+  return userRequestedSave || status.saved > 0;
+}
+
 /**
- * Progress is shown only while the capture's session is current. A terminal
- * status is always shown: it is display only, and a status that never
- * resolves ("Checking for details worth remembering…" left on screen after a
- * vault token expired by the clock, 2026-09-29) claims work that is not
- * happening.
+ * Progress is publishable only while the capture's session is current. A
+ * terminal outcome remains publishable after expiry so an explicit Save never
+ * stays stuck on a progress line. Presentation of an automatic outcome is a
+ * separate decision above.
  */
 export function shouldPublishAgentPkmCapture(
   status: AgentPkmCaptureStatus,

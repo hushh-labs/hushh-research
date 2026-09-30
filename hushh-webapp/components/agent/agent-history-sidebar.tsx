@@ -360,8 +360,8 @@ export function AgentHistorySidebar({
               type="button"
               className={cn(
                 "flex min-w-0 flex-1 items-center gap-2 rounded-[12px] pl-3 pr-1 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60",
-                // 44px rows in the touch drawer (Apple's minimum hit target).
-                isMobileMode ? "h-11" : "h-9",
+                // Keep the touch target while allowing complete labels to wrap.
+                isMobileMode ? "min-h-11 py-2" : "min-h-9 py-2",
                 active ? "font-medium text-foreground" : "font-normal text-foreground/85 group-hover:text-foreground"
               )}
               onClick={() => onSelectConversation(conversation.id)}
@@ -369,7 +369,7 @@ export function AgentHistorySidebar({
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              <span className={cn("flex-1 truncate leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
+              <span className={cn("min-w-0 flex-1 whitespace-normal break-words leading-tight", isMobileMode ? "text-[15px]" : "text-[14px]")}>
                 {title}
               </span>
 

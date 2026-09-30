@@ -322,3 +322,53 @@ describe("resolveGmailStatusSummary", () => {
     expect(label).toMatch(/^Last updated /);
   });
 });
+
+
+describe("receipt run status precedence", () => {
+  const status = {
+    configured: true,
+    connected: true,
+    status: "connected" as const,
+    scope_csv: "gmail.readonly",
+    last_sync_status: "running",
+    auto_sync_enabled: true,
+    revoked: false,
+  };
+
+  it.each(["completed", "failed", "canceled"] as const)(
+    "stops presenting an active sync after the run is %s despite stale aggregate status",
+    (runStatus) => {
+      const presentation = resolveGmailConnectionPresentation({
+        status: {
+          ...status,
+          latest_run: {
+            run_id: "settled-run", user_id: "owner", trigger_source: "manual",
+            status: runStatus, listed_count: 1, filtered_count: 1,
+            synced_count: 1, extracted_count: 1, duplicates_dropped: 0,
+            extraction_success_rate: 1,
+          },
+        },
+      });
+      expect(presentation.state).not.toBe("syncing");
+      expect(presentation.state).not.toBe("connected_backfill_running");
+      expect(presentation.state).not.toBe("connected_initial_scan_running");
+    },
+  );
+
+  it.each(["queued", "running"] as const)("keeps %s runs active", (runStatus) => {
+    expect(resolveGmailConnectionPresentation({status: {
+      ...status,
+      last_sync_status: "completed",
+      latest_run: {
+        run_id: "active-run", user_id: "owner", trigger_source: "manual",
+        status: runStatus, listed_count: 0, filtered_count: 0,
+        synced_count: 0, extracted_count: 0, duplicates_dropped: 0,
+        extraction_success_rate: 0,
+      },
+    }}).state).toBe("syncing");
+  });
+
+  it.each(["queued", "running"])("uses aggregate %s only before a run is available", (last_sync_status) => {
+    expect(resolveGmailConnectionPresentation({status: {...status, last_sync_status}}).state).toBe("syncing");
+  });
+});

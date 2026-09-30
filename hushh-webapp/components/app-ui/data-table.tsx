@@ -368,7 +368,9 @@ export function DataTable<TData, TValue>({
       <div
         className={cn(
           surfaceDataTableShellClassName,
-          "w-full min-w-0 max-w-full [-webkit-overflow-scrolling:touch]",
+          // The Table primitive owns the one horizontal scroll region. Keep
+          // the rounded surface as a clipping frame, not a second scroller.
+          "w-full min-w-0 max-w-full overflow-hidden",
           renderMobileCard && "hidden md:block",
           resolvedTableShellClassName,
         )}

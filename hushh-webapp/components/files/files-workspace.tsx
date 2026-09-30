@@ -233,7 +233,7 @@ export function FilesWorkspace() {
               placeholder="Search this page"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="flex-1"
+              className="basis-full sm:flex-1"
             />
             <Button
               disabled={loading || busy || Boolean(message) || Boolean(edit)}

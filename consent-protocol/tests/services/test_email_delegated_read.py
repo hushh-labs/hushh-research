@@ -9,8 +9,13 @@ import pytest
 from hushh_mcp.agents.email.runtime import load_email_gene
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent
 from hushh_mcp.services.email_chat_service import EmailChatService
-from hushh_mcp.services.email_delegated_read import MailReadAnswer, run_delegated_mail_read
+from hushh_mcp.services.email_delegated_read import (
+    MailAnalysisAnswer,
+    MailReadAnswer,
+    run_delegated_mail_read,
+)
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
+from hushh_mcp.services.gmail_personal_information_request_service import SensitiveRequestAssessment
 
 
 class _Reader:
@@ -65,7 +70,7 @@ class _Reader:
 _NOW = datetime(2026, 9, 26, 20, 0, tzinfo=timezone.utc)
 
 
-async def _run(reader, gene, require_access=None, timezone_name="UTC"):
+async def _run(reader, gene, require_access=None, timezone_name="UTC", **kwargs):
     return await run_delegated_mail_read(
         gmail=object(),
         user_id="owner",
@@ -77,7 +82,220 @@ async def _run(reader, gene, require_access=None, timezone_name="UTC"):
         gene_runner=gene,
         reader_factory=lambda **_: reader,
         clock=lambda: _NOW,
+        **kwargs,
     )
+
+
+def _analysis_reader() -> _Reader:
+    return _Reader(
+        offered_ids=("mail-id-1", "mail-id-2", "mail-id-3"),
+        metadata={
+            "status": "ok",
+            "operation": "analyze_mail",
+            "untrusted_external_content": [
+                {
+                    "source_ref": "mail:1",
+                    "subject": "Identity check",
+                    "body": "Please upload your address proof.",
+                    "thread_ref": "thread:1",
+                },
+                {
+                    "source_ref": "mail:2",
+                    "subject": "Team plan",
+                    "body": "Please review the proposal by Friday. The meeting is at 3 pm.",
+                    "thread_ref": "thread:2",
+                },
+                {
+                    "source_ref": "mail:3",
+                    "subject": "Updated team plan",
+                    "body": "The meeting moved to 4 pm.",
+                    "thread_ref": "thread:2",
+                },
+            ],
+            "metadata_only": False,
+            "truncated": True,
+            "coverage": {
+                "operation": "analyze_mail",
+                "mailbox": "inbox",
+                "scope": "search",
+                "unit": "messages",
+                "assessed": 3,
+                "returned": 3,
+                "matches_beyond_page": True,
+                "items_omitted": False,
+                "content_shortened": False,
+                "content_depth": "message",
+                "one_page_only": True,
+            },
+        },
+    )
+
+
+async def test_analysis_preserves_combined_categories_date_scope_and_exact_sources():
+    reader = _analysis_reader()
+    calls = []
+    assessed = []
+
+    async def gene(**kwargs):
+        calls.append(kwargs)
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {
+                "operation": "analyze_mail",
+                "categories": ["personal_info", "action_items", "meetings"],
+                "query": "after:2026/09/26 before:2026/09/27",
+                "limit": 12,
+            }
+        category = json.loads(kwargs["prompt"])["requested_categories"]
+        assert len(category) == 1
+        if category == ["action_items"]:
+            return {
+                "findings": [
+                    {
+                        "category": "action_items",
+                        "source_ref": "mail:2",
+                        "detail": "Review the proposal by Friday.",
+                        "state": "active",
+                        "due_at": "2026-09-27T17:00:00-04:00",
+                        "event_at": None,
+                    }
+                ]
+            }
+        return {
+            "findings": [
+                {
+                    "category": "meetings",
+                    "source_ref": "mail:2",
+                    "update_refs": ["mail:3"],
+                    "detail": "Meeting moved to 4 pm.",
+                    "state": "rescheduled",
+                    "due_at": None,
+                    "event_at": "2026-09-26T16:00:00-04:00",
+                }
+            ]
+        }
+
+    async def assess(row):
+        assessed.append(row["source_ref"])
+        return SensitiveRequestAssessment(
+            is_information_request=row["source_ref"] == "mail:1",
+            confidence=0.9,
+            requested_domains=("identity",) if row["source_ref"] == "mail:1" else (),
+            requested_fields=("Address",) if row["source_ref"] == "mail:1" else (),
+        )
+
+    result = await _run(reader, gene, personal_assessor=assess, timezone_name="America/New_York")
+    assert result["structured"]["status"] == "ok"
+    assert [call["gene_id"] for call in calls].count("agent_email_read_analyzer") == 2
+    assert "Please upload" not in calls[0]["prompt"]  # planner sees no mail
+    assert assessed == ["mail:1", "mail:2", "mail:3"]
+    assert reader.calls == [
+        (
+            "analyze_mail",
+            {
+                "mailbox": "inbox",
+                "limit": 12,
+                "query": "after:1790395200 before:1790481600",
+            },
+        )
+    ]
+    coverage = result["coverage"]
+    assert coverage["analysis_requested"] == ["personal_info", "action_items", "meetings"]
+    assert coverage["analysis_failed"] == []
+    assert [coverage[f"findings_{category}"] for category in coverage["analysis_requested"]] == [
+        1,
+        1,
+        1,
+    ]
+    assert coverage["matches_beyond_page"] is True
+    assert [source["source_ref"] for source in result["structured"]["sources"]] == [
+        "mail:1",
+        "mail:2",
+        "mail:3",
+    ]
+    assert result["items"][0]["analysis"][0]["detail"] == "Requests Address."
+    assert {item["category"] for item in result["items"][1]["analysis"]} == {
+        "action_items",
+        "meetings",
+    }
+    assert result["offer"]["message_ids"] == ["mail-id-1", "mail-id-2", "mail-id-3"]
+    assert "Please upload your address proof" not in json.dumps(result["structured"])
+
+
+async def test_analysis_keeps_successful_category_when_another_category_fails():
+    reader = _analysis_reader()
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": ["action_items", "meetings"]}
+        category = json.loads(kwargs["prompt"])["requested_categories"]
+        if category == ["action_items"]:
+            raise TimeoutError("extractor unavailable")
+        return {
+            "findings": [
+                {
+                    "category": "meetings",
+                    "source_ref": "mail:2",
+                    "detail": "Team meeting.",
+                    "state": "active",
+                    "event_at": "2026-09-26T15:00:00-04:00",
+                }
+            ]
+        }
+
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "ok"
+    assert result["coverage"]["analysis_failed"] == ["action_items"]
+    assert "findings_action_items" not in result["coverage"]
+    assert result["coverage"]["findings_meetings"] == 1
+    assert "couldn't complete the action item analysis" in result["response"]
+    assert result["items"][1]["analysis"][0]["category"] == "meetings"
+
+
+@pytest.mark.parametrize(
+    "source_ref,update_refs",
+    [("mail:99", []), ("mail:1", ["mail:3"])],
+)
+async def test_analysis_refuses_invented_sources_or_cross_thread_updates(source_ref, update_refs):
+    reader = _analysis_reader()
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": ["meetings"]}
+        return {
+            "findings": [
+                {
+                    "category": "meetings",
+                    "source_ref": source_ref,
+                    "update_refs": update_refs,
+                    "detail": "Cancelled meeting.",
+                    "state": "cancelled",
+                    "event_at": "2026-09-26T15:00:00-04:00",
+                }
+            ]
+        }
+
+    result = await _run(reader, gene)
+    assert result["structured"]["status"] == "unavailable"
+    assert result["failure_stage"] == "analysis"
+    assert result["items"] == []
+    assert result["structured"]["sources"] == []
+
+
+async def test_failed_planning_and_retrieval_have_distinct_stages():
+    planner_failed = await _run(_analysis_reader(), AsyncMock(side_effect=TimeoutError()))
+    assert planner_failed["structured"]["status"] == "unavailable"
+    assert planner_failed["failure_stage"] == "planning"
+
+    class FailingReader(_Reader):
+        async def read(self, operation, args):
+            raise GmailMetadataError("retryable")
+
+    retrieval_failed = await _run(
+        FailingReader(),
+        AsyncMock(return_value={"operation": "analyze_mail", "categories": ["meetings"]}),
+    )
+    assert retrieval_failed["structured"]["status"] == "unavailable"
+    assert retrieval_failed["failure_stage"] == "retrieval"
 
 
 async def test_planner_never_sees_external_content_and_interpreter_has_no_second_read():
@@ -339,6 +557,18 @@ async def test_owner_model_dependency_rechecks_authority_before_releasing_answer
         assert await service.handle_delegated_turn(**arguments) == {"answer": "Synthetic answer"}
     gene.assert_awaited_once_with(model=model, gene_id="agent_email_read_interpreter")
     assert access.await_count == 2
+
+
+def test_mail_analyzer_schema_builds_as_a_toolless_manifest_gene():
+    agent = build_single_turn_agent(
+        load_email_gene("agent_email_read_analyzer"),
+        output_schema=MailAnalysisAnswer,
+        model="gemini-3.7-flash",
+    )
+    assert agent.tools == []
+    assert agent.disallow_transfer_to_parent and agent.disallow_transfer_to_peers
+    assert "untrusted" in agent.instruction.lower()
+    assert agent.output_schema is MailAnalysisAnswer
 
 
 async def test_model_exception_never_logs_or_returns_private_prompt(caplog):

@@ -308,7 +308,8 @@ describe("supported connector catalog", () => {
       const connected = screen.getByRole("region", { name: "Connected" });
       expect(await within(connected).findByText("HubSpot")).toBeInTheDocument();
       fireEvent.click(within(connected).getByRole("button", { name: "Disconnect HubSpot" }));
-      fireEvent.click(within(await screen.findByTestId("connector-confirm-dialog")).getByRole("button", { name: "Disconnect" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
       await waitFor(() =>
         expect(state.disconnect).toHaveBeenCalledWith({
           vaultOwnerToken: "synthetic-owner-token",
@@ -371,6 +372,24 @@ describe("supported connector catalog", () => {
       await waitFor(() => expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled());
     });
 
+    it("retires an OAuth start after same-owner token renewal", async () => {
+      let settle!: (value: unknown) => void;
+      state.startOAuthConnect.mockImplementation(() => new Promise((done) => { settle = done; }));
+      state.overview.mockResolvedValue(withFlag([hubspot]));
+      const view = render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Connect HubSpot" }));
+      await waitFor(() => expect(state.startOAuthConnect).toHaveBeenCalledOnce());
+      state.token = "renewed-owner-token";
+      view.rerender(panel());
+      await waitFor(() => expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled());
+      await act(async () => settle({
+        authorizeUrl: "https://mcp.hubspot.com/oauth/authorize/user?state=old",
+        attemptId: "old-attempt", connectorId: "hubspot",
+      }));
+      expect(assign).not.toHaveBeenCalled();
+      expect(screen.getByRole("button", { name: "Connect" })).toBeEnabled();
+    });
+
     it("refuses a non-https authorize URL", async () => {
       state.startOAuthConnect.mockResolvedValue({
         authorizeUrl: "http://evil.invalid/authorize",
@@ -390,13 +409,31 @@ describe("supported connector catalog", () => {
       render(panel());
       fireEvent.click(await screen.findByRole("button", { name: "Disconnect HubSpot" }));
       expect(state.disconnect).not.toHaveBeenCalled();
-      fireEvent.click(within(await screen.findByTestId("connector-confirm-dialog")).getByRole("button", { name: "Disconnect" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
       await waitFor(() =>
         expect(state.disconnect).toHaveBeenCalledWith({
           vaultOwnerToken: "synthetic-owner-token",
           connectorId: "hubspot",
         }),
       );
+    });
+
+    it("clears a pending disconnect after same-owner token renewal", async () => {
+      let settle!: (value: unknown) => void;
+      state.disconnect.mockImplementation(() => new Promise((done) => { settle = done; }));
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "connected" }]));
+      const view = render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Disconnect HubSpot" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+      expect(await screen.findByText("Disconnecting…")).toBeInTheDocument();
+      state.token = "renewed-owner-token";
+      view.rerender(panel());
+      await waitFor(() => expect(screen.queryByText("Disconnecting…")).not.toBeInTheDocument());
+      expect(screen.getByRole("button", { name: "Disconnect HubSpot" })).toBeEnabled();
+      await act(async () => settle({ status: "revoked", connectorId: "hubspot" }));
+      expect(screen.getByRole("button", { name: "Disconnect HubSpot" })).toBeEnabled();
     });
 
     it("treats a connection stuck before verification as needing sign-in", async () => {

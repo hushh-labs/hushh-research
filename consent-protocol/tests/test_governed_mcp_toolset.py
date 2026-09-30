@@ -1575,7 +1575,8 @@ async def test_curated_oauth_resolves_reviewed_bearer_binding(registry_harness, 
     )
     assert result.headers == {"Authorization": "Bearer synthetic-token"}
     assert result.binding.generation == 5
-    assert result.binding.authority_revision == (hash_,)
+    assert result.binding.authority_revision[0] == hash_
+    assert len(result.binding.authority_revision) == 2
     # Reviewed reads skip the card; the two write tools are not on the list.
     from hushh_mcp.one_adk.governed_mcp_toolset import mcp_tool_name
     from hushh_mcp.services.external_connector_curated_oauth import curated_free_read_tools
@@ -1670,6 +1671,50 @@ async def test_curated_oauth_catalog_is_limited_to_the_registry_allowlist(
     catalog = [{"name": "search_crm_objects"}, {"name": "create_landing_page"}]
     assert resolved.catalog_policy is not None
     assert resolved.catalog_policy(catalog) == [{"name": "search_crm_objects"}]
+
+
+async def test_curated_allowlist_change_retires_a_running_toolset_without_reconnect(
+    registry_harness, monkeypatch
+):
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    definition, _, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    definition.capability_policy = {
+        "version": 1,
+        "chat": "reviewed",
+        "tools": ["search_crm_objects", "manage_crm_objects"],
+    }
+    context = registry_harness.context
+    before = await resolve_registered_connection(context, "hubspot")
+    toolset = GovernedMcpToolset(
+        binding=before.binding,
+        resolve_connection=lambda current: resolve_registered_connection(current, "hubspot"),
+        authorize_call=AsyncMock(),
+        catalog_policy=before.catalog_policy,
+        review_policy=before.review_policy,
+        free_read_tool_ids=before.free_read_tool_ids,
+    )
+    try:
+        assert await toolset._current_headers(context) == {
+            "Authorization": "Bearer synthetic-token"
+        }
+        definition.capability_policy = {
+            "version": 1,
+            "chat": "reviewed",
+            "tools": ["search_crm_objects"],
+        }
+        after = await resolve_registered_connection(context, "hubspot")
+        assert after.binding != before.binding
+        assert after.binding.generation == before.binding.generation
+        with pytest.raises(ExternalMcpError) as error:
+            await toolset._current_headers(context)
+        assert error.value.code == "MCP_CONNECTION_CHANGED"
+    finally:
+        await toolset.close()
 
 
 async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricted(

@@ -199,6 +199,18 @@ def test_head_comparison_reproduces_the_historical_bypass(
     assert "origin/main is unresolvable" in stderr
 
 
+def test_merged_branch_history_is_selected_from_the_base_merge(repo: Repo) -> None:
+    assert generator._merged_workflow_predecessor_refs("main") == ()
+    feature_tip = repo.git("rev-parse", "HEAD")
+    repo.git("checkout", "-q", "main")
+    (repo.root / "main-change.txt").write_text("base advanced\n", encoding="utf-8")
+    repo.commit("advance main")
+    repo.git("checkout", "-q", "feature")
+    repo.git("merge", "--no-ff", "--no-edit", "main")
+
+    assert generator._merged_workflow_predecessor_refs("main") == (feature_tip,)
+
+
 def test_base_ref_comparison_names_the_changed_action_and_fails(
     repo: Repo, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

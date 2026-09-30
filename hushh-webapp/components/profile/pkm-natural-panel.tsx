@@ -1628,10 +1628,6 @@ export function PkmNaturalPanel({
           </div>
           <div className="space-y-5 pb-1 pr-px">
           <SurfaceInset className="space-y-4 p-4" data-pkm-memory-capture="true">
-            <div className="space-y-1">
-              <p className="text-sm font-semibold text-foreground">Teach One something</p>
-              <p className="text-sm text-muted-foreground">Tell One something you’d like it to remember.</p>
-            </div>
             <Textarea value={captureText} disabled={captureSaving} onPaste={(event) => {
               const input = event.currentTarget;
               const length = captureText.length - (input.selectionEnd - input.selectionStart) +
@@ -1766,13 +1762,6 @@ export function PkmNaturalPanel({
           </SettingsGroup>
           </div>
           <div className="space-y-4 pb-1 pr-px" data-pkm-memory-sharing="true">
-            <div className="space-y-1 px-1">
-              <p className="text-sm font-semibold text-foreground">Memory sharing</p>
-              <p className="text-sm text-muted-foreground">
-                Choose what One can share when someone asks for access.
-              </p>
-            </div>
-
             {sharingManifestsLoading ? (
               <p className="flex items-center gap-2 px-1 text-sm text-muted-foreground">
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
@@ -1780,44 +1769,28 @@ export function PkmNaturalPanel({
               </p>
             ) : null}
 
-            <SettingsGroup
-              title="Your copy"
-              description="Everything One remembers about you, in one file you keep."
-              separatorInset
-              testId="memory-export-group"
-            >
-              <div className="space-y-4 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                <div className="space-y-1">
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Download what One remembers
-                  </h3>
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {isVaultUnlocked
-                      ? "Readable, plus an encrypted copy that can put it back. The readable part is plain text once it is on your device."
-                      : "Unlock first. Without your key, nothing here can be read."}
-                  </p>
-                </div>
-                <div className="flex w-full items-center justify-center pt-1">
+            <SettingsGroup separatorInset testId="memory-export-group">
+              <SettingsRow
+                title="Download Memory"
+                description={isVaultUnlocked
+                  ? "Includes readable information. Keep the file private."
+                  : "Unlock to download."}
+                stackTrailingOnMobile
+                trailingInteractive
+                trailing={
                   <Button
                     type="button"
                     variant="muted"
                     size="sm"
                     disabled={!isVaultUnlocked || exportBusy}
                     onClick={() => void handleExportMemory()}
-                    className="w-full justify-center sm:w-auto sm:min-w-[180px]"
                     data-testid="memory-export-button"
                   >
-                    {exportBusy ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-                        Preparing…
-                      </>
-                    ) : (
-                      "Download"
-                    )}
+                    {exportBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
+                    {exportBusy ? "Preparing…" : "Download"}
                   </Button>
-                </div>
-              </div>
+                }
+              />
             </SettingsGroup>
 
             {exportStatus ? (

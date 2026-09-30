@@ -379,14 +379,27 @@ class EncryptedAdkSessionService(BaseSessionService):
         return bool(result.data)
 
     async def set_title(
-        self, *, app_name: str, user_id: str, session_id: str, title: str
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        title: str,
+        generated: bool = False,
     ) -> Session | None:
         session = await self.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
         if session is None:
             return None
         revision = self._revision(session)
-        session.state["hussh:thread_title"] = title.strip()[:160]
-        session.last_update_time = time.time()
+        if generated and (
+            session.state.get("hussh:thread_title")
+            or session.state.get("hussh:thread_summary_title")
+        ):
+            return session
+        key = "hussh:thread_summary_title" if generated else "hussh:thread_title"
+        session.state[key] = title.strip()[:160]
+        if not generated:
+            session.last_update_time = time.time()
         encoded = self._encode(session)
         result = await self._repository.replace(
             **{
@@ -394,10 +407,14 @@ class EncryptedAdkSessionService(BaseSessionService):
                 "user": user_id,
                 "session": session_id,
                 "revision": revision,
+                "generated": generated,
                 "chat_marker": CHAT_CIPHERTEXT_LIKE,
                 **encoded,
             }
         )
+        if not result.data and generated:
+            # Never overwrite a concurrent rename or a new conversation event.
+            return await self.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
         if not result.data:
             raise RuntimeError("Conversation changed while its title was being updated.")
         self._set_revision(session, int(result.data[0]["revision"]))

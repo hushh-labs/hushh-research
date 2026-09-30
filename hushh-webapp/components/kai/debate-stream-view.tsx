@@ -25,6 +25,7 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { toInvestorMessage, toInvestorStreamText } from "@/lib/copy/investor-language";
+import { formatDebateAnalysisForDisplay } from "@/lib/kai/format-debate-analysis";
 import type { PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   DebateRunManagerService,
@@ -1078,7 +1079,15 @@ export function DebateStreamView({
           updateAgentState(r, (data.agent || "").toString(), {
             stage: "complete",
             statusMessage: "Analysis complete",
-            text: toInvestorStreamText(data.summary || ""),
+            // The final summary arrives as one complete XML-compatible
+            // statement. Keep its debate sections before applying the
+            // investor-language cleanup so new saved runs replay with the
+            // same headings as legacy transcripts.
+            text: toInvestorStreamText(
+              formatDebateAnalysisForDisplay(
+                typeof data.summary === "string" ? data.summary : "",
+              ),
+            ),
             thoughts: [],
             recommendation: optionalString(data.recommendation),
             confidence: optionalNumber(data.confidence),

@@ -12,6 +12,7 @@ from hushh_mcp.one_adk.history_projection import (
     _record,
     _safe_workspace_connector_setup_descriptor,
 )
+from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 from hushh_mcp.one_adk.shared_with_me_card import (
     SHARED_WITH_ME_CARD_KIND,
     project_shared_with_me_card,
@@ -583,6 +584,9 @@ def _safe_agent_history_metadata(
     descriptors = []
     seen = set()
     presentation = _record(getattr(event, "custom_metadata", None)) or {}
+    if presentation.get("kind") == QUEUED_INPUT_KIND and getattr(event, "author", None) == "user":
+        # Only a joined owner message carries this display marker.
+        return {"queuedInput": "joined"}
     if presentation.get("kind") == "information_request_submission_v1":
         if _submitted_source_id(event) is None:
             return None
@@ -648,6 +652,9 @@ def _session_title(session: Any) -> str:
     authored = str((session.state or {}).get("hussh:thread_title") or "").strip()
     if authored:
         return authored
+    generated = str((session.state or {}).get("hussh:thread_summary_title") or "").strip()
+    if generated:
+        return generated
     for event in session.events:
         if event.author == "user":
             text = _event_text(event)

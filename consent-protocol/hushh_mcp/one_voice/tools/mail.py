@@ -78,6 +78,12 @@ _REJECT_SPOKEN = {
     "invalid_argument": "I couldn't turn that into a search of your mail.",
 }
 _REJECT_DEFAULT = "I couldn't look at your mail just now."
+_STAGE_FAILURES = {
+    "planning": "I couldn't plan that Mail request just now. Please try again.",
+    "retrieval": "Your Mail connection is available, but I couldn't fetch those messages just now.",
+    "interpretation": "I fetched the messages, but I couldn't finish reading them just now.",
+    "analysis": "I fetched the messages, but I couldn't complete the requested analysis.",
+}
 
 # A dispatch, not an answer. The client opens the row it names through the same
 # resolver a tap uses, so this result has nothing of its own to show and must not
@@ -128,6 +134,12 @@ _MODEL_COVERAGE_KEYS = (
     "items_omitted",
     "content_shortened",
     "content_depth",
+    "analysis_requested",
+    "analysis_failed",
+    "findings_personal_info",
+    "findings_action_items",
+    "findings_meetings",
+    "analysis_unassessable",
 )
 
 # Product words for what a row counts. A needs-reply row is a conversation.
@@ -201,6 +213,33 @@ def _spoken(coverage: dict[str, Any]) -> list[str]:
     returned = coverage.get("returned")
     if not isinstance(returned, int):
         return ["I looked at your mail, but I can't tell you how much I found."]
+    requested = coverage.get("analysis_requested")
+    if isinstance(requested, list) and requested:
+        names = {
+            "personal_info": ("personal-information request", "personal-information requests"),
+            "action_items": ("action item", "action items"),
+            "meetings": ("meeting finding in Mail", "meeting findings in Mail"),
+        }
+        failed = coverage.get("analysis_failed") or []
+        assessed = coverage.get("assessed")
+        checked = assessed if isinstance(assessed, int) else returned
+        line = f"I checked {checked} messages."
+        for category in requested:
+            if category not in names:
+                continue
+            if category in failed:
+                line += f" {names[category][1].capitalize()} could not be analyzed."
+            else:
+                found = coverage.get(f"findings_{category}")
+                if isinstance(found, int):
+                    line += f" {found} {names[category][0 if found == 1 else 1]} found."
+        if coverage.get("matches_beyond_page") or coverage.get("items_omitted"):
+            line += " More mail may be outside this page."
+        if coverage.get("content_shortened"):
+            line += " Some message text was shortened."
+        if coverage.get("analysis_unassessable"):
+            line += " Some messages had no readable text."
+        return [line]
     if returned == 0:
         return ["I did not find any matching mail."]
     singular, plural = _UNIT_NOUN.get(str(coverage.get("unit")), _UNIT_NOUN["messages"])
@@ -336,7 +375,11 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
         # and the person acts differently on each.
         return Rejected(
             reason_code=status or "mail_read_failed",
-            spoken_facts=[_REJECT_SPOKEN.get(status, _REJECT_DEFAULT)],
+            spoken_facts=[
+                _REJECT_SPOKEN.get(status)
+                or _STAGE_FAILURES.get(str(outcome.get("failure_stage") or ""))
+                or _REJECT_DEFAULT
+            ],
         )
 
     coverage = dict(outcome.get("coverage") or {})

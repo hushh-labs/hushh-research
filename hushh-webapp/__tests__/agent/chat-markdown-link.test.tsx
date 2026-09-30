@@ -50,7 +50,6 @@ describe("ChatMarkdownLink", () => {
     expect(screen.getByText("Unsafe")).toBeInTheDocument();
   });
 });
-
 describe("chat link policy", () => {
   it("allows only http, https, mailto, tel, app paths and in-answer anchors", () => {
     expect(classifyChatHref("https://example.com")).toBe("external");

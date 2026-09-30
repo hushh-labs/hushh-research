@@ -934,7 +934,7 @@ describe("ProfileReceiptsPage", () => {
     );
   });
 
-  it.each(["overview", "receipts"] as const)("hides only the background progress visual in %s", async (workspace) => {
+  it.each(["overview", "receipts"] as const)("keeps background sync informational in %s", async (workspace) => {
     mocks.useGmailConnectorStatus.mockReturnValue(makeGmailView({
       syncRun: {
         run_id: "background-scan", user_id: "user-123", trigger_source: "manual",
@@ -948,15 +948,21 @@ describe("ProfileReceiptsPage", () => {
       },
     }));
     render(<ProfileReceiptsPage initialWorkspace={workspace} />);
-    await waitFor(() => {
-      const bars = screen.getAllByRole("progressbar", { hidden: true });
-      expect(bars.length).toBeGreaterThan(0);
-      for (const bar of bars) {
-        expect(bar).toHaveClass("hidden");
-        expect(bar).toHaveAttribute("data-value", "30");
-      }
-    });
-    expect(screen.getAllByText(/10/).length).toBeGreaterThan(0);
+    if (workspace === "overview") {
+      expect(await screen.findByRole("status", { name: "Fetching receipts" })).toBeVisible();
+      expect(screen.queryByRole("progressbar", { hidden: true })).not.toBeInTheDocument();
+      expect(screen.getByTestId("mail-receipt-sync")).toHaveTextContent("Receipt sync");
+    } else {
+      await waitFor(() => {
+        const bars = screen.getAllByRole("progressbar", { hidden: true });
+        expect(bars.length).toBeGreaterThan(0);
+        for (const bar of bars) {
+          expect(bar).toHaveClass("hidden");
+          expect(bar).toHaveAttribute("data-value", "30");
+        }
+      });
+      expect(screen.getAllByText(/10/).length).toBeGreaterThan(0);
+    }
     expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
 
@@ -1360,9 +1366,9 @@ describe("ProfileReceiptsPage", () => {
 
     mocks.useGmailConnectorStatus.mockReturnValue(connected);
     rerender(<ProfileReceiptsPage />);
-    fireEvent.click(await screen.findByRole("button", { name: /^manage$/i }));
-    expect(screen.getByRole("button", { name: /^disconnect mail$/i })).toBeVisible();
-    expect(screen.getByRole("button", { name: /^reconnect mail$/i })).toBeVisible();
+    fireEvent.keyDown(await screen.findByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    expect(await screen.findByRole("menuitem", { name: /^disconnect$/i })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: /^reconnect$/i })).toBeVisible();
   });
 
   it("retains the KYC panel while switching between Mail tabs", async () => {
@@ -1721,9 +1727,9 @@ describe("ProfileReceiptsPage", () => {
     );
     // Disconnect is available through Manage on the Mail overview.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
-    fireEvent.click(screen.getByRole("button", { name: /^manage$/i }));
+    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
     fireEvent.click(
-      await screen.findByRole("button", { name: /^disconnect mail$/i }),
+      await screen.findByRole("menuitem", { name: /^disconnect$/i }),
     );
     expect(screen.getByText("Disconnect Mail?")).toBeTruthy();
 

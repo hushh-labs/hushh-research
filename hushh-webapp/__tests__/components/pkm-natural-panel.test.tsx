@@ -269,6 +269,18 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
+  it("keeps Add reachable between Saved and Sharing", async () => {
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("textbox", { name: "Memory note" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: "Sharing" }));
+    expect(screen.getByRole("tab", { name: "Sharing" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("Download Memory")).toBeTruthy();
+    expect(screen.getByText("Includes readable information. Keep the file private.")).toBeTruthy();
+    expect(screen.queryByText("Your copy")).toBeNull();
+  });
+
   it("lists only consumer-visible, non-empty categories with correct counts", async () => {
     await openMainScreen();
 

@@ -51,6 +51,12 @@ export function connectorConfirmCopy(target: string): ConnectorConfirmCopy {
       description: "Other connections stay active.",
       action: "Disconnect",
     };
+  if (target.startsWith("curated:"))
+    return {
+      title: "Disconnect this connector?",
+      description: "Your information in that service is unchanged.",
+      action: "Disconnect",
+    };
   if (target.startsWith("plaid:"))
     return {
       title: "Disconnect this bank?",

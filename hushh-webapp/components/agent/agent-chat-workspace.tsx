@@ -17,7 +17,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
-import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
   formatPkmSaveReceiptForAgent,
@@ -163,6 +163,7 @@ import {
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
+import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/connector-brand-mark";
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
@@ -2322,7 +2323,7 @@ export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]
     .filter((message): message is AgentMessage => Boolean(message)));
 }
 
-function ChatAgentSubtitle({ text }: { text: string }) {
+function ChatAgentSubtitle({ text, working, brand }: { text: string; working: boolean; brand?: ConnectorBrand | null }) {
   const [display, setDisplay] = useState(text);
   const [visible, setVisible] = useState(true);
   useEffect(() => {
@@ -2331,12 +2332,13 @@ function ChatAgentSubtitle({ text }: { text: string }) {
     const timer = window.setTimeout(() => { setDisplay(text); setVisible(true); }, 90);
     return () => window.clearTimeout(timer);
   }, [display, text]);
-  return <p aria-live="polite" className="max-w-48 truncate text-xs text-muted-foreground sm:max-w-64">
+  return <p aria-live="polite" className="flex max-w-48 items-center gap-1.5 truncate text-xs text-muted-foreground sm:max-w-64">
+    {brand ? <ConnectorBrandMark brand={brand} size="sm" /> : working ? <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" /> : null}
     <span className={`block truncate transition-opacity duration-100 motion-reduce:transition-none ${visible ? "opacity-100" : "opacity-0"}`}>{display}</span>
   </p>;
 }
 
-export type ActiveToolCall = { id: string; label: string; activity?: string };
+export type ActiveToolCall = { id: string; label: string; activity?: string; brand?: ConnectorBrand | null };
 
 export const IDLE_AGENT_SUBTITLE = "Your private agent";
 
@@ -2535,6 +2537,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
   const [composerExpanded, setComposerExpandedState] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
+  const [queuedDeliveryUnconfirmed, setQueuedDeliveryUnconfirmed] = useState(false);
+  const [queuedDeliveryChecking, setQueuedDeliveryChecking] = useState(false);
   // A typed turn is running that Stop can end at its next step.
   const [stoppableTurn, setStoppableTurn] = useState(false);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
@@ -2709,6 +2713,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >([]);
   const [activeFrontendToolCount, setActiveFrontendToolCount] = useState(0);
   const [activePkmToolCount, setActivePkmToolCount] = useState(0);
+  const [visiblePkmToolCount, setVisiblePkmToolCount] = useState(0);
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
@@ -2780,6 +2785,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   const desktopHistoryLayout = useDesktopHistoryLayout();
   const [desktopHistoryCollapsed, setDesktopHistoryCollapsed] = useState(true);
+  useLayoutEffect(() => {
+    // Next.js can hide and preserve this route instead of unmounting it.
+    // History is transient: returning to Chat must require a fresh open action.
+    return () => {
+      setDesktopHistoryCollapsed(true);
+      setIsHistoryDrawerOpen(false);
+      setDrawerMode("chats");
+      setConnectorPanelInitialConnector(null);
+    };
+  }, [pathname]);
   const desktopHistoryVisible = desktopHistoryLayout && !desktopHistoryCollapsed;
   const [driveReviewSignal, setDriveReviewSignal] = useState<{ ownerId: string | null; epoch: number; count: number }>(
     { ownerId: null, epoch: vaultSessionEpoch, count: 0 },
@@ -2820,6 +2835,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
   }
   const queuedOfferChainRef = useRef<Promise<void>>(Promise.resolve());
+  const queuedSettlementGateRef = useRef<{ promise: Promise<void>; release: () => void } | null>(null);
   const liveAssistantMessageIdRef = useRef<string | null>(null);
   const stopActiveTurnRef = useRef<(() => Promise<void>) | null>(null);
   const calendarActionIdsRef = useRef<Set<string>>(new Set());
@@ -2880,6 +2896,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const voiceLevel = useAgentVoiceState((state) => state.level);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
+  const isVisiblePkmMemoryWorking = visiblePkmToolCount > 0;
   const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
@@ -2896,6 +2913,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     latestPkmSaveReceiptRef.current = null;
     pkmNeedsOwnerCardsRef.current.clear();
     setActivePkmToolCount(0);
+    setVisiblePkmToolCount(0);
   }, []);
 
   useEffect(() => {
@@ -2906,6 +2924,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     pkmCaptureJobsRef.current.clear();
     pkmCaptureReceiptsRef.current.clear();
     setActivePkmToolCount(0);
+    setVisiblePkmToolCount(0);
     setMessages((current) => current.map((message) =>
       message.memoryCapture?.phase === "preparing" || message.memoryCapture?.phase === "saving"
         ? { ...message, memoryCapture: { phase: message.memoryCapture.saved ? "partial" : "canceled", saved: message.memoryCapture.saved } }
@@ -3213,7 +3232,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         isStreaming ||
         isChatLoading ||
         isToolWorking ||
-        isPkmMemoryWorking ||
+        isVisiblePkmMemoryWorking ||
         queuedPrompts.length > 0
       ) {
         return "One is still working";
@@ -3235,7 +3254,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (voiceState === "error") return "Voice error";
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
-    if (isPkmMemoryWorking) return "Updating Memory";
+    if (isVisiblePkmMemoryWorking) return "Saving to Memory";
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
@@ -3245,7 +3264,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     activeActionRun,
     agentVoiceEnabled,
     isChatLoading,
-    isPkmMemoryWorking,
+    isVisiblePkmMemoryWorking,
     emailDraftOpen,
     isPuppySurface,
     isToolWorking,
@@ -3624,6 +3643,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setIsStreaming(false);
     setActiveFrontendToolCount(0);
     setActivePkmToolCount(0);
+    setVisiblePkmToolCount(0);
     setWalletWidgets([]);
     updateConversationId(null, false);
     setConversations([]);
@@ -5085,6 +5105,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const token = getVaultOwnerToken();
       const ownerConfirmedKycSave = params.kycInformationSaveConfirmed === true;
       const explicitRequest = params.explicitRequest === true;
+      const userRequestedSave = explicitRequest || ownerConfirmedKycSave ||
+        isExplicitKycIdentitySaveRequest(params.sourceMessage);
       if (explicitRequest && (!user?.uid || !vaultKey || !token)) {
         const locked: AgentPkmCaptureStatus = { phase: "needs_unlock", saved: 0 };
         setMessages((current) => current.map((message) =>
@@ -5110,6 +5132,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
       pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);
+      if (userRequestedSave) setVisiblePkmToolCount((count) => count + 1);
       let timedOut = false;
       // Every job ends. Before this deadline a vault token that expired by the
       // clock (no React change) made the guard false, the final status was
@@ -5119,10 +5142,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         controller.abort();
       }, explicitRequest ? AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS : AGENT_PKM_CAPTURE_DEADLINE_MS);
       const settle = (status: AgentPkmCaptureStatus) => {
-        // Progress is published only while the session is current. A terminal
-        // status is always published: it is display only, and a status that
-        // never resolves is itself a false claim that work is happening.
+        // An explicit Save retains a terminal status after session expiry;
+        // automatic preparation stays off an ordinary answer unless it saved.
         if (!shouldPublishAgentPkmCapture(status, guard.isCurrent())) return status;
+        if (!shouldPresentAgentPkmCapture(status, userRequestedSave)) return status;
         const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
         receipts.set(jobKey, status);
         pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
@@ -5260,6 +5283,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           });
           return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
         } catch {
+          appendDebugEvent(params.turnId, "pkm_capture_failed", {
+            kind: timedOut ? "timeout" : guard.isCurrent() ? "capture_failed" : "session_changed",
+            requested_by_owner: userRequestedSave,
+          });
           if (timedOut) return settle({ phase: "failed", saved: 0, reason: "timeout" });
           return settle({ phase: guard.isCurrent() ? "failed" : "canceled", saved: 0 });
         } finally {
@@ -5267,6 +5294,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // A canceled old job must not decrement a new conversation's count.
           if (pkmAbortControllersRef.current.delete(controller)) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
+            if (userRequestedSave) setVisiblePkmToolCount((count) => Math.max(0, count - 1));
           }
         }
       })();
@@ -6063,6 +6091,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onStart: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             if (nextConversationId) {
+              if (!queuedSettlementGateRef.current) {
+                let release: () => void = () => {};
+                const promise = new Promise<void>((resolve) => { release = resolve; });
+                queuedSettlementGateRef.current = { promise, release };
+              }
               updateConversationId(nextConversationId);
               // The turn is running: messages sent now can join it.
               liveTurnQueueRef.current?.begin(nextConversationId);
@@ -6081,7 +6114,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToolStart: (toolEvent) => {
             if (streamAbortController.signal.aborted) return;
             setActiveToolCalls(current => [...current.filter(item => item.id !== toolEvent.callId),
-              { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity }]);
+              { id: toolEvent.callId, label: toolEvent.label, activity: toolEvent.activity,
+                brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) }]);
             appendDebugEvent(debugTurnId, "tool_start", toolEvent);
             upsertTurnStreamEvent(
               agentToolEventToVisibleStreamEvent("start", toolEvent),
@@ -6095,7 +6129,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // The call's arguments are complete now, so a connector call can
               // name its product ("Checking Google Drive access…").
               setActiveToolCalls(current => current.map(item => item.id === toolEvent.callId
-                ? { ...item, label: toolEvent.label, activity: toolEvent.activity } : item));
+                ? { ...item, label: toolEvent.label, activity: toolEvent.activity,
+                    brand: connectorBrandForTool(toolEvent.raw?.toolName, toolEvent.raw?.provider ?? toolEvent.slots?.provider) } : item));
             }
             appendDebugEvent(debugTurnId, "tool_waiting", toolEvent);
             const visibleEvent = agentToolEventToVisibleStreamEvent(
@@ -6953,6 +6988,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // reload rather than start a second run in the same conversation.
           await waitForWatchedAgentTurn(user?.uid, conversationIdRef.current);
           await reattachRestoreRef.current;
+          // A disconnected stream can end before a drained message finishes
+          // sealing. Never start another turn until its receipt is terminal.
+          await queuedSettlementGateRef.current?.promise;
           // This prompt and any plain messages queued right behind it go out
           // together as one turn, in order.
           const head = operationQueueRef.current.snapshot();
@@ -6998,9 +7036,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!queue) return;
     queue.stopAccepting();
     await queuedOfferChainRef.current;
-    const { joined, waiting } = await queue.settle();
+    const { joined, waiting, unresolved } = await queue.settle();
     landJoinedPrompts(joined);
     if (waiting.length) setQueuedPlacement(waiting, "waiting");
+    if (unresolved?.length) {
+      setQueuedDeliveryUnconfirmed(true);
+      return;
+    }
+    setQueuedDeliveryUnconfirmed(false);
+    queuedSettlementGateRef.current?.release();
+    queuedSettlementGateRef.current = null;
+  };
+
+  const recheckQueuedDelivery = async () => {
+    const queue = liveTurnQueueRef.current;
+    if (!queue || queuedDeliveryChecking) return;
+    setQueuedDeliveryChecking(true);
+    try {
+      const { joined, waiting, unresolved } = await queue.settle();
+      landJoinedPrompts(joined);
+      if (waiting.length) setQueuedPlacement(waiting, "waiting");
+      if (unresolved?.length) {
+        toast.info("Delivery is still unconfirmed. Your message has not been sent again.");
+        return;
+      }
+      setQueuedDeliveryUnconfirmed(false);
+      queuedSettlementGateRef.current?.release();
+      queuedSettlementGateRef.current = null;
+    } finally {
+      setQueuedDeliveryChecking(false);
+    }
   };
 
   /** Take a message back from the running turn before it joins. */
@@ -8437,7 +8502,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   isPuppySurface,
                   activeToolCalls,
                   statusText,
-                })} />
+                })} working={activeToolCalls.length > 0 || isVisiblePkmMemoryWorking} brand={activeToolCalls.at(-1)?.brand} />
               </div>
             </div>
 
@@ -9899,6 +9964,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             >
               <AgentQueuedStack
                 prompts={queuedPrompts}
+                deliveryUnconfirmed={queuedDeliveryUnconfirmed}
                 editingId={editingQueuedPromptId}
                 editingText={editingQueuedPromptText}
                 onEditStart={(prompt) => {
@@ -9917,6 +9983,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   void removeQueuedPrompt(id);
                 }}
               />
+              {queuedDeliveryUnconfirmed ? (
+                <div role="status" className="mb-2 flex items-center justify-between gap-3 rounded-[16px] bg-foreground/[0.045] px-3 py-2 text-sm text-muted-foreground">
+                  <span>Delivery is unconfirmed. New messages are held until it is checked.</span>
+                  <Button type="button" variant="outline" size="sm" disabled={queuedDeliveryChecking} onClick={() => void recheckQueuedDelivery()}>
+                    {queuedDeliveryChecking ? "Checking…" : "Check delivery"}
+                  </Button>
+                </div>
+              ) : null}
               {voiceActive ? (
                 <div className="rounded-[22px] bg-foreground/[0.045] p-2 shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]">
                   <AgentVoiceWaveInput

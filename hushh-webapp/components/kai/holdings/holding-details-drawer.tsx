@@ -30,8 +30,8 @@ interface HoldingDetailsDrawerProps {
   holding: HoldingMobileCardViewModel | null;
   canManageHoldings?: boolean;
   onOpenChange: (open: boolean) => void;
-  onEdit: () => void;
-  onToggleDelete: () => void;
+  onEdit?: () => void;
+  onToggleDelete?: () => void;
 }
 
 function DetailRow({ label, value, valueClassName }: { label: string; value: string; valueClassName?: string }) {
@@ -92,32 +92,34 @@ export function HoldingDetailsDrawer({
           <DetailRow label="Sector" value={holding?.sector || "Unclassified"} />
         </div>
 
-        <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">
-          <div className="grid grid-cols-2 gap-2">
-            <MorphyButton
-              variant="none"
-              effect="fade"
-              size="sm"
-              fullWidth
-              className="app-button-text app-button-black"
-              disabled={!canManageHoldings || !holding || holding.pendingDelete}
-              onClick={onEdit}
-            >
-              Edit Holding
-            </MorphyButton>
-            <MorphyButton
-              variant="none"
-              effect="fade"
-              size="sm"
-              fullWidth
-              className="app-button-text app-button-black"
-              disabled={!canManageHoldings || !holding}
-              onClick={onToggleDelete}
-            >
-              {holding?.pendingDelete ? "Restore" : "Delete"}
-            </MorphyButton>
-          </div>
-        </DrawerFooter>
+        {canManageHoldings && onEdit && onToggleDelete ? (
+          <DrawerFooter className="border-t border-border/60 bg-background/80 pb-[calc(1rem+var(--app-safe-area-bottom-effective))]">
+            <div className="grid grid-cols-2 gap-2">
+              <MorphyButton
+                variant="none"
+                effect="fade"
+                size="sm"
+                fullWidth
+                className="app-button-text app-button-black"
+                disabled={!holding || holding.pendingDelete}
+                onClick={onEdit}
+              >
+                Edit Holding
+              </MorphyButton>
+              <MorphyButton
+                variant="none"
+                effect="fade"
+                size="sm"
+                fullWidth
+                className="app-button-text app-button-black"
+                disabled={!holding}
+                onClick={onToggleDelete}
+              >
+                {holding?.pendingDelete ? "Restore" : "Delete"}
+              </MorphyButton>
+            </div>
+          </DrawerFooter>
+        ) : null}
       </DrawerContent>
     </Drawer>
   );

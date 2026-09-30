@@ -35,6 +35,7 @@ vi.mock("@/components/consent/consent-scope-nested-list", () => ({
 
 import { AgentConsentContinuationContext, AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
 import { armConsentContinuation, clearSentInformationRequests } from "@/lib/agent/consent-continuation";
+import { resetInformationRequestReads } from "@/lib/consent/information-request-reads";
 
 const person = "1234567890abcdef";
 const experience: ScopeDiscoveryExperience = {
@@ -53,6 +54,7 @@ function page(number: number, revision = "a".repeat(64)): ViewerPersonProfile {
 
 describe("current-authority inline Chat catalog", () => {
   beforeEach(() => {
+    resetInformationRequestReads();
     vi.clearAllMocks();
     mocks.user.uid = "reviewer-a";
     mocks.unlocked = true;
@@ -66,7 +68,10 @@ describe("current-authority inline Chat catalog", () => {
     mocks.readStoredConnector.mockResolvedValue({ connector_key_id: "test-connector" });
     mocks.decryptScopedExport.mockReset();
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    resetInformationRequestReads();
+  });
 
   it("refreshes retained descriptors, loads consecutive pages, and never replays actions", async () => {
     mocks.getViewer.mockResolvedValueOnce(page(1)).mockResolvedValueOnce(page(2));
@@ -129,7 +134,10 @@ describe("current-authority inline Chat catalog", () => {
       { scopeRef, label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
     ] });
     mocks.create.mockResolvedValue(bundle("pending"));
-    mocks.getInformationRequest.mockResolvedValue(bundle("pending"));
+    let finishStaleRead: ((value: ReturnType<typeof bundle>) => void) | undefined;
+    mocks.getInformationRequest.mockImplementationOnce(() => new Promise((resolve) => {
+      finishStaleRead = resolve;
+    }));
     mocks.getInformationRequestExports.mockResolvedValue([{
       requestId, scopeRef,
       encryptedExport: {
@@ -151,7 +159,7 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: purpose } });
     fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     expect(await screen.findByText("Request sent to Synthetic Recipient")).toBeInTheDocument();
-    expect(await screen.findByText("Waiting for Synthetic Recipient's approval")).toBeInTheDocument();
+    expect(screen.queryByTestId("shared-with-you-values")).toBeNull();
     expect(onInformationRequestSubmitted).toHaveBeenCalledWith({
       bundleId, subjectRef: person, idempotencyKey: expect.any(String),
       // The sent card itself, labels only, so the chat shows "Request sent"
@@ -159,7 +167,7 @@ describe("current-authority inline Chat catalog", () => {
       review: expect.objectContaining({ phase: "submitted", bundleId, subjectRef: person }),
     });
     expect(JSON.stringify(onInformationRequestSubmitted.mock.calls)).not.toContain("Synthetic analyst");
-    expect(mocks.getInformationRequest).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" }));
     expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
 
     mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
@@ -168,6 +176,8 @@ describe("current-authority inline Chat catalog", () => {
     } })));
     expect(await screen.findByTestId("shared-with-you-values", {}, { timeout: 5_000 })).toHaveTextContent("Synthetic analyst");
     expect(mocks.getInformationRequestExports).toHaveBeenCalledWith({ bundleId, vaultOwnerToken: "test-owner-token" });
+    await act(async () => finishStaleRead?.(bundle("pending")));
+    expect(screen.getByTestId("shared-with-you-values")).toHaveTextContent("Synthetic analyst");
 
     await act(async () => {
       mocks.unlocked = false;

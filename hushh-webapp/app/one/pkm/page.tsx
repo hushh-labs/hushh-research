@@ -8,7 +8,6 @@ export default function PkmPage() {
     <PkmSettingsShell
       title="Memory"
       titleVisuallyHidden
-      description="What One remembers about you"
     >
       <PkmNaturalPanel />
     </PkmSettingsShell>

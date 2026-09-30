@@ -34,6 +34,30 @@ describe("Kai stream presentation", () => {
     expect(screen.getByText("Revenue quality is improving.")).toBeInTheDocument();
   });
 
+  it("formats saved XML-compatible debate analysis without treating it as HTML", () => {
+    const { container } = render(
+      <StreamingProgressView
+        stage="complete"
+        title="Fundamental Agent"
+        compactMode
+        streamedText={
+          '<analysis><thought>Revenue growth is flat.</thought><claim id="c1" type="fact" confidence="0.95">Free cash flow remains strong.</claim><evidence target="c1" source="SEC">Free cash flow was $108.8B.</evidence><portfolio_impact type="risk" magnitude="medium" score="6">Concentration increases valuation risk.</portfolio_impact><bull_case_personalized>Cash flow supports the portfolio.</bull_case_personalized><bear_case_personalized><img src=x onerror=alert(1)> Growth could stall.</bear_case_personalized><renaissance_verdict>ACE tier remains intact.</renaissance_verdict></analysis>'
+        }
+      />,
+    );
+
+    expect(screen.getByText("Reasoning")).toBeInTheDocument();
+    expect(screen.getByText("Claim · Fact · 95% confidence")).toBeInTheDocument();
+    expect(screen.getByText("Evidence · SEC")).toBeInTheDocument();
+    expect(screen.getByText("Portfolio impact · Risk · Medium · 6/10")).toBeInTheDocument();
+    expect(screen.getByText("Personalized bull case")).toBeInTheDocument();
+    expect(screen.getByText("Personalized bear case")).toBeInTheDocument();
+    expect(screen.getByText("Renaissance verdict")).toBeInTheDocument();
+    expect(screen.getByText(/<img src=x onerror=alert\(1\)> Growth could stall\./)).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
+    expect(screen.queryByText(/<analysis>|<claim|<portfolio_impact/)).not.toBeInTheDocument();
+  });
+
   it("uses the canonical segmented tab contract for analyst selection", () => {
     render(
       <RoundTabsCard

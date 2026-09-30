@@ -24,7 +24,7 @@ export type AuthFrame = {
   resume?: boolean;
 };
 export type AudioFrame = { type: "audio"; data: string; mime_type?: string; seq?: number };
-export type TextFrame = { type: "text"; text: string };
+export type TextFrame = { type: "text"; text: string; request_id?: string };
 export type AppContextFrame = {
   type: "app_context";
   screen_id?: string | null;
@@ -169,6 +169,8 @@ export type AudioOutFrame = {
   data: string;
   mime_type: string;
   turn_id: string;
+  /** The user turn that owns this audio; narration has its own playback ID. */
+  origin_turn_id?: string;
   /**
    * Audio this server synthesized, not audio the Live model produced.
    *
@@ -185,13 +187,17 @@ export type TranscriptFrame = {
   text: string;
   final: boolean;
   turn_id: string;
+  /** Present only for a typed request echoed by the relay. */
+  request_id?: string;
 };
 export type TurnFrame = { type: "turn"; state: "model_start" | "model_end" | "interrupted"; turn_id: string };
 export type StateFrame = { type: "state"; state: VoiceState; turn_id?: string | null };
-export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: string; args_public: Record<string, unknown> };
+export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: string; args_public: Record<string, unknown>; turn_id?: string };
 export type ToolResultFrame = {
   type: "tool.result";
   call_id: string | null;
+  /** Immutable origin captured before the tool began. */
+  turn_id?: string;
   /** Exact pending confirmation this terminal result settles, when there is one. */
   pending_action_id?: string | null;
   tool: string;

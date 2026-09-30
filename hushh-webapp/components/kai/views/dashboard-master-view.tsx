@@ -36,6 +36,8 @@ import { PortfolioAllocationBar } from "@/components/kai/charts/portfolio-alloca
 import { SectorAllocationChart } from "@/components/kai/charts/sector-allocation-chart";
 import { StatementCashflowChart } from "@/components/kai/charts/statement-cashflow-chart";
 import { HoldingRowActions } from "@/components/kai/holdings/holding-row-actions";
+import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
+import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 import { EditHoldingModal } from "@/components/kai/modals/edit-holding-modal";
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import type {
@@ -446,6 +448,7 @@ export function DashboardMasterView({
   const [isSavingHoldings, setIsSavingHoldings] = useState(false);
   const [isHoldingsEditing, setIsHoldingsEditing] = useState(false);
   const [holdingsSearch, setHoldingsSearch] = useState("");
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null);
   const [isDeletingImportedData, setIsDeletingImportedData] = useState(false);
   const [isDeletingStatementSnapshot, setIsDeletingStatementSnapshot] =
     useState(false);
@@ -1543,6 +1546,11 @@ export function DashboardMasterView({
       0,
     );
   }, [sourceHoldingRows]);
+
+  const selectedHolding = useMemo(() => {
+    const holding = sourceHoldingRows.find((row) => row.client_id === selectedHoldingId);
+    return holding ? toHoldingViewModel(holding, holdingsTableDenominator) : null;
+  }, [sourceHoldingRows, selectedHoldingId, holdingsTableDenominator]);
 
   const holdingsTableColumns = useMemo<ColumnDef<ManagedHolding>[]>(() => {
     const columns: ColumnDef<ManagedHolding>[] = [
@@ -2669,7 +2677,12 @@ export function DashboardMasterView({
                       onClick={
                         isHoldingsEditing && !holding.pending_delete
                           ? () => handleEditHolding(holding.client_id)
-                          : undefined
+                          : () => setSelectedHoldingId(holding.client_id)
+                      }
+                      ariaLabel={
+                        isHoldingsEditing && !holding.pending_delete
+                          ? `Edit ${holding.symbol || "holding"}`
+                          : `View details for ${holding.symbol || "holding"}`
                       }
                       className={cn(
                         holding.pending_delete &&
@@ -2680,10 +2693,24 @@ export function DashboardMasterView({
                 })}
               </SettingsGroup>
 
+              <HoldingDetailsDrawer
+                open={Boolean(selectedHolding)}
+                holding={selectedHolding}
+                canManageHoldings={false}
+                onOpenChange={(open) => {
+                  if (!open) setSelectedHoldingId(null);
+                }}
+              />
+
               <div className="hidden min-w-0 md:block">
                 <DataTable
                   columns={holdingsTableColumns}
                   data={allocationFilteredHoldingRows}
+                  onRowClick={
+                    isHoldingsEditing
+                      ? undefined
+                      : (holding) => setSelectedHoldingId(holding.client_id)
+                  }
                   searchKey="symbol"
                   globalSearchKeys={["symbol", "name"]}
                   searchPlaceholder="Search holdings by ticker or company"

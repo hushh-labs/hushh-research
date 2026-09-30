@@ -50,7 +50,10 @@ class SessionFold:
             PodAdkSessionRepository._validate_payload(
                 {k: row.get("payload_" + k) for k in ("ciphertext", "iv", "tag", "algorithm")}
             )
-            row = {**row, "_sequence": record["seq"]}
+            order = row.get("_sequence", record["seq"])
+            if type(order) is not int or not 0 < order <= record["seq"]:
+                raise PodAdkSessionUnavailable("Pod conversation order invalid.")
+            row = {**row, "_sequence": order}
         else:
             raise PodAdkSessionUnavailable("Pod conversation operation invalid.")
         if key in self.expected:

@@ -337,114 +337,26 @@ describe("SwipeViews", () => {
     expect(watchDrag(nestedApi, { target: nestedTarget } as Event)).toBe(true);
   });
 
-  it("does not apply the edge fallback to nested horizontal interactions", () => {
+  it("reports Add at snap selection rather than waiting for the pane to render there", () => {
     const onSelectionChange = vi.fn();
-    const onSelectionCommit = vi.fn();
-    const root = embla.rootNode!;
-    root.dataset.swipeViewsRoot = "true";
-    const nestedScroller = document.createElement("div");
-    nestedScroller.setAttribute("data-swipe-views-horizontal-scroll", "true");
-    const scrollerTarget = document.createElement("button");
-    nestedScroller.append(scrollerTarget);
-    const nestedPager = document.createElement("div");
-    nestedPager.dataset.swipeViewsRoot = "true";
-    const pagerTarget = document.createElement("button");
-    nestedPager.append(pagerTarget);
-    root.append(nestedScroller, nestedPager);
-
+    const options = [...OPTIONS, { value: "third", label: "Sharing" }];
+    const rendered = { get: () => 0 };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -800, max: 0 },
+      offsetLocation: rendered,
+      target: { get: () => -400, set: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
     render(
-      <SwipeViews
-        tabSetId="nested-edge"
-        activeValue="first"
-        options={OPTIONS}
-        onSelectionChange={onSelectionChange}
-        onSelectionCommit={onSelectionCommit}
-      >
-        <div>first panel content</div>
-        <div>second panel content</div>
+      <SwipeViews tabSetId="memory-select" activeValue="first" options={options} onSelectionChange={onSelectionChange}>
+        <div>Saved</div><div>Add</div><div>Sharing</div>
       </SwipeViews>,
     );
 
-    for (const target of [scrollerTarget, pagerTarget]) {
-      target.dispatchEvent(
-        new MouseEvent("pointerdown", {
-          bubbles: true,
-          clientX: 100,
-          clientY: 20,
-        }),
-      );
-      target.dispatchEvent(
-        new MouseEvent("pointerup", {
-          bubbles: true,
-          clientX: 20,
-          clientY: 20,
-        }),
-      );
-    }
-
-    expect(onSelectionChange).not.toHaveBeenCalled();
-    expect(onSelectionCommit).not.toHaveBeenCalled();
-  });
-
-  it("does not apply the edge fallback to a click dismissing an open Radix popover/select", () => {
-    // Regression: Location > Links' Duration <Select> renders its open
-    // listbox through a Radix portal, so it is never a descendant of the
-    // pager root. Clicking away from it to dismiss without picking an
-    // option is ordinary page interaction, but its pointerup can land 48px+
-    // sideways from where the click went down -- indistinguishable from a
-    // real edge swipe to this handler, which silently navigated Links (the
-    // last pane) back to People.
-    const onSelectionChange = vi.fn();
-    const onSelectionCommit = vi.fn();
-    const root = embla.rootNode!;
-    root.dataset.swipeViewsRoot = "true";
-    const dismissTarget = document.createElement("button");
-    root.append(dismissTarget);
-
-    const popper = document.createElement("div");
-    popper.setAttribute("data-radix-popper-content-wrapper", "");
-    document.body.append(popper);
-
-    render(
-      <SwipeViews
-        tabSetId="popper-edge"
-        activeValue="second"
-        options={OPTIONS}
-        onSelectionChange={onSelectionChange}
-        onSelectionCommit={onSelectionCommit}
-      >
-        <div>first panel content</div>
-        <div>second panel content</div>
-      </SwipeViews>,
-    );
-
-    const dispatchDismissClick = () => {
-      dismissTarget.dispatchEvent(
-        new MouseEvent("pointerdown", {
-          bubbles: true,
-          clientX: 60,
-          clientY: 20,
-        }),
-      );
-      dismissTarget.dispatchEvent(
-        new MouseEvent("pointerup", {
-          bubbles: true,
-          clientX: 200,
-          clientY: 20,
-        }),
-      );
-    };
-
-    dispatchDismissClick();
-    expect(onSelectionChange).not.toHaveBeenCalled();
-    expect(onSelectionCommit).not.toHaveBeenCalled();
-
-    // Same gesture, popover gone: proves the guard -- not an unrelated
-    // reason -- is what suppressed the tab change above.
-    popper.remove();
-    dispatchDismissClick();
-    expect(onSelectionChange).toHaveBeenCalledWith("first");
-    expect(onSelectionCommit).toHaveBeenCalledWith("first");
+    embla.selectedIndex = 1;
+    embla.listeners.get("select")?.();
+    expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith("second");
   });
 
   describe("viewport resize", () => {

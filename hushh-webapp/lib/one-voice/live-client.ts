@@ -530,10 +530,14 @@ export class OneLiveClient {
 
   // -- outbound: control -----------------------------------------------------
 
-  sendText(text: string): boolean {
+  sendText(text: string, requestId?: string): boolean {
     const clean = String(text || "").trim();
     if (!clean) return false;
-    return this.sendControl({ type: "text", text: clean });
+    return this.sendControl({
+      type: "text",
+      text: clean,
+      ...(requestId ? { request_id: requestId } : {}),
+    });
   }
 
   /**

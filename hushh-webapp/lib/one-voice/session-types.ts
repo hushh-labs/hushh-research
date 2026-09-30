@@ -38,6 +38,7 @@ export type TranscriptItem = {
 
 export type ToolTimelineItem = {
   callId: string | null;
+  turnId?: string | null;
   tool: string;
   argsSummary: string;
   result?: ToolResultPublic;
@@ -79,6 +80,12 @@ export type VoiceSessionState = {
   conversationId: string | null;
   model: string | null;
   turnId: string | null;
+  /** Most recent accepted input, separate from provider playback turn IDs. */
+  activeInputTurnId: string | null;
+  /** Origin of the most recent response, including narration with its own playback ID. */
+  activeResponseTurnId: string | null;
+  /** Prior input/response origins whose late frames must not replace a newer answer. */
+  fencedTurnIds: string[];
   speaking: boolean;
   muted: boolean;
   degraded: boolean;
@@ -131,6 +138,9 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   conversationId: null,
   model: null,
   turnId: null,
+  activeInputTurnId: null,
+  activeResponseTurnId: null,
+  fencedTurnIds: [],
   speaking: false,
   muted: false,
   degraded: false,

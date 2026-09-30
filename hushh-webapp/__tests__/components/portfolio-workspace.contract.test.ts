@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { toHoldingViewModel } from "@/components/kai/holdings/holding-view-model";
 
 const WEBAPP_ROOT = path.resolve(__dirname, "../..");
 
@@ -10,6 +11,30 @@ function read(relativePath: string) {
 }
 
 describe("Portfolio workspace hierarchy", () => {
+  it("shows actual share count and derived prices without fabricating missing gain", () => {
+    const holding = {
+      client_id: "holding-1",
+      symbol: "TEST",
+      name: "Test Holding",
+      quantity: 2,
+      price: 80,
+      market_value: 160,
+      cost_basis: 100,
+    };
+    expect(toHoldingViewModel(holding, 400)).toMatchObject({
+      shares: 2,
+      averagePrice: 50,
+      currentPrice: 80,
+      gainLossValue: 60,
+      gainLossPct: 60,
+      portfolioWeightPct: 40,
+    });
+    expect(toHoldingViewModel({ ...holding, cost_basis: undefined }, 400)).toMatchObject({
+      gainLossValue: null,
+      gainLossPct: null,
+    });
+  });
+
   it("uses one compact KPI index without an optimize action", () => {
     const dashboard = read("components/kai/views/dashboard-master-view.tsx");
 

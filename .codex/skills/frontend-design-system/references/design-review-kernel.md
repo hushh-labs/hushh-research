@@ -81,6 +81,8 @@ charter. Do not turn a jsdom class-name assertion into pixel evidence.
 7. Consumer auth, onboarding, and verification copy should avoid provider names,
    backend systems, token formats, and protocol terms.
 8. Keep supporting copy to one short line that directly helps the next action.
+9. Apply the [Concise Product Copy Contract](../../../../docs/reference/quality/app-surface-design-system.md#concise-product-copy-contract)
+   to group, row, and button labels; retain required vault-export warnings.
 
 ## One/Kai/Nav Copy
 

@@ -5,14 +5,15 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Literal
 
 import pytest
 
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
-from hushh_mcp.one_voice.live_client import LiveEvent
-from hushh_mcp.one_voice.session import AuthResult, VoiceSession
+from hushh_mcp.one_voice.live_client import LiveEvent, translate_message
+from hushh_mcp.one_voice.session import AuthResult, SessionClosed, VoiceSession
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.base import (
@@ -26,7 +27,7 @@ from hushh_mcp.one_voice.tools.base import (
     now_iso,
     restore_context,
 )
-from hushh_mcp.one_voice.tools.executor import ToolExecutor
+from hushh_mcp.one_voice.tools.executor import ToolCallOutcome, ToolExecutor
 from tests.one_voice.fakes import (
     FakeLive,
     FakeTransport,
@@ -305,6 +306,16 @@ async def test_provider_audio_and_transcripts_reach_the_client():
 # --- tool dispatch ---------------------------------------------------------
 
 
+def test_tool_call_sharing_a_provider_message_with_turn_complete_keeps_its_turn():
+    message = SimpleNamespace(
+        server_content=SimpleNamespace(model_turn=None, turn_complete=True),
+        tool_call=SimpleNamespace(
+            function_calls=[SimpleNamespace(id="call-a", name="echo", args={"text": "hi"})]
+        ),
+    )
+    assert [event.kind for event in translate_message(message)] == ["tool_call"]
+
+
 async def test_read_tool_result_goes_to_client_and_model():
     transport = FakeTransport([AUTH])
     fake = FakeLive(
@@ -326,6 +337,157 @@ async def test_read_tool_result_goes_to_client_and_model():
     assert result["ok"] is True and result["result_public"]["echoed"] == "hi"
     assert fake.tool_responses[0]["response"]["status"] == "ok"
     assert fake.tool_responses[0]["id"] == "c1"
+
+
+async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingExecutor:
+        async def call(self, _ctx, _name, args):
+            started.set()
+            await release.wait()
+            return ToolCallOutcome(result=EchoResult(status="ok", echoed=args["text"]))
+
+    session.executor = BlockingExecutor()
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="Is Gmail connected?", request_id="request-a")
+    )
+    old_turn = session.turn.turn_id
+    call = asyncio.create_task(
+        session._dispatch_tool_call({"id": "call-a", "name": "echo", "args": {"text": "mail"}})
+    )
+    await asyncio.wait_for(started.wait(), 1)
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="What is my name?", request_id="request-b")
+    )
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="What is my name?", request_id="request-c")
+    )
+    inputs = transport.frames("transcript.input")
+    assert [row["request_id"] for row in inputs] == ["request-a", "request-b", "request-c"]
+    assert len({row["turn_id"] for row in inputs}) == 3
+    assert fake.texts == ["Is Gmail connected?"]
+    await session._handle_live_event(LiveEvent(kind="audio", audio_b64="QUJD"))
+    assert transport.frames("audio") == []
+
+    release.set()
+    await asyncio.wait_for(call, 1)
+    assert transport.frames("tool.started")[0]["turn_id"] == old_turn
+    assert transport.frames("tool.result")[0]["turn_id"] == old_turn
+    assert fake.tool_responses[0]["response"]["status"] == "ok"
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    assert fake.texts == ["Is Gmail connected?", "What is my name?"]
+    assert session.turn.turn_id == inputs[1]["turn_id"]
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    assert fake.texts == [
+        "Is Gmail connected?",
+        "What is my name?",
+        "What is my name?",
+    ]
+    assert session.turn.turn_id == inputs[2]["turn_id"]
+
+
+async def test_streamed_voice_turn_finishes_before_queued_typed_question():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+
+    await session._handle_live_event(
+        LiveEvent(kind="input_transcript", text="voice first", finished=True)
+    )
+    first_voice_turn = session.turn.turn_id
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="typed next"))
+    typed_turn = transport.frames("transcript.input")[-1]["turn_id"]
+    await session._handle_live_event(
+        LiveEvent(kind="input_transcript", text="voice already streamed", finished=True)
+    )
+    second_voice_turn = transport.frames("transcript.input")[-1]["turn_id"]
+    assert len({first_voice_turn, typed_turn, second_voice_turn}) == 3
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    assert session.turn.turn_id == second_voice_turn
+    assert fake.texts == []
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    assert session.turn.turn_id == typed_turn
+    assert fake.texts == ["typed next"]
+
+
+async def test_identical_questions_are_distinct_turns_and_execute_twice():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    calls: list[tuple[str, str]] = []
+
+    class CountingExecutor:
+        async def call(self, _ctx, name, args):
+            calls.append((name, args["text"]))
+            return ToolCallOutcome(result=EchoResult(status="ok", echoed=args["text"]))
+
+    session.executor = CountingExecutor()
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="What is my name?", request_id="first")
+    )
+    await session._dispatch_tool_call(
+        {"id": "call-first", "name": "echo", "args": {"text": "What is my name?"}}
+    )
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="What is my name?", request_id="second")
+    )
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._dispatch_tool_call(
+        {"id": "call-second", "name": "echo", "args": {"text": "What is my name?"}}
+    )
+
+    assert calls == [("echo", "What is my name?"), ("echo", "What is my name?")]
+    assert [row["request_id"] for row in transport.frames("transcript.input")] == [
+        "first",
+        "second",
+    ]
+    assert len({row["turn_id"] for row in transport.frames("transcript.input")}) == 2
+    assert [row["turn_id"] for row in transport.frames("tool.result")] == [
+        row["turn_id"] for row in transport.frames("transcript.input")
+    ]
+
+
+async def test_queued_typed_question_expires_when_provider_never_finishes():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    now = {"value": 1_000.0}
+    session.clock = lambda: now["value"]
+    session.started_at = now["value"]
+    session.last_activity = now["value"]
+    await session._handle_live_event(
+        LiveEvent(kind="input_transcript", text="voice first", finished=True)
+    )
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="typed next"))
+    now["value"] += 31
+
+    with pytest.raises(SessionClosed):
+        await asyncio.wait_for(session._watchdog(), timeout=2)
+    assert transport.frames("error")[-1]["code"] == "turn_timeout"
+    assert transport.closed[0] == protocol.CLOSE_PROVIDER_UNAVAILABLE
 
 
 async def test_unknown_tool_is_rejected_and_counted():
@@ -513,6 +675,7 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
     assert pending.rows[card["pending_action_id"]].status == "executed"
     result = transport.frames("tool.result")[-1]
     assert result["pending_action_id"] == card["pending_action_id"]
+    assert result["turn_id"] == transport.frames("tool.started")[0]["turn_id"]
     event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
     assert (
         event["kind"] == "tool_result"
@@ -1002,6 +1165,7 @@ async def test_duplicate_device_step_report_settles_once_then_is_unknown():
         r for r in transport.frames("tool.result") if r["status"] != "location_updates_pending"
     ]
     assert len(settled) == 1 and settled[0]["status"] == "on" and settled[0]["call_id"] == "c1"
+    assert settled[0]["turn_id"] == transport.frames("tool.started")[0]["turn_id"]
     errors = transport.frames("error")
     assert len(errors) == 1 and errors[0]["message"] == "unknown_client_step"
     assert session._counters["tool_results_ok"] == 1

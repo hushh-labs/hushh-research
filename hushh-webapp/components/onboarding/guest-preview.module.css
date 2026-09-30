@@ -616,6 +616,35 @@
     padding-bottom: 0.5rem;
   }
 }
+@media (min-height: 741px) and (max-width: 767px) {
+  /* Keep the final invitation action above the device gesture inset. */
+  .shell[data-has-invitation="true"] {
+    padding-bottom: calc(
+      max(var(--app-scroll-bottom-pad, 0px), var(--app-safe-area-bottom-effective, 0px)) + 0.625rem
+    );
+  }
+  .shell[data-has-invitation="true"] .content[data-step="2"] {
+    gap: 0.75rem;
+  }
+  .shell[data-has-invitation="true"] .content[data-step="2"] .voiceVisual {
+    height: 3rem;
+    margin-bottom: 0.5rem;
+  }
+  .shell[data-has-invitation="true"] .content[data-step="2"] .inviteContext {
+    margin-top: 0.5rem;
+  }
+}
+@media (min-height: 601px) and (max-height: 680px) and (max-width: 767px) {
+  /* The third screen is the tallest; preserve its answer and action without
+     introducing a dead-scroll tail on shorter phones. */
+  .shell[data-has-invitation="true"] .content[data-step="2"] {
+    gap: 0.375rem;
+  }
+  .shell[data-has-invitation="true"] .content[data-step="2"] .voiceVisual {
+    height: 2.5rem;
+    margin-bottom: 0.25rem;
+  }
+}
 @media (max-height: 600px) and (max-width: 767px) {
   /* At compact phone heights the title and microphone already explain this
      scene. Give the complete exchange and invitation priority over a tagline. */

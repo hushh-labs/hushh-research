@@ -34,6 +34,8 @@ const harness = vi.hoisted(() => ({
   releases: [] as string[],
   leases: 0,
   revoke: null as ((reason: string) => void) | null,
+  lifecycle: "active" as "active" | "background",
+  lifecycleListeners: new Set<() => void>(),
 }));
 
 vi.mock("next/navigation", () => ({ usePathname: () => harness.pathname }));
@@ -70,6 +72,11 @@ vi.mock("@/lib/navigation/profile-pane", () => ({
 }));
 vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
   appInteractionCoordinator: {
+    getLifecycleSnapshot: () => ({ state: harness.lifecycle }),
+    subscribeLifecycle: (listener: () => void) => {
+      harness.lifecycleListeners.add(listener);
+      return () => harness.lifecycleListeners.delete(listener);
+    },
     acquireVoiceLease: ({
       owner,
       onRevoked,
@@ -195,9 +202,6 @@ function mount(
         }),
         getFirebaseIdToken: async () => "firebase-proof",
         afterPaint: (callback) => callback(),
-        // Long enough that a busy runner cannot expire it between a pause
-        // and the tap that resumes; short enough to observe the graced close.
-        backgroundGraceMs: 400,
         ...(options.clientStepTimeoutMs === null
           ? {}
           : { clientStepTimeoutMs: options.clientStepTimeoutMs ?? 40 }),
@@ -226,6 +230,8 @@ beforeEach(() => {
   harness.releases = [];
   harness.leases = 0;
   harness.revoke = null;
+  harness.lifecycle = "active";
+  harness.lifecycleListeners.clear();
   harness.navigate.mockClear();
   harness.pathname = "/one/location";
   Object.defineProperty(document, "hidden", {
@@ -801,15 +807,13 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     expect(auths[1]!.resume).toBe(false);
   });
 
-  it("backgrounding pauses: mic off, playback flushed, turn cancelled, then a graced close; a tap resumes", async () => {
+  it("backgrounding pauses capture and foreground resumes the same socket", async () => {
     const mounted = await startSession(mount());
     const { server, capture, playback } = mounted;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: true,
-    });
     await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
+      harness.lifecycle = "background";
+      for (const listener of harness.lifecycleListeners) listener();
+      harness.revoke?.("app_backgrounded");
     });
     expect(controller!.state.phase).toBe("paused");
     expect(capture.stopped).toBe(1);
@@ -817,35 +821,14 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     expect(server.frames("cancel_action")).toEqual([
       { type: "cancel_action", pending_action_id: null, scope: "turn" },
     ]);
-    // Coming back does not turn the mic on by itself.
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: false,
-    });
     await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
+      harness.lifecycle = "active";
+      for (const listener of harness.lifecycleListeners) listener();
     });
-    expect(controller!.state.phase).toBe("paused");
-    expect(capture.started).toBe(1);
-    // A tap resumes the same session before the grace runs out.
-    await act(async () => {
-      await controller!.start();
-    });
+    await waitFor(() => expect(controller!.state.phase).toBe("listening"));
     expect(capture.started).toBe(2);
-    expect(controller!.state.phase).toBe("listening");
     expect(server.sockets).toHaveLength(1);
-    // Pause again and let the grace expire.
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      value: true,
-    });
-    await act(async () => {
-      document.dispatchEvent(new Event("visibilitychange"));
-    });
-    await waitFor(() => expect(controller!.state.phase).toBe("idle"), {
-      timeout: 2_000,
-    });
-    expect(server.sequence().at(-1)).toBe("end");
+    expect(server.frames("auth")).toHaveLength(1);
     expect(controller!.state.error).toBeNull();
   });
 
@@ -874,15 +857,56 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     await act(async () => {
       controller!.sendText("share my location with Priya");
     });
-    expect(server.frames("text")).toEqual([
+    expect(server.frames("text")).toMatchObject([
       { type: "text", text: "share my location with Priya" },
     ]);
+    expect(server.frames("text")[0]?.request_id).toEqual(expect.any(String));
     const before = server.frames("audio").length;
     await act(async () => {
       playback.speak(true);
       capture.frame?.(new Uint8Array(640));
     });
     expect(server.frames("audio")).toHaveLength(before);
+  });
+
+  it("never plays an old mail narration after a newer typed question is accepted", async () => {
+    const { server, playback } = await startSession(mount());
+    await act(async () => {
+      server.push({
+        type: "transcript.input",
+        text: "Is Mail connected?",
+        final: true,
+        turn_id: "mail-turn",
+      });
+      controller!.sendText("What is my name?");
+    });
+    const requestId = server.frames("text")[0]?.request_id;
+    expect(requestId).toEqual(expect.any(String));
+    await act(async () => {
+      server.push({
+        type: "transcript.input",
+        text: "What is my name?",
+        final: true,
+        turn_id: "profile-turn",
+        request_id: requestId,
+      });
+      server.push({
+        type: "audio",
+        data: btoa("old"),
+        mime_type: "audio/pcm;rate=24000",
+        turn_id: "separate-narration-id",
+        origin_turn_id: "mail-turn",
+        narration: true,
+      });
+      server.push({
+        type: "audio",
+        data: btoa("new"),
+        mime_type: "audio/pcm;rate=24000",
+        turn_id: "profile-turn",
+        origin_turn_id: "profile-turn",
+      });
+    });
+    expect(playback.enqueued.map((row) => row.turnId)).toEqual(["profile-turn"]);
   });
 
   describe("client-step budget from the server's timeout_s", () => {

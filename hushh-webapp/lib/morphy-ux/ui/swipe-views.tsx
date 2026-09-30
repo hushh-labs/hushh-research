@@ -174,25 +174,6 @@ function isNestedSwipeViewsTarget(
 }
 
 /**
- * A Radix Select/DropdownMenu/Popover renders its open content through a
- * portal, so it is never a descendant of the pager `root` this component
- * tracks pointers on -- dismissing one with a click lands back on ordinary
- * pager content. That dismiss click is real page interaction, not gesture
- * intent, but its release can land 48px+ sideways from where it went down
- * (mouse/trackpad clicks rarely land pixel-perfect on the same spot a
- * fast-moving pointer went down on), which reads exactly like the edge-swipe
- * this handler exists to detect. Tracked in the Location > Links "Duration"
- * dropdown: opening it, then clicking away without first touching the list,
- * silently swiped to whichever tab sits in the delta's direction.
- */
-function hasOpenPopperOverlay(): boolean {
-  return Boolean(
-    typeof document !== "undefined" &&
-      document.querySelector("[data-radix-popper-content-wrapper]"),
-  );
-}
-
-/**
  * Embla's own `scrollSnaps` can desync from its `slideRects` after certain
  * reInit/resize sequences: slideRects correctly reports N uniform-width
  * slides, but scrollSnaps keeps a shorter array from an earlier measurement
@@ -304,6 +285,22 @@ function resolveVisualIndex(
   return api.selectedScrollSnap();
 }
 
+/** Embla's selection changes before the outgoing pane has finished moving. */
+function resolveSelectedIndex(api: EmblaCarouselType, optionsLength: number): number {
+  const engine = api.internalEngine?.();
+  const width = engine?.slideRects?.[0]?.width;
+  const boundsMatch =
+    typeof width === "number" &&
+    width > 0 &&
+    engine?.scrollSnaps?.length === optionsLength &&
+    Math.abs((engine.limit?.min ?? NaN) + (optionsLength - 1) * width) <= 1;
+  const selected = api.selectedScrollSnap();
+  if ((!engine || boundsMatch) && selected >= 0 && selected < optionsLength) {
+    return selected;
+  }
+  return resolveVisualIndex(api, optionsLength);
+}
+
 interface SwipeViewsProps {
   children: React.ReactNode;
   options: readonly { label: string; value: string }[];
@@ -366,9 +363,9 @@ export function SwipeViews({
       // This used to return `index > 0 && index < options.length - 1`, so Embla
       // never owned the gesture on a boundary pane. On a three-tab surface that
       // left drag working on exactly one pane, and on any two-tab surface the
-      // predicate was unsatisfiable and drag never worked at all. What people
-      // got instead was the release-only fallback below: 48px of travel and
-      // then a jump on lift, which is the "not smooth" everyone means.
+      // predicate was unsatisfiable and drag never worked at all. A separate
+      // release-only fallback hid the failure with a jump on lift. Embla now
+      // owns both edge drags and the selected snap; there is one gesture path.
       //
       // The original worry -- elastic over-drag exposing empty canvas past the
       // ends -- is already answered by `containScroll: "trimSnaps"` on the
@@ -449,62 +446,10 @@ export function SwipeViews({
   // but still needs the CURRENT selection whenever it does fire.
   const activeValueRef = useRef(activeValue);
   const optionsRef = useRef(options);
-  const edgePointerStartRef = useRef<{ x: number; y: number } | null>(null);
   useEffect(() => {
     activeValueRef.current = activeValue;
     optionsRef.current = options;
   }, [activeValue, options]);
-
-  useEffect(() => {
-    if (!emblaApi) return;
-    const root = emblaApi.rootNode();
-    const onPointerDownCapture = (event: PointerEvent) => {
-      if (
-        isNestedHorizontalScrollTarget(event.target) ||
-        isNestedSwipeViewsTarget(event.target, root) ||
-        hasOpenPopperOverlay()
-      ) {
-        edgePointerStartRef.current = null;
-        return;
-      }
-      edgePointerStartRef.current = { x: event.clientX, y: event.clientY };
-    };
-    const onPointerUpCapture = (event: PointerEvent) => {
-      const start = edgePointerStartRef.current;
-      edgePointerStartRef.current = null;
-      if (!start) return;
-      const deltaX = event.clientX - start.x;
-      const deltaY = event.clientY - start.y;
-      if (Math.abs(deltaX) < 48 || Math.abs(deltaX) <= Math.abs(deltaY)) return;
-      const currentIndex = optionsRef.current.findIndex(
-        (option) => option.value === activeValueRef.current,
-      );
-      const lastIndex = optionsRef.current.length - 1;
-      const targetIndex =
-        currentIndex === 0 && deltaX < 0
-          ? 1
-          : currentIndex === lastIndex && deltaX > 0
-            ? lastIndex - 1
-            : null;
-      if (targetIndex === null) return;
-      const target = optionsRef.current[targetIndex];
-      if (!target) return;
-      onSelectionChange?.(target.value);
-      onSelectionCommit?.(target.value);
-    };
-    const clearPointer = () => {
-      edgePointerStartRef.current = null;
-    };
-    root.addEventListener("pointerdown", onPointerDownCapture, true);
-    root.addEventListener("pointerup", onPointerUpCapture, true);
-    root.addEventListener("pointercancel", clearPointer, true);
-    return () => {
-      root.removeEventListener("pointerdown", onPointerDownCapture, true);
-      root.removeEventListener("pointerup", onPointerUpCapture, true);
-      root.removeEventListener("pointercancel", clearPointer, true);
-      edgePointerStartRef.current = null;
-    };
-  }, [emblaApi, onSelectionChange, onSelectionCommit]);
 
   /**
    * The viewport height, in `heightMode="active"`, follows the SELECTED pane.
@@ -817,7 +762,7 @@ export function SwipeViews({
   // query-backed tabs look stale on iOS and delayed the visible panel state.
   const onSelect = useCallback(() => {
     if (!emblaApi) return;
-    const currentIdx = resolveVisualIndex(emblaApi, options.length);
+    const currentIdx = resolveSelectedIndex(emblaApi, options.length);
     const newValue = options[currentIdx]?.value;
     if (newValue && newValue !== activeValue) {
       lastReportedValueRef.current = newValue;

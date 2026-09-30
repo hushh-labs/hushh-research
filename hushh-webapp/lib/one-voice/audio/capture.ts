@@ -144,6 +144,8 @@ function readEchoCancellation(stream: MediaStream): boolean | null {
 export type CaptureStartOptions = {
   onFrame: (pcm16: Uint8Array) => void;
   onLevel?: (level: number) => void;
+  /** Called if the OS or browser ends the active microphone track. */
+  onEnded?: () => void;
   /** An AudioContext created from the user's gesture. Owned by the caller. */
   audioContext?: AudioContext;
 };
@@ -176,6 +178,10 @@ export class LiveAudioCapture {
   private mutedValue = false;
   private active = false;
   private starting = false;
+  /** Invalidates an asynchronous start when the owner stops during a prompt. */
+  private startGeneration = 0;
+  private endedTrack: MediaStreamTrack | null = null;
+  private endedListener: (() => void) | null = null;
 
   constructor(options: LiveAudioCaptureOptions = {}) {
     this.workletUrl = options.workletUrl ?? CAPTURE_WORKLET_URL;
@@ -190,6 +196,17 @@ export class LiveAudioCapture {
 
   get running(): boolean {
     return this.active;
+  }
+
+  isTrackLive(): boolean {
+    return (
+      this.active &&
+      Boolean(
+        this.stream
+          ?.getAudioTracks()
+          .some((track) => track.readyState === "live"),
+      )
+    );
   }
 
   get sampleRate(): number | null {
@@ -208,10 +225,35 @@ export class LiveAudioCapture {
         message: "Voice capture is already running.",
       });
     }
+    const generation = ++this.startGeneration;
+    const assertCurrent = () => {
+      if (generation !== this.startGeneration) {
+        throw new MicCaptureError({
+          code: "not_readable",
+          message: "Microphone capture was stopped.",
+        });
+      }
+    };
     this.starting = true;
     try {
       const stream = await this.getUserMedia(MIC_CONSTRAINTS);
       this.stream = stream;
+      // A permission prompt may settle after Stop or app background. Release
+      // that late stream before creating an AudioContext or worklet.
+      assertCurrent();
+      const track = stream.getAudioTracks()[0];
+      let trackEnded = false;
+      if (track) {
+        const onEnded = () => {
+          trackEnded = true;
+          if (!this.active) return;
+          this.stop();
+          options.onEnded?.();
+        };
+        track.addEventListener("ended", onEnded);
+        this.endedTrack = track;
+        this.endedListener = onEnded;
+      }
 
       let context = options.audioContext ?? null;
       if (!context) {
@@ -227,6 +269,7 @@ export class LiveAudioCapture {
       this.context = context;
       if (context.state === "suspended") {
         await context.resume().catch(() => undefined);
+        assertCurrent();
       }
 
       if (
@@ -240,6 +283,7 @@ export class LiveAudioCapture {
       }
       try {
         await context.audioWorklet.addModule(this.workletUrl);
+        assertCurrent();
       } catch (error) {
         throw new MicCaptureError(
           {
@@ -248,6 +292,13 @@ export class LiveAudioCapture {
           },
           error,
         );
+      }
+
+      if (trackEnded || track?.readyState === "ended") {
+        throw new MicCaptureError({
+          code: "not_readable",
+          message: "Microphone stopped before voice capture was ready.",
+        });
       }
 
       const source = context.createMediaStreamSource(stream);
@@ -278,6 +329,7 @@ export class LiveAudioCapture {
         options.onFrame(floatToPcm16(downsampleTo16k(frame, sampleRate)));
       };
 
+      assertCurrent();
       this.active = true;
       return { sampleRate, echoCancellation: readEchoCancellation(stream) };
     } catch (error) {
@@ -296,11 +348,17 @@ export class LiveAudioCapture {
   }
 
   stop(): void {
+    this.startGeneration += 1;
     this.active = false;
     this.release();
   }
 
   private release(): void {
+    if (this.endedTrack && this.endedListener) {
+      this.endedTrack.removeEventListener("ended", this.endedListener);
+      this.endedTrack = null;
+      this.endedListener = null;
+    }
     if (this.node) {
       this.node.port.onmessage = null;
       try {

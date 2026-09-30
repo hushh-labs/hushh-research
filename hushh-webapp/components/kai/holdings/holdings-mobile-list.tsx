@@ -5,74 +5,21 @@ import { Search } from "@/components/icons";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { Input } from "@/components/ui/input";
-import type { Holding as PortfolioHolding } from "@/components/kai/types/portfolio";
 import {
   HoldingMobileCard,
   type HoldingMobileCardViewModel,
 } from "@/components/kai/holdings/holding-mobile-card";
 import { HoldingDetailsDrawer } from "@/components/kai/holdings/holding-details-drawer";
+import { finiteNumber, toHoldingViewModel, type HoldingsListItem } from "@/components/kai/holdings/holding-view-model";
 import { cn } from "@/lib/utils";
 
 type HoldingsFilter = "all" | "winners" | "losers" | "cash";
-
-export type HoldingsListItem = PortfolioHolding & {
-  client_id: string;
-  pending_delete?: boolean;
-};
 
 interface HoldingsMobileListProps {
   holdings: HoldingsListItem[];
   canManageHoldings?: boolean;
   onEditHolding: (holdingId: string) => void;
   onToggleDeleteHolding: (holdingId: string) => void;
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  const normalized = Number(value);
-  return Number.isFinite(normalized) ? normalized : null;
-}
-
-function resolveGainLossValue(holding: HoldingsListItem): number | null {
-  const explicit = toFiniteNumber(holding.unrealized_gain_loss);
-  if (explicit !== null) return explicit;
-  const marketValue = toFiniteNumber(holding.market_value);
-  const costBasis = toFiniteNumber(holding.cost_basis);
-  if (marketValue !== null && costBasis !== null) return marketValue - costBasis;
-  return null;
-}
-
-function resolveGainLossPct(holding: HoldingsListItem, gainLossValue: number | null): number | null {
-  const explicitPct = toFiniteNumber(holding.unrealized_gain_loss_pct);
-  if (explicitPct !== null) return explicitPct;
-  const costBasis = toFiniteNumber(holding.cost_basis);
-  if (gainLossValue !== null && costBasis !== null && costBasis !== 0) {
-    return (gainLossValue / costBasis) * 100;
-  }
-  return null;
-}
-
-function resolveAveragePrice(holding: HoldingsListItem): number | null {
-  const quantity = toFiniteNumber(holding.quantity);
-  const costBasis = toFiniteNumber(holding.cost_basis);
-  if (costBasis !== null && quantity !== null && quantity > 0) {
-    return costBasis / quantity;
-  }
-  return toFiniteNumber(holding.price);
-}
-
-function resolveCurrentPrice(holding: HoldingsListItem): number | null {
-  return toFiniteNumber(holding.price);
-}
-
-function resolveWeightPct(holding: HoldingsListItem, totalMarketValue: number): number {
-  const marketValue = toFiniteNumber(holding.market_value) || 0;
-  if (totalMarketValue <= 0) return 0;
-  return (marketValue / totalMarketValue) * 100;
-}
-
-function resolveSector(holding: HoldingsListItem): string | null {
-  const raw = String(holding.sector || holding.asset_type || holding.asset_class || "").trim();
-  return raw.length > 0 ? raw : null;
 }
 
 function holdingDirection(holding: HoldingMobileCardViewModel): number {
@@ -85,29 +32,6 @@ function holdingDirection(holding: HoldingMobileCardViewModel): number {
     if (holding.gainLossValue < 0) return -1;
   }
   return 0;
-}
-
-function toCardViewModel(holding: HoldingsListItem, totalMarketValue: number): HoldingMobileCardViewModel {
-  const marketValue = toFiniteNumber(holding.market_value) || 0;
-  const shares = toFiniteNumber(holding.quantity) || 0;
-  const gainLossValue = resolveGainLossValue(holding);
-  const gainLossPct = resolveGainLossPct(holding, gainLossValue);
-
-  return {
-    id: holding.client_id,
-    symbol: String(holding.symbol || "").trim() || "—",
-    name: String(holding.name || "").trim() || "Unnamed security",
-    marketValue,
-    shares,
-    gainLossValue,
-    gainLossPct,
-    averagePrice: resolveAveragePrice(holding),
-    currentPrice: resolveCurrentPrice(holding),
-    portfolioWeightPct: resolveWeightPct(holding, totalMarketValue),
-    sector: resolveSector(holding),
-    isCash: holding.is_cash_equivalent === true,
-    pendingDelete: Boolean(holding.pending_delete),
-  };
 }
 
 const FILTERS: Array<{ key: HoldingsFilter; label: string }> = [
@@ -132,15 +56,15 @@ export function HoldingsMobileList({
   const totalMarketValue = useMemo(() => {
     const activeTotal = holdings
       .filter((holding) => !holding.pending_delete)
-      .reduce((sum, holding) => sum + (toFiniteNumber(holding.market_value) || 0), 0);
+      .reduce((sum, holding) => sum + (finiteNumber(holding.market_value) ?? 0), 0);
     if (activeTotal > 0) return activeTotal;
-    return holdings.reduce((sum, holding) => sum + (toFiniteNumber(holding.market_value) || 0), 0);
+    return holdings.reduce((sum, holding) => sum + (finiteNumber(holding.market_value) ?? 0), 0);
   }, [holdings]);
 
   const holdingsViewModels = useMemo(
     () =>
       holdings
-        .map((holding) => toCardViewModel(holding, totalMarketValue))
+        .map((holding) => toHoldingViewModel(holding, totalMarketValue))
         .sort((a, b) => {
           if (b.portfolioWeightPct !== a.portfolioWeightPct) {
             return b.portfolioWeightPct - a.portfolioWeightPct;

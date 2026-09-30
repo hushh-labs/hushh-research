@@ -7,8 +7,6 @@ import { usePathname } from "next/navigation";
 import {
   Loader2,
   Lock,
-  Mail,
-  PenLine,
   RefreshCw,
   Receipt,
 } from "@/components/icons";
@@ -27,7 +25,7 @@ import {
   GmailWorkspaceNavigation,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
-import { AskOneButton } from "@/components/agent/ask-one-button";
+import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -52,6 +50,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import {
   describeGmailReceiptScanProgress,
   resolveGmailStatusSummary,
+  resolveGmailLastUpdatedLabel,
   resolveGmailSyncFeedback,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
@@ -435,7 +434,6 @@ export default function GmailReceiptsPage({
   const [gmailPopupAttempt, setGmailPopupAttempt] =
     useState<GmailOAuthPopupAttempt | null>(null);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
-  const [showMailManagement, setShowMailManagement] = useState(false);
   const receiptsRef = useRef<ReceiptListItem[]>([]);
   const pageRef = useRef(1);
   const pendingSyncFeedbackRef = useRef(false);
@@ -1325,6 +1323,24 @@ export default function GmailReceiptsPage({
       }),
     [gmail.status, gmail.statusError, loadingStatus],
   );
+  // The run response settles before the aggregate status refresh. Prefer it
+  // so a completed fetch never keeps the overview spinner alive.
+  const overviewReceiptsFetching = gmail.syncRun
+    ? gmail.syncRun.status === "queued" || gmail.syncRun.status === "running"
+    : isSyncingState;
+  const overviewReceiptDetail = overviewReceiptsFetching
+    ? hasStaleBackgroundSync
+      ? "Sync is taking longer than usual."
+      : isPassiveBackfillState
+        ? "Fetching older purchases…"
+        : "Fetching your latest purchases…"
+    : statusSummary.tone === "error"
+      ? statusSummary.detail
+      : gmail.syncRun?.status === "failed" || gmail.syncRun?.status === "canceled"
+        ? "Sync interrupted. Open receipts to retry."
+        : gmail.status?.last_sync_at || gmail.syncRun?.status === "completed"
+          ? "Your latest receipts are ready."
+          : "Organize your purchases in one place.";
   const primaryActionLabel = isConnected
     ? syncing
       ? "Syncing receipts…"
@@ -1934,31 +1950,17 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {journeyVariant === "workspace" && isConnected && workspace === "overview" ? (
-            <div className="flex items-center justify-between gap-4 border-y border-border/60 py-2">
-              <p className="flex items-center gap-2.5 text-sm font-medium text-emerald-700 dark:text-emerald-400">
-                <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-                Connected
-              </p>
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                aria-expanded={showMailManagement}
-                aria-controls="mail-management-panel"
-                onClick={() => setShowMailManagement((open) => !open)}
-                className="min-h-11 px-2 text-[17px] font-normal !text-[color:var(--app-accent)]"
-              >
-                {showMailManagement ? "Done" : "Manage"}
-              </Button>
-            </div>
+            <MailConnectedAccount
+              busy={gmailActionBusy !== null || loadingStatus}
+              onReconnect={() => void handleConnectGmail()}
+              onDisconnect={() => setShowDisconnectConfirm(true)}
+            />
           ) : null}
 
-          <div id="mail-management-panel" className="contents">
           {journeyVariant === "onboarding" ||
           !isConnected ||
           (workspace === "overview" &&
-            (showMailManagement || loadingStatus || statusSummary.tone === "error" ||
-              isSyncingState || hasStaleBackgroundSync)) ? (
+            (loadingStatus || statusSummary.tone === "error")) ? (
             <SurfaceInset
               className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
             >
@@ -2067,7 +2069,7 @@ export default function GmailReceiptsPage({
                         })
                       }
                       disabled={gmailActionBusy !== null || loadingStatus}
-                      className="h-12 w-full px-8 text-base sm:w-auto"
+                      className="h-12 w-full max-w-[244px] justify-center px-8 text-center text-base"
                       data-voice-control-id="retry_gmail_status"
                       data-voice-label="Retry Mail status"
                       data-voice-purpose="rechecks the Mail connection without opening Google consent."
@@ -2083,37 +2085,8 @@ export default function GmailReceiptsPage({
                   ) : null}
                 </div>
               ) : null}
-              {isConnected &&
-              journeyVariant === "workspace" &&
-              workspace === "overview" &&
-              showMailManagement &&
-              !loadingStatus ? (
-                <div className="flex w-full flex-col items-center gap-2 pt-2 sm:flex-col">
-                  <Button
-                    type="button"
-                    size="prominent"
-                    onClick={() => void handleConnectGmail()}
-                    disabled={gmailActionBusy !== null}
-                    className="min-h-11 w-full max-w-[244px] justify-center px-2 text-center sm:px-4"
-                  >
-                    <span className="truncate">Reconnect Mail</span>
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="destructive"
-                    effect="fade"
-                    onClick={() => setShowDisconnectConfirm(true)}
-                    disabled={gmailActionBusy !== null}
-                    className="min-h-11 w-full max-w-[244px] justify-center px-2 text-center sm:px-4"
-                  >
-                    <span className="truncate">Disconnect Mail</span>
-                  </Button>
-                </div>
-              ) : null}
             </SurfaceInset>
           ) : null}
-
-          </div>
 
           {journeyVariant === "onboarding" && onFinishSetup && onSkipSetup ? (
             <SetupCompletionFooter
@@ -2143,24 +2116,12 @@ export default function GmailReceiptsPage({
           {/* Stable Tab Content Container with Min-Height & Smooth Fade Transition */}
           <div className="min-h-[340px] w-full space-y-4 transition-opacity duration-150 animate-in fade-in">
             {isConnected && workspace === "overview" ? (
-            <section className="mx-auto flex w-full max-w-md flex-col items-center px-4 py-10 text-center sm:py-12">
-              <div aria-hidden="true" className="relative mb-5 flex h-20 w-20 items-center justify-center rounded-[22px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-                <Mail className="h-10 w-10" />
-                <PenLine className="absolute bottom-4 right-3 h-5 w-5 rounded bg-[color:var(--app-accent-surface)]" />
-              </div>
-              <h2 className="text-2xl font-semibold tracking-tight text-foreground">Draft with One</h2>
-              <p className="mt-2 max-w-xs text-base leading-relaxed text-muted-foreground">
-                Draft, reply, or follow up. You approve before sending.
-              </p>
-              <AskOneButton
-                onClick={handleOpenOneChat}
-                showIcon={false}
-                size="prominent"
-                className="mt-6 w-full max-w-[244px] justify-center sm:w-full"
-              >
-                Chat with One
-              </AskOneButton>
-            </section>
+            <MailOverview
+              fetching={overviewReceiptsFetching}
+              receiptDetail={overviewReceiptDetail}
+              receiptUpdated={resolveGmailLastUpdatedLabel(gmail.status, gmail.syncRun)}
+              onOpenChat={handleOpenOneChat}
+            />
           ) : null}
 
           {isConnected && (kycVisitedOwner === user?.uid || workspace === "kyc") ? (

@@ -155,6 +155,10 @@ def _is_connection_closed(exc: BaseException) -> bool:
 
 def translate_message(message: Any) -> list[LiveEvent]:
     events: list[LiveEvent] = []
+    # A provider message can close its function-call turn and carry the call
+    # together. The tool still belongs to the turn that requested it; the
+    # following model turn closes only after its tool response is supplied.
+    has_tool_call = bool(getattr(getattr(message, "tool_call", None), "function_calls", None))
     if getattr(message, "setup_complete", None) is not None:
         events.append(LiveEvent(kind="setup_complete"))
     content = getattr(message, "server_content", None)
@@ -187,7 +191,7 @@ def translate_message(message: Any) -> list[LiveEvent]:
             )
         if getattr(content, "interrupted", None):
             events.append(LiveEvent(kind="interrupted"))
-        if getattr(content, "turn_complete", None):
+        if getattr(content, "turn_complete", None) and not has_tool_call:
             events.append(LiveEvent(kind="turn_complete"))
     tool_call = getattr(message, "tool_call", None)
     if tool_call is not None:

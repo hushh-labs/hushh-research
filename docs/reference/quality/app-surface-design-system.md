@@ -318,6 +318,11 @@ Rules:
    the right. That means rows-per-page left / range right, then page navigation
    left / page count right. Do not split either pair into separate alignment
    groups or distribute them inconsistently across the row.
+   The shared `Table` container owns the only horizontal scroll region inside
+   a `DataTable` surface, contains wide columns within the route, and opts out
+   of route-tab swipe gestures. Use the existing mobile-card renderer when a
+   table can be reflowed without losing actions or labels; preserve horizontal
+   scrolling for dense comparisons that cannot fit legibly on a phone.
 9. Repeated table action cells use one fixed icon-well geometry. A read-only
    state keeps the same `size-8` rounded neutral well as its editable peer;
    only interaction semantics and foreground tone change. Do not mix bare

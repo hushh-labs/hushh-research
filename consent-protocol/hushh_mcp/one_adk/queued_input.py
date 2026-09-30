@@ -100,6 +100,7 @@ class _Inbox:
     accepting: bool
     opened_at: float
     pending: list[_Item] = field(default_factory=list)
+    inflight: list[_Item] = field(default_factory=list)
     delivered: list[str] = field(default_factory=list)
     returned: list[str] = field(default_factory=list)
     unannounced: list[str] = field(default_factory=list)
@@ -142,20 +143,32 @@ class QueuedInputRegistry:
             runs.append(_Inbox(run_id=run_id, accepting=accepting, opened_at=self._clock()))
 
     def close_run(self, owner_id: str, conversation_id: str, run_id: str) -> Settlement:
-        """End a run's inbox. The second close returns the same settlement; later ones nothing."""
+        """Settle a run, deferring final closure while a session append is in flight."""
         key = (owner_id, conversation_id)
         with self._lock:
             runs = self._inboxes.get(key, [])
             inbox = next((item for item in runs if item.run_id == run_id), None)
             if inbox is None:
                 return self._settled.pop((key, run_id), Settlement())
+            if inbox.inflight:
+                # A disconnected stream can close before the background model
+                # callback finishes saving a drained message. Leave that
+                # outcome pending until the append resolves and the background
+                # close records the final settlement.
+                inbox.accepting = False
+                for item in inbox.pending:
+                    inbox.returned.append(item.client_message_id)
+                    self._record(key, item.client_message_id, "returned")
+                inbox.pending.clear()
+                return Settlement(delivered=tuple(inbox.delivered), returned=tuple(inbox.returned))
             runs.remove(inbox)
             if not runs:
                 self._inboxes.pop(key, None)
-            for item in inbox.pending:
+            for item in [*inbox.inflight, *inbox.pending]:
                 inbox.returned.append(item.client_message_id)
                 self._record(key, item.client_message_id, "returned")
             inbox.pending.clear()
+            inbox.inflight.clear()
             settlement = Settlement(
                 delivered=tuple(inbox.delivered), returned=tuple(inbox.returned)
             )
@@ -254,11 +267,32 @@ class QueuedInputRegistry:
                 return []
             items = list(inbox.pending)
             inbox.pending.clear()
-            for item in items:
-                inbox.delivered.append(item.client_message_id)
-                inbox.unannounced.append(item.client_message_id)
-                self._record(key, item.client_message_id, "delivered")
+            # A drained message is not delivered until the sealed session
+            # append succeeds. A failed append must return it to the client.
+            inbox.inflight.extend(items)
             return items
+
+    def persisted(self, owner_id: str, conversation_id: str, run_id: str, item: _Item) -> None:
+        key = (owner_id, conversation_id)
+        with self._lock:
+            inbox = self._inbox(key, run_id)
+            if inbox is None or item not in inbox.inflight:
+                return
+            inbox.inflight.remove(item)
+            inbox.delivered.append(item.client_message_id)
+            inbox.unannounced.append(item.client_message_id)
+            self._record(key, item.client_message_id, "delivered")
+
+    def append_failed(self, owner_id: str, conversation_id: str, run_id: str) -> None:
+        key = (owner_id, conversation_id)
+        with self._lock:
+            inbox = self._inbox(key, run_id)
+            if inbox is None:
+                return
+            for item in inbox.inflight:
+                inbox.returned.append(item.client_message_id)
+                self._record(key, item.client_message_id, "returned")
+            inbox.inflight.clear()
 
     def stop_requested(self, owner_id: str, conversation_id: str, run_id: str) -> bool:
         with self._lock:
@@ -283,7 +317,7 @@ class QueuedInputRegistry:
         horizon = self._clock() - MAX_RUN_SECONDS
         for inbox in [item for item in runs if item.opened_at < horizon]:
             runs.remove(inbox)
-            for item in inbox.pending:
+            for item in [*inbox.pending, *inbox.inflight]:
                 self._record(key, item.client_message_id, "returned")
         if not runs:
             self._inboxes.pop(key, None)
@@ -428,15 +462,23 @@ async def club_queued_input(callback_context: Any, llm_request: Any) -> LlmRespo
     if not items:
         return None
     invocation = callback_context._invocation_context
-    for item in items:
-        event = Event(
-            invocation_id=invocation.invocation_id,
-            author="user",
-            branch=invocation.branch,
-            content=types.Content(role="user", parts=[types.Part(text=item.text)]),
-            custom_metadata={"kind": QUEUED_INPUT_KIND, "clientMessageId": item.client_message_id},
-        )
-        await invocation.session_service.append_event(invocation.session, event)
-        llm_request.contents.append(event.content)
+    try:
+        for item in items:
+            event = Event(
+                invocation_id=invocation.invocation_id,
+                author="user",
+                branch=invocation.branch,
+                content=types.Content(role="user", parts=[types.Part(text=item.text)]),
+                custom_metadata={
+                    "kind": QUEUED_INPUT_KIND,
+                    "clientMessageId": item.client_message_id,
+                },
+            )
+            await invocation.session_service.append_event(invocation.session, event)
+            registry.persisted(key.owner_id, key.conversation_id, key.run_id, item)
+            llm_request.contents.append(event.content)
+    except Exception:
+        registry.append_failed(key.owner_id, key.conversation_id, key.run_id)
+        raise
     logger.info("one.queued_input_joined count=%d", len(items))
     return None

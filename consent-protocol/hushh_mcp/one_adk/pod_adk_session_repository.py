@@ -175,6 +175,7 @@ class PodAdkSessionRepository:
         session: str,
         revision: int,
         payload: dict[str, str],
+        preserve_order: bool = False,
     ) -> SessionRows:
         self._validate_identity(app, session)
         if type(revision) is not int or revision < 0:
@@ -194,7 +195,16 @@ class PodAdkSessionRepository:
                 "revision": revision + 1,
                 **{"payload_" + key: value for key, value in payload.items()},
             }
-            proposed = {**entries, (app, session): {**row, "_sequence": seq + 1}}
+            if preserve_order:
+                # A generated title is metadata for the existing turn, not a
+                # new conversation activity that moves it to the top of history.
+                if previous is None or type(previous.get("_sequence")) is not int:
+                    raise PodAdkSessionUnavailable("Pod conversation order invalid.")
+                row["_sequence"] = previous["_sequence"]
+            proposed = {
+                **entries,
+                (app, session): {**row, "_sequence": row.get("_sequence", seq + 1)},
+            }
             if len(json.dumps(list(proposed.values())).encode()) > _MAX_PROJECTION_BYTES:
                 raise PodAdkSessionUnavailable("Pod conversation capacity reached.")
             record = {
@@ -297,12 +307,14 @@ class PodAdkSessionRepository:
         iv: str,
         tag: str,
         algorithm: str,
+        generated: bool = False,
     ) -> SessionRows:
         return await self._write(
             app=app,
             user=user,
             session=session,
             revision=revision,
+            preserve_order=generated,
             payload={
                 "ciphertext": ciphertext,
                 "iv": iv,

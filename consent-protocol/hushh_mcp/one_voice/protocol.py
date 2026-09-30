@@ -84,6 +84,7 @@ class AudioFrame(_Frame):
 class TextFrame(_Frame):
     type: Literal["text"]
     text: str = Field(min_length=1, max_length=MAX_TEXT_CHARS)
+    request_id: str | None = Field(default=None, min_length=1, max_length=64)
 
 
 class AppContextFrame(_Frame):
@@ -216,7 +217,9 @@ def session_ready(
     }
 
 
-def audio_out(data_b64: str, *, turn_id: str, narration: bool = False) -> dict[str, Any]:
+def audio_out(
+    data_b64: str, *, turn_id: str, narration: bool = False, origin_turn_id: str | None = None
+) -> dict[str, Any]:
     """One chunk of speech for the player.
 
     ``narration`` marks audio this server synthesized rather than audio the Live
@@ -238,13 +241,23 @@ def audio_out(data_b64: str, *, turn_id: str, narration: bool = False) -> dict[s
     }
     if narration:
         frame["narration"] = True
+    if origin_turn_id:
+        frame["origin_turn_id"] = origin_turn_id
     return frame
 
 
 def transcript(
-    kind: Literal["input", "output"], text: str, *, final: bool, turn_id: str
+    kind: Literal["input", "output"],
+    text: str,
+    *,
+    final: bool,
+    turn_id: str,
+    request_id: str | None = None,
 ) -> dict[str, Any]:
-    return {"type": f"transcript.{kind}", "text": text, "final": final, "turn_id": turn_id}
+    frame = {"type": f"transcript.{kind}", "text": text, "final": final, "turn_id": turn_id}
+    if request_id:
+        frame["request_id"] = request_id
+    return frame
 
 
 def turn(
@@ -263,8 +276,13 @@ def voice_state(
     return {"type": "state", "state": state, "turn_id": turn_id}
 
 
-def tool_started(*, call_id: str, tool: str, args_public: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "tool.started", "call_id": call_id, "tool": tool, "args_public": args_public}
+def tool_started(
+    *, call_id: str, tool: str, args_public: dict[str, Any], turn_id: str | None = None
+) -> dict[str, Any]:
+    frame = {"type": "tool.started", "call_id": call_id, "tool": tool, "args_public": args_public}
+    if turn_id:
+        frame["turn_id"] = turn_id
+    return frame
 
 
 def tool_result(
@@ -274,6 +292,7 @@ def tool_result(
     tool: str,
     result_public: dict[str, Any],
     ok: bool | None = None,
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type": "tool.result",
@@ -285,6 +304,8 @@ def tool_result(
     }
     if pending_action_id:
         payload["pending_action_id"] = pending_action_id
+    if turn_id:
+        payload["turn_id"] = turn_id
     return payload
 
 

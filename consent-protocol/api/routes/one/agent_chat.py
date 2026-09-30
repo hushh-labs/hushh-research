@@ -52,6 +52,7 @@ from hushh_mcp.one_adk.consent_continuation import (
     continued_outcomes,
 )
 from hushh_mcp.one_adk.consent_redaction import access_ended_outcome, redaction_for_history
+from hushh_mcp.one_adk.conversation_titles import ensure_conversation_titles
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
@@ -739,6 +740,12 @@ async def list_conversations(
     sessions = sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True)[
         :limit
     ]
+    await ensure_conversation_titles(
+        sessions=sessions,
+        service=_session_service,
+        owner=user_id,
+        token=str(token.get("token") or ""),
+    )
     return {
         "user_id": user_id,
         "conversations": [

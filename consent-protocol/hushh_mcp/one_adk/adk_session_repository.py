@@ -54,6 +54,7 @@ class AdkSessionRepository(Protocol):
         iv: str,
         tag: str,
         algorithm: str,
+        generated: bool = False,
     ) -> SessionRecordResult: ...
 
 
@@ -146,12 +147,13 @@ class PostgresAdkSessionRepository:
         iv: str,
         tag: str,
         algorithm: str,
+        generated: bool = False,
     ) -> SessionRecordResult:
         return await self._execute(
             """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
                       payload_iv = :iv, payload_tag = :tag,
                       payload_algorithm = :algorithm, revision = revision + 1,
-                      updated_at = NOW()
+                      updated_at = CASE WHEN :generated THEN updated_at ELSE NOW() END
                WHERE app_name = :app AND user_id = :user AND session_id = :session
                  AND revision = :revision AND payload_ciphertext LIKE :chat_marker
                RETURNING revision""",
@@ -160,6 +162,7 @@ class PostgresAdkSessionRepository:
                 "user": user,
                 "session": session,
                 "revision": revision,
+                "generated": generated,
                 "chat_marker": chat_marker,
                 "ciphertext": ciphertext,
                 "iv": iv,

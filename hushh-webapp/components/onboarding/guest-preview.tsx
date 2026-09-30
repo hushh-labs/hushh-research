@@ -771,6 +771,7 @@ export function GuestPreview({
       className={styles.shell}
       data-testid="guest-preview"
       data-preview-step={step + 1}
+      data-has-invitation={Boolean(invitation)}
     >
       <header className={styles.topbar}>
         <div className={styles.backSlot}>

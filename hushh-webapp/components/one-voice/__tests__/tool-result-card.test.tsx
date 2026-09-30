@@ -724,6 +724,57 @@ describe("ToolResultCard: opening a mail original", () => {
     ]);
   });
 
+  it("shows analysis by category while Open stays bound to the original row", async () => {
+    const calls: unknown[] = [];
+    const result = mailResult([
+      { source_ref: "mail:1", subject: "Status note", sender: "Alex" },
+      {
+        source_ref: "mail:2", subject: "Project review", sender: "Priya",
+        analysis: [
+          {
+            category: "action_items", source_ref: "mail:2",
+            detail: "Review the proposal by Friday.", state: "active",
+          },
+          {
+            category: "meetings", source_ref: "mail:2",
+            detail: "Meeting moved to 4 pm.", state: "rescheduled",
+          },
+        ],
+      },
+    ]);
+    result.coverage = {
+      unit: "messages", returned: 2, scope: "search",
+      analysis_requested: ["personal_info", "action_items", "meetings"],
+      analysis_failed: ["personal_info"],
+      findings_action_items: 1, findings_meetings: 1,
+    };
+    render(
+      <ToolResultCard
+        result={result}
+        tool="read_mail"
+        ok
+        onOpenMail={async (input) => {
+          calls.push(input);
+          return {
+            sourceRef: "mail:2", subject: "Project review", sender: "Priya",
+            receivedAt: null, body: "Please review the proposal by Friday.",
+            bodyTruncated: false,
+          };
+        }}
+      />,
+    );
+    const headings = screen.getByTestId("one-voice-mail-analysis-headings");
+    expect(headings).toHaveTextContent("Personal-information requests: unavailable");
+    expect(headings).toHaveTextContent("Action items: 1");
+    expect(headings).toHaveTextContent("Meetings in Mail: 1");
+    expect(screen.getByText("Review the proposal by Friday.")).toBeInTheDocument();
+    expect(screen.getByText("Meeting moved to 4 pm.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[1]);
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-original")).toBeInTheDocument());
+    expect(calls).toEqual([{ ordinal: 2, offerRevision: 7, conversationId: CONV }]);
+  });
+
   it("closing returns to the same list in the same order", async () => {
     const onOpenMail = async () => ({
       sourceRef: "mail:1",

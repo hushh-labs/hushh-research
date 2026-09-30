@@ -140,10 +140,10 @@ function formatRelativeTimeFromNow(
 
 function hasActiveSync(status: GmailConnectionStatus | null): boolean {
   if (!status) return false;
-  const active =
-    status.last_sync_status === "running" ||
-    status.latest_run?.status === "queued" ||
-    status.latest_run?.status === "running";
+  // A concrete run wins over lagging aggregate status after completion.
+  const active = status.latest_run
+    ? hasActiveRun(status.latest_run)
+    : hasActiveStatus(status);
   return active && !isBackfillRunning(status);
 }
 

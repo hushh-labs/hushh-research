@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { formatDebateAnalysisForDisplay } from "@/lib/kai/format-debate-analysis";
 
 export type StreamingStage = "idle" | "active" | "complete" | "error";
 
@@ -364,7 +365,14 @@ export function StreamingProgressView({
     if (thoughts.length === 0) return "";
     return thoughts.map((t, i) => `[${i + 1}] **${t}**`).join("\n");
   }, [thoughts]);
-  const reasoningText = streamedText || thoughtsText;
+  // Kai's saved debate transcript retains XML-compatible tags so the backend
+  // can extract claims and evidence. Present the known schema as headings,
+  // while leaving any unknown text escaped by React rather than treating it
+  // as browser markup.
+  const reasoningText = useMemo(
+    () => formatDebateAnalysisForDisplay(streamedText || thoughtsText),
+    [streamedText, thoughtsText],
+  );
 
   return (
     <div className={cn("w-full transition-[opacity,transform] duration-150 space-y-3", className)}>

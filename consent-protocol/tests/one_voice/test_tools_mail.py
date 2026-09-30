@@ -111,6 +111,7 @@ def _delegated(
     items: list[dict[str, Any]] | None = None,
     coverage: dict[str, Any] | None = None,
     offer: dict[str, Any] | None = None,
+    failure_stage: str | None = None,
 ):
     """Stand in for run_delegated_mail_read with its real return shape.
 
@@ -140,6 +141,7 @@ def _delegated(
             "items": rows if status == "ok" else [],
             "coverage": counts if status == "ok" else None,
             "offer": offer if status == "ok" else None,
+            "failure_stage": failure_stage,
         }
 
     _run.calls = []  # type: ignore[attr-defined]
@@ -179,6 +181,60 @@ async def test_the_model_never_receives_what_a_sender_wrote(monkeypatch):
     assert HOSTILE_BODY not in to_model
     assert HOSTILE_SUBJECT not in to_model
     assert result.model_public()["coverage"]["returned"] == 1
+
+
+async def test_analysis_receipt_exposes_counts_but_never_mail_content(monkeypatch):
+    rows = _rows(2)
+    rows[0]["body"] = HOSTILE_BODY
+    rows[0]["analysis"] = [
+        {
+            "category": "action_items",
+            "source_ref": "mail:1",
+            "detail": "Review the proposal by Friday.",
+            "state": "active",
+        }
+    ]
+    result = await _call(
+        monkeypatch,
+        _delegated(
+            "ok",
+            [{"source_ref": "mail:1"}],
+            items=rows,
+            coverage=_coverage(
+                2,
+                operation="analyze_mail",
+                content_depth="message",
+                analysis_requested=["action_items", "meetings"],
+                analysis_failed=["meetings"],
+                findings_action_items=1,
+                matches_beyond_page=True,
+            ),
+        ),
+    )
+    shown = result.public()
+    assert shown["items"][0]["analysis"][0]["detail"] == "Review the proposal by Friday."
+    receipt = json.dumps(result.model_public())
+    assert "analysis_requested" in receipt and "findings_action_items" in receipt
+    assert HOSTILE_BODY not in receipt
+    assert "Review the proposal" not in receipt
+    assert "Meeting findings in mail could not be analyzed" in " ".join(result.spoken_facts)
+    assert "More mail may be outside this page" in " ".join(result.spoken_facts)
+
+
+@pytest.mark.parametrize(
+    "stage,expected",
+    [
+        ("planning", "couldn't plan"),
+        ("retrieval", "couldn't fetch"),
+        ("analysis", "couldn't complete the requested analysis"),
+    ],
+)
+async def test_mail_failure_speech_identifies_actual_stage(monkeypatch, stage, expected):
+    result = await _call(monkeypatch, _delegated("unavailable", [], failure_stage=stage))
+    spoken = " ".join(result.spoken_facts)
+    assert expected in spoken
+    assert "isn't connected" not in spoken
+    assert result.status == "rejected"
 
 
 async def test_what_one_says_is_built_from_counts_only(monkeypatch):

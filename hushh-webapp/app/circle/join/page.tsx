@@ -212,6 +212,7 @@ function CircleJoinLanding() {
       as="main"
       width="reading"
       fitContent
+      className="circle-join-centered"
       style={INVITE_MEASURE}
       data-testid="circle-join-landing"
     >

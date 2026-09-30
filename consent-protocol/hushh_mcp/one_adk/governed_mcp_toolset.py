@@ -263,7 +263,13 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
         int(row["connection_generation"]),
         1,
         connector.mcp_endpoint,
-        (curated_policy_hash(connector),),
+        # Tool admission can change without forcing OAuth again. Bind the
+        # running toolset and any pending review to that live allowlist so an
+        # operator restriction takes effect before the next remote call.
+        (
+            curated_policy_hash(connector),
+            _digest((connector.capability_policy or {}).get("tools")),
+        ),
     )
     validate_mcp_endpoint(binding.endpoint)
     # Reads the application has reviewed may skip the card; every other call,

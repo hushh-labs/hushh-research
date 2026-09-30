@@ -2651,6 +2651,17 @@ body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
   flex: 0 0 auto;
 }
 
+/* Centre the signed-in invite in the usable desktop viewport, after the
+   shell's top spacer and bottom chrome reserve. On compact or short screens
+   it stays content-height so every action remains reachable by scrolling. */
+@media (min-width: 768px) and (min-height: 700px) {
+  .app-page-shell--fit-content.circle-join-centered {
+    min-height: calc(100svh - var(--app-top-content-offset) - var(--app-scroll-bottom-pad)) !important;
+    display: grid;
+    align-content: center;
+  }
+}
+
 .app-page-shell--reading {
   max-width: 54rem;
 }
