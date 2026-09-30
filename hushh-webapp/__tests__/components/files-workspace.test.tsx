@@ -56,6 +56,16 @@ describe("Files form submission", () => {
     completeRead({ entries: [], cursor: "" });
     await waitFor(() => expect(create).toBeEnabled());
   });
+  it("serializes the two initial reads for a one-slot owner pod", async () => {
+    let completeRead!: (value: { entries: FileEntry[]; cursor: string }) => void;
+    files.list.mockImplementationOnce(
+      () => new Promise((resolve) => { completeRead = resolve; }),
+    );
+    render(<FilesWorkspace />);
+    expect(files.settings).not.toHaveBeenCalled();
+    completeRead({ entries: [], cursor: "" });
+    await waitFor(() => expect(files.settings).toHaveBeenCalledTimes(1));
+  });
   it("recovers one failed cold library read without changing pod authority", async () => {
     files.list.mockRejectedValueOnce(new TypeError("Connection interrupted"));
     render(<FilesWorkspace />);
