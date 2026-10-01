@@ -175,7 +175,7 @@ export function waitForOAuthPopup(input: {
       // Storage has no source Window. It is only a hint to reconcile server
       // status, never evidence of provider success.
       if (
-        event.storageArea === window.localStorage &&
+        (!event.storageArea || event.storageArea === window.localStorage) &&
         Date.now() < input.expiresAt &&
         input.matches(input.storageValue(event))
       )

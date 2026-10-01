@@ -43,14 +43,21 @@ function makeAttempt(): GmailOAuthPopupAttempt {
 
 describe("gmail-oauth-popup", () => {
   beforeEach(() => {
-    window.localStorage.clear();
-    window.sessionStorage.clear();
+    if (typeof window.localStorage?.setItem !== "function") {
+      Object.defineProperty(window, "localStorage", {
+        value: makeStorage(),
+        writable: true,
+        configurable: true,
+      });
+    }
+    try { window.localStorage?.clear?.(); } catch {}
+    try { window.sessionStorage?.clear?.(); } catch {}
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
-    window.localStorage.clear();
-    window.sessionStorage.clear();
+    try { window.localStorage?.clear?.(); } catch {}
+    try { window.sessionStorage?.clear?.(); } catch {}
   });
 
   it("keeps the retained popup open when sessionStorage is blocked but localStorage works", () => {

@@ -31,23 +31,28 @@ export type GmailOAuthPopupSettlement = {
   message?: string;
 };
 
-function getStorage(target?: Window | null): Storage | null {
+function getStorage(target?: Window | Storage | null): Storage | null {
+  if (!target) return null;
+  if (typeof (target as Storage).getItem === "function") return target as Storage;
   try {
-    return target?.sessionStorage ?? null;
+    const storage = (target as Window).sessionStorage;
+    return typeof storage?.getItem === "function" ? storage : null;
   } catch {
     return null;
   }
 }
 
 export function getGmailOAuthPopupSessionStorage(
-  target?: Window | null,
+  target?: Window | Storage | null,
 ): Storage | null {
   return getStorage(target);
 }
 
-function getFallbackStorage(target?: Window | null): Storage | null {
+function getFallbackStorage(target?: Window | Storage | null): Storage | null {
+  if (!target) return null;
   try {
-    return target?.localStorage ?? null;
+    const storage = (target as Window).localStorage;
+    return typeof storage?.getItem === "function" ? storage : null;
   } catch {
     return null;
   }
