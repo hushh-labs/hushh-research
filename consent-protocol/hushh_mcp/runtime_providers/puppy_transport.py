@@ -13,7 +13,7 @@ import json
 import os
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncIterator
+from typing import Any, AsyncGenerator, AsyncIterator
 
 from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
@@ -296,7 +296,7 @@ class PuppyRelayTransport(ProviderTransport):
 
     async def _frames(
         self, request: NeutralRequest, *, model: str
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         request_id = uuid.uuid4().hex
         socket = await self._connect()
         try:

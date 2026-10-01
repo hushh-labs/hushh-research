@@ -19,7 +19,7 @@ import logging
 import os
 import uuid
 from contextlib import aclosing
-from typing import Any, AsyncIterator, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from .puppy_transport import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -95,7 +95,7 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
 
     async def _frames(
         self, request: NeutralRequest, *, model: str
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncGenerator[dict[str, Any], None]:
         from hushh_mcp.services.puppy_broker import (  # noqa: PLC0415
             PuppyBrokerFenced,
             PuppyBrokerOffline,
