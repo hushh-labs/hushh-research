@@ -32,6 +32,7 @@ function renderPill(
     onMute: vi.fn(),
     onStop: vi.fn(),
     onInterrupt: vi.fn(),
+    onResume: vi.fn(),
     ...overrides,
   };
   return { ...render(<VoiceStatePill {...props} />), props };
@@ -55,7 +56,7 @@ describe("VoiceStatePill", () => {
       executing: "Working…",
       complete: "Done",
       error: "Something went wrong",
-      paused: "Paused",
+      paused: "Paused — tap to resume",
     };
     for (const [phase, label] of Object.entries(expected) as Array<
       [VoicePhase, string]
@@ -100,6 +101,15 @@ describe("VoiceStatePill", () => {
 
     for (const control of [primary, mute, stop])
       expect(control.className).toContain("h-11");
+  });
+
+  it("uses the primary control to resume a paused session", () => {
+    const { props } = renderPill({ phase: "paused" });
+    const primary = screen.getByTestId("one-voice-agent-bar-start-icon");
+    expect(primary).toHaveAccessibleName("Resume talking to One");
+    fireEvent.click(primary);
+    expect(props.onResume).toHaveBeenCalledTimes(1);
+    expect(props.onInterrupt).not.toHaveBeenCalled();
   });
 
   it("reports muted with aria-pressed and the Muted label", () => {

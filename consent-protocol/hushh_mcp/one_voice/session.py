@@ -166,6 +166,13 @@ class VoiceSession:
         self._input_segment_id: str | None = None
         self._pending_voice_turn_id: str | None = None
         self._pending_turn_ids: dict[str, str] = {}
+        self._latest_input_turn_id: str | None = None
+        self._directive_turn_ids: dict[str, str | None] = {}
+        # A tool call can end its provider turn before Live speaks its reply.
+        # Keep narration ownership through that continuation until new input
+        # actually reaches Live.
+        self._narration_owns_response = False
+        self._narration_origin_turn_id: str | None = None
         # Set from the auth frame before any tool runs; UTC until then.
         self._client_timezone = "UTC"
         self.started_at = clock()
@@ -476,6 +483,7 @@ class VoiceSession:
             else:
                 input_id = self.turn.turn_id
                 self.turn.input_seen = True
+            self._latest_input_turn_id = input_id
             await self._send(
                 protocol.transcript(
                     "input",
@@ -486,6 +494,8 @@ class VoiceSession:
                 )
             )
             if input_id == self.turn.turn_id:
+                self._narration_owns_response = False
+                self._narration_origin_turn_id = None
                 await self.live.send_text(frame.text)
         elif isinstance(frame, protocol.AppContextFrame):
             await self._update_screen(frame)
@@ -509,9 +519,15 @@ class VoiceSession:
         elif isinstance(frame, protocol.ClientStepResultFrame):
             await self._client_step_result(frame)
         elif isinstance(frame, protocol.UiSettledFrame):
-            await self._inject_event(
-                {"kind": "ui_settled", "directive_id": frame.directive_id, "status": frame.status}
-            )
+            origin_turn_id = self._directive_turn_ids.pop(frame.directive_id, None)
+            if origin_turn_id is not None and not self._origin_is_stale(origin_turn_id):
+                await self._inject_event(
+                    {
+                        "kind": "ui_settled",
+                        "directive_id": frame.directive_id,
+                        "status": frame.status,
+                    }
+                )
         elif isinstance(frame, protocol.InterruptFrame):
             await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
         elif isinstance(frame, protocol.EndFrame):
@@ -548,6 +564,27 @@ class VoiceSession:
         await self.live.send_event(
             "[ONE_EVENT] " + json.dumps(event, separators=(",", ":"), sort_keys=True)
         )
+
+    def _origin_is_stale(self, origin_turn_id: str | None) -> bool:
+        return bool(
+            origin_turn_id
+            and (
+                origin_turn_id in self._superseded_turn_ids
+                or (
+                    self._latest_input_turn_id is not None
+                    and origin_turn_id != self._latest_input_turn_id
+                )
+            )
+        )
+
+    def _remember_directive(self, origin_turn_id: str | None) -> str:
+        directive_id = uuid.uuid4().hex[:12]
+        if len(self._directive_turn_ids) >= 128:
+            self._directive_turn_ids.pop(next(iter(self._directive_turn_ids)))
+        self._directive_turn_ids[directive_id] = (
+            origin_turn_id or self._latest_input_turn_id or self.turn.turn_id
+        )
+        return directive_id
 
     # -- confirmations -------------------------------------------------------
 
@@ -687,17 +724,18 @@ class VoiceSession:
             )
         await self._emit_side_effects(outcome, origin_turn_id=origin_turn_id)
         await self._persist_entities()
-        await self._inject_event(
-            {
-                "kind": "tool_result",
-                "tool": outcome.spec.name if outcome.spec else None,
-                "pending_action_id": pending_id,
-                "confirmation_source": source,
-                # Injected into the model's own context, so it takes the model
-                # projection for the same reason as the handback above.
-                "result": outcome.result.model_public(),
-            }
-        )
+        if not self._origin_is_stale(origin_turn_id):
+            await self._inject_event(
+                {
+                    "kind": "tool_result",
+                    "tool": outcome.spec.name if outcome.spec else None,
+                    "pending_action_id": pending_id,
+                    "confirmation_source": source,
+                    # Injected into the model's own context, so it takes the model
+                    # projection for the same reason as the handback above.
+                    "result": outcome.result.model_public(),
+                }
+            )
         # An awaiting step settles the card but not the turn: "complete" only
         # once the device outcome is in and verified.
         await self._send(
@@ -739,7 +777,8 @@ class VoiceSession:
             event["verification"] = await self._verify_grants_published(
                 list(step.get("grant_ids") or [])
             )
-        await self._inject_event(event)
+        if not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
+            await self._inject_event(event)
 
     async def _settle_sos_publish_step(
         self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
@@ -780,7 +819,7 @@ class VoiceSession:
             call_id=str(step.get("call_id") or "") or None,
             origin_turn_id=str(step.get("origin_turn_id") or "") or None,
         )
-        if ok:
+        if ok and not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             self.turn.ok_results += 1
             self._last_turn_ok = True
 
@@ -842,7 +881,7 @@ class VoiceSession:
             call_id=str(step.get("call_id") or "") or None,
             origin_turn_id=str(step.get("origin_turn_id") or "") or None,
         )
-        if ok:
+        if ok and not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             self.turn.ok_results += 1
             self._last_turn_ok = True
 
@@ -875,7 +914,7 @@ class VoiceSession:
             call_id=str(step.get("call_id") or "") or None,
             origin_turn_id=str(step.get("origin_turn_id") or "") or None,
         )
-        if ok:
+        if ok and not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             # The narration turn that follows must read as a receipt even if a
             # turn_complete landed between the tool call and the device report.
             self.turn.ok_results += 1
@@ -923,7 +962,7 @@ class VoiceSession:
             call_id=str(step.get("call_id") or "") or None,
             origin_turn_id=str(step.get("origin_turn_id") or "") or None,
         )
-        if ok:
+        if ok and not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             self.turn.ok_results += 1
             self._last_turn_ok = True
 
@@ -962,7 +1001,7 @@ class VoiceSession:
         kind = event.kind
         if kind == "audio" and event.audio_b64:
             self._touch()
-            if self.turn.turn_id in self._superseded_turn_ids:
+            if self._narration_owns_response or self.turn.turn_id in self._superseded_turn_ids:
                 return
             self.turn.input_seen = True
             if self.turn.audio_chunks == 0:
@@ -990,6 +1029,10 @@ class VoiceSession:
                 if self._input_segment_id != self.turn.turn_id:
                     self._superseded_turn_ids.add(self.turn.turn_id)
                     self._pending_voice_turn_id = self._input_segment_id
+            self._latest_input_turn_id = self._input_segment_id
+            if self._input_segment_id != self._narration_origin_turn_id:
+                self._narration_owns_response = False
+                self._narration_origin_turn_id = None
             self.turn.input_seen = True
             await self._send(
                 protocol.transcript(
@@ -1001,7 +1044,7 @@ class VoiceSession:
                 self._input_segment_id = None
                 await self._send(protocol.voice_state("understanding", turn_id=self.turn.turn_id))
         elif kind == "output_transcript" and event.text:
-            if self.turn.turn_id in self._superseded_turn_ids:
+            if self._narration_owns_response or self.turn.turn_id in self._superseded_turn_ids:
                 return
             self.turn.input_seen = True
             self.turn.output_text.append(event.text)
@@ -1068,6 +1111,8 @@ class VoiceSession:
             self.turn = TurnState(turn_id=turn_id, input_seen=True)
             if self._queued_texts:
                 self._superseded_turn_ids.add(turn_id)
+            self._narration_owns_response = False
+            self._narration_origin_turn_id = None
             await self.live.send_text(text)
         else:
             self.turn = TurnState()
@@ -1126,6 +1171,32 @@ class VoiceSession:
             self._bump(pending_cancelled=1)
         if outcome.superseded:
             public = dict(public, superseded_pending_action_ids=[s.id for s in outcome.superseded])
+        if self._origin_is_stale(origin_turn_id):
+            # A newer question arrived while this call was running. Never leave
+            # an unseen confirmation in storage for session.ready to resurrect.
+            if outcome.pending is not None:
+                cancelled = await self.pending.cancel(
+                    user_id=self.ctx.user_id,
+                    pending_action_id=outcome.pending.id,
+                )
+                if cancelled is not None:
+                    self._bump(pending_cancelled=1)
+            superseded_result = {"status": "superseded", "reason_code": "newer_question"}
+            await self._send(
+                protocol.tool_result(
+                    call_id=str(call_id or "") or None,
+                    tool=name,
+                    result_public=superseded_result,
+                    ok=False,
+                    turn_id=origin_turn_id,
+                )
+            )
+            await self.live.send_tool_response(
+                call_id=call_id,
+                name=name,
+                response={**superseded_result, "spoken_facts": []},
+            )
+            return
         if outcome.pending is not None:
             self._pending_turn_ids[outcome.pending.id] = origin_turn_id
             if outcome.receipt_token:
@@ -1136,6 +1207,7 @@ class VoiceSession:
                     receipt_token=outcome.receipt_token,
                     entities=self._entities_for(outcome),
                     risk_level="high" if outcome.pending.tier == "tap" else "medium",
+                    turn_id=origin_turn_id,
                 )
             )
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
@@ -1213,7 +1285,7 @@ class VoiceSession:
             return False
         if not digest.strip():
             return False
-        if self.turn.audio_chunks:
+        if self.turn.audio_chunks or self._narration_owns_response:
             # The model is already speaking this turn. A narration would be a
             # second voice over the first, and its unseen turn id would outrank
             # the model's in the player's fence.
@@ -1242,6 +1314,8 @@ class VoiceSession:
                     )
                 )
                 spoken = True
+                self._narration_owns_response = True
+                self._narration_origin_turn_id = origin_turn_id
                 self._touch()
         except NarrationUnavailable as exc:
             # Named, not detailed: a provider message can echo the digest.
@@ -1261,8 +1335,9 @@ class VoiceSession:
         if public.get("status") == "navigation_dispatched" and public.get("gateway_action_id"):
             await self._send(
                 protocol.ui_directive(
-                    directive_id=uuid.uuid4().hex[:12],
+                    directive_id=self._remember_directive(origin_turn_id),
                     kind="navigate",
+                    turn_id=origin_turn_id,
                     payload={
                         "gateway_action_id": public["gateway_action_id"],
                         "screen": public.get("screen"),
@@ -1277,8 +1352,9 @@ class VoiceSession:
             # carries only which row, from which offer, in which conversation.
             await self._send(
                 protocol.ui_directive(
-                    directive_id=uuid.uuid4().hex[:12],
+                    directive_id=self._remember_directive(origin_turn_id),
                     kind="open_mail",
+                    turn_id=origin_turn_id,
                     payload={
                         "ordinal": public.get("ordinal"),
                         "offer_revision": public.get("offer_revision"),
@@ -1315,6 +1391,7 @@ class VoiceSession:
                     kind=str(step["kind"]),
                     payload=payload,
                     timeout_s=timeout_s,
+                    turn_id=origin_turn_id,
                 )
             )
         candidates = public.get("candidates")
@@ -1330,6 +1407,7 @@ class VoiceSession:
             await self._send(
                 protocol.candidate_picker(
                     kind=kind,
+                    turn_id=origin_turn_id,
                     question="Which one do you mean?"
                     if public.get("status") in {"multiple", "truncated"}
                     else "Is this who you mean?",
@@ -1341,7 +1419,9 @@ class VoiceSession:
                 card_kind: Literal["person", "circle"] = (
                     "circle" if card.get("kind") == "circle" else "person"
                 )
-                await self._send(protocol.entity_card(kind=card_kind, payload=card))
+                await self._send(
+                    protocol.entity_card(kind=card_kind, payload=card, turn_id=origin_turn_id)
+                )
 
     def _entities_for(self, outcome: ToolCallOutcome) -> list[dict[str, Any]]:
         cards: list[dict[str, Any]] = []

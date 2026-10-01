@@ -16,6 +16,7 @@ export function InteractionRuntime(): null {
     let cancelled = false;
 
     const isNative = Capacitor.isNativePlatform();
+    let useVisibilityFallback = !isNative;
 
     const onVisibilityChange = () => {
       // On native this event cannot tell a glance from a background. iOS hides
@@ -24,7 +25,7 @@ export function InteractionRuntime(): null {
       // notifications exactly as it does for leaving the app. Native lifecycle
       // is owned by `pause`/`resume` below; this listener stays for the web,
       // where the event means what it says.
-      if (isNative) return;
+      if (!useVisibilityFallback) return;
       appInteractionCoordinator.handleLifecycle(
         document.visibilityState === "hidden" ? "background" : "active",
       );
@@ -53,11 +54,18 @@ export function InteractionRuntime(): null {
           const resume = App.addListener("resume", () => {
             appInteractionCoordinator.handleLifecycle("active");
           });
-          return Promise.all([pause, resume]).then((handles) => ({
-            remove: () => {
+          return Promise.allSettled([pause, resume]).then((results) => {
+            const handles = results.flatMap((result) =>
+              result.status === "fulfilled" ? [result.value] : [],
+            );
+            if (handles.length !== 2) {
               for (const handle of handles) void handle.remove();
-            },
-          }));
+              throw new Error("native lifecycle listener unavailable");
+            }
+            return { remove: () => {
+              for (const handle of handles) void handle.remove();
+            } };
+          });
         })
         .then((handle) => {
           if (cancelled) {
@@ -67,7 +75,11 @@ export function InteractionRuntime(): null {
           removeNativeListener = () => void handle.remove();
         })
         .catch(() => {
-          // Browser visibility still provides the safe fallback.
+          // If native registration failed, visibility is the remaining signal
+          // that can stop a background microphone. Read its current state too.
+          if (cancelled) return;
+          useVisibilityFallback = true;
+          onVisibilityChange();
         });
     }
 

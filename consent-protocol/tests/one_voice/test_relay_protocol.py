@@ -339,6 +339,160 @@ async def test_read_tool_result_goes_to_client_and_model():
     assert fake.tool_responses[0]["id"] == "c1"
 
 
+async def test_digest_narration_owns_its_turns_audio(monkeypatch):
+    from hushh_mcp.one_voice import config
+    from hushh_mcp.services import voice_narration
+
+    monkeypatch.setattr(config, "voice_mail_narration_enabled", lambda: True)
+
+    async def narrate(_digest, *, voice_name):
+        yield voice_narration.Narration(
+            audio=b"spoken",
+            mime_type="audio/L16;codec=pcm;rate=24000",
+            sample_rate=24000,
+            characters=6,
+        )
+
+    monkeypatch.setattr(voice_narration, "narrate_digest_stream", narrate)
+
+    class NarratedResult(EchoResult):
+        def narratable_digest(self) -> str:
+            return "A short digest."
+
+    class NarratedExecutor:
+        async def call(self, _ctx, _name, _args):
+            return ToolCallOutcome(result=NarratedResult(status="ok", echoed="mail"))
+
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    session.executor = NarratedExecutor()
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Find my mail"))
+    await session._dispatch_tool_call({"id": "c1", "name": "echo", "args": {"text": "mail"}})
+    narrated = transport.frames("audio")
+    assert len(narrated) == 1 and narrated[0]["narration"] is True
+    assert fake.tool_responses[0]["response"]["spoken_facts"] == []
+
+    await session._handle_live_event(LiveEvent(kind="audio", audio_b64="QUJD"))
+    await session._handle_live_event(
+        LiveEvent(kind="output_transcript", text="A model duplicate.", finished=True)
+    )
+    assert transport.frames("audio") == narrated
+    assert transport.frames("transcript.output") == []
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_live_event(LiveEvent(kind="audio", audio_b64="QUJD"))
+    await session._handle_live_event(
+        LiveEvent(kind="output_transcript", text="A late model duplicate.", finished=True)
+    )
+    assert transport.frames("audio") == narrated
+    assert transport.frames("transcript.output") == []
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Next question"))
+    await session._handle_live_event(LiveEvent(kind="audio", audio_b64="QUJD"))
+    assert len(transport.frames("audio")) == 2
+
+
+async def test_stale_directive_and_client_step_acks_do_not_enter_new_question():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    old_turn = session.turn.turn_id
+    await session._emit_side_effects(
+        ToolCallOutcome(
+            result=ToolResult(
+                status="navigation_dispatched",
+                gateway_action_id="route.one_location",
+                client_step={"kind": "noop"},
+            )
+        ),
+        origin_turn_id=old_turn,
+    )
+    directive_id = transport.frames("ui_directive")[-1]["directive_id"]
+    step_id = transport.frames("client_step.request")[-1]["step_id"]
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Second question"))
+    await session._handle_client_frame(
+        protocol.UiSettledFrame(type="ui.settled", directive_id=directive_id, status="ignored")
+    )
+    await session._handle_client_frame(
+        protocol.ClientStepResultFrame(type="client_step.result", step_id=step_id, status="failed")
+    )
+    assert fake.events_sent == []
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    new_turn = session.turn.turn_id
+    await session._emit_side_effects(
+        ToolCallOutcome(
+            result=ToolResult(
+                status="navigation_dispatched",
+                gateway_action_id="route.one_location",
+                client_step={"kind": "noop"},
+            )
+        ),
+        origin_turn_id=new_turn,
+    )
+    directive_id = transport.frames("ui_directive")[-1]["directive_id"]
+    step_id = transport.frames("client_step.request")[-1]["step_id"]
+    await session._handle_client_frame(
+        protocol.UiSettledFrame(type="ui.settled", directive_id=directive_id, status="opened")
+    )
+    await session._handle_client_frame(
+        protocol.ClientStepResultFrame(type="client_step.result", step_id=step_id, status="ok")
+    )
+    assert [
+        json.loads(event.removeprefix("[ONE_EVENT] "))["kind"] for event in fake.events_sent
+    ] == ["ui_settled", "client_step"]
+
+
+async def test_superseded_confirmation_is_cancelled_before_it_can_be_relisted():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    pending = MemoryPendingStore()
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class DelayedConfirmation:
+        async def call(self, _ctx, _name, _args):
+            row, receipt = await pending.create(
+                user_id=USER,
+                conversation_id=CONV,
+                tool_name="ask",
+                gateway_action_id="location.send_request",
+                tier="tap",
+                args={},
+                summary="Ask for location",
+            )
+            started.set()
+            await release.wait()
+            return ToolCallOutcome(
+                result=AskResult(status="pending"), pending=row, receipt_token=receipt
+            )
+
+    session.executor = DelayedConfirmation()
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    call = asyncio.create_task(session._dispatch_tool_call({"id": "c1", "name": "ask", "args": {}}))
+    await asyncio.wait_for(started.wait(), 1)
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Second question"))
+    release.set()
+    await asyncio.wait_for(call, 1)
+    assert transport.frames("pending_action") == []
+    assert fake.tool_responses[-1]["response"]["status"] == "superseded"
+    assert await pending.list_open(user_id=USER, conversation_id=CONV) == []
+
+
 async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
     transport = FakeTransport()
     fake = FakeLive([])
@@ -383,7 +537,7 @@ async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
     await asyncio.wait_for(call, 1)
     assert transport.frames("tool.started")[0]["turn_id"] == old_turn
     assert transport.frames("tool.result")[0]["turn_id"] == old_turn
-    assert fake.tool_responses[0]["response"]["status"] == "ok"
+    assert fake.tool_responses[0]["response"]["status"] == "superseded"
     await session._handle_live_event(LiveEvent(kind="turn_complete"))
     assert fake.texts == ["Is Gmail connected?", "What is my name?"]
     assert session.turn.turn_id == inputs[1]["turn_id"]
