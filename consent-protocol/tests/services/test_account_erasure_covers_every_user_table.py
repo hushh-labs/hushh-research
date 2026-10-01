@@ -62,6 +62,7 @@ _CASCADE_PARENT = {
     "one_profile_discovery_feed_outbox": "one_profile_discovery_jobs",
 }
 _DRIVE_SPECIALIZED_TABLES = {
+    "drive_request_payment_orders",  # Deleted by the request-owned payment cleanup.
     "drive_share_requests",
     "drive_share_reviews",
     "drive_share_permission_operations",
