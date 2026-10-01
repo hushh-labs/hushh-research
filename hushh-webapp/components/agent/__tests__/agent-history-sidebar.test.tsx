@@ -99,12 +99,16 @@ describe("AgentHistorySidebar", () => {
     // focus (founder direction, 2026-09-29), and holds them while the menu is open.
     const age = within(today).getByText("19m");
     const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
-    // Until then they take no room, so a long title uses the whole row.
+    // Keep both widths reserved so hover, focus, and an open menu do not
+    // shift the title while the controls appear.
     for (const element of [age, actions.parentElement!]) {
-      expect(element.className).toMatch(/(^|\s)hidden(\s|$)/);
-      expect(element.className).toMatch(/group-hover:(inline|block)/);
-      expect(element.className).toMatch(/group-focus-within:(inline|block)/);
+      expect(element).toHaveClass("opacity-0");
+      expect(element).toHaveClass("group-hover:opacity-100");
+      expect(element).toHaveClass("group-focus-within:opacity-100");
+      expect(element).toHaveClass("group-has-[[data-state=open]]:opacity-100");
+      expect(element).toHaveClass("motion-reduce:transition-none");
     }
+    expect(actions.parentElement).toHaveClass("w-8", "shrink-0");
   });
 
   it("keeps a row's age and actions visible on touch", () => {
@@ -112,9 +116,9 @@ describe("AgentHistorySidebar", () => {
     renderSidebar({
       conversations: [{ ...conversations[0], last_message_at: seconds, updated_at: seconds }],
     });
-    expect(screen.getByText("5m").className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(screen.getByText("5m")).not.toHaveClass("opacity-0");
     const actions = screen.getByRole("button", { name: "Open actions for What needs a reply today?" });
-    expect(actions.parentElement!.className).not.toMatch(/(^|\s)hidden(\s|$)/);
+    expect(actions.parentElement).not.toHaveClass("opacity-0");
   });
 
   it("keeps the row menu on the shared transient tier, above the phone drawer", async () => {
