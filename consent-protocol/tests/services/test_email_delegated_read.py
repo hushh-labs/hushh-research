@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
@@ -98,18 +99,21 @@ def _analysis_reader() -> _Reader:
                     "subject": "Identity check",
                     "body": "Please upload your address proof.",
                     "thread_ref": "thread:1",
+                    "received_at": "2026-09-26T18:00:00-04:00",
                 },
                 {
                     "source_ref": "mail:2",
-                    "subject": "Team plan",
-                    "body": "Please review the proposal by Friday. The meeting is at 3 pm.",
-                    "thread_ref": "thread:2",
-                },
-                {
-                    "source_ref": "mail:3",
                     "subject": "Updated team plan",
                     "body": "The meeting moved to 4 pm.",
                     "thread_ref": "thread:2",
+                    "received_at": "2026-09-26T12:00:00-04:00",
+                },
+                {
+                    "source_ref": "mail:3",
+                    "subject": "Team plan",
+                    "body": "Please review the proposal by Friday. The meeting is at 3 pm.",
+                    "thread_ref": "thread:2",
+                    "received_at": "2026-09-25T12:00:00-04:00",
                 },
             ],
             "metadata_only": False,
@@ -152,7 +156,7 @@ async def test_analysis_preserves_combined_categories_date_scope_and_exact_sourc
                 "findings": [
                     {
                         "category": "action_items",
-                        "source_ref": "mail:2",
+                        "source_ref": "mail:3",
                         "detail": "Review the proposal by Friday.",
                         "state": "active",
                         "due_at": "2026-09-27T17:00:00-04:00",
@@ -164,8 +168,8 @@ async def test_analysis_preserves_combined_categories_date_scope_and_exact_sourc
             "findings": [
                 {
                     "category": "meetings",
-                    "source_ref": "mail:2",
-                    "update_refs": ["mail:3"],
+                    "source_ref": "mail:3",
+                    "update_refs": ["mail:2"],
                     "detail": "Meeting moved to 4 pm.",
                     "state": "rescheduled",
                     "due_at": None,
@@ -209,11 +213,11 @@ async def test_analysis_preserves_combined_categories_date_scope_and_exact_sourc
     assert coverage["matches_beyond_page"] is True
     assert [source["source_ref"] for source in result["structured"]["sources"]] == [
         "mail:1",
-        "mail:2",
         "mail:3",
+        "mail:2",
     ]
     assert result["items"][0]["analysis"][0]["detail"] == "Requests Address."
-    assert {item["category"] for item in result["items"][1]["analysis"]} == {
+    assert {item["category"] for item in result["items"][2]["analysis"]} == {
         "action_items",
         "meetings",
     }
@@ -251,9 +255,42 @@ async def test_analysis_keeps_successful_category_when_another_category_fails():
     assert result["items"][1]["analysis"][0]["category"] == "meetings"
 
 
+async def test_failed_personal_classifier_cancels_other_message_calls():
+    waiting = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": ["personal_info", "meetings"]}
+        return {"findings": []}
+
+    async def assess(row):
+        if row["source_ref"] == "mail:1":
+            await waiting.wait()
+            raise TimeoutError("classifier unavailable")
+        waiting.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    result = await asyncio.wait_for(
+        _run(_analysis_reader(), gene, personal_assessor=assess), timeout=2
+    )
+    assert result["structured"]["status"] == "ok"
+    assert result["coverage"]["analysis_failed"] == ["personal_info"]
+    assert cancelled.is_set(), "no classifier may outlive the delegated read"
+
+
 @pytest.mark.parametrize(
     "source_ref,update_refs",
-    [("mail:99", []), ("mail:1", ["mail:3"])],
+    [
+        ("mail:99", []),
+        ("mail:1", ["mail:3"]),
+        ("mail:2", ["mail:2"]),
+        ("mail:2", ["mail:3"]),
+    ],
 )
 async def test_analysis_refuses_invented_sources_or_cross_thread_updates(source_ref, update_refs):
     reader = _analysis_reader()

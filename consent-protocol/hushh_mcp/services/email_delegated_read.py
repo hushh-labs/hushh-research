@@ -176,6 +176,17 @@ def _analysis_time(value: str | None) -> bool:
     return parsed.tzinfo is not None
 
 
+def _received_at(row: dict[str, Any]) -> datetime | None:
+    value = row.get("received_at")
+    if not isinstance(value, str):
+        return None
+    try:
+        received = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return received if received.tzinfo is not None else None
+
+
 async def _analyze_rows(
     *,
     rows: list[dict[str, Any]],
@@ -217,8 +228,11 @@ async def _analyze_rows(
                 "event_at": None,
             }
 
-        results = await asyncio.gather(*(one(row) for row in rows))
-        return [result for result in results if result is not None]
+        # A failed classifier must not leave sibling calls processing mailbox
+        # text after this read has returned (or after access is withdrawn).
+        async with asyncio.TaskGroup() as group:
+            tasks = [group.create_task(one(row)) for row in rows]
+        return [result for task in tasks if (result := task.result()) is not None]
 
     async def tasks_and_meetings(category: AnalysisCategory) -> list[dict[str, Any]]:
         parsed = MailAnalysisAnswer.model_validate(
@@ -252,10 +266,15 @@ async def _analyze_rows(
                 raise ValueError("duplicate_mail_analysis")
             seen.add(key)
             origin_thread = by_ref[finding.source_ref].get("thread_ref")
+            origin_received = _received_at(by_ref[finding.source_ref])
             if any(
                 ref not in by_ref
+                or ref == finding.source_ref
                 or not origin_thread
                 or by_ref[ref].get("thread_ref") != origin_thread
+                or origin_received is None
+                or (updated_at := _received_at(by_ref[ref])) is None
+                or updated_at <= origin_received
                 for ref in finding.update_refs
             ):
                 raise ValueError("invalid_mail_update_sources")
