@@ -61,6 +61,16 @@ archives that metadata with the build and configures `HUSSH_ONE_POD_RELEASE_B64`
 alongside `HUSSH_ONE_POD_IMAGE`. This is governed deployment provenance, not an
 independent cryptographic signature.
 
+When recovery has qualified an already published dev image, a reviewed
+`deploy/pod-release-reuse.json` may pin its image, original source revision,
+original workflow run and archived-release SHA-256. Dispatch the existing
+main-owned workflow with `build_pod_image=true`; the candidate-owned build recipe
+validates the archive and executable manifest, then publishes the new descriptor
+without rebuilding the pod. `sourceRevision` retains the image's original source;
+build provenance separately records the descriptor commit and new publisher run.
+A mismatch aborts publication. Remove the reuse pin before the next application
+image build. This path neither proves compatibility nor approves installation.
+
 An empty `supportedUpgradeDigests` list offers no installation path for existing
 pods. Add a predecessor only after proving its migration, encrypted recovery and
 update continuity. Missing, mismatched or incompatible metadata refuses a new

@@ -209,7 +209,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     mockFetch.mockResolvedValueOnce(json({
       subjects: [{ subjectId: "tdv_mac_1", state: "trusted", scopes: ["puppy.inference"] }],
-      puppy: { links: [{ deviceId: "tdv_mac_1", busy: false }] },
+      puppy: { links: [{ deviceId: "tdv_mac_1", state: "ready", busy: false }] },
     }));
     mockFetch.mockResolvedValue(
       json({ text: "from your pod", model: "local", provider: "puppy", grounded: false, runtimeMode: "puppy_relay" }),
@@ -247,6 +247,24 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(url).toContain("/api/one/u/ha1_owner/turn");
     expect((init.headers as Record<string, string>).Authorization).toBe("Bearer firebase-token");
     expect(ownerPodMocks.currentPodSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["ready", false, "ready", true],
+    ["busy", false, "busy", false],
+    ["ready", true, "busy", false],
+    ["offline", false, "offline", false],
+    [undefined, false, "offline", false],
+  ])("uses the pod's reported relay state (%s, busy=%s)", async (state, busy, expected, ready) => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    mockFetch.mockResolvedValue(json({
+      subjects: [{ subjectId: "tdv_mac_1", state: "trusted", scopes: ["puppy.inference"] }],
+      puppy: { links: [{ deviceId: "tdv_mac_1", state, busy }] },
+    }));
+    await expect(ApiService.getPuppyRelayStatus("tdv_mac_1")).resolves.toMatchObject({
+      state: expected, inference_ready: ready,
+    });
   });
 
   it("discovers a verified BYOC endpoint before the first direct turn", async () => {
@@ -296,7 +314,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     mockFetch.mockResolvedValueOnce(json({
       subjects: [{ subjectId: "tdv_mac_1", state: "trusted", scopes: ["puppy.inference"] }],
-      puppy: { links: [{ deviceId: "tdv_mac_1", busy: false }] },
+      puppy: { links: [{ deviceId: "tdv_mac_1", state: "ready", busy: false }] },
     }));
     mockFetch.mockResolvedValueOnce(json({ detail: { code: "PUPPY_OFFLINE", reason: "device not linked" } }, 409));
 

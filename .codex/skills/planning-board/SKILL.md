@@ -9,7 +9,7 @@ description: Use when inspecting, summarizing, creating, triaging, or updating w
 
 - Primary scope: `planning-board-intake`
 - Trigger on `Hussh Engineering Core` or `Hussh Action Items` board summaries, issue-backed board item creation, triage, and field updates.
-- Board selection: `board_ops.py --board engineering-core` (default, Project 73) or `--board action-items` (Project 79, the `Inbox → Accepted → In Progress → Ready for QA → Ready For UAT → Done` lifecycle). Field differences are resolved against the live field catalog; see the per-board references.
+- Board selection: `board_ops.py --board engineering-core` (default, Project 73) or `--board action-items` (Project 79, the `Inbox → Accepted → In Progress → Ready for QA → Done` lifecycle). Resolve statuses and fields against the live catalog; see the per-board references.
 - Avoid overlap with `repo-operations` and `repo-context`.
 
 ## Coverage and Ownership
@@ -56,7 +56,7 @@ Non-owned surfaces:
 5. When the user asks for labels, treat labels as a first-class part of the task update instead of leaving them implicit.
 6. Do not move sprint or reset dates on existing tasks unless the user explicitly asks for that metadata change.
 7. Do not use bare issue numbers in summaries, status lists, overdue lists, or change logs when the title is available.
-8. Use `In review` when implementation is complete but PR review, UAT proof, dashboard acceptance, founder sign-off, or other external verification remains.
+8. When implementation is complete but acceptance remains, use the selected board's review state: `In review` on Project 73 or `Ready for QA` on Project 79. Do not infer deployment acceptance from source completion.
 9. Use `Done` only when the work is accepted and the issue state or acceptance evidence agrees with completion.
 10. Before and after broad cleanups, run `board_ops.py audit-state` and resolve drift deliberately.
 11. For duplicate or redundant board tasks, consolidate the scope into the canonical issue, leave a traceability comment, then remove the duplicate project item with `board_ops.py remove-task`; do not mark duplicates as `Done` just to clear the board.

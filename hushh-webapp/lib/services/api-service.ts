@@ -4361,7 +4361,7 @@ export class ApiService {
     if (!response.ok) throw new Error(`PUPPY_STATUS_UNAVAILABLE:${response.status}`);
     const status = (await response.json()) as {
       subjects?: Array<{ subjectId: string; state: string; scopes?: string[] }>;
-      puppy?: { links?: Array<{ deviceId: string; busy: boolean }> };
+      puppy?: { links?: Array<{ deviceId: string; state?: string; busy: boolean }> };
     };
     const subject = (status.subjects ?? []).find((s) => s.subjectId === deviceId);
     const link = (status.puppy?.links ?? []).find((entry) => entry.deviceId === deviceId);
@@ -4371,10 +4371,8 @@ export class ApiService {
       subject
         ? subject.state === "revoked"
           ? "revoked"
-          : link
-            ? link.busy
-              ? "busy"
-              : "ready"
+          : link?.state === "ready" || link?.state === "busy"
+            ? link.busy || link.state === "busy" ? "busy" : "ready"
             : "offline"
         : "unavailable";
     return {

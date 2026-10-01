@@ -101,6 +101,12 @@ async def test_a_busy_device_answers_busy_without_sending_a_second_request():
     assert [f["requestId"] for f in socket.sent] == ["r1"]
     await broker.deliver(KEY, {"type": "inference.done", "requestId": "r1"})
     await first
+    await broker.deliver(KEY, {"type": "relay.status", "status": "busy"})
+    assert await broker.available(KEY) is True
+    assert await _collect(broker, _request("r3")) == [
+        {"type": "inference.error", "requestId": "r3", "code": "PUPPY_BUSY"}
+    ]
+    assert [frame["requestId"] for frame in socket.sent] == ["r1"]
 
 
 async def test_an_unlinked_device_is_offline_and_a_mismatched_binding_is_refused():
@@ -112,6 +118,25 @@ async def test_an_unlinked_device_is_offline_and_a_mismatched_binding_is_refused
         await _collect(broker, _request(device="tdv_other"))
     with pytest.raises(ValueError):
         await _collect(broker, {"type": "inference.delta", "requestId": "r1", "deviceId": KEY[1]})
+
+
+async def test_an_offline_report_refuses_dispatch_until_the_same_link_reports_ready():
+    broker = pb.PuppyBroker()
+    socket = _Socket()
+    await _link(broker, socket)
+    await broker.deliver(KEY, {"type": "relay.status", "status": "offline"})
+    assert broker.is_linked(KEY) is False and await broker.available(KEY) is False
+    assert (await broker.catalog(KEY))["status"] == "offline"
+    with pytest.raises(pb.PuppyBrokerOffline):
+        await _collect(broker, _request())
+    assert socket.sent == []
+    await broker.deliver(KEY, {"type": "relay.status", "status": "ready"})
+    assert broker.is_linked(KEY) is True and await broker.available(KEY) is True
+    task = asyncio.create_task(_collect(broker, _request()))
+    await asyncio.sleep(0)
+    await broker.deliver(KEY, {"type": "inference.done", "requestId": "r1"})
+    assert (await task)[0]["type"] == "inference.done"
+    assert socket.sent[0]["type"] == "inference.request"
 
 
 async def test_a_fenced_or_uncertain_incarnation_dispatches_nothing():
@@ -238,7 +263,7 @@ async def test_heartbeat_and_status_frames_update_the_link_and_unknown_frames_re
     await broker.deliver(KEY, {"type": "relay.status", "status": "busy"})
     assert (await broker.status(KEY))["state"] == "busy"
     await broker.deliver(KEY, {"type": "relay.heartbeat", "status": "nonsense"})
-    assert (await broker.status(KEY))["state"] == "ready"
+    assert (await broker.status(KEY))["state"] == "offline"
     with pytest.raises(ValueError):
         await broker.deliver(KEY, {"type": "inference.request", "requestId": "r9"})
     with pytest.raises(ValueError):

@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import importlib.util
+import io
 import json
 import os
 import subprocess
@@ -20,6 +23,139 @@ from hushh_mcp.services.pod_release import (
 )
 
 FIXTURE = Path(__file__).parent / "fixtures/pod_release.v1.json"
+
+
+def _reuse_helper():
+    path = Path(__file__).resolve().parents[2] / "scripts/deploy/reuse-pod-release.py"
+    spec = importlib.util.spec_from_file_location("pod_release_reuse", path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+def _dev_reuse_fixture(release):
+    source = deepcopy(release)
+    source["image"] = "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "b" * 64
+    raw = json.dumps(source).encode()
+    pin = {
+        "image": source["image"],
+        "sourceRevision": source["sourceRevision"],
+        "runId": source["publisher"]["runId"],
+        "archiveSha256": hashlib.sha256(raw).hexdigest(),
+    }
+    return source, raw, pin
+
+
+def test_dev_reuse_preserves_the_archived_image_and_source(release):
+    helper = _reuse_helper()
+    source, raw, pin = _dev_reuse_fixture(release)
+    assert helper.validate_archive(pin, raw, project="hushh-pda-dev") == source
+    assert (
+        helper.NoRedirect().redirect_request(None, None, 302, "", {}, "https://other.invalid")
+        is None
+    )
+
+
+@pytest.mark.parametrize("tampered", [False, True])
+def test_dev_reuse_writes_provenance_only_after_manifest_verification(
+    release, tmp_path, monkeypatch, tampered
+):
+    helper = _reuse_helper()
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.manifest.v1+json",
+            "config": {
+                "mediaType": "application/vnd.oci.image.config.v1+json",
+                "digest": "sha256:" + "a" * 64,
+                "size": 1,
+            },
+            "layers": [],
+        }
+    ).encode()
+    source = deepcopy(release)
+    source["image"] = (
+        "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + hashlib.sha256(manifest).hexdigest()
+    )
+    raw = json.dumps(source).encode()
+    pin = {
+        "image": source["image"],
+        "sourceRevision": source["sourceRevision"],
+        "runId": source["publisher"]["runId"],
+        "archiveSha256": hashlib.sha256(raw).hexdigest(),
+    }
+    config = tmp_path / "pin.json"
+    config.write_text(json.dumps(pin))
+    output = tmp_path / "output"
+    descriptor_sha = "d" * 40
+
+    def cloud(*args):
+        if args[:2] == ("storage", "cat"):
+            assert args[2] == (
+                "gs://hushh-pda-dev_cloudbuild/pod-releases/"
+                f"{pin['sourceRevision']}/{pin['runId']}/release.json"
+            )
+            return raw
+        assert args == ("auth", "print-access-token")
+        return b"synthetic-registry-token"
+
+    class Registry:
+        def open(self, request, *, timeout):
+            assert request.full_url == (
+                "https://gcr.io/v2/hushh-pda-dev/consent-protocol-pod/manifests/"
+                + source["image"].rsplit("@", 1)[1]
+            )
+            assert timeout == 30
+            return io.BytesIO(manifest + b"tampered" if tampered else manifest)
+
+    monkeypatch.setattr(helper, "gcloud", cloud)
+    monkeypatch.setattr(helper.urllib.request, "build_opener", lambda handler: Registry())
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "reuse-pod-release.py",
+            "--config",
+            str(config),
+            "--project",
+            "hushh-pda-dev",
+            "--descriptor-sha",
+            descriptor_sha,
+            "--workspace",
+            str(output),
+        ],
+    )
+    assert helper.main() == (1 if tampered else 0)
+    if tampered:
+        assert not output.exists()
+        return
+    assert (output / "pod-image-reference").read_text().strip() == source["image"]
+    assert (output / "pod-image-source-sha").read_text().strip() == source["sourceRevision"]
+    provenance = json.loads((output / "pod-image-provenance.json").read_text())
+    assert provenance["sha"] == source["sourceRevision"]
+    assert provenance["descriptorSourceRevision"] == descriptor_sha
+
+
+@pytest.mark.parametrize("mismatch", ["checksum", "image", "source", "run", "environment"])
+def test_dev_reuse_refuses_archive_or_provenance_mismatch(release, mismatch):
+    helper = _reuse_helper()
+    source, raw, pin = _dev_reuse_fixture(release)
+    if mismatch == "checksum":
+        raw += b" "
+    else:
+        if mismatch == "image":
+            source["image"] = "gcr.io/hushh-pda-dev/consent-protocol-pod@sha256:" + "d" * 64
+        elif mismatch == "source":
+            source["sourceRevision"] = "d" * 40
+        elif mismatch == "run":
+            source["publisher"]["runId"] = "987654"
+        else:
+            source["publisher"]["environment"] = "production"
+        raw = json.dumps(source).encode()
+        pin["archiveSha256"] = hashlib.sha256(raw).hexdigest()
+    with pytest.raises(ValueError):
+        helper.validate_archive(pin, raw, project="hushh-pda-dev")
 
 
 @pytest.fixture

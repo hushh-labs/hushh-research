@@ -6,7 +6,7 @@ Canonical visual owner: [Quality and Design System Index](README.md). The
 Files-led matrix below carries this revision-bound decision.
 
 **Decision at 2026-10-01:** Dev still serves baseline `830f1f94c`;
-the refreshed candidate is local and awaits exact-SHA CI and deployment. **Hold existing-owner Files activation and main, UAT, production, and
+the refreshed candidate `55681083e` passed exact-SHA CI and its governed dev deployment is running. **Hold existing-owner Files activation and main, UAT, production, and
 stable-channel promotion.** The personal pod still serves its prior image with
 Files disabled. A published dev offer does not install or configure it.
 
@@ -31,12 +31,18 @@ contracts and operator steps. Git history retains the earlier audit chronology.
   small budget correction and regeneration. Focused boundary/UI/migration
   checks passed after that correction. The complete local core mirror passed
   in 382 seconds, including 8,453 backend tests and the PKM upgrade gate;
-  exact-SHA hosted CI remains required. No refreshed application or owner image
-  is serving yet.
-- **Schema and release:** dev ledger previously confirmed 943–945;
+  [exact-SHA hosted CI 36898355625](https://github.com/hushh-labs/hushh-research/actions/runs/36898355625)
+  passed against `55681083e` on attempt 2. A bounded failed-job rerun resolved
+  the browser dependency-install timeout and editor-performance failure;
+  no gate was weakened. [Dev deployment 36905545494](https://github.com/hushh-labs/hushh-research/actions/runs/36905545494)
+  is running; serving acceptance and owner installation remain unverified.
+- **Schema and release:** the 2026-10-01 readback confirmed 943–945 applied
+  with checksums matching source;
   source migration 946 fixes exact Files selection at pod claim, and 261
   carries Drive background defaults. Their live application remains unverified.
-  The destructive legacy-history cutover remains deferred. Published `.9`
+  Cleanup 944 is already recorded as applied; that ledger row alone does not
+  prove its deletion and recovery outcomes. The original migration 249 cleanup
+  remains deferred. Published `.9`
   lists predecessor `sha256:1054cdf6…f0392` without isolated image-level recovery
   proof; zero approvals/leases were observed at the last read. Source `.10`
   has **no supported predecessor**. Recheck before deployment and verify the
@@ -45,8 +51,11 @@ contracts and operator steps. Git history retains the earlier audit chronology.
   Files disabled, minimum zero, maximum one, one worker and concurrency eight.
   A helper configuration typo left the first disposable fixture in a retained
   failed dry-run attempt; no pod or substrate was created. That attempt is
-  preserved, and a fresh isolated fixture is being prepared rather than clearing
-  its authority record. Administrator-seeded phone
+  preserved. A fresh isolated fixture now serves the exact predecessor:
+  authenticated identity/key reads pass, anonymous invocation returns 403,
+  and the existing collector recorded `provisioned`. Fixture network ingress
+  was aligned with dev without changing its template or private IAM.
+  Administrator-seeded phone
   verification is not SMS onboarding evidence. Exact old-image → new-image
   cloud recovery remains the Files activation gate.
 
@@ -56,7 +65,7 @@ contracts and operator steps. Git history retains the earlier audit chronology.
 | --- | --- | --- |
 | **Existing-owner Files setup** | **Blocked.** The normal owner browser admitted to the old pod, but list returned 503 and the old release plan returned 409. The new offer is published; no image, bucket, queue, worker or owner configuration changed. | Files and release owners: prove old-image → new-image encrypted recovery in an isolated cloud pod, then use the normal owner's exact Files plan and approval. Verify installed digest, configuration and retained information. An image-only approval cannot enable Files. |
 | **Files workspace and transfer** | **Local UI accepted; live target pending.** The move picker reaches paginated nested folders and mobile actions remain usable at 320–1280 px. Focused Files tests passed. A prior already-enabled reviewer pod passed interrupted 5 MiB upload/resume, byte-exact download, rename/undo and Trash/restore. | Files browser/pod owners: repeat cold admission, list, transfer and cleanup on the newly enabled owner pod. The prior reviewer transfer does not prove this image, owner cloud or normal enrollment. |
-| **Files Agent, billing and recovery** | **Source-backed only.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. The disposable fixture failed during substrate provisioning; no cloud recovery receipt exists. Exact Files selection and pending-cloud admission corrections await CI and deployment. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
+| **Files Agent, billing and recovery** | **Source/CI accepted; cloud recovery pending.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. The replacement disposable predecessor pod is provisioned with private IAM; this is not an upgrade or Files recovery receipt. Exact Files selection and pending-cloud admission corrections await serving verification. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
 | **Chat, commands and connectors** | **Source/CI accepted; new live turns pending.** Queued chat delivery now checks status before resend. Owner-private MCP calls retain owner authority; review-required calls retain the exact one-use ledger. A historical cold browser wait timed out before a roughly 131-second pod completion. | Runtime/agent owners: measure fresh cold and warm turns, recorded command completion and a safe review-required connector approval/resume fixture. Do not infer those journeys from a 200 health response. |
 | **Puppy and machine report** | **Partial live acceptance.** A normal owner browser completed a synthetic local-model reply (60.4 seconds overall; 42.1 seconds pod stream) and displayed model/spec/jobs. A later Cancel removed the UI wait but the stream continued; server-side cancellation was not established. Browser cancellation after response headers is corrected in source, and the committed Hermes client includes admission-permit cleanup. | Device/browser owners: restart the exact dev client, prove cancellation after headers and pod work release, reconnect, and independent-internet access. A dated heartbeat is an observation, not a live resource reading. |
 | **Updates and bounded runtime** | **Prior `.6` → `.8` owner update accepted.** Active-work drain, duplicate approval coalescing and installed digest were observed then. The new `.9` release has not been installed. | Release/runtime owners: prove exact owner-approved Files update, recovery, Settings/Feed agreement, bounded overlap, idle grace and wake. Do not describe the new release as installed or scale-to-zero as measured. |

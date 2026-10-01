@@ -150,10 +150,12 @@ class PuppyBroker:
 
     def is_linked(self, key: tuple[str, str]) -> bool:
         """Synchronous read for the transport factory; the event loop owns the dict."""
-        return key in self._links
+        link = self._links.get(key)
+        return link is not None and not link.replaced and link.status in {"ready", "busy"}
 
     async def available(self, key: tuple[str, str]) -> bool:
-        return await self.get(key) is not None
+        link = await self.get(key)
+        return link is not None and not link.replaced and link.status in {"ready", "busy"}
 
     async def close_subject(
         self, device_id: str, *, code: int = 1008, reason: str = "revoked"
@@ -191,7 +193,7 @@ class PuppyBroker:
         kind = str(frame.get("type") or "")
         if kind in {"relay.heartbeat", "relay.status"}:
             status = str(frame.get("status") or "ready").strip().lower()
-            link.status = status if status in {"ready", "busy", "offline"} else "ready"
+            link.status = status if status in {"ready", "busy", "offline"} else "offline"
             return
         if kind == "model.catalog":
             self._accept_catalog(link, frame)
@@ -256,7 +258,7 @@ class PuppyBroker:
 
     async def catalog(self, key: tuple[str, str]) -> dict[str, Any]:
         link = await self.get(key)
-        if link is None:
+        if link is None or link.replaced or link.status not in {"ready", "busy"}:
             return {
                 "status": "offline",
                 "defaultModel": "",
@@ -320,7 +322,7 @@ class PuppyBroker:
         ):
             raise ValueError("Puppy request binding mismatch")
         link = await self.get(key)
-        if link is None:
+        if link is None or link.replaced or link.status not in {"ready", "busy"}:
             raise PuppyBrokerOffline("linked Puppy is offline")
         selected_model = str(frame.get("model") or "")
         if selected_model and selected_model != "local":
@@ -330,7 +332,7 @@ class PuppyBroker:
             if refusal:
                 yield {"type": "inference.error", "requestId": request_id, "code": refusal}
                 return
-        if link.busy_request_id is not None or request_id in link.pending:
+        if link.status == "busy" or link.busy_request_id is not None or request_id in link.pending:
             yield {"type": "inference.error", "requestId": request_id, "code": "PUPPY_BUSY"}
             return
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=MAX_PENDING_FRAMES)
