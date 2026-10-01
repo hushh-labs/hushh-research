@@ -4660,9 +4660,18 @@ class OneLocationAgentService:
         # stored side has already turned it into a space, so matching it as a
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
-        needle = " ".join(
-            (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).split()
+        raw_query = (query or "").strip().lower()
+        exact_email = raw_query if "@" in raw_query and " " not in raw_query else None
+        phone_digits = "".join(char for char in raw_query if char.isdigit())
+        exact_phone = (
+            phone_digits
+            if not exact_email
+            and 10 <= len(phone_digits) <= 15
+            and all(char.isdigit() or char in "+-(). " for char in raw_query)
+            else None
         )
+        identifier_search = bool(exact_email or exact_phone)
+        needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
         target = (candidate_user_id or "").strip() or None
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -4829,7 +4838,12 @@ class OneLocationAgentService:
             ) k ON TRUE
             WHERE (
               (:missing_names_only = TRUE AND a.display_name = '')
-              OR (:missing_names_only = FALSE AND a.display_name <> '' AND (
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = TRUE AND (
+                (:exact_email IS NOT NULL AND LOWER(BTRIM(a.email)) = :exact_email)
+                OR (:exact_phone IS NOT NULL AND a.phone_verified = TRUE
+                    AND REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone)
+              ))
+              OR (:missing_names_only = FALSE AND a.display_name <> '' AND :identifier_search = FALSE AND (
                 :query = ''
                 OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
                 OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
@@ -4850,6 +4864,7 @@ class OneLocationAgentService:
               )
             ORDER BY
               CASE
+                WHEN :identifier_search = TRUE THEN 0
                 WHEN :query = '' THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
                 WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
@@ -4869,6 +4884,9 @@ class OneLocationAgentService:
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,
             "missing_names_only": False,
             "query": needle,
+            "identifier_search": identifier_search,
+            "exact_email": exact_email,
+            "exact_phone": exact_phone,
             "exact_name": needle,
             "name_prefix": name_prefix_pattern,
             "word_prefix": word_prefix_pattern,
@@ -4892,7 +4910,7 @@ class OneLocationAgentService:
         # than treating missing cache information as a missing person.
         fallback_rows: list[dict[str, Any]] = []
         fallback_params = {**params, "missing_names_only": True}
-        while True:
+        while not identifier_search:
             check_deadline()
             rows = self._execute_many(directory_sql, fallback_params)
             if not rows:
@@ -4934,7 +4952,11 @@ class OneLocationAgentService:
                     uid in active_user_ids
                     and uid not in seen_user_ids
                     and label_from_identity_row(row, allow_email_handle=False)
-                    and directory_name_rank(str(row.get("display_name") or ""), needle) is not None
+                    and (
+                        identifier_search
+                        or directory_name_rank(str(row.get("display_name") or ""), needle)
+                        is not None
+                    )
                 ):
                     seen_user_ids.add(uid)
                     eligible_rows.append(row)
@@ -4946,7 +4968,9 @@ class OneLocationAgentService:
         eligible_rows = list(eligible_by_id.values())
         eligible_rows.sort(
             key=lambda row: (
-                cast(int, directory_name_rank(str(row["display_name"]), needle)),
+                0
+                if identifier_search
+                else cast(int, directory_name_rank(str(row["display_name"]), needle)),
                 str(row["display_name"]).strip().lower(),
                 str(row["user_id"]),
             )

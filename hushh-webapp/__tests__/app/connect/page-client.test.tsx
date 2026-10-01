@@ -1263,7 +1263,7 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Find by name, email or phone.")).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -1308,7 +1308,7 @@ describe("Connect — People", () => {
     // before anything on screen had said what it searched.
     render(<ConnectPageClient />);
 
-    const supporting = await screen.findByText("Search by name.");
+    const supporting = await screen.findByText("Find by name, email or phone.");
     const heading = screen.getByRole("button", {
       name: "Current directory: People",
     });
@@ -1460,7 +1460,7 @@ describe("Connect — People", () => {
     // The empty-query description disappearing is the unambiguous signal that
     // this is no longer the bounded discovery surface.
     await waitFor(() =>
-      expect(screen.queryByText("Search by name.")).toBeNull(),
+      expect(screen.queryByText("Find by name, email or phone.")).toBeNull(),
     );
     expect(screen.queryByLabelText("People per page")).toBeNull();
   });
@@ -2913,7 +2913,7 @@ describe("Connect — Circles", () => {
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Find by name, email or phone.")).toBeTruthy();
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");

@@ -2092,7 +2092,7 @@ export default function ConnectPageClient() {
           id: "connect.search_people",
           actionId: "connect.search_people",
           label: "Search for someone to connect with",
-          purpose: "Search the directory by name.",
+          purpose: "Search the directory by name, email, or phone.",
         },
         {
           id: "connect.send_request",
@@ -2109,7 +2109,7 @@ export default function ConnectPageClient() {
         {
           id: "one-connect-search",
           label: "Search people",
-          purpose: "Search the directory by name.",
+          purpose: "Search the directory by name, email, or phone.",
           actionId: "connect.search_people",
           role: "textbox",
         },
@@ -3304,7 +3304,7 @@ export default function ConnectPageClient() {
                                 ) : hasQuery ? (
                                   "Send a request."
                                 ) : (
-                                  "Search by name."
+                                  "Find by name, email or phone."
                                 )
                               }
                               separatorInset
@@ -3492,7 +3492,7 @@ export default function ConnectPageClient() {
                                         ? "No advisors yet"
                                         : "No people yet"
                                     }
-                                    description="Search by name."
+                                    description="Find by name, email or phone."
                                     density="compact"
                                     disabled
                                   />

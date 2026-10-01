@@ -72,19 +72,26 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
 
 ## Unified Mobile Header Guidelines
 
-To maintain absolute uniformity across mobile screens, all top-level workspace pages must adhere to the high-end centered layout of the Profile tab:
-
-1. **No Mixed/Stacked Headers:** Double headers, stacked titles, and triple-line headers are strictly prohibited. The page title must never be repeated below the top app bar breadcrumbs.
-2. **Clean Centered Typography:** The main screen title and its single-sentence supporting description must be perfectly centered on candidate screens, using Apple-clean typography and a maximum description layout width of `480px` for optimal legibility.
-3. **Specialist Squircle Wells:** Workspace icons must be displayed inside glowing frosted squircles (`rounded-[18px]` to `rounded-[22px]`) with a color-matched blurred glow backdrop. Full `rounded-full` circle backgrounds on iconwells are prohibited.
-4. **Standalone Left Back Button:** On sub-pages, the back button must sit on its own dedicated body row immediately preceding the main centered header layout (using a clean circular button with a discrete left margin), keeping the typography area immaculate and un-overloaded.
+The shared top shell owns navigation and the route declares its breadcrumb. Do
+not add a second Back control or repeat the title in a route-local hero. Use
+the lean shared `PageHeader` in the body only when it contributes distinct
+page context. Align it to the route's reading grid; center a focused flow only
+when that flow's layout contract calls for centering. Specialist icons use the
+shared squircle treatment, without a route-local glow or competing header.
+See [Shell and navigation ownership](./app-surface-design-system.md#shell-and-navigation-ownership)
+and [Pixel Grid And Symmetry Contract](./app-surface-design-system.md#pixel-grid-and-symmetry-contract).
 
 ## Material 3 Expressive Physics & Transforms
 
-The Morphy design language relies on physics-based responsive motion, transitioning away from rigid, linear CSS timelines toward fluid underdamped spring interactions.
+The Morphy design language uses responsive motion where it communicates a
+state change. Navigation, repeated list actions, and bottom controls stay
+stable; a bounce or overshoot is never their default. Respect reduced-motion
+preferences and the shared motion tokens.
 
 ### 1. Unified Spring Physics
-Transforms and popovers model a spring-mass-damper system. Underdamped transitions ($\zeta < 1$) establish smooth, natural bounce profiles. The physical displacement is governed by:
+Some expressive transforms and popovers may use a spring-mass-damper model
+when the motion adds meaning. This is not a default recipe for all controls.
+The physical displacement is governed by:
 
 $$m \frac{d^2x}{dt^2} + c \frac{dx}{dt} + kx = 0$$
 

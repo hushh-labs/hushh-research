@@ -11,6 +11,36 @@ than the compact skill kernel.
 3. Broad route contracts stay with `frontend-architecture`; file placement
    questions stay with `frontend-surface-placement`.
 
+## Maintainable Frontend Review
+
+Use the four code-quality lenses from
+[Toss Frontend Fundamentals](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/code-quality/en/code/index.md)
+as a review aid, not a new Hussh architecture or a demand for more abstraction:
+
+1. **Readability:** Can a reviewer follow the visible state and action without
+   holding several unrelated contexts in mind?
+2. **Predictability:** Do component names, props, returns, and side effects
+   match what callers and people using the interface expect?
+3. **Cohesion:** Will a design-token, copy, or state-contract change update
+   all surfaces that must change together?
+4. **Coupling:** Is the impact of a route or component edit bounded and
+   testable? Duplication is sometimes preferable to a premature shared seam.
+
+These qualities trade off; document the material choice when they conflict.
+The Hussh [Pixel Grid And Symmetry Contract](../../../../docs/reference/quality/app-surface-design-system.md#pixel-grid-and-symmetry-contract)
+owns geometry. Review the first and last visible cells, headings, card insets,
+focus rings, long text, and table overflow at phone and desktop widths; do
+not infer pixel accuracy from code inspection alone.
+
+Use semantic controls with an accessible name and visible focus. A placeholder
+is not a field label. Do not nest a button or link inside another interactive
+control; make sibling actions independently focusable. A clickable table row
+needs a real link or button, not `onClick` on `<tr>`. Check loading, empty,
+error, active, and reduced-motion states before calling a surface complete.
+See Toss's [interactive names](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/a11y/semantic/required-label.md),
+[nested buttons](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/a11y/structure/button-inside-button.md),
+and [table row links](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/a11y/structure/table-row-link.md).
+
 ## Layout And Hierarchy
 
 1. Review composition before styling polish.

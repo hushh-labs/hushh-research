@@ -26,9 +26,10 @@ const source = readFileSync(
  * the actual Gmail settings page, untouched.
  */
 describe("Agent One chat workspace wiring contract", () => {
-  it("mounts recent Drive sharing only in the shared history drawer", () => {
+  it("refreshes recent Drive sharing only while chat history is open", () => {
     const sidebar = source.slice(source.indexOf("const renderHistorySidebar ="), source.indexOf("const getEmailDeliveryAuth ="));
-    expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" onNeedsReviewChange={onDriveNeedsReviewChange} />');
+    expect(sidebar).toContain('<DriveRecentSharing presentation="sidebar" active={isHistoryDrawerOpen && drawerMode === "chats"} onNeedsReviewChange={onDriveNeedsReviewChange} />');
+    expect(source).toContain("open={isHistoryDrawerOpen}");
     expect(source).toContain("chats={renderHistorySidebar(");
     expect(source.match(/<DriveRecentSharing\b/g)).toHaveLength(1);
     expect(source).toContain('Drive ${driveReviewsPending === 1 ? "review needs" : "reviews need"} you');

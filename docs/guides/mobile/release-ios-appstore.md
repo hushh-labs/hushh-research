@@ -16,6 +16,9 @@ wires it to the selected **UAT (default) or production backend** and the shared 
 **production APNs entitlement** via Apple-managed signing, uploads it to **App Store Connect**, sets the version's
 **"What's New"** text, attaches the build, and (opt-in, one click) **submits it for public Apple
 review**. By default it stops *before* the final, irreversible "Submit for App Store Review".
+Submission is not publication. Manual release remains the default; an explicitly authorized
+`--submit --ack-blockers --release-after-approval` also selects Apple's `AFTER_APPROVAL`
+release type. Report Apple review and public availability as separate states.
 
 > **Why is UAT the default?** It preserves the historical UAT-backed release path. For a
 > production-backed release, explicitly select `backend_target=production`, verify that backend's
@@ -40,6 +43,8 @@ for `https://one.hushh.ai` and the production API:
 - The run refuses if the production `BACKEND_URL` resolves to a UAT or loopback host, and the
   project is prepared with `ios:prepare:prod`. That ends in `verify-ios-bundled-backend.sh`, which
   requires every native plugin's `backendUrl` to equal the production backend.
+  Before packaging, it also uses the existing Cloud Run provenance verifier to require that
+  all serving production backend revisions match the exact release SHA and governed deploy source.
 - **User impact:** a person's vault and records live in the database of the backend their binary
   talks to. A person who used a UAT-backed App Store build and updates to a production-backed one
   signs in with the same Firebase identity, but reaches the production database. Treat the first
@@ -104,6 +109,10 @@ For production-backed TestFlight, use the upload and resume path above.
 - **Command:** `npm run --prefix hushh-webapp ios:release:prod` **or** `make ios-prod-release`.
 - **Workflow:** `.github/workflows/release-ios-appstore.yml` (`workflow_dispatch`, `environment: production`).
 - **Dispatcher:** `scripts/release/dispatch-ios-appstore.mjs` (resolves SHA, confirms, dispatches, watches).
+  It uses the versioned GitHub dispatch API's returned run ID, never the newest-run list, and
+  independently checks that run's terminal conclusion after watching. An uncertain dispatch must
+  be inspected before retrying. The release evidence includes the backend target and sanitized
+  ASC readback of the exact attached build, release type, notes verification, and submission state.
 - **Runner:** GitHub-hosted `macos-15`, Xcode 26.3 — GCP has no macOS instances and local builds
   hang inside iCloud Drive, so only the *dispatch* runs on your machine; the Apple build runs in CI.
 - **Target:** bundle `com.hushh.app`, marketing version from `MARKETING_VERSION` in the pbxproj

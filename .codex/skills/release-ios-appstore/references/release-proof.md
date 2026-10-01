@@ -8,9 +8,11 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
 
 - One dispatch of the **"Release iOS to App Store"** workflow
   (`.github/workflows/release-ios-appstore.yml`, `runs-on: macos-15`, Xcode 26.3, Node 22) takes a
-  green `main` SHA all the way to the public App Store: web build -> Capacitor sync -> archive ->
+  green `main` SHA through preparation and optional review submission: web build -> Capacitor sync -> archive ->
   Apple-managed sign -> export/upload to App Store Connect -> set per-version "What's New" ->
-  attach the processed build -> (opt-in) submit for public review.
+  attach the processed build -> (opt-in) submit for public review. Submission is not publication:
+  default `MANUAL` release still needs publication after approval. The additional authorized
+  `--release-after-approval` flag chooses automatic publication only after Apple approval.
 - **Backend is selected per build.** `backend_target=uat` is the historical default;
   `backend_target=production` binds the binary to `one.hushh.ai` and the production API.
   The workflow reads production routing through production workload identity and refuses a
@@ -28,8 +30,8 @@ Read alongside `docs/guides/mobile/release-ios-appstore.md` (the full runbook).
   workflow name, `--ref main`, the short SHA, the mode (dry-run / prepare-only / submit), the
   selected backend (`uat` or `production`), and the bundle. The dispatcher
   `scripts/release/dispatch-ios-appstore.mjs` also prints this and prompts.
-- **Gate 2 (public submission only).** `submit_for_review=true` is **IRREVERSIBLE** — it publishes
-  to real users. It maps to `--submit --ack-blockers` on the CLI (a local safety gate the
+- **Gate 2 (public submission only).** `submit_for_review=true` sends the version to Apple
+  review; it does not itself make the app available to users. It maps to `--submit --ack-blockers` on the CLI (a local safety gate the
   dispatcher enforces), and it requires: a separate explicit user instruction, and every
   publish-safety blocker cleared first (see the publish-safety audit note below). Never pass
   `--submit` / set `submit_for_review=true` from an automated or background context, or on
@@ -97,6 +99,8 @@ review". Before calling a release done, capture:
 
 Keep merge, smoke, dispatch, upload, and (if any) submission as separate evidence. Never call
 queued or processing work "done".
+The dispatcher binds to the API-returned run ID and re-reads terminal status; its watcher alone
+is not authority. ASC receipt fields are read back from Apple, not inferred from write success.
 
 ## Anti-rationalization
 

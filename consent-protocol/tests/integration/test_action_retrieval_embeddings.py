@@ -47,3 +47,42 @@ def test_a_paraphrase_with_no_shared_words_still_retrieves(embedding_model):
     gateway = load_action_gateway()
     results = ar.search_actions("let my wife see where I am", gateway)
     assert any(r.action_id.startswith("location.") for r in results)
+
+
+def test_local_model_custom_code_is_rejected_before_import(monkeypatch, tmp_path):
+    # GHSA-jhr6-gm9c-rqjv: a local directory must not bypass trust_remote_code.
+    # Probe the actual dependency guard, without writing or executing custom code.
+    import importlib
+    import json
+
+    from sentence_transformers import SentenceTransformer
+    from transformers import dynamic_module_utils
+
+    imports = []
+
+    def record_import(*args, **kwargs):
+        imports.append(args)
+        return object
+
+    monkeypatch.setattr(dynamic_module_utils, "get_class_from_dynamic_module", record_import)
+    # The 5.x loader imports this helper directly; patch that alias as well so
+    # the negative control exercises its real guard without importing any file.
+    try:
+        old_loader = importlib.import_module("sentence_transformers.SentenceTransformer")
+    except ImportError:
+        old_loader = None
+    if old_loader is not None:
+        monkeypatch.setattr(
+            old_loader, "get_class_from_dynamic_module", record_import, raising=False
+        )
+    (tmp_path / "modules.json").write_text(
+        json.dumps([{"idx": 0, "name": "0", "path": "", "type": "modeling_untrusted.CustomModel"}]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="trust_remote_code=True"):
+        SentenceTransformer(
+            str(tmp_path),
+            trust_remote_code=False,
+            local_files_only=True,
+        )
+    assert imports == []

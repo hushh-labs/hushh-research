@@ -109,17 +109,17 @@ export function DriveBackgroundSearches({ onUseInChat }: SearchSelectionProps = 
   if (!user || !isVaultUnlocked) return null;
   return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken} onUseInChat={onUseInChat} />;
 }
-export function DriveRecentSharing({ presentation = "card", onNeedsReviewChange }: {
-  presentation?: "card" | "sidebar"; onNeedsReviewChange?: (count: number) => void;
+export function DriveRecentSharing({ presentation = "card", active = true, onNeedsReviewChange }: {
+  presentation?: "card" | "sidebar"; active?: boolean; onNeedsReviewChange?: (count: number) => void;
 } = {}) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked) return null;
   return <RecentSearches key={`${user.uid}:${snapshotVaultSessionEpoch()}`} ownerId={user.uid} getToken={getVaultOwnerToken}
-    sharingOnly sidebar={presentation === "sidebar"} onNeedsReviewChange={onNeedsReviewChange} />;
+    sharingOnly sidebar={presentation === "sidebar"} active={active} onNeedsReviewChange={onNeedsReviewChange} />;
 }
-function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, sidebar = false, onNeedsReviewChange }: OwnerProps &
-  SearchSelectionProps & { ownerId: string; sharingOnly?: boolean; sidebar?: boolean; onNeedsReviewChange?: (count: number) => void }) {
+function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, sidebar = false, active = true, onNeedsReviewChange }: OwnerProps &
+  SearchSelectionProps & { ownerId: string; sharingOnly?: boolean; sidebar?: boolean; active?: boolean; onNeedsReviewChange?: (count: number) => void }) {
   const owner = useOwnerGuard(getToken);
   const serial = useRef(0);
   const bulkSerial = useRef(0);
@@ -185,18 +185,21 @@ function RecentSearches({ ownerId, getToken, onUseInChat, sharingOnly = false, s
   };
   const invalidate = useCallback(() => { ++serial.current; ++bulkSerial.current; }, []);
   useEffect(() => {
+    // The history drawer stays mounted for its slide animation. Its Drive
+    // activity must not fetch or poll while the drawer is closed.
+    if (!active) return invalidate;
     if (!sharingOnly) void load();
     void loadBulk();
     const changed = () => { if (!sharingOnly) { seen.current = true; void load(); } void loadBulk(); };
     window.addEventListener(CHANGED, changed);
     return () => { invalidate(); window.removeEventListener(CHANGED, changed); };
-  }, [load, loadBulk, invalidate, sharingOnly]);
+  }, [active, load, loadBulk, invalidate, sharingOnly]);
   useEffect(() => {
     if (sidebar) onNeedsReviewChange?.(bulkShares.filter(share => share.status === "review_ready" && share.canApprove).length);
   }, [bulkShares, onNeedsReviewChange, sidebar]);
   useEffect(() => () => { if (sidebar) onNeedsReviewChange?.(0); }, [onNeedsReviewChange, sidebar]);
   usePeriodicTask(`drive-recent-sharing:${ownerId}`, bulkShares.some(share => BULK_ACTIVE.has(share.status)) ? 10_000 : 45_000,
-    loadBulk, { enabled: sidebar && !selectedShareId });
+    loadBulk, { enabled: active && sidebar && !selectedShareId });
   const detached = sharingOnly ? bulkShares : bulkShares.filter(share => !jobs.some(job => job.jobId === share.searchJobId));
   if (sidebar) {
     if (!detached.length && (!bulkError || bulkErrorDismissed)) return null;

@@ -72,6 +72,19 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("durable Drive search UI", () => {
+  it("does not read or poll Drive sharing while the chat drawer is closed", async () => {
+    const view = render(<DriveRecentSharing presentation="sidebar" active={false} />);
+    expect(state.bulk.recentBulkShares).not.toHaveBeenCalled();
+    expect(state.tick).toBeNull();
+
+    view.rerender(<DriveRecentSharing presentation="sidebar" active />);
+    await waitFor(() => expect(state.bulk.recentBulkShares).toHaveBeenCalledTimes(1));
+    expect(state.tick).not.toBeNull();
+
+    view.rerender(<DriveRecentSharing presentation="sidebar" active={false} />);
+    expect(state.tick).toBeNull();
+  });
+
   it("keeps completed Drive batches in Feed-style sidebar rows and opens details only on request", async () => {
     const seven: DriveBulkShareView = { ...bulkReview(), status: "completed", canApprove: false, canStop: false,
       counts: { total: 7, processed: 7, shared: 4, alreadyShared: 3, skipped: 0, failed: 0, needsReview: 0, unknown: 0, pending: 0 } };

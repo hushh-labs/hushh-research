@@ -17,6 +17,8 @@ import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
+const financeSetupFromOne = `${buildOneSetupCapabilityRoute("finance")}?from=${encodeURIComponent(ROUTES.ONE_HOME)}`;
+
 function status(
   id: string,
   overrides: Partial<CapabilityStatus> = {},
@@ -83,7 +85,7 @@ describe("OneDashboardPage", () => {
     // actionable state must still lead to the bounded Finance setup workspace.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(
-      buildOneSetupCapabilityRoute("finance"),
+      financeSetupFromOne,
     );
   });
 
@@ -135,7 +137,7 @@ describe("OneDashboardPage", () => {
     // destination, so direct product routes never bypass first-run setup.
     const financeLink = screen.getByRole("link", { name: "Open Finance" });
     expect(financeLink.getAttribute("href")).toBe(
-      buildOneSetupCapabilityRoute("finance"),
+      financeSetupFromOne,
     );
     const expectedProfileFormatIcons = [
       "finance",
@@ -327,7 +329,7 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agent-list-row-finance")).toBeTruthy();
     expect(
       screen.getByRole("link", { name: "Open Finance" }).getAttribute("href"),
-    ).toBe(buildOneSetupCapabilityRoute("finance"));
+    ).toBe(financeSetupFromOne);
     expect(screen.getByLabelText("Show agent grid view")).toHaveAttribute(
       "aria-pressed",
       "false",

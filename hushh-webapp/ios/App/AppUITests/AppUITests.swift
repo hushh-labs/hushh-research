@@ -42,6 +42,10 @@ final class AppUITests: XCTestCase {
         let open = webView.buttons.matching(NSPredicate(
             format: "label BEGINSWITH %@", "Open chat history"
         )).firstMatch
+        // Navigate through visible controls while retaining the live session.
+        if !open.exists && !webView.buttons["Unlock"].exists {
+            perfTapNav(app, label: "Chat")
+        }
         // The owner may unlock manually while automation waits; no passphrase
         // is read from a file, argument, or test log.
         if !open.waitForExistence(timeout: 120) {
@@ -56,6 +60,56 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 10), "Chat drawer cannot be closed")
         close.tap()
         XCTAssertTrue(open.waitForExistence(timeout: 10), "Chat page did not resume after closing the drawer")
+    }
+
+    func testLocalSessionMemorySwipeStopsOnAdd() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in live-session check; requires an existing signed-in account")
+        }
+        let app = XCUIApplication()
+        // This per-launch route preference only navigates the bundled app. It
+        // does not enable UITestMode, mint a reviewer identity, or reset state.
+        app.launchArguments = [
+            "-CapacitorStorage.hushh_perf_probe", "1",
+            "-CapacitorStorage.hushh_perf_route", "/one/pkm",
+        ]
+        // Cold-entry evidence: the owner unlocks again manually; this does
+        // not establish key continuity in an already unlocked session.
+        app.launch()
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 60), "Local app WebView did not load")
+        let saved = webView.buttons["Saved"]
+        let add = webView.buttons["Add"]
+        let sharing = webView.buttons["Sharing"]
+        let admissionDeadline = Date().addingTimeInterval(90)
+        while Date() < admissionDeadline, !saved.exists {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        let signInVisible = webView.buttons["Continue with Apple"].exists
+        XCTAssertTrue(saved.exists, "Memory did not open from the current session. Sign-in visible: \(signInVisible)")
+        XCTAssertTrue(saved.isSelected, "Memory should start on Saved")
+        XCTAssertTrue(add.exists && sharing.exists, "Memory tabs are incomplete")
+
+        func swipeLeft() {
+            let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.56))
+            let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.56))
+            start.press(forDuration: 0.08, thenDragTo: end)
+        }
+        func waitForSelected(_ tab: XCUIElement) -> Bool {
+            let deadline = Date().addingTimeInterval(12)
+            while Date() < deadline {
+                if tab.isSelected { return true }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            }
+            return tab.isSelected
+        }
+
+        swipeLeft()
+        XCTAssertTrue(waitForSelected(add), "One Memory swipe must land on Add")
+        XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
+        swipeLeft()
+        XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
     }
 
     func testAccountNotFoundRecoveryReturnsToLogin() throws {
