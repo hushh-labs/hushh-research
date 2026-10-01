@@ -77,7 +77,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4013
+      "value": 4008
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -509,7 +509,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": "PersonProfileService",
-      "value": 621
+      "value": 640
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -653,7 +653,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestAgentTreeShape",
-      "value": 498
+      "value": 500
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1355,7 +1355,7 @@
       "limit": 250,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": "TestBackendDirectConnectionReadTools",
-      "value": 254
+      "value": 257
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -2651,7 +2651,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": "get_viewer_profile",
-      "value": 227
+      "value": 246
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2930,7 +2930,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "search_directory",
-      "value": 202
+      "value": 197
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11408,7 +11408,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-chat-workspace.tsx",
       "symbol": null,
-      "value": 10150
+      "value": 10079
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11489,7 +11489,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_one_adk_agent_tree.py",
       "symbol": null,
-      "value": 5902
+      "value": 5907
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11597,7 +11597,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4329
+      "value": 4324
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11615,7 +11615,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/connect/page-client.tsx",
       "symbol": null,
-      "value": 4089
+      "value": 4072
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11741,7 +11741,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_connections_service.py",
       "symbol": null,
-      "value": 3212
+      "value": 3218
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12074,7 +12074,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/puppy-resource-monitor.tsx",
       "symbol": null,
-      "value": 2134
+      "value": 2169
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12254,7 +12254,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/profile/pkm-natural-panel.tsx",
       "symbol": null,
-      "value": 1893
+      "value": 1883
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13298,7 +13298,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1222
+      "value": 1224
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13514,7 +13514,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx",
       "symbol": null,
-      "value": 1146
+      "value": 1147
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13667,7 +13667,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
-      "value": 1097
+      "value": 1102
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14999,7 +14999,7 @@
       "limit": 500,
       "path": "hushh-webapp/app/one/setup/kai/page.tsx",
       "symbol": null,
-      "value": 792
+      "value": 793
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15071,7 +15071,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
       "symbol": null,
-      "value": 783
+      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15143,7 +15143,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts",
       "symbol": null,
-      "value": 775
+      "value": 796
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15206,7 +15206,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": null,
-      "value": 767
+      "value": 786
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15575,7 +15575,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/legal/legal-documents.ts",
       "symbol": null,
-      "value": 723
+      "value": 726
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17546,7 +17546,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_person_profile_service.py",
       "symbol": null,
-      "value": 559
+      "value": 607
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18284,7 +18284,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/health.py",
       "symbol": null,
-      "value": 510
+      "value": 515
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18535,6 +18535,15 @@
       "scope": "Reviewed 16 combined-file size deltas for accidental duplication and authority changes; focused Files, recovery, reviewer, connector, voice and generated-contract checks passed. All 46 are size findings; no new dependency-direction, import-initialization or parse findings. Defer bounded extraction to the owning modules; do not treat the baseline as an optimality claim.",
       "worsened_findings": 39
     },
+    "byoc_puppy_adk_delta_20260930": {
+      "adk_revision": "e3e41eaacbcf76ec2b341b575d9c182c73223915",
+      "followup": "Consider a bounded get_viewer_profile extraction on the next substantive profile change; do not split solely to satisfy a line count.",
+      "measured_improvements": 7,
+      "report_sha256": "48abc080d367a3004b21a83a5eeaf7d019bf9ae20d0df6944976479aee530e8f",
+      "reviewed_regressions": 16,
+      "scope": "Independent read-only review of 16 worsened size measurements and zero new findings after the selective ADK directory/Memory import and Puppy machine retry. Seven smaller measurements tighten the ratchet. Profile contact projection rechecks the active edge and excludes email from the public projection; focused positive and negative controls passed. No parse, dependency-direction, import-initialization, or duplicate-authority defect found. Budgets and comparator are unchanged. This records measured debt, not live readiness.",
+      "source_revision": "ceb81c2bc493408444961634721c07d8ff03c068"
+    },
     "compatible_graph_projection_20260930": {
       "report_sha256": "625c8743c9763a3b628727a37f7ba8e108aa33123a5158cbbc5a1af2856a73d1",
       "reviewed_regressions": 1,
@@ -18634,9 +18643,9 @@
       "scope": "Existing reviewer harness +10 lines, justified by reproduced live rehearsal failures. Nineteen focused tests pass. No threshold, comparator or other finding changed.",
       "source_revision": "249b3b600eb0eee4fe484ca5b1e2a908346ddef2"
     },
-    "revision": "0718468f3",
-    "scope": "Reviewed Files-led BYOC candidate after one ADK/main integration. Size debt is measured and retained; budgets, comparator, dependency direction and import initialization checks are unchanged. This baseline does not establish live readiness.",
-    "source_revision": "0718468f3",
+    "revision": "ceb81c2bc493408444961634721c07d8ff03c068",
+    "scope": "Reviewed Files-led BYOC and Puppy candidate after selective local ADK integration. Size debt is measured and retained; budgets, comparator, dependency direction and import initialization checks are unchanged. This baseline does not establish live readiness.",
+    "source_revision": "ceb81c2bc493408444961634721c07d8ff03c068",
     "update_failure_receipt_20260929": {
       "scope": "Two additional lines convert the owner update failure-report service result into a concrete mapping at the FastAPI boundary. The service package is intentionally skipped by the current gradual mypy scan. The route remains owner-authorized and returns the same receipt; no budget or comparator changed.",
       "source_revision": "067a51caf"
