@@ -71,6 +71,7 @@ Promotion targets:
 - [one-meta-glasses-ambient-agent-plan.md](./one-meta-glasses-ambient-agent-plan.md): planning-only ambient wearable agent concept
 - [one-meta-glasses-dat-execution-plan.md](./one-meta-glasses-dat-execution-plan.md): planning-only DAT execution path for the wearable concept
 - [one-docusign-fund-setup-plan.md](./one-docusign-fund-setup-plan.md): planning-only vendor-neutral agreement execution and fund-setup workflow under One, with Nav/Connections authorization, trusted action confirmation, and MuleSoft/DocuSign provider options
+- [whatsapp-business-seller-catalog-plan.md](./whatsapp-business-seller-catalog-plan.md): planning-only WhatsApp Business Platform, seller catalog import, Meta onboarding, and founder Shopify pilot
 
 ## References
 

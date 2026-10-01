@@ -7111,6 +7111,62 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/seller-catalog/pilot",
+      "page_file": "app/one/seller-catalog/pilot/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/seller-catalog/pilot/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageContentRegion"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.seller.catalog.pilot",
+          "purpose": "Private Shopify technical review with no publishing or messaging controls.",
+          "screen": "one_seller_catalog_pilot",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The selected Shopify source records are shown as a private preview.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally without inventing a control."
+        }
+      },
+      "native": {
+        "route": "/one/seller-catalog/pilot",
+        "classification": "excluded-web-only",
+        "reason": "Internal, owner-restricted Shopify technical pilot. Native use waits for a seller business authority contract and rollout decision."
+      },
+      "shell": {
+        "app_page_shell": true,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup",
       "page_file": "app/one/setup/page.tsx",
       "physical_page_exists": true,
@@ -9621,5 +9677,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "3da4ec052fd213dd3dd53d6e6aa1d1b396142304887ba998d83770df95b57c0e"
+  "content_sha256": "ad37a22266db1a7ba42fd52cf384cd7b588eb187c57cf72b42e0ccc88714cebd"
 }

@@ -170,6 +170,14 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # one path here that sends mail-derived text to a second model, so it is
     # enabled deliberately rather than inherited from the read switch.
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
+    # Private seller/WhatsApp pilot selectors. Credentials remain separate
+    # Secret Manager mounts and neither pilot opens when a value is absent.
+    "hushh_seller_pilot_owner_uid": "HUSHH_SELLER_PILOT_OWNER_UID",
+    "hushh_shopify_pilot_shop": "HUSHH_SHOPIFY_PILOT_SHOP",
+    "hushh_shopify_pilot_client_id": "HUSHH_SHOPIFY_PILOT_CLIENT_ID",
+    "hushh_shopify_pilot_product_ids": "HUSHH_SHOPIFY_PILOT_PRODUCT_IDS",
+    "hushh_whatsapp_pilot_waba_id": "HUSHH_WHATSAPP_PILOT_WABA_ID",
+    "hushh_whatsapp_pilot_phone_number_id": "HUSHH_WHATSAPP_PILOT_PHONE_NUMBER_ID",
 }
 
 

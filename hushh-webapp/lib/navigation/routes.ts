@@ -156,6 +156,7 @@ export const ROUTES = {
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   ONE_MARKETPLACE: "/one/marketplace",
+  ONE_SELLER_CATALOG_PILOT: "/one/seller-catalog/pilot",
   /** Owner setup and management for the Apple Wallet profile pass. */
   ONE_WALLET_CARD: "/one/wallet-card",
   ONE_WALLET: "/one/wallet",

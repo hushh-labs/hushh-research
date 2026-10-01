@@ -36,7 +36,9 @@ from .places import router as places_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
+from .seller_catalog_pilot import router as seller_catalog_pilot_router
 from .voice import router as voice_router
+from .whatsapp_pilot import router as whatsapp_pilot_router
 
 router = APIRouter()
 router.include_router(a2a_well_known_router)
@@ -73,6 +75,8 @@ router.include_router(public_people_router)
 router.include_router(people_router)
 router.include_router(referrals_router)
 router.include_router(runtime_router)
+router.include_router(seller_catalog_pilot_router)
 router.include_router(voice_router)
+router.include_router(whatsapp_pilot_router)
 
 __all__ = ["router"]

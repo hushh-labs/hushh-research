@@ -53,7 +53,10 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET",
-        "_DRIVE_SHARING_KEY_V1_SECRET"
+        "_DRIVE_SHARING_KEY_V1_SECRET",
+        "_HUSHH_SHOPIFY_PILOT_CLIENT_SECRET_SECRET",
+        "_HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN_SECRET",
+        "_HUSHH_META_APP_SECRET_SECRET"
       ],
       "reasons": {
         "_HUSHH_TECH_LAUNCH_PEPPER_SECRET": "Pre-existing omission, recorded when this check was added on 2026-09-08. Inherited, not reviewed. Verify against the live service before assuming it is intended.",
@@ -84,7 +87,10 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET": "The constrained Picker developer key belongs only to the UAT origin and Drive project; it must not be bound in production.",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": "UAT connector credential encryption material must not cross environment boundaries; production requires independently provisioned keys.",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET": "UAT document encryption material must not cross environment boundaries; production requires independently provisioned keys.",
-        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; production requires independently provisioned keys."
+        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; production requires independently provisioned keys.",
+        "_HUSHH_SHOPIFY_PILOT_CLIENT_SECRET_SECRET": "The private seller catalog pilot is UAT-only; production requires a separately approved Shopify app and credentials.",
+        "_HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN_SECRET": "The Meta test webhook verify token is UAT-only and must not be reused in production.",
+        "_HUSHH_META_APP_SECRET_SECRET": "The Meta test app secret is UAT-only; production requires its own reviewed app identity."
       }
     },
     "deploy-dev.yml": {
@@ -116,7 +122,10 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET",
-        "_DRIVE_SHARING_KEY_V1_SECRET"
+        "_DRIVE_SHARING_KEY_V1_SECRET",
+        "_HUSHH_SHOPIFY_PILOT_CLIENT_SECRET_SECRET",
+        "_HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN_SECRET",
+        "_HUSHH_META_APP_SECRET_SECRET"
       ],
       "reasons": {
         "_HUSHH_TECH_LAUNCH_PEPPER_SECRET": "Pre-existing omission, recorded when this check was added on 2026-09-08. Inherited, not reviewed. Verify against the live service before assuming it is intended.",
@@ -146,7 +155,10 @@
         "_GOOGLE_DRIVE_PICKER_API_KEY_SECRET": "The constrained Picker developer key is provisioned for the UAT origin only; dev must not use it.",
         "_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET": "UAT connector credential encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
         "_DRIVE_DOCUMENT_KEY_V1_SECRET": "UAT document encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
-        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys."
+        "_DRIVE_SHARING_KEY_V1_SECRET": "UAT sharing-receipt encryption material must not cross environment boundaries; dev requires independently provisioned keys.",
+        "_HUSHH_SHOPIFY_PILOT_CLIENT_SECRET_SECRET": "The private seller catalog pilot is UAT-only; dev requires a separate Shopify app and credentials.",
+        "_HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN_SECRET": "The Meta test webhook verify token is UAT-only and must not be reused in dev.",
+        "_HUSHH_META_APP_SECRET_SECRET": "The Meta test app secret is UAT-only; dev requires its own app identity."
       }
     }
   }

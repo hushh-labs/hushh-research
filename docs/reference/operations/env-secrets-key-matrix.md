@@ -67,6 +67,15 @@ Profile bootstrap rule:
 | `APP_FRONTEND_ORIGIN` | `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
 | `PASSKEY_ALLOWED_RP_IDS` | `consent-protocol/hushh_mcp/services/vault_keys_service.py` | Y | N | N | generated runtime config | N | generated runtime config | N | required; `localhost,127.0.0.1,<APP_FRONTEND_ORIGIN host>` only |
 | `BACKEND_RUNTIME_CONFIG_JSON` | `consent-protocol/hushh_mcp/runtime_settings.py`, `consent-protocol/server.py` | Y | N | Y | secret | N | secret | N | required |
+| `HUSHH_SELLER_PILOT_OWNER_UID` | `consent-protocol/hushh_mcp/services/seller_catalog_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional private pilot selector |
+| `HUSHH_SHOPIFY_PILOT_SHOP` | `consent-protocol/hushh_mcp/services/seller_catalog_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional private pilot selector |
+| `HUSHH_SHOPIFY_PILOT_CLIENT_ID` | `consent-protocol/hushh_mcp/services/seller_catalog_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional private pilot selector |
+| `HUSHH_SHOPIFY_PILOT_PRODUCT_IDS` | `consent-protocol/hushh_mcp/services/seller_catalog_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional private pilot selector |
+| `HUSHH_SHOPIFY_PILOT_CLIENT_SECRET` | `consent-protocol/hushh_mcp/services/seller_catalog_pilot.py` | Y | N | Y | optional secret | N | secret | N | required only when Shopify pilot is enabled |
+| `HUSHH_WHATSAPP_PILOT_WABA_ID` | `consent-protocol/api/routes/one/whatsapp_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional test asset selector |
+| `HUSHH_WHATSAPP_PILOT_PHONE_NUMBER_ID` | `consent-protocol/api/routes/one/whatsapp_pilot.py` | Y | N | Y | structured runtime config | N | hydrated env | N | optional test asset selector |
+| `HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN` | `consent-protocol/api/routes/one/whatsapp_pilot.py` | Y | N | Y | optional secret | N | secret | N | required only when WhatsApp pilot is enabled |
+| `HUSHH_META_APP_SECRET` | `consent-protocol/api/routes/one/whatsapp_pilot.py` | Y | N | Y | optional secret | N | secret | N | required only when WhatsApp pilot is enabled |
 | `DB_USER` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |
 | `DB_PASSWORD` | `consent-protocol/db/connection.py` | Y | N | Y | secret | N | secret | N | required |
 | `GMAIL_OAUTH_CLIENT_ID` | `consent-protocol/hushh_mcp/services/gmail_receipts_service.py` | Y | N | Y | secret | N | secret | N | required |
