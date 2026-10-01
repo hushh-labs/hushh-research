@@ -61,9 +61,11 @@ archives that metadata with the build and configures `HUSSH_ONE_POD_RELEASE_B64`
 alongside `HUSSH_ONE_POD_IMAGE`. This is governed deployment provenance, not an
 independent cryptographic signature.
 
-When recovery has qualified an already published dev image, a reviewed
-`deploy/pod-release-reuse.json` may pin its image, original source revision,
-original workflow run and archived-release SHA-256. Dispatch the existing
+When recovery has qualified an already published dev image, the optional JSON
+pin accepted by [the reuse verifier](../../../scripts/deploy/reuse-pod-release.py)
+records its image, original source revision, original workflow run and
+archived-release SHA-256. Create that reviewed pin only for the qualification
+change; the existing build recipe owns its location. Dispatch the existing
 main-owned workflow with `build_pod_image=true`; the candidate-owned build recipe
 validates the archive and executable manifest, then publishes the new descriptor
 without rebuilding the pod. `sourceRevision` retains the image's original source;
