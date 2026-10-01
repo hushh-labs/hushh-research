@@ -33,6 +33,7 @@ import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import {
   fetchPuppyJobs,
   fetchPuppyResources,
+  refreshPuppyLink,
   setPuppyJobPaused,
   type PuppyHeartbeatConversation,
   type PuppyHeartbeatScheduledJob,
@@ -418,6 +419,15 @@ export function PuppyMachineSheet({
   const onMachine = isLocalHost();
   const { payload, readAt, link } = useMachineReading(open, active, onMachine);
   const scheduled = usePuppyScheduledWork(open, active, onMachine);
+  const [retryingLink, setRetryingLink] = useState(false);
+  const retryLink = useCallback(async () => {
+    setRetryingLink(true);
+    try {
+      await refreshPuppyLink();
+    } finally {
+      setRetryingLink(false);
+    }
+  }, []);
   // The bridge's own message names a server env key. On a deployed origin the
   // server is a Cloud Run container and never the reader's Mac, so that
   // sentence is an instruction they cannot act on, about a machine they do not
@@ -429,11 +439,9 @@ export function PuppyMachineSheet({
   const readable =
     (payload?.configured === true && payload?.reachable === true) ||
     Boolean(link?.device);
-  // Latched, never unlatched: a transient "unavailable" link read must not
-  // yank the control out from under a thumb, and a control that appears once
-  // and stays is easier to trust than one that blinks. Starting false is
-  // correct -- on a deployed origin with no device it stays false forever,
-  // and on localhost it flips within one bridge read.
+  // Latch an actual reading so a transient failed read cannot yank the control
+  // from under a thumb. An initial failed read also needs a visible retry, but
+  // it must not latch an account with no trusted Mac into a permanent control.
   const [hasAnswer, setHasAnswer] = useState(false);
   useEffect(() => {
     if (readable) setHasAnswer(true);
@@ -476,7 +484,9 @@ export function PuppyMachineSheet({
       link={link}
       onMachine={onMachine}
       className="rounded-none border-0"
-      scheduled={
+      onRetryLink={retryLink}
+      retryingLink={retryingLink}
+      scheduled={onMachine ? (
         <PuppyJobList
           payload={scheduled.payload}
           busyIds={scheduled.busyIds}
@@ -484,14 +494,14 @@ export function PuppyMachineSheet({
           onToggle={scheduled.onToggle}
           onMachine={onMachine}
         />
-      }
+      ) : null}
     />
   );
 
   return (
     <div className={cn("flex flex-col gap-2", className)}>
       {notice ? <LinkNotice state={notice} /> : null}
-      {hasAnswer ? (
+      {hasAnswer || readable || (!onMachine && link?.state === "unavailable") ? (
       <div className="flex justify-end">
         {asSheet ? (
           <Sheet open={open} onOpenChange={setOpen} modal>
@@ -629,6 +639,8 @@ export function PuppyResourceMonitor({
   readAt = 0,
   link = null,
   onMachine = true,
+  onRetryLink,
+  retryingLink = false,
   className,
   scheduled,
 }: {
@@ -652,6 +664,9 @@ export function PuppyResourceMonitor({
    * better one, and showing both would be two readings of one machine.
    */
   link?: PuppyLink | null;
+  /** Explicit retry for a failed authenticated owner-device read. */
+  onRetryLink?: () => void;
+  retryingLink?: boolean;
   className?: string;
   /**
    * The job list, rendered under the "Scheduled work" summary.
@@ -688,18 +703,32 @@ export function PuppyResourceMonitor({
   }
 
   if (payload.configured === false) {
+    const hasReport = Boolean(link?.device?.heartbeat);
     return (
       <Shell className={className}>
-        <p className="px-4 py-3 text-xs text-muted-foreground">
-          {/* The whole branch text switches, not just `payload.message`: a
-              guard on the message alone would fall straight through to the
-              hardcoded env-key literal and leak it unchanged. And this branch
-              took NO reading, so it must not say one came from anywhere. */}
-          {onMachine
-            ? payload.message ||
-              "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."
-            : OFF_MACHINE_READING}
-        </p>
+        {onMachine || !hasReport ? (
+          <p className="px-4 py-3 text-xs text-muted-foreground">
+            {/* The bridge's server-key hint applies only on the owner's Mac. */}
+            {onMachine
+              ? payload.message ||
+                "Set HERMES_API_SERVER_KEY to read the machine Puppy One runs on."
+              : link?.state === "unavailable"
+                ? "Could not load your machine report."
+                : link?.device
+                  ? "Waiting for your trusted Mac to report its details."
+                  : OFF_MACHINE_READING}
+          </p>
+        ) : null}
+        {!onMachine && link?.state === "unavailable" && onRetryLink ? (
+          <button
+            type="button"
+            className="mx-4 min-h-11 self-start text-xs font-medium underline underline-offset-4 disabled:opacity-50"
+            onClick={onRetryLink}
+            disabled={retryingLink}
+          >
+            {retryingLink ? "Checking…" : "Try again"}
+          </button>
+        ) : null}
         <ReportedReading link={link} />
         {reportsSchedule(link) ? null : scheduled}
       </Shell>
@@ -1074,9 +1103,6 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
   const hasMachine =
     brand !== null || processor !== null || ramTotalGb !== null;
   const hasTiles = ramUsedPct !== null || batteryPct !== null;
-  const hasReading = Boolean(model) || hasMachine || hasTiles || Boolean(nextRun);
-  if (!hasReading && !schedule && !conversations) return null;
-
   const activity: string[] = [];
   if (snapshot.busy === true) activity.push("busy");
   if (activeSessions !== null) {
@@ -1084,6 +1110,9 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
       `${activeSessions} active ${activeSessions === 1 ? "session" : "sessions"}`,
     );
   }
+  const hasReading =
+    Boolean(model) || Boolean(version) || activity.length > 0 ||
+    hasMachine || hasTiles || Boolean(nextRun);
   const seen =
     device.lastHeartbeatAt !== null
       ? formatRelativeTime(device.lastHeartbeatAt, link?.checkedAt)
@@ -1100,7 +1129,7 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
           Last device report: <time dateTime={observedAt.toISOString()}>{observedAt.toLocaleString()}</time>
         </p>
       ) : null}
-      {model || activity.length > 0 ? (
+      {model || activity.length > 0 || version ? (
         <div className="flex items-start gap-3">
           <Cpu
             className="mt-0.5 size-4 shrink-0 text-muted-foreground"
@@ -1122,6 +1151,12 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
             </span>
           ) : null}
         </div>
+      ) : null}
+
+      {!hasReading && !schedule && !conversations ? (
+        <p className="text-xs text-muted-foreground">
+          This device has not reported machine details yet.
+        </p>
       ) : null}
 
       {brand || processor ? (
