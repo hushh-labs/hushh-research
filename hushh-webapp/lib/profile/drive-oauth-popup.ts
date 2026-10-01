@@ -2,9 +2,13 @@
 
 import { openOAuthWindow } from "@/lib/connections/oauth-window";
 
+// Keep this opaque marker in same-origin localStorage. Google's desktop COOP
+// can replace the popup browsing-context group during sign-in, which clears
+// popup sessionStorage before the provider returns to this callback page.
 const ATTEMPT_KEY = "one_drive_popup_attempt_v1";
 const SETTLEMENT_KEY = "one_drive_popup_settlement_v1";
 const MAX_AGE_MS = 10 * 60_000;
+const SETTLEMENT_TTL_MS = 3_000;
 export type DrivePopupAttempt = {
   connectorId: "google_drive";
   attemptId: string;
@@ -73,16 +77,20 @@ export function navigateDriveOAuthPopup(
   }
   // Only a redacted correlation marker crosses the popup boundary. Never copy
   // the opener's owner token, drafts, Google credentials or signed OAuth state.
-  popup.sessionStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempt));
+  // Write it from the opener so it remains available after a desktop browser
+  // resets the popup session during Google's COOP navigation.
+  window.localStorage.setItem(ATTEMPT_KEY, JSON.stringify(attempt));
   popup.location.replace(url.href);
 }
 
 export function readDrivePopupAttempt(): DrivePopupAttempt | null {
   try {
-    const value: unknown = JSON.parse(
-      window.sessionStorage.getItem(ATTEMPT_KEY) || "null",
-    );
-    return isDrivePopupAttempt(value) ? value : null;
+    const raw = window.localStorage.getItem(ATTEMPT_KEY);
+    if (!raw) return null;
+    const value: unknown = JSON.parse(raw);
+    const attempt = isDrivePopupAttempt(value) ? value : null;
+    if (!attempt) window.localStorage.removeItem(ATTEMPT_KEY);
+    return attempt;
   } catch {
     return null;
   }
@@ -90,7 +98,7 @@ export function readDrivePopupAttempt(): DrivePopupAttempt | null {
 
 export function hasDrivePopupMarker(): boolean {
   try {
-    return window.sessionStorage.getItem(ATTEMPT_KEY) !== null;
+    return window.localStorage.getItem(ATTEMPT_KEY) !== null;
   } catch {
     return false;
   }
@@ -111,12 +119,22 @@ export function notifyDrivePopup(
   try {
     window.opener?.postMessage(value, window.location.origin);
   } catch {
-    /* Fall back to a redacted hint. */
+    /* Fall back to the same-origin storage event below. */
   }
   try {
-    window.localStorage.setItem(SETTLEMENT_KEY, JSON.stringify(value));
-    window.localStorage.removeItem(SETTLEMENT_KEY);
-    window.sessionStorage.removeItem(ATTEMPT_KEY);
+    const serialized = JSON.stringify(value);
+    // Keep the redacted settlement long enough for the opener to receive its
+    // storage event after Google's COOP has severed WindowProxy access.
+    window.localStorage.setItem(SETTLEMENT_KEY, serialized);
+    window.setTimeout(() => {
+      try {
+        if (window.localStorage.getItem(SETTLEMENT_KEY) === serialized)
+          window.localStorage.removeItem(SETTLEMENT_KEY);
+      } catch {
+        // Browser storage failures cannot block callback cleanup.
+      }
+    }, SETTLEMENT_TTL_MS);
+    window.localStorage.removeItem(ATTEMPT_KEY);
   } catch {
     /* Opener also reconciles after close/expiry. */
   }
@@ -175,7 +193,7 @@ export function waitForOAuthPopup(input: {
       // Storage has no source Window. It is only a hint to reconcile server
       // status, never evidence of provider success.
       if (
-        event.storageArea === window.localStorage &&
+        (!event.storageArea || event.storageArea === window.localStorage) &&
         Date.now() < input.expiresAt &&
         input.matches(input.storageValue(event))
       )
