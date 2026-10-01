@@ -23,7 +23,7 @@ import type {
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 import type { VoiceSessionController } from "@/lib/one-voice/session-types";
 
-import { readyFrame } from "../../../__tests__/one-voice/fixtures/scripted-server";
+import { pendingActionFrame, readyFrame } from "../../../__tests__/one-voice/fixtures/scripted-server";
 
 const harness = vi.hoisted(() => ({
   vault: { isVaultUnlocked: true, vaultOwnerToken: "vault-owner-token" },
@@ -460,6 +460,67 @@ describe("VoiceSessionProvider ownership", () => {
     }
   });
 
+  it("runs an explicitly confirmed old device step without changing the newer answer", async () => {
+    const onClientStep = vi.fn();
+    const key = Symbol("confirmed-old-step");
+    useVoiceSessionStore.getState().effects.set(key, { onClientStep });
+    try {
+      mount();
+      await act(async () => controller!.start());
+      const client = FakeClient.instances[0]!;
+      await act(async () => {
+        client.options.onFrame({ type: "transcript.input", turn_id: "a", text: "Turn on Location", final: true });
+        client.options.onFrame({ type: "transcript.input", turn_id: "b", text: "What is my name?", final: true });
+        client.options.onFrame({
+          type: "tool.result", call_id: "profile-b", tool: "get_profile", turn_id: "b",
+          status: "ok", ok: true, result_public: { status: "ok", display_name: "Owner" },
+        });
+        client.options.onFrame({ type: "turn", turn_id: "b", state: "model_end" });
+        client.options.onFrame({
+          type: "client_step.request", step_id: "confirmed-step", kind: "set_location_updates",
+          payload: { desired_state: "on" }, timeout_s: 10, turn_id: "a",
+          confirmed_pending_action_id: "pending-a",
+        });
+      });
+      expect(onClientStep).toHaveBeenCalledTimes(1);
+      expect(onClientStep.mock.calls[0]?.[0]).toMatchObject({ stepId: "confirmed-step" });
+      expect(client.sent).not.toContain("client_step:confirmed-step:failed");
+      expect(controller!.state.lastResult?.display_name).toBe("Owner");
+    } finally {
+      useVoiceSessionStore.getState().effects.delete(key);
+    }
+  });
+
+  it("keeps an older restored card from taking over after the next answer ends", async () => {
+    const onToolResult = vi.fn();
+    const key = Symbol("restored-card-effects");
+    useVoiceSessionStore.getState().effects.set(key, { onToolResult });
+    try {
+      mount();
+      await act(async () => controller!.start());
+      const client = FakeClient.instances[0]!;
+      const card = pendingActionFrame({ origin_turn_id: "before-reconnect" });
+      await act(async () => {
+        client.options.onFrame(readyFrame({ pending_actions: [card], resumed: true }));
+        client.options.onFrame({ type: "transcript.input", turn_id: "after-reconnect", text: "New question", final: true });
+        client.options.onFrame({ type: "turn", turn_id: "after-reconnect", state: "model_end" });
+        client.options.onFrame({
+          type: "tool.result", call_id: null, pending_action_id: card.pending_action_id,
+          tool: "delete_thing", turn_id: "before-reconnect", status: "deleted", ok: true,
+          result_public: { status: "deleted" },
+        });
+        client.options.onFrame({
+          type: "tool.result", call_id: null, tool: "read_mail", status: "ok", ok: true,
+          result_public: { status: "ok", items: [{ source_ref: "mail:1" }] },
+        });
+      });
+      expect(onToolResult).not.toHaveBeenCalled();
+      expect(controller!.state.lastResult).toBeNull();
+    } finally {
+      useVoiceSessionStore.getState().effects.delete(key);
+    }
+  });
+
   it("settles an in-flight directive as ignored when a newer question arrives", async () => {
     let finishDirective: ((status: "opened" | "failed" | "ignored") => void) | null = null;
     const key = Symbol("delayed-directive");
@@ -685,6 +746,23 @@ describe("VoiceSessionProvider ownership", () => {
     expect(FakeClient.instances[1]!.options.auth()!.conversationId).toBe(conversationId);
     expect(capture.started).toBe(2);
     expect(controller!.state.transcript.some((item) => item.text === "Earlier question")).toBe(true);
+  });
+
+  it("retries a failed immediate reconnect while the browser still reports online", async () => {
+    mount();
+    await act(async () => controller!.start());
+    const first = FakeClient.instances[0]!;
+    const conversationId = first.options.auth()!.conversationId;
+    vi.spyOn(FakeClient.prototype, "connect").mockRejectedValueOnce(
+      new Error("temporary network failure"),
+    );
+    await act(async () => first.options.onClose({
+      code: 1006, reason: "abnormal", clean: false, resumable: true,
+    }));
+    await waitFor(() => expect(FakeClient.instances).toHaveLength(2));
+    await waitFor(() => expect(FakeClient.instances).toHaveLength(3), { timeout: 3500 });
+    await waitFor(() => expect(controller!.state.phase).toBe("listening"));
+    expect(FakeClient.instances[2]!.options.auth()!.conversationId).toBe(conversationId);
   });
 
   it("waits for internet restoration before reopening a lost connection", async () => {

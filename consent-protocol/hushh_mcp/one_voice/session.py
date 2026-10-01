@@ -78,6 +78,23 @@ _AWAITING_DEVICE = frozenset(
         protocol.DELETE_STEP_ISSUED,
     }
 )
+_CONFIRMED_CONTINUATION_STEPS = frozenset(
+    {
+        "publish_location_envelopes",
+        "set_location_updates",
+        "account_lifecycle",
+    }
+)
+
+
+def _confirmed_continuation_id(outcome: ToolCallOutcome, public: dict[str, Any]) -> str | None:
+    """Only a verified pending row can carry an old action's required step."""
+    pending = outcome.pending
+    step = public.get("client_step")
+    if pending is None or pending.status != "executed" or not isinstance(step, dict):
+        return None
+    kind = step.get("kind")
+    return pending.id if isinstance(kind, str) and kind in _CONFIRMED_CONTINUATION_STEPS else None
 
 
 class Transport(Protocol):
@@ -323,6 +340,9 @@ class VoiceSession:
         self._display_name = auth.display_name
         open_rows = await self.pending.list_open(
             user_id=auth.user_id, conversation_id=self.claims.conversation_id
+        )
+        self._pending_turn_ids.update(
+            (row.id, row.origin_turn_id) for row in open_rows if row.origin_turn_id is not None
         )
         await self._send(
             protocol.session_ready(
@@ -631,13 +651,13 @@ class VoiceSession:
                 )
             )
             return
-        await self._send(
-            protocol.voice_state(
-                "executing", turn_id=self._pending_turn_ids.get(frame.pending_action_id)
-            )
+        origin_turn_id = confirmed.origin_turn_id or self._pending_turn_ids.get(
+            frame.pending_action_id
         )
+        if origin_turn_id is not None:
+            await self._send(protocol.voice_state("executing", turn_id=origin_turn_id))
         outcome = await self.executor.execute_pending(self.ctx, confirmed)
-        await self._after_execution(outcome, source="tap")
+        await self._after_execution(outcome, source="tap", origin_turn_id=origin_turn_id)
 
     async def _cancel(self, frame: protocol.CancelActionFrame) -> None:
         if frame.scope == "session":
@@ -689,9 +709,10 @@ class VoiceSession:
         """
         public = outcome.result.public()
         pending_id = outcome.pending.id if outcome.pending else None
-        origin_turn_id = origin_turn_id or (
-            self._pending_turn_ids.get(pending_id) if pending_id else None
-        )
+        if origin_turn_id is None and outcome.pending is not None:
+            origin_turn_id = outcome.pending.origin_turn_id or self._pending_turn_ids.get(
+                outcome.pending.id
+            )
         awaiting = outcome.result.status in _AWAITING_DEVICE
         executed = ok if ok is not None else outcome.result.status not in _NOT_SUCCESS
         # An outstanding client step: the confirmed action ran (the card is
@@ -705,6 +726,38 @@ class VoiceSession:
                     pending_action_id=pending_id, status=status, result_public=public
                 )
             )
+        if pending_id and origin_turn_id is None:
+            # Rows created before turn binding was stored still settle their
+            # exact card. Their result has no safe answer, screen or model owner.
+            self._pending_turn_ids.pop(pending_id, None)
+            if not awaiting:
+                self._bump(
+                    tool_results_ok=1 if status == "executed" else 0,
+                    tool_results_rejected=0 if status == "executed" else 1,
+                )
+            await self._persist_entities()
+            logger.info("one_voice.pending_unbound session=%s", self.session_id)
+            return
+        if self._origin_is_stale(origin_turn_id):
+            # The exact card above is still truthful, but an old answer must
+            # never enter a newer screen or Live model, even after the client
+            # has pruned that turn from its bounded local fence.
+            if _confirmed_continuation_id(outcome, public):
+                # Confirmation already authorized this exact action. Let its
+                # required device step finish without importing A's answer or
+                # unrelated screen effects into B's turn.
+                await self._emit_side_effects(
+                    outcome, origin_turn_id=origin_turn_id, client_steps_only=True
+                )
+            if pending_id and not awaiting:
+                self._pending_turn_ids.pop(pending_id, None)
+            if not awaiting:
+                self._bump(
+                    tool_results_ok=1 if status == "executed" else 0,
+                    tool_results_rejected=0 if status == "executed" else 1,
+                )
+            await self._persist_entities()
+            return
         await self._send(
             protocol.tool_result(
                 call_id=call_id,
@@ -724,18 +777,17 @@ class VoiceSession:
             )
         await self._emit_side_effects(outcome, origin_turn_id=origin_turn_id)
         await self._persist_entities()
-        if not self._origin_is_stale(origin_turn_id):
-            await self._inject_event(
-                {
-                    "kind": "tool_result",
-                    "tool": outcome.spec.name if outcome.spec else None,
-                    "pending_action_id": pending_id,
-                    "confirmation_source": source,
-                    # Injected into the model's own context, so it takes the model
-                    # projection for the same reason as the handback above.
-                    "result": outcome.result.model_public(),
-                }
-            )
+        await self._inject_event(
+            {
+                "kind": "tool_result",
+                "tool": outcome.spec.name if outcome.spec else None,
+                "pending_action_id": pending_id,
+                "confirmation_source": source,
+                # Injected into the model's own context, so it takes the model
+                # projection for the same reason as the handback above.
+                "result": outcome.result.model_public(),
+            }
+        )
         # An awaiting step settles the card but not the turn: "complete" only
         # once the device outcome is in and verified.
         await self._send(
@@ -774,9 +826,43 @@ class VoiceSession:
             "payload": frame.payload,
         }
         if step.get("kind") == "publish_location_envelopes":
-            event["verification"] = await self._verify_grants_published(
-                list(step.get("grant_ids") or [])
-            )
+            verification = await self._verify_grants_published(list(step.get("grant_ids") or []))
+            event["verification"] = verification
+            pending = step.get("pending")
+            if isinstance(pending, PendingAction) and pending.status == "executed":
+                # The grant was created before this step. The device's claim
+                # cannot prove delivery; publish status comes from the server
+                # re-read and updates only the confirmed action's own card.
+                publish_status = str(verification.get("status") or "unverified")
+                label = "check-in" if step.get("purpose") == "check_in" else "share"
+                if publish_status == "published":
+                    fact = f"The {label} was created, and your position was published."
+                elif publish_status == "partial":
+                    fact = (
+                        f"The {label} was created, but your position was published "
+                        "for only some recipients."
+                    )
+                elif publish_status == "not_published":
+                    fact = f"The {label} was created, but your position was not published."
+                else:
+                    fact = (
+                        f"The {label} was created, but I couldn't verify that your "
+                        "position was published."
+                    )
+                result_public = dict(pending.result or {})
+                result_public.pop("client_step", None)
+                result_public.update(
+                    needs=None,
+                    publish_verification=verification,
+                    spoken_facts=[fact],
+                )
+                await self._send(
+                    protocol.pending_resolved(
+                        pending_action_id=pending.id,
+                        status="executed",
+                        result_public=result_public,
+                    )
+                )
         if not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
             await self._inject_event(event)
 
@@ -906,7 +992,12 @@ class VoiceSession:
         )
         ok = result.status in LOCATION_UPDATES_SETTLED_OK
         spec = step.get("spec")
-        outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
+        pending = step.get("pending")
+        outcome = ToolCallOutcome(
+            result=result,
+            spec=spec if isinstance(spec, ToolSpec) else None,
+            pending=pending if isinstance(pending, PendingAction) else None,
+        )
         await self._after_execution(
             outcome,
             source="device",
@@ -951,7 +1042,12 @@ class VoiceSession:
         spec = step.get("spec")
         if isinstance(spec, ToolSpec) and result.status == "accepted":
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
-        outcome = ToolCallOutcome(result=result, spec=spec if isinstance(spec, ToolSpec) else None)
+        pending = step.get("pending")
+        outcome = ToolCallOutcome(
+            result=result,
+            spec=spec if isinstance(spec, ToolSpec) else None,
+            pending=pending if isinstance(pending, PendingAction) else None,
+        )
         # A review that reached a real decision is a settled result even when
         # the decision was "no": only an open or unreadable request is not.
         ok = result.status in {"accepted", "declined", "withdrawn"}
@@ -1153,7 +1249,7 @@ class VoiceSession:
             )
         )
         await self._send(protocol.voice_state("executing", turn_id=self.turn.turn_id))
-        outcome = await self.executor.call(self.ctx, name, args)
+        outcome = await self.executor.call(self.ctx, name, args, origin_turn_id=origin_turn_id)
         public = outcome.result.public()
         if outcome.result.status == "rejected" and outcome.result.reason_code == "unknown_tool":
             self._bump(unknown_tool_calls=1)
@@ -1174,30 +1270,47 @@ class VoiceSession:
         if self._origin_is_stale(origin_turn_id):
             # A newer question arrived while this call was running. Never leave
             # an unseen confirmation in storage for session.ready to resurrect.
-            if outcome.pending is not None:
+            if outcome.pending is not None and outcome.result.status == "confirmation_required":
                 cancelled = await self.pending.cancel(
                     user_id=self.ctx.user_id,
                     pending_action_id=outcome.pending.id,
                 )
                 if cancelled is not None:
                     self._bump(pending_cancelled=1)
-            superseded_result = {"status": "superseded", "reason_code": "newer_question"}
-            await self._send(
-                protocol.tool_result(
-                    call_id=str(call_id or "") or None,
-                    tool=name,
-                    result_public=superseded_result,
-                    ok=False,
-                    turn_id=origin_turn_id,
+            elif outcome.pending is not None and outcome.pending.status in {
+                "executed",
+                "failed",
+                "cancelled",
+                "expired",
+            }:
+                # A confirmation may already have committed while the newer
+                # question arrived. Settle the real card without replaying its
+                # answer, effects, or model event into that newer turn.
+                self.pending_receipts.pop(outcome.pending.id, None)
+                self._pending_turn_ids.pop(outcome.pending.id, None)
+                await self._send(
+                    protocol.pending_resolved(
+                        pending_action_id=outcome.pending.id,
+                        status=outcome.pending.status,
+                        result_public=public,
+                    )
                 )
-            )
+                if _confirmed_continuation_id(outcome, public):
+                    await self._emit_side_effects(
+                        outcome,
+                        call_id=str(call_id or "") or None,
+                        origin_turn_id=origin_turn_id,
+                        client_steps_only=True,
+                    )
+                await self._persist_entities()
+            superseded_result = {"status": "superseded", "reason_code": "newer_question"}
             await self.live.send_tool_response(
                 call_id=call_id,
                 name=name,
                 response={**superseded_result, "spoken_facts": []},
             )
             return
-        if outcome.pending is not None:
+        if outcome.pending is not None and outcome.result.status == "confirmation_required":
             self._pending_turn_ids[outcome.pending.id] = origin_turn_id
             if outcome.receipt_token:
                 self.pending_receipts[outcome.pending.id] = outcome.receipt_token
@@ -1213,13 +1326,35 @@ class VoiceSession:
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
             self._bump(pending_created=1)
         else:
+            if outcome.pending is not None and outcome.pending.status in {
+                "executed",
+                "failed",
+                "cancelled",
+                "expired",
+            }:
+                # A model-confirmed voice action returns the resolved row too.
+                # Retire its original card instead of presenting a second one.
+                self.pending_receipts.pop(outcome.pending.id, None)
+                self._pending_turn_ids.pop(outcome.pending.id, None)
+                await self._send(
+                    protocol.pending_resolved(
+                        pending_action_id=outcome.pending.id,
+                        status=outcome.pending.status,
+                        result_public=public,
+                    )
+                )
             await self._emit_side_effects(
                 outcome,
                 call_id=str(call_id or "") or None,
                 origin_turn_id=origin_turn_id,
             )
         ok = outcome.result.status not in _NOT_SUCCESS
-        if outcome.pending is None:
+        if outcome.pending is None or outcome.pending.status in {
+            "executed",
+            "failed",
+            "cancelled",
+            "expired",
+        }:
             if outcome.result.status in _AWAITING_DEVICE:
                 # Outstanding device step: no receipt yet, not a rejection.
                 self.turn.not_ok_results += 1
@@ -1329,10 +1464,15 @@ class VoiceSession:
         *,
         call_id: str | None = None,
         origin_turn_id: str | None = None,
+        client_steps_only: bool = False,
     ) -> None:
         """Turn typed result fields into client directives/steps and entity cards."""
         public = outcome.result.public()
-        if public.get("status") == "navigation_dispatched" and public.get("gateway_action_id"):
+        if (
+            not client_steps_only
+            and public.get("status") == "navigation_dispatched"
+            and public.get("gateway_action_id")
+        ):
             await self._send(
                 protocol.ui_directive(
                     directive_id=self._remember_directive(origin_turn_id),
@@ -1346,7 +1486,7 @@ class VoiceSession:
                     },
                 )
             )
-        if public.get("status") == protocol.MAIL_OPEN_DISPATCHED:
+        if not client_steps_only and public.get("status") == protocol.MAIL_OPEN_DISPATCHED:
             # The surface opens the row through its own authenticated resolver.
             # Nothing about the message passes through the relay or the model; this
             # carries only which row, from which offer, in which conversation.
@@ -1392,15 +1532,21 @@ class VoiceSession:
                     payload=payload,
                     timeout_s=timeout_s,
                     turn_id=origin_turn_id,
+                    confirmed_pending_action_id=_confirmed_continuation_id(outcome, public),
                 )
             )
         candidates = public.get("candidates")
-        if isinstance(candidates, list) and public.get("status") in {
-            "multiple",
-            "single_likely",
-            "low_confidence",
-            "truncated",
-        }:
+        if (
+            not client_steps_only
+            and isinstance(candidates, list)
+            and public.get("status")
+            in {
+                "multiple",
+                "single_likely",
+                "low_confidence",
+                "truncated",
+            }
+        ):
             kind: Literal["person", "circle"] = (
                 "circle" if outcome.spec and "circle" in outcome.spec.name else "person"
             )
@@ -1414,7 +1560,7 @@ class VoiceSession:
                     candidates=[c for c in candidates if isinstance(c, dict)][:5],
                 )
             )
-        if public.get("status") == "confirmed" and outcome.spec:
+        if not client_steps_only and public.get("status") == "confirmed" and outcome.spec:
             for card in self._entities_for(outcome):
                 card_kind: Literal["person", "circle"] = (
                     "circle" if card.get("kind") == "circle" else "person"

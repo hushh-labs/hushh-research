@@ -122,6 +122,38 @@ describe("turn ownership", () => {
     expect(state.transcript.some((item) => item.text === "Your Gmail is connected.")).toBe(false);
     expect(state.toolTimeline.find((item) => item.callId === "mail-call")?.result?.account).toBe("mail");
   });
+
+  it("fences a restored pending origin after a newer question completes", () => {
+    const oldCard = pendingActionFrame({ origin_turn_id: "old-turn" });
+    const state = run([
+      server(readyFrame({ pending_actions: [oldCard], resumed: true })),
+      server(input("new-turn", "New question")),
+      server({ type: "turn", state: "model_end", turn_id: "new-turn" }),
+      server(toolResult({
+        call_id: null,
+        pending_action_id: oldCard.pending_action_id,
+        turn_id: "old-turn",
+        result_public: { status: "deleted", spoken_facts: ["Deleted."] },
+      })),
+    ], connected());
+    expect(state.fencedTurnIds).toContain("old-turn");
+    expect(state.activeInputTurnId).toBeNull();
+    expect(state.lastResult).toBeNull();
+    expect(state.pendingAction?.pending_action_id).toBe(oldCard.pending_action_id);
+  });
+
+  it("does not give an unowned result the answer slot after completion", () => {
+    const state = run([
+      server(input("a", "First question")),
+      server({ type: "turn", turn_id: "a", state: "model_end" }),
+      server(toolResult({
+        call_id: null,
+        turn_id: undefined,
+        result_public: { status: "ok", echoed: "unowned" },
+      })),
+    ], connected());
+    expect(state.lastResult).toBeNull();
+  });
 });
 
 const NOW = 1_700_000_000_000;

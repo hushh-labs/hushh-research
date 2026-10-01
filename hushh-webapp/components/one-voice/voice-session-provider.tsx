@@ -623,6 +623,11 @@ export function VoiceSessionProvider({
   /** A resumable close waits here when the app is backgrounded or offline. */
   const pendingNetworkReconnectRef = useRef<string | null>(null);
   const reconnectEpochRef = useRef(0);
+  const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueFailedReconnectRef = useRef<(
+    conversationId: string,
+    epoch: number,
+  ) => void>(() => undefined);
 
   const handleClose = useCallback(
     (session: LiveSession, info: LiveCloseInfo) => {
@@ -683,9 +688,13 @@ export function VoiceSessionProvider({
       if (reconnect) {
         pendingNetworkReconnectRef.current = null;
         reconnectsRef.current += 1;
+        const epoch = reconnectEpochRef.current;
         void openSessionRef.current({
           conversationId: session.conversationId,
           isReconnect: true,
+        }).then((opened) => {
+          if (!opened)
+            queueFailedReconnectRef.current(session.conversationId, epoch);
         });
       }
     },
@@ -698,6 +707,10 @@ export function VoiceSessionProvider({
       // Stop or an ownership transition must cancel that deferred attempt.
       if (reason !== "start_failed") reconnectEpochRef.current += 1;
       pendingNetworkReconnectRef.current = null;
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
       if (openingRef.current) openingRef.current.cancelled = true;
       const session = sessionRef.current;
       traceVoiceSession("stop", {
@@ -828,6 +841,12 @@ export function VoiceSessionProvider({
       const origin = "turn_id" in frame && typeof frame.turn_id === "string"
         ? frame.turn_id
         : null;
+      if (frame.type === "tool.result" && !origin) {
+        // A legacy or malformed result can still settle its exact card in the
+        // reducer, but has no safe owner for screen effects or a spoken reply.
+        dispatchServerFrame(frame, now());
+        return;
+      }
       const staleOrigin = isStaleOrigin(origin);
       if (staleOrigin) {
         if (frame.type === "tool.result") {
@@ -841,6 +860,13 @@ export function VoiceSessionProvider({
           return;
         }
         if (frame.type === "client_step.request") {
+          if (frame.confirmed_pending_action_id) {
+            // The relay only marks a step after the person confirmed its exact
+            // card. Finish that action even if a newer question is underway;
+            // its answer remains fenced from the newer turn.
+            requestClientStep(session, frame);
+            return;
+          }
           session.client.clientStepResult(frame.step_id, "failed", {
             reason: "superseded_turn",
           });
@@ -1398,6 +1424,27 @@ export function VoiceSessionProvider({
   }, [begin, openSession, pause, stopSession]);
 
   useEffect(() => {
+    const queueFailedReconnect = (conversationId: string, epoch: number) => {
+      if (
+        reconnectEpochRef.current !== epoch ||
+        sessionRef.current ||
+        openingRef.current ||
+        pendingNetworkReconnectRef.current ||
+        reconnectsRef.current >= MAX_AUTO_RECONNECTS
+      ) return;
+      pendingNetworkReconnectRef.current = conversationId;
+      if (
+        navigator.onLine !== false &&
+        appInteractionCoordinator.getLifecycleSnapshot().state === "active" &&
+        reconnectRetryTimerRef.current === null
+      ) {
+        reconnectRetryTimerRef.current = setTimeout(() => {
+          reconnectRetryTimerRef.current = null;
+          reconnectWhenOnline();
+        }, 1000 * reconnectsRef.current);
+      }
+    };
+    queueFailedReconnectRef.current = queueFailedReconnect;
     const reconnectWhenOnline = () => {
       const conversationId = pendingNetworkReconnectRef.current;
       if (
@@ -1412,18 +1459,15 @@ export function VoiceSessionProvider({
         appInteractionCoordinator.getLifecycleSnapshot().state !== "active" ||
         reconnectsRef.current >= MAX_AUTO_RECONNECTS
       ) return;
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
       reconnectsRef.current += 1;
       pendingNetworkReconnectRef.current = null;
       const epoch = reconnectEpochRef.current;
       void openSessionRef.current({ conversationId, isReconnect: true }).then((opened) => {
-        if (
-          !opened &&
-          reconnectEpochRef.current === epoch &&
-          !sessionRef.current &&
-          !openingRef.current &&
-          !pendingNetworkReconnectRef.current &&
-          reconnectsRef.current < MAX_AUTO_RECONNECTS
-        ) pendingNetworkReconnectRef.current = conversationId;
+        if (!opened) queueFailedReconnect(conversationId, epoch);
       });
     };
     const lifecycleChanged = () => {
@@ -1443,6 +1487,11 @@ export function VoiceSessionProvider({
     return () => {
       window.removeEventListener("online", reconnectWhenOnline);
       unsubscribe();
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
+      queueFailedReconnectRef.current = () => undefined;
     };
   }, [resumeSession]);
 

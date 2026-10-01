@@ -17,6 +17,7 @@ from hushh_mcp.one_voice.session import AuthResult, SessionClosed, VoiceSession
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.base import (
+    ConfirmationRequired,
     ConfirmedPerson,
     EntityContext,
     PersonRef,
@@ -360,7 +361,7 @@ async def test_digest_narration_owns_its_turns_audio(monkeypatch):
             return "A short digest."
 
     class NarratedExecutor:
-        async def call(self, _ctx, _name, _args):
+        async def call(self, _ctx, _name, _args, *, origin_turn_id=None):
             return ToolCallOutcome(result=NarratedResult(status="ok", echoed="mail"))
 
     transport = FakeTransport()
@@ -465,7 +466,7 @@ async def test_superseded_confirmation_is_cancelled_before_it_can_be_relisted():
     release = asyncio.Event()
 
     class DelayedConfirmation:
-        async def call(self, _ctx, _name, _args):
+        async def call(self, _ctx, _name, _args, *, origin_turn_id=None):
             row, receipt = await pending.create(
                 user_id=USER,
                 conversation_id=CONV,
@@ -478,7 +479,11 @@ async def test_superseded_confirmation_is_cancelled_before_it_can_be_relisted():
             started.set()
             await release.wait()
             return ToolCallOutcome(
-                result=AskResult(status="pending"), pending=row, receipt_token=receipt
+                result=ConfirmationRequired(
+                    pending_action_id=row.id, tier="tap", summary="Ask for location"
+                ),
+                pending=row,
+                receipt_token=receipt,
             )
 
     session.executor = DelayedConfirmation()
@@ -491,6 +496,335 @@ async def test_superseded_confirmation_is_cancelled_before_it_can_be_relisted():
     assert transport.frames("pending_action") == []
     assert fake.tool_responses[-1]["response"]["status"] == "superseded"
     assert await pending.list_open(user_id=USER, conversation_id=CONV) == []
+
+
+@pytest.mark.parametrize("operation", ["get_pending_action", "confirm_pending_action"])
+async def test_superseded_existing_card_keeps_its_true_status(operation):
+    pending = MemoryPendingStore()
+    row, _ = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name="ask",
+        gateway_action_id="location.send_request",
+        tier="voice",
+        args={"person": {"user_id": "u-priya"}, "hours": 1},
+        summary="ask Priya for her location",
+    )
+    await pending.mark_shown(user_id=USER, pending_action_id=row.id)
+    transport, fake = FakeTransport(), FakeLive([])
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = fake
+    session.ctx.entities.remember_person(
+        ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
+    )
+    real_executor = session.executor
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class DelayedExistingCard:
+        async def call(self, ctx, name, args, *, origin_turn_id=None):
+            started.set()
+            await release.wait()
+            return await real_executor.call(ctx, name, args, origin_turn_id=origin_turn_id)
+
+    session.executor = DelayedExistingCard()
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    call = asyncio.create_task(
+        session._dispatch_tool_call(
+            {"id": "old-call", "name": operation, "args": {"pending_action_id": row.id}}
+        )
+    )
+    await asyncio.wait_for(started.wait(), 1)
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    release.set()
+    await asyncio.wait_for(call, 1)
+
+    expected = "pending" if operation == "get_pending_action" else "executed"
+    assert pending.rows[row.id].status == expected
+    resolved = transport.frames("pending_action.resolved")
+    if operation == "get_pending_action":
+        assert resolved == []
+    else:
+        assert resolved[-1]["pending_action_id"] == row.id
+        assert resolved[-1]["status"] == "executed"
+        assert resolved[-1]["result_public"]["status"] == "pending"
+    assert transport.frames("tool.result") == []
+    assert fake.tool_responses[-1]["response"]["status"] == "superseded"
+
+
+async def test_confirmed_device_step_finishes_without_replacing_newer_answer():
+    pending = MemoryPendingStore()
+    row, receipt = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name=RESUME,
+        gateway_action_id="location.resume_updates",
+        tier="tap",
+        args={},
+        summary="resume location updates",
+    )
+    confirmed = await pending.confirm(
+        user_id=USER, pending_action_id=row.id, source="tap", receipt_token=receipt
+    )
+    resolved = await pending.resolve(
+        user_id=USER,
+        pending_action_id=row.id,
+        status="executed",
+        result={"status": protocol.LOCATION_UPDATES_PENDING},
+    )
+    assert confirmed is not None and resolved is not None
+    transport, fake = FakeTransport(), FakeLive([])
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = fake
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    origin = session.turn.turn_id
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    await session._after_execution(
+        ToolCallOutcome(
+            result=location_state.LocationUpdatesResult(
+                status=protocol.LOCATION_UPDATES_PENDING,
+                desired_state="on",
+                gateway_action_id="location.resume_updates",
+                needs="client_step",
+                client_step={
+                    "kind": "set_location_updates",
+                    "desired_state": "on",
+                    "gateway_action_id": "location.resume_updates",
+                    "timeout_s": 45,
+                },
+            ),
+            spec=DEVICE_TOOLS[0],
+            pending=resolved,
+        ),
+        source="tap",
+        origin_turn_id=origin,
+    )
+    step = transport.frames("client_step.request")[-1]
+    assert step["turn_id"] == origin
+    assert step["confirmed_pending_action_id"] == row.id
+    assert transport.frames("pending_action.resolved")[-1]["pending_action_id"] == row.id
+    assert transport.frames("tool.result") == []
+    assert fake.events_sent == []
+
+    await session._client_step_result(
+        protocol.ClientStepResultFrame(
+            type="client_step.result",
+            step_id=step["step_id"],
+            status="ok",
+            payload={
+                "gateway_action_id": "location.resume_updates",
+                "desired_state": "on",
+                "outcome": "on",
+                "observed_state": "on",
+                "navigated": True,
+            },
+        )
+    )
+    final = transport.frames("pending_action.resolved")[-1]
+    assert final["pending_action_id"] == row.id
+    assert final["result_public"]["status"] == "on"
+    assert transport.frames("tool.result") == []
+    assert fake.events_sent == []
+
+
+async def test_stale_confirmed_share_sheet_does_not_open_over_new_question():
+    pending = MemoryPendingStore()
+    row, receipt = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name="create_public_link",
+        gateway_action_id="location.create_public_link",
+        tier="tap",
+        args={},
+        summary="create a link",
+    )
+    await pending.confirm(
+        user_id=USER, pending_action_id=row.id, source="tap", receipt_token=receipt
+    )
+    resolved = await pending.resolve(
+        user_id=USER, pending_action_id=row.id, status="executed", result={"status": "created"}
+    )
+    assert resolved is not None
+    transport, fake = FakeTransport(), FakeLive([])
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = fake
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Create a link"))
+    origin = session.turn.turn_id
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    await session._after_execution(
+        ToolCallOutcome(
+            result=ToolResult(
+                status="created",
+                client_step={"kind": "open_share_sheet", "url": "https://example.test/link"},
+            ),
+            pending=resolved,
+        ),
+        source="tap",
+        origin_turn_id=origin,
+    )
+    assert transport.frames("client_step.request") == []
+    assert transport.frames("pending_action.resolved")[-1]["pending_action_id"] == row.id
+    assert transport.frames("tool.result") == []
+    assert fake.events_sent == []
+
+
+@pytest.mark.parametrize("verification_status", ["published", "not_published"])
+async def test_stale_confirmed_share_step_settles_exact_card(verification_status):
+    pending = MemoryPendingStore()
+    row, receipt = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name="share_with",
+        gateway_action_id="location.share_selected",
+        tier="tap",
+        args={},
+        summary="share location",
+    )
+    await pending.confirm(
+        user_id=USER, pending_action_id=row.id, source="tap", receipt_token=receipt
+    )
+    resolved = await pending.resolve(
+        user_id=USER,
+        pending_action_id=row.id,
+        status="executed",
+        result={"status": "grant_created", "spoken_facts": ["Sending now."]},
+    )
+    assert resolved is not None
+    transport, fake = FakeTransport(), FakeLive([])
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = fake
+
+    async def verify(grant_ids):
+        assert grant_ids == ["grant-1"]
+        return {
+            "status": verification_status,
+            "published": ["grant-1"] if verification_status == "published" else [],
+            "unpublished": [] if verification_status == "published" else ["grant-1"],
+        }
+
+    session._verify_grants_published = verify
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Share with Priya"))
+    origin = session.turn.turn_id
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    await session._after_execution(
+        ToolCallOutcome(
+            result=ToolResult(
+                status="grant_created",
+                needs="client_step",
+                client_step={
+                    "kind": "publish_location_envelopes",
+                    "purpose": "share",
+                    "grant_ids": ["grant-1"],
+                },
+            ),
+            pending=resolved,
+        ),
+        source="tap",
+        origin_turn_id=origin,
+    )
+    step = transport.frames("client_step.request")[-1]
+    assert step["confirmed_pending_action_id"] == row.id
+    await session._client_step_result(
+        protocol.ClientStepResultFrame(
+            type="client_step.result", step_id=step["step_id"], status="ok", payload={}
+        )
+    )
+    final = transport.frames("pending_action.resolved")[-1]
+    assert final["pending_action_id"] == row.id
+    assert final["result_public"]["publish_verification"]["status"] == verification_status
+    assert "client_step" not in final["result_public"]
+    if verification_status == "not_published":
+        assert "not published" in final["result_public"]["spoken_facts"][0]
+    assert transport.frames("tool.result") == []
+    assert fake.events_sent == []
+
+
+async def test_delayed_model_confirmation_keeps_its_device_step_after_new_input():
+    pending = MemoryPendingStore()
+    row, _ = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name=RESUME,
+        gateway_action_id="location.resume_updates",
+        tier="voice",
+        args={},
+        summary="resume location updates",
+    )
+    await pending.mark_shown(user_id=USER, pending_action_id=row.id)
+    transport, fake = FakeTransport(), FakeLive([])
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = fake
+    started, release = asyncio.Event(), asyncio.Event()
+
+    class DelayedConfirmedStep:
+        async def call(self, _ctx, _name, _args, *, origin_turn_id=None):
+            confirmed = await pending.confirm(
+                user_id=USER, pending_action_id=row.id, source="voice"
+            )
+            assert confirmed is not None
+            resolved = await pending.resolve(
+                user_id=USER,
+                pending_action_id=row.id,
+                status="executed",
+                result={"status": protocol.LOCATION_UPDATES_PENDING},
+            )
+            started.set()
+            await release.wait()
+            return ToolCallOutcome(
+                result=location_state.LocationUpdatesResult(
+                    status=protocol.LOCATION_UPDATES_PENDING,
+                    desired_state="on",
+                    gateway_action_id="location.resume_updates",
+                    needs="client_step",
+                    client_step={
+                        "kind": "set_location_updates",
+                        "desired_state": "on",
+                        "gateway_action_id": "location.resume_updates",
+                        "timeout_s": 45,
+                    },
+                ),
+                spec=DEVICE_TOOLS[0],
+                pending=resolved,
+            )
+
+    session.executor = DelayedConfirmedStep()
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    origin = session.turn.turn_id
+    call = asyncio.create_task(
+        session._dispatch_tool_call(
+            {
+                "id": "old-confirm",
+                "name": "confirm_pending_action",
+                "args": {"pending_action_id": row.id},
+            }
+        )
+    )
+    await asyncio.wait_for(started.wait(), 1)
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    release.set()
+    await asyncio.wait_for(call, 1)
+
+    step = transport.frames("client_step.request")[-1]
+    assert step["turn_id"] == origin
+    assert step["confirmed_pending_action_id"] == row.id
+    assert pending.rows[row.id].status == "executed"
+    assert transport.frames("pending_action.resolved")[-1]["pending_action_id"] == row.id
+    assert transport.frames("tool.result") == []
+    assert fake.tool_responses[-1]["response"]["status"] == "superseded"
 
 
 async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
@@ -506,7 +840,7 @@ async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
     release = asyncio.Event()
 
     class BlockingExecutor:
-        async def call(self, _ctx, _name, args):
+        async def call(self, _ctx, _name, args, *, origin_turn_id=None):
             started.set()
             await release.wait()
             return ToolCallOutcome(result=EchoResult(status="ok", echoed=args["text"]))
@@ -536,7 +870,7 @@ async def test_new_typed_question_waits_for_old_tool_and_keeps_its_own_turn():
     release.set()
     await asyncio.wait_for(call, 1)
     assert transport.frames("tool.started")[0]["turn_id"] == old_turn
-    assert transport.frames("tool.result")[0]["turn_id"] == old_turn
+    assert transport.frames("tool.result") == []
     assert fake.tool_responses[0]["response"]["status"] == "superseded"
     await session._handle_live_event(LiveEvent(kind="turn_complete"))
     assert fake.texts == ["Is Gmail connected?", "What is my name?"]
@@ -590,7 +924,7 @@ async def test_identical_questions_are_distinct_turns_and_execute_twice():
     calls: list[tuple[str, str]] = []
 
     class CountingExecutor:
-        async def call(self, _ctx, name, args):
+        async def call(self, _ctx, name, args, *, origin_turn_id=None):
             calls.append((name, args["text"]))
             return ToolCallOutcome(result=EchoResult(status="ok", echoed=args["text"]))
 
@@ -838,6 +1172,108 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
     )
     transport.push({"type": "end"})
     await asyncio.wait_for(task, 3)
+
+
+async def test_pending_turn_owner_survives_reconnect_and_fences_later_answer():
+    pending = MemoryPendingStore()
+    conversations = MemoryConversationStore()
+    auth = AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    first_transport, first_live = FakeTransport(), FakeLive([])
+    first = _session(first_transport, first_live, pending=pending, conversations=conversations)
+    await first._open_conversation(auth)
+    first.live = first_live
+    await first._handle_client_frame(protocol.TextFrame(type="text", text="First question"))
+    first_turn = first.turn.turn_id
+    await first._dispatch_tool_call(
+        {"id": "call-a", "name": "delete_thing", "args": {"thing_id": "t1"}}
+    )
+    card = first_transport.frames("pending_action")[0]
+    row = pending.rows[card["pending_action_id"]]
+    assert row.origin_turn_id == first_turn
+    assert "_one_voice_origin_turn_id" not in card["args"]
+
+    second_transport, second_live = FakeTransport(), FakeLive([])
+    second = _session(second_transport, second_live, pending=pending, conversations=conversations)
+    await second._open_conversation(auth)
+    second.live = second_live
+    await second._handle_client_frame(protocol.TextFrame(type="text", text="Second question"))
+    second_turn = second.turn.turn_id
+    await second._dispatch_tool_call({"id": "call-b", "name": "echo", "args": {"text": "second"}})
+    await second._confirm_by_tap(
+        protocol.ConfirmActionFrame(
+            type="confirm_action",
+            pending_action_id=row.id,
+            receipt_token=card["receipt_token"],
+        )
+    )
+    assert second_transport.frames("pending_action.resolved")[-1]["status"] == "executed"
+    results = second_transport.frames("tool.result")
+    assert [(item["tool"], item["turn_id"]) for item in results] == [
+        ("echo", second_turn),
+    ]
+    assert second_live.events_sent == []
+    assert second_transport.frames("ui_directive") == []
+    assert second_transport.frames("client_step.request") == []
+
+
+async def test_model_confirmed_voice_action_retires_its_card_without_relisting():
+    transport, live = FakeTransport(), FakeLive([])
+    pending = MemoryPendingStore()
+    session = _session(transport, live, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = live
+    session.ctx.entities.remember_person(
+        ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
+    )
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Ask Priya"))
+    await session._dispatch_tool_call(
+        {"id": "ask-call", "name": "ask", "args": {"person": {"user_id": "u-priya"}}}
+    )
+    card = transport.frames("pending_action")[0]
+    await pending.mark_shown(user_id=USER, pending_action_id=card["pending_action_id"])
+    await session._dispatch_tool_call(
+        {
+            "id": "confirm-call",
+            "name": "confirm_pending_action",
+            "args": {"pending_action_id": card["pending_action_id"]},
+        }
+    )
+    assert len(transport.frames("pending_action")) == 1
+    assert transport.frames("pending_action.resolved")[-1]["status"] == "executed"
+    assert transport.frames("tool.result")[-1]["result_public"]["status"] == "pending"
+    assert pending.rows[card["pending_action_id"]].status == "executed"
+
+
+async def test_legacy_pending_without_turn_owner_only_settles_exact_card():
+    pending = MemoryPendingStore()
+    row, receipt = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name="delete_thing",
+        gateway_action_id="location.delete_circle",
+        tier="tap",
+        args={"thing_id": "legacy"},
+        summary="delete the thing",
+    )
+    transport, live = FakeTransport(), FakeLive([])
+    session = _session(transport, live, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic authority
+    )
+    session.live = live
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="New question"))
+    await session._confirm_by_tap(
+        protocol.ConfirmActionFrame(
+            type="confirm_action", pending_action_id=row.id, receipt_token=receipt
+        )
+    )
+    assert transport.frames("pending_action.resolved")[-1]["status"] == "executed"
+    assert transport.frames("tool.result") == []
+    assert transport.frames("ui_directive") == []
+    assert transport.frames("voice.state") == []
+    assert live.events_sent == []
 
 
 async def test_cancel_frame_cancels_pending_and_tells_the_model():
@@ -1535,7 +1971,10 @@ async def test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming
             ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
         )
         outcome = await session.executor.call(
-            session.ctx, "invite_thing", {"person": {"user_id": "u-priya"}}
+            session.ctx,
+            "invite_thing",
+            {"person": {"user_id": "u-priya"}},
+            origin_turn_id=session.turn.turn_id,
         )
         row_id = outcome.pending.id
 
@@ -1620,7 +2059,10 @@ async def test_scope_review_opens_the_screen_and_settles_from_a_re_read():
         # Confirm the accept by tap (the proof verifies) -> the tool returns the review step.
         await session.executor.call(session.ctx, "list_people", {})
         outcome = await session.executor.call(
-            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+            session.ctx,
+            "accept_connection_request",
+            {"request_id": REQ_IN},
+            origin_turn_id=session.turn.turn_id,
         )
         transport.push(
             {
@@ -1703,7 +2145,10 @@ async def test_scope_review_closed_without_a_decision_stays_pending():
     try:
         await session.executor.call(session.ctx, "list_people", {})
         outcome = await session.executor.call(
-            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+            session.ctx,
+            "accept_connection_request",
+            {"request_id": REQ_IN},
+            origin_turn_id=session.turn.turn_id,
         )
         transport.push(
             {
@@ -1763,7 +2208,10 @@ async def test_scope_review_settles_a_no_decision_as_a_real_outcome(
     try:
         await session.executor.call(session.ctx, "list_people", {})
         outcome = await session.executor.call(
-            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+            session.ctx,
+            "accept_connection_request",
+            {"request_id": REQ_IN},
+            origin_turn_id=session.turn.turn_id,
         )
         transport.push(
             {
@@ -1813,7 +2261,10 @@ async def test_scope_review_with_the_request_gone_and_nobody_connected_is_unveri
     try:
         await session.executor.call(session.ctx, "list_people", {})
         outcome = await session.executor.call(
-            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+            session.ctx,
+            "accept_connection_request",
+            {"request_id": REQ_IN},
+            origin_turn_id=session.turn.turn_id,
         )
         transport.push(
             {
@@ -1850,7 +2301,10 @@ async def test_a_new_lookup_cancels_the_open_card_and_tells_the_client():
         await session.executor.call(session.ctx, "list_people", {})
         # An accept card (no typed person argument) is open and shown...
         outcome = await session.executor.call(
-            session.ctx, "accept_connection_request", {"request_id": REQ_IN}
+            session.ctx,
+            "accept_connection_request",
+            {"request_id": REQ_IN},
+            origin_turn_id=session.turn.turn_id,
         )
         card = outcome.pending.id
         await pending.mark_shown(user_id=USER, pending_action_id=card)

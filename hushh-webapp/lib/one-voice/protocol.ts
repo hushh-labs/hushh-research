@@ -105,6 +105,7 @@ export type VoiceState =
 
 export type PendingActionPublic = {
   pending_action_id: string;
+  origin_turn_id?: string | null;
   tool: string;
   gateway_action_id: string;
   tier: "voice" | "tap";
@@ -246,6 +247,7 @@ export type UiDirectiveFrame = {
 export type ClientStepRequestFrame = {
   type: "client_step.request";
   turn_id?: string;
+  confirmed_pending_action_id?: string;
   step_id: string;
   kind: string;
   payload: Record<string, unknown>;

@@ -608,6 +608,7 @@ function reduceServerFrame(
               state.fencedTurnIds,
               state.activeInputTurnId,
               state.activeResponseTurnId,
+              state.pendingAction?.origin_turn_id,
             ).filter((id) => id !== frame.turn_id)
           : state.fencedTurnIds,
         // A new question owns the visible answer slot. Older tool receipts
@@ -695,7 +696,8 @@ function reduceServerFrame(
       // cannot take ownership of a newer question's answer slot.
       const belongsToCurrentInput = originTurnId
         ? !isStaleOrigin(state, originTurnId)
-        : state.activeInputTurnId === null;
+        : state.turnId === null && state.activeInputTurnId === null &&
+          state.activeResponseTurnId === null;
       // A normal confirmed action emits `pending_action.resolved` first, but
       // a terminal result can still arrive without that frame after a relay
       // reconnect. Its exact pending id lets the client retire only the card

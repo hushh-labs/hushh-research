@@ -385,6 +385,7 @@ def client_step_request(
     payload: dict[str, Any],
     timeout_s: int,
     turn_id: str | None = None,
+    confirmed_pending_action_id: str | None = None,
 ) -> dict[str, Any]:
     frame = {
         "type": "client_step.request",
@@ -395,6 +396,8 @@ def client_step_request(
     }
     if turn_id:
         frame["turn_id"] = turn_id
+    if confirmed_pending_action_id:
+        frame["confirmed_pending_action_id"] = confirmed_pending_action_id
     return frame
 
 
