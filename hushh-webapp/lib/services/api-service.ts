@@ -62,6 +62,10 @@ import {
 import { ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS } from "@/lib/auth/account-session-policy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
+import { consumePuppyPodStream, fetchDirectPuppyStream } from "./puppy-pod-stream";
+import type { PuppyPodStreamResult } from "./puppy-pod-stream";
+
+export { PUPPY_TURN_DEADLINE_MS } from "./puppy-pod-stream";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
@@ -4230,15 +4234,30 @@ export class ApiService {
       if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
       if (stream) globalThis.performance?.mark?.("puppy.turn.activation-sent");
     }
-    const fetcher = stream ? (await import("./native-sse-fetch")).nativeStreamFetch : apiFetch;
-    const response = await fetcher(`${pin.url}/api/one/pod/turn${stream ? "/stream" : ""}`, {
+    const url = `${pin.url}/api/one/pod/turn${stream ? "/stream" : ""}`;
+    const headers = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.session}`,
+      ...(stream ? {
+        Accept: "text/event-stream",
+        [REQUEST_ID_HEADER]: getOrCreateRequestId(null),
+        [REQUEST_TIMESTAMP_HEADER]: String(getOrCreateRequestTimestampMs(null)),
+      } : {}),
+    };
+    const init = {
       method: "POST",
       credentials: "omit",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.session}` },
+      headers,
       body,
       signal,
-      timeoutMs: POD_TURN_FETCH_TIMEOUT_MS,
-    });
+    } as const;
+    // A streaming response has already returned its headers when the owner
+    // presses Cancel. The ordinary web fetch wrapper releases its caller-abort
+    // listener at that point, so use the browser fetch directly for this one
+    // admitted stream. The Puppy stream consumer owns the full-body deadline.
+    const response = stream
+      ? await fetchDirectPuppyStream(url, init)
+      : await apiFetch(url, { ...init, timeoutMs: POD_TURN_FETCH_TIMEOUT_MS });
     if (!response.ok) {
       const payload = (await response.json().catch(() => null)) as {
         detail?: { code?: string; reason?: string } | string;
@@ -4295,72 +4314,26 @@ export class ApiService {
     history: Array<{ role: "user" | "assistant"; content: string }>;
     signal?: AbortSignal;
     onToken: (text: string) => void;
-  }): Promise<{
-    model: string;
-    modelReported: boolean;
-    provider: string;
-    grounded: boolean;
-    runtimeMode: string;
-    degraded?: string;
-  }> {
-    const response = await ApiService.ownerDirectPodResponse(
-      input.hushhId,
-      JSON.stringify({
-        message: input.message,
-        conversationId: input.conversationId,
-        runtimeProvider: "puppy",
-        puppyDeviceId: input.puppyDeviceId,
-        puppyModel: input.puppyModel,
-        puppyCatalogVersion: input.puppyCatalogVersion,
-        history: input.history,
-      }),
-      input.signal,
-      { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken },
-      true,
-    );
-    if (!response?.body) throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
-    const { parseSSEBlocks } = await import("@/lib/streaming/sse-parser");
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let remainder = "";
-    let totalText = 0;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), remainder);
-        remainder = parsed.remainder;
-        if (remainder.length > 131_072) throw new Error("PUPPY_STREAM_INVALID");
-        for (const event of parsed.events) {
-          if (event.event === "token") {
-            const token = JSON.parse(event.data) as { text?: unknown };
-            if (typeof token.text !== "string") throw new Error("PUPPY_STREAM_INVALID");
-            totalText += token.text.length;
-            if (totalText > 262_144) throw new Error("PUPPY_STREAM_TOO_LARGE");
-            input.onToken(token.text);
-          } else if (event.event === "error") {
-            const failure = JSON.parse(event.data) as { code?: unknown };
-            throw new Error(typeof failure.code === "string" ? failure.code : "PUPPY_STREAM_FAILED");
-          } else if (event.event === "done") {
-            const result = JSON.parse(event.data) as Record<string, unknown>;
-            if (typeof result.model !== "string" || typeof result.modelReported !== "boolean")
-              throw new Error("PUPPY_STREAM_INVALID");
-            return {
-              model: result.model,
-              modelReported: result.modelReported,
-              provider: String(result.provider ?? "puppy"),
-              grounded: result.grounded === true,
-              runtimeMode: String(result.runtimeMode ?? "puppy_relay"),
-              ...(typeof result.degraded === "string" ? { degraded: result.degraded } : {}),
-            };
-          }
-        }
-      }
-      throw new Error("PUPPY_STREAM_INTERRUPTED");
-    } finally {
-      await reader.cancel().catch(() => undefined);
-      reader.releaseLock();
-    }
+  }): Promise<PuppyPodStreamResult> {
+    return consumePuppyPodStream({
+      signal: input.signal,
+      onToken: input.onToken,
+      open: (signal) => ApiService.ownerDirectPodResponse(
+        input.hushhId,
+        JSON.stringify({
+          message: input.message,
+          conversationId: input.conversationId,
+          runtimeProvider: "puppy",
+          puppyDeviceId: input.puppyDeviceId,
+          puppyModel: input.puppyModel,
+          puppyCatalogVersion: input.puppyCatalogVersion,
+          history: input.history,
+        }),
+        signal,
+        { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken },
+        true,
+      ),
+    });
   }
 
   private static async ownerDirectPuppyStatus(deviceId: string, signal?: AbortSignal): Promise<{

@@ -22,6 +22,7 @@ vi.mock("@/lib/services/puppy-one-service", () => ({
   refreshPuppyLink: mocks.refreshPuppyLink,
 }));
 vi.mock("@/lib/services/api-service", () => ({
+  PUPPY_TURN_DEADLINE_MS: 205_000,
   ApiService: {
     streamPuppyPodTurn: mocks.streamPuppyPodTurn,
     getPuppyRelayStatus: mocks.getPuppyRelayStatus,

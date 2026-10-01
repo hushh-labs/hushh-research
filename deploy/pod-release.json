@@ -1,13 +1,15 @@
 {
   "version": "2026.09-dev.10",
   "channel": "dev",
-  "summary": "Clearer machine details and Memory review.",
+  "summary": "BYOC Files setup and direct Puppy reliability.",
   "notes": {
     "improvements": [
+      "New cloud setup keeps its Files choice with the selected project.",
       "Partial machine reports show the information available.",
       "Memory review names the proposed destination and affected people."
     ],
     "fixes": [
+      "Puppy cancellation now reaches the direct browser stream after it opens.",
       "Retry remains available after a failed machine read.",
       "Connected contact details stay limited to active connections."
     ],

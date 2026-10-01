@@ -784,15 +784,15 @@ async def _stream_one_text_turn_once(
     # Failure here degrades to a memoryless turn, never a failed one. The person
     # already has their answer by this point -- raising now would take a delivered
     # answer away to report a bookkeeping problem.
-    # A fenced incarnation finishes the answer but publishes nothing: the pod that
-    # replaced it owns the log now. ``memory_commit_allowed`` is the owner pod's
-    # lease check; absent (the hub, tests) means allowed.
+    # A fenced incarnation or revoked local session finishes the answer but
+    # publishes nothing. ``memory_commit_allowed`` checks the pod lease and live
+    # write authority; absent (the hub, tests) means allowed.
     if memory_service is not None and memory_commit_allowed is not None:
         allowed = memory_commit_allowed()
         if asyncio.iscoroutine(allowed):
             allowed = await allowed
         if allowed is not True:
-            logger.warning("one_text_turn.memory_commit_skipped reason=fenced_or_uncertain")
+            logger.warning("one_text_turn.memory_commit_skipped reason=authority_unavailable")
             memory_service = None
     if memory_service is not None:
         try:

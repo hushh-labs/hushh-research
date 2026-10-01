@@ -36,6 +36,10 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.routes.one.pod_relay import POD_DATA_DOOR_NAMES
+from api.routes.one.pod_turn_memory_authority import commit_gate
+from api.routes.one.pod_turn_memory_authority import (
+    memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
+)
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
@@ -370,18 +374,6 @@ async def _require_local_puppy_admission(
         )
 
 
-async def _memory_commit_allowed() -> bool:
-    """Only the incarnation that holds the fence publishes to memory."""
-    from hushh_mcp.services.pod_session_authority import (  # noqa: PLC0415
-        active_session_authority,
-    )
-
-    authority = active_session_authority()
-    if authority is None:
-        return True
-    return (await authority.lease.is_current()) is True
-
-
 async def run_pod_turn(
     *,
     payload: PodTurnRequest,
@@ -615,8 +607,7 @@ async def run_pod_turn(
                 # failing on the missing DB credential. Empty {} keeps today's behaviour.
                 data_door_grants=payload.data_door_grants or {},
                 execution_surface="typed_chat",
-                # A fenced incarnation answers but never publishes; see text_runtime.
-                memory_commit_allowed=_memory_commit_allowed,
+                memory_commit_allowed=commit_gate(consent_token, verifier, session, user_id),
                 # The door's verdict on retirement, carried to the catch-up review.
                 memory_review_policy=memory_review_policy,
             ):

@@ -485,6 +485,9 @@ tests/test_pod_binding_transactions.py
 tests/test_pod_consent_authority.py
 tests/test_pod_ingress_axis.py
 tests/test_pod_session_authority.py
+tests/test_pod_turn_route.py
+tests/test_pod_turn_memory_authority.py
+tests/test_one_adk_text_runtime.py
 tests/test_pod_files_library.py
 tests/test_pod_files_routes.py
 tests/test_pod_files_jobs.py

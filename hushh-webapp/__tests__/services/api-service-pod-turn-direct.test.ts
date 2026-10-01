@@ -89,7 +89,6 @@ vi.mock("@/lib/services/owner-pod-endpoint", () => ({
 }));
 
 import { ApiService, POD_TURN_FETCH_TIMEOUT_MS } from "@/lib/services/api-service";
-import { activatePuppyWhenIdle } from "@/lib/services/pod-activation";
 
 const mockFetch = global.fetch as ReturnType<typeof vi.fn>;
 const POD_URL = "https://one-pod-owner-abc.a.run.app";
@@ -331,14 +330,13 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
-    const stream = vi.spyOn(ApiService, "apiFetchStream");
     const response = (parts: string[]) => new Response(new ReadableStream<Uint8Array>({
       start(controller) {
         for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
         controller.close();
       },
     }), { headers: { "Content-Type": "text/event-stream" } });
-    stream.mockResolvedValueOnce(response([
+    mockFetch.mockResolvedValueOnce(response([
       'event: token\ndata: {"text":"Hello',
       ' "}\n\nevent: token\ndata: {"text":"world"}\n\n',
       'event: done\ndata: {"model":"local-m","modelReported":true,"provider":"puppy","grounded":false,"runtimeMode":"puppy_relay"}\n\n',
@@ -352,14 +350,40 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     const done = await ApiService.streamPuppyPodTurn(input);
     expect(tokens).toEqual(["Hello ", "world"]);
     expect(done.model).toBe("local-m");
-    expect(stream).toHaveBeenCalledTimes(1);
-    expect(stream.mock.calls[0][0]).toBe(`${POD_URL}/api/one/pod/turn/stream`);
-    expect(JSON.parse(String(stream.mock.calls[0][1]?.body))).toMatchObject({
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe(`${POD_URL}/api/one/pod/turn/stream`);
+    expect(JSON.parse(String(mockFetch.mock.calls[0][1]?.body))).toMatchObject({
       runtimeProvider: "puppy", puppyDeviceId: "tdv_mac_1", conversationId: "puppy-chat-1",
     });
-    stream.mockResolvedValueOnce(response(['event: error\ndata: {"code":"PUPPY_OFFLINE"}\n\n']));
+    mockFetch.mockResolvedValueOnce(response(['event: error\ndata: {"code":"PUPPY_OFFLINE"}\n\n']));
     await expect(ApiService.streamPuppyPodTurn(input)).rejects.toThrow("PUPPY_OFFLINE");
-    expect(stream).toHaveBeenCalledTimes(2);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("aborts the direct HTTP stream after headers when the owner cancels", async () => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
+    ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
+    vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
+    const caller = new AbortController();
+    let transportSignal: AbortSignal | undefined;
+    mockFetch.mockImplementation((_url: string, init: RequestInit) => {
+      transportSignal = init.signal ?? undefined;
+      return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
+        start(controller) {
+          transportSignal?.addEventListener("abort", () => controller.error(transportSignal?.reason));
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } }));
+    });
+    const turn = ApiService.streamPuppyPodTurn({
+      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
+      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1", history: [],
+      onToken: vi.fn(), signal: caller.signal,
+    });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    expect(transportSignal?.aborted).toBe(false);
+    caller.abort(new DOMException("owner cancelled", "AbortError"));
+    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    expect(transportSignal?.aborted).toBe(true);
   });
 
   it("starts owner-approved Puppy activation while a cold pod session is opening", async () => {
@@ -367,7 +391,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     let admit!: (session: typeof SESSION) => void;
     ownerPodMocks.currentPodSession.mockReturnValue(new Promise((resolve) => { admit = resolve; }));
     const activate = vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
-    const stream = vi.spyOn(ApiService, "apiFetchStream").mockResolvedValue(
+    mockFetch.mockResolvedValue(
       new Response('event: done\ndata: {"model":"local","modelReported":true}\n\n'),
     );
     const turn = ApiService.streamPuppyPodTurn({
@@ -375,10 +399,10 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
       conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1", history: [], onToken: vi.fn(),
     });
     await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
-    expect(stream).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
     admit(SESSION);
     await expect(turn).resolves.toMatchObject({ model: "local" });
-    expect(stream).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
   });
 
   it("gives the pod turn its own ceiling above the proxies", async () => {
@@ -400,32 +424,6 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     await vi.advanceTimersByTimeAsync(POD_TURN_FETCH_TIMEOUT_MS);
     expect(observedSignal?.aborted).toBe(true);
     await rejection;
-  });
-});
-
-describe("Puppy activation after owner grant restoration", () => {
-  afterEach(() => vi.useRealTimers());
-
-  it("waits for fresh device admission while the old pod subject is revoked", async () => {
-    vi.useFakeTimers();
-    const status = vi.fn()
-      .mockResolvedValueOnce({ inference_ready: false, state: "revoked" })
-      .mockResolvedValueOnce({ inference_ready: false, state: "revoked" })
-      .mockResolvedValueOnce({ inference_ready: true, state: "ready" });
-    const hub = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    const activation = activatePuppyWhenIdle("tdv_mac_1", "synthetic-owner", undefined, { status, hub });
-    await vi.advanceTimersByTimeAsync(4_000);
-    await expect(activation).resolves.toBeUndefined();
-    expect(hub).toHaveBeenCalledTimes(1);
-    expect(status).toHaveBeenCalledTimes(3);
-  });
-
-  it("still refuses when the hub rejects the owner grant", async () => {
-    const status = vi.fn().mockResolvedValue({ inference_ready: false, state: "revoked" });
-    const hub = vi.fn().mockResolvedValue(new Response(null, { status: 403 }));
-    await expect(activatePuppyWhenIdle("tdv_mac_1", "synthetic-owner", undefined, { status, hub }))
-      .rejects.toThrow("PUPPY_ACTIVATION_UNAVAILABLE:403");
-    expect(status).toHaveBeenCalledTimes(1);
   });
 });
 

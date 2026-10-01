@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { refreshPuppyLink } from "@/lib/services/puppy-one-service";
-import { ApiService } from "@/lib/services/api-service";
+import { ApiService, PUPPY_TURN_DEADLINE_MS } from "@/lib/services/api-service";
 import { PodMemoryConsentRow } from "@/components/agent/pod-memory-consent-row";
 import { PuppyRemoteModelPicker } from "@/components/agent/puppy-remote-model-picker";
 import {
@@ -18,7 +18,6 @@ import {
 import { cn } from "@/lib/utils";
 
 type Turn = { id: string; role: "user" | "assistant"; text: string };
-const PUPPY_TURN_DEADLINE_MS = 205_000;
 
 function whileNotAborted<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
   if (signal.aborted) return Promise.reject(signal.reason);
