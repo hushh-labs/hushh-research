@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2059,
+  "finding_count": 2076,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -14,7 +14,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "OneLocationAgentService",
-      "value": 10238
+      "value": 10262
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -77,7 +77,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": "ConnectionsService",
-      "value": 4008
+      "value": 4033
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -113,7 +113,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "DriveBulkShareStore",
-      "value": 2455
+      "value": 2576
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -180,21 +180,21 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "DriveSharingStore",
+      "value": 1645
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py|PersonalGmailInformationRequestService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py",
       "symbol": "PersonalGmailInformationRequestService",
       "value": 1634
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|DriveSharingStore|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "DriveSharingStore",
-      "value": 1607
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -225,6 +225,15 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/one_voice/session.py|VoiceSession|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "VoiceSession",
+      "value": 1459
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/location_onboarding_runtime.py|LocationOnboardingRuntimeService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -240,15 +249,6 @@
       "path": "consent-protocol/hushh_mcp/services/agent_chat_service.py",
       "symbol": "AgentChatService",
       "value": 1307
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/one_voice/session.py|VoiceSession|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
-      "symbol": "VoiceSession",
-      "value": 1250
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -405,6 +405,15 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/information_request_service.py|InformationRequestService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
+      "symbol": "InformationRequestService",
+      "value": 843
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/connection_graph_service.py|ConnectionGraphService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -420,15 +429,6 @@
       "path": "consent-protocol/hushh_mcp/services/google_maps_service.py",
       "symbol": "GoogleMapsService",
       "value": 824
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/information_request_service.py|InformationRequestService|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
-      "symbol": "InformationRequestService",
-      "value": 843
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -495,21 +495,21 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/drive_chat_service.py|DriveChatService|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/drive_chat_service.py",
-      "symbol": "DriveChatService",
-      "value": 635
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/person_profile_service.py|PersonProfileService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
       "symbol": "PersonProfileService",
       "value": 640
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_chat_service.py|DriveChatService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_chat_service.py",
+      "symbol": "DriveChatService",
+      "value": 635
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -630,21 +630,21 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_permission_store.py|DrivePermissionStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
+      "symbol": "DrivePermissionStore",
+      "value": 512
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/vault_db.py|VaultDBService|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/vault_db.py",
       "symbol": "VaultDBService",
       "value": 510
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/drive_permission_store.py|DrivePermissionStore|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
-      "symbol": "DrivePermissionStore",
-      "value": 503
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -846,6 +846,15 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|DriveRequestPaymentService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": "DriveRequestPaymentService",
+      "value": 399
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/google_drive_permission_adapter.py|GoogleDrivePermissionAdapter|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -972,6 +981,15 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/tests/test_consent_lifecycle_chat.py|TestRevokeAndCancelAreTargetable|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
+      "symbol": "TestRevokeAndCancelAreTargetable",
+      "value": 352
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/ria_verification.py|RIAIntelligenceStage1LookupAdapter|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -1013,7 +1031,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/puppy_broker.py",
       "symbol": "PuppyBroker",
-      "value": 338
+      "value": 340
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1062,11 +1080,29 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|DriveSharingProjectionStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "symbol": "DriveSharingProjectionStore",
+      "value": 328
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/api/routes/kai/analyze_run_store.py|KaiRunStore|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
       "path": "consent-protocol/api/routes/kai/analyze_run_store.py",
       "symbol": "KaiRunStore",
+      "value": 327
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/one_voice/tools/executor.py|ToolExecutor|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/executor.py",
+      "symbol": "ToolExecutor",
       "value": 327
     },
     {
@@ -1113,15 +1149,6 @@
       "path": "consent-protocol/hushh_mcp/services/fabric_grant_service.py",
       "symbol": "FabricGrantService",
       "value": 323
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/one_voice/tools/executor.py|ToolExecutor|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/one_voice/tools/executor.py",
-      "symbol": "ToolExecutor",
-      "value": 319
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1341,15 +1368,6 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/consent_lifecycle_service.py|ConsentLifecycleService|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
-      "symbol": "ConsentLifecycleService",
-      "value": 255
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/tests/test_one_adk_agent_tree.py|TestBackendDirectConnectionReadTools|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
@@ -1359,12 +1377,30 @@
     },
     {
       "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/consent_lifecycle_service.py|ConsentLifecycleService|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/consent_lifecycle_service.py",
+      "symbol": "ConsentLifecycleService",
+      "value": 255
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
       "key": "class_size|consent-protocol/hushh_mcp/services/drive_revocation_store.py|DriveRevocationStore|class exceeds the advisory operon budget",
       "kind": "class_size",
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/drive_revocation_store.py",
       "symbol": "DriveRevocationStore",
       "value": 253
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_share_notification_store.py|DriveShareNotificationStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_share_notification_store.py",
+      "symbol": "DriveShareNotificationStore",
+      "value": 251
     },
     {
       "detail": "agent tool imports a concrete service or database module",
@@ -1850,7 +1886,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/pod_turn.py",
       "symbol": "run_pod_turn",
-      "value": 413
+      "value": 412
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -1860,6 +1896,15 @@
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "provision",
       "value": 409
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|search_directory_candidates|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
+      "symbol": "search_directory_candidates",
+      "value": 403
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -1886,7 +1931,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "create_review",
-      "value": 390
+      "value": 395
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -1899,21 +1944,21 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
+      "symbol": "erase_drive_account_in_transaction",
+      "value": 382
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|_apply_kai_circle_recommendations|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": "_apply_kai_circle_recommendations",
       "value": 380
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|search_directory_candidates|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
-      "symbol": "search_directory_candidates",
-      "value": 379
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2043,12 +2088,12 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/ria_iam_service.py|claim_ria_profile_from_identity|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/email_delegated_read.py|run_delegated_mail_read|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
-      "symbol": "claim_ria_profile_from_identity",
-      "value": 327
+      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
+      "symbol": "run_delegated_mail_read",
+      "value": 331
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2057,16 +2102,16 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
       "symbol": "operation",
-      "value": 325
+      "value": 330
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/email_delegated_read.py|run_delegated_mail_read|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/ria_iam_service.py|claim_ria_profile_from_identity|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
-      "symbol": "run_delegated_mail_read",
-      "value": 324
+      "path": "consent-protocol/hushh_mcp/services/ria_iam_service.py",
+      "symbol": "claim_ria_profile_from_identity",
+      "value": 327
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2103,15 +2148,6 @@
       "path": "consent-protocol/hushh_mcp/services/portfolio_import_service.py",
       "symbol": "import_file",
       "value": 318
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_retention.py|erase_drive_account_in_transaction|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_retention.py",
-      "symbol": "erase_drive_account_in_transaction",
-      "value": 317
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2538,6 +2574,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/person_profile_service.py|get_viewer_profile|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
+      "symbol": "get_viewer_profile",
+      "value": 246
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py|execute|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -2646,15 +2691,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/person_profile_service.py|get_viewer_profile|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
-      "symbol": "get_viewer_profile",
-      "value": 246
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/scripts/ops/pod_lifecycle_drill.py|run_memory_learning_drill|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -2706,6 +2742,15 @@
       "path": "scripts/ci/provision_wallet_pass_certificate.py",
       "symbol": "main",
       "value": 224
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/connections_service.py|search_directory|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/connections_service.py",
+      "symbol": "search_directory",
+      "value": 222
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -2925,15 +2970,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/connections_service.py|search_directory|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/connections_service.py",
-      "symbol": "search_directory",
-      "value": 197
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/one_adk/action_tools.py|_resolve_person_for_information|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3114,6 +3150,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|delivery_snapshot|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "symbol": "delivery_snapshot",
+      "value": 193
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/location_onboarding_runtime.py|settle_interaction|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3276,6 +3321,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|checkout|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": "checkout",
+      "value": 184
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_location_nearby_presence_service.py|check_in|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3299,6 +3353,15 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/kai/losers.py",
       "symbol": "_build_optimization_context",
+      "value": 183
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "symbol": "operation",
       "value": 183
     },
     {
@@ -3429,15 +3492,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|delivery_snapshot|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
-      "symbol": "delivery_snapshot",
-      "value": 179
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/gcp_run_client.py|_delete_service_incarnation|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3564,6 +3618,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
+      "symbol": "main",
+      "value": 173
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/test_consent_outcome_delivery_postgres.py|test_consent_outcome_delivery_on_postgres|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3582,11 +3645,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/ai_connection_gate.py|on_ai_connection_verified|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|approve|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/ai_connection_gate.py",
-      "symbol": "on_ai_connection_verified",
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "approve",
       "value": 172
     },
     {
@@ -3627,6 +3690,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_dispatch_tool_call|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "_dispatch_tool_call",
+      "value": 170
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/actor_identity_service.py|request_email_alias_verification|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -3641,15 +3713,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/app_intelligence_runtime.py",
       "symbol": "_validate_location_interaction_surfaces",
-      "value": 170
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|approve|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "approve",
       "value": 170
     },
     {
@@ -3686,15 +3749,6 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/personal_agent.py",
       "symbol": "describe_pod_update",
-      "value": 169
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
-      "symbol": "operation",
       "value": 169
     },
     {
@@ -3740,15 +3794,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/user_gcp_backend.py",
       "symbol": "_execute_live",
-      "value": 168
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/scripts/verify_managed_vertex_runtime.py|main|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/scripts/verify_managed_vertex_runtime.py",
-      "symbol": "main",
       "value": 168
     },
     {
@@ -3987,6 +4032,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 159
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_location_agent_service.py|claim_circle_invite|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4059,15 +4113,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 157
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_location_circle_service.py|ensure_trusted_memberships_for_pairs|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4091,6 +4136,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/app_intelligence_runtime.py",
       "symbol": "_action_capability",
+      "value": 156
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|process_webhook|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": "process_webhook",
       "value": 156
     },
     {
@@ -4221,11 +4275,29 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|claim|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "claim",
+      "value": 153
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/db/migrate.py|create_developer_registry|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/db/migrate.py",
       "symbol": "create_developer_registry",
+      "value": 152
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "create_request",
       "value": 152
     },
     {
@@ -4248,11 +4320,29 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_refunds.py|_claim_refunds|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_refunds.py",
+      "symbol": "_claim_refunds",
+      "value": 151
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/one_adk/action_tools.py|start_app_goal|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": "start_app_goal",
+      "value": 150
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py|_read_mail|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
+      "symbol": "_read_mail",
       "value": 150
     },
     {
@@ -4419,6 +4509,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 146
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|.codex/skills/codex-skill-authoring/scripts/trigger_evals.py|run|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4479,15 +4578,6 @@
       "path": "consent-protocol/tests/services/test_pkm_service_store_domain_data.py",
       "symbol": "test_store_domain_data_writes_per_domain_blob_manifest_and_events",
       "value": 144
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py|_read_mail|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
-      "symbol": "_read_mail",
-      "value": 143
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -4572,6 +4662,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/ai_connection_gate.py|on_ai_connection_verified|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/ai_connection_gate.py",
+      "symbol": "on_ai_connection_verified",
+      "value": 141
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_email_kyc_service.py|redraft_llm|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -4622,15 +4721,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/domain_registry_service.py",
       "symbol": "register_domain",
-      "value": 140
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|create_request|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "create_request",
       "value": 140
     },
     {
@@ -4983,15 +5073,6 @@
       "path": "consent-protocol/tests/test_drive_work_drain_scheduler_contract.py",
       "symbol": "test_worker_deploy_traffic_flags_match_service_state",
       "value": 133
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|claim|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "claim",
-      "value": 132
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5373,15 +5454,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 125
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/pod_liveness_service.py|evaluate|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -5397,6 +5469,15 @@
       "path": "consent-protocol/hushh_mcp/services/receipt_memory_service.py",
       "symbol": "create_artifact",
       "value": 125
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/executor.py|call|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/executor.py",
+      "symbol": "call",
+      "value": 124
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5913,15 +5994,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_voice/tools/executor.py|call|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_voice/tools/executor.py",
-      "symbol": "call",
-      "value": 117
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/account_service.py|_delete_ria_persona|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -5985,6 +6057,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_service.py|settle|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_service.py",
+      "symbol": "settle",
+      "value": 116
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/gmail_delivery_service.py|prepare|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6012,11 +6093,29 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py|test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_receipt|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_bulk_share_postgres.py",
+      "symbol": "test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_receipt",
+      "value": 116
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py|_complete_shared_drive_search|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": "_complete_shared_drive_search",
+      "value": 116
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_request_payment.py|test_webhook_waits_for_account_erasure_and_reconciles_late_payment|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_request_payment.py",
+      "symbol": "test_webhook_waits_for_account_erasure_and_reconciles_late_payment",
       "value": 116
     },
     {
@@ -6179,15 +6278,6 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_account_service_cleanup_tables.py",
       "symbol": "test_owned_circle_cleanup_preserves_relationship_order",
-      "value": 114
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/services/test_drive_bulk_share_postgres.py|test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_receipt|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/tests/services/test_drive_bulk_share_postgres.py",
-      "symbol": "test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_receipt",
       "value": 114
     },
     {
@@ -6363,6 +6453,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_trusted_auto_progress_never_claims_owner_attention|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
+      "symbol": "test_trusted_auto_progress_never_claims_owner_attention",
+      "value": 112
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/api/routes/one/personal_agent.py|approve_personal_agent_update|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6386,6 +6485,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/consent_center_service.py",
       "symbol": "_group_history_identifier_trails",
+      "value": 111
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_refunds.py|_finish_refund|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_refunds.py",
+      "symbol": "_finish_refund",
       "value": 111
     },
     {
@@ -6453,6 +6561,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_information_request_service.py|test_outgoing_page_filters_latest_consent_state_before_limit|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_information_request_service.py",
+      "symbol": "test_outgoing_page_filters_latest_consent_state_before_limit",
+      "value": 111
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/test_pod_memory_routes.py|local_authority|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6485,6 +6602,15 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/one/pod_relay.py",
       "symbol": "issue_pod_data_door_grants",
+      "value": 110
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_emit_side_effects|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "_emit_side_effects",
       "value": 110
     },
     {
@@ -6795,6 +6921,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/email_delegated_read.py|_analyze_rows|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
+      "symbol": "_analyze_rows",
+      "value": 107
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/one_email_kyc_service.py|select_scopes|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6876,6 +7011,24 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|recipient_request_files|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "recipient_request_files",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py|entry|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
+      "symbol": "entry",
+      "value": 106
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|owner_review|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -6900,15 +7053,6 @@
       "path": "consent-protocol/scripts/sim_consent.py",
       "symbol": "run_consent_round",
       "value": 106
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/services/test_drive_sharing_center.py|test_trusted_auto_progress_never_claims_owner_attention|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
-      "symbol": "test_trusted_auto_progress_never_claims_owner_attention",
-      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6993,11 +7137,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|recipient_request_files|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "recipient_request_files",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": "operation",
       "value": 105
     },
     {
@@ -7119,11 +7263,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_dispatch_tool_call|function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_after_execution|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/session.py",
-      "symbol": "_dispatch_tool_call",
+      "symbol": "_after_execution",
       "value": 104
     },
     {
@@ -7380,6 +7524,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|retry|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "retry",
+      "value": 102
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/location_chat_service.py|_handle_selection_result|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -7484,15 +7637,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/drive_result_privacy.py",
       "symbol": "project",
-      "value": 101
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|retry|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "retry",
       "value": 101
     },
     {
@@ -7727,15 +7871,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_live_query_service.py",
       "symbol": "_prepare_trusted_share",
-      "value": 99
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/email_delegated_read.py|_analyze_rows|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
-      "symbol": "_analyze_rows",
       "value": 99
     },
     {
@@ -8091,6 +8226,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/test_managed_vertex_readiness_script.py|test_stalled_live_preserves_slower_command_verdicts|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/test_managed_vertex_readiness_script.py",
+      "symbol": "test_stalled_live_preserves_slower_command_verdicts",
+      "value": 97
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/test_ria_onboarding_v2.py|test_verify_ria_license_ignores_incomplete_location_cache|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -8379,6 +8523,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/one_voice/test_alias_independence.py|test_mail_analysis_runs_with_every_alias_emptied|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/one_voice/test_alias_independence.py",
+      "symbol": "test_mail_analysis_runs_with_every_alias_emptied",
+      "value": 95
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/test_pod_memory_bank.py|test_a_lost_acknowledgement_is_recovered_by_asking_the_provider|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -8420,6 +8573,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/developer_oauth_service.py",
       "symbol": "ensure_tables",
+      "value": 94
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
       "value": 94
     },
     {
@@ -8496,38 +8658,11 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_emit_side_effects|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
-      "symbol": "_emit_side_effects",
-      "value": 93
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/capability_run_service.py|create|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/capability_run_service.py",
       "symbol": "create",
-      "value": 93
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 93
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": "operation",
       "value": 93
     },
     {
@@ -8681,6 +8816,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/consent_db.py",
       "symbol": "renew_vault_owner_token",
+      "value": 92
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|recipient_files|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "recipient_files",
       "value": 92
     },
     {
@@ -8933,6 +9077,15 @@
       "limit": 80,
       "path": "consent-protocol/scripts/ops/verify_pod_journey.py",
       "symbol": "main",
+      "value": 91
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/one_voice/test_relay_protocol.py|test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
+      "symbol": "test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming",
       "value": 91
     },
     {
@@ -9216,6 +9369,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": "operation",
+      "value": 89
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/fabric_receipts_service.py|verify_chain|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -9441,15 +9603,6 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|operation|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "operation",
-      "value": 88
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/hushh_mcp/services/drive_native_picker_service.py|_stage_callback|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -9527,15 +9680,6 @@
       "limit": 80,
       "path": "consent-protocol/tests/one_voice/test_live_sos_tool_selection_eval.py",
       "symbol": "test_sos_fixture_is_well_formed_and_held_out",
-      "value": 88
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/one_voice/test_relay_protocol.py|test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
-      "symbol": "test_tap_on_a_firebase_plane_card_verifies_the_proof_before_confirming",
       "value": 88
     },
     {
@@ -9621,6 +9765,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/submit-appstore-version.py|main|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/submit-appstore-version.py",
+      "symbol": "main",
+      "value": 88
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|.claude/skills/codex-bridge/scripts/route.py|_route_hook|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -9653,6 +9806,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/pod_agui_context.py",
       "symbol": "build_agent",
+      "value": 87
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_live_event|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": "_handle_live_event",
       "value": 87
     },
     {
@@ -9797,6 +9959,15 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/drive_live_reader.py",
       "symbol": "bind_matches",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/hushh_mcp/services/drive_request_payment_store.py|_ensure_ready|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/hushh_mcp/services/drive_request_payment_store.py",
+      "symbol": "_ensure_ready",
       "value": 86
     },
     {
@@ -10044,6 +10215,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/one_voice/test_relay_protocol.py|test_scope_review_opens_the_screen_and_settles_from_a_re_read|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
+      "symbol": "test_scope_review_opens_the_screen_and_settles_from_a_re_read",
+      "value": 85
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/tests/services/test_one_location_agent_service.py|test_auto_approve_preference_accepts_multiple_owned_circles|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -10139,15 +10319,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/connected_systems_service.py",
       "symbol": "get_schema",
-      "value": 84
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py|recipient_files|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
-      "symbol": "recipient_files",
       "value": 84
     },
     {
@@ -10301,15 +10472,6 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_voice/live_client.py",
       "symbol": "translate_message",
-      "value": 83
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/hushh_mcp/one_voice/session.py|_handle_live_event|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
-      "symbol": "_handle_live_event",
       "value": 83
     },
     {
@@ -10485,6 +10647,15 @@
     },
     {
       "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|scripts/ci/submit-appstore-version.py|parse_args|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "scripts/ci/submit-appstore-version.py",
+      "symbol": "parse_args",
+      "value": 83
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
       "key": "function_size|consent-protocol/api/routes/one/command_proposals.py|claim|function exceeds the advisory gene budget",
       "kind": "function_size",
       "limit": 80,
@@ -10652,15 +10823,6 @@
       "limit": 80,
       "path": "consent-protocol/scripts/reset_finance_root_user.py",
       "symbol": "_build_financial_skeleton",
-      "value": 82
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/one_voice/test_relay_protocol.py|test_scope_review_opens_the_screen_and_settles_from_a_re_read|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
-      "symbol": "test_scope_review_opens_the_screen_and_settles_from_a_re_read",
       "value": 82
     },
     {
@@ -11390,7 +11552,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/one_location_agent_service.py",
       "symbol": null,
-      "value": 11373
+      "value": 11397
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11417,7 +11579,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/one-location-agent-page.test.tsx",
       "symbol": null,
-      "value": 9820
+      "value": 9831
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11426,7 +11588,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_one_location_agent_service.py",
       "symbol": null,
-      "value": 9125
+      "value": 9151
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11462,16 +11624,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/redesign/location-redesign-hub.tsx",
       "symbol": null,
-      "value": 6788
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/services/api-service.ts",
-      "symbol": null,
-      "value": 6058
+      "value": 6791
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11481,6 +11634,15 @@
       "path": "consent-protocol/hushh_mcp/services/pkm_agent_lab_service.py",
       "symbol": null,
       "value": 6054
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/api-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/api-service.ts",
+      "symbol": null,
+      "value": 6029
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11597,7 +11759,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/connections_service.py",
       "symbol": null,
-      "value": 4324
+      "value": 4349
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11727,21 +11889,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_connections_service.py",
+      "symbol": null,
+      "value": 3223
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/app/ria/picks/page.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/app/ria/picks/page.tsx",
       "symbol": null,
       "value": 3222
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_connections_service.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_connections_service.py",
-      "symbol": null,
-      "value": 3218
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11862,6 +12024,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "symbol": null,
+      "value": 2697
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/api/routes/pkm_routes_shared.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -11885,7 +12056,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/one-location/onboarding/one-location-onboarding-flow.tsx",
       "symbol": null,
-      "value": 2672
+      "value": 2667
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11907,12 +12078,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/drive_bulk_share_store.py||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/drive_bulk_share_store.py",
+      "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2576
+      "value": 2574
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11922,15 +12093,6 @@
       "path": "consent-protocol/scripts/ops/pod_lifecycle_drill.py",
       "symbol": null,
       "value": 2560
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/connectors-panel.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/agent/connectors-panel.tsx",
-      "symbol": null,
-      "value": 2568
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11948,7 +12110,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/gmail/gmail-receipts-page.tsx",
       "symbol": null,
-      "value": 2526
+      "value": 2529
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11979,6 +12141,24 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/one_voice/test_relay_protocol.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
+      "symbol": null,
+      "value": 2409
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_personal_agent_renewal_authority.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_personal_agent_renewal_authority.py",
+      "symbol": null,
+      "value": 2393
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/agent_chat_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12003,15 +12183,6 @@
       "path": "hushh-webapp/lib/one-location/service.ts",
       "symbol": null,
       "value": 2337
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_personal_agent_renewal_authority.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_personal_agent_renewal_authority.py",
-      "symbol": null,
-      "value": 2393
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12051,6 +12222,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/puppy-resource-monitor.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/puppy-resource-monitor.tsx",
+      "symbol": null,
+      "value": 2169
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|.claude/skills/impeccable/scripts/hook-lib.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12066,15 +12246,6 @@
       "path": "consent-protocol/hushh_mcp/services/gmail_personal_information_request_service.py",
       "symbol": null,
       "value": 2146
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/puppy-resource-monitor.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/agent/puppy-resource-monitor.tsx",
-      "symbol": null,
-      "value": 2169
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12177,6 +12348,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_consent_lifecycle_chat.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
+      "symbol": null,
+      "value": 2005
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/services/one-kyc-client-zk-service.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12249,6 +12429,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-voice/voice-session-provider.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/one-voice/voice-session-provider.tsx",
+      "symbol": null,
+      "value": 1887
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/profile/pkm-natural-panel.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12312,15 +12501,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_consent_lifecycle_chat.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
-      "symbol": null,
-      "value": 2005
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/one-location/onboarding/__tests__/save-location-modal.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12335,16 +12515,16 @@
       "limit": 500,
       "path": "hushh-webapp/components/consent/document-share-review.tsx",
       "symbol": null,
-      "value": 1826
+      "value": 1823
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/one_voice/test_relay_protocol.py||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/tests/one_voice/test_relay_protocol.py",
+      "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
       "symbol": null,
-      "value": 1801
+      "value": 1807
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12384,21 +12564,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
+      "symbol": null,
+      "value": 1765
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_personal_agent_provisioning_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_provisioning_service.py",
       "symbol": null,
       "value": 1763
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/app/profile/receipts/page.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/app/profile/receipts/page.test.tsx",
-      "symbol": null,
-      "value": 1756
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12438,6 +12618,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
+      "symbol": null,
+      "value": 1689
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/public_profile_discovery_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12453,15 +12642,6 @@
       "path": "consent-protocol/tests/test_account_routes.py",
       "symbol": null,
       "value": 1680
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/one-voice/voice-session-provider.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/one-voice/voice-session-provider.tsx",
-      "symbol": null,
-      "value": 1679
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12501,15 +12681,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_store.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_store.py",
-      "symbol": null,
-      "value": 1650
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_byoc_substrate_teardown_is_loud.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12534,6 +12705,15 @@
       "path": "hushh-webapp/app/one/kai/analysis/page.tsx",
       "symbol": null,
       "value": 1636
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_voice/session.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
+      "symbol": null,
+      "value": 1628
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12618,6 +12798,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
+      "symbol": null,
+      "value": 1537
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/services/api-service-fetch.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -12636,12 +12825,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_request_bulk_postgres.py||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_request_bulk_postgres.py",
+      "path": "consent-protocol/server.py",
       "symbol": null,
-      "value": 1516
+      "value": 1517
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12651,15 +12840,6 @@
       "path": "scripts/ci/provision_wallet_pass_certificate.py",
       "symbol": null,
       "value": 1516
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/server.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/server.py",
-      "symbol": null,
-      "value": 1514
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12678,15 +12858,6 @@
       "path": "hushh-webapp/components/app-ui/top-app-bar.tsx",
       "symbol": null,
       "value": 1508
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/feed/use-feed-actionables.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/feed/use-feed-actionables.ts",
-      "symbol": null,
-      "value": 1505
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12714,6 +12885,15 @@
       "path": "consent-protocol/api/routes/ria.py",
       "symbol": null,
       "value": 1492
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/one-voice/session-reducer.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/one-voice/session-reducer.test.ts",
+      "symbol": null,
+      "value": 1485
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12785,7 +12965,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/notifications/fcm-service.ts",
       "symbol": null,
-      "value": 1451
+      "value": 1455
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12803,7 +12983,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_turn_route.py",
       "symbol": null,
-      "value": 1444
+      "value": 1480
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12813,15 +12993,6 @@
       "path": "hushh-webapp/components/gmail/gmail-information-requests-section.tsx",
       "symbol": null,
       "value": 1442
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/one-voice/session-reducer.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/one-voice/session-reducer.test.ts",
-      "symbol": null,
-      "value": 1433
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12852,30 +13023,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/one_voice/session.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/one_voice/session.py",
-      "symbol": null,
-      "value": 1402
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1405
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
-      "symbol": null,
-      "value": 1392
+      "value": 1408
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12885,6 +13038,15 @@
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
       "value": 1404
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/auth-service.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/auth-service.test.ts",
+      "symbol": null,
+      "value": 1392
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13023,6 +13185,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts",
+      "symbol": null,
+      "value": 1314
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/app/ria/onboarding/page.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13077,15 +13248,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts",
-      "symbol": null,
-      "value": 1302
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/agents/kai/debate_engine.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13128,6 +13290,15 @@
       "path": "hushh-webapp/e2e/information-sharing-two-people.spec.ts",
       "symbol": null,
       "value": 1291
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/one_voice/test_tools_mail.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/one_voice/test_tools_mail.py",
+      "symbol": null,
+      "value": 1287
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13266,21 +13437,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/one_voice/test_tools_mail.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/one_voice/test_tools_mail.py",
-      "symbol": null,
-      "value": 1239
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/api/routes/drive_sharing.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/api/routes/drive_sharing.py",
       "symbol": null,
       "value": 1231
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
+      "symbol": null,
+      "value": 1229
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13302,19 +13473,19 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/information_request_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
+      "symbol": null,
+      "value": 1218
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-prepared-blob-store.test.ts",
-      "symbol": null,
-      "value": 1216
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/feed/feed-item-renderers.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/feed/feed-item-renderers.tsx",
       "symbol": null,
       "value": 1216
     },
@@ -13326,15 +13497,6 @@
       "path": "consent-protocol/tests/services/test_google_maps_service.py",
       "symbol": null,
       "value": 1208
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/one/pod_turn.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/one/pod_turn.py",
-      "symbol": null,
-      "value": 1202
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13353,6 +13515,15 @@
       "path": "consent-protocol/hushh_mcp/runtime_settings.py",
       "symbol": null,
       "value": 1196
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/one/pod_turn.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/one/pod_turn.py",
+      "symbol": null,
+      "value": 1193
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13392,15 +13563,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/information_request_service.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
-      "symbol": null,
-      "value": 1218
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/api/routes/one/command_proposals.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13419,19 +13581,28 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|.claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": ".claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs",
+      "symbol": null,
+      "value": 1168
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/utils/top-shell-breadcrumbs.test.ts",
       "symbol": null,
-      "value": 1170
+      "value": 1168
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|.claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/one-voice/session-reducer.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": ".claude/skills/impeccable/scripts/detector/engines/regex/detect-text.mjs",
+      "path": "hushh-webapp/lib/one-voice/session-reducer.ts",
       "symbol": null,
       "value": 1168
     },
@@ -13509,6 +13680,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
+      "symbol": null,
+      "value": 1152
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/components/pkm-natural-panel.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13522,15 +13702,6 @@
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/lib/one-location/notifications.ts",
-      "symbol": null,
-      "value": 1146
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/one-voice/session-reducer.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/one-voice/session-reducer.ts",
       "symbol": null,
       "value": 1146
     },
@@ -13551,15 +13722,6 @@
       "path": "consent-protocol/api/consent_listener.py",
       "symbol": null,
       "value": 1134
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/drive-sharing-service.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/drive-sharing-service.test.ts",
-      "symbol": null,
-      "value": 1133
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13653,21 +13815,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/onboarding/AuthStep.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
-      "symbol": null,
-      "value": 1098
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/connections/person-profile-page.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/connections/person-profile-page.tsx",
       "symbol": null,
       "value": 1102
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/onboarding/AuthStep.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/onboarding/AuthStep.tsx",
+      "symbol": null,
+      "value": 1098
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13686,6 +13848,15 @@
       "path": "hushh-webapp/lib/morphy-ux/ui/swipe-views.tsx",
       "symbol": null,
       "value": 1092
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
+      "symbol": null,
+      "value": 1090
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13797,21 +13968,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_information_request_service.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx",
+      "path": "consent-protocol/tests/services/test_information_request_service.py",
       "symbol": null,
-      "value": 1032
+      "value": 1041
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/connect/circles/connect-circles-tab.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/components/connect/circles/connect-circles-tab.tsx",
+      "path": "hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx",
       "symbol": null,
-      "value": 1032
+      "value": 1038
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13833,6 +14004,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/connect/circles/__tests__/connect-circles-tab.test.tsx",
+      "symbol": null,
+      "value": 1029
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/location/location-home.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -13842,12 +14022,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/components/connectors-panel.test.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/connect/circles/connect-circles-tab.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
+      "path": "hushh-webapp/components/connect/circles/connect-circles-tab.tsx",
       "symbol": null,
-      "value": 1060
+      "value": 1027
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14193,6 +14373,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_hushh_tech_routes.py",
+      "symbol": null,
+      "value": 952
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/marketplace_investor_replenisher.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14226,15 +14415,6 @@
       "path": "consent-protocol/hushh_mcp/services/pkm_upgrade_service.py",
       "symbol": null,
       "value": 948
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_hushh_tech_routes.py",
-      "symbol": null,
-      "value": 952
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14316,6 +14496,15 @@
       "path": "hushh-webapp/e2e/document-share-review.layout.spec.ts",
       "symbol": null,
       "value": 934
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/deploy/backend-deploy.sh",
+      "symbol": null,
+      "value": 929
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14436,15 +14625,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|scripts/deploy/backend-deploy.sh||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "scripts/deploy/backend-deploy.sh",
-      "symbol": null,
-      "value": 912
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/drive_owner_search_store.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14490,15 +14670,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_information_request_service.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_information_request_service.py",
-      "symbol": null,
-      "value": 1041
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/location/circles/circle-detail.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14532,6 +14703,15 @@
       "path": "hushh-webapp/components/one-location/saved-locations-section.tsx",
       "symbol": null,
       "value": 890
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_email_delegated_read.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_email_delegated_read.py",
+      "symbol": null,
+      "value": 889
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14589,21 +14769,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/feed/feed-page.tsx",
+      "symbol": null,
+      "value": 872
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/one-location/onboarding/location-picker-map.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/one-location/onboarding/location-picker-map.tsx",
       "symbol": null,
       "value": 872
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/feed/feed-page.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/feed/feed-page.tsx",
-      "symbol": null,
-      "value": 870
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14679,12 +14859,30 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_request_payment.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_request_payment.py",
+      "symbol": null,
+      "value": 856
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/scripts/architecture/audit-cache-coherence.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/scripts/architecture/audit-cache-coherence.mjs",
       "symbol": null,
       "value": 856
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|scripts/ci/submit-appstore-version.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "scripts/ci/submit-appstore-version.py",
+      "symbol": null,
+      "value": 854
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14805,6 +15003,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/services/external-connector-service.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/services/external-connector-service.ts",
+      "symbol": null,
+      "value": 832
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/pod_session_authority.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14856,15 +15063,6 @@
       "path": "hushh-webapp/scripts/architecture/generate-surface-map.mjs",
       "symbol": null,
       "value": 819
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_email_delegated_read.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_email_delegated_read.py",
-      "symbol": null,
-      "value": 816
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14940,6 +15138,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/dashboard/one-agent-roster.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/dashboard/one-agent-roster.tsx",
+      "symbol": null,
+      "value": 801
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/kai/kai-market-home-resource.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -14949,21 +15156,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/dashboard/one-agent-roster.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/dashboard/one-agent-roster.tsx",
-      "symbol": null,
-      "value": 799
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/one_adk/action_retrieval.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_retrieval.py",
       "symbol": null,
       "value": 797
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts",
+      "symbol": null,
+      "value": 796
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14985,19 +15192,19 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/profile/pkm-section-preview.ts||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/app/one/setup/kai/page.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/lib/profile/pkm-section-preview.ts",
+      "path": "hushh-webapp/app/one/setup/kai/page.tsx",
       "symbol": null,
       "value": 793
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/app/one/setup/kai/page.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/profile/pkm-section-preview.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/app/one/setup/kai/page.tsx",
+      "path": "hushh-webapp/lib/profile/pkm-section-preview.ts",
       "symbol": null,
       "value": 793
     },
@@ -15039,6 +15246,24 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/person_profile_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
+      "symbol": null,
+      "value": 786
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
+      "symbol": null,
+      "value": 785
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/hushh_mcp/services/gmail_metadata_reader.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15063,15 +15288,6 @@
       "path": "consent-protocol/hushh_mcp/services/drive_suggestion_service.py",
       "symbol": null,
       "value": 783
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/agent/agent-history-sidebar.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
-      "symbol": null,
-      "value": 777
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15111,12 +15327,30 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/agent/agent-history-sidebar.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/agent/agent-history-sidebar.tsx",
+      "symbol": null,
+      "value": 777
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/services/test_drive_suggestion_recency.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_suggestion_recency.py",
       "symbol": null,
       "value": 776
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
+      "symbol": null,
+      "value": 775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15138,30 +15372,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/services/pkm-natural-language-ingestion.test.ts",
-      "symbol": null,
-      "value": 796
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/profile/pkm-profile-presentation.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/lib/profile/pkm-profile-presentation.ts",
       "symbol": null,
       "value": 773
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/google_drive_adapter.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
-      "symbol": null,
-      "value": 775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15201,30 +15417,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/person_profile_service.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/person_profile_service.py",
-      "symbol": null,
-      "value": 786
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/api/routes/one/puppy_relay.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/api/routes/one/puppy_relay.py",
       "symbol": null,
       "value": 765
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/services/external-connector-service.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/services/external-connector-service.ts",
-      "symbol": null,
-      "value": 770
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15300,15 +15498,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|scripts/ci/submit-appstore-version.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "scripts/ci/submit-appstore-version.py",
-      "symbol": null,
-      "value": 755
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_specialist_turn_parity.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15369,6 +15558,15 @@
       "path": "consent-protocol/db/migration_authority.py",
       "symbol": null,
       "value": 745
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
+      "symbol": null,
+      "value": 743
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15552,6 +15750,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/lib/legal/legal-documents.ts",
+      "symbol": null,
+      "value": 726
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/pkm/pkm-memory-cards.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15567,15 +15774,6 @@
       "path": "consent-protocol/tests/test_migration_authority.py",
       "symbol": null,
       "value": 723
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/lib/legal/legal-documents.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/lib/legal/legal-documents.ts",
-      "symbol": null,
-      "value": 726
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15687,15 +15885,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/one-voice/__tests__/voice-session-provider.test.tsx",
-      "symbol": null,
-      "value": 712
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/services/connections-service.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -15765,15 +15954,6 @@
       "path": "consent-protocol/tests/test_hushh_adk_manifest_and_factory.py",
       "symbol": null,
       "value": 707
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
-      "symbol": null,
-      "value": 785
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16002,12 +16182,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/one-location/redesign/sos-panel.tsx||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/email_delegated_read.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "hushh-webapp/components/one-location/redesign/sos-panel.tsx",
+      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
       "symbol": null,
-      "value": 688
+      "value": 685
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16024,6 +16204,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_hushh_tech_scope_isolation.py",
+      "symbol": null,
+      "value": 684
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-location/redesign/sos-panel.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/one-location/redesign/sos-panel.tsx",
       "symbol": null,
       "value": 684
     },
@@ -16146,6 +16335,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
+      "symbol": null,
+      "value": 672
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/services/location-agent-service.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16209,6 +16407,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
+      "symbol": null,
+      "value": 664
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/components/swipe-views.test.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16260,6 +16467,15 @@
       "path": "hushh-webapp/e2e/agent-surface-model-authority.layout.spec.ts",
       "symbol": null,
       "value": 662
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/app-ui/data-table.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/app-ui/data-table.tsx",
+      "symbol": null,
+      "value": 661
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16317,15 +16533,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_center.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
-      "symbol": null,
-      "value": 663
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_drive_sharing_routes.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16353,21 +16560,12 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/email_delegated_read.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/email_delegated_read.py",
-      "symbol": null,
-      "value": 654
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/agent/drive-background-search.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/agent/drive-background-search.tsx",
       "symbol": null,
-      "value": 653
+      "value": 656
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16515,6 +16713,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_trusted_auto.py",
+      "symbol": null,
+      "value": 639
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/location/setup/location-setup-flow.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16548,15 +16755,6 @@
       "path": "hushh-webapp/lib/consent/open-granted-person-information.ts",
       "symbol": null,
       "value": 637
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/one_voice/tools/mail.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/one_voice/tools/mail.py",
-      "symbol": null,
-      "value": 636
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16605,6 +16803,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
+      "symbol": null,
+      "value": 632
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/scripts/perf/android-perf-gestures.mjs||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -16614,28 +16821,10 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/app-ui/data-table.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/app-ui/data-table.tsx",
-      "symbol": null,
-      "value": 631
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/components/location/circles/invite-to-circle-flow.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/components/location/circles/invite-to-circle-flow.tsx",
-      "symbol": null,
-      "value": 631
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/components/one-location/redesign/__tests__/sos-panel.test.tsx",
       "symbol": null,
       "value": 631
     },
@@ -16983,6 +17172,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_person_profile_service.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_person_profile_service.py",
+      "symbol": null,
+      "value": 607
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/test_connected_systems_routes.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17037,15 +17235,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/test_uat_deploy_no_traffic_contract.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/test_uat_deploy_no_traffic_contract.py",
-      "symbol": null,
-      "value": 602
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/__tests__/lib/one-location/saved-locations.test.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17059,6 +17248,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/agents/portfolio_import/agent.py",
+      "symbol": null,
+      "value": 599
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/components/top-app-bar.contract.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/components/top-app-bar.contract.test.ts",
       "symbol": null,
       "value": 599
     },
@@ -17115,15 +17313,6 @@
       "path": "hushh-webapp/lib/services/secure-resource-cache-service.ts",
       "symbol": null,
       "value": 596
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/components/top-app-bar.contract.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/components/top-app-bar.contract.test.ts",
-      "symbol": null,
-      "value": 595
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17185,6 +17374,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/kai_import/extract_v2.py",
+      "symbol": null,
+      "value": 588
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts",
       "symbol": null,
       "value": 588
     },
@@ -17302,15 +17500,6 @@
       "kind": "module_size",
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-command-bar.test.tsx",
-      "symbol": null,
-      "value": 573
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "hushh-webapp/__tests__/firebase-messaging-service-worker.test.ts",
       "symbol": null,
       "value": 573
     },
@@ -17541,12 +17730,21 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_person_profile_service.py||module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
-      "path": "consent-protocol/tests/services/test_person_profile_service.py",
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_center_contributor.py",
       "symbol": null,
-      "value": 607
+      "value": 559
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_permission_executor.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_permission_executor.py",
+      "symbol": null,
+      "value": 559
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17667,6 +17865,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
+      "symbol": null,
+      "value": 549
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/lib/observability/growth.ts||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17682,15 +17889,6 @@
       "path": "consent-protocol/scripts/ops/owner_direct_acceptance.py",
       "symbol": null,
       "value": 548
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_sharing_store.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_sharing_store.py",
-      "symbol": null,
-      "value": 544
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -17829,6 +18027,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/hushh_mcp/services/drive_permission_store.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
+      "symbol": null,
+      "value": 532
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|hushh-webapp/app/one/location/view/[token]/page-client.tsx||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -17844,15 +18051,6 @@
       "path": "hushh-webapp/components/profile/runtime-secret-settings-card.tsx",
       "symbol": null,
       "value": 532
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_permission_executor.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_permission_executor.py",
-      "symbol": null,
-      "value": 531
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18036,15 +18234,6 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/hushh_mcp/services/drive_permission_store.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/hushh_mcp/services/drive_permission_store.py",
-      "symbol": null,
-      "value": 523
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/services/test_document_review_authority_postgres.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18216,6 +18405,15 @@
     },
     {
       "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/api/routes/health.py",
+      "symbol": null,
+      "value": 515
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
       "key": "module_size|consent-protocol/tests/services/test_gmail_cache_retention.py||module exceeds the advisory operon budget",
       "kind": "module_size",
       "limit": 500,
@@ -18276,15 +18474,6 @@
       "path": "consent-protocol/tests/test_rca_runner_can_say_it_did_not_look.py",
       "symbol": null,
       "value": 511
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/api/routes/health.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/api/routes/health.py",
-      "symbol": null,
-      "value": 515
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18501,261 +18690,19 @@
       "path": "hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs",
       "symbol": null,
       "value": 501
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/tests/test_consent_lifecycle_chat.py|TestRevokeAndCancelAreTargetable|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
-      "symbol": "TestRevokeAndCancelAreTargetable",
-      "value": 352
-    },
-    {
-      "detail": "class exceeds the advisory operon budget",
-      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|DriveSharingProjectionStore|class exceeds the advisory operon budget",
-      "kind": "class_size",
-      "limit": 250,
-      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
-      "symbol": "DriveSharingProjectionStore",
-      "value": 309
-    },
-    {
-      "detail": "function exceeds the advisory gene budget",
-      "key": "function_size|consent-protocol/tests/services/test_information_request_service.py|test_outgoing_page_filters_latest_consent_state_before_limit|function exceeds the advisory gene budget",
-      "kind": "function_size",
-      "limit": 80,
-      "path": "consent-protocol/tests/services/test_information_request_service.py",
-      "symbol": "test_outgoing_page_filters_latest_consent_state_before_limit",
-      "value": 111
-    },
-    {
-      "detail": "module exceeds the advisory operon budget",
-      "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
-      "kind": "module_size",
-      "limit": 500,
-      "path": "consent-protocol/tests/services/test_drive_trusted_auto.py",
-      "symbol": null,
-      "value": 549
     }
   ],
-  "inspected_files": 5421,
+  "inspected_files": 5444,
   "review": {
-    "adk_byoc_integration_20260929": {
-      "adk_revision": "a3a88680182db2f4c71acf0363a8aaab54fd2b58",
-      "main_revision": "02d33ac09eb4d9da565765a8902c96a580551f0e",
-      "reviewed_regressions": 217,
-      "scope": "Reviewed combined ADK/BYOC debt baseline after source integration: 54 new and 163 worsened size measurements (22 class, 74 function, 121 module), all confined to existing/backend and frontend owners. No new dependency-direction or import-initialization findings. This records measured debt, not an optimality or live-readiness claim; thresholds and comparison logic are unchanged.",
-      "size_findings_sha256": "78750e624f18dfb4e21fbdca8d619d999a0d50933931a89b25e1bf13ce9b64ea",
-      "source_revision": "846d9079a"
-    },
-    "adk_final_integration_20260930": {
-      "adk_revision": "de7a91daf0a146b3676e41adc44f8ab888507b7f",
-      "merge_revision": "e25ee4e4ac01e725ca744cb3df376c40fdc60da9",
-      "reviewed_regressions": 55,
-      "root_revision": "92021c29fd13199c3a9508b60df8586218cd1cc3",
-      "scope": "Reviewed the frozen ADK import: 8 new and 47 worsened size measurements (51 module, 3 function, 1 class). Dependency-direction and import-initialization findings, budgets, and comparison logic are unchanged. The imported capabilities retain their existing owners; this is measured debt, not an optimality or production-readiness claim. Focused agent, reviewer-auth, connector, frontend and generated-contract checks passed. The editor performance gate remains separately blocking until resolved.",
-      "size_findings_sha256": "a7a9e262fdd35f13bd6826f8366c9f83ff99e88793a12511b7f9bfad6555bef8"
-    },
-    "adk_revision": "91bc9f7cbfa9a9d544623808b9e3ab36dc3a050c",
-    "byoc_files_adk_integration_20260930": {
-      "adk_revision": "01fa7ba7b636921751d55a68615c8a0569d27f28",
-      "combined_file_findings": 16,
-      "inherited_adk_findings": 30,
-      "merge_revision": "5a315b7383c6f82dfaf0fca23f72c3b942b8023d",
-      "new_findings": 7,
-      "pre_merge_root": "375fa615f376695861323f4e95af1442bd894c63",
-      "release_candidate": "0122dc14587cc481892746c3f1d1964ab1c2016d",
-      "report_sha256": "accbe020f3387598d2efa0630a19baac231adb93aad17cdfecd7d83f34ce67e1",
-      "reviewed_regressions": 46,
-      "scope": "Reviewed 16 combined-file size deltas for accidental duplication and authority changes; focused Files, recovery, reviewer, connector, voice and generated-contract checks passed. All 46 are size findings; no new dependency-direction, import-initialization or parse findings. Defer bounded extraction to the owning modules; do not treat the baseline as an optimality claim.",
-      "worsened_findings": 39
-    },
-    "byoc_puppy_adk_delta_20260930": {
-      "adk_revision": "e3e41eaacbcf76ec2b341b575d9c182c73223915",
-      "followup": "Consider a bounded get_viewer_profile extraction on the next substantive profile change; do not split solely to satisfy a line count.",
-      "measured_improvements": 7,
-      "report_sha256": "48abc080d367a3004b21a83a5eeaf7d019bf9ae20d0df6944976479aee530e8f",
-      "reviewed_regressions": 16,
-      "scope": "Independent read-only review of 16 worsened size measurements and zero new findings after the selective ADK directory/Memory import and Puppy machine retry. Seven smaller measurements tighten the ratchet. Profile contact projection rechecks the active edge and excludes email from the public projection; focused positive and negative controls passed. No parse, dependency-direction, import-initialization, or duplicate-authority defect found. Budgets and comparator are unchanged. This records measured debt, not live readiness.",
-      "source_revision": "ceb81c2bc493408444961634721c07d8ff03c068"
-    },
-    "compatible_graph_projection_20260930": {
-      "report_sha256": "625c8743c9763a3b628727a37f7ba8e108aa33123a5158cbbc5a1af2856a73d1",
-      "reviewed_regressions": 1,
-      "scope": "The owning capability-graph generator preserved three exact merged-main predecessor revisions after the merge base advanced. Its generated Location card catalog grew by three lines; current graph semantics did not change. No authored module, budget, comparator, dependency or import-init rule changed.",
-      "source_revision": "0718468f3"
-    },
-    "completion_integration": {
-      "adk": "d751afaf71982e9b86ea8cbb12234b9fc1524ab7",
-      "evidence_revision": "5feb09a0d",
-      "gate_corrections": "Two existing test-module ceilings add exact private MCP preview allowlist entries and verify the extracted shared deploy command retains upstream CPU allocation. Cascades are checked against authored SQL, not waived.",
-      "generated_compatibility": "One extra generated catalog line retains frozen main graph d4b2dd7b65a583c6 after the merge-base advances; generated owners verified. No semantic revision changed.",
-      "root": "94f419c6e7c01ef42d1ac168c791d315eaa5c48a",
-      "scope": "Read-only ADK authority review admitted 103 byte-identical upstream findings and 42 additive/moved/renamed merged findings. Parent reviewed nine unchanged premerge MCP fixture and existing facade size findings against exact approval/transaction/privacy contracts. Extracted ledger operation helper eliminates two additional function findings. Renamed existing instruction hotspot replaces its old key. Thresholds, comparator and unrelated ceilings unchanged; this records debt, not universal architecture readiness.",
-      "size_finding_count": 154,
-      "size_findings_sha256": "00364f84e5b6395f945ad944f13063bd448c34c34b2375530fec92444513b9c9"
-    },
-    "core_determinism_20261001": {
-      "accepted_findings": [
-        {
-          "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
-          "previous_value": 947,
-          "reason": "Frozen in-memory clock keeps the existing 60/minute verified-UID isolation contract deterministic under loaded CI; no production limit or comparator changed.",
-          "value": 952
-        }
-      ],
-      "independent_review": "core_flake_diagnosis; read-only analysis of fixed-window expiry and focused serial reproduction",
-      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus focused test fix"
-    },
-    "files_provision_claim_20261001": {
-      "accepted_findings": [
-        {
-          "key": "module_size|consent-protocol/tests/test_personal_agent_renewal_authority.py||module exceeds the advisory operon budget",
-          "previous_value": 2313,
-          "reason": "One real-Postgres positive and negative boundary test proves the exact Files selection survives durable provision claim; no size threshold or production guard is loosened.",
-          "value": 2393
-        }
-      ],
-      "independent_review": "pending_byoc_gate_review and dev_sql_files_claim; setup ordering and live 917 guard verified",
-      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus Files claim correction"
-    },
-    "reserved_byoc_ui_20261001": {
-      "accepted_findings": [
-        {
-          "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
-          "previous_value": 707,
-          "reason": "A saved but unassigned BYOC project needs its original one-click deploy action after a verified empty setup-job read; assigned and unknown placements remain gated.",
-          "value": 785
-        }
-      ],
-      "independent_review": "disposable_files_path and reserved_byoc_ui_review; saved-project reachability and foreign-job retry boundary",
-      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus reserved BYOC UI correction"
-    },
-    "date": "2026-09-30",
-    "device_sync_delta": "Three existing size entries reviewed against live TIMESTAMPTZ response failure: service class/module +4 lines and existing owner-bound route test +8. Parent and read-only API reviewer; only timestamp projection and its regression. No threshold or unrelated entry changed.",
-    "editor_latency_20260930": {
-      "browser_test_value": 668,
-      "editor_value": 863,
-      "previous_browser_test_value": 626,
-      "previous_editor_value": 861,
-      "scope": "Reviewed two size-only increases from the imported ADK editor fix: the existing editor adds a longer idle debounce (+2), and its existing browser layout test adds a same-run native textarea latency control (+42). No new authority, import-direction, or initialization finding. The advisory budgets and comparison logic remain unchanged. This records measured debt; hosted browser latency remains an independent release gate.",
-      "source_revision": "d008ce680a8a00d4c48b41d14ccaeffa44d35793"
-    },
-    "editor_mirror_scroll_20260930": {
-      "previous_value": 860,
-      "scope": "One-line guard avoids an unnecessary mirror-scroll style write during plain typing in the existing pasted-text editor. The 500-line advisory budget and ratchet stay unchanged; the focused 22-case editor suite passed. Hosted macOS latency remains an independent gate and is not waived.",
-      "source_revision": "ef0b6b0914d3c1423e41a51c62d108bab4d2f56d",
-      "value": 861
-    },
-    "endpoint_publication_delta": "Six reviewed existing size entries for explicit endpoint authority arguments, refusal before signing, the core regression and compatible rehearsal fake. Parent and read-only authority review; evidence base 9c4379f0125850ab3a63896ee21d430447f3b556. No other entries or budgets changed.",
-    "freshness_delta": "Nine separately reviewed size-only entries imported from main 6aba9e7f7; all other baseline entries and thresholds preserved.",
-    "freshness_main_revision": "6aba9e7f7b1b6b0ea953ec19fdea324812338553",
-    "frozen_adk_integration": {
-      "adk": "3bd078a8c336c77c05ba74b787e570a08fb47617",
-      "merge_base": "6aba9e7f7b1b6b0ea953ec19fdea324812338553",
-      "root": "2674ab39fa235185d32f5fc2314f9bb44ad020cb",
-      "scope": "Independent source review: 66 frozen ADK measurements, 26 additive root/ADK measurements, smaller chat facade union, account deletion cleanup in existing transaction, and bounded client regression. Includes separately reviewed typed-refusal source/test additions from root 2674. Generated catalog 1388 and unchanged getenv location 40 reviewed separately. Endpoint module ceiling, all other entries, budgets and comparator unchanged.",
-      "size_finding_count": 95,
-      "size_findings_sha256": "6650ae9e9b2edfc41d67699389431648f7625c35bd6456582e0fc4dd6107fcc4"
-    },
-    "main_adk_auth_privacy_integration_20260930": {
-      "adk_revision": "3752ada65e45fbde91f1983ca3385a3e82f009a9",
-      "main_revision": "0d39f199d",
-      "reviewed_regressions": 2,
-      "scope": "Reviewed frozen main and ADK auth/privacy integration. Auth context grew from 1923 to 1976 lines and its existing focused test file now measures 569 lines; both changes preserve the same authority and were verified by 42 focused tests and typecheck. Dev deploy script decreased from 892 to 890 lines. One new and one worsened size finding are recorded; thresholds, dependency-direction and import-init gates remain unchanged.",
-      "source_revision": "a7af36c156030dd27223377a458c9406f9954750 + 0d39f199d + 3752ada65e45fbde91f1983ca3385a3e82f009a9"
-    },
-    "main_connector_integration_20260930": {
-      "integration_revision": "d1fbbc569",
-      "reviewed_regressions": 51,
-      "scope": "Reviewed current main connector, Location and deploy integration: 7 new and 44 worsened size measurements (4 class, 11 function, 36 module), including the authored HubSpot OAuth operon and tests. No new dependency-direction or import-initialization findings. The generated contracts were rebuilt from owning sources; focused connector and deploy checks pass. This records measured integration debt, not an optimality or readiness claim. Budgets and comparison logic remain unchanged.",
-      "source_revision": "033c51a3b229a1db09b53401ad65894584e8d124"
-    },
-    "main_drive_relevance_20260929": {
-      "change_commit": "cd911350a",
-      "findings_sha256": "4b18f6d43d3aeaf73b3f01d00bf76a19292c525e5dab7ff3ac7e87baeb70fc76",
-      "main_revision": "d1bb6c82c",
-      "reviewed_findings": 14,
-      "scope": "Fourteen size-only findings from the main Drive request relevance fix (one new function and thirteen worsened existing measurements). The affected 115 backend and 86 frontend tests pass. No dependency-direction or import-initialization finding was introduced; this records inherited source debt rather than accepting a quality or release claim."
-    },
-    "main_drive_setup_20260929": {
-      "main_revision": "463452cc342a681e0857e99e02371e076066be10",
-      "reviewed_regressions": 2,
-      "scope": "Two inherited test-module size measurements increased after the Drive paused-request setup fix: document review +1 line and sharing-center tests +56 lines. No threshold or comparator changed. This records measured test debt; the focused backend tests pass and frontend acceptance is checked separately.",
-      "source_revision": "035026125f073c28e923ba821ecb51ec837821fd"
-    },
-    "main_revision": "670b2e68eecc48ce826b132b446dad4a4c90e5c6",
-    "main_voice_mail_20260929": {
-      "main_revision": "d3096115ac962154f7f08ba5ddbac453316d0aa9",
-      "reviewed_regressions": 32,
-      "scope": "Reviewed after current-main One Voice mail integration and the granted-scope UI correction: 8 new and 24 worsened size-only findings (3 class, 6 function, 23 module). The inherited voice/mail feature accounts for the new modules; the profile selector adds one line to an existing large module. No new dependency-direction or import-initialization finding. Thresholds and ratchet comparison stay unchanged. This is measured debt, not a production-readiness claim.",
-      "source_revision": "37f2ad9d7"
-    },
-    "owner_pod_cold_admission_20260930": {
-      "previous_value": 6049,
-      "scope": "One existing API module grows nine lines to recognize absolute owner-pod admission and status URLs. A live reviewer-pod challenge returned 200 after 89.6 seconds, beyond the prior browser 60-second ceiling. The exact route ceiling becomes 120 seconds; unrelated direct and hub requests remain at 60 seconds. The nearest timeout test covers both. No budget, comparator, route authority, or import-direction rule changed; live retry remains required.",
-      "source_revision": "5ff85436aa285462491a21ef3088276e9aeb0aea",
-      "value": 6058
-    },
-    "puppy_remote_2026_09_29": {
-      "evidence_base": "d0f8c799a89526870441f8f35521b6f1e12d4857 plus reviewed Puppy remote working tree",
-      "new_size_findings": 2,
-      "retired_findings": 7,
-      "scope": "38 reviewed size-only increases in the existing pod, browser, device-control, test and update seams. The final 11 increases come from repository-required Python formatting, not new control flow. Two new findings are the cohesive PuppyBroker class and nearest pod-relay test module. No new parse, dependency-direction, or import-initialization finding. Budgets and comparison logic remain unchanged. This records measured debt; live behavior needs separate evidence.",
-      "worsened_size_findings": 38
-    },
-    "reviewer_legal_acceptance_20260927": {
-      "independent_review": "adk_authority_review; explicit interaction authority and exact-dialog deferral",
-      "scope": "Only AuthStep +3 and existing reviewer harness +16 lines: automated authentication never records legal agreement; automation bridge and local Not now preserve blocked mutation policy. No other ceiling or threshold changes.",
-      "source_revision": "d162f236b6e7df88191edef0c74f9cee112eb69a"
-    },
-    "reviewer_live_capture_20260928": {
-      "independent_review": "adk_authority_review; complete memory-only header capture, exact identity routes, disappearing legal prompt and persistent-prompt negative control",
-      "scope": "Existing reviewer harness +10 lines, justified by reproduced live rehearsal failures. Nineteen focused tests pass. No threshold, comparator or other finding changed.",
-      "source_revision": "249b3b600eb0eee4fe484ca5b1e2a908346ddef2"
-    },
-    "revision": "ceb81c2bc493408444961634721c07d8ff03c068",
-    "scope": "Reviewed Files-led BYOC and Puppy candidate after selective local ADK integration. Size debt is measured and retained; budgets, comparator, dependency direction and import initialization checks are unchanged. This baseline does not establish live readiness.",
-    "source_revision": "ceb81c2bc493408444961634721c07d8ff03c068",
-    "update_failure_receipt_20260929": {
-      "scope": "Two additional lines convert the owner update failure-report service result into a concrete mapping at the FastAPI boundary. The service package is intentionally skipped by the current gradual mypy scan. The route remains owner-authorized and returns the same receipt; no budget or comparator changed.",
-      "source_revision": "067a51caf"
-    },
-    "update_presentation_20260927": {
-      "accepted_findings": [
-        {
-          "key": "function_size|consent-protocol/api/routes/one/personal_agent.py|describe_pod_update|function exceeds the advisory gene budget",
-          "previous_value": 158,
-          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
-          "value": 159
-        },
-        {
-          "key": "module_size|consent-protocol/api/routes/one/personal_agent.py||module exceeds the advisory operon budget",
-          "previous_value": 987,
-          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
-          "value": 991
-        },
-        {
-          "key": "module_size|consent-protocol/tests/test_personal_agent_upgrade_authority.py||module exceeds the advisory operon budget",
-          "previous_value": null,
-          "reason": "Reviewed owner-bound active update projection and focused negative controls; no authority move or line-count extraction.",
-          "value": 523
-        }
-      ],
-      "independent_review": "files_activation_review; read-only correctness and bounded-debt review",
-      "source_revision": "969a4b273ce402bdf89a22812a1bcf1ac6ea460f"
-    },
-    "main_drive_freshness_20261001": {
-      "pre_merge": "62535afa78efc65e77d1944b236dff0fb35c8e33",
-      "main": "599d3ec3697a7eaff38565a0b1853110a2cf56a0",
-      "merge": "5daeb48ab1e30c53418927fd0be1fdca24926e69",
-      "independent_review": "ci_dispatch_path",
-      "reviewed_regressions": 18,
-      "new_findings": 4,
-      "worsened_findings": 14,
-      "scope": "Reviewed main Drive integration debt only: 14 values equal upstream; Connectors remains smaller than upstream; action_tools retains the four-line pod refusal, connector service retains 12 lines of owner-pod review authority, and the generated Location catalog retains compatibility revisions. Budgets, comparator and gate are unchanged; this is no runtime readiness claim."
-    }
+    "additional_reviewed_entries": [
+      "module_size|consent-protocol/tests/test_pod_turn_route.py||module exceeds the advisory operon budget",
+      "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget"
+    ],
+    "adk_revision": "1b08a07ebe9314a4e67e3fac1a082a102c8a3d40",
+    "date": "2026-10-01",
+    "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+    "integrated_revision": "785019eb20f9e640e76a3185073488291e4cf9a1",
+    "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f"
   },
-  "status": "baseline"
+  "status": "advisory"
 }

@@ -51,4 +51,4 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.
 - [adk-orchestration-docs-audit.md](./adk-orchestration-docs-audit.md): dated ADK and owner-pod decision memo; Files readiness, accountable gates, and historical evidence anchors.
 - [diagram-structure-audit-2026-09-25.md](./diagram-structure-audit-2026-09-25.md): dated integrated-branch diagram and structure review; its [per-figure disposition ledger](./diagram-dispositions-2026-09-25.jsonl) records the figures reviewed on 2026-09-25.
-- [architecture-fitness-baseline.json](./architecture-fitness-baseline.json): measured post-pilot debt baseline for the new-or-worsened CI ratchet; existing findings remain visible.
+- [architecture-fitness-baseline.json](./architecture-fitness-baseline.json): reviewed integration debt baseline for the new-or-worsened CI ratchet; revision and exceptions are recorded in the [decision memo](./adk-orchestration-docs-audit.md#reviewed-integration-debt).

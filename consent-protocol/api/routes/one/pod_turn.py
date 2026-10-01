@@ -23,15 +23,12 @@ source wiring alone does not establish deployed recall or lifecycle completion.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
-from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Optional
 
-import anyio
 from fastapi import APIRouter, Body, Header, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -41,20 +38,12 @@ from api.routes.one.pod_turn_memory_authority import commit_gate
 from api.routes.one.pod_turn_memory_authority import (
     memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
 )
+from api.routes.one.pod_turn_stream import stream_turn_events
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
 
 logger = logging.getLogger(__name__)
-_STREAM_TURN_TASKS: set[asyncio.Task[None]] = set()
-
-
-def _stream_turn_settled(task: asyncio.Task[None]) -> None:
-    _STREAM_TURN_TASKS.discard(task)
-    if not task.cancelled() and task.exception() is not None:
-        logger.error("pod_turn.stream_cleanup_failed")
-
-
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
 
 # Every grant key a text turn may carry. The door names are the Live wire
@@ -959,10 +948,6 @@ async def _run_direct_turn(
         )
 
 
-def _stream_event(kind: str, payload: dict[str, Any]) -> str:
-    return f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
-
-
 def _stream_error(exc: Exception) -> dict[str, str]:
     """A stable code and public text, never exception details or private turn content."""
     if isinstance(exc, HTTPException):
@@ -1009,75 +994,11 @@ async def pod_turn_stream_route(
         raise HTTPException(status_code=400, detail="Puppy inference target required")
     authority, claims = _direct_turn_session(authorization)
 
-    async def events():
-        queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=8)
-        emitted = False
-
-        async def on_token(value: str) -> None:
-            nonlocal emitted
-            await queue.put(("token", {"text": value}))
-            emitted = True
-
-        async def run() -> None:
-            try:
-                result = await _run_direct_turn(
-                    payload, authorization, authority, claims, on_token=on_token
-                )
-                # A bounded refusal may be a helpful text result without a model
-                # token. Stream it once; the terminal carries metadata only.
-                if not emitted and result.get("text"):
-                    await queue.put(("token", {"text": result["text"]}))
-                await queue.put(
-                    (
-                        "done",
-                        {
-                            key: result[key]
-                            for key in (
-                                "model",
-                                "modelReported",
-                                "provider",
-                                "grounded",
-                                "runtimeMode",
-                                "degraded",
-                                "directiveCount",
-                            )
-                            if key in result
-                        },
-                    )
-                )
-            except Exception as exc:  # noqa: BLE001 - no private details on the wire
-                logger.warning("pod_turn.stream_failed reason=%s", type(exc).__name__)
-                await queue.put(("error", _stream_error(exc)))
-
-        task = asyncio.create_task(run())
-        _STREAM_TURN_TASKS.add(task)
-        task.add_done_callback(_stream_turn_settled)
-        try:
-            while True:
-                try:
-                    kind, data = await asyncio.wait_for(queue.get(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    yield ": hb\n\n"
-                    continue
-                yield _stream_event(kind, data)
-                if kind in {"done", "error"}:
-                    return
-        finally:
-            if not task.done():
-                task.cancel()
-            # ASGI disconnect cancels Starlette's AnyIO scope repeatedly. Do not
-            # let that cancel device-stop delivery or admission release again.
-            # Retain the producer if cleanup outlives this bounded wait: update
-            # handoff must remain held until admitted work actually settles.
-            with anyio.CancelScope(shield=True):
-                try:
-                    with suppress(asyncio.CancelledError):
-                        await asyncio.wait_for(asyncio.shield(task), timeout=10)
-                except TimeoutError:
-                    logger.error("pod_turn.stream_cleanup_pending update_handoff=held")
+    async def turn(on_token: Callable[[str], Awaitable[None]]) -> dict[str, Any]:
+        return await _run_direct_turn(payload, authorization, authority, claims, on_token=on_token)
 
     return StreamingResponse(
-        events(),
+        stream_turn_events(turn, public_error=_stream_error),
         media_type="text/event-stream",
         headers={"Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no"},
     )
@@ -1085,7 +1006,6 @@ async def pod_turn_stream_route(
 
 async def _bounded_turn(turn: Any) -> dict:
     """Run one turn under the route's bound; a timeout is a typed 504, never a hang."""
-    import asyncio  # noqa: PLC0415
 
     try:
         async with asyncio.timeout(POD_TURN_ROUTE_TIMEOUT_SECONDS):
@@ -1111,7 +1031,6 @@ async def pod_live_route(websocket: WebSocket) -> None:
     any bootstrap, then throughout the connection. A browser vault master is
     never an accepted substitute for this read grant.
     """
-    import asyncio
     import re
 
     from api.routes.one.adk_live import run_one_live_session

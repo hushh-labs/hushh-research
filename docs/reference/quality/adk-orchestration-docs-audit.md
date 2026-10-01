@@ -50,6 +50,22 @@ Git history retains the earlier chronology; this memo records current evidence.
   Preserve both receipts. Administrator-seeded phone verification is not SMS
   onboarding evidence, and maintenance is not a normal owner update receipt.
 
+## Reviewed integration debt
+
+The fitness baseline is bound to integrated `785019eb2` (main `f5ed2eb82`,
+ADK `1b08a07eb`). Independent review classified 101 size regressions: nine
+pre-existing root changes, 76 main/ADK changes, three ADK-only changes, ten
+shared changes and three previously unrecorded findings. No new dependency or
+import-initialization violations were found. Stripe payment routines, Drive
+share stores and voice execution remain measured debt; payments stay disabled
+pending migration 262 and separate operational acceptance.
+
+The Puppy stream lifecycle is extracted behind the existing route and passes
+87 focused tests. Only the replacement ASGI disconnect regression test and the
+regenerated action-card catalog receive reviewed size entries beyond that
+baseline. Budgets remain 500/250/80; later new or worsened findings still fail.
+The baseline does not establish runtime acceptance.
+
 ## Files-led acceptance
 
 | Journey | Verified | Remaining gate / owner |
