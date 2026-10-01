@@ -308,6 +308,7 @@ def _result(
     coverage=None,
     offer=None,
     failure_stage: str | None = None,
+    analysis_failed: tuple[AnalysisCategory, ...] = (),
 ) -> dict[str, Any]:
     """The specialist turn, plus what a surface needs to show the person.
 
@@ -344,6 +345,10 @@ def _result(
         # row, which makes a later positional request refuse instead of guess.
         "offer": dict(offer) if offer else None,
         "failure_stage": failure_stage,
+        # Bounded planner categories, separate from the strict shared receipt.
+        # A failed read has no coverage, but One still needs to name the
+        # requested analyses it could not complete.
+        "analysis_failed": list(analysis_failed),
     }
 
 
@@ -378,6 +383,7 @@ async def run_delegated_mail_read(
         "user_timezone": zone.key,
     }
     stage = "planning"
+    analysis_categories: tuple[AnalysisCategory, ...] = ()
     try:
         async with asyncio.timeout(105):
             if message_ids:
@@ -411,6 +417,7 @@ async def run_delegated_mail_read(
             if operation == "analyze_mail":
                 if not plan.categories or len(set(plan.categories)) != len(plan.categories):
                     raise GmailMetadataError("invalid_argument")
+                analysis_categories = tuple(plan.categories)
             elif plan.categories:
                 raise GmailMetadataError("invalid_argument")
             if operation == "search_inbox" and not plan.query.strip():
@@ -460,6 +467,7 @@ async def run_delegated_mail_read(
                         "Mail was fetched, but its message text was unavailable for analysis.",
                         "unavailable",
                         failure_stage="analysis",
+                        analysis_failed=analysis_categories,
                     )
                 findings, failed = await _analyze_rows(
                     rows=readable,
@@ -478,6 +486,7 @@ async def run_delegated_mail_read(
                         "Mail was fetched, but I couldn't complete the requested analysis.",
                         "unavailable",
                         failure_stage="analysis",
+                        analysis_failed=analysis_categories,
                     )
                 coverage = dict(metadata.get("coverage") or {})
                 coverage["assessed"] = len(readable)
@@ -548,6 +557,7 @@ async def run_delegated_mail_read(
                     metadata_only=False,
                     items=items,
                     coverage=coverage,
+                    analysis_failed=tuple(failed),
                     offer=(
                         {
                             "message_ids": list(offered_ids),
@@ -659,6 +669,7 @@ async def run_delegated_mail_read(
             _ERRORS.get(exc.code, "Mail is temporarily unavailable. Please try again."),
             exc.code if exc.code in _ERRORS else "unavailable",
             failure_stage=stage,
+            analysis_failed=analysis_categories if stage == "analysis" else (),
         )
     except PermissionError:
         raise
@@ -670,4 +681,5 @@ async def run_delegated_mail_read(
             "Mail is temporarily unavailable. Please try again.",
             "unavailable",
             failure_stage=stage,
+            analysis_failed=analysis_categories if stage == "analysis" else (),
         )

@@ -249,10 +249,45 @@ async def test_analysis_keeps_successful_category_when_another_category_fails():
     result = await _run(reader, gene)
     assert result["structured"]["status"] == "ok"
     assert result["coverage"]["analysis_failed"] == ["action_items"]
+    assert result["analysis_failed"] == ["action_items"]
     assert "findings_action_items" not in result["coverage"]
     assert result["coverage"]["findings_meetings"] == 1
     assert "couldn't complete the action item analysis" in result["response"]
     assert result["items"][1]["analysis"][0]["category"] == "meetings"
+
+
+@pytest.mark.parametrize(
+    "categories",
+    [["action_items"], ["action_items", "meetings"]],
+)
+async def test_all_failed_analysis_preserves_requested_categories_outside_receipt(categories):
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {"operation": "analyze_mail", "categories": categories}
+        raise TimeoutError("provider detail must not be spoken")
+
+    result = await _run(_analysis_reader(), gene)
+    assert result["structured"]["status"] == "unavailable"
+    assert result["failure_stage"] == "analysis"
+    assert result["analysis_failed"] == categories
+    assert result["coverage"] is None
+    assert result["items"] == []
+    assert result["structured"]["sources"] == []
+    assert "analysis_failed" not in result["structured"]
+    assert "provider detail" not in result["response"]
+
+
+async def test_unreadable_analysis_rows_preserve_requested_categories():
+    reader = _analysis_reader()
+    for row in reader.metadata["untrusted_external_content"]:
+        row["body"] = ""
+    result = await _run(
+        reader,
+        AsyncMock(return_value={"operation": "analyze_mail", "categories": ["meetings"]}),
+    )
+    assert result["structured"]["status"] == "unavailable"
+    assert result["failure_stage"] == "analysis"
+    assert result["analysis_failed"] == ["meetings"]
 
 
 async def test_failed_personal_classifier_cancels_other_message_calls():
@@ -314,6 +349,7 @@ async def test_analysis_refuses_invented_sources_or_cross_thread_updates(source_
     result = await _run(reader, gene)
     assert result["structured"]["status"] == "unavailable"
     assert result["failure_stage"] == "analysis"
+    assert result["analysis_failed"] == ["meetings"]
     assert result["items"] == []
     assert result["structured"]["sources"] == []
 

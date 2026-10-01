@@ -84,6 +84,35 @@ _STAGE_FAILURES = {
     "interpretation": "I fetched the messages, but I couldn't finish reading them just now.",
     "analysis": "I fetched the messages, but I couldn't complete the requested analysis.",
 }
+_ANALYSIS_FAILURE_NAMES = {
+    "personal_info": "personal-information request",
+    "action_items": "action-item",
+    "meetings": "meeting",
+}
+
+
+def _analysis_failure_speech(value: Any) -> list[str]:
+    """Name only validated category IDs; never speak delegated response text."""
+    if not isinstance(value, list):
+        return []
+    categories = list(
+        dict.fromkeys(
+            category
+            for category in value[:3]
+            if isinstance(category, str) and category in _ANALYSIS_FAILURE_NAMES
+        )
+    )
+    return [
+        (
+            "Your mailbox is connected, but I couldn't complete the "
+            if index == 0
+            else "I also couldn't complete the "
+        )
+        + _ANALYSIS_FAILURE_NAMES[category]
+        + " analysis."
+        for index, category in enumerate(categories)
+    ]
+
 
 # A dispatch, not an answer. The client opens the row it names through the same
 # resolver a tap uses, so this result has nothing of its own to show and must not
@@ -373,10 +402,17 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
         # Anything that is not a successful read did not happen. Never an empty
         # inbox: "I found nothing" and "I could not look" are different answers
         # and the person acts differently on each.
+        access_failure = _REJECT_SPOKEN.get(status)
+        analysis_speech = (
+            _analysis_failure_speech(outcome.get("analysis_failed"))
+            if outcome.get("failure_stage") == "analysis" and not access_failure
+            else []
+        )
         return Rejected(
             reason_code=status or "mail_read_failed",
-            spoken_facts=[
-                _REJECT_SPOKEN.get(status)
+            spoken_facts=analysis_speech
+            or [
+                access_failure
                 or _STAGE_FAILURES.get(str(outcome.get("failure_stage") or ""))
                 or _REJECT_DEFAULT
             ],
