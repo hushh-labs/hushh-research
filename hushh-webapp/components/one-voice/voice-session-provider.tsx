@@ -841,9 +841,15 @@ export function VoiceSessionProvider({
       const origin = "turn_id" in frame && typeof frame.turn_id === "string"
         ? frame.turn_id
         : null;
-      if (frame.type === "tool.result" && !origin) {
-        // A legacy or malformed result can still settle its exact card in the
-        // reducer, but has no safe owner for screen effects or a spoken reply.
+      if (
+        frame.type === "tool.result" && !origin &&
+        (before.turnId !== null || before.activeInputTurnId !== null ||
+          before.activeResponseTurnId !== null || before.fencedTurnIds.length > 0 ||
+          Boolean(frame.pending_action_id))
+      ) {
+        // A legacy result may settle its exact card, but once this session
+        // has seen a question it has no safe screen or answer owner. Initial
+        // autonomous results can still reach their screen handlers.
         dispatchServerFrame(frame, now());
         return;
       }
