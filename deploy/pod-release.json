@@ -1,22 +1,19 @@
 {
-  "version": "2026.09-dev.9",
+  "version": "2026.09-dev.10",
   "channel": "dev",
-  "summary": "Your private Files workspace and steadier conversations.",
+  "summary": "Clearer machine details and Memory review.",
   "notes": {
     "improvements": [
-      "Files has its own workspace for folders, transfers, and organization history.",
-      "You can move files into folders beyond the first page of results."
+      "Partial machine reports show the information available.",
+      "Memory review names the proposed destination and affected people."
     ],
     "fixes": [
-      "A disconnected chat checks queued-message delivery before sending another turn.",
-      "Files search keeps its current-page scope visible on smaller screens."
+      "Retry remains available after a failed machine read.",
+      "Connected contact details stay limited to active connections."
     ],
     "security": [
-      "Files setup still requires your exact approval before changing your pod.",
-      "Connector review remains bound to the requested tool and owner."
+      "Installation on existing pods is paused until recovery is verified."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392"
-  ]
+  "supportedUpgradeDigests": []
 }

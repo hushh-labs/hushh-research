@@ -48,6 +48,18 @@ budgets; name-only search remains. In-chat Memory approval now shows the
 proposed destination, values and affected people and requires the current
 unlocked card set. None of these local changes is serving on dev.
 
+A 2026-10-01 UTC dev identity, registry and Cloud Run recheck confirmed that
+the named personal pod still serves the exact `1054cdf6…f0392` predecessor at
+100% traffic with Files disabled. The serving `.9` offer is installable from
+that digest despite the missing image-level recovery proof. A dev registry
+aggregate found zero `.9` approvals and zero upgrade leases at readback. The
+next local candidate changes the offer to `.10` with no supported predecessor;
+it does not withdraw `.9` until the governed dev deployment serves it. Recheck
+approval and traffic immediately before that deployment and verify the owner
+sees no installable offer afterward. A disposable, phone-verified owner and
+isolated cloud recovery rehearsal remain the gate before a later release can
+admit this predecessor.
+
 ## Files-led acceptance matrix
 
 | Area | Dated evidence and classification | Blocking proof / accountable owner |
