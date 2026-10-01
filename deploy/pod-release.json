@@ -1,20 +1,21 @@
 {
-  "version": "2026.09-dev.10",
+  "version": "2026.10-dev.1",
   "channel": "dev",
-  "summary": "BYOC Files setup and direct Puppy reliability.",
+  "summary": "Private Files setup and reliable Puppy stream cleanup.",
   "notes": {
     "improvements": [
-      "New cloud setup keeps its Files choice with the selected project.",
-      "Partial machine reports show the information available.",
-      "Memory review names the proposed destination and affected people."
+      "Files remains a dedicated workspace with its own private agent.",
+      "Agent instructions and connector review follow the reviewed ADK revision.",
+      "Existing hosting, storage and owner approval remain authoritative."
     ],
     "fixes": [
-      "Puppy cancellation now reaches the direct browser stream after it opens.",
-      "Retry remains available after a failed machine read.",
-      "Connected contact details stay limited to active connections."
+      "Disconnected Puppy streams finish bounded cancellation before releasing work.",
+      "Offline or busy trusted devices no longer appear ready for a new turn.",
+      "Payment erasure checks cover request-owned records and retained settlement evidence."
     ],
     "security": [
-      "Installation on existing pods is paused until recovery is verified."
+      "Existing-pod installation requires recovery proof for its exact image digest.",
+      "The reviewed ADK dependency update includes the embedding security correction."
     ]
   },
   "supportedUpgradeDigests": []

@@ -32,6 +32,12 @@ Git history retains the earlier chronology; this memo records current evidence.
   Dependency owners combine Stripe and the ADK sentence-transformers 6.0
   security pin; projections are regenerated. New relay readiness and disconnect
   corrections require their own exact-SHA CI and pod installation.
+  The local core mirror passed in 248 seconds. Hosted run `36936377095`
+  exposed a moved comparison ancestor after main incorporated the frozen ADK
+  revision; only the graph's `from_revision` pointer changed on regeneration.
+  Actions, breaking-change results and both predecessor histories are preserved.
+  The failed run was stopped; its result is retained, and new hosted validation
+  is required before deployment.
 - **Schema:** dev readback verified migrations 943–946 and source checksums.
   An applied 944 ledger row does not independently prove deletion or recovery;
   the original 249 cleanup remains deferred. Incoming hub migration 262 must
@@ -49,6 +55,10 @@ Git history retains the earlier chronology; this memo records current evidence.
   restored it. One startup attempt failed; an unchanged-configuration retry passed.
   Preserve both receipts. Administrator-seeded phone verification is not SMS
   onboarding evidence, and maintenance is not a normal owner update receipt.
+  The disposable owner's normal Files approval reached the existing update
+  worker, then stopped at a recorded queue-creation HTTP 403 without replacing
+  the pod. Fresh queue absence, bootstrap permissions and worker identity passed;
+  a bounded continuation still needs its own successful receipt.
 
 ## Reviewed integration debt
 
