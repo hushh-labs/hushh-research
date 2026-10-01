@@ -2189,6 +2189,54 @@ a nonexistent anchor; the parity document is now the canonical definition.
 
 ---
 
+## Private Shopify seller catalog pilot
+
+`GET /api/one/seller-catalog/pilot/preview` is an internal, read-only source
+projection. It requires a valid Vault Owner token whose `user_id` exactly
+matches `HUSHH_SELLER_PILOT_OWNER_UID`. The backend reads only the configured
+`HUSHH_SHOPIFY_PILOT_PRODUCT_IDS` (1–10 Product GIDs) from the configured
+`HUSHH_SHOPIFY_PILOT_SHOP` (`*.myshopify.com`) using a Hussh-owned Shopify app's
+client credentials. The Shopify app needs `read_products` only. Store its client
+ID and secret in server-side secret management as
+`HUSHH_SHOPIFY_PILOT_CLIENT_ID` and `HUSHH_SHOPIFY_PILOT_CLIENT_SECRET`; never
+place them in the web app, app bundle, or repository.
+
+The response has `mode: "technical_preview"`, `source: "shopify"`,
+`customerVisible: false`, `shopDomain`, and an ordered `items` array. Each item
+has a `sourceProductId` and `state` of `needs_seller_review`,
+`source_not_active`, or `source_missing`; present products also have source
+title, status, description, vendor, handle, image URL, currency, update time,
+and variant IDs, SKU, recorded price, and recorded inventory. All price and
+inventory values are unverified source records. The route neither persists nor
+publishes products and does not send WhatsApp messages. Responses are private
+and not cached. Configuration failure returns 503; unauthorized owners get
+403; Shopify read failure returns 502. The existing `/api/one/[...path]` web
+proxy forwards this route, while `ApiService.apiFetch` uses the backend
+directly on native. The pilot UI is web-only pending a seller business
+authority contract.
+
+---
+
+## Internal WhatsApp test webhook
+
+`GET /api/one/whatsapp/pilot/webhook` handles Meta's verification challenge;
+`POST` on the same direct backend URL checks `X-Hub-Signature-256` against the
+raw request bytes using `HUSHH_META_APP_SECRET` before parsing JSON. The
+verification challenge requires an exact `HUSHH_WHATSAPP_PILOT_VERIFY_TOKEN`.
+Both routes return 503 unless the configured test WhatsApp Business Account
+and test phone IDs are also present. Configuration selectors live in
+`BACKEND_RUNTIME_CONFIG_JSON`; the app secret and verify token are separate
+Secret Manager mounts. Only events for the configured test assets count.
+
+This callback acknowledges signed events and logs aggregate incoming-message
+and status counts. It does not record message text, sender numbers, or message
+IDs; it does not link a sender to a One owner, store conversations, or send a
+reply. A durable, consented event and retry contract is required before using
+this endpoint for customer conversations. Configure Meta's callback URL to
+the backend's HTTPS origin, not the frontend proxy.
+
+---
+
 ## See Also
 
 - [Personal contact invitations](../../guides/contact-invitations.md) — client-only recipient callback and native composer contract; contact-sync HTTP payloads remain unchanged.

@@ -974,6 +974,39 @@
     }
   },
   {
+    "route": "/one/seller-catalog/pilot",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/seller-catalog/pilot/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.seller.catalog.pilot",
+      "purpose": "Private Shopify technical review with no publishing or messaging controls.",
+      "screen": "one_seller_catalog_pilot",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The selected Shopify source records are shown as a private preview.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
     "route": "/one/wallet-card",
     "mode": "standard",
     "shellVerification": {

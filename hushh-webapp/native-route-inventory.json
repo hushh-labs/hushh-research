@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 123,
+  "total_routes": 124,
   "native_required_routes": 103,
-  "excluded_routes": 20,
+  "excluded_routes": 21,
   "routes": [
     {
       "route": "/",
@@ -645,6 +645,11 @@
         "empty-valid",
         "unavailable-valid"
       ]
+    },
+    {
+      "route": "/one/seller-catalog/pilot",
+      "classification": "excluded-web-only",
+      "reason": "Internal, owner-restricted Shopify technical pilot. Native use waits for a seller business authority contract and rollout decision."
     },
     {
       "route": "/one/pkm",
