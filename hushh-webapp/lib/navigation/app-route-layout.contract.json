@@ -729,6 +729,7 @@
   {
     "route": "/one/gmail",
     "mode": "standard",
+    "pageTopLocalOffset": "-24px",
     "shellVerification": {
       "file": "components/gmail/gmail-receipts-page.tsx",
       "includes": [

@@ -1328,14 +1328,18 @@ export default function GmailReceiptsPage({
   const overviewReceiptsFetching = gmail.syncRun
     ? gmail.syncRun.status === "queued" || gmail.syncRun.status === "running"
     : isSyncingState;
-  const overviewReceiptDetail = overviewReceiptsFetching
+  const overviewReceiptIssue = statusSummary.tone === "error" ||
+    gmail.syncRun?.status === "failed" || gmail.syncRun?.status === "canceled";
+  const overviewReceiptDetail = loadingStatus
+    ? "Checking your Mail status…"
+    : overviewReceiptsFetching
     ? hasStaleBackgroundSync
       ? "Sync is taking longer than usual."
       : isPassiveBackfillState
         ? "Fetching older purchases…"
         : "Fetching your latest purchases…"
     : statusSummary.tone === "error"
-      ? statusSummary.detail
+      ? `${statusSummary.title}. ${statusSummary.detail}`
       : gmail.syncRun?.status === "failed" || gmail.syncRun?.status === "canceled"
         ? "Sync interrupted. Open receipts to retry."
         : gmail.status?.last_sync_at || gmail.syncRun?.status === "completed"
@@ -1871,7 +1875,7 @@ export default function GmailReceiptsPage({
   return (
     <AppPageShell
       as="div"
-      width="reading"
+      width={journeyVariant === "workspace" ? "agent" : "reading"}
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.5rem)]"
       nativeTest={{
         routeId:
@@ -1892,17 +1896,16 @@ export default function GmailReceiptsPage({
               : "empty-valid",
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className={journeyVariant === "workspace" ? "mx-auto max-w-[820px]" : undefined}>
         <PageHeader
-          // Named for the source, not the artefact: the breadcrumb on both
-          // routes that render this page says "Gmail", and the setup checklist
-          // row that leads here says "Connect Gmail".
           title="Mail"
-          // On /one/gmail the top bar's trail already says "Mail" beside the
-          // back arrow, so the workspace does not draw it again. The setup
-          // step keeps its visible title: setup has no trail.
-          titleVisuallyHidden={journeyVariant === "workspace"}
+          titleRole={journeyVariant === "workspace" ? "agent" : "page"}
           description={pageTitle}
+          className={
+            journeyVariant === "workspace"
+              ? "[&_[data-slot=page-header-copy]]:!space-y-3"
+              : undefined
+          }
           actions={
             isConnected && (journeyVariant === "onboarding" || workspace === "receipts") ? (
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -1940,7 +1943,7 @@ export default function GmailReceiptsPage({
         />
       </AppPageHeaderRegion>
 
-      <AppPageContentRegion>
+      <AppPageContentRegion className={journeyVariant === "workspace" ? "mx-auto !mt-0 max-w-[820px]" : undefined}>
         <SurfaceStack compact>
           {journeyVariant === "workspace" ? (
             <GmailWorkspaceNavigation
@@ -1957,10 +1960,7 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {journeyVariant === "onboarding" ||
-          !isConnected ||
-          (workspace === "overview" &&
-            (loadingStatus || statusSummary.tone === "error")) ? (
+          {journeyVariant === "onboarding" || !isConnected ? (
             <SurfaceInset
               className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
             >
@@ -2118,6 +2118,8 @@ export default function GmailReceiptsPage({
             {isConnected && workspace === "overview" ? (
             <MailOverview
               fetching={overviewReceiptsFetching}
+              receiptIssue={overviewReceiptIssue}
+              receiptCount={receiptListReady ? total : undefined}
               receiptDetail={overviewReceiptDetail}
               receiptUpdated={resolveGmailLastUpdatedLabel(gmail.status, gmail.syncRun)}
               onOpenChat={handleOpenOneChat}
@@ -2406,6 +2408,7 @@ export default function GmailReceiptsPage({
                 "order_id",
               ]}
               searchPlaceholder="Search receipts"
+              preserveMobilePaginationPosition
               initialPageSize={8}
               pageSizeOptions={[8, 16, 24]}
               density="compact"

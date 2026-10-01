@@ -284,6 +284,7 @@ export function OneVoiceControl({
             onMute={(muted) => session.setMuted(muted)}
             onStop={() => session.stop("tap")}
             onInterrupt={() => session.interrupt()}
+            onResume={() => { void session.start(); }}
           />
         ) : (
           <button

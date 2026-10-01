@@ -2126,19 +2126,19 @@ function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
   return (
     <div
       data-testid="agent-chat-time-separator"
-      className="flex justify-center pb-0.5 pt-2 first:pt-0"
+      className="flex justify-center whitespace-nowrap pb-0.5 pt-2 first:pt-0"
     >
       {separator.dateTime ? (
         <time
           dateTime={separator.dateTime}
           title={separator.accessibleLabel}
-          className="text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]"
+          className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]"
         >
           <span aria-hidden="true">{separator.text}</span>
           <span className="sr-only">{separator.accessibleLabel}</span>
         </time>
       ) : (
-        <span className="text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
+        <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
           <span aria-hidden="true">{separator.text}</span>
           <span className="sr-only">{separator.accessibleLabel}</span>
         </span>

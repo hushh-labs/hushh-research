@@ -5078,30 +5078,28 @@ function ShareFlow({
    * with three people looked exactly like one where you had shared with
    * nobody. Two things went wrong with that. The obvious one is that there was
    * no way to tell, and no way at all on a long list. The one that costs
-   * something is underneath: picking someone who already has an active grant
-   * does not extend it — the backend revokes the old grant and inserts a new
-   * one (`_create_enforced_grant_row`), so a re-pick silently restarts a timer
-   * that was already running. Showing the remaining time on the row is what
-   * makes that consequence visible before it is chosen.
+   * something is underneath: starting a second share would revoke the live
+   * grant and restart its timer. These rows stay visible with their remaining
+   * time, but cannot be selected again; changing a live share belongs in
+   * Active shares.
    */
   //
-  // The grant a row reports is the ORDINARY one when the person holds both.
-  // Building this straight from the grant list made it a last-one-wins map, so
-  // while an SMS (SOS) share was live with somebody, their row quoted the SOS
-  // grant's hours -- time that re-picking them would not have restarted, since
-  // replacement is lane-scoped and a plain share only ever supersedes a plain
-  // share. The number on the row has to be the one the tap would reset.
-  const activeGrantByRecipientId = new globalThis.Map(
-    groupGrantsByCounterpart(vm.activeOwnerGrants, "owner").map((group) => [
-      group.counterpartUserId,
-      group.ordinaryGrant ?? group.primaryGrant,
-    ]),
+  // A normal location share and an SMS alert are separate consent lanes. Only
+  // an ordinary active grant makes someone unavailable in this picker; an SMS
+  // alert must not prevent a person from being selected for a normal share.
+  const activeOrdinaryGrantByRecipientId = new globalThis.Map(
+    groupGrantsByCounterpart(vm.activeOwnerGrants, "owner")
+      .filter((group) => group.ordinaryGrant)
+      .map((group) => [
+        group.counterpartUserId,
+        group.ordinaryGrant as OneLocationGrant,
+      ]),
   );
   const alreadySharing = filtered.filter((recipient) =>
-    activeGrantByRecipientId.has(recipient.userId),
+    activeOrdinaryGrantByRecipientId.has(recipient.userId),
   );
   const notSharing = filtered.filter(
-    (recipient) => !activeGrantByRecipientId.has(recipient.userId),
+    (recipient) => !activeOrdinaryGrantByRecipientId.has(recipient.userId),
   );
   /**
    * One row shape for both groups. Two copies of this JSX would be two places
@@ -5115,21 +5113,26 @@ function ShareFlow({
     const selected = vm.selectedDirectRecipientIds.includes(r.userId);
     const includedThroughCircle = selectedCircleByRecipientId.get(r.userId);
     const ready = vm.isRecipientShareReady(r);
+    const alreadyHasLocationShare = Boolean(activeGrant);
     const label = vm.recipientLabel(r);
     return (
       <SettingsRow
         key={r.userId}
         density="compact"
         textOverflow="truncate"
-        disabled={!ready}
+        disabled={!ready || alreadyHasLocationShare}
         onClick={
-          ready
+          ready && !alreadyHasLocationShare
             ? () => vm.toggleShareRecipient(r.userId, "share_flow")
             : undefined
         }
-        ariaPressed={ready ? selected : undefined}
+        ariaPressed={
+          ready && !alreadyHasLocationShare ? selected : undefined
+        }
         ariaLabel={
-          ready
+          alreadyHasLocationShare
+            ? `${label} is already sharing your location`
+            : ready
             ? selected
               ? includedThroughCircle
                 ? `Remove ${label} as an individual contact; they will still be included through ${includedThroughCircle.circle.name}`
@@ -5174,7 +5177,7 @@ function ShareFlow({
           )
         }
         trailing={
-          ready ? (
+          ready && !alreadyHasLocationShare ? (
             selected ? (
               <SelectionDot selected />
             ) : includedThroughCircle ? (
@@ -5598,7 +5601,7 @@ function ShareFlow({
               {alreadySharing.map((r) =>
                 renderShareRecipientRow(
                   r,
-                  activeGrantByRecipientId.get(r.userId),
+                  activeOrdinaryGrantByRecipientId.get(r.userId),
                 ),
               )}
             </SettingsGroup>

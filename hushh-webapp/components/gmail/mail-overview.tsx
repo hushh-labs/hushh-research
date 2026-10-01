@@ -1,7 +1,8 @@
 "use client";
 
-import { Check, FileText, Loader2, Mail, PenLine, Star, Undo2 } from "@/components/icons";
-import { useRef } from "react";
+import { AlertCircle, Check, FileText, Loader2, Mail, PenLine, Star, Undo2 } from "@/components/icons";
+import { useRef, type CSSProperties } from "react";
+import styles from "./mail-overview.module.css";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,7 +34,7 @@ export function MailConnectedAccount({
 }) {
   const openingConfirmation = useRef(false);
   return (
-    <div className="flex items-center justify-between gap-3 rounded-[22px] border border-border/60 bg-card p-4 shadow-sm">
+    <div className="flex items-center justify-between gap-3 rounded-[22px] border border-border/60 bg-card p-4 shadow-sm lg:py-3">
       <div className="flex min-w-0 items-center gap-3.5">
         <MailOverviewIcon />
         <div>
@@ -91,16 +92,20 @@ export function MailOverview({
   fetching,
   receiptDetail,
   receiptUpdated,
+  receiptIssue = false,
+  receiptCount,
   onOpenChat,
 }: {
   fetching: boolean;
   receiptDetail: string;
   receiptUpdated: string | null;
+  receiptIssue?: boolean;
+  receiptCount?: number;
   onOpenChat: () => void;
 }) {
   return (
-    <section aria-label="Mail overview" className="w-full pb-4 pt-5 sm:pt-8">
-      <div className="grid min-h-[232px] grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-1 pb-5 sm:min-h-[280px] sm:grid-cols-[1.2fr_1fr] sm:gap-8 sm:px-4 sm:pb-8">
+    <section aria-label="Mail overview" className="w-full pb-4 pt-5 sm:pt-8 lg:pb-0 lg:pt-0">
+      <div className="grid min-h-[232px] grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-1 pb-5 sm:min-h-[280px] sm:grid-cols-[1.2fr_1fr] sm:gap-8 sm:pb-8 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-6 lg:pb-2">
         <div className="relative z-10 min-w-0">
           <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-surface)] px-3 py-1 text-xs font-semibold text-[color:var(--app-accent)]">
             <Star aria-hidden="true" className="size-3.5" />
@@ -120,14 +125,14 @@ export function MailOverview({
             ))}
           </ul>
         </div>
-        <div aria-hidden="true" className="pointer-events-none min-w-0 pr-1 sm:pr-3">
-          <div className="ml-auto w-full max-w-[154px] rotate-[5deg] -skew-x-2 space-y-2.5 sm:max-w-[220px] sm:space-y-3">
+        <div aria-hidden="true" className="min-w-0 pr-1 sm:pr-3">
+          <div data-testid="mail-draft-cards" className={`${styles.stack} ml-auto w-full max-w-[154px] sm:max-w-[220px] lg:ml-0 lg:max-w-[300px]`}>
             {[
               { label: "Reply", icon: Undo2, width: "w-3/4" },
               { label: "Follow up", icon: FileText, width: "w-2/3" },
               { label: "Write", icon: PenLine, width: "w-1/2" },
-            ].map(({ label, icon: Icon, width }) => (
-              <div key={label} className="rounded-[12px] border border-border/40 bg-card p-2.5 shadow-[0_8px_20px_-6px_color-mix(in_srgb,var(--app-accent)_18%,transparent)] sm:rounded-[16px] sm:p-4">
+            ].map(({ label, icon: Icon, width }, index) => (
+              <div key={label} data-testid="mail-draft-card" style={{ "--card-index": index } as CSSProperties} className={`${styles.card} rounded-[12px] border border-border/40 bg-card p-2.5 shadow-[0_8px_20px_-6px_color-mix(in_srgb,var(--app-accent)_18%,transparent)] sm:rounded-[16px] sm:p-4 lg:py-2`}>
                 <div className="flex items-center gap-2 text-xs font-semibold text-foreground sm:text-sm">
                   <Icon className="size-3.5 shrink-0 text-[color:var(--app-accent)] sm:size-4" />
                   {label}
@@ -141,19 +146,21 @@ export function MailOverview({
           </div>
         </div>
       </div>
-      <div className="border-t border-border/50 py-3 sm:py-4">
+      <div className="border-t border-border/50 py-3 sm:py-4 lg:py-2">
         <SettingsRow
           title="Receipt sync"
-          leading={<span aria-hidden="true" className="flex size-12 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"><FileText className="size-6" /></span>}
-          description={<span className="block space-y-0.5"><span className="block text-[13px] leading-snug">{receiptDetail}</span>{receiptUpdated ? <span className="block text-xs leading-snug text-muted-foreground/75">{receiptUpdated}</span> : null}</span>}
+          leading={<span aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-full ${receiptIssue ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"}`}>{receiptIssue ? <AlertCircle className="size-6" /> : <FileText className="size-6" />}</span>}
+          description={<span className="block space-y-0.5"><span className="block text-[13px] leading-snug">{receiptDetail}</span>{receiptUpdated || receiptCount !== undefined ? <span className="block text-xs leading-snug text-muted-foreground/75">{[receiptCount !== undefined ? `${receiptCount} receipt${receiptCount === 1 ? "" : "s"}` : null, receiptUpdated].filter(Boolean).join(" · ")}</span> : null}</span>}
           trailing={fetching ? <span role="status" aria-label="Fetching receipts"><Loader2 aria-hidden="true" className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" /></span> : undefined}
           testId="mail-receipt-sync"
-          className="!rounded-[20px] border border-emerald-500/15 bg-emerald-500/[0.06] dark:bg-emerald-500/10"
+          className={`!rounded-[20px] border ${receiptIssue ? "border-destructive/20 bg-destructive/[0.06] dark:bg-destructive/10" : "border-emerald-500/15 bg-emerald-500/[0.06] dark:bg-emerald-500/10"}`}
         />
       </div>
-      <AskOneButton onClick={onOpenChat} showIcon={false} size="prominent" className="mt-3 h-[54px] w-full justify-center text-base sm:w-full">
-        Chat with One
-      </AskOneButton>
+      <div className="mx-auto mt-3 w-full max-w-[244px] lg:mt-1">
+        <AskOneButton onClick={onOpenChat} showIcon={false} size="prominent" className="w-full sm:w-full">
+          Chat with One
+        </AskOneButton>
+      </div>
     </section>
   );
 }

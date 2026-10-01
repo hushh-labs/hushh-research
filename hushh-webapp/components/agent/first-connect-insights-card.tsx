@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { Check, Lightbulb, X } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   fetchFirstConnectInsights,
@@ -18,7 +19,7 @@ import {
   type FirstConnectInsightsOffer,
 } from "@/lib/agent/first-connect-insights";
 
-type ItemState = "open" | "saving" | "kept" | "confirm_sharing" | "error";
+type ItemState = "open" | "saving" | "kept" | "confirm_sharing" | "error" | "already_saved" | "nothing_to_save";
 
 export type FirstConnectInsightsCardProps = {
   ownerId: string | null;
@@ -43,10 +44,12 @@ export function FirstConnectInsightsCard({
   const credentialsRef = useRef({ ownerId, vaultKey, vaultOwnerToken, enabled });
   useEffect(() => { credentialsRef.current = { ownerId, vaultKey, vaultOwnerToken, enabled }; },
     [ownerId, vaultKey, vaultOwnerToken, enabled]);
+  const sharingReviews = useRef(new Map<string, AgentPkmPreviewCard[]>());
   const saves = useRef(new Set<AbortController>());
   useEffect(() => {
     const controllers = saves.current;
-    return () => { for (const controller of controllers) controller.abort(); controllers.clear(); };
+    const reviews = sharingReviews.current;
+    return () => { for (const controller of controllers) controller.abort(); controllers.clear(); reviews.clear(); };
   }, [enabled, ownerId, vaultKey, vaultOwnerToken]);
 
   // Ask once per owner per mount. The server offers each source at most once.
@@ -78,12 +81,14 @@ export function FirstConnectInsightsCard({
     offerOwner?.ownerId !== ownerId || offerOwner.vaultKey !== vaultKey ||
     offerOwner.vaultOwnerToken !== vaultOwnerToken) return null;
   const visible = offer.items.filter((item) => !forgotten.has(item.id));
-  const kept = visible.filter((item) => states[item.id] === "kept").length;
-  const open = visible.filter((item) => states[item.id] !== "kept");
+  const isSaved = (item: FirstConnectInsight) => states[item.id] === "kept" || states[item.id] === "already_saved";
+  const kept = visible.filter(isSaved).length;
+  const saving = Object.values(states).includes("saving");
+  const open = visible.filter((item) => !isSaved(item));
 
   const keep = async (item: FirstConnectInsight, sharingImpactAcknowledged = false) => {
     const { ownerId: userId, vaultKey: key, vaultOwnerToken: token } = credentialsRef.current;
-    if (!userId || !key || !token) return;
+    if (!userId || !key || !token || saves.current.size > 0) return;
     setStates((current) => ({ ...current, [item.id]: "saving" }));
     const controller = new AbortController();
     saves.current.add(controller);
@@ -101,21 +106,29 @@ export function FirstConnectInsightsCard({
         vaultOwnerToken: token,
         memoryText: item.memoryText,
         sharingImpactAcknowledged,
+        reviewedCards: sharingImpactAcknowledged ? sharingReviews.current.get(item.id) : undefined,
         isCurrent: guard.isCurrent,
         assertCurrent: guard.assertCurrent,
       });
       if (!guard.isCurrent()) return;
       if (result.status === "needs_sharing_ack") {
+        sharingReviews.current.set(item.id, result.reviewedCards);
         setRecipients((current) => ({ ...current, [item.id]: result.recipientCount }));
+      } else {
+        sharingReviews.current.delete(item.id);
       }
       setStates((current) => ({
         ...current,
         [item.id]:
           result.status === "saved"
             ? "kept"
-            : result.status === "needs_sharing_ack"
-              ? "confirm_sharing"
-              : "error",
+            : result.status === "already_saved"
+              ? "already_saved"
+              : result.status === "nothing_to_save"
+                ? "nothing_to_save"
+                : result.status === "needs_sharing_ack"
+                  ? "confirm_sharing"
+                  : "error",
       }));
     } finally {
       saves.current.delete(controller);
@@ -123,6 +136,7 @@ export function FirstConnectInsightsCard({
   };
 
   const forget = (item: FirstConnectInsight) => {
+    sharingReviews.current.delete(item.id);
     setForgotten((current) => new Set([...current, item.id]));
   };
 
@@ -134,7 +148,7 @@ export function FirstConnectInsightsCard({
         data-testid="first-connect-insights-receipt"
         role="status"
       >
-        Kept {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} in your private
+        {kept} {kept === 1 ? "detail" : "details"} from {offer.sourceLabel} {kept === 1 ? "is" : "are"} in your private
         memory. Nothing else was saved.
       </p>
     );
@@ -173,10 +187,10 @@ export function FirstConnectInsightsCard({
               {item.evidence ? (
                 <p className="mt-1 text-xs text-foreground/55">{item.evidence}</p>
               ) : null}
-              {state === "kept" ? (
+              {isSaved(item) ? (
                 <p className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-primary">
                   <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                  Kept privately
+                  {state === "already_saved" ? "Already in Memory" : "Kept privately"}
                 </p>
               ) : (
                 <>
@@ -186,31 +200,42 @@ export function FirstConnectInsightsCard({
                       {(recipients[item.id] ?? 1) === 1 ? "person" : "people"}. Keep it anyway?
                     </p>
                   ) : null}
+                  {state === "nothing_to_save" ? (
+                    <p className="mt-2 text-xs text-foreground/70" role="status">
+                      No new detail to save. Nothing was changed.
+                    </p>
+                  ) : null}
                   {state === "error" ? (
                     <p className="mt-2 text-xs text-destructive" role="alert">
                       Saving couldn&apos;t finish. Check Memory before trying again.
                     </p>
                   ) : null}
-                  <div className="mt-2 flex flex-wrap gap-2">
+                  <div className="mt-3 grid grid-cols-2 items-stretch gap-2">
                     <Button
-                      size="sm"
-                      disabled={busy}
+                      size="compact"
+                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
+                      disabled={saving}
                       isLoading={busy}
                       onClick={() => void keep(item, state === "confirm_sharing")}
                       data-testid="first-connect-insight-keep"
                     >
-                      <Check className="h-4 w-4" aria-hidden="true" />
-                      {state === "confirm_sharing" ? "Keep and share" : "Keep"}
+                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
+                        <Check className="size-4 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 whitespace-normal">{state === "confirm_sharing" ? "Keep and share" : "Keep"}</span>
+                      </span>
                     </Button>
                     <Button
-                      size="sm"
-                      variant="ghost"
+                      size="compact"
+                      className="h-auto min-h-11 w-full min-w-0 whitespace-normal"
+                      variant="secondary"
                       disabled={busy}
                       onClick={() => forget(item)}
                       data-testid="first-connect-insight-forget"
                     >
-                      <X className="h-4 w-4" aria-hidden="true" />
-                      Forget
+                      <span className="inline-flex min-w-0 max-w-full items-center justify-center gap-1.5">
+                        <X className="size-4 shrink-0" aria-hidden="true" />
+                        <span className="min-w-0 whitespace-normal">Forget</span>
+                      </span>
                     </Button>
                   </div>
                 </>

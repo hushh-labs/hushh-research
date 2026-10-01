@@ -14,7 +14,10 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch: mocks.apiFetch } }));
 vi.mock("@/lib/vault/one-chat-key", () => ({ oneChatKeyHeaders: async () => ({ "X-Hussh-Chat-Key": "k" }) }));
-vi.mock("@/lib/pkm/pkm-natural-language-ingestion", () => ({ prepareNaturalLanguagePkm: mocks.prepare }));
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/pkm/pkm-natural-language-ingestion")>(),
+  prepareNaturalLanguagePkm: mocks.prepare,
+}));
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   addToPKM: mocks.addToPKM,
   clearAgentPkmContext: mocks.clearAgentPkmContext,
@@ -108,7 +111,7 @@ describe("FirstConnectInsightsCard", () => {
     // Negative control: the same check does catch it when it is there.
     expect(JSON.stringify([everything, NEWSLETTERS])).toContain(NEWSLETTERS);
     expect(await screen.findByTestId("first-connect-insights-receipt")).toHaveTextContent(
-      "Kept 1 detail from Calendar",
+      "1 detail from Calendar is in your private",
     );
   });
 
@@ -179,4 +182,78 @@ describe("FirstConnectInsightsCard", () => {
     expect(mocks.addToPKM).not.toHaveBeenCalled();
     expect(mocks.clearAgentPkmContext).not.toHaveBeenCalled();
   });
+  it("recognizes exact duplicates without writing or showing a save error", async () => {
+    mocks.prepare.mockResolvedValue({ cards: [], sourceCoverage: [{
+      disposition: "intentionally_ignored", detectedFactCount: 1,
+      accountedFactCount: 1, duplicateCount: 1,
+    }] });
+    renderCard();
+    fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
+    expect(await screen.findByText("Already in Memory")).toBeInTheDocument();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("does not claim an intentionally empty proposal was saved or failed", async () => {
+    mocks.prepare.mockResolvedValue({ cards: [], sourceCoverage: [{
+      disposition: "intentionally_ignored", detectedFactCount: 0, accountedFactCount: 0,
+    }] });
+    renderCard();
+    fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
+    expect(await screen.findByText("No new detail to save. Nothing was changed.")).toBeInTheDocument();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Already in Memory")).toBeNull();
+  });
+
+  it("serializes Keep actions and lets the next detail save after completion", async () => {
+    let resolve!: (value: ReturnType<typeof preparedCard>) => void;
+    mocks.prepare.mockReturnValueOnce(new Promise(done => { resolve = done; }));
+    renderCard();
+    const buttons = await screen.findAllByTestId("first-connect-insight-keep");
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[0]);
+    fireEvent.click(buttons[1]);
+    await waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
+    expect(buttons[0]).toBeDisabled();
+    expect(buttons[1]).toBeDisabled();
+    await act(async () => { resolve(preparedCard(MEETING)); });
+    await waitFor(() => expect(mocks.addToPKM).toHaveBeenCalledTimes(1));
+    const remaining = screen.getByTestId("first-connect-insight-keep");
+    expect(remaining).toBeEnabled();
+    fireEvent.click(remaining);
+    await waitFor(() => expect(mocks.addToPKM).toHaveBeenCalledTimes(2));
+    expect(mocks.addToPKM.mock.calls[1][0].sourceMessage).toBe(NEWSLETTERS);
+  });
+
+  it("still reports actual write failure without claiming success", async () => {
+    mocks.addToPKM.mockResolvedValue({ attempted: 1, saved: 0, failed: 1, results: [] });
+    renderCard();
+    fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Saving couldn't finish");
+    expect(screen.queryByText("Kept privately")).toBeNull();
+  });
+
+  it("never writes an incomplete detail or double-counts duplicate coverage", async () => {
+    mocks.prepare.mockResolvedValue({ ...preparedCard(MEETING), sourceCoverage: [{
+      disposition: "review_required", detectedFactCount: 2, accountedFactCount: 1, duplicateCount: 1,
+    }] });
+    renderCard();
+    fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
+    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(mocks.addToPKM).not.toHaveBeenCalled();
+  });
+
+  it("keeps the exact reviewed sharing proposal for the confirmation tap", async () => {
+    const reviewed = preparedCard(MEETING, 2);
+    mocks.prepare.mockResolvedValueOnce(reviewed).mockResolvedValue(preparedCard(NEWSLETTERS, 9));
+    renderCard();
+    fireEvent.click((await screen.findAllByTestId("first-connect-insight-keep"))[0]);
+    await screen.findByText(/share with 2 people/);
+    fireEvent.click(screen.getByRole("button", { name: "Keep and share" }));
+    await waitFor(() => expect(mocks.addToPKM).toHaveBeenCalledTimes(1));
+    expect(mocks.prepare).toHaveBeenCalledTimes(1);
+    expect(mocks.addToPKM.mock.calls[0][0].cards).toEqual(reviewed.cards);
+  });
+
 });

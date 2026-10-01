@@ -473,6 +473,9 @@ jobs:
           # dev lane aligned with backend.cloudbuild.yaml so these optional
           # credentials cannot silently disappear from the service.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY"
+          # Keep credentials bound after the rollout switch turns off so existing
+          # paid-required requests can finish Checkout and webhook settlement.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_DEV_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
           # Skew guard (same class as #4399/#4401/#4402): the workflow file
           # (from main) may pass substitutions the train SHA's cloudbuild
           # template doesn't declare — gcloud rejects unmatched keys. Filter

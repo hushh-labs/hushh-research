@@ -988,7 +988,8 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Mail" }],
+      // Mail has an agent heading in the page, matching Location.
+      items: [{ label: "One" }],
     };
   }
 

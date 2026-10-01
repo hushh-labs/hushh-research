@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
+import { Fragment, useRef, type ReactNode } from "react";
+import { measureElement, useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   CONTACT_ROW_HEIGHT_PX,
@@ -87,12 +87,27 @@ export function VirtualContactList<T>({
     // blank space, small enough that a 100-person list still mounts ~15 rows.
     overscan: 5,
     getItemKey: (index) => getKey(items[index] as T),
+    measureElement: (element, entry, instance) => {
+      const height = measureElement(element, entry, instance);
+      if (height > 0) return height;
+
+      // A transient zero box is not a zero-height contact. Caching it would
+      // give adjacent absolute rows the same offset and collapse the roster.
+      // Keep the last layout until WebKit reports a real size again, while
+      // continuing to accept positive growth and shrinkage for expanded rows.
+      const index = instance.indexFromElement(element);
+      const previous = instance.measurementsCache[index];
+      return previous?.key === instance.options.getItemKey(index) &&
+        previous.size > 0
+        ? previous.size
+        : CONTACT_ROW_HEIGHT_PX;
+    },
   });
 
   const asCards = presentation === "cards";
-  const Shell = asCards
-    ? ({ children }: { children: ReactNode }) => <>{children}</>
-    : ContactGroup;
+  // Stable component identity keeps the scroller, focus and observers mounted
+  // through selection changes and the virtualizer's own scroll updates.
+  const Shell = asCards ? Fragment : ContactGroup;
 
   if (!virtualize) {
     return (

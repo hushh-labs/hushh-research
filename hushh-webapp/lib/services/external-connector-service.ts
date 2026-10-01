@@ -190,6 +190,66 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
   throw new Error(message || `Request failed (${response.status}).`);
 }
 
+/**
+ * `fetch()` resolves when headers arrive, so its transport timeout does not
+ * cover a response whose JSON body never finishes. Keep OAuth launch bounded:
+ * callers must either receive the validated start payload or regain control to
+ * close their pre-opened popup. This does not change the server-side PKCE,
+ * state, redirect, or owner-authority checks.
+ */
+export const CONNECTOR_OAUTH_START_TIMEOUT_MS = 30_000;
+
+function oauthStartTimeoutError(): Error {
+  return new Error("OAuth sign-in took too long. Check the connection and try again.");
+}
+
+async function withOAuthStartDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  callerSignal?: AbortSignal,
+): Promise<T> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortForCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal) {
+    callerSignal.addEventListener("abort", abortForCaller, { once: true });
+    if (callerSignal.aborted) abortForCaller();
+  }
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(oauthStartTimeoutError());
+  }, CONNECTOR_OAUTH_START_TIMEOUT_MS);
+
+  const pending = operation(controller.signal);
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      const onAbort = () => {
+        cleanup();
+        reject(controller.signal.reason ?? new Error("OAuth sign-in was cancelled."));
+      };
+      const cleanup = () =>
+        controller.signal.removeEventListener("abort", onAbort);
+      controller.signal.addEventListener("abort", onAbort, { once: true });
+      pending.then(
+        (value) => {
+          cleanup();
+          resolve(value);
+        },
+        (error: unknown) => {
+          cleanup();
+          reject(error);
+        },
+      );
+      if (controller.signal.aborted) onAbort();
+    });
+  } catch (error) {
+    if (timedOut) throw oauthStartTimeoutError();
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    callerSignal?.removeEventListener("abort", abortForCaller);
+  }
+}
+
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
   /** Explicit connection only. Never used as an automatic tool-call retry. */
@@ -417,24 +477,26 @@ export class ExternalConnectorService {
     attemptId?: string;
     connectorId?: string;
   }> {
-    const response = await ApiService.apiFetch(
-      `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/oauth/start`,
-      {
-        method: "POST",
-        headers: {
-          ...authHeaders(input.vaultOwnerToken),
-          "Content-Type": "application/json",
+    return withOAuthStartDeadline(async (signal) => {
+      const response = await ApiService.apiFetch(
+        `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/oauth/start`,
+        {
+          method: "POST",
+          headers: {
+            ...authHeaders(input.vaultOwnerToken),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            redirectUri: input.redirectUri,
+            flow: input.flow ?? "web",
+            profile: input.profile ?? "selected",
+          }),
+          signal,
+          isEffectCurrent: input.isEffectCurrent,
         },
-        body: JSON.stringify({
-          redirectUri: input.redirectUri,
-          flow: input.flow ?? "web",
-          profile: input.profile ?? "selected",
-        }),
-        signal: input.signal,
-        isEffectCurrent: input.isEffectCurrent,
-      },
-    );
-    return readJsonOrThrow(response);
+      );
+      return readJsonOrThrow(response);
+    }, input.signal);
   }
 
   static async pendingNative(input: {

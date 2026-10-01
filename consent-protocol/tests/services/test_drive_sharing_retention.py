@@ -11,6 +11,8 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.drive_request_payment_refunds import _claim_refunds
+from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
@@ -89,6 +91,68 @@ async def erase(store, user_id, permanent=False):
         erase_drive_account_in_transaction(connection, user_id=user_id, permanent=permanent)
 
     await store._transaction(operation)
+
+
+@pytest.mark.asyncio
+async def test_erasure_preserves_confirmed_delivery_for_paid_obligation(revocation_setup):
+    store, _, _, _, request_id = revocation_setup
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET payment_required=TRUE
+          WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+          VALUES (:request,'owner','recipient','paid','pi_test_delivered',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    await erase(store, "recipient")
+    obligation = rows(store, "drive_request_payment_obligations")[0]
+    assert obligation["erased_at"] is not None
+    assert obligation["delivery_confirmed_at_erasure"] is True
+    assert obligation["reconciliation_required"] is False
+    assert rows(store, "drive_request_payment_orders") == []
+
+
+@pytest.mark.asyncio
+async def test_erasure_holds_uncertain_paid_grant_from_new_refund(permission_setup):
+    store, _, _, ids = permission_setup
+    job = await store.claim_grant(user_id="owner", operation_id=ids[0])
+    await store.mark_dispatching(
+        job, before=[], issuer={"subject": "12345", "oauthClientId": "synthetic-client"}
+    )
+    request_id = rows(store, "drive_share_requests")[0]["request_id"]
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_share_requests SET payment_required=TRUE
+          WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+          (request_id,user_id,requester_user_id,status,stripe_payment_intent_id,paid_at)
+          VALUES (:request,'owner','recipient','paid','pi_test_uncertain',clock_timestamp())"""),
+            {"request": request_id},
+        )
+    await erase(store, "owner")
+    obligation = rows(store, "drive_request_payment_obligations")[0]
+    assert obligation["delivery_unsettled_at_erasure"] is True
+    assert obligation["reconciliation_required"] is True
+    with store.db.engine.begin() as connection:
+        claims = _claim_refunds(DriveRequestPaymentService(db=store.db), connection, limit=1)
+        refund = (
+            connection.execute(
+                text("""SELECT status FROM drive_request_payment_refunds
+          WHERE request_id=:request"""),
+                {"request": request_id},
+            )
+            .mappings()
+            .one()
+        )
+    assert claims == []
+    assert refund["status"] == "manual_review"
 
 
 @pytest.mark.asyncio

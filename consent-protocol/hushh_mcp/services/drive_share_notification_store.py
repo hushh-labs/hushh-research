@@ -41,6 +41,28 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
     def _event_id(value: str) -> str:
         return str(UUID(str(value)))
 
+    async def payment_ready_current(self, *, request_id: str, user_id: str) -> bool:
+        """Suppress a stale payment push after the request closes or settles."""
+        request_id = self._event_id(request_id)
+
+        def operation(connection: Any) -> bool:
+            return bool(
+                connection.execute(
+                    text("""SELECT EXISTS(
+                  SELECT 1 FROM drive_share_requests r
+                  JOIN drive_request_payment_orders o ON o.request_id=r.request_id
+                  WHERE r.request_id=:request AND r.recipient_user_id=:user
+                    AND r.payment_required=TRUE AND r.status='pending'
+                    AND r.expires_at>clock_timestamp()
+                    AND o.status IN ('awaiting_payment','checkout_open')
+                    AND o.reconciliation_required=FALSE
+                )"""),
+                    {"request": request_id, "user": user_id},
+                ).scalar_one()
+            )
+
+        return cast(bool, await self._transaction(operation))
+
     async def due(self, limit: int = 8) -> list[dict[str, Any]]:
         """Inspect a fair, bounded set without handing provider authority to it."""
         if type(limit) is not int or not 1 <= limit <= 100:

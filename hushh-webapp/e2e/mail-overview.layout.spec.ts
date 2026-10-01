@@ -83,13 +83,15 @@ test.beforeAll(async () => {
     },
   );
   css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  css += fs.readdirSync(outDir).filter(file => file.endsWith(".css"))
+    .map(file => fs.readFileSync(path.join(outDir, file), "utf8")).join("\n");
 });
 
 for (const width of [320, 390, 430, 768, 1440]) {
   test(`Mail overview stays aligned at ${width}px`, async ({ page }, testInfo) => {
-    await page.setViewportSize({ width, height: 900 });
-    await page.route("http://localhost/mail-overview.js", route => route.fulfill({contentType: "application/javascript", body: script}));
-    await page.route("http://localhost/mail-overview-fixture", route => route.fulfill({contentType: "text/html", body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/mail-overview.js"></script></body></html>`}));
+    await page.setViewportSize({ width, height: width >= 1024 ? 832 : 900 });
+    await page.route("http://localhost/mail-overview.js", route => route.fulfill({contentType: "application/javascript; charset=utf-8", body: script}));
+    await page.route("http://localhost/mail-overview-fixture", route => route.fulfill({contentType: "text/html", body: `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div><script src="/mail-overview.js"></script></body></html>`}));
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.goto("http://localhost/mail-overview-fixture");
@@ -103,7 +105,31 @@ for (const width of [320, 390, 430, 768, 1440]) {
     const beforeHover = await receipts.evaluate(el => getComputedStyle(el).backgroundColor);
     await receipts.hover();
     expect(await receipts.evaluate(el => getComputedStyle(el).backgroundColor)).toBe(beforeHover);
+    const mailHeading = page.getByRole("heading", { name: "Mail", exact: true, level: 1 });
+    const mailHeadingBounds = (await mailHeading.boundingBox())!;
+    const connectionDetail = page.getByText("Connected to your Mail", { exact: true });
+    const connectionDetailBounds = (await connectionDetail.boundingBox())!;
+    const tabsBounds = (await page.getByRole("tablist", { name: "Gmail workspace" }).boundingBox())!;
+    expect(tabsBounds.height).toBe(36);
+    expect(Math.abs(mailHeadingBounds.x - tabsBounds.x)).toBeLessThanOrEqual(1);
+    const headingToDetailGap = connectionDetailBounds.y - (mailHeadingBounds.y + mailHeadingBounds.height);
+    const detailToTabsGap = tabsBounds.y - (connectionDetailBounds.y + connectionDetailBounds.height);
+    expect(headingToDetailGap).toBeGreaterThanOrEqual(10);
+    expect(Math.abs(headingToDetailGap - detailToTabsGap)).toBeLessThanOrEqual(4);
+    expect(Math.abs(tabsBounds.width - (await receipts.boundingBox())!.width)).toBeLessThanOrEqual(1);
     const chat = page.getByRole("button", {name: "Chat with One"});
+    const headingBounds = (await hero.boundingBox())!;
+    const receiptBounds = (await receipts.boundingBox())!;
+    expect(Math.abs(headingBounds.x - receiptBounds.x)).toBeLessThanOrEqual(1);
+    const chatBounds = (await chat.boundingBox())!;
+    expect(chatBounds.width).toBeCloseTo(244, 0);
+    expect(chatBounds.height).toBeCloseTo(50, 0);
+    expect(Math.abs(chatBounds.x + chatBounds.width / 2 - (receiptBounds.x + receiptBounds.width / 2))).toBeLessThanOrEqual(1);
+    if (width >= 1024) {
+      const ctaBounds = (await chat.boundingBox())!;
+      const reservedBounds = (await page.getByTestId("desktop-bottom-clearance").boundingBox())!;
+      expect(ctaBounds.y + ctaBounds.height).toBeLessThanOrEqual(reservedBounds.y - 12);
+    }
     const manage = page.getByRole("button", {name: "Manage"});
     const heroBefore = await hero.boundingBox();
     const triggerBackground = await manage.evaluate(el => getComputedStyle(el).backgroundColor);
@@ -141,6 +167,24 @@ for (const width of [320, 390, 430, 768, 1440]) {
     await expect(chat.locator("svg")).toHaveCount(0);
     await expect(page.getByRole("status", {name: "Fetching receipts"})).toBeVisible();
     await page.getByRole("button", {name: "Finish sync"}).click();
+    await expect(page.getByRole("status", {name: "Fetching receipts"})).toHaveCount(0);
+    const cards = page.getByTestId("mail-draft-card");
+    const stack = page.getByTestId("mail-draft-cards");
+    const receiptPosition = await receipts.boundingBox();
+    await stack.hover();
+    await expect.poll(async () => (await cards.nth(2).boundingBox())!.y - (await cards.nth(0).boundingBox())!.y).toBeGreaterThan(width >= 1024 ? 120 : 140);
+    expect(await receipts.boundingBox()).toEqual(receiptPosition);
+    await page.screenshot({path: testInfo.outputPath(`mail-cards-open-${width}.png`)});
+    await manage.hover();
+    await expect.poll(async () => (await cards.nth(2).boundingBox())!.y - (await cards.nth(0).boundingBox())!.y).toBeLessThan(90);
+    await page.screenshot({path: testInfo.outputPath(`mail-cards-stacked-${width}.png`)});
+    await page.emulateMedia({reducedMotion: "reduce"});
+    await expect.poll(async () => (await cards.nth(2).boundingBox())!.y - (await cards.nth(0).boundingBox())!.y).toBeGreaterThan(width >= 1024 ? 120 : 140);
+    expect(await cards.first().evaluate(el => getComputedStyle(el).transitionDuration)).toBe("0s");
+    await page.getByRole("button", {name: "Fail sync"}).click();
+    await expect(receipts).toContainText("Sync failed. Please try again in a moment.");
+    await expect(receipts).toContainText("34 receipts");
+    expect(await receipts.evaluate(el => getComputedStyle(el).backgroundColor)).not.toBe(beforeHover);
     await expect(page.getByRole("status", {name: "Fetching receipts"})).toHaveCount(0);
     expect(errors).toEqual([]);
     await page.screenshot({path: testInfo.outputPath(`mail-${width}.png`)});

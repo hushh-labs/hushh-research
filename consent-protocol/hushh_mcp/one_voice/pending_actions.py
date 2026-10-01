@@ -22,6 +22,7 @@ from db.db_client import DatabaseExecutionError, get_db
 
 PENDING_TTL_SECONDS = 120
 TIERS = ("voice", "tap")
+ORIGIN_TURN_KEY = "_one_voice_origin_turn_id"
 
 _COLUMNS = """
     id, user_id, conversation_id, tool_name, gateway_action_id, tier, args, summary,
@@ -78,6 +79,12 @@ class PendingAction:
     created_at: str | None = None
     expires_at: str | None = None
 
+    @property
+    def origin_turn_id(self) -> str | None:
+        """Server-authored turn binding kept in the private stored args."""
+        value = self.args.get(ORIGIN_TURN_KEY) if isinstance(self.args, dict) else None
+        return value if isinstance(value, str) and value else None
+
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> PendingAction:
         return cls(
@@ -113,6 +120,7 @@ class PendingAction:
             "shown_at": self.shown_at,
             "expires_at": self.expires_at,
             "result": self.result,
+            "origin_turn_id": self.origin_turn_id,
         }
 
 

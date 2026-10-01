@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { VirtualContactList } from "@/components/one-location/redesign/contact-picker/virtual-list";
@@ -35,6 +35,14 @@ function withMeasuredViewport(heightPx: number) {
   const clientHeight = vi
     .spyOn(HTMLElement.prototype, "clientHeight", "get")
     .mockReturnValue(heightPx);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(
+    function measured(this: HTMLElement) {
+      return this.dataset.virtualized === "true"
+        ? heightPx
+        : 58;
+    },
+  );
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(320);
   return () => {
     rect.mockRestore();
     clientHeight.mockRestore();
@@ -83,6 +91,7 @@ describe("VirtualContactList", () => {
       // The scalability claim, stated as a bound rather than a feeling: a
       // 120-person Circle must not put 120 rows in the document.
       const mounted = screen.queryAllByTestId("probe-row");
+      expect(mounted.length).toBeGreaterThan(0);
       expect(mounted.length).toBeLessThan(30);
 
       // ...while the scroller still reserves the full height, so the scrollbar
@@ -92,12 +101,6 @@ describe("VirtualContactList", () => {
       const sizer = list.firstElementChild as HTMLElement;
       expect(parseInt(sizer.style.height, 10)).toBeGreaterThanOrEqual(120 * 58);
 
-      // Deliberately NOT asserted here: that at least one row is mounted.
-      // jsdom's ResizeObserver is a no-op stub (see __tests__/setup.ts), so the
-      // virtualizer is never handed a viewport and computes an empty visible
-      // range no matter what the element's rect claims. Proving the window is
-      // non-empty needs a real layout engine, which is a browser-level layout
-      // spec's job, not this file's.
     } finally {
       restore();
     }
@@ -113,5 +116,92 @@ describe("VirtualContactList", () => {
     } finally {
       restore();
     }
+  });
+
+  it("preserves row sizes through transient zero measurements and accepts real resizing", () => {
+    withMeasuredViewport(400);
+    const observers: Array<{
+      callback: ResizeObserverCallback;
+      targets: Set<Element>;
+    }> = [];
+    class MeasuredObserver {
+      targets = new Set<Element>();
+      constructor(public callback: ResizeObserverCallback) {
+        observers.push(this);
+      }
+      observe(target: Element) {
+        this.targets.add(target);
+      }
+      unobserve(target: Element) {
+        this.targets.delete(target);
+      }
+      disconnect() {
+        this.targets.clear();
+      }
+    }
+    vi.stubGlobal("ResizeObserver", MeasuredObserver);
+    const notifyRows = (height: number) =>
+      act(() => {
+        for (const observer of observers) {
+          const entries = [...observer.targets]
+            .filter((target) => target.hasAttribute("data-index"))
+            .map((target) => ({
+              target,
+              borderBoxSize: [{ blockSize: height, inlineSize: 320 }],
+            }) as unknown as ResizeObserverEntry);
+          if (entries.length) {
+            observer.callback(entries, observer as unknown as ResizeObserver);
+          }
+        }
+      });
+    try {
+      renderList(120);
+      const list = screen.getByTestId("probe-list");
+      const sizer = list.firstElementChild as HTMLElement;
+      const initialHeight = parseInt(sizer.style.height, 10);
+      notifyRows(88);
+      const expandedHeight = parseInt(sizer.style.height, 10);
+      expect(expandedHeight).toBeGreaterThan(initialHeight);
+      notifyRows(0);
+      expect(parseInt(sizer.style.height, 10)).toBe(expandedHeight);
+      notifyRows(58);
+      expect(parseInt(sizer.style.height, 10)).toBeLessThan(expandedHeight);
+      expect(screen.getAllByTestId("probe-row").length).toBeGreaterThan(0);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it.each(["grouped", "cards"] as const)("keeps the %s scroller and focus when selection changes during scrolling", (presentation) => {
+    withMeasuredViewport(400);
+    const items = rows(120);
+    const content = (selected: boolean) => (
+      <VirtualContactList
+        items={items}
+        getKey={(row) => row.id}
+        testId="probe-list"
+        ariaLabel="Probe"
+        presentation={presentation}
+        renderItem={(row) => (
+          <button aria-pressed={selected && row.id === "0"}>
+            row {row.id}
+          </button>
+        )}
+      />
+    );
+    const { rerender } = render(content(false));
+    const list = screen.getByTestId("probe-list");
+    const button = screen.getByRole("button", { name: "row 0" });
+    button.focus();
+    list.scrollTop = 232;
+    fireEvent.scroll(list);
+    rerender(content(true));
+    expect(screen.getByTestId("probe-list")).toBe(list);
+    expect(list.scrollTop).toBe(232);
+    expect(button).toHaveFocus();
+    expect(button).toHaveAttribute("aria-pressed", "true");
+    list.scrollTop = 0;
+    fireEvent.scroll(list);
+    expect(screen.getByTestId("probe-list")).toBe(list);
   });
 });

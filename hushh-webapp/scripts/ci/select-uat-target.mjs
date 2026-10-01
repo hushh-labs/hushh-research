@@ -17,7 +17,7 @@
  * without a network. This file only gathers state and reports.
  *
  * Usage:
- *   node hushh-webapp/scripts/ci/select-uat-target.mjs [--limit 20] [--github-output]
+ *   node hushh-webapp/scripts/ci/select-uat-target.mjs [--limit 20] [--github-output] [--allow-no-op]
  *
  * Requires GITHUB_TOKEN and GITHUB_REPOSITORY (both present in Actions).
  * Exits non-zero when there is nothing safe to deploy, so a caller that
@@ -36,6 +36,9 @@ const TOKEN = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "";
 const args = process.argv.slice(2);
 const limit = Number(valueOf("--limit") || 20);
 const writeGithubOutput = args.includes("--github-output");
+// Selection-only callers can finish without starting a deployment. Other
+// callers still require an actual deployable target and fail closed.
+const allowNoOp = args.includes("--allow-no-op");
 
 function valueOf(flag) {
   const index = args.indexOf(flag);
@@ -86,18 +89,51 @@ async function uatActualSha() {
   const deployments = await api("/deployments?environment=uat&per_page=10");
   for (const deployment of deployments) {
     const statuses = await api(`/deployments/${deployment.id}/statuses?per_page=10`);
-    if (statuses.some((s) => s.state === "success")) return deployment.sha;
+    if (statuses.some((s) => s.state === "success")) {
+      // Keep the historical baseline for forward-selection compatibility,
+      // but a no-op requires the newest deployment's current status.
+      return { sha: deployment.sha,
+        verified: deployment.id === deployments[0]?.id && statuses[0]?.state === "success",
+        runUrl: statuses[0]?.log_url };
+    }
   }
   // Fall back to the newest record. Better a slightly conservative baseline
   // than none: an over-cautious `uat_actual` can only make the selector refuse
   // to move, never make it move somewhere unproven.
-  return deployments[0]?.sha ?? null;
+  return { sha: deployments[0]?.sha ?? null, verified: false };
+}
+
+/** Environment records use workflow SHA, including for rollback/rehearsal jobs.
+ * Match the healthy release's existing exact-target receipt to that same run.
+ * Missing/advisory tagging proof can block a no-op, never authorize one.
+ */
+async function hasExactReleaseReceipt(state) {
+  let statusUrl;
+  try { statusUrl = new URL(state.runUrl); } catch { return false; }
+  const prefix = `/${REPO}/actions/runs/`;
+  if (statusUrl.origin !== "https://github.com" || !statusUrl.pathname.startsWith(prefix)) return false;
+  const runId = statusUrl.pathname.slice(prefix.length).match(/^(\d+)(?:\/job\/\d+)?$/)?.[1];
+  if (!runId) return false;
+  const ref = await api("/git/ref/tags/deployed/uat-latest");
+  if (ref.object?.type !== "tag") return false;
+  const tag = await api(`/git/tags/${ref.object.sha}`);
+  const receipt = String(tag.message || "").split("\n");
+  if (tag.object?.type !== "commit" || tag.object.sha !== state.sha ||
+    !receipt.includes(`sha: ${state.sha}`) ||
+    !receipt.includes(`run: https://github.com/${REPO}/actions/runs/${runId}`) ||
+    !receipt.some(line => /^backend_revision: \S+$/.test(line)) ||
+    !receipt.some(line => /^frontend_revision: \S+$/.test(line))) return false;
+  const run = await api(`/actions/runs/${runId}`);
+  return run.path === ".github/workflows/deploy-uat.yml" &&
+    run.event === "workflow_dispatch" && run.head_sha === state.sha &&
+    run.status === "completed" && run.conclusion === "success";
 }
 
 async function main() {
   git("fetch", "--no-tags", "origin", "main");
   const mainTipSha = git("rev-parse", "origin/main");
-  const uatActual = await uatActualSha();
+  const uatState = await uatActualSha();
+  const uatActual = uatState.sha;
 
   const range = uatActual ? `${uatActual}..origin/main` : `origin/main~${limit}..origin/main`;
   let shas = [];
@@ -147,15 +183,21 @@ async function main() {
     }
   }
 
+  const confirmedNoOp = allowNoOp && result.decision === "NO_OP" &&
+    uatState.verified && uatActual === mainTipSha && await hasExactReleaseReceipt(uatState);
+  if (allowNoOp && result.decision === "NO_OP" && !confirmedNoOp) {
+    result.decision = "BLOCKED";
+    result.reason = "Cannot confirm current UAT from the newest successful deployment and its exact-target healthy release receipt.";
+  }
   report({ mainTipSha, uatActual, ...result, candidates });
 
   if (writeGithubOutput && process.env.GITHUB_OUTPUT) {
     appendFileSync(
       process.env.GITHUB_OUTPUT,
-      `sha=${result.targetSha ?? ""}\ndecision=${result.decision}\n`,
+      `sha=${result.targetSha ?? ""}\ndecision=${result.decision}\nuat_actual_sha=${uatActual ?? ""}\nreason=${result.reason}\n`,
     );
   }
-  process.exit(result.targetSha ? 0 : 3);
+  process.exit(result.targetSha || confirmedNoOp ? 0 : 3);
 }
 
 function isAncestor(ancestor, descendant) {

@@ -1124,7 +1124,7 @@ describe("top shell title slot", () => {
   it.each([
     // The two reported routes, and the two they must now match.
     ["/one/pkm", "", ["Memory"]],
-    ["/one/gmail", "", ["Mail"]],
+    ["/one/gmail", "", "title"],
     ["/one/feed", "", ["Feed"]],
     ["/one/connect", "", ["Connect"]],
     // Profile > Memory swapped its trail for a "Profile" chip.
@@ -1135,7 +1135,7 @@ describe("top shell title slot", () => {
     ["/one/consent", "", ["Consent Center"]],
     ["/consents", "", ["Consent Center"]],
     ["/one/kyc", "", ["KYC"]],
-    ["/one/gmail", "from=/one/setup", ["Mail"]],
+    ["/one/gmail", "from=/one/setup", "title"],
   ])(
     "keeps %s (%s) titled beside its back arrow, even scrolled",
     (pathname, search, expected) => {

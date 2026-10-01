@@ -117,6 +117,38 @@ def test_trusted_progress_stays_visible_after_first_confirmed_grant():
     assert entry(row)["metadata"]["automatic_progress_active"] is False
 
 
+@pytest.mark.parametrize("payment_status", ["awaiting_payment", "checkout_open"])
+def test_owner_waits_for_requester_payment_without_approval_task(payment_status):
+    row = {
+        "source": "share",
+        "id": f"document_share_request:{uuid4()}",
+        "request_id": uuid4(),
+        "bucket": "incoming_requests",
+        "status": "pending",
+        "issued_at": 0,
+        "direction": "incoming",
+        "state": "pending",
+        "revision": 1,
+        "preparation_error_code": "trusted_auto_active",
+        "owner_search_state": "completed",
+        "trusted_authority_ready": True,
+        "trusted_batch_seen": True,
+        "trusted_work_active": True,
+        "trusted_recovery_needed": False,
+        "payment_status": payment_status,
+        "payment_reconciliation_required": False,
+    }
+    item = entry(row)
+    assert item["scope_description"] == "Waiting for requester payment"
+    assert item["metadata"]["payment_waiting_for_requester"] is True
+    assert item["metadata"]["automatic_progress_active"] is False
+    assert item["metadata"]["owner_attention_required"] is False
+    assert "paymentStatus" not in item["metadata"]
+    row["state"] = "expired"
+    row["bucket"] = "history"
+    assert entry(row)["scope_description"] == "Google Drive files"
+
+
 @pytest.mark.asyncio
 async def test_legacy_sqlite_has_no_drive_projection_or_postgres_transaction():
     engine = create_engine("sqlite://")
@@ -191,6 +223,54 @@ async def test_background_setup_appears_only_in_the_owner_request(sharing):
             "recipient", bucket="outgoing_requests", limit=20, query="background Drive access"
         )
     )["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_requester_can_reopen_payment_from_consent_center(sharing):
+    created = await request(sharing)
+    request_id = created["requestId"]
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:request"),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status)
+              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+            {"request": request_id},
+        )
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    requester = (await projection.page("recipient", bucket="outgoing_requests", limit=1))["items"][
+        0
+    ]
+    assert requester["metadata"]["paymentStatus"] == "awaiting_payment"
+    assert requester["metadata"]["paymentAmountCents"] == 1000
+    assert requester["metadata"]["paymentCurrency"] == "usd"
+    assert requester["metadata"]["automatic_progress_active"] is False
+    assert (await sharing.request_status(user_id="recipient", request_id=request_id))[
+        "paymentStatus"
+    ] == "awaiting_payment"
+    assert "paymentStatus" not in await sharing.request_status(
+        user_id="owner", request_id=request_id
+    )
+    owner = (await projection.page("owner", bucket="incoming_requests", limit=1))["items"][0]
+    assert "paymentStatus" not in owner["metadata"]
+    assert owner["scope_description"] == "Waiting for requester payment"
+    assert owner["metadata"]["owner_attention_required"] is False
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders SET status='checkout_open'
+              WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    reopened = (await projection.page("recipient", bucket="outgoing_requests", limit=1))["items"][0]
+    assert reopened["metadata"]["paymentStatus"] == "checkout_open"
+    owner_reopened = (await projection.page("owner", bucket="incoming_requests", limit=1))["items"][
+        0
+    ]
+    assert owner_reopened["scope_description"] == "Waiting for requester payment"
+    assert owner_reopened["metadata"]["owner_attention_required"] is False
 
 
 @pytest.mark.asyncio

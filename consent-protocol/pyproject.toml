@@ -75,6 +75,7 @@ dependencies = [
     "webauthn>=3.0.0",
     "redis==5.3.1",
     "cachetools==7.1.7",
+    "stripe>=13,<20",
 ]
 
 [dependency-groups]

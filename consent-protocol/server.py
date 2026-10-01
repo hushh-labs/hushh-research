@@ -148,6 +148,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    drive_request_payments,
     drive_searches,
     drive_sharing,
     drive_work_drain,
@@ -327,6 +328,8 @@ app.include_router(connected_systems.router)
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
 app.include_router(drive_sharing.router)
+app.include_router(drive_request_payments.router)
+app.include_router(drive_request_payments.webhook_router)
 app.include_router(drive_searches.router)
 # A separately authenticated, default-off Cloud Scheduler route performs one
 # finite Drive workflow sweep. It has no startup/background execution path.

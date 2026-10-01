@@ -379,11 +379,7 @@ export function SosPanel({
         <h1 className="ui-text-page-title">
           Save My Soul
         </h1>
-        {active ? (
-          <PageSubtitle>
-            {alertedSummary}
-          </PageSubtitle>
-        ) : recipientsLoading && !readyRecipients.length ? (
+        {recipientsLoading && !readyRecipients.length ? (
           <PageSubtitle>Checking emergency contacts…</PageSubtitle>
         ) : noReadyRecipients ? (
           <PageSubtitle>

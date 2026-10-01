@@ -448,6 +448,7 @@ describe("SosPanel", () => {
     expect(screen.getByTestId("sos-status-label")).toHaveTextContent(
       "Alert active",
     );
+    expect(screen.getAllByText("1 contact alerted")).toHaveLength(1);
     const cancel = screen.getByRole("button", {
       name: "Stop Save My Soul alert",
     });

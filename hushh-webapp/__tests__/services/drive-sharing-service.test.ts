@@ -18,6 +18,7 @@ import {
   validDocumentRequestPeriod,
   validDriveQuery,
 } from "@/lib/services/drive-sharing-service";
+import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
 import {
   documentShareRequestId,
   documentShareSelectionId,
@@ -35,6 +36,24 @@ import type { DriveSearchStatus } from "@/lib/services/drive-search-service";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const guard = () => {};
+
+describe("requester document payment boundary", () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  it("uses Firebase auth and accepts only the fixed Stripe checkout host", async () => {
+    fetcher.mockResolvedValueOnce(reply({ status: "awaiting_payment", amountCents: 1000, currency: "usd" }));
+    expect(await DriveRequestPaymentService.status("firebase", requestId)).toMatchObject({ status: "awaiting_payment" });
+    expect(fetcher.mock.calls[0][0]).toBe(`/api/connectors/google_drive/sharing/requests/${requestId}/payment`);
+    expect(fetcher.mock.calls[0][1].headers).toEqual({ Authorization: "Bearer firebase" });
+    fetcher.mockResolvedValueOnce(reply({ checkoutUrl: "https://checkout.stripe.com/c/pay/cs_test_123" }));
+    expect(await DriveRequestPaymentService.checkout("firebase", requestId)).toContain("checkout.stripe.com");
+    expect(fetcher.mock.calls[1][1].method).toBe("POST");
+    fetcher.mockResolvedValueOnce(reply({ status: "paid", amountCents: 0, currency: "usd" }));
+    await expect(DriveRequestPaymentService.status("firebase", requestId)).rejects.toThrow("Invalid payment response");
+    fetcher.mockResolvedValueOnce(reply({ checkoutUrl: "https://evil.invalid/checkout" }));
+    await expect(DriveRequestPaymentService.checkout("firebase", requestId)).rejects.toThrow("Invalid checkout response");
+  });
+});
 const rawReview = () => ({
   requestId,
   revision: 3,

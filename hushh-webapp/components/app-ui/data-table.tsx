@@ -108,6 +108,7 @@ interface DataTableProps<TData, TValue> {
   ) => React.ReactNode;
   density?: "default" | "compact";
   stickyHeader?: boolean;
+  preserveMobilePaginationPosition?: boolean;
 }
 
 export function DataTable<TData, TValue>({
@@ -129,7 +130,15 @@ export function DataTable<TData, TValue>({
   renderMobileCard,
   density = "default",
   stickyHeader = false,
+  preserveMobilePaginationPosition = false,
 }: DataTableProps<TData, TValue>) {
+  const mobilePaginationRef = React.useRef<HTMLElement>(null);
+  const paginationAnchorRef = React.useRef<number | null>(null);
+  const capturePaginationPosition = () => {
+    if (preserveMobilePaginationPosition && mobilePaginationRef.current) {
+      paginationAnchorRef.current = mobilePaginationRef.current.getBoundingClientRect().top;
+    }
+  };
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
@@ -216,6 +225,24 @@ export function DataTable<TData, TValue>({
 
   const filteredCount = table.getFilteredRowModel().rows.length;
   const pageIndex = table.getState().pagination.pageIndex;
+  // Restore only an explicit mobile page-button action, after the new rows
+  // commit. Absolute scroll offsets cannot preserve a footer across pages of
+  // different heights (especially the shorter final page).
+  React.useLayoutEffect(() => {
+    const previousTop = paginationAnchorRef.current;
+    paginationAnchorRef.current = null;
+    const pagination = mobilePaginationRef.current;
+    if (previousTop === null || !pagination || !pagination.getClientRects().length) return;
+    const delta = pagination.getBoundingClientRect().top - previousTop;
+    const scrollRoot = pagination.closest<HTMLElement>(
+      '[data-profile-pane-scroll-root="true"], [data-app-scroll-root="true"]',
+    );
+    if (scrollRoot) {
+      scrollRoot.scrollBy({ top: delta, behavior: "instant" });
+    } else {
+      window.scrollBy({ top: delta, behavior: "instant" });
+    }
+  }, [pageIndex]);
   const pageSize = table.getState().pagination.pageSize;
   const rangeStart = filteredCount === 0 ? 0 : pageIndex * pageSize + 1;
   const rangeEnd =
@@ -322,6 +349,7 @@ export function DataTable<TData, TValue>({
 
       {renderMobileCard && hasMultiplePages ? (
         <nav
+          ref={mobilePaginationRef}
           aria-label="Table pagination"
           aria-live="polite"
           aria-atomic="true"
@@ -336,6 +364,7 @@ export function DataTable<TData, TValue>({
             disabled={!table.getCanPreviousPage()}
             onClick={() => {
               if (table.getCanPreviousPage()) {
+                capturePaginationPosition();
                 table.previousPage();
               }
             }}
@@ -354,6 +383,7 @@ export function DataTable<TData, TValue>({
             disabled={!table.getCanNextPage()}
             onClick={() => {
               if (table.getCanNextPage()) {
+                capturePaginationPosition();
                 table.nextPage();
               }
             }}

@@ -1,6 +1,6 @@
 import { addToPKM, clearAgentPkmContext, isReservedPkmCard, type AgentPkmPreviewCard, type AgentPkmSaveResult } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
-import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import { isUnresolvedSourceBlock, prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 
@@ -17,7 +17,7 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
   message: string;
   source: ConnectorMemorySource;
   vaultKey: string;
-}): Promise<{ cards: AgentPkmPreviewCard[]; incomplete: boolean }> {
+}): Promise<{ cards: AgentPkmPreviewCard[]; incomplete: boolean; alreadySaved: boolean }> {
   await input.assertCurrent();
   // A restored answer may be reviewed before a new chat turn hydrates memory.
   // Warm the existing bounded, decrypted inventory so local duplicate checks
@@ -45,10 +45,15 @@ export async function prepareConnectorMemoryReview(input: MemorySession & {
     (card.write_mode === "can_save" || card.write_mode === "confirm_first") &&
     !isReservedPkmCard(card) && !isDegradedPreviewCard(card),
   );
-  return { cards, incomplete: (prepared.sourceCoverage || []).some(block =>
-    !!block.preparationIssue || block.disposition === "failed" ||
-    block.detectedFactCount > block.accountedFactCount + (block.duplicateCount || 0) + (block.excludedSecretCount || 0),
-  ) || cards.length < prepared.cards.filter(card => card.write_mode !== "do_not_save").length };
+  const coverage = prepared.sourceCoverage || [];
+  // Only explicit exact-duplicate evidence can claim this is already saved.
+  const alreadySaved = cards.length === 0 && coverage.length > 0 && coverage.every(block =>
+    !block.preparationIssue && block.disposition === "intentionally_ignored" &&
+    (block.duplicateCount || 0) > 0 &&
+    (block.duplicateCount || 0) >= block.detectedFactCount &&
+    !(block.excludedSecretCount || 0),
+  );
+  return { cards, alreadySaved, incomplete: coverage.some(isUnresolvedSourceBlock) || cards.length < prepared.cards.filter(card => card.write_mode !== "do_not_save").length };
 }
 
 export function connectorMemorySharingImpact(cards: AgentPkmPreviewCard[]): number {

@@ -16,6 +16,41 @@ def _backend_deploy() -> str:
     return _read("scripts/deploy/backend-deploy.sh")
 
 
+def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
+    workflow = yaml.safe_load(_read(".github/workflows/deploy-uat.yml"))
+    selection = workflow["jobs"]["select-target"]
+    deploy = workflow["jobs"]["deploy"]
+
+    # A read-only no-op must not create a successful environment deployment
+    # record or enter release classification with missing runtime evidence.
+    assert "environment" not in selection
+    assert selection["permissions"] == {
+        "contents": "read",
+        "checks": "read",
+        "deployments": "read",
+        "actions": "read",
+    }
+    assert deploy["needs"] == "select-target"
+    assert deploy["if"] == "needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'"
+    assert deploy["environment"] == "uat"
+
+    resolver = next(step for step in selection["steps"] if step.get("id") == "resolve-sha")
+    assert "--allow-no-op" in resolver["run"]
+    assert "continue-on-error" not in resolver
+    summary = next(
+        step for step in selection["steps"] if step["name"] == "Summarize unchanged UAT target"
+    )
+    assert summary["if"] == "steps.resolve-sha.outputs.decision == 'NO_OP'"
+
+    bridge = next(step for step in deploy["steps"] if step.get("id") == "resolve-sha")
+    assert bridge["env"]["DEPLOY_SHA"] == "${{ needs.select-target.outputs.sha }}"
+    validator = next(
+        step for step in deploy["steps"] if step["name"] == "Validate deployment SHA against main"
+    )
+    assert validator["env"]["REQUIRE_CI_SUCCESS"] == "1"
+    assert validator["env"]["REQUIRED_CHECK_NAME"] == "Main Post-Merge Smoke Gate"
+
+
 def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
     workflow = yaml.safe_load(_read(".github/workflows/rollback.yml"))
 
@@ -68,6 +103,33 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
     # fallback: Drive disconnect/revocation has a different blast radius.
     assert "GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID" not in workflow
     assert "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET" not in workflow
+
+
+def test_stripe_secret_bindings_survive_payment_rollout_switch_off() -> None:
+    """Existing paid-required requests still need Checkout and signed webhooks."""
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    backend_deploy = _backend_deploy()
+    for lane in ("dev", "uat", "production"):
+        workflow = _read(f".github/workflows/deploy-{lane}.yml")
+        assert "_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY" in workflow
+        assert "_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET" in workflow
+        assert "_STRIPE_SECRET_KEY_SECRET=${{" not in workflow
+        assert "_STRIPE_WEBHOOK_SECRET_SECRET=${{" not in workflow
+
+    # The build binds optional existing secrets, but refuses an enabled
+    # new-request rollout unless both names resolve in the deploy project.
+    assert 'if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then' in backend_deploy
+    assert (
+        'for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do'
+        in backend_deploy
+    )
+    for name in ("STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET"):
+        assert f'append_optional_secret "${{_{name}_SECRET}}" "{name}"' in backend_deploy
+        assert f"${{_{name}_SECRET}}" in backend_build
+    assert (
+        'append_optional_env "DRIVE_REQUEST_PAYMENTS_ENABLED" "${_DRIVE_REQUEST_PAYMENTS_ENABLED}"'
+        in backend_deploy
+    )
 
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:

@@ -41,6 +41,15 @@ which sends that one item through the same owner-confirmed encrypted writer as
 what active recipients receive). Forget only removes it from the screen. The
 server stores no item text; it records only that the source was offered.
 
+Keep actions in the card run one at a time. Exact duplicate evidence produces
+“Already in Memory”; an intentionally empty proposal reports that nothing new
+was saved. Incomplete preparation stops before dispatching any write, and actual
+write failures never produce a success receipt. Sharing confirmation retains the
+exact reviewed proposal in session memory; lock, owner changes, and unmount clear
+it. The existing writer still checks current sharing and revision authority.
+Keep and Forget share equal-width, at least 44px-high targets, including narrow
+WebKit layouts and the loading/confirmation states.
+
 ## Conversational capture and context transfers
 
 Chat uses the existing Memory proposal and encrypted writer, not a second memory

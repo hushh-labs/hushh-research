@@ -5,7 +5,10 @@ import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 
 const mocks = vi.hoisted(() => ({ prepare: vi.fn(), write: vi.fn(), context: vi.fn(), clear: vi.fn(), duplicate: vi.fn(), load: vi.fn() }));
-vi.mock("@/lib/pkm/pkm-natural-language-ingestion", () => ({ prepareNaturalLanguagePkm: mocks.prepare }));
+vi.mock("@/lib/pkm/pkm-natural-language-ingestion", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@/lib/pkm/pkm-natural-language-ingestion")>(),
+  prepareNaturalLanguagePkm: mocks.prepare,
+}));
 vi.mock("@/lib/profile/pkm-agent-lab-capture", () => ({ loadPkmAgentLabContext: mocks.context }));
 vi.mock("@/lib/agent/agent-pkm-context-store", () => ({ AgentPkmContextStore: { findLocalDuplicate: mocks.duplicate, load: mocks.load } }));
 vi.mock("@/lib/agent/agent-pkm-memory", async original => ({

@@ -247,6 +247,36 @@ describe("supported connector catalog", () => {
     expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
   });
 
+  it("closes the blank popup when Drive OAuth start fails", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", available: true }],
+      features: {
+        connections_panel_v2: true,
+        google_drive_connection: true,
+        google_drive_picker: true,
+      },
+    });
+    const popupClosed = vi.fn();
+    const popup = {
+      closed: false,
+      close: popupClosed,
+      document: { title: "", body: { textContent: "" } },
+      location: { replace: vi.fn() },
+      sessionStorage: window.sessionStorage,
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+    state.startOAuthConnect.mockRejectedValue(new Error("synthetic start failure"));
+
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Google Drive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
+
+    expect(await screen.findByText("Drive sign-in could not start. Check the connection and try again.")).toBeInTheDocument();
+    expect(popupClosed).toHaveBeenCalled();
+    expect(popup.location.replace).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
+  });
+
   it("omits unsupported catalog placeholders even when the registry returns them", async () => {
     state.overview.mockResolvedValue(overview([
       { ...catalogItem, connectorId: "notion", displayName: "Notion" },

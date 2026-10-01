@@ -18,6 +18,7 @@ export function GmailWorkspaceNavigation({
   onValueChange: (workspace: GmailWorkspace) => void;
 }) {
   return (
+    <div className="flex h-[var(--top-tabs-h)] w-full items-center">
     <SegmentedTabs
       value={value}
       onValueChange={(next) => onValueChange(next as GmailWorkspace)}
@@ -25,6 +26,8 @@ export function GmailWorkspaceNavigation({
       mobileColumns={3}
       ariaLabel="Gmail workspace"
       variant="agent-top"
+      className="bg-[color:var(--app-neutral-fill)] p-0.5 [&>button]:mx-0"
     />
+    </div>
   );
 }

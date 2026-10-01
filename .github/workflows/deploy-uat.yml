@@ -51,8 +51,72 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  select-target:
+    name: Select UAT target
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: read
+      deployments: read
+      actions: read
+    outputs:
+      sha: ${{ steps.resolve-sha.outputs.sha }}
+      decision: ${{ steps.resolve-sha.outputs.decision }}
+    steps:
+      - name: Assert manual dispatch originates from main
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_REF_NAME}" != "main" ]; then
+            echo "Refusing UAT target selection outside main."
+            exit 1
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Assert manual UAT dispatch actor policy
+        run: python3 scripts/ci/assert-governed-actor.py --surface uat --actor "${{ github.actor }}"
+
+      - name: Resolve deployment SHA
+        id: resolve-sha
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REQUESTED_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -n "$REQUESTED_SHA" ]; then
+            if ! [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "UAT requires a full 40-character commit SHA."
+              exit 1
+            fi
+            echo "sha=$REQUESTED_SHA" >> "$GITHUB_OUTPUT"
+            echo "decision=DEPLOY_EXACT_SHA" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output --allow-no-op
+
+      - name: Summarize unchanged UAT target
+        if: steps.resolve-sha.outputs.decision == 'NO_OP'
+        shell: bash
+        env:
+          UAT_SHA: ${{ steps.resolve-sha.outputs.uat_actual_sha }}
+          REASON: ${{ steps.resolve-sha.outputs.reason }}
+        run: |
+          {
+            echo "## UAT already current"
+            printf '\n- Existing UAT SHA: `%s`\n- Decision: `NO_OP`\n- Reason: %s\n' "$UAT_SHA" "$REASON"
+            echo "- No deployment, traffic change, or release tag update was performed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   deploy:
     name: Deploy UAT Scope
+    needs: select-target
+    if: needs.select-target.outputs.decision == 'DEPLOY_EXACT_SHA'
     runs-on: ubuntu-latest
     environment: uat
 
@@ -83,29 +147,16 @@ jobs:
         shell: bash
         run: echo "epoch=$(date +%s)" >> "$GITHUB_OUTPUT"
 
-      # A branch tip is "whatever happened most recently", which is a different
-      # question from "what is proven". On 2026-08-14 those answers differed by
-      # seconds: a green merge, then a teammate's merge whose own post-merge
-      # gate had not finished, and this step resolved to that unproven tip. The
-      # validator below caught it — but only after the dispatch, and only by
-      # luck of ordering. Selecting is the fix; validating is the backstop.
-      #
-      # A blank input now means "pick the newest commit that has its OWN
-      # successful post-merge gate", never `git rev-parse origin/main`.
+      # Keep the existing deployment body's exact-SHA references. Selection
+      # happens before the UAT environment is entered; validation stays below.
       - name: Resolve deployment SHA
         id: resolve-sha
         shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEPLOY_SHA: ${{ needs.select-target.outputs.sha }}
         run: |
           set -euo pipefail
-          if [ -n "${{ github.event.inputs.sha }}" ]; then
-            # An explicit SHA is a request, not a permission: it still has to
-            # clear the exact-gate validator in the next step.
-            echo "sha=${{ github.event.inputs.sha }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          node hushh-webapp/scripts/ci/select-uat-target.mjs --limit 20 --github-output
+          echo "sha=$DEPLOY_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate deployment SHA against main
         env:
@@ -793,6 +844,10 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
+          # Keep credentials bound after the rollout switch turns off so existing
+          # paid-required requests can finish Checkout and webhook settlement.
+          # Set the UAT variable only after test-mode secret versions are ready.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
           # HubSpot's OAuth app secrets are bound only while the curated-connector
           # rollout is on, so a UAT deploy never references a secret that has not
           # been provisioned yet.
@@ -2268,6 +2323,7 @@ jobs:
           RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
           CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
           RELEASE_RUN_ID: ${{ github.run_id }}
+          DRIVE_REQUEST_PAYMENTS_UAT_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}
         run: |
           set -euo pipefail
           if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then

@@ -201,7 +201,12 @@ async def main() -> dict[str, object]:
 
     if live_config.enabled:
         labelled.append(
-            (f"one_voice_live:{live_config.model_id}@{live_config.location}", probe_live_connect())
+            (
+                f"one_voice_live:{live_config.model_id}@{live_config.location}",
+                # Live setup can await a WebSocket response indefinitely. Keep
+                # text/ADK and Location's own command deadlines unchanged.
+                asyncio.wait_for(probe_live_connect(), timeout=PROBE_TIMEOUT_SECONDS),
+            )
         )
 
     outcomes = await asyncio.gather(*(coro for _, coro in labelled), return_exceptions=True)

@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => {
   return {
     routerPush: vi.fn(),
+    navigateToAgentChat: vi.fn(),
     useAuth: vi.fn(),
     useGmailConnectorStatus: vi.fn(),
     toast: {
@@ -83,6 +84,10 @@ let gmailView: ReturnType<typeof buildGmailView>;
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: mocks.routerPush }),
   usePathname: () => "/one/profile/receipts",
+}));
+
+vi.mock("@/lib/navigation/agent-navigation", () => ({
+  navigateToAgentChat: mocks.navigateToAgentChat,
 }));
 
 vi.mock("sonner", () => ({
@@ -173,56 +178,6 @@ vi.mock("@/components/ui/badge", () => ({
 
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: () => null,
-}));
-
-vi.mock("@/components/ui/alert-dialog", () => ({
-  AlertDialog: ({
-    children,
-    open,
-  }: {
-    children: React.ReactNode;
-    open?: boolean;
-  }) => (open ? <div>{children}</div> : null),
-  AlertDialogAction: ({
-    children,
-    onClick,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    onClick?: React.MouseEventHandler<HTMLButtonElement>;
-    disabled?: boolean;
-  }) => (
-    <button type="button" onClick={onClick} disabled={disabled}>
-      {children}
-    </button>
-  ),
-  AlertDialogCancel: ({
-    children,
-    disabled,
-  }: {
-    children: React.ReactNode;
-    disabled?: boolean;
-  }) => (
-    <button type="button" disabled={disabled}>
-      {children}
-    </button>
-  ),
-  // Radix's AlertDialogContent carries role="alertdialog"; mirror it.
-  AlertDialogContent: ({ children }: { children: React.ReactNode }) => (
-    <div role="alertdialog">{children}</div>
-  ),
-  AlertDialogDescription: ({ children }: { children: React.ReactNode }) => (
-    <p>{children}</p>
-  ),
-  AlertDialogFooter: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  AlertDialogHeader: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  AlertDialogTitle: ({ children }: { children: React.ReactNode }) => (
-    <h2>{children}</h2>
-  ),
 }));
 
 vi.mock("@/lib/morphy-ux/button", () => ({
@@ -966,6 +921,24 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
 
+  it("shows a connected sync failure only in the lower receipt status card", async () => {
+    const connected = buildGmailView();
+    mocks.useGmailConnectorStatus.mockReturnValue(makeGmailView({
+      status: { ...connected.status, last_sync_status: "failed" },
+      presentation: { ...connected.presentation, state: "sync_failed" },
+    }));
+    render(<ProfileReceiptsPage />);
+
+    const receiptStatus = await screen.findByTestId("mail-receipt-sync");
+    expect(receiptStatus).toHaveTextContent("Sync failed.");
+    expect(receiptStatus).toHaveClass("border-destructive/20");
+    expect(screen.queryByText("Status", { exact: true })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Draft with One." })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Manage" })).toBeVisible();
+    expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
+    expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
+  });
+
   it("waits until Gmail sync settles before building the receipt-memory preview", async () => {
     mocks.useGmailConnectorStatus.mockReturnValue(
       makeGmailView({
@@ -1698,6 +1671,42 @@ describe("ProfileReceiptsPage", () => {
     expect(
       screen.getAllByText(/preparing your receipt scan/i).length,
     ).toBeGreaterThan(0);
+  });
+
+  it("opens One chat from the overview CTA", () => {
+    render(<ProfileReceiptsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with One" }));
+    expect(mocks.navigateToAgentChat).toHaveBeenCalledOnce();
+  });
+
+  it("reconnects through the existing read-consent flow", async () => {
+    render(<ProfileReceiptsPage />);
+    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^reconnect$/i }));
+    await waitFor(() => expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
+      expect.objectContaining({ purpose: "read", userId: "user-123" }),
+    ));
+    expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Mail connected when disconnect confirmation is canceled", async () => {
+    render(<ProfileReceiptsPage />);
+    fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: /^disconnect$/i }));
+    fireEvent.click(within(screen.getByRole("alertdialog")).getByRole("button", { name: "Keep connected" }));
+    expect(gmailView.disconnectGmail).not.toHaveBeenCalled();
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+  });
+
+  it("shows a zero receipt count only after the receipt list has loaded", async () => {
+    render(<ProfileReceiptsPage />);
+    expect(within(screen.getByTestId("mail-receipt-sync")).queryByText(/0 receipts/)).toBeNull();
+    expect(GmailReceiptsService.listReceipts).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
+    await waitFor(() => expect(GmailReceiptsService.listReceipts).toHaveBeenCalled());
+    await screen.findByText(/no receipts yet/i);
+    fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
+    expect(within(screen.getByTestId("mail-receipt-sync")).getByText(/0 receipts/)).toBeTruthy();
   });
 
   it("deletes the Gmail receipt cache when disconnecting", async () => {

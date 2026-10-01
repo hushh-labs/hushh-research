@@ -262,6 +262,12 @@ export function voiceErrorForClose(
         message: VOICE_UNAVAILABLE_MESSAGE,
         recoverable: false,
       };
+    case 1006:
+      return {
+        code: "network_lost",
+        message: "Connection lost. Tap Try again to resume talking to One.",
+        recoverable: true,
+      };
     default:
       return {
         code: reason
@@ -490,7 +496,7 @@ function reduceServerFrame(
       return {
         ...state,
         // An open card the server re-lists is still waiting on the person.
-        phase: first ? "confirming" : "listening",
+        phase: state.phase === "paused" ? "paused" : first ? "confirming" : "listening",
         serverState: null,
         sessionId: frame.session_id,
         conversationId: frame.conversation_id,
@@ -602,6 +608,7 @@ function reduceServerFrame(
               state.fencedTurnIds,
               state.activeInputTurnId,
               state.activeResponseTurnId,
+              state.pendingAction?.origin_turn_id,
             ).filter((id) => id !== frame.turn_id)
           : state.fencedTurnIds,
         // A new question owns the visible answer slot. Older tool receipts
@@ -634,6 +641,12 @@ function reduceServerFrame(
         activeResponseTurnId: !isStaleOrigin(state, frame.turn_id)
           ? frame.turn_id
           : state.activeResponseTurnId,
+        // A completed origin can finish audio already scheduled by the player,
+        // but late frames must never reclaim a later question's answer slot.
+        fencedTurnIds:
+          frame.state === "model_end" || frame.state === "interrupted"
+            ? addFencedTurns(state.fencedTurnIds, frame.turn_id)
+            : state.fencedTurnIds,
         transcript,
         idleDeadlineAt: null,
       };
@@ -648,7 +661,7 @@ function reduceServerFrame(
       return {
         ...state,
         serverState: frame.state,
-        phase,
+        phase: state.phase === "paused" && frame.state !== "error" ? "paused" : phase,
         turnId: frame.turn_id ?? state.turnId,
         idleDeadlineAt:
           frame.state === "complete" && state.idleTimeoutMs
@@ -683,7 +696,8 @@ function reduceServerFrame(
       // cannot take ownership of a newer question's answer slot.
       const belongsToCurrentInput = originTurnId
         ? !isStaleOrigin(state, originTurnId)
-        : state.activeInputTurnId === null;
+        : state.turnId === null && state.activeInputTurnId === null &&
+          state.activeResponseTurnId === null;
       // A normal confirmed action emits `pending_action.resolved` first, but
       // a terminal result can still arrive without that frame after a relay
       // reconnect. Its exact pending id lets the client retire only the card
@@ -777,8 +791,10 @@ function reduceServerFrame(
       };
     }
     case "pending_action": {
+      if (isStaleOrigin(state, frame.turn_id)) return state;
       const {
         type: _type,
+        turn_id: _turnId,
         risk_level,
         requires_tap,
         entities,
@@ -786,6 +802,7 @@ function reduceServerFrame(
         ...row
       } = frame;
       void _type;
+      void _turnId;
       const pending: PendingActionView = {
         ...row,
         riskLevel: risk_level,
@@ -845,8 +862,10 @@ function reduceServerFrame(
       };
     }
     case "entity_card": {
-      const { type: _type, ...payload } = frame;
+      if (isStaleOrigin(state, frame.turn_id)) return state;
+      const { type: _type, turn_id: _turnId, ...payload } = frame;
       void _type;
+      void _turnId;
       return {
         ...state,
         idleDeadlineAt: null,
@@ -854,6 +873,7 @@ function reduceServerFrame(
       };
     }
     case "candidate_picker":
+      if (isStaleOrigin(state, frame.turn_id)) return state;
       return {
         ...state,
         idleDeadlineAt: null,
@@ -864,11 +884,13 @@ function reduceServerFrame(
         },
       };
     case "ui_directive":
+      if (isStaleOrigin(state, frame.turn_id)) return state;
       // Directives are side effects the provider runs; the reducer only notes activity.
       return state.idleDeadlineAt === null
         ? state
         : { ...state, idleDeadlineAt: null };
     case "client_step.request":
+      if (isStaleOrigin(state, frame.turn_id)) return state;
       return {
         ...state,
         idleDeadlineAt: null,

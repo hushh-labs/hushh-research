@@ -107,13 +107,15 @@ for _pair in "${_drive_secret_pairs[@]}"; do
     connector_key) _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="${_value}" ;;
     document_key) _DRIVE_DOCUMENT_KEY_V1_SECRET="${_value}" ;;
     sharing_key) _DRIVE_SHARING_KEY_V1_SECRET="${_value}" ;;
+    stripe_secret) _STRIPE_SECRET_KEY_SECRET="${_value}" ;;
+    stripe_webhook) _STRIPE_WEBHOOK_SECRET_SECRET="${_value}" ;;
     *) echo "Drive secret settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_secret_pairs[@]}" -ne 6 ]]; then
-  echo "Drive secret settings must contain six keys." >&2; exit 1
+if [[ "${#_drive_secret_pairs[@]}" -ne 8 ]]; then
+  echo "Drive secret settings must contain eight keys." >&2; exit 1
 fi
-for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET; do
+for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET _STRIPE_SECRET_KEY_SECRET _STRIPE_WEBHOOK_SECRET_SECRET; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
     echo "Drive secret settings are missing ${_required}." >&2; exit 1
   fi
@@ -139,8 +141,8 @@ for _required in _HUBSPOT_OAUTH_CLIENT_ID_SECRET _HUBSPOT_OAUTH_CLIENT_SECRET_SE
   fi
 done
 # UAT's Drive work-drain scheduler identity is packed into one Cloud Build
-# entry. Keep all four values explicit so a missing substitution cannot enable
-# the drain or silently drop its OIDC identity.
+# entry with the payment rollout switch. Keep all five values explicit so a
+# missing substitution cannot enable a rollout or drop the drain's identity.
 IFS=',' read -r -a _drive_work_pairs <<< "${_DRIVE_WORK_DRAIN_SETTINGS:?missing Drive work-drain settings}"
 for _pair in "${_drive_work_pairs[@]}"; do
   [[ "${_pair}" == *=* ]] || { echo "Invalid Drive work-drain settings." >&2; exit 1; }
@@ -150,12 +152,14 @@ for _pair in "${_drive_work_pairs[@]}"; do
     project) _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID="${_value}" ;;
     service_account) _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="${_value}" ;;
     audience) _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE="${_value}" ;;
+    payments_enabled) _DRIVE_REQUEST_PAYMENTS_ENABLED="${_value}" ;;
     *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
   esac
 done
-if [[ "${#_drive_work_pairs[@]}" -ne 4 ]] ||
-  [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]]; then
-  echo "Drive work-drain settings require four keys and an explicit enabled boolean." >&2; exit 1
+if [[ "${#_drive_work_pairs[@]}" -ne 5 ]] ||
+  [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]] ||
+  [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "true" && "${_DRIVE_REQUEST_PAYMENTS_ENABLED:-}" != "false" ]]; then
+  echo "Drive work-drain settings require five keys and explicit rollout booleans." >&2; exit 1
 fi
 for _required in _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE; do
   if ! declare -p "${_required}" >/dev/null 2>&1; then
@@ -224,6 +228,18 @@ append_optional_secret "${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET}" "GOOGLE_DRIVE_PI
 append_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
 append_optional_secret "${_DRIVE_DOCUMENT_KEY_V1_SECRET}" "DRIVE_DOCUMENT_KEY_V1"
 append_optional_secret "${_DRIVE_SHARING_KEY_V1_SECRET}" "DRIVE_SHARING_KEY_V1"
+# Disabling new paid requests must not strand existing Checkout/refund work.
+# Bind configured secrets in either mode; enabled rollout requires both.
+if [[ "${_DRIVE_REQUEST_PAYMENTS_ENABLED}" == "true" ]]; then
+  for required_secret in "${_STRIPE_SECRET_KEY_SECRET}" "${_STRIPE_WEBHOOK_SECRET_SECRET}"; do
+    if [[ -z "${required_secret}" ]] || ! gcloud secrets describe "${required_secret}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+      echo "Enabled Drive request payments require both Stripe secrets." >&2
+      exit 1
+    fi
+  done
+fi
+append_optional_secret "${_STRIPE_SECRET_KEY_SECRET}" "STRIPE_SECRET_KEY"
+append_optional_secret "${_STRIPE_WEBHOOK_SECRET_SECRET}" "STRIPE_WEBHOOK_SECRET"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in
@@ -375,6 +391,7 @@ append_optional_env "DRIVE_WORK_DRAIN_ENABLED" "${_DRIVE_WORK_DRAIN_ENABLED}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID" "${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL" "${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE" "${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"
+append_optional_env "DRIVE_REQUEST_PAYMENTS_ENABLED" "${_DRIVE_REQUEST_PAYMENTS_ENABLED}"
 append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
 append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
 append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"

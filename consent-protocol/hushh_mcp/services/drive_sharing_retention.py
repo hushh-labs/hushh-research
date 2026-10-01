@@ -102,9 +102,66 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
                 params,
             ).mappings()
         )
+        if _exists(connection, "drive_request_payment_obligations"):
+            # Bulk writers take the owner's connector row before a share,
+            # request, or payment order. Lock existing rows in stable order;
+            # never create another owner's connection during erasure.
+            for owner in sorted({context["user_id"] for context in contexts}):
+                connection.execute(
+                    text("""SELECT user_id FROM user_external_connector_connections
+                  WHERE user_id=:owner AND connector_id='google_drive' FOR UPDATE"""),
+                    {"owner": owner},
+                )
         for context in contexts:
             identifiers = {"request": context["request_id"], "user": user_id}
             owns = context["user_id"] == user_id
+            # Preserve only yes/no grant evidence before erasure removes the
+            # effect rows. The request-delete trigger then anonymizes the
+            # payment obligation without accidentally refunding a delivery.
+            if _exists(connection, "drive_request_payment_obligations"):
+                # Bulk mutators take share locks before request/order locks.
+                # This also fences new dispatch before reading effect outcomes.
+                connection.execute(
+                    text("""SELECT share_id FROM drive_bulk_shares
+                  WHERE origin_request_id=:request ORDER BY share_id FOR UPDATE"""),
+                    identifiers,
+                )
+                connection.execute(
+                    text("""SELECT request_id FROM drive_share_requests
+                  WHERE request_id=:request FOR UPDATE"""),
+                    identifiers,
+                )
+                # Dispatchers take the live order FOR SHARE before marking an
+                # effect dispatching. Wait for any such transaction to finish.
+                connection.execute(
+                    text("""SELECT request_id FROM drive_request_payment_orders
+                  WHERE request_id=:request FOR UPDATE"""),
+                    identifiers,
+                )
+                connection.execute(
+                    text("""UPDATE drive_request_payment_obligations o SET
+                  delivery_confirmed_at_erasure=
+                    o.delivery_confirmed_at_erasure OR
+                    EXISTS(SELECT 1 FROM drive_bulk_share_effects e
+                      JOIN drive_bulk_shares b ON b.share_id=e.share_id
+                      WHERE b.origin_request_id=:request
+                        AND e.state IN ('succeeded','preexisting')) OR
+                    EXISTS(SELECT 1 FROM drive_share_permission_operations p
+                      WHERE p.request_id=:request AND p.kind='grant'
+                        AND p.state IN ('succeeded','preexisting')),
+                  delivery_unsettled_at_erasure=
+                    o.delivery_unsettled_at_erasure OR
+                    EXISTS(SELECT 1 FROM drive_bulk_share_effects e
+                      JOIN drive_bulk_shares b ON b.share_id=e.share_id
+                      WHERE b.origin_request_id=:request AND
+                        (e.state IN ('dispatching','unknown','present_unattributed') OR
+                         (e.state='failed' AND e.safe_error_code='permission_outcome_unknown'))) OR
+                    EXISTS(SELECT 1 FROM drive_share_permission_operations p
+                      WHERE p.request_id=:request AND p.kind='grant'
+                        AND p.state IN ('dispatching','unknown','present_unattributed'))
+                  WHERE o.request_id=:request"""),
+                    identifiers,
+                )
             operations = list(
                 connection.execute(
                     text("""
@@ -275,6 +332,14 @@ def erase_drive_account_in_transaction(connection, *, user_id, permanent, cipher
             if _exists(connection, "drive_bulk_shares"):
                 connection.execute(
                     text("DELETE FROM drive_bulk_shares WHERE origin_request_id=:request"),
+                    identifiers,
+                )
+            if _exists(connection, "drive_request_payment_orders"):
+                # The opaque obligation was snapshotted above and survives.
+                # Remove raw participant IDs explicitly for erasure coverage.
+                connection.execute(
+                    text("""DELETE FROM drive_request_payment_orders
+                  WHERE request_id=:request"""),
                     identifiers,
                 )
             connection.execute(

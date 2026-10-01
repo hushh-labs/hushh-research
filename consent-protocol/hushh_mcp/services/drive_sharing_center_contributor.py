@@ -37,11 +37,15 @@ WITH participants AS (
     {trusted_authority_ready} AS trusted_authority_ready,
     {trusted_batch_seen} AS trusted_batch_seen,
     {trusted_work_active} AS trusted_work_active,
-    {trusted_recovery_needed} AS trusted_recovery_needed
+    {trusted_recovery_needed} AS trusted_recovery_needed,
+    {payment_status} AS payment_status,
+    {payment_amount_cents} AS payment_amount_cents,
+    {payment_currency} AS payment_currency,
+    {payment_reconciliation_required} AS payment_reconciliation_required
   FROM drive_share_requests WHERE user_id=:user OR recipient_user_id=:user
   UNION ALL
   SELECT request_id,revocation_revision,created_at,'share','incoming','management_only',
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean
   FROM drive_share_management_contexts
   WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
@@ -100,7 +104,7 @@ _QUERIES = """
         AND decided_at < now() - interval '300 seconds' THEN 'expired'
       WHEN status='running' THEN 'pending'
       ELSE status END,
-    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE
+    NULL::text,NULL::text,FALSE,FALSE,FALSE,FALSE,NULL::text,NULL::integer,NULL::text,NULL::boolean
   FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
 
 _OWNER_SEARCH_STATE = """(
@@ -186,7 +190,9 @@ _TRUSTED_RECOVERY_NEEDED = """EXISTS (
 )"""
 
 
-def _projection(queries: bool, owner_search: bool, bulk: bool, background: bool) -> str:
+def _projection(
+    queries: bool, owner_search: bool, bulk: bool, background: bool, payments: bool
+) -> str:
     projection = _PROJECTION.replace("{queries}", _QUERIES if queries else "")
     for name, expression in {
         "owner_search_state": _OWNER_SEARCH_STATE if owner_search else "'unavailable'::text",
@@ -194,6 +200,24 @@ def _projection(queries: bool, owner_search: bool, bulk: bool, background: bool)
         "trusted_batch_seen": _TRUSTED_BATCH_SEEN if bulk else "FALSE",
         "trusted_work_active": _TRUSTED_WORK_ACTIVE if bulk and owner_search else "FALSE",
         "trusted_recovery_needed": _TRUSTED_RECOVERY_NEEDED if bulk else "FALSE",
+        "payment_status": """(SELECT pay.status FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id)"""
+        if payments
+        else "NULL::text",
+        "payment_amount_cents": """(SELECT pay.amount_cents FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id
+            AND drive_share_requests.recipient_user_id=:user)"""
+        if payments
+        else "NULL::integer",
+        "payment_currency": """(SELECT pay.currency FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id
+            AND drive_share_requests.recipient_user_id=:user)"""
+        if payments
+        else "NULL::text",
+        "payment_reconciliation_required": """(SELECT pay.reconciliation_required FROM drive_request_payment_orders pay
+          WHERE pay.request_id=drive_share_requests.request_id)"""
+        if payments
+        else "NULL::boolean",
     }.items():
         projection = projection.replace("{" + name + "}", expression)
     return projection
@@ -212,11 +236,27 @@ def entry(row: Any) -> dict[str, Any]:
         "outgoing_requests",
         "active_grants",
     }
+    owner_payment_waiting = (
+        request_open
+        and row["direction"] == "incoming"
+        and row.get("payment_status")
+        in {
+            "awaiting_payment",
+            "checkout_open",
+        }
+    )
+    owner_payment_blocked = row["direction"] == "incoming" and (
+        row.get("payment_status") in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        or row.get("payment_reconciliation_required") is True
+    )
     live_search = search_state in {"queued", "running"} or (
         search_state == "completed" and row.get("trusted_work_active") is True
     )
     automatic_progressing = bool(
         request_open
+        and row.get("payment_status")
+        not in {"awaiting_payment", "checkout_open", "refunded", "expired"}
+        and row.get("payment_reconciliation_required") is not True
         and row.get("trusted_authority_ready") is True
         and row.get("trusted_recovery_needed") is not True
         and (
@@ -253,6 +293,8 @@ def entry(row: Any) -> dict[str, Any]:
             "Enable background Drive access"
             if row["bucket"] == "incoming_requests"
             and preparation_code == "background_preparation_required"
+            else "Waiting for requester payment"
+            if owner_payment_waiting
             else "Google Drive files"
         ),
         "counterpart_type": "investor",
@@ -272,7 +314,19 @@ def entry(row: Any) -> dict[str, Any]:
             # sharing run. Only the sharing authority can distinguish that
             # progress from an owner task or a paused/manual recovery.
             "owner_attention_required": row["bucket"] == "incoming_requests"
-            and not automatic_progressing,
+            and not automatic_progressing
+            and not owner_payment_blocked,
+            **({"payment_waiting_for_requester": True} if owner_payment_waiting else {}),
+            **(
+                {
+                    "paymentStatus": row["payment_status"],
+                    "paymentAmountCents": row["payment_amount_cents"],
+                    "paymentCurrency": row["payment_currency"],
+                    "paymentReconciliationRequired": row["payment_reconciliation_required"] is True,
+                }
+                if row["direction"] == "outgoing" and row.get("payment_status") is not None
+                else {}
+            ),
         },
     }
 
@@ -353,6 +407,14 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     @staticmethod
+    def _payments_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("SELECT to_regclass('drive_request_payment_orders') IS NOT NULL")
+            ).scalar_one()
+        )
+
+    @staticmethod
     def _params(user_id: str, *, query: str = "", bucket: str = "") -> dict[str, Any]:
         return {
             "user": user_id,
@@ -391,6 +453,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._owner_search_installed(connection),
                         self._bulk_installed(connection),
                         self._background_installed(connection),
+                        self._payments_installed(connection),
                     )  # nosec B608
                     + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
                 ),
@@ -424,6 +487,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                             self._owner_search_installed(connection),
                             self._bulk_installed(connection),
                             self._background_installed(connection),
+                            self._payments_installed(connection),
                         )  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
@@ -472,6 +536,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                         self._owner_search_installed(connection),
                         self._bulk_installed(connection),
                         self._background_installed(connection),
+                        self._payments_installed(connection),
                     )  # nosec B608
                     + """
                     , ranked AS (

@@ -289,13 +289,10 @@ describe("ConnectCirclesTab", () => {
     const smsRow = await screen.findByTestId("connect-circle-sms");
     const mark = within(smsRow).getByText("SMS");
     const disc = mark.parentElement!;
-    // Red, round and filled -- the identity, not a tinted utility well.
+    // Red, round and filled -- the identity as the main circle icon.
     expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
     expect(disc.className).toContain("rounded-full");
-    // The 28px status mark stays secondary to the 40px member photos; it does
-    // not compete with their identity or make the preview taller.
-    expect(disc.className).toContain("h-7");
-    expect(disc.className).toContain("w-7");
+    expect(disc.className).toContain("size-10");
 
     // The SMS identity remains distinct within the new circle tile layout.
     expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();

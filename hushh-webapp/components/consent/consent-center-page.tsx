@@ -802,7 +802,7 @@ function ConsentEntryRow({
       trailing={entry.kind === "connection" ? null : (
         <Badge
           variant="outline"
-          className={cn("shrink-0", badgeClassName(entry.status))}
+          className={cn("shrink-0 lowercase", badgeClassName(entry.status))}
         >
           {formatStatus(entry.status)}
         </Badge>

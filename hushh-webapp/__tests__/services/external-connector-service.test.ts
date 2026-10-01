@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const apiFetch = vi.hoisted(() => vi.fn());
 
@@ -9,10 +9,14 @@ vi.mock("@/lib/services/api-service", () => ({
   },
 }));
 
-import { ExternalConnectorService } from "@/lib/services/external-connector-service";
+import {
+  CONNECTOR_OAUTH_START_TIMEOUT_MS,
+  ExternalConnectorService,
+} from "@/lib/services/external-connector-service";
 
 describe("ExternalConnectorService native Drive OAuth", () => {
   beforeEach(() => apiFetch.mockReset());
+  afterEach(() => vi.useRealTimers());
 
   it("discards private OAuth delivery after vault authority changes", async () => {
     let current = true;
@@ -74,29 +78,49 @@ describe("ExternalConnectorService native Drive OAuth", () => {
   });
 
   it("forwards cancellation to the web OAuth-start request", async () => {
-    const signal = new AbortController().signal;
-    apiFetch.mockResolvedValue(
-      Response.json({
-        authorizeUrl:
-          "https://accounts.google.com/o/oauth2/v2/auth?synthetic=1",
-        expiresAt: "2026-09-23T12:00:00+00:00",
-        attemptId: "attempt_123456789012",
-        connectorId: "google_drive",
-      }),
+    const ownerAbort = new AbortController();
+    let resolveFetch!: (response: Response) => void;
+    apiFetch.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => { resolveFetch = resolve; }),
     );
 
-    await ExternalConnectorService.startOAuthConnect({
+    const pending = ExternalConnectorService.startOAuthConnect({
       vaultOwnerToken: "owner-token",
       connectorId: "google_drive",
       redirectUri: "https://app.test/one/profile/connectors/oauth/return",
       flow: "web",
-      signal,
+      signal: ownerAbort.signal,
     });
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledOnce());
+    const requestSignal = (apiFetch.mock.calls[0][1] as { signal: AbortSignal })
+      .signal;
+    ownerAbort.abort(new DOMException("Aborted", "AbortError"));
 
-    expect(apiFetch).toHaveBeenCalledWith(
-      "/api/connectors/google_drive/connect/oauth/start",
-      expect.objectContaining({ signal, method: "POST" }),
+    await expect(pending).rejects.toThrow("Aborted");
+    expect(requestSignal).not.toBe(ownerAbort.signal);
+    expect(requestSignal.aborted).toBe(true);
+    resolveFetch(Response.json({}));
+  });
+
+  it("bounds a stalled OAuth-start JSON response after headers arrive", async () => {
+    vi.useFakeTimers();
+    apiFetch.mockResolvedValue(
+      new Response(new ReadableStream({ start() {} }), {
+        headers: { "Content-Type": "application/json" },
+      }),
     );
+
+    const pending = ExternalConnectorService.startOAuthConnect({
+      vaultOwnerToken: "owner-token",
+      connectorId: "google_drive",
+      redirectUri: "https://app.test/one/profile/connectors/oauth/return",
+      flow: "web",
+    });
+    const assertion = expect(pending).rejects.toThrow(
+      "OAuth sign-in took too long. Check the connection and try again.",
+    );
+    await vi.advanceTimersByTimeAsync(CONNECTOR_OAUTH_START_TIMEOUT_MS);
+    await assertion;
   });
 
   it("reconciles only the opaque pending reference before finalization", async () => {

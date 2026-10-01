@@ -90,6 +90,21 @@ describe("turn ownership", () => {
     expect(state.activeResponseTurnId).toBe("c");
   });
 
+  it("retires a completed origin before any late audio can reclaim a newer response", () => {
+    let state = run([
+      server(input("a", "First")),
+      server({ type: "turn", state: "model_end", turn_id: "a" }),
+      server({ type: "audio", data: "QUJD", mime_type: "audio/pcm;rate=24000", turn_id: "c", origin_turn_id: "c" }),
+    ], connected());
+    expect(state.fencedTurnIds).toContain("a");
+    state = run([
+      server({ type: "audio", data: "QUJD", mime_type: "audio/pcm;rate=24000", turn_id: "a", origin_turn_id: "a" }),
+      server(output("a", "Late old answer")),
+    ], state);
+    expect(state.activeResponseTurnId).toBe("c");
+    expect(state.transcript.some((item) => item.text === "Late old answer")).toBe(false);
+  });
+
   it("keeps a fresh name answer after a delayed Mail result and speech", () => {
     const state = run([
       server(input("mail-turn", "Is Gmail connected?")),
@@ -106,6 +121,38 @@ describe("turn ownership", () => {
     expect(state.turnId).toBe("name-turn");
     expect(state.transcript.some((item) => item.text === "Your Gmail is connected.")).toBe(false);
     expect(state.toolTimeline.find((item) => item.callId === "mail-call")?.result?.account).toBe("mail");
+  });
+
+  it("fences a restored pending origin after a newer question completes", () => {
+    const oldCard = pendingActionFrame({ origin_turn_id: "old-turn" });
+    const state = run([
+      server(readyFrame({ pending_actions: [oldCard], resumed: true })),
+      server(input("new-turn", "New question")),
+      server({ type: "turn", state: "model_end", turn_id: "new-turn" }),
+      server(toolResult({
+        call_id: null,
+        pending_action_id: oldCard.pending_action_id,
+        turn_id: "old-turn",
+        result_public: { status: "deleted", spoken_facts: ["Deleted."] },
+      })),
+    ], connected());
+    expect(state.fencedTurnIds).toContain("old-turn");
+    expect(state.activeInputTurnId).toBeNull();
+    expect(state.lastResult).toBeNull();
+    expect(state.pendingAction?.pending_action_id).toBe(oldCard.pending_action_id);
+  });
+
+  it("does not give an unowned result the answer slot after completion", () => {
+    const state = run([
+      server(input("a", "First question")),
+      server({ type: "turn", turn_id: "a", state: "model_end" }),
+      server(toolResult({
+        call_id: null,
+        turn_id: undefined,
+        result_public: { status: "ok", echoed: "unowned" },
+      })),
+    ], connected());
+    expect(state.lastResult).toBeNull();
   });
 });
 
@@ -248,7 +295,7 @@ describe("reduceVoiceSession: lifecycle", () => {
     );
   });
 
-  it("only idle (4009) and a clean end (1000) are recoverable closes", () => {
+  it("reports an abnormal network close as recoverable", () => {
     for (const code of [CLOSE_CODES.idle, CLOSE_CODES.ended]) {
       expect(voiceErrorForClose(code, "")).toBeNull();
       const state = run(
@@ -262,7 +309,6 @@ describe("reduceVoiceSession: lifecycle", () => {
       CLOSE_CODES.auth,
       CLOSE_CODES.capacity,
       CLOSE_CODES.replaced,
-      1006,
     ]) {
       const state = run(
         [{ type: "closed", code, reason: "", now: NOW }],
@@ -270,6 +316,12 @@ describe("reduceVoiceSession: lifecycle", () => {
       );
       expect(state.error?.recoverable).toBe(false);
     }
+    const networkLost = run(
+      [{ type: "closed", code: 1006, reason: "", now: NOW }],
+      connected(),
+    );
+    expect(networkLost.error?.code).toBe("network_lost");
+    expect(networkLost.error?.recoverable).toBe(true);
   });
 
   it("reconnect_required then a server close keeps the conversation and goes back to connecting", () => {

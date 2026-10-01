@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { projectFeedDriveProgress } from "@/lib/feed/drive-request-progress";
+import { projectFeedDrivePayments } from "@/lib/feed/drive-request-payment";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 
 const requestId = "document_share_request:123e4567-e89b-12d3-a456-426614174000";
@@ -70,5 +71,38 @@ describe("projectFeedDriveProgress", () => {
       entry({ kind: "history", status: "active" }),
     ]);
     expect(rows).toEqual([]);
+  });
+
+  it("moves only the requester payment into Needs you, with no sharing progress claim", () => {
+    const payment = entry({ kind: "outgoing_request", metadata: {
+      ...entry().metadata, direction: "outgoing", paymentStatus: "awaiting_payment",
+      paymentAmountCents: 1000, paymentCurrency: "usd", file_names: ["private.pdf"],
+    } });
+    expect(projectFeedDriveProgress([payment])).toEqual([]);
+    const rows = projectFeedDrivePayments([payment]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.title).toContain("Pay $10");
+    expect(JSON.stringify(rows)).not.toContain("private.pdf");
+    expect(projectFeedDrivePayments([entry({ metadata: payment.metadata })])).toEqual([]);
+    expect(projectFeedDrivePayments([entry({ kind: "outgoing_request", metadata: {
+      ...payment.metadata, paymentStatus: "paid",
+    } })])).toEqual([]);
+  });
+
+  it("keeps an abandoned Checkout actionable without claiming sharing progress", () => {
+    const payment = entry({ kind: "outgoing_request", metadata: {
+      ...entry().metadata, direction: "outgoing", paymentStatus: "checkout_open",
+      paymentAmountCents: 1000, paymentCurrency: "usd",
+    } });
+    expect(projectFeedDrivePayments([payment])).toHaveLength(1);
+    expect(projectFeedDriveProgress([payment])).toEqual([]);
+  });
+
+  it("does not claim sharing progress during paid payment reconciliation", () => {
+    const payment = entry({ kind: "outgoing_request", metadata: {
+      ...entry().metadata, direction: "outgoing", paymentStatus: "paid",
+      paymentReconciliationRequired: true,
+    } });
+    expect(projectFeedDriveProgress([payment])).toEqual([]);
   });
 });

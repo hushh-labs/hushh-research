@@ -15,3 +15,9 @@ export const addToPKM = async ({ cards, confirmation }: { cards: AgentPkmPreview
   window.dispatchEvent(new CustomEvent("fixture:memory-saved", { detail: cards.length }));
   return { attempted: cards.length, saved: cards.length, failed: 0, domains: ["professional"], results: [] };
 };
+
+// This layout fixture supplies no source-coverage blocks; coverage validation
+// belongs to the production ingestion tests. Fail if that fixture contract changes.
+export const isUnresolvedSourceBlock = () => {
+  throw new Error("Drive layout fixture must not provide source coverage");
+};

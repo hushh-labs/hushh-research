@@ -237,6 +237,21 @@ describe("native system-notification routing", () => {
     ).not.toContain("notificationAction");
   });
 
+  it("opens Feed for a requester payment action", async () => {
+    await prepareFCMListeners();
+    mocks.listeners.get("notificationActionPerformed")?.({
+      actionId: "tap",
+      notification: { data: {
+        type: "document_share_payment_ready",
+        request_id: "11111111-1111-4111-8111-111111111111",
+        file_name: "private.pdf",
+      } },
+    });
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/feed", scroll: false,
+    });
+  });
+
   it("ignores dismiss actions", async () => {
     await prepareFCMListeners();
     const onAction = mocks.listeners.get("notificationActionPerformed");

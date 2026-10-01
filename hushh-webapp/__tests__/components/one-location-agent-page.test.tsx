@@ -3228,13 +3228,18 @@ describe("OneLocationAgentPage", () => {
     expect(within(notSharing).getByText("Trusted C")).toBeTruthy();
     expect(within(notSharing).queryByText("Trusted B")).toBeNull();
 
-    // Still selectable — you may genuinely want to restart a share. The row
-    // states what is already true; it does not take the choice away.
+    // A live share stays visible with its remaining time, but cannot be
+    // selected again and silently restart its existing timer.
+    const activeRecipientRow = within(alreadySharing)
+      .getByText("Trusted B")
+      .closest('[data-testid="settings-row"]');
+    expect(activeRecipientRow?.firstElementChild).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     expect(
-      screen.getByRole("button", {
-        name: /Select Trusted B for private sharing/i,
-      }),
-    ).toBeTruthy();
+      within(alreadySharing).queryByRole("button"),
+    ).toBeNull();
   });
 
   it("keeps one flat list when nobody can see you yet", async () => {
@@ -3266,7 +3271,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Trusted B for private sharing/i,
+        name: /Select Investor D for private sharing/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
@@ -3292,7 +3297,7 @@ describe("OneLocationAgentPage", () => {
     const people = screen.getByRole("list", {
       name: "People who can see your location",
     });
-    expect(within(people).getByText("Trusted B")).toBeTruthy();
+    expect(within(people).getByText("Investor D")).toBeTruthy();
 
     // Duration is a preset ladder now, not a scroll wheel: the wheel cost
     // 200px and two coordinated drags to reach a length almost everyone
@@ -3371,9 +3376,15 @@ describe("OneLocationAgentPage", () => {
         stateReadsBeforeShare,
       ),
     );
-  });
+  }, 10_000);
 
   it("keeps the selected people and count in sync during one batched share interaction", async () => {
+    // This is a two-eligible-recipient selection test. The default fixture has
+    // an active share with Trusted B, so remove that grant for this scenario.
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+    });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
@@ -4131,13 +4142,13 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
     expect(
       screen.getByRole("button", {
-        name: /Select Trusted B for private sharing/i,
+        name: /Select Investor D for private sharing/i,
       }),
     ).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: /Select Trusted B for private sharing/i,
+        name: /Select Investor D for private sharing/i,
       }),
     );
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));

@@ -31,6 +31,18 @@ PUSH_TIMEOUT_SECONDS = 20
 DOCUMENT_SHARE_NOTIFICATION_COPY = {
     "document_share_request": ("Document request", "Open One for next steps."),
     "document_share_review_ready": ("Files ready to review", "Open One to choose what to share."),
+    "document_share_payment_ready": (
+        "Payment needed",
+        "Pay $10 in One to continue your document request.",
+    ),
+    "document_share_payment_confirmed": (
+        "Payment confirmed",
+        "Open One for your document request update.",
+    ),
+    "document_share_payment_refunded": (
+        "Payment refunded",
+        "Open One for your document request update.",
+    ),
     "document_share_decided": ("Drive sharing update", "Open One to see the latest."),
     "document_share_outcome": ("Drive sharing finished", "Open One to see the shared files."),
     "document_share_revoked": ("Drive access changed", "Open One to see what changed."),
@@ -128,6 +140,12 @@ class DriveShareNotificationWorker:
         store: DriveShareNotificationStore = job.get("_store") or self.store
         payload = notification_payload(job)
         if payload is None:
+            return "suppressed" if await store.suppress(job) else "not_claimed"
+        if payload[
+            "notification_type"
+        ] == "document_share_payment_ready" and not await store.payment_ready_current(
+            request_id=str(job["request_id"]), user_id=str(job["user_id"])
+        ):
             return "suppressed" if await store.suppress(job) else "not_claimed"
         title, body = DOCUMENT_SHARE_NOTIFICATION_COPY[payload["notification_type"]]
         try:

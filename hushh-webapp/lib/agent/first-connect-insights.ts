@@ -9,6 +9,7 @@
  * drops it from the screen. Nothing reaches memory any other way.
  */
 
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { connectorMemorySharingImpact, prepareConnectorMemoryReview, saveConnectorMemoryReview } from "@/lib/agent/connector-memory-review";
 import { ApiService } from "@/lib/services/api-service";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
@@ -103,8 +104,9 @@ export async function fetchFirstConnectInsights(input: {
 
 export type KeepInsightResult =
   | { status: "saved" }
+  | { status: "already_saved" }
   /** Saving would change what active recipients receive; ask once more first. */
-  | { status: "needs_sharing_ack"; recipientCount: number }
+  | { status: "needs_sharing_ack"; recipientCount: number; reviewedCards: AgentPkmPreviewCard[] }
   | { status: "nothing_to_save" }
   | { status: "failed" };
 
@@ -118,21 +120,29 @@ export async function keepFirstConnectInsight(input: {
   vaultOwnerToken: string;
   memoryText: string;
   sharingImpactAcknowledged?: boolean;
+  reviewedCards?: AgentPkmPreviewCard[];
   isCurrent: () => boolean;
   assertCurrent: () => Promise<void>;
 }): Promise<KeepInsightResult> {
   const message = input.memoryText.trim();
   if (!message) return { status: "nothing_to_save" };
+  if (input.sharingImpactAcknowledged && !input.reviewedCards?.length) return { status: "failed" };
   try {
-    const { cards, incomplete } = await prepareConnectorMemoryReview({
+    const { cards, incomplete, alreadySaved } = input.sharingImpactAcknowledged && input.reviewedCards
+      ? { cards: input.reviewedCards, incomplete: false, alreadySaved: false }
+      : await prepareConnectorMemoryReview({
       ...input,
       message,
       source: FIRST_CONNECT_INSIGHTS_SOURCE,
     });
-    if (cards.length === 0) return { status: incomplete ? "failed" : "nothing_to_save" };
+    // Do not begin saving when preparation covers only part of the offered detail.
+    if (incomplete) return { status: "failed" };
+    if (cards.length === 0) {
+      return { status: alreadySaved ? "already_saved" : "nothing_to_save" };
+    }
     const recipientCount = connectorMemorySharingImpact(cards);
     if (recipientCount > 0 && !input.sharingImpactAcknowledged) {
-      return { status: "needs_sharing_ack", recipientCount };
+      return { status: "needs_sharing_ack", recipientCount, reviewedCards: cards };
     }
     const result = await saveConnectorMemoryReview({
       ...input,

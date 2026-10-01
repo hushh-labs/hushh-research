@@ -20,7 +20,6 @@ import {
   UserPlus,
 } from "@/components/icons";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
-import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { Button } from "@/components/ui/button";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
@@ -1709,36 +1708,32 @@ function ReadyScreen({
                 <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                   Expires in 72 hours
                 </p>
-                <FlowActionGroup
-                  className="mt-4"
-                  secondary={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="standard"
-                      onClick={onCopy}
-                      className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                    >
-                      {copied ? (
-                        <Check className="h-5 w-5" strokeWidth={2.5} />
-                      ) : (
-                        <Copy className="h-5 w-5" strokeWidth={2} />
-                      )}
-                      {copied ? "Copied" : "Copy"}
-                    </Button>
-                  }
-                  primary={
-                    <Button
-                      type="button"
-                      size="standard"
-                      onClick={onShare}
-                      className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                    >
-                      <Share2 className="h-5 w-5" strokeWidth={2} />
-                      Share
-                    </Button>
-                  }
-                />
+                <div className="mt-4 grid grid-cols-2 items-center gap-2.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="standard"
+                    onClick={onCopy}
+                    className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  >
+                    {copied ? (
+                      <Check className="h-5 w-5" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="h-5 w-5" strokeWidth={2} />
+                    )}
+                    {copied ? "Copied" : "Copy"}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    size="standard"
+                    onClick={onShare}
+                    className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                  >
+                    <Share2 className="h-5 w-5" strokeWidth={2} />
+                    Share
+                  </Button>
+                </div>
               </>
             ) : (
               <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
