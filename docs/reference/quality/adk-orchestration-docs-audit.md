@@ -5,7 +5,7 @@
 Canonical visual owner: [Quality and Design System Index](README.md). The
 Files-led matrix below carries this revision-bound decision.
 
-**Decision at 2026-09-30:** The combined application candidate is live and healthy
+**Decision at 2026-10-01:** The combined application candidate is live and healthy
 on dev. **Hold existing-owner Files activation and main, UAT, production, and
 stable-channel promotion.** The personal pod still serves its prior image with
 Files disabled. A published dev offer does not install or configure it.
@@ -26,8 +26,11 @@ finished `healthy`, scope `all`. Independent Cloud Run readback found backend
 `hushh-webapp-00101-tlw` (`sha256:1aa4eeee…07c7e1`) each serving 100%,
 Ready, and labeled with that source and workflow. Rollback revisions are
 `consent-protocol-00120-6gz` and `hushh-webapp-00100-xnh`. The dev migration
-log reports Files migration 943 already applied; the postdeploy schema guard
-has zero violations. The dependency check still reports degraded
+log reports Files migration 943 already applied; a later read-only ledger check
+confirmed dev-only migrations 944 and 945 were also applied on 2026-09-28 with
+source-matching checksums. The current chat-history tables were empty at that
+readback; this is not a deletion receipt. The postdeploy schema guard has zero
+violations. The dependency check still reports degraded
 `ria_stage1_query_only`, outside this Files decision.
 
 The workflow published **dev-only** release
@@ -47,6 +50,12 @@ lookup was held because the route lacks verified-requester and durable lookup
 budgets; name-only search remains. In-chat Memory approval now shows the
 proposed destination, values and affected people and requires the current
 unlocked card set. None of these local changes is serving on dev.
+The later local ADK `7ff0d3633` Finance breadcrumb change was reviewed but
+held: first-run Finance must return to setup, and iOS edge-back uses the
+unmodified breadcrumb path. The latest clean ADK revision `d27173d7b` adds no
+Files, Puppy or update runtime change for this candidate. Its newer Drive
+activity pause may leave a review badge stale; it needs a separate parity
+change. The Finance audit overstates first-run Back acceptance.
 
 A 2026-10-01 UTC dev identity, registry and Cloud Run recheck confirmed that
 the named personal pod still serves the exact `1054cdf6…f0392` predecessor at
@@ -56,9 +65,22 @@ aggregate found zero `.9` approvals and zero upgrade leases at readback. The
 next local candidate changes the offer to `.10` with no supported predecessor;
 it does not withdraw `.9` until the governed dev deployment serves it. Recheck
 approval and traffic immediately before that deployment and verify the owner
-sees no installable offer afterward. A disposable, phone-verified owner and
-isolated cloud recovery rehearsal remain the gate before a later release can
-admit this predecessor.
+sees no installable offer afterward. An isolated dev project and synthetic
+Firebase owner were created on 2026-10-01; the phone was administrator-seeded,
+so this fixture does not prove SMS onboarding. No test pod or cloud recovery
+run exists yet. Recovery remains the gate before admitting this predecessor.
+The synthetic owner's manually authorized cloud is recorded on a reserved row,
+but serving dev refuses its verified model selection as `hosting mode is pending`.
+Local correction admits only a proven pending BYOC cloud after its setup job
+finishes. The local setup screen now offers the saved project to an unassigned
+BYOC reservation after a successful job-status read; it does not suggest a
+second project. A read-only dev SQL check found migration 917 rejects the required
+`filesSetup` metadata at pod claim. Local dev-only migration 946 accepts only an
+exact job, project and bootstrap-bound Files selection; one real-Postgres test
+passed its incomplete, tampered, unrelated-metadata and competing-publication
+lock negative controls. These
+corrections are **not serving**. The manual fixture also did not select Files;
+Files-on acceptance still requires normal one-click setup or owner approval.
 
 ## Files-led acceptance matrix
 
@@ -66,9 +88,9 @@ admit this predecessor.
 | --- | --- | --- |
 | **Existing-owner Files setup** | **Blocked.** The normal owner browser admitted to the old pod, but list returned 503 and the old release plan returned 409. The new offer is published; no image, bucket, queue, worker or owner configuration changed. | Files and release owners: prove old-image → new-image encrypted recovery in an isolated cloud pod, then use the normal owner's exact Files plan and approval. Verify installed digest, configuration and retained information. An image-only approval cannot enable Files. |
 | **Files workspace and transfer** | **Local UI accepted; live target pending.** The move picker reaches paginated nested folders and mobile actions remain usable at 320–1280 px. Focused Files tests passed. A prior already-enabled reviewer pod passed interrupted 5 MiB upload/resume, byte-exact download, rename/undo and Trash/restore. | Files browser/pod owners: repeat cold admission, list, transfer and cleanup on the newly enabled owner pod. The prior reviewer transfer does not prove this image, owner cloud or normal enrollment. |
-| **Files Agent, billing and recovery** | **Source-backed only.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
+| **Files Agent, billing and recovery** | **Source-backed only.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. The disposable project is authorized, but the deployed gate cannot schedule its reserved owner and manual setup did not select Files. Local source and Postgres corrections await CI and deployment. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
 | **Chat, commands and connectors** | **Source/CI accepted; new live turns pending.** Queued chat delivery now checks status before resend. Owner-private MCP calls retain owner authority; review-required calls retain the exact one-use ledger. A historical cold browser wait timed out before a roughly 131-second pod completion. | Runtime/agent owners: measure fresh cold and warm turns, recorded command completion and a safe review-required connector approval/resume fixture. Do not infer those journeys from a 200 health response. |
-| **Puppy and machine report** | **Metadata current; live turn pending.** The named owner's Mac reports fresh model/spec details and polls the control lane. Its Firebase UID, grant and pod binding match. Five postdeploy model preflights passed CORS and ingress, but no GET, activation, broker link or inference completion was observed. A local, unpushed UI fix exposes a failed device read and retry; the separate Hermes heartbeat-retry fix is neither pushed nor running. | Device/browser owners: capture the normal browser request outcome, read the actual panel, and prove direct WSS inference/cancellation on independent connections. Heartbeat and preflight alone do not establish relay acceptance. |
+| **Puppy and machine report** | **Metadata current; live turn pending.** The named owner's Mac reports fresh model/spec details and polls the control lane. Its Firebase UID, grant and pod binding match. Five postdeploy model preflights passed CORS and ingress, but no GET, activation, broker link or inference completion was observed. Five later trusted-device list GETs returned 200, but logs cannot assign them to this browser or prove rendering. The local, unpushed UI fix exposes a failed read and retry; which Hermes process loads its local presence-retry commit is unverified. | Device/browser owners: capture the normal browser request outcome, read the actual panel, and prove direct WSS inference/cancellation on independent connections. Heartbeat and preflight alone do not establish relay acceptance. |
 | **Updates and bounded runtime** | **Prior `.6` → `.8` owner update accepted.** Active-work drain, duplicate approval coalescing and installed digest were observed then. The new `.9` release has not been installed. | Release/runtime owners: prove exact owner-approved Files update, recovery, Settings/Feed agreement, bounded overlap, idle grace and wake. Do not describe the new release as installed or scale-to-zero as measured. |
 | **Production promotion** | **Blocked.** A dated production IAM check found `deploy_authority_drift`. No application main merge, UAT/prod deployment or stable release occurred. | Governance/release owners: reconcile IAM, graduate migrations and release channels, prove billing/recovery and repeat Files, updates and Puppy in UAT. Resolve the degraded RIA dependency separately. |
 
@@ -85,8 +107,8 @@ cache policy before making those claims; this pod decision does not close them.
 
 ## Accountable next gate
 
-1. **Files and pod-release owners:** create a phone-verified disposable dev owner and
-   isolated cloud substrate; prove the exact installed predecessor image can
+1. **Files and pod-release owners:** use the disposable dev owner and isolated
+   project to prove the exact installed predecessor image can
    hand off to the published candidate image and recover encrypted information.
    Existing reviewer and personal resources are not rehearsal fixtures.
 2. **Normal owner approval, after recovery proof:** obtain the read-only Files configuration plan,

@@ -1964,6 +1964,86 @@ def test_provision_claim_survives_failure_and_rejects_retry(provision_pg):
     assert not publish_provision(pg, "failed", "reserved")
 
 
+def test_files_selection_is_admitted_only_after_its_exact_setup_job_finishes(provision_pg):
+    pg = provision_pg
+    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/946_personal_agent_files_provision_admission.sql")
+    selection = {
+        "version": 1,
+        "enabled": True,
+        "project": "synthetic-project",
+        "bootstrapAccount": "one-bootstrap@synthetic-project.iam.gserviceaccount.com",
+        "setupJobId": "synthetic-job",
+    }
+    pg.execute(
+        """INSERT INTO personal_agent_registry
+        (user_id,hushh_id,status,deployment_target,user_cloud_project,
+         user_cloud_bootstrap_sa,user_cloud_authorized_at,backend_metadata)
+        VALUES ('synthetic-owner','ha1_provision','pending','user_gcp',
+                'synthetic-project','one-bootstrap@synthetic-project.iam.gserviceaccount.com',
+                now(),%s::jsonb)""",
+        (json.dumps({"filesSetup": selection}),),
+    )
+    pg.execute(
+        """INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status,stage,stages)
+        VALUES ('synthetic-owner','synthetic-job','synthetic-project','running','proving',
+                '[{"stage":"files_selection","enabled":true,"version":1}]'::jsonb)"""
+    )
+
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        claim_provision(pg, observed=provision_row(pg))
+    pg.execute("UPDATE byoc_setup_jobs SET status='recorded' WHERE user_id='synthetic-owner'")
+    pg.execute(
+        """UPDATE personal_agent_registry
+        SET backend_metadata=jsonb_set(backend_metadata,'{filesSetup,project}',
+            '"foreign-project"'::jsonb) WHERE user_id='synthetic-owner'"""
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        claim_provision(pg, observed=provision_row(pg))
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id='synthetic-owner'",
+        (json.dumps({"filesSetup": selection, "unexpected": True}),),
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        claim_provision(pg, observed=provision_row(pg))
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata='{\"filesSetup\":null}'::jsonb "
+        "WHERE user_id='synthetic-owner'"
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        claim_provision(pg, observed=provision_row(pg))
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id='synthetic-owner'",
+        (json.dumps({"filesSetup": selection}),),
+    )
+    changed_cloud = {
+        "user_id": "synthetic-owner",
+        "hushh_id": "ha1_provision",
+        "phone_e164_hash": "synthetic-hash",
+        "user_cloud_project": "foreign-project",
+    }
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "SELECT claim_personal_agent_provision(%s,%s,%s::jsonb,%s::jsonb)",
+            (
+                "synthetic-owner",
+                "b" * 32,
+                json.dumps(provision_row(pg)),
+                json.dumps(changed_cloud),
+            ),
+        )
+    with connect(pg) as publisher:
+        with publisher.cursor() as cursor:
+            cursor.execute(
+                "SELECT 1 FROM byoc_setup_jobs WHERE user_id='synthetic-owner' FOR UPDATE"
+            )
+        with pytest.raises(psycopg2.errors.LockNotAvailable):
+            claim_provision(pg, observed=provision_row(pg))
+    reservation = claim_provision(pg, observed=provision_row(pg))
+    assert reservation["phase"] == "reserved"
+    assert provision_row(pg)["backend_metadata"]["filesSetup"] == selection
+
+
 def test_provision_claim_refuses_changed_cloud_and_missing_guard(provision_pg):
     pg = provision_pg
     pg.execute(

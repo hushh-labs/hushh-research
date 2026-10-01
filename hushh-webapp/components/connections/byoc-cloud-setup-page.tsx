@@ -121,6 +121,7 @@ export function ByocCloudSetupPage() {
     "shared" | "byoc" | "hussh_pods" | "pending" | "unknown" | null
   >(null);
   const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
+  const [reservedProjectId, setReservedProjectId] = useState<string | null>(null);
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
   const [job, setJob] = useState<Awaited<
@@ -131,6 +132,7 @@ export function ByocCloudSetupPage() {
   // choice flashed for a beat before the "connected" state replaced it
   // (founder-hit, 2026-09-02). Failed polls give up into the form, never hang.
   const [checked, setChecked] = useState(false);
+  const [setupStatusReadOk, setSetupStatusReadOk] = useState(false);
   const [checkTimedOut, setCheckTimedOut] = useState(false);
 
   // "Checking your agent home..." must end. If placement or setup state cannot
@@ -157,18 +159,27 @@ export function ByocCloudSetupPage() {
         const mode = status.hostingMode ?? "unknown";
         setHostingMode(mode);
         setHostingStatusChecked(true);
-        if (mode === "byoc" && status.cloudProject) {
+        const unassignedByoc =
+          (mode === "pending" || mode === "byoc") &&
+          status.state === "reserved" &&
+          status.deploymentTarget === "user_gcp" &&
+          Boolean(status.cloudProject);
+        setReservedProjectId(
+          unassignedByoc ? status.cloudProject ?? null : null,
+        );
+        if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
           setExisting({
             projectId: status.cloudProject,
             rationale: "Your BYOC pod assignment is still active.",
           });
-        } else if (mode === "byoc") {
+        } else if (mode === "byoc" && !unassignedByoc) {
           setChoice("own");
         }
       })
       .catch(() => {
         if (!cancelled) {
           setHostingMode("unknown");
+          setReservedProjectId(null);
           setHostingStatusChecked(true);
         }
       });
@@ -188,6 +199,7 @@ export function ByocCloudSetupPage() {
         if (cancelled) return;
         setJob(status.status === "none" ? null : status);
         setChecked(true);
+        setSetupStatusReadOk(true);
         if (status.status === "recorded") {
           if (hostingMode === "byoc") {
             // The durable marker just landed server-side; refresh the shared
@@ -365,10 +377,15 @@ export function ByocCloudSetupPage() {
   }, [user?.uid]);
 
   // A durable connected project or a selected hosting mode completes this step.
-  const connectedBefore = existing !== null;
+  const connectedBefore = existing !== null && reservedProjectId === null;
   const hostedChosen = hosted !== null;
+  const recordedReservedProject = Boolean(
+    reservedProjectId && setupStatusReadOk && job?.status === "recorded" &&
+      job.projectId === reservedProjectId,
+  );
   const authorized =
-    connectedBefore || hostedChosen || sharedChosen || hostingMode === "hussh_pods";
+    connectedBefore || recordedReservedProject || hostedChosen || sharedChosen ||
+    hostingMode === "hussh_pods";
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -410,7 +427,25 @@ export function ByocCloudSetupPage() {
         ) : null}
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
-        {job && job.status === "running" && !job.stale ? (
+        {reservedProjectId && job && job.projectId !== reservedProjectId ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="byoc-reserved-project-mismatch"
+            role="alert"
+          >
+            <p className="text-sm font-semibold">Your cloud setup needs a fresh check</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              The saved project and setup record do not match. Refresh before continuing.
+            </p>
+            <button
+              type="button"
+              className="min-h-11 self-start text-sm underline underline-offset-4"
+              onClick={() => window.location.reload()}
+            >
+              Refresh status
+            </button>
+          </div>
+        ) : job && job.status === "running" && !job.stale ? (
           // The live checklist owns the screen while the job runs. Nothing
           // else competes with it: no form, no dead buttons, no guessing.
           <SetupStageChecklist job={job} />
@@ -472,6 +507,49 @@ export function ByocCloudSetupPage() {
             <p className="text-sm text-[var(--app-text-secondary)]">
               {existing.rationale || "Your private agent remains assigned to this project."}
             </p>
+          </div>
+        ) : recordedReservedProject ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="byoc-reserved-project-recorded"
+          >
+            <p className="text-sm font-semibold">Your cloud is connected</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              {reservedProjectId} is ready. Finish model setup to start your private agent.
+            </p>
+          </div>
+        ) : reservedProjectId && setupStatusReadOk && job === null ? (
+          <div
+            className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="byoc-reserved-project"
+          >
+            <p className="text-sm font-semibold">Your cloud project is saved</p>
+            <p className="text-sm text-[var(--app-text-secondary)]">
+              Finish setup in {reservedProjectId} to start your private agent.
+            </p>
+            <button
+              type="button"
+              disabled={saving}
+              className="min-h-11 rounded-full border border-[var(--app-border)] px-4 text-sm font-medium disabled:opacity-60"
+              onClick={() => void handleProjectNamed(reservedProjectId)}
+              data-testid="byoc-reserved-project-deploy"
+            >
+              {saving ? "Starting…" : "Deploy to your cloud"}
+            </button>
+          </div>
+        ) : reservedProjectId ? (
+          <div
+            className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
+            data-testid="byoc-reserved-project-unverified"
+          >
+            <p className="text-sm font-semibold">Your cloud setup could not be confirmed</p>
+            <button
+              type="button"
+              className="min-h-11 self-start text-sm underline underline-offset-4"
+              onClick={() => window.location.reload()}
+            >
+              Refresh status
+            </button>
           </div>
         ) : hostingMode === "pending" ? (
           <div

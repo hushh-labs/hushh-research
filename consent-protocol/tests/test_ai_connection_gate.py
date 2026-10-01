@@ -136,6 +136,66 @@ async def test_a_row_that_is_only_reserved_still_provisions():
     assert identity.scheduled == []
 
 
+async def test_proven_byoc_reservation_schedules_only_after_files_setup_is_recorded():
+    row = {
+        "status": "pending",
+        "deployment_target": "user_gcp",
+        "user_cloud_project": "synthetic-owner-project",
+        "user_cloud_bootstrap_sa": "one-bootstrap@synthetic-owner-project.iam.gserviceaccount.com",
+        "user_cloud_authorized_at": "2026-10-01T00:00:00Z",
+    }
+    job = {
+        "status": "running",
+        "job_id": "synthetic-job",
+        "project_id": row["user_cloud_project"],
+        "stages": [{"stage": "files_selection", "enabled": True}],
+    }
+    identity = _Identity()
+    pending = await _verify(registry=_Registry(row), setup_jobs=_SetupJobs(job), identity=identity)
+    assert pending["scheduled"] is False
+    assert identity.scheduled == []
+
+    job["status"] = "recorded"
+    incomplete = await _verify(
+        registry=_Registry(row), setup_jobs=_SetupJobs(job), identity=identity
+    )
+    assert incomplete["scheduled"] is False
+
+    row["backend_metadata"] = {
+        "filesSetup": {
+            "version": 1,
+            "enabled": True,
+            "project": row["user_cloud_project"],
+            "bootstrapAccount": row["user_cloud_bootstrap_sa"],
+            "setupJobId": job["job_id"],
+        }
+    }
+    ready = await _verify(registry=_Registry(row), setup_jobs=_SetupJobs(job), identity=identity)
+    assert ready["scheduled"] is True
+    assert len(identity.scheduled) == 1
+
+    job["stages"] = []
+    stale = await _verify(registry=_Registry(row), setup_jobs=_SetupJobs(job), identity=identity)
+    assert stale["scheduled"] is False
+    assert len(identity.scheduled) == 1
+
+
+async def test_unproven_byoc_reservation_never_schedules():
+    identity = _Identity()
+    result = await _verify(
+        registry=_Registry(
+            {
+                "status": "pending",
+                "deployment_target": "user_gcp",
+                "user_cloud_project": "synthetic-owner-project",
+            }
+        ),
+        identity=identity,
+    )
+    assert result["scheduled"] is False
+    assert identity.scheduled == []
+
+
 async def test_no_pod_assignment_defaults_to_shared_without_provisioning():
     identity = _Identity()
     result = await _verify(registry=_Registry(None), identity=identity)

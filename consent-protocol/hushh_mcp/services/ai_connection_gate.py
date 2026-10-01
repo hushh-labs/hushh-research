@@ -46,6 +46,89 @@ logger = logging.getLogger(__name__)
 _ALREADY_HAS_A_HOST = ("provisioning", "connecting", "provisioned")
 
 
+async def _reserved_byoc_ready(
+    user_id: str, row: dict, repo: Any, setup_jobs: Any
+) -> tuple[bool, Any]:
+    """Admit a proven reservation only after its one-click setup has finished."""
+    if row.get("status") != "pending" or row.get("deployment_target") != "user_gcp":
+        return False, None
+
+    from hushh_mcp.services.user_cloud_service import resolve_user_cloud
+
+    cloud = await resolve_user_cloud(user_id, repo=repo, registry_row=row)
+    if cloud is None or not cloud.is_ready_to_provision:
+        return False, cloud
+
+    try:
+        jobs = setup_jobs
+        if jobs is None:
+            from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo
+
+            jobs = ByocSetupJobRepo()
+        job = await jobs.get(user_id)
+    except Exception as exc:  # noqa: BLE001 - uncertain setup cannot create compute
+        logger.warning("ai_connection_gate.hosting_job_unavailable %s", type(exc).__name__)
+        return False, cloud
+
+    metadata = row.get("backend_metadata") or {}
+    has_selection = "filesSetup" in metadata
+    selection = metadata.get("filesSetup")
+    if job is None:
+        return not has_selection, cloud  # Legacy manual authorization has no setup job.
+    if job.get("status") == "running":
+        return False, cloud
+    if job.get("project_id") != cloud.project:
+        return not has_selection, cloud  # A finished job for an older project is inert.
+    if job.get("status") != "recorded":
+        return False, cloud
+    if not any(
+        stage.get("stage") == "files_selection" and stage.get("enabled") is True
+        for stage in job.get("stages") or []
+    ):
+        return not has_selection, cloud
+
+    from hushh_mcp.services.pod_files.selection import selected_for_row
+
+    selection = selection or {}
+    return bool(selected_for_row(row) and selection.get("setupJobId") == job.get("job_id")), cloud
+
+
+async def _schedule_verified_owner(
+    user_id: str,
+    provider: str,
+    transport: str,
+    access: Any,
+    identity: Any,
+    scheduler: Any,
+) -> dict:
+    """Schedule only against the phone verified by the identity authority."""
+    actor = identity
+    if actor is None:
+        from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+        actor = ActorIdentityService()
+
+    phone = await _verified_phone(actor, user_id)
+    if not phone:
+        return {"scheduled": False, "reason": "no verified phone yet"}
+
+    schedule = scheduler or actor.schedule_provision_personal_agent
+    scheduled = bool(schedule(user_id, phone, via_ai_connection=True))
+    logger.info(
+        "ai_connection_gate.provision_scheduled user_id=%s provider=%s transport=%s ok=%s",
+        user_id,
+        str(provider or "")[:32],
+        str(transport or "")[:32],
+        scheduled,
+    )
+    return {
+        "scheduled": scheduled,
+        "reason": "ai connection verified",
+        "activation": access.activation,
+        "activationOrder": list(access.activation_order),
+    }
+
+
 async def on_ai_connection_verified(
     *,
     user_id: str,
@@ -126,7 +209,14 @@ async def on_ai_connection_verified(
         )
         if hosting_mode == "shared":
             return {"scheduled": False, "reason": "Shared runtime does not provision a pod"}
-        if hosting_mode in {"pending", "unknown"}:
+        cloud = None
+        reserved_byoc_ready = False
+        if hosting_mode == "pending":
+            reserved_byoc_ready, cloud = await _reserved_byoc_ready(
+                normalized, row or {}, repo, setup_jobs
+            )
+
+        if hosting_mode in {"pending", "unknown"} and not reserved_byoc_ready:
             return {
                 "scheduled": False,
                 "reason": f"hosting mode is {hosting_mode}; pod provisioning is not authorized",
@@ -135,9 +225,10 @@ async def on_ai_connection_verified(
         # THIS person's target, not the deployment's. A BYOC person's connection must
         # be judged against their own project, where Vertex ADC is theirs, rather than
         # against hushh's fleet flag -- which is a different tier's question entirely.
-        from hushh_mcp.services.user_cloud_service import resolve_user_cloud  # noqa: PLC0415
+        if cloud is None:
+            from hushh_mcp.services.user_cloud_service import resolve_user_cloud  # noqa: PLC0415
 
-        cloud = await resolve_user_cloud(normalized, repo=repo, registry_row=row)
+            cloud = await resolve_user_cloud(normalized, repo=repo, registry_row=row)
         if cloud is not None and cloud.is_user_owned and not cloud.is_ready_to_provision:
             # They chose their own cloud and have not yet let hushh in. Refusing is the
             # ordering rule in its load-bearing form: without it, a person who started
@@ -173,48 +264,9 @@ async def on_ai_connection_verified(
                 "activation": access.activation,
             }
 
-        # The phone is read SERVER-SIDE from the verified identity, never from the
-        # request. A caller must not be able to name the phone their agent is
-        # minted from -- that is the HusshID's whole basis, and accepting it from a
-        # client would let one person mint an agent against another's number.
-        actor = identity
-        if actor is None:
-            from hushh_mcp.services.actor_identity_service import (  # noqa: PLC0415
-                ActorIdentityService,
-            )
-
-            actor = ActorIdentityService()
-
-        phone = await _verified_phone(actor, normalized)
-        if not phone:
-            # A real state, not a fault: the person connected a model before
-            # verifying a phone. Their agent waits for the phone step.
-            return {"scheduled": False, "reason": "no verified phone yet"}
-
-        schedule = scheduler
-        if schedule is None:
-            schedule = actor.schedule_provision_personal_agent
-
-        # `via_ai_connection=True` is what distinguishes this caller from the
-        # legacy phone-verify one, which stands down while this trigger owns it.
-        scheduled = bool(schedule(normalized, phone, via_ai_connection=True))
-        logger.info(
-            "ai_connection_gate.provision_scheduled user_id=%s provider=%s transport=%s ok=%s",
-            normalized,
-            str(provider or "")[:32],
-            str(transport or "")[:32],
-            scheduled,
+        return await _schedule_verified_owner(
+            normalized, provider, transport, access, identity, scheduler
         )
-        return {
-            "scheduled": scheduled,
-            "reason": "ai connection verified",
-            # How this pod will reach a model, and the order its agents come up.
-            # Carried on the verdict so the surface that reports provisioning can say
-            # which of the three model-access modes a person is actually on instead
-            # of inferring it from the provider string.
-            "activation": access.activation,
-            "activationOrder": list(access.activation_order),
-        }
     except Exception as exc:  # noqa: BLE001 - never fail a credential validation
         logger.warning("ai_connection_gate.failed %s", type(exc).__name__)
         return {"scheduled": False, "reason": f"error: {type(exc).__name__}"}

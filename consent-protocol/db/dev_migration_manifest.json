@@ -57,6 +57,7 @@
     "942_personal_agent_erasure_validation_cost.sql",
     "943_personal_agent_files_upgrade_evidence.sql",
     "944_one_chat_history_legacy_cutover.sql",
-    "945_pod_mcp_action_authority.sql"
+    "945_pod_mcp_action_authority.sql",
+    "946_personal_agent_files_provision_admission.sql"
   ]
 }

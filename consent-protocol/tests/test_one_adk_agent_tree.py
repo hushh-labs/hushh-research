@@ -348,7 +348,7 @@ class TestAgentTreeShape:
             "you summon these rather than acting in their domain yourself"
             in ONE_IDENTITY_INSTRUCTION
         )
-        assert "hand work to a specialist only where you do not" in ONE_IDENTITY_INSTRUCTION
+        assert "delegate only work your tools cannot do" in ONE_IDENTITY_INSTRUCTION
         # Onboarding's own instance of the same rule (replaces "When the
         # exact generated id is uncertain, call list_app_actions").
         assert (

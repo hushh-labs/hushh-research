@@ -141,7 +141,70 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     });
 
     expect(screen.getByTestId("hosting-mode-pending")).toBeTruthy();
+    expect(screen.queryByTestId("byoc-reserved-project-deploy")).toBeNull();
     expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
+  });
+
+  it.each(["pending", "byoc"] as const)(
+    "offers the saved project only for an unassigned %s BYOC reservation",
+    async (hostingMode) => {
+      mockAgentStatus.mockResolvedValue({
+        hostingMode,
+        state: "reserved",
+        deploymentTarget: "user_gcp",
+        cloudProject: "saved-owner-project",
+      } as never);
+      render(<ByocCloudSetupPage />);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10);
+      });
+
+      expect(screen.getByTestId("byoc-reserved-project-deploy")).toBeTruthy();
+      expect(screen.getByText(/Finish setup in saved-owner-project/)).toBeTruthy();
+      expect(screen.queryByTestId("cloud-tier-choice")).toBeNull();
+    },
+  );
+
+  it("keeps a saved project closed when its setup job cannot be read", async () => {
+    mockAgentStatus.mockResolvedValue({
+      hostingMode: "byoc",
+      state: "reserved",
+      deploymentTarget: "user_gcp",
+      cloudProject: "saved-owner-project",
+    } as never);
+    mockStatus.mockRejectedValue(new Error("setup store unavailable"));
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(8_100);
+    });
+
+    expect(screen.getByTestId("byoc-reserved-project-unverified")).toBeTruthy();
+    expect(screen.queryByTestId("byoc-reserved-project-deploy")).toBeNull();
+    expect(screen.queryByTestId("byoc-cloud-card")).toBeNull();
+  });
+
+  it("never retries a failed job for a different saved project", async () => {
+    mockAgentStatus.mockResolvedValue({
+      hostingMode: "pending",
+      state: "reserved",
+      deploymentTarget: "user_gcp",
+      cloudProject: "saved-owner-project",
+    } as never);
+    mockStatus.mockResolvedValue({
+      status: "failed",
+      projectId: "other-project",
+      stale: false,
+    } as never);
+    render(<ByocCloudSetupPage />);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10);
+    });
+
+    expect(screen.getByTestId("byoc-reserved-project-mismatch")).toBeTruthy();
+    expect(screen.queryByTestId("byoc-setup-retry")).toBeNull();
   });
 
   it("does not offer a tier when placement lookup fails", async () => {

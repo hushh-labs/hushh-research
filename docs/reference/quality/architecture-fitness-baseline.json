@@ -12011,7 +12011,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_personal_agent_renewal_authority.py",
       "symbol": null,
-      "value": 2313
+      "value": 2393
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14234,7 +14234,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_hushh_tech_routes.py",
       "symbol": null,
-      "value": 947
+      "value": 952
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15773,7 +15773,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 707
+      "value": 785
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18559,6 +18559,42 @@
       "scope": "Read-only ADK authority review admitted 103 byte-identical upstream findings and 42 additive/moved/renamed merged findings. Parent reviewed nine unchanged premerge MCP fixture and existing facade size findings against exact approval/transaction/privacy contracts. Extracted ledger operation helper eliminates two additional function findings. Renamed existing instruction hotspot replaces its old key. Thresholds, comparator and unrelated ceilings unchanged; this records debt, not universal architecture readiness.",
       "size_finding_count": 154,
       "size_findings_sha256": "00364f84e5b6395f945ad944f13063bd448c34c34b2375530fec92444513b9c9"
+    },
+    "core_determinism_20261001": {
+      "accepted_findings": [
+        {
+          "key": "module_size|consent-protocol/tests/test_hushh_tech_routes.py||module exceeds the advisory operon budget",
+          "previous_value": 947,
+          "reason": "Frozen in-memory clock keeps the existing 60/minute verified-UID isolation contract deterministic under loaded CI; no production limit or comparator changed.",
+          "value": 952
+        }
+      ],
+      "independent_review": "core_flake_diagnosis; read-only analysis of fixed-window expiry and focused serial reproduction",
+      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus focused test fix"
+    },
+    "files_provision_claim_20261001": {
+      "accepted_findings": [
+        {
+          "key": "module_size|consent-protocol/tests/test_personal_agent_renewal_authority.py||module exceeds the advisory operon budget",
+          "previous_value": 2313,
+          "reason": "One real-Postgres positive and negative boundary test proves the exact Files selection survives durable provision claim; no size threshold or production guard is loosened.",
+          "value": 2393
+        }
+      ],
+      "independent_review": "pending_byoc_gate_review and dev_sql_files_claim; setup ordering and live 917 guard verified",
+      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus Files claim correction"
+    },
+    "reserved_byoc_ui_20261001": {
+      "accepted_findings": [
+        {
+          "key": "module_size|hushh-webapp/components/connections/byoc-cloud-setup-page.tsx||module exceeds the advisory operon budget",
+          "previous_value": 707,
+          "reason": "A saved but unassigned BYOC project needs its original one-click deploy action after a verified empty setup-job read; assigned and unknown placements remain gated.",
+          "value": 785
+        }
+      ],
+      "independent_review": "disposable_files_path and reserved_byoc_ui_review; saved-project reachability and foreign-job retry boundary",
+      "source_revision": "f8ddc06408647cc0afd6865732742fa552aeefdf plus reserved BYOC UI correction"
     },
     "date": "2026-09-30",
     "device_sync_delta": "Three existing size entries reviewed against live TIMESTAMPTZ response failure: service class/module +4 lines and existing owner-bound route test +8. Parent and read-only API reviewer; only timestamp projection and its regression. No threshold or unrelated entry changed.",
