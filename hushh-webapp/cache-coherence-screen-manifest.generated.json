@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 142,
-    "physical_page_count": 141,
-    "route_contract_count": 142,
-    "surface_map_count": 142,
+    "total_screens": 143,
+    "physical_page_count": 142,
+    "route_contract_count": 143,
+    "surface_map_count": 143,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 46,
-      "vault-backed": 53,
+      "vault-backed": 54,
       "hidden flow": 21,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -4690,6 +4690,51 @@
       ]
     },
     {
+      "route": "/one/seller-catalog/pilot",
+      "page_file": "app/one/seller-catalog/pilot/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/seller-catalog/pilot",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/setup",
       "page_file": "app/one/setup/page.tsx",
       "route_contract_mode": "standard",
@@ -6385,5 +6430,5 @@
       ]
     }
   ],
-  "content_sha256": "dd06cf282bd19aebc5825dface385f8d64f31d4d8d5d368233cc6efe7b7ffc3a"
+  "content_sha256": "09191318db803928885808759059d174f11038ffe096ad730d49f212e30c5c8d"
 }
