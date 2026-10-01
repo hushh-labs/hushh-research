@@ -5,60 +5,53 @@
 Canonical visual owner: [Quality and Design System Index](README.md). The
 Files-led matrix below carries this revision-bound decision.
 
-**Decision at 2026-09-30:** Hold existing-owner Files activation and any main,
-UAT, production, or stable-channel promotion. The dev application and a prior
-owner-approved image update have evidence; the installed personal pod still has
-Files disabled, and its read-only setup plan refused release compatibility.
-No Files resources or owner-pod update were started by that refusal.
+**Decision at 2026-09-30:** The combined application candidate is live and healthy
+on dev. **Hold existing-owner Files activation and main, UAT, production, and
+stable-channel promotion.** The personal pod still serves its prior image with
+Files disabled. A published dev offer does not install or configure it.
 
-This is a dated decision record, not a live fleet register. It compresses the
-2026-09-24 through 2026-09-30 integration audit at source revision `17a79fa`.
-The implementation paths named below were inspected in the 2026-09-30 checkout;
-CI and serving claims come from the dated audit receipts, not a fresh deployment
-query for this documentation edit. The [One hierarchy](../one/one-agent-hierarchy.md),
+This revision-bound memo is not a fleet register. The [One hierarchy](../one/one-agent-hierarchy.md),
 [private Files contract](../operations/private-files-library.md),
 [dev update runbook](../operations/dev-pod-first-light-runbook.md), and
 [deployment standard](../architecture/deployment-standard.md) own reusable
-architecture and operator instructions.
+contracts and operator steps. Git history retains the earlier audit chronology.
 
 ## Decision evidence
 
-The frozen ADK integration and infrastructure source at `1d90942a7` passed the
-local core mirror and [hosted validation 36755011818](https://github.com/hushh-labs/hushh-research/actions/runs/36755011818).
-The [main-owned dev workflow 36757584302](https://github.com/hushh-labs/hushh-research/actions/runs/36757584302)
-then served frontend `hushh-webapp-00099-wxx` and backend
-`consent-protocol-00120-6gz` at 100% traffic with that exact SHA and workflow
-labels. A later Files refusal presentation change at `01429e94d` passed
-[hosted validation 36775950543](https://github.com/hushh-labs/hushh-research/actions/runs/36775950543)
-and [frontend-only dev workflow 36778215277](https://github.com/hushh-labs/hushh-research/actions/runs/36778215277).
-The dated readback found frontend `hushh-webapp-00100-xnh` at 100% with that
-source; backend stayed on `1d90942a7`. These are dev results. The release
-artifact also reported degraded `ria_stage1_query_only` dependency health.
+Source `830f1f94c` integrates local ADK `01fa7ba7b`, passed one local core
+mirror and [exact-SHA hosted CI 36792703786](https://github.com/hushh-labs/hushh-research/actions/runs/36792703786).
+The [main-owned dev workflow 36794526362](https://github.com/hushh-labs/hushh-research/actions/runs/36794526362)
+finished `healthy`, scope `all`. Independent Cloud Run readback found backend
+`consent-protocol-00121-94t` (`sha256:a05f5db2…cf009`) and frontend
+`hushh-webapp-00101-tlw` (`sha256:1aa4eeee…07c7e1`) each serving 100%,
+Ready, and labeled with that source and workflow. Rollback revisions are
+`consent-protocol-00120-6gz` and `hushh-webapp-00100-xnh`. The dev migration
+log reports Files migration 943 already applied; the postdeploy schema guard
+has zero violations. The dependency check still reports degraded
+`ria_stage1_query_only`, outside this Files decision.
 
-The normal owner Settings journey previously installed dev `.8` from verified
-`.6` after active-work drain and duplicate approval coalescing. It read back
-the installed immutable digest on the same service with the owner's selected
-compute and custody settings intact. On 2026-09-30 that service still lacked
-`POD_FILES_ENABLED`; direct Files list returned 503. The read-only Files setup
-plan returned 409, `compatibility for this software update is not verified`.
-The [release compatibility check](../../../consent-protocol/api/routes/one/personal_agent.py)
-and [digest allowlist](../../../consent-protocol/hushh_mcp/services/pod_release.py)
-confirm that this is a deliberate image gate. The
-[Files UI](../../../hushh-webapp/components/files/files-workspace.tsx)
-reported the inactive capability accurately. This establishes truthful refusal,
-not a successful Files activation.
+The workflow published **dev-only** release
+`2026.09-dev.9+830f1f94ca78.eee0035e`, pod image `sha256:eee0035e…2069f`,
+with only the personal pod's exact predecessor `sha256:1054cdf6…f0392` in
+its compatibility metadata. The owner's same pod still serves that predecessor
+at 100%, minimum zero, maximum one, one worker and concurrency eight. Old →
+new → old synthetic encrypted-log replay passed, and core recovery and handoff
+source is unchanged; no isolated **image-level cloud recovery** rehearsal exists.
+Therefore the release is published but **owner installation remains unverified
+and gated**. Local merge `7224e1a` adds later ADK reviewer and Memory refinements;
+it is not pushed or deployed. It must not be confused with serving `830f1f94c`.
 
 ## Files-led acceptance matrix
 
 | Area | Dated evidence and classification | Blocking proof / accountable owner |
 | --- | --- | --- |
-| **Existing-owner Files setup** | **Partially exists.** 2026-09-30 normal owner browser unlocked and admitted to the existing pod; Files list was 503 and the read-only setup plan was 409. No capability, queue, worker, or image was changed. | **Blocked:** backend Files and pod-release owners need a recovery-proven immutable dev release compatible with the exact installed predecessor, then an owner-reviewed configuration plan and installed-configuration readback. An image-only approval cannot activate Files. [Files runbook](../operations/private-files-library.md). |
-| **Files transfer and cold opening** | **Partially exists.** 2026-09-30 reviewer on a separate, already enabled `.5` pod passed folder creation, interrupted 5 MiB upload/resume, byte-exact download, rename/undo, Trash/restore, and same-session vault continuity. Cold interrupted list attempts were intermittent; warm retries passed. | **Blocked:** Files browser/pod owners need a repeatable cold normal-owner admission, list and settings read within an accepted time bound. Review-minted sessions intentionally receive `TRUSTED_DEVICE_REVIEW_SESSION_REFUSED` for self-enrolment; do not weaken that authority check to make the harness pass. |
-| **Files analysis, billing and recovery** | **Source-backed, live acceptance missing.** Opt-in, exclusions, bounded jobs and distinct configuration approval are documented in the [Files contract](../operations/private-files-library.md). Transfer proof above does not prove automatic organization, missing-billing return, erasure, or interrupted activation recovery. | **Blocked:** Files backend, browser and deployment owners must run the normal owner journey, reconcile uncertain cloud steps, verify retained encrypted information and teardown boundaries, and record target-bound receipts. Those future runs are **unverified**. |
-| **One/ADK delegation and MCP** | **Source-backed dev integration.** The frozen local ADK tree at `de7a91daf` plus one affected editor correction was integrated into the 2026-09-30 branch candidate; generated registries were rebuilt from authored owners. Local core and exact-SHA CI passed. Owner-private calls use current owner authority without ordinary exact-call review; review-required calls retain the one-use ledger. | **Open:** agent owners must prove each admitted specialist's usable route and consent boundary and run a review-required connector fixture in dev (**unverified**). The 2026-09-24 A2A result was preview containment, not official remote A2A v1 acceptance. Use the [hierarchy](../one/one-agent-hierarchy.md); do not infer one universal dispatch path. |
-| **Owner update and private chat** | **Partially accepted in dev.** 2026-09-30 `.6` to `.8` Settings approval, active-work drain, same-service replacement and installed-digest readback passed. A warm postinstall chat and encrypted-session continuity passed. One historical cold browser rehearsal ended its 120-second wait before the pod completed at about 131 seconds; the current rehearsal source waits 180 seconds, which is a harness bound, not a runtime limit or fresh live pass. | **Open:** pod runtime and release owners need fresh live cold-turn timing against an agreed objective, plus controlled update-failure/recovery proof before broader rollout. Publication alone does not install an owner image. [Update runbook](../operations/dev-pod-first-light-runbook.md). |
-| **Puppy direct relay and hub capacity** | **Partially accepted in dev.** 2026-09-30 the existing trusted device produced a direct local-model reply with only `puppy.inference`; owner withdrawal revoked the pod subject and ended the relay, then re-enabling and restarting that relay restored a reply. The five-instance dev hub revision showed no platform 429s in one bounded postdeploy window. | **Open:** device and repo-operations owners need independent active network paths, device/model cancellation observation, cold timing, staged concurrent load and a soak. An idle pod link is not a device cancellation receipt; a zero-429 window is not a capacity envelope. |
-| **Production authority and promotion** | **Blocked.** A 2026-09-30 live production provenance check found `deploy_authority_drift` between reviewed IAM setup and live bindings. No application main merge, UAT/production deployment, stable offer or Files activation is evidenced here. | **Blocked:** production governance must reconcile setup and live least-privilege IAM and rerun its live checker. Release owners then need migration graduation, billing/recovery evidence and UAT repetition of Files, update and Puppy journeys. The degraded RIA dependency needs its own owner disposition. |
+| **Existing-owner Files setup** | **Blocked.** The normal owner browser admitted to the old pod, but list returned 503 and the old release plan returned 409. The new offer is published; no image, bucket, queue, worker or owner configuration changed. | Files and release owners: prove old-image → new-image encrypted recovery in an isolated cloud pod, then use the normal owner's exact Files plan and approval. Verify installed digest, configuration and retained information. An image-only approval cannot enable Files. |
+| **Files workspace and transfer** | **Local UI accepted; live target pending.** The move picker reaches paginated nested folders and mobile actions remain usable at 320–1280 px. Focused Files tests passed. A prior already-enabled reviewer pod passed interrupted 5 MiB upload/resume, byte-exact download, rename/undo and Trash/restore. | Files browser/pod owners: repeat cold admission, list, transfer and cleanup on the newly enabled owner pod. The prior reviewer transfer does not prove this image, owner cloud or normal enrollment. |
+| **Files Agent, billing and recovery** | **Source-backed only.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
+| **Chat, commands and connectors** | **Source/CI accepted; new live turns pending.** Queued chat delivery now checks status before resend. Owner-private MCP calls retain owner authority; review-required calls retain the exact one-use ledger. A historical cold browser wait timed out before a roughly 131-second pod completion. | Runtime/agent owners: measure fresh cold and warm turns, recorded command completion and a safe review-required connector approval/resume fixture. Do not infer those journeys from a 200 health response. |
+| **Puppy and machine report** | **Hub metadata current; screen and relay pending.** Direct inference, withdrawal and reconnection previously passed. The dev relay is running; the separate local dashboard uses a locked UAT profile. Dev accepted recent heartbeat POSTs, and the owner-bound row has a fresh model/capacity snapshot with matching Firebase UID, grant and pod binding. The panel reads this stored snapshot, not a live Mac probe. | Device/browser owners: read the current panel and prove direct WSS inference/cancellation on independent connections. A narrow Hermes failed-heartbeat retry fix is local only, not pushed or restarted; it is not the established cause of this live panel report. |
+| **Updates and bounded runtime** | **Prior `.6` → `.8` owner update accepted.** Active-work drain, duplicate approval coalescing and installed digest were observed then. The new `.9` release has not been installed. | Release/runtime owners: prove exact owner-approved Files update, recovery, Settings/Feed agreement, bounded overlap, idle grace and wake. Do not describe the new release as installed or scale-to-zero as measured. |
+| **Production promotion** | **Blocked.** A dated production IAM check found `deploy_authority_drift`. No application main merge, UAT/prod deployment or stable release occurred. | Governance/release owners: reconcile IAM, graduate migrations and release channels, prove billing/recovery and repeat Files, updates and Puppy in UAT. Resolve the degraded RIA dependency separately. |
 
 The 2026-09-24 Plaid passthrough and Mail/Drive findings were source audits,
 not rollout receipts. Keep their separate gates with the
@@ -73,21 +66,21 @@ cache policy before making those claims; this pod decision does not close them.
 
 ## Accountable next gate
 
-1. **Files and pod-release owners:** freeze one exact branch candidate; prove the
-   installed predecessor, recovery ancestry, migration and immutable release
-   descriptor. A future compatible release remains **unverified**. Source,
-   local core and exact-SHA hosted checks must pass before a governed dev offer.
-2. **Normal owner approval:** obtain the read-only Files configuration plan,
+1. **Files and pod-release owners:** create a dedicated disposable dev owner and
+   isolated cloud substrate; prove the exact installed predecessor image can
+   hand off to the published candidate image and recover encrypted information.
+   Existing reviewer and personal resources are not rehearsal fixtures.
+2. **Normal owner approval, after recovery proof:** obtain the read-only Files configuration plan,
    verify its owner, pod incarnation, resources and immutable image, then use
    the existing owner approval and durable update operation. Confirm the same
    service and selected compute, encrypted storage, keys, recovery prefixes,
    installed digest and `POD_FILES_ENABLED` on readback. No reviewer-session
    self-enrolment or implicit Shared fallback is an acceptable shortcut.
-3. **Files/browser acceptance:** repeat cold admission and initial read on the
-   newly enabled pod, then transfer, analysis opt-in/exclusion, missing-billing
-   resume, cancellation and uncertain-step recovery. Preserve private receipts
+3. **One dev acceptance window:** repeat cold Files read, transfer, organization,
+   opt-in/exclusion, billing resume, chat, recorded command, exact connector
+   review, Puppy, update/restart and bounded idle/wake. Keep private receipts
    in their restricted owner workflow; publish only sanitized outcomes.
-4. **Release gate:** complete independent-network Puppy and device cancellation,
+4. **Production gate:** complete independent-network Puppy and device cancellation,
    hub load/soak, production IAM provenance, migration/recovery and UAT. Only
    then reconsider main or broader rollout. Each future row remains
    **unverified** until its target-bound result is recorded.
