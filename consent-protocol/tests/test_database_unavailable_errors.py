@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -101,3 +102,54 @@ def test_database_execution_error_marks_connection_failures_as_service_unavailab
     assert error.status_code == 503
     assert error.code == "DATABASE_UNAVAILABLE"
     assert error.hint is not None
+
+
+@pytest.mark.asyncio
+async def test_dedicated_connection_uses_unix_socket_and_literal_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("DB_USER", "user:@/")
+    monkeypatch.setenv("DB_PASSWORD", "p@ss:/?#")
+    monkeypatch.setenv("DB_HOST", "ignored.example")
+    monkeypatch.setenv("DB_UNIX_SOCKET", "/cloudsql/project:region:instance")
+    monkeypatch.setenv("DB_NAME", "market_db")
+    monkeypatch.setenv("DB_PORT", "5432")
+    db_connection = importlib.import_module("db.connection")
+    fake_connection = object()
+
+    with patch.object(
+        db_connection.asyncpg, "connect", AsyncMock(return_value=fake_connection)
+    ) as connect:
+        result = await db_connection.open_dedicated_connection()
+
+    assert result is fake_connection
+    assert connect.await_args.args == ()
+    options = connect.await_args.kwargs
+    assert options["user"] == "user:@/"
+    assert options["password"] == "p@ss:/?#"
+    assert options["database"] == "market_db"
+    assert options["host"] == "/cloudsql/project:region:instance"
+    assert options["port"] == 5432
+    assert "ssl" not in options
+
+
+@pytest.mark.asyncio
+async def test_dedicated_connection_uses_tcp_pool_ssl_settings(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("DB_USER", "uat_user")
+    monkeypatch.setenv("DB_PASSWORD", "p@ss:/?#")
+    monkeypatch.setenv("DB_HOST", "127.0.0.1")
+    monkeypatch.setenv("DB_PORT", "6543")
+    monkeypatch.delenv("DB_UNIX_SOCKET", raising=False)
+    monkeypatch.setenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "project:region:instance")
+    db_connection = importlib.import_module("db.connection")
+
+    with patch.object(db_connection.asyncpg, "connect", AsyncMock()) as connect:
+        await db_connection.open_dedicated_connection()
+
+    assert connect.await_args.args == ()
+    assert connect.await_args.kwargs["host"] == "127.0.0.1"
+    assert connect.await_args.kwargs["port"] == 6543
+    assert connect.await_args.kwargs["password"] == "p@ss:/?#"
+    assert connect.await_args.kwargs["ssl"] is False

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 
 from api.routes.kai import market_insights
@@ -128,8 +130,8 @@ def test_market_home_cache_key_uses_shared_baseline_and_user_scoped_personalizat
     )
 
     assert baseline_user_a == baseline_user_b
-    assert baseline_user_a.startswith("home:baseline:")
-    assert personalized_user_a.startswith("home:user_a:")
+    assert baseline_user_a.startswith("home:v2:baseline:")
+    assert personalized_user_a.startswith("home:v2:user_a:")
 
 
 def test_repair_quote_symbol_normalizes_known_provider_aliases():
@@ -260,6 +262,12 @@ async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monk
     call_order: list[str] = []
     captured: dict[str, object] = {}
 
+    class _LockingStore:
+        async def try_with_advisory_lock(self, *, lock_key, callback):
+            call_order.append("lock")
+            await callback()
+            return True
+
     async def _fake_public_refresh():
         call_order.append("public")
 
@@ -274,14 +282,17 @@ async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monk
             }
         }
 
-    monkeypatch.setattr(market_insights, "_run_refresh_with_advisory_lock", _fake_public_refresh)
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _LockingStore())
+    monkeypatch.setattr(
+        market_insights, "_refresh_public_market_modules_once", _fake_public_refresh
+    )
     monkeypatch.setattr(market_insights, "_get_market_insights_payload", _fake_market_payload)
     monkeypatch.setenv("KAI_MARKET_BACKGROUND_REFRESH", "true")
     monkeypatch.setenv("KAI_MARKET_STARTUP_WARM_TIMEOUT_SECONDS", "2")
 
     await market_insights.warm_market_insights_startup_once()
 
-    assert call_order == ["public", "baseline"]
+    assert call_order == ["lock", "public", "baseline"]
     assert captured == {
         "user_id": "startup",
         "requested_watchlist_symbols": list(market_insights.DEFAULT_SYMBOLS),
@@ -293,3 +304,39 @@ async def test_startup_warm_seeds_shared_baseline_home_after_public_modules(monk
         "personalized": False,
         "warm_source": "startup",
     }
+
+
+@pytest.mark.asyncio
+async def test_background_refresh_skips_when_advisory_lock_is_unavailable(monkeypatch):
+    class _FailingStore:
+        async def try_with_advisory_lock(self, *, lock_key, callback):
+            raise ConnectionError("lock database unavailable")
+
+    refresh = AsyncMock()
+    monkeypatch.setattr(market_insights, "get_market_cache_store_service", lambda: _FailingStore())
+    monkeypatch.setattr(market_insights, "_refresh_public_market_modules_once", refresh)
+
+    await market_insights._run_refresh_with_advisory_lock()
+
+    refresh.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_startup_warm_skips_public_and_baseline_when_lock_is_held(monkeypatch):
+    class _ContendedStore:
+        async def try_with_advisory_lock(self, *, lock_key, callback):
+            return False
+
+    public = AsyncMock()
+    baseline = AsyncMock()
+    monkeypatch.setattr(
+        market_insights, "get_market_cache_store_service", lambda: _ContendedStore()
+    )
+    monkeypatch.setattr(market_insights, "_refresh_public_market_modules_once", public)
+    monkeypatch.setattr(market_insights, "_warm_shared_baseline_market_home_once", baseline)
+    monkeypatch.setenv("KAI_MARKET_BACKGROUND_REFRESH", "true")
+
+    await market_insights.warm_market_insights_startup_once()
+
+    public.assert_not_awaited()
+    baseline.assert_not_awaited()

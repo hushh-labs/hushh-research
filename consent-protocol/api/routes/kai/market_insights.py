@@ -15,7 +15,7 @@ import os
 import secrets
 from datetime import datetime, timedelta, timezone
 from time import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Awaitable, Callable
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
@@ -2266,17 +2266,24 @@ async def _refresh_public_market_modules_once() -> None:
         logger.debug("[Kai Market] warm refresh %s", " | ".join(refresh_summary))
 
 
-async def _run_refresh_with_advisory_lock() -> None:
+async def _run_refresh_with_advisory_lock(
+    *, callback: Callable[[], Awaitable[None]] | None = None
+) -> bool:
     try:
         acquired = await get_market_cache_store_service().try_with_advisory_lock(
             lock_key=_MARKET_REFRESH_LOCK_KEY,
-            callback=_refresh_public_market_modules_once,
+            callback=callback or _refresh_public_market_modules_once,
         )
         if not acquired:
-            return
+            return False
+        return True
     except Exception as exc:
-        logger.warning("[Kai Market] advisory lock unavailable; falling back: %s", exc)
-        await _refresh_public_market_modules_once()
+        # A warm cycle is optional. Running it without the lock would fan out
+        # provider calls across every worker during a database incident.
+        logger.warning(
+            "[Kai Market] background refresh skipped; advisory lock unavailable: %s", exc
+        )
+        return False
 
 
 async def _warm_shared_baseline_market_home_once() -> None:
@@ -2331,23 +2338,29 @@ async def warm_market_insights_startup_once() -> None:
         logger.info("[Kai Market] startup warm disabled by env")
         return
     timeout_seconds = _market_startup_warm_timeout_seconds()
-    try:
-        await asyncio.wait_for(_run_refresh_with_advisory_lock(), timeout=timeout_seconds)
-    except TimeoutError:
-        logger.warning(
-            "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
-        )
-    except Exception as exc:
-        logger.warning("[Kai Market] startup public module warm failed: %s", exc)
 
-    try:
-        await asyncio.wait_for(_warm_shared_baseline_market_home_once(), timeout=timeout_seconds)
-    except TimeoutError:
-        logger.warning(
-            "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
-        )
-    except Exception as exc:
-        logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
+    async def warm_under_lock() -> None:
+        try:
+            await asyncio.wait_for(_refresh_public_market_modules_once(), timeout=timeout_seconds)
+        except TimeoutError:
+            logger.warning(
+                "[Kai Market] startup public module warm timed out after %ss", timeout_seconds
+            )
+        except Exception as exc:
+            logger.warning("[Kai Market] startup public module warm failed: %s", exc)
+
+        try:
+            await asyncio.wait_for(
+                _warm_shared_baseline_market_home_once(), timeout=timeout_seconds
+            )
+        except TimeoutError:
+            logger.warning(
+                "[Kai Market] startup baseline home warm timed out after %ss", timeout_seconds
+            )
+        except Exception as exc:
+            logger.warning("[Kai Market] startup baseline home warm failed: %s", exc)
+
+    await _run_refresh_with_advisory_lock(callback=warm_under_lock)
 
 
 async def _get_market_insights_payload(
