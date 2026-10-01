@@ -1,11 +1,16 @@
+# ruff: noqa: F811 -- imported PostgreSQL fixture is a pytest test parameter
+
 import base64
 import hashlib
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from sqlalchemy import create_engine, text
 
 from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
@@ -17,6 +22,9 @@ from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.information_request_service import (
     InformationRequestError,
     InformationRequestService,
+)
+from tests.services.test_external_connector_lifecycle_postgres import (
+    connector_postgres_url,  # noqa: F401
 )
 
 
@@ -354,6 +362,140 @@ async def test_cancel_writes_cancelled_and_requester_reads_cancelled() -> None:
     assert cancelled["items"][0]["status"] == "cancelled"
     refreshed = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
     assert refreshed["items"][0]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_cancel_does_not_claim_success_after_approval_or_request_expiry() -> None:
+    service, bundle_id, request_id = await _granted_service()
+    before = list(service.consent.ledger)
+    with pytest.raises(InformationRequestError) as approved:
+        await service.cancel(requester_user_id="viewer", bundle_id=bundle_id)
+    assert approved.value.status_code == 409
+    assert service.consent.ledger == before
+    assert service.consent.events[request_id]["action"] == "CONSENT_GRANTED"
+
+    pending = _Service()
+    created = await pending.create(**_CREATE)
+    expired_id = created["items"][0]["requestId"]
+    pending.consent.events[expired_id]["poll_timeout_at"] = int(time.time() * 1000) - 1
+    with pytest.raises(InformationRequestError) as expired:
+        await pending.cancel(requester_user_id="viewer", bundle_id=created["bundleId"])
+    assert expired.value.status_code == 409
+    assert pending.consent.events[expired_id]["action"] == "REQUESTED"
+
+
+@pytest.mark.asyncio
+async def test_outgoing_page_filters_latest_consent_state_before_limit(
+    connector_postgres_url, monkeypatch
+) -> None:
+    """Older pending asks survive a page full of resolved requests."""
+    schema = f"information_request_test_{uuid.uuid4().hex}"
+    admin = create_engine(connector_postgres_url)
+    with admin.begin() as connection:
+        connection.exec_driver_sql(f'CREATE SCHEMA "{schema}"')
+    engine = create_engine(
+        connector_postgres_url,
+        connect_args={"options": f"-csearch_path={schema},public"},
+    )
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "CREATE TABLE actor_profiles(user_id TEXT PRIMARY KEY, public_person_ref TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE actor_identity_cache(user_id TEXT PRIMARY KEY, display_name TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE one_information_request_bundles("
+                "bundle_id UUID PRIMARY KEY, requester_user_id TEXT, subject_user_id TEXT, "
+                "purpose TEXT, created_at TIMESTAMPTZ, cancelled_at TIMESTAMPTZ)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE one_information_request_items(bundle_id UUID, request_id TEXT)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE consent_audit("
+                "id BIGSERIAL PRIMARY KEY, user_id TEXT, request_id TEXT, action TEXT, "
+                "issued_at BIGINT, poll_timeout_at BIGINT, expires_at BIGINT)"
+            )
+            connection.execute(text("INSERT INTO actor_profiles VALUES ('manish','manish-ref')"))
+            connection.execute(
+                text("INSERT INTO actor_identity_cache VALUES ('manish','Manish Sainani')")
+            )
+            now_ms = int(time.time() * 1000)
+            base = datetime(2026, 9, 1, tzinfo=UTC)
+
+            def add_bundle(purpose, minute, fields, *, requester="chris"):
+                bundle_id = uuid.uuid4()
+                connection.execute(
+                    text("""INSERT INTO one_information_request_bundles
+                        (bundle_id,requester_user_id,subject_user_id,purpose,created_at)
+                        VALUES (:bundle,:requester,'manish',:purpose,:created)"""),
+                    {
+                        "bundle": bundle_id,
+                        "requester": requester,
+                        "purpose": purpose,
+                        "created": base + timedelta(minutes=minute),
+                    },
+                )
+                for index, events in enumerate(fields):
+                    request_id = f"{purpose}_{index}"
+                    connection.execute(
+                        text("INSERT INTO one_information_request_items VALUES (:bundle,:request)"),
+                        {"bundle": bundle_id, "request": request_id},
+                    )
+                    for action, deadline in events:
+                        connection.execute(
+                            text("""INSERT INTO consent_audit
+                                (user_id,request_id,action,issued_at,poll_timeout_at,expires_at)
+                                VALUES ('manish',:request,:action,:issued,:deadline,:deadline)"""),
+                            {
+                                "request": request_id,
+                                "action": action,
+                                "issued": minute * 10,
+                                "deadline": deadline,
+                            },
+                        )
+
+            future = now_ms + 60_000
+            add_bundle("pending", 0, [[("REQUESTED", future), ("EXPORT_READ", None)]])
+            for index in range(12):
+                # A same-millisecond decision must win by audit id.
+                add_bundle(
+                    f"resolved_{index}",
+                    index + 1,
+                    [[("REQUESTED", future), ("CONSENT_GRANTED", future)]],
+                )
+            add_bundle("expired", 20, [[("REQUESTED", now_ms)]])
+            add_bundle("someone_else", 21, [[("REQUESTED", future)]], requester="grace")
+            add_bundle(
+                "mixed",
+                22,
+                [
+                    [("REQUESTED", future), ("CONSENT_DENIED", None)],
+                    [("REQUESTED", future)],
+                ],
+            )
+
+        class _Db:
+            def execute_raw(self, query, params):
+                with engine.connect() as connection:
+                    rows = connection.execute(text(query), params).mappings().all()
+                return SimpleNamespace(data=[dict(row) for row in rows])
+
+        monkeypatch.setattr(information_request_module, "get_db", lambda: _Db())
+        service = InformationRequestService()
+        page = await service.list_outgoing(requester_user_id="chris", limit=11)
+        assert [row["purpose"] for row in page] == ["mixed", "pending"]
+        assert [
+            row["purpose"]
+            for row in await service.list_outgoing(requester_user_id="chris", limit=1)
+        ] == ["mixed"]
+    finally:
+        engine.dispose()
+        with admin.begin() as connection:
+            connection.exec_driver_sql(f'DROP SCHEMA "{schema}" CASCADE')
+        admin.dispose()
 
 
 @pytest.mark.asyncio

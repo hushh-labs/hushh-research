@@ -759,9 +759,30 @@ class InformationRequestService:
                LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
                WHERE bundle.requester_user_id = :requester
                  AND bundle.cancelled_at IS NULL
-               ORDER BY bundle.created_at DESC
+                 AND EXISTS (
+                   SELECT 1 FROM one_information_request_items item
+                   JOIN LATERAL (
+                     SELECT audit.action, audit.poll_timeout_at, audit.expires_at
+                     FROM consent_audit audit
+                     WHERE audit.user_id = bundle.subject_user_id
+                       AND audit.request_id = item.request_id
+                       AND audit.action IN ('REQUESTED', 'CONSENT_GRANTED', 'CONSENT_DENIED',
+                                            'REVOKED', 'TIMEOUT', 'CANCELLED')
+                     ORDER BY audit.issued_at DESC, audit.id DESC
+                     LIMIT 1
+                   ) latest ON TRUE
+                   WHERE item.bundle_id = bundle.bundle_id
+                     AND latest.action = 'REQUESTED'
+                     AND (COALESCE(latest.poll_timeout_at, latest.expires_at) IS NULL
+                          OR COALESCE(latest.poll_timeout_at, latest.expires_at) > :now_ms)
+                 )
+               ORDER BY bundle.created_at DESC, bundle.bundle_id DESC
                LIMIT :limit""",
-            {"requester": requester_user_id, "limit": max(1, min(int(limit or 10), 50))},
+            {
+                "requester": requester_user_id,
+                "now_ms": int(time.time() * 1000),
+                "limit": max(1, min(int(limit or 10), 50)),
+            },
         )
         return [
             {
@@ -1051,16 +1072,31 @@ class InformationRequestService:
 
     async def cancel(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
+        if bundle.get("cancelled_at") is not None:
+            return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
+        now_ms = int(time.time() * 1000)
+        pending: list[tuple[dict[str, Any], dict[str, Any]]] = []
         for item in items:
             status = await self._consent.get_request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             if str((status or {}).get("action") or "REQUESTED") != "REQUESTED":
                 continue
+            deadline = _int_or_none((status or {}).get("poll_timeout_at"))
+            if deadline is None:
+                deadline = _int_or_none((status or {}).get("expires_at"))
+            if deadline is not None and deadline <= now_ms:
+                continue
+            pending.append((item, status or {}))
+        if not pending:
+            raise InformationRequestError(
+                "This information request is no longer pending.", status_code=409
+            )
+        for item, status in pending:
             await self._consent.insert_event(
                 user_id=str(bundle["subject_user_id"]),
                 agent_id=str(bundle["requester_principal"]),
-                scope=str((status or {}).get("scope") or item.get("scope") or ""),
+                scope=str(status.get("scope") or item.get("scope") or ""),
                 # The requester withdrew; the owner never decided. A denial
                 # here would tell the owner they refused something they did
                 # not see, so the ledger says what happened.
@@ -1070,7 +1106,7 @@ class InformationRequestService:
                     # The requester's name and picture travel with the row so
                     # the owner's history never headlines a withdrawal with
                     # the raw principal id.
-                    **requester_identity_metadata((status or {}).get("metadata")),
+                    **requester_identity_metadata(status.get("metadata")),
                     "cancelled_by_requester": True,
                     "bundle_id": bundle_id,
                 },

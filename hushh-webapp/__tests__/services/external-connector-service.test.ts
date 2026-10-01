@@ -237,14 +237,14 @@ describe("ExternalConnectorService live Drive background preparation", () => {
       }),
     );
 
-    // Anything other than an explicit true reads as off.
+    // An invalid response must not masquerade as a user choice to turn it off.
     apiFetch.mockResolvedValueOnce(Response.json({ enabled: "true" }));
-    await expect(ExternalConnectorService.liveBackground("owner-token")).resolves.toBe(false);
+    await expect(ExternalConnectorService.liveBackground("owner-token")).rejects.toThrow("Invalid background Drive access state");
     apiFetch.mockResolvedValueOnce(Response.json({}));
-    await expect(ExternalConnectorService.liveBackground("owner-token")).resolves.toBe(false);
+    await expect(ExternalConnectorService.liveBackground("owner-token")).rejects.toThrow("Invalid background Drive access state");
 
     apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));
-    await ExternalConnectorService.setLiveBackground("owner-token", true);
+    await expect(ExternalConnectorService.setLiveBackground("owner-token", true)).resolves.toBe(true);
     const [path, init] = apiFetch.mock.calls.at(-1)!;
     expect(path).toBe("/api/connectors/google_drive/live/background");
     expect(init.method).toBe("POST");
@@ -253,5 +253,10 @@ describe("ExternalConnectorService live Drive background preparation", () => {
       Authorization: "Bearer owner-token",
       "Content-Type": "application/json",
     });
+
+    apiFetch.mockResolvedValueOnce(Response.json({ enabled: false }));
+    await expect(ExternalConnectorService.setLiveBackground("owner-token", false)).resolves.toBe(false);
+    apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));
+    await expect(ExternalConnectorService.setLiveBackground("owner-token", false)).rejects.toThrow("Background Drive access state was not confirmed");
   });
 });

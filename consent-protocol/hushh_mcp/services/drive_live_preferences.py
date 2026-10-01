@@ -1,4 +1,4 @@
-"""Owner-controlled live Drive preparation authority, independent of the OAuth grant."""
+"""Owner-controlled live Drive preparation preference, independent of OAuth."""
 
 from __future__ import annotations
 
@@ -61,29 +61,35 @@ class DriveLivePreferences(DriveDocumentStore):
             """SELECT * FROM drive_live_preferences WHERE user_id=:user FOR SHARE""",
             {"user": user_id},
         )
-        if (
-            not preference
-            or preference["connection_generation"] != generation
-            or preference["background_enabled"] is not True
+        # Live Drive defaults to background preparation while connected. A
+        # recorded OFF choice is account-level and survives OAuth reconnects;
+        # connection generation still fences each search and Google grant.
+        if preference and (
+            preference["background_enabled"] is not True
             or preference["disclosure_version"] != LIVE_BACKGROUND_DISCLOSURE
         ):
             raise DriveReadError("background_preparation_required")
-        return preference
+        return preference or {
+            "user_id": user_id,
+            "connection_generation": generation,
+            "background_enabled": True,
+            "disclosure_version": LIVE_BACKGROUND_DISCLOSURE,
+            "revision": 0,
+        }
 
     async def get_background(self, *, user_id: str) -> dict:
         def operation(connection):
-            current = self.live_active(connection, user_id=user_id)
+            self.live_active(connection, user_id=user_id)
             preference = self._row(
                 connection,
                 "SELECT * FROM drive_live_preferences WHERE user_id=:user",
                 {"user": user_id},
             )
-            enabled = bool(
-                preference
-                and preference["connection_generation"] == current["connection_generation"]
-                and preference["background_enabled"] is True
+            enabled = preference is None or bool(
+                preference["background_enabled"] is True
+                and preference["disclosure_version"] == LIVE_BACKGROUND_DISCLOSURE
             )
-            return {"enabled": enabled, "revision": preference["revision"] if enabled else 0}
+            return {"enabled": enabled, "revision": preference["revision"] if preference else 0}
 
         return await self._transaction(operation)
 
@@ -112,7 +118,7 @@ class DriveLivePreferences(DriveDocumentStore):
                 },
             )
             if enabled:
-                # A trusted request awaiting this one-time owner setting can
+                # A trusted request paused while background work was OFF can
                 # retry immediately. Only the auto worker writes this code;
                 # no old manual request is turned into auto sharing here.
                 connection.execute(
@@ -124,6 +130,7 @@ class DriveLivePreferences(DriveDocumentStore):
                         preparation_next_at=clock_timestamp(),
                         updated_at=clock_timestamp()
                       WHERE user_id=:user AND status='pending'
+                        AND expires_at>clock_timestamp()
                         AND preparation_error_code='background_preparation_required'
                       RETURNING request_id
                     )

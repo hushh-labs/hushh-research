@@ -1,17 +1,102 @@
 """Bounded participant projections; private suggestions never cross to B."""
 
 from collections import Counter
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_bulk_share_store import bulk_outcome_summary
+from hushh_mcp.services.drive_live_query_store import STALE_CLAIM_SECONDS
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
 from hushh_mcp.services.google_drive_adapter import FILE_ID
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 
 class DriveSharingProjectionStore(DriveRevocationStore):
+    @staticmethod
+    def _chat_request_status(row, *, now: datetime) -> str:
+        if row["request_type"] == "files":
+            return DriveSharingProjectionStore._summary(row, recipient=True)["status"]
+        status = row["status"]
+        if status == "pending" and row["expires_at"] <= now:
+            return "expired"
+        if status == "running":
+            if (
+                row["expires_at"] <= now
+                and row["decided_at"] is not None
+                and (now - row["decided_at"]).total_seconds() > STALE_CLAIM_SECONDS
+            ):
+                return "expired"
+            return "pending"
+        return status
+
+    async def list_outgoing_for_chat(self, *, user_id: str, limit: int = 20) -> dict:
+        """Recent requester-owned file requests and Drive questions, metadata only.
+
+        The requester already sees these statuses in Consent Center. Chat only
+        needs a human counterpart label and a timestamp; it must not receive a
+        Drive request id that could be mistaken for an information-bundle cancel
+        handle, or the owner's private preparation failure.
+        """
+        if not user_id or type(limit) is not int or not 1 <= limit <= 50:
+            raise DriveSharingError("invalid_argument")
+
+        def operation(connection):
+            # The question table arrived after file requests. Older deployments
+            # can still report their file requests while that schema rolls out.
+            queries_installed = bool(
+                connection.execute(
+                    text("SELECT to_regclass('drive_live_query_requests') IS NOT NULL")
+                ).scalar_one()
+            )
+            question_rows = (
+                """
+                UNION ALL
+                SELECT request_id,status,revision,created_at,expires_at,decided_at,
+                       user_id AS owner_user_id,'question'::text AS request_type
+                FROM drive_live_query_requests WHERE requester_user_id=:user
+                """
+                if queries_installed
+                else ""
+            )
+            rows = (
+                connection.execute(
+                    text(f"""
+                    SELECT request.*,owner.user_id,owner.display_name,owner.email
+                    FROM (
+                      SELECT request_id,status,revision,created_at,expires_at,
+                             NULL::timestamptz AS decided_at,user_id AS owner_user_id,
+                             'files'::text AS request_type
+                      FROM drive_share_requests WHERE recipient_user_id=:user
+                      {question_rows}
+                    ) request
+                    LEFT JOIN actor_identity_cache owner ON owner.user_id=request.owner_user_id
+                    ORDER BY request.created_at DESC,request.request_id DESC
+                    LIMIT :limit
+                    """),  # nosec B608 -- optional SQL fragment is a static literal
+                    {"user": user_id, "limit": limit + 1},
+                )
+                .mappings()
+                .all()
+            )
+            now = datetime.now(UTC)
+            return {
+                "items": [
+                    {
+                        "person": label_from_identity_row(row, allow_email_handle=True) or None,
+                        "requestType": row["request_type"],
+                        "status": self._chat_request_status(row, now=now),
+                        "sentAt": row["created_at"].isoformat(),
+                    }
+                    for row in rows[:limit]
+                ],
+                "hasMore": len(rows) > limit,
+            }
+
+        return await self._transaction(operation)
+
     async def list_requests(self, *, user_id, direction, limit=20, offset=0):
         if (
             direction not in {"incoming", "outgoing"}

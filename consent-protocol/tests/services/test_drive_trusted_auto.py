@@ -24,6 +24,7 @@ from hushh_mcp.services.drive_trusted_auto_service import DriveTrustedAutoServic
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.services.test_drive_request_bulk_postgres import _search, request_bulk
 from tests.services.test_drive_sharing_store import (
+    MIGRATIONS,
     connector_postgres_url,
     documents,
     drive,
@@ -131,6 +132,9 @@ async def test_only_new_accepted_trusted_request_gets_auto_marker(request_bulk, 
 @pytest.mark.asyncio
 async def test_background_off_requires_one_setup_event_and_resumes_on_enable(request_bulk, sharing):
     _membership(sharing, "active")
+    await DriveLivePreferences(db=sharing.db).set_background(
+        user_id="owner", enabled=False, confirmed=True
+    )
     item = await _request(sharing)
     request_id = item["requestId"]
     auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
@@ -153,6 +157,112 @@ async def test_background_off_requires_one_setup_event_and_resumes_on_enable(req
         "recipientUserId"
     ] == "recipient"
     assert {item["request_id"] for item in await sharing.due_trusted_searches()} == {request_id}
+
+
+@pytest.mark.asyncio
+async def test_background_defaults_on_but_explicit_off_survives_reconnect(request_bulk, sharing):
+    _membership(sharing, "active")
+    preferences = DriveLivePreferences(db=sharing.db)
+    assert await preferences.get_background(user_id="owner") == {"enabled": True, "revision": 0}
+    item = await _request(sharing)
+    request_id = item["requestId"]
+    assert (await sharing.trusted_request_authority(user_id="owner", request_id=request_id))[
+        "recipientUserId"
+    ] == "recipient"
+    await preferences.set_background(user_id="owner", enabled=False, confirmed=True)
+    assert await preferences.get_background(user_id="owner") == {"enabled": False, "revision": 1}
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE user_external_connector_connections
+              SET connection_generation=connection_generation+1
+              WHERE user_id='owner' AND connector_id='google_drive'""")
+        )
+    assert await preferences.get_background(user_id="owner") == {"enabled": False, "revision": 1}
+    with pytest.raises(DriveReadError, match="background_preparation_required"):
+        await sharing.trusted_request_authority(user_id="owner", request_id=request_id)
+    await preferences.set_background(user_id="owner", enabled=True, confirmed=True)
+    assert await preferences.get_background(user_id="owner") == {"enabled": True, "revision": 2}
+    assert (await sharing.trusted_request_authority(user_id="owner", request_id=request_id))[
+        "recipientUserId"
+    ] == "recipient"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("preference", "live_valid", "resumed"),
+    [
+        ("missing", True, True),
+        ("explicit_off", True, False),
+        ("missing", False, False),
+    ],
+)
+async def test_default_on_migration_only_resumes_eligible_paused_requests(
+    request_bulk, sharing, preference, live_valid, resumed
+):
+    _membership(sharing, "active")
+    preferences = DriveLivePreferences(db=sharing.db)
+    await preferences.set_background(user_id="owner", enabled=False, confirmed=True)
+    item = await _request(sharing)
+    request_id = item["requestId"]
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=request_bulk, wake=AsyncMock())
+    assert (await auto.start_pending())["deferred"] == 1
+    with sharing.db.engine.begin() as connection:
+        if preference == "missing":
+            connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id='owner'"))
+        if not live_valid:
+            connection.execute(
+                text("""UPDATE user_external_connector_connections
+                  SET validation_state='unverified'
+                  WHERE user_id='owner' AND connector_id='google_drive'""")
+            )
+    with sharing.db.engine.connect() as connection:
+        connection.exec_driver_sql(
+            (MIGRATIONS / "261_drive_background_default_on.sql").read_text().replace("%", "%%")
+        )
+        connection.commit()
+    review = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert (review["preparationError"] is None) is resumed
+    if resumed:
+        assert {row["request_id"] for row in await sharing.due_trusted_searches()} == {request_id}
+    else:
+        assert review["preparationError"] == "background_preparation_required"
+
+
+@pytest.mark.asyncio
+async def test_default_on_migration_wakes_a_paused_trusted_search_job(request_bulk, sharing):
+    _membership(sharing, "active")
+    preferences = DriveLivePreferences(db=sharing.db)
+    await preferences.set_background(user_id="owner", enabled=True, confirmed=True)
+    request = await _request(sharing)
+    request_id = request["requestId"]
+    job_id = _auto_job(request_bulk, request_id=request_id)
+    store = DriveOwnerSearchStore(db=sharing.db)
+    lease = await store.claim(user_id="owner", job_id=job_id)
+    assert lease is not None
+    await preferences.set_background(user_id="owner", enabled=False, confirmed=True)
+    await sharing.defer_trusted_search(
+        user_id="owner", request_id=request_id, code="background_preparation_required"
+    )
+    assert await store.pause_for_background(lease) == "queued"
+    with sharing.db.engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT next_at=expires_at FROM drive_owner_search_jobs WHERE job_id=:job"),
+            {"job": job_id},
+        ).scalar_one()
+        connection.execute(text("DELETE FROM drive_live_preferences WHERE user_id='owner'"))
+    with sharing.db.engine.connect() as connection:
+        connection.exec_driver_sql(
+            (MIGRATIONS / "261_drive_background_default_on.sql").read_text().replace("%", "%%")
+        )
+        connection.commit()
+    with sharing.db.engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT next_at<expires_at FROM drive_owner_search_jobs WHERE job_id=:job"),
+            {"job": job_id},
+        ).scalar_one()
+    assert (await sharing.owner_review(user_id="owner", request_id=request_id))[
+        "preparationError"
+    ] is None
 
 
 @pytest.mark.asyncio

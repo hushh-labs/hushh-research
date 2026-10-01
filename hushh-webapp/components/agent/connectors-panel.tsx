@@ -375,6 +375,8 @@ function OwnerConnectorsPanel({
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
   const [allowBackground, setAllowBackground] = useState(false);
   const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
+  const [liveBackgroundError, setLiveBackgroundError] = useState(false);
+  const [liveBackgroundRead, retryLiveBackground] = useState(0);
   const [loading, setLoading] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
@@ -657,14 +659,17 @@ function OwnerConnectorsPanel({
   useEffect(() => {
     if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
       setLiveBackground(null);
+      setLiveBackgroundError(false);
       return;
     }
     let active = true;
+    setLiveBackground(null);
+    setLiveBackgroundError(false);
     void ExternalConnectorService.liveBackground(vaultOwnerToken)
       .then((enabled) => { if (active) setLiveBackground(enabled); })
-      .catch(() => { if (active) setLiveBackground(null); });
+      .catch(() => { if (active) setLiveBackgroundError(true); });
     return () => { active = false; };
-  }, [open, vaultOwnerToken, drive?.profile, drive?.status]);
+  }, [open, vaultOwnerToken, drive?.profile, drive?.status, liveBackgroundRead]);
   const hasDriveGrant = Boolean(
     drive && !["not_connected", "revoked"].includes(drive.status),
   );
@@ -1801,10 +1806,10 @@ function OwnerConnectorsPanel({
         : !canConnectDrive
           ? undefined
         : {
-            label: "Connect Google Drive",
+            label: driveConnectionProfile === "live" ? "Review Google Drive access" : "Connect Google Drive",
             onClick: () => {
               showConnector("google_drive");
-              startDrive(driveConnectionProfile);
+              if (driveConnectionProfile !== "live") startDrive(driveConnectionProfile);
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
@@ -2156,6 +2161,12 @@ function OwnerConnectorsPanel({
                   </p>
                 </>
               )}
+              {overview?.features.google_drive_live === true &&
+                (drive?.status !== "connected" || drive?.profile !== "live") && (
+                <p className="text-sm text-muted-foreground">
+                  Full Drive access turns on background reads by default unless you turned them off. While you’re away, One may search Drive, send excerpts to Gemini, and share matching originals for document requests from accepted Trusted Circle members without asking again. The requester can open a file only after Google confirms access. Turn background access off anytime; your choice is saved.
+                </p>
+              )}
               <div className="flex flex-wrap gap-2">
                 {canConnectDrive && (!hasDriveGrant ||
                   drive?.status === "needs_reauth" ||
@@ -2206,11 +2217,6 @@ function OwnerConnectorsPanel({
                 </Button>}
               </div>
               {drivePopupPending && <Button size="compact" variant="outline" onClick={() => drivePopupCancel.current?.abort()}>Cancel sign-in</Button>}
-              {overview?.features.google_drive_live === true && drive?.profile !== "live" && (
-                <p className="text-sm text-muted-foreground">
-                  Full access lets One search Drive when needed. Sharing still needs your approval or a permission you set.
-                </p>
-              )}
               {canConnectDrive && driveConnectionProfile === "selected" && !hasDriveGrant && (
                 <p className="text-sm text-muted-foreground">
                   You can choose files after connecting. One cannot search your entire Drive with this access.
@@ -2218,20 +2224,27 @@ function OwnerConnectorsPanel({
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <div className="rounded-2xl bg-foreground/5 px-4 py-3">
-                  <label htmlFor={driveBackgroundId} className="flex min-h-11 cursor-pointer items-center justify-between gap-4">
+                  <label htmlFor={driveBackgroundId} className={`flex min-h-11 items-center justify-between gap-4${liveBackground === null ? "" : " cursor-pointer"}`}>
                     <span className="min-w-0">
-                      <span className="block text-sm font-medium">Background preparation</span>
-                      <span className="block text-xs text-muted-foreground">One may read relevant files and send excerpts to Gemini while you’re away.</span>
+                      <span className="block text-sm font-medium">Background Drive access</span>
+                      <span className="block text-xs text-muted-foreground">On by default. One may read Drive files, send excerpts to Gemini, and share matching originals for requests from accepted Trusted Circle members while you’re away. Turn off anytime.</span>
                     </span>
-                    <Switch id={driveBackgroundId} size="ios" aria-label="Background preparation" checked={liveBackground ?? false}
-                      disabled={driveBusy || liveBackground === null}
+                    {liveBackground !== null ? <Switch id={driveBackgroundId} size="ios" aria-label="Background Drive access" checked={liveBackground}
+                      disabled={driveBusy}
                       onCheckedChange={(next) => void runDrive(async (token) => {
-                        await ExternalConnectorService.setLiveBackground(token, next);
-                        setLiveBackground(next);
-                        setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
+                        const confirmed = await ExternalConnectorService.setLiveBackground(token, next);
+                        setLiveBackground(confirmed);
+                        setDriveMessage(confirmed ? "Background Drive access is on." : "Background Drive access is off. New automatic document requests will wait.");
                       })}
-                    />
+                    /> : null}
                   </label>
+                  {liveBackground === null ? <div className="mt-2 text-xs text-muted-foreground">
+                    {liveBackgroundError ? <>
+                      Couldn’t check background Drive access. <Button size="compact" variant="ghost" onClick={() => retryLiveBackground((attempt) => attempt + 1)}>Retry setting</Button>
+                    </> : "Checking background Drive access…"}
+                  </div> : <p className="mt-2 text-xs text-muted-foreground">
+                    {liveBackground ? "On. Relevant work can continue while you’re away." : "Off. New automatic document requests wait until you turn this on."}
+                  </p>}
                 </div>
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
@@ -2241,7 +2254,7 @@ function OwnerConnectorsPanel({
                     <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
                   </summary>
                   <p className="px-4 pb-4 text-muted-foreground">
-                    Sharing a file needs your approval or a document trust rule.
+                    Sharing a file needs your approval, document trust, or an accepted connection in your Trusted Circle while background Drive access is on. Google Drive confirms each file’s access before the requester can open it.
                   </p>
                 </details>
               )}

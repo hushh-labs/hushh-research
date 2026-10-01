@@ -112,12 +112,12 @@ _OWNER_SEARCH_STATE = """(
 
 _TRUSTED_AUTHORITY_READY = """EXISTS (
   SELECT 1 FROM user_external_connector_connections c
-  JOIN drive_live_preferences pref ON pref.user_id=c.user_id
-    AND pref.connection_generation=c.connection_generation
+  LEFT JOIN drive_live_preferences pref ON pref.user_id=c.user_id
   WHERE c.user_id=drive_share_requests.user_id AND c.connector_id='google_drive'
     AND c.status='connected' AND c.validation_state='verified'
     AND c.verified_policy_hash=:live_policy_hash
-    AND pref.background_enabled=TRUE AND pref.disclosure_version=:background_disclosure
+    AND (pref.user_id IS NULL OR (pref.background_enabled=TRUE
+      AND pref.disclosure_version=:background_disclosure))
     AND EXISTS (
       SELECT 1 FROM connections conn
       JOIN connection_origins origin ON origin.connection_id=conn.id

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 260,
+  "expected_migration_version": 261,
   "migration_version_policy": "exact",
   "required_functions": [
     "project_calendar_mail_feed",

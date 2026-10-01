@@ -2,8 +2,10 @@
 
 # ruff: noqa: F811 -- imported pytest fixtures
 
+import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from uuid import uuid4
 
 import pytest
 from sqlalchemy import text
@@ -21,7 +23,7 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
     rows,
     sharing,
 )
-from tests.services.test_drive_sharing_store import request, review
+from tests.services.test_drive_sharing_store import MIGRATIONS, request, review
 
 
 def projection_store(store):
@@ -55,6 +57,78 @@ async def test_lists_are_bounded_metadata_only_and_do_not_decrypt(sharing, monke
     ] == "incoming"
     with pytest.raises(DriveSharingError, match="request_unavailable"):
         await store.request_status(user_id="unrelated", request_id=prepared["requestId"])
+
+
+@pytest.mark.asyncio
+async def test_chat_outgoing_status_is_requester_scoped_and_contains_no_private_request(sharing):
+    created = await request(sharing)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""CREATE TABLE actor_identity_cache (
+                user_id TEXT PRIMARY KEY, display_name TEXT, email TEXT
+            )""")
+        )
+        connection.execute(
+            text("""INSERT INTO actor_identity_cache(user_id,display_name,email)
+                VALUES ('owner','Manish Sainani','manish@example.invalid')""")
+        )
+        connection.execute(
+            text("""UPDATE drive_share_requests
+                SET preparation_error_code='background_preparation_required'
+                WHERE request_id=:id"""),
+            {"id": created["requestId"]},
+        )
+    store = projection_store(sharing)
+    file_only = await store.list_outgoing_for_chat(user_id="recipient")
+    assert len(file_only["items"]) == 1
+    assert file_only["items"][0]["requestType"] == "files"
+    assert file_only["hasMore"] is False
+
+    with sharing.db.engine.connect() as connection:
+        with connection.connection.driver_connection.cursor() as cursor:
+            cursor.execute((MIGRATIONS / "242_drive_live_query_requests.sql").read_text())
+        connection.commit()
+    question_id = str(uuid4())
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_live_query_requests
+                (request_id,user_id,requester_user_id,client_request_id,query_envelope,query_digest)
+                VALUES (:id,'owner','recipient',:client,CAST(:envelope AS jsonb),:digest)"""),
+            {
+                "id": question_id,
+                "client": str(uuid4()),
+                "envelope": '{"private_question":"Which statements do you have?"}',
+                "digest": "a" * 64,
+            },
+        )
+    result = await store.list_outgoing_for_chat(user_id="recipient", limit=1)
+    assert result["items"][0]["requestType"] == "question"
+    assert result["hasMore"] is True
+    result = await store.list_outgoing_for_chat(user_id="recipient")
+    assert result == {
+        "items": [
+            {
+                "person": "Manish Sainani",
+                "requestType": "question",
+                "status": "pending",
+                "sentAt": result["items"][0]["sentAt"],
+            },
+            {
+                "person": "Manish Sainani",
+                "requestType": "files",
+                "status": "pending",
+                "sentAt": result["items"][1]["sentAt"],
+            },
+        ],
+        "hasMore": False,
+    }
+    serialized = json.dumps(result)
+    assert "Private six-month statements" not in serialized
+    assert "Which statements do you have?" not in serialized
+    assert "background_preparation_required" not in serialized
+    assert created["requestId"] not in serialized
+    assert question_id not in serialized
+    assert (await store.list_outgoing_for_chat(user_id="unrelated"))["items"] == []
 
 
 @pytest.mark.asyncio

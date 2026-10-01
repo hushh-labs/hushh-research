@@ -149,7 +149,10 @@ def _canonical_row() -> dict[str, Any]:
     return {
         "connector_id": CONNECTOR_ID,
         "display_name": "Google Drive",
-        "description": "Choose selected-file or live Drive access. Connecting does not share files.",
+        "description": (
+            "Choose selected-file or live Drive access. Live access can share matching files "
+            "for Trusted Circle requests while background access is on."
+        ),
         "mcp_endpoint": DRIVE_BASE,
         "auth_style": "oauth",
         "oauth_authorize_url": AUTHORIZE_URL,

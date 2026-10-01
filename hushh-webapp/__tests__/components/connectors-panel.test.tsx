@@ -112,8 +112,8 @@ describe("supported connector catalog", () => {
     state.overview.mockReset().mockResolvedValue(overview());
     state.startOAuthConnect.mockReset();
     state.documents.mockReset().mockResolvedValue([]);
-    state.liveBackground.mockReset().mockResolvedValue(false);
-    state.setLiveBackground.mockReset().mockResolvedValue(undefined);
+    state.liveBackground.mockReset().mockResolvedValue(true);
+    state.setLiveBackground.mockReset().mockImplementation(async (_token: string, enabled: boolean) => enabled);
     state.push.mockReset();
     state.calendarRefresh.mockReset();
     state.calendarDisconnect.mockReset().mockResolvedValue({ connected: false, status: "disconnected" });
@@ -949,37 +949,70 @@ describe("supported connector catalog", () => {
       },
     });
     const openDrive = async () => {
-      render(panel());
+      const view = render(panel());
       // The row moves from Available to Connected once the overview arrives;
       // click the connected row, not the detached pre-overview one.
       await screen.findByRole("button", { name: "Disconnect Google Drive" });
       fireEvent.click(screen.getByRole("button", { name: "Google Drive" }));
+      return view;
     };
 
-    it("lets a live Drive owner turn on preparing requests while away", async () => {
+    it("explains default-on automatic Trusted Circle sharing before starting full Drive access", async () => {
+      state.overview.mockResolvedValue({
+        ...liveDrive(),
+        connectors: [{ ...liveDrive().connectors[0], status: "not_connected" }],
+      });
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "Review Google Drive access" }));
+      expect(state.startOAuthConnect).not.toHaveBeenCalled();
+      const drive = screen.getByRole("region", { name: "Google Drive" });
+      const disclosure = within(drive).getByText(/Full Drive access turns on background reads by default unless you turned them off/);
+      expect(disclosure).toBeVisible();
+      expect(within(drive).getByText(/send excerpts to Gemini, and share matching originals for document requests from accepted Trusted Circle members without asking again/)).toBeVisible();
+      expect(within(drive).getByText(/requester can open a file only after Google confirms access/)).toBeVisible();
+      expect(within(drive).getByText(/Turn background access off anytime; your choice is saved/)).toBeVisible();
+      const connect = within(drive).getByRole("button", { name: "Connect Drive" });
+      expect(connect).toBeEnabled();
+      expect(disclosure.compareDocumentPosition(connect) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    it("shows default-on background Drive access and lets its owner turn it off and on", async () => {
       state.overview.mockResolvedValue(liveDrive());
       await openDrive();
-      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
-      await waitFor(() => expect(toggle).toBeEnabled());
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByText(/On by default. One may read Drive files, send excerpts to Gemini/)).toBeInTheDocument();
+      expect(screen.getByText("On. Relevant work can continue while you’re away.")).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Retry Drive" })).not.toBeInTheDocument();
       expect(screen.getByText("Sharing and approval")).toBeInTheDocument();
-      expect(screen.getByText(/Sharing a file needs your approval or a document trust rule/)).toBeInTheDocument();
+      expect(screen.getByText(/Sharing a file needs your approval, document trust, or an accepted connection in your Trusted Circle/)).toBeInTheDocument();
       expect(state.liveBackground).toHaveBeenCalledWith("synthetic-owner-token");
-      fireEvent.click(screen.getByText("Background preparation"));
-      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-      expect(state.setLiveBackground).toHaveBeenCalledExactlyOnceWith("synthetic-owner-token", true);
-      expect(await screen.findByText("Background preparation enabled.")).toBeInTheDocument();
       fireEvent.click(toggle);
       await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "false"));
       expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", false);
+      expect(screen.getByText("Off. New automatic document requests wait until you turn this on.")).toBeInTheDocument();
+      expect(await screen.findByText("Background Drive access is off. New automatic document requests will wait.")).toBeInTheDocument();
+      fireEvent.click(toggle);
+      await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
+      expect(state.setLiveBackground).toHaveBeenLastCalledWith("synthetic-owner-token", true);
     });
 
-    it("keeps the toggle off and says so when the change fails", async () => {
+    it("reads a saved off choice after reopening Connections", async () => {
+      state.overview.mockResolvedValue(liveDrive());
+      state.liveBackground.mockResolvedValue(false);
+      const view = await openDrive();
+      expect(await screen.findByRole("switch", { name: "Background Drive access" })).toHaveAttribute("aria-checked", "false");
+      view.unmount();
+      await openDrive();
+      expect(await screen.findByRole("switch", { name: "Background Drive access" })).toHaveAttribute("aria-checked", "false");
+      expect(state.setLiveBackground).not.toHaveBeenCalled();
+    });
+
+    it("keeps the confirmed setting on when turning it off fails", async () => {
       state.overview.mockResolvedValue(liveDrive());
       state.setLiveBackground.mockRejectedValue(new Error("synthetic failure"));
       await openDrive();
-      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
+      const toggle = await screen.findByRole("switch", { name: "Background Drive access" });
       await waitFor(() => expect(toggle).toBeEnabled());
       fireEvent.click(toggle);
       expect(
@@ -987,18 +1020,19 @@ describe("supported connector catalog", () => {
           "Drive could not finish this action. Check the connection and try again.",
         ),
       ).toBeInTheDocument();
-      expect(toggle).toHaveAttribute("aria-checked", "false");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
     });
 
-    it("disables the toggle when the current setting cannot be read", async () => {
+    it("shows an unknown state and offers retry when the current setting cannot be read", async () => {
       state.overview.mockResolvedValue(liveDrive());
       state.liveBackground.mockRejectedValue(new Error("synthetic failure"));
       await openDrive();
-      const toggle = await screen.findByRole("switch", { name: "Background preparation" });
       await waitFor(() => expect(state.liveBackground).toHaveBeenCalled());
-      await act(async () => undefined);
-      expect(toggle).toBeDisabled();
-      fireEvent.click(toggle);
+      expect(await screen.findByRole("button", { name: "Retry setting" })).toBeEnabled();
+      expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
+      state.liveBackground.mockResolvedValue(true);
+      fireEvent.click(screen.getByRole("button", { name: "Retry setting" }));
+      expect(await screen.findByRole("switch", { name: "Background Drive access" })).toHaveAttribute("aria-checked", "true");
       expect(state.setLiveBackground).not.toHaveBeenCalled();
     });
 
@@ -1019,7 +1053,7 @@ describe("supported connector catalog", () => {
       await openDrive();
       await waitFor(() => expect(state.overview).toHaveBeenCalled());
       expect(await screen.findByRole("button", { name: "Enable full Drive access" })).toBeInTheDocument();
-      expect(screen.queryByRole("switch", { name: "Background preparation" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("switch", { name: "Background Drive access" })).not.toBeInTheDocument();
       expect(state.liveBackground).not.toHaveBeenCalled();
     });
   });

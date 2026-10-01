@@ -337,7 +337,6 @@ function UnlockedDocumentReview({
   const [findingSince, setFindingSince] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trustFuture, setTrustFuture] = useState(false);
-  const [backgroundEnabled, setBackgroundEnabled] = useState(false);
   // Files A left unticked for this review revision; every file starts selected.
   const [unselected, setUnselected] = useState<{ key: string; ids: string[] }>({
     key: "",
@@ -756,8 +755,7 @@ function UnlockedDocumentReview({
     snapshot?.status.direction === "incoming" &&
     review.status === "pending" &&
     !!review.preparationError &&
-    !(automaticSharing && backgroundEnabled) &&
-    !(review.trustedAuto && ["trusted_relationship_changed", "preparation_unavailable"].includes(review.preparationError));
+    !(review.trustedAuto && ["trusted_auto_queued", "trusted_auto_active", "trusted_relationship_changed", "preparation_unavailable"].includes(review.preparationError));
   const pendingOutcomes = !!snapshot?.delivery?.files.some(
     (file) =>
       IN_FLIGHT.has(file.status) || IN_FLIGHT.has(file.revocationStatus ?? ""),
@@ -890,7 +888,6 @@ function UnlockedDocumentReview({
       async (token, guard, report) => {
         await ExternalConnectorService.setLiveBackground(token, true);
         guard();
-        setBackgroundEnabled(true);
         onChanged();
         report.acknowledged();
         return load(token, guard, report);
@@ -902,7 +899,7 @@ function UnlockedDocumentReview({
   };
 
   const durableStatus = automaticSharing
-    ? review?.preparationError === "background_preparation_required" && !backgroundEnabled
+    ? review?.preparationError === "background_preparation_required"
       ? "Background Drive access needed"
       : bulkShare && ["queued", "running"].includes(bulkShare.status)
         ? "Sharing matching files"
@@ -1034,9 +1031,9 @@ function UnlockedDocumentReview({
           <Fact label="Share with" value={review.recipientEmail} />
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
-        {review.preparationError === "background_preparation_required" && !backgroundEnabled ? <div className="space-y-3">
-          <BodyText>This request is paused. Enable background Drive access to resume automatic sharing.</BodyText>
-          <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off in Connections.</HelperText>
+        {review.preparationError === "background_preparation_required" ? <div className="space-y-3">
+          <BodyText>Background Drive access is off. This request is paused and will resume automatically when you turn it on.</BodyText>
+          <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after Google Drive confirms access.</HelperText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
           Matching files are found and shared automatically. You can close this window; the requester sees each original only after Google Drive confirms access.

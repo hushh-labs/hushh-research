@@ -40,6 +40,9 @@ SELECTED_POLICY = {
     "maxSelection": MAX_SELECTION,
 }
 POLICY_HASH = hashlib.sha256(json.dumps(SELECTED_POLICY, sort_keys=True).encode()).hexdigest()
+# Keep this legacy verified policy identity stable for existing OAuth
+# connections. Its backgroundPreparation label predates the default-on,
+# owner-opt-out behavior now enforced by DriveLivePreferences.
 LIVE_POLICY = {
     "version": 1,
     "access": "live_drive",

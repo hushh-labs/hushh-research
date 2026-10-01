@@ -682,21 +682,23 @@ export class ExternalConnectorService {
   }
 
   static async liveBackground(vaultOwnerToken: string): Promise<boolean> {
-    const result = await readJsonOrThrow<{ enabled: boolean }>(
+    const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "GET",
         headers: authHeaders(vaultOwnerToken),
         cache: "no-store",
       }),
     );
-    return result.enabled === true;
+    if (typeof result.enabled !== "boolean")
+      throw new Error("Invalid background Drive access state");
+    return result.enabled;
   }
 
   static async setLiveBackground(
     vaultOwnerToken: string,
     enabled: boolean,
-  ): Promise<void> {
-    await readJsonOrThrow(
+  ): Promise<boolean> {
+    const result = await readJsonOrThrow<{ enabled: unknown }>(
       await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
         method: "POST",
         headers: {
@@ -706,6 +708,9 @@ export class ExternalConnectorService {
         body: JSON.stringify({ enabled, confirmed: true }),
       }),
     );
+    if (result.enabled !== enabled)
+      throw new Error("Background Drive access state was not confirmed");
+    return enabled;
   }
 
   static async removeDocument(

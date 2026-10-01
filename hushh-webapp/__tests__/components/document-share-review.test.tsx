@@ -201,7 +201,7 @@ describe("exact-file document review", () => {
       files: [{ position: 1, id: "drive-1", name: "Standup 1", mimeType: "application/vnd.google-apps.document", modifiedTime: null, openUrl: null }], nextCursor: null });
     state.prepareRequestBulk.mockResolvedValue(durableBulk());
     state.prepareRequestBatch.mockResolvedValue(durableBulk());
-    state.setLiveBackground.mockResolvedValue(undefined);
+    state.setLiveBackground.mockResolvedValue(true);
     state.bulkShareFiles.mockResolvedValue({ shareId: bulkShareId,
       files: [{ position: 1, name: "Standup 1", mimeType: "application/vnd.google-apps.document", modifiedTime: null, openUrl: null }], nextCursor: null });
     state.approveBulkShare.mockResolvedValue(durableBulk({ status: "queued", canApprove: false }));
@@ -792,18 +792,34 @@ describe("exact-file document review", () => {
   describe("durable request search and bulk sharing", () => {
     it("offers one-time background Drive setup for an automatic Trusted-circle request without manual approval", async () => {
       state.status.mockResolvedValue(pending());
-      state.review.mockResolvedValue(partial({ durableAvailable: true, trustedAuto: true,
-        search: null, bulkShare: null, preparationError: "background_preparation_required" }));
+      state.review.mockResolvedValueOnce(partial({ durableAvailable: true, trustedAuto: true,
+        search: null, bulkShare: null, preparationError: "background_preparation_required" }))
+        .mockResolvedValue(partial({ durableAvailable: true, trustedAuto: true,
+          search: null, bulkShare: null, preparationError: "trusted_auto_queued" }));
       render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
       const enable = await screen.findByRole("button", { name: "Enable background Drive access" });
-      expect(screen.getByText("This request is paused. Enable background Drive access to resume automatic sharing.")).toBeVisible();
+      expect(screen.getByRole("status")).toHaveTextContent("Background Drive access needed");
+      expect(screen.getByText("Background Drive access is off. This request is paused and will resume automatically when you turn it on.")).toBeVisible();
       expect(screen.getByText(/read relevant files and send excerpts to Gemini while you're away/)).toBeVisible();
       expect(state.startRequestSearch).not.toHaveBeenCalled();
       expect(screen.queryByRole("button", { name: /Review \d+ files/ })).toBeNull();
       expect(screen.queryByRole("button", { name: /Share \d+ files/ })).toBeNull();
       fireEvent.click(enable);
       await waitFor(() => expect(state.setLiveBackground).toHaveBeenCalledExactlyOnceWith("owner-a", true));
-      expect(screen.getByRole("status")).toHaveTextContent("Preparing automatic sharing");
+      await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Preparing automatic sharing"));
+      expect(screen.queryByRole("button", { name: "Enable background Drive access" })).toBeNull();
+    });
+
+    it("keeps a Trusted Circle request paused until the server confirms resumption", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, trustedAuto: true,
+        search: null, bulkShare: null, preparationError: "background_preparation_required" }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Enable background Drive access" }));
+      await waitFor(() => expect(state.review).toHaveBeenCalledTimes(2));
+      expect(screen.getByRole("status")).toHaveTextContent("Background Drive access needed");
+      expect(screen.getByRole("button", { name: "Enable background Drive access" })).toBeVisible();
+      expect(screen.queryByText("Matching files are found and shared automatically.", { exact: false })).toBeNull();
     });
 
     it("shows all confirmed automatic sharing outcomes instead of only the latest batch", async () => {

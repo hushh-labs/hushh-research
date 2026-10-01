@@ -64,6 +64,7 @@ from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleService,
 )
+from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 from hushh_mcp.services.information_request_service import (
     InformationRequestService,
 )
@@ -330,6 +331,15 @@ class TestRevokeAndCancelAreTargetable:
     were reachable in the contract and impossible to aim.
     """
 
+    @pytest.fixture(autouse=True)
+    def _drive_status(self):
+        with patch.object(
+            DriveSharingProjectionStore,
+            "list_outgoing_for_chat",
+            new=AsyncMock(return_value={"items": [], "hasMore": False}),
+        ) as listing:
+            yield listing
+
     @pytest.mark.asyncio
     async def test_active_grants_are_listed_as_words_with_opaque_handles(self):
         grants = [
@@ -401,6 +411,167 @@ class TestRevokeAndCancelAreTargetable:
         handles = state[action_tools._STATE_SENT_REQUEST_HANDLES]
         assert list(handles) == request_handles
         assert handles[request_handles[0]]["bundleId"] == "bundle_newest"
+
+    @pytest.mark.asyncio
+    async def test_pending_drive_request_is_reported_without_a_cancel_handle(self, _drive_status):
+        _drive_status.return_value = {
+            "items": [
+                {
+                    "person": "Manish Sainani",
+                    "requestType": "files",
+                    "status": "pending",
+                    "sentAt": "2026-09-30T03:08:00+05:30",
+                }
+            ],
+            "hasMore": False,
+        }
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=[])
+            ),
+        ):
+            result = await list_my_outgoing_information_requests(_ctx(state))
+        assert result["status"] == "ok"
+        assert result["requests"] == []
+        assert result["documentRequests"] == _drive_status.return_value["items"]
+        assert result["count"] == 1
+        assert "requestId" not in json.dumps(result["documentRequests"])
+        assert state[action_tools._STATE_SENT_REQUEST_HANDLES] == {}
+        _drive_status.assert_awaited_once_with(user_id="user_1")
+
+    @pytest.mark.asyncio
+    async def test_bounded_drive_question_list_does_not_claim_a_named_person_has_none(
+        self, _drive_status
+    ):
+        _drive_status.return_value = {
+            "items": [
+                {
+                    "person": None,
+                    "requestType": "question",
+                    "status": "pending",
+                    "sentAt": "2026-09-30T03:08:00+05:30",
+                }
+            ],
+            "hasMore": True,
+        }
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=[])
+            ),
+        ):
+            result = await list_my_outgoing_information_requests(_ctx(_state()))
+        assert result["documentRequestsHasMore"] is True
+        assert result["documentRequestsHaveUnknownPeople"] is True
+        assert "count" not in result
+        assert "do not claim there are no requests" in result["nextStep"]
+        assert "requestId" not in json.dumps(result["documentRequests"])
+
+    @pytest.mark.asyncio
+    async def test_information_request_page_reports_more_without_exposing_older_cancel_handles(
+        self, _drive_status
+    ):
+        sent = [
+            {"bundleId": f"bundle_{index}", "displayName": f"Person {index}"} for index in range(11)
+        ]
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=sent)
+            ) as list_outgoing,
+        ):
+            result = await list_my_outgoing_information_requests(_ctx(state))
+        list_outgoing.assert_awaited_once_with(requester_user_id="user_1", limit=11)
+        assert result["informationRequestsHasMore"] is True
+        assert len(result["requests"]) == 10
+        assert "count" not in result
+        assert "Person 10" not in json.dumps(result)
+        assert len(state[action_tools._STATE_SENT_REQUEST_HANDLES]) == 10
+        assert "bundle_10" not in str(state[action_tools._STATE_SENT_REQUEST_HANDLES])
+        _drive_status.assert_awaited_once_with(user_id="user_1")
+
+    @pytest.mark.asyncio
+    async def test_unresolved_information_person_cannot_support_named_no_request(
+        self, _drive_status
+    ):
+        sent = [
+            {"bundleId": "bundle_unknown", "displayName": "that person"},
+            {"bundleId": "bundle_known", "displayName": "Grace"},
+        ]
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=sent)
+            ),
+        ):
+            result = await list_my_outgoing_information_requests(_ctx(_state()))
+        assert result["status"] == "ok"
+        assert result["informationRequestsHasMore"] is False
+        assert result["informationRequestsHaveUnknownPeople"] is True
+        assert [row["person"] for row in result["requests"]] == [None, "Grace"]
+        assert "informationRequestsHaveUnknownPeople" in result["nextStep"]
+        assert "do not claim there are no requests" in result["nextStep"]
+        _drive_status.assert_awaited_once_with(user_id="user_1")
+
+    @pytest.mark.asyncio
+    async def test_drive_outage_never_claims_zero_and_does_not_block_information_cancel(
+        self, _drive_status
+    ):
+        _drive_status.side_effect = RuntimeError("synthetic Drive read unavailable")
+        state = {
+            **_state(),
+            action_tools._STATE_TYPED_CHAT_CONTEXT: True,
+            action_tools._STATE_VOICE_CONTEXT: {
+                "screen": "app",
+                "available_action_ids": [],
+                "executable_action_ids": [],
+            },
+        }
+        sent = [{"bundleId": "bundle_newest", "displayName": "Sarah Chen", "sentAt": "2026-09-30"}]
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=sent)
+            ),
+        ):
+            listing = await list_my_outgoing_information_requests(_ctx(state))
+            cancellation = await action_tools.run_app_action(
+                "consent.cancel_request", {}, _ctx(state)
+            )
+        assert listing["status"] == "partial"
+        assert "count" not in listing
+        assert "Drive" in listing["message"]
+        assert cancellation["status"] == "confirm_pending"
+        assert cancellation["directive"]["slots"]["bundleId"] == "bundle_newest"
+        _drive_status.assert_awaited_once_with(user_id="user_1")
+
+    @pytest.mark.asyncio
+    async def test_drive_only_request_is_not_an_information_cancel_target(self, _drive_status):
+        _drive_status.return_value = {
+            "items": [{"person": "Manish Sainani", "status": "pending", "sentAt": "2026-09-30"}],
+            "hasMore": False,
+        }
+        state = {
+            **_state(),
+            action_tools._STATE_TYPED_CHAT_CONTEXT: True,
+            action_tools._STATE_VOICE_CONTEXT: {
+                "screen": "app",
+                "available_action_ids": [],
+                "executable_action_ids": [],
+            },
+        }
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=[])
+            ),
+        ):
+            result = await action_tools.run_app_action("consent.cancel_request", {}, _ctx(state))
+        assert result["status"] == "no_request_to_cancel"
+        _drive_status.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_grant_handles_survive_reordering(self):
@@ -493,7 +664,7 @@ class TestRevokeAndCancelAreTargetable:
         assert result["status"] == "confirm_pending"
         assert result["directive"]["slots"]["bundleId"] == "bundle_newest"
         assert result["directive"]["slots"]["displayName"] == "Sarah Chen"
-        list_outgoing.assert_awaited_once_with(requester_user_id="user_1")
+        list_outgoing.assert_awaited_once_with(requester_user_id="user_1", limit=11)
 
     def test_chat_lifecycle_actions_remain_reachable_without_screen_inventory(self):
         for action_id in CONSENT_LIFECYCLE_IDS - {"consent.request"}:

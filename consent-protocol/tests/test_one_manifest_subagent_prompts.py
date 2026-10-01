@@ -33,6 +33,13 @@ def test_consent_routing_is_not_reauthored_by_runtime_instruction():
     assert 'ask_consent_agent with target "connections"' in authored
     assert "Do not hand consent questions to a specialist" in authored
     assert 'run_app_action("consent.cancel_request", {})' in authored
+    assert "Drive file and Drive question requests" in authored
+    assert "documentRequestsHasMore" in authored
+    assert "informationRequestsHasMore" in authored
+    assert "informationRequestsHaveUnknownPeople" in authored
+    assert "documentRequestsHaveUnknownPeople" in authored
+    assert "It lists information, Drive file and Drive question requests" in authored
+    assert "say X's status is unknown, never claim none" in authored
 
 
 def test_one_chat_receives_authored_cross_connector_semantic_policy():

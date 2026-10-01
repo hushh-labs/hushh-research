@@ -304,9 +304,15 @@ async def test_trusted_auto_progress_never_claims_owner_attention(sharing, reque
             text("INSERT INTO one_location_circle_memberships VALUES (:id,'recipient','active')"),
             {"id": circle_id},
         )
-    await DriveLivePreferences(db=sharing.db).set_background(
-        user_id="owner", enabled=True, confirmed=True
-    )
+    # An absent preference is the default-on state for a verified live Drive
+    # connection; the projection must agree with the worker authority check.
+    with sharing.db.engine.connect() as connection:
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM drive_live_preferences WHERE user_id='owner'")
+            ).scalar_one()
+            == 0
+        )
     with sharing.db.engine.begin() as connection:
         connection.execute(
             text(
