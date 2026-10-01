@@ -71,8 +71,57 @@ async def issue_session_token(
 
     try:
         # Issue token with session scope
-        # Issue token with session scope
-        # If request asks for "session", grant VAULT_OWNER (Master Scope)
+        # If request asks for "session", grant VAULT_OWNER (Master Scope).
+        # SECURITY FIX (S01): VAULT_OWNER requires the caller to prove they
+        # successfully unlocked the vault by providing a passphraseProof —
+        # the hex-encoded SHA-256 of the vault key derived client-side via
+        # PBKDF2 + AES-GCM decryption of the stored passphrase wrapper.
+        # We compare it (constant-time) against vault_keys.vault_key_hash.
+        # If no vault state exists yet (first setup) the proof is still
+        # required so the client must complete vault setup before calling
+        # this endpoint.
+        if request.scope == "session":
+            if not request.passphraseProof:
+                logger.warning("session_token.missing_passphrase_proof user=%s", request.userId)
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_PROOF_REQUIRED",
+                        "message": (
+                            "Vault master access requires passphrase or hardware-key "
+                            "verification. Supply passphraseProof."
+                        ),
+                    },
+                )
+
+            vault_state = await VaultKeysService().get_vault_state(request.userId)
+            if not vault_state:
+                logger.warning("session_token.vault_not_set_up user=%s", request.userId)
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_NOT_SET_UP",
+                        "message": "Vault is not set up. Complete vault setup before unlocking.",
+                    },
+                )
+
+            stored_hash = vault_state.get("vaultKeyHash", "")
+            # Constant-time comparison prevents timing side-channel attacks.
+            if not stored_hash or not hmac.compare_digest(
+                request.passphraseProof.lower().strip(),
+                stored_hash.lower().strip(),
+            ):
+                logger.warning("session_token.invalid_passphrase_proof user=%s", request.userId)
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_PROOF_INVALID",
+                        "message": "Passphrase or hardware-key verification failed.",
+                    },
+                )
+
+            logger.info("session_token.passphrase_proof_verified user=%s", request.userId)
+
         scope_to_grant = (
             ConsentScope.VAULT_OWNER if request.scope == "session" else ConsentScope(request.scope)
         )

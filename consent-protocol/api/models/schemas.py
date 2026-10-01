@@ -98,13 +98,32 @@ class DataAccessResponse(BaseModel):
 
 
 class SessionTokenRequest(BaseModel):
-    """Request to issue a session token."""
+    """Request to issue a session token.
+
+    When scope is "session" (VAULT_OWNER), the caller MUST supply
+    passphraseProof: a hex-encoded SHA-256 hash of the vault key that
+    was derived client-side via PBKDF2 + AES-GCM decryption of the
+    stored passphrase wrapper.  The backend compares this proof against
+    the vault_key_hash stored in the vault_keys table.  Requests that
+    omit the proof or supply a mismatching proof are rejected with 403.
+    """
 
     userId: str = Field(..., min_length=1, max_length=128)
     scope: str = Field(
         default="session",
         min_length=1,
         max_length=64,
+    )
+    # Hex-encoded SHA-256 of the client-derived vault key.
+    # Required when scope == "session" (VAULT_OWNER elevation).
+    passphraseProof: Optional[str] = Field(
+        default=None,
+        min_length=64,
+        max_length=64,
+        description=(
+            "Hex-encoded SHA-256 of the vault key derived client-side. "
+            "Required for VAULT_OWNER (scope='session') token issuance."
+        ),
     )
 
 
