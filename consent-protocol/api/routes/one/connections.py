@@ -89,7 +89,10 @@ class ContactSyncBody(BaseModel):
 
 
 @router.get("/connections/directory")
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ_DAILY)
+@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
 def connections_directory(
+    request: Request,
     # Bounded like the information-scope search below it. A name is short; an
     # unbounded query string is just an unbounded LIKE pattern to build.
     query: str = Query(default="", max_length=160),
@@ -100,6 +103,7 @@ def connections_directory(
     audience: str = Query(default="all", pattern="^(all|people|ria)$"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    del request
     try:
         return _service().search_directory(
             firebase_uid, query=query, page=page, limit=limit, audience=audience

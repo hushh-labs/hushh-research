@@ -51,6 +51,10 @@ export type PkmSaveReceipt = {
   unchanged: number;
   /** Sections or statements the agents judged not to be facts (disclaimers, unknowns). */
   skipped: number;
+  /** Credentials and reserved information are deliberately never written. */
+  excluded: number;
+  /** Proposed details from degraded previews are not safe to write. */
+  unreadable: number;
   needsOwner: number;
   failed: number;
   /** Source sections that could not be prepared (timeout or provider failure). */
@@ -67,6 +71,7 @@ export type ExplicitSavePartition = {
   /** From a section whose preparation degraded (timeout, fallback): never saved, never "skipped". */
   unreadable: AgentPkmPreviewCard[];
   skipped: AgentPkmPreviewCard[];
+  excluded: AgentPkmPreviewCard[];
 };
 
 function cardDomain(card: AgentPkmPreviewCard): string {
@@ -85,7 +90,7 @@ function itemText(card: AgentPkmPreviewCard): string {
 
 export function emptyPkmSaveReceipt(): PkmSaveReceipt {
   return {
-    saved: 0, updated: 0, merged: 0, unchanged: 0, skipped: 0,
+    saved: 0, updated: 0, merged: 0, unchanged: 0, skipped: 0, excluded: 0, unreadable: 0,
     needsOwner: 0, failed: 0, unprepared: 0, domains: [], items: [],
   };
 }
@@ -128,19 +133,20 @@ export function buildPkmSaveReceipt(params: {
     });
   }
   receipt.skipped += params.partition.skipped.length;
+  receipt.excluded += params.partition.excluded.length;
+  receipt.unreadable += params.partition.unreadable.length;
   receipt.unchanged += params.partition.known.length;
   for (const block of params.coverage) {
     receipt.unchanged += block.duplicateCount ?? 0;
-    // A degraded section is unread even when it returned cards.
-    if (block.preparationIssue) {
+    // A degraded or partially accounted section is unresolved even if it
+    // returned some cards that were independently safe to save.
+    if (block.preparationIssue || block.disposition === "failed" ||
+      block.detectedFactCount !== block.accountedFactCount) {
       receipt.unprepared += 1;
       continue;
     }
     if (block.accountedFactCount > 0) continue;
     if (block.disposition === "intentionally_ignored") receipt.skipped += 1;
-    else if (block.preparationIssue || block.disposition === "failed" || block.disposition === "review_required") {
-      receipt.unprepared += 1;
-    }
   }
   receipt.domains = [...domains.values()].sort(
     (left, right) =>
@@ -161,11 +167,13 @@ export function describePkmSaveReceipt(receipt: PkmSaveReceipt): string {
   if (receipt.updated) parts.push(`updated ${receipt.updated}`);
   if (receipt.merged) parts.push(`merged ${receipt.merged}`);
   if (receipt.unchanged) parts.push(`${receipt.unchanged} already known`);
-  if (receipt.skipped) parts.push(`skipped ${receipt.skipped} (not facts)`);
+  if (receipt.skipped) parts.push(`${receipt.skipped} left out as non-facts`);
+  if (receipt.excluded) parts.push(`${receipt.excluded} excluded for safety`);
+  if (receipt.unreadable) parts.push(`${receipt.unreadable} details from degraded previews not saved`);
   if (receipt.needsOwner) parts.push(`${receipt.needsOwner} need your OK`);
   if (receipt.failed) parts.push(`${receipt.failed} couldn’t save`);
   if (receipt.unprepared) {
-    parts.push(`${receipt.unprepared} ${receipt.unprepared === 1 ? "section" : "sections"} couldn’t be read`);
+    parts.push(`${receipt.unprepared} ${receipt.unprepared === 1 ? "section" : "sections"} incomplete`);
   }
   if (!parts.length) return "Nothing in that message needed saving.";
   const line = parts.join(", ");
@@ -187,10 +195,12 @@ export function formatPkmSaveReceiptForAgent(receipt: PkmSaveReceipt): string {
     `${receipt.updated} updated (earlier values kept in history)`,
     `${receipt.merged} merged into existing details`,
     `${receipt.unchanged} already known`,
-    `${receipt.skipped} skipped as not facts`,
+    `${receipt.skipped} left out as non-facts`,
+    `${receipt.excluded} excluded for safety`,
+    `${receipt.unreadable} details from degraded previews not saved`,
     `${receipt.needsOwner} waiting for the person's direct OK`,
     `${receipt.failed} failed`,
-    `${receipt.unprepared} sections not read`,
+    `${receipt.unprepared} sections incomplete`,
   ].join(", ");
   return [
     "LATEST MEMORY SAVE RECEIPT (from the person's device, confirmed by committed revisions):",

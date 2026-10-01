@@ -4,6 +4,8 @@ import { useState, type ReactNode } from "react";
 
 import { CaretDownIcon, MemoryAgentIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { describeOwnerMemoryReview } from "@/lib/agent/agent-pkm-explicit-save";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import {
   pkmSaveReceiptWrote,
   type PkmSaveReceipt,
@@ -34,10 +36,14 @@ function plural(count: number, one: string, many: string): string {
 }
 
 function title(receipt: PkmSaveReceipt): string {
-  if (pkmSaveReceiptWrote(receipt) > 0) return "Saved to Memory";
-  if (receipt.unchanged > 0 && receipt.failed === 0 && receipt.unprepared === 0) return "Already in Memory";
-  if (receipt.needsOwner > 0 && receipt.failed === 0) return "Waiting for your OK";
-  if (receipt.failed > 0 || receipt.unprepared > 0) return "Couldn’t save to Memory";
+  if (pkmSaveReceiptWrote(receipt) > 0) {
+    return receipt.failed || receipt.unprepared || receipt.unreadable || receipt.excluded || receipt.needsOwner
+      ? "Partly saved to Memory"
+      : "Saved to Memory";
+  }
+  if (receipt.unchanged > 0 && receipt.failed === 0 && receipt.unprepared === 0 && receipt.unreadable === 0 && receipt.excluded === 0) return "Already in Memory";
+  if (receipt.needsOwner > 0 && receipt.failed === 0 && receipt.unprepared === 0 && receipt.unreadable === 0 && receipt.excluded === 0) return "Waiting for your OK";
+  if (receipt.failed > 0 || receipt.unprepared > 0 || receipt.unreadable > 0 || receipt.excluded > 0) return "Couldn’t save everything";
   return "Nothing to save";
 }
 
@@ -46,8 +52,10 @@ function footnotes(receipt: PkmSaveReceipt): string[] {
   if (receipt.unchanged) notes.push(`${plural(receipt.unchanged, "detail was", "details were")} already in Memory.`);
   if (receipt.failed) notes.push(`${plural(receipt.failed, "detail", "details")} couldn’t be saved.`);
   if (receipt.unprepared) {
-    notes.push(`${plural(receipt.unprepared, "section", "sections")} couldn’t be read, so nothing from ${receipt.unprepared === 1 ? "it" : "them"} was saved.`);
+    notes.push(`${plural(receipt.unprepared, "section", "sections")} may have missing details. Review the original text and retry.`);
   }
+  if (receipt.unreadable) notes.push(`${plural(receipt.unreadable, "detail", "details")} from an incomplete review were not saved.`);
+  if (receipt.excluded) notes.push(`${plural(receipt.excluded, "detail was", "details were")} excluded for safety.`);
   if (receipt.updated) notes.push("Earlier values are kept in your history.");
   return notes;
 }
@@ -71,24 +79,31 @@ export function AgentMemorySaveCard({
   memoryHref,
   renderLink,
   onConfirmNeedsOwner,
+  pendingCards = [],
+  canConfirmNeedsOwner = false,
 }: {
   receipt: PkmSaveReceipt;
   memoryHref: string;
   /** The host's router link; a plain anchor is used when absent. */
   renderLink?: (props: { href: string; className: string; children: string }) => ReactNode;
-  onConfirmNeedsOwner?: () => Promise<void>;
+  onConfirmNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
+  /** Full proposed details, held only in this unlocked chat session. */
+  pendingCards?: readonly AgentPkmPreviewCard[];
+  canConfirmNeedsOwner?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [confirmError, setConfirmError] = useState(false);
+  const reviewComplete = pendingCards.length === receipt.needsOwner &&
+    pendingCards.every((card) => describeOwnerMemoryReview(card) !== null);
   const notes = footnotes(receipt);
   const linkClass =
     "inline-flex min-h-12 items-center text-sm font-medium text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
   const confirm = async () => {
-    if (!onConfirmNeedsOwner) return;
+    if (!onConfirmNeedsOwner || !canConfirmNeedsOwner || !reviewComplete) return;
     setConfirming(true);
     setConfirmError(false);
     try {
-      await onConfirmNeedsOwner();
+      await onConfirmNeedsOwner(pendingCards);
     } catch {
       setConfirmError(true);
     } finally {
@@ -96,7 +111,7 @@ export function AgentMemorySaveCard({
     }
   };
   return (
-    <section aria-label="Memory save" className={`${SURFACE} flex flex-col gap-3`} data-testid="memory-save-card">
+    <section aria-label="Memory save" className={`${SURFACE} motion-step-enter flex flex-col gap-3`} data-testid="memory-save-card">
       <header className="flex h-6 items-center gap-2">
         <MemoryAgentIcon size={20} aria-hidden="true" className="shrink-0" />
         <p className="text-sm font-semibold leading-6" role="status">
@@ -117,6 +132,16 @@ export function AgentMemorySaveCard({
         ))}
       </dl>
 
+      {receipt.domains.length ? (
+        <div className="flex flex-wrap gap-1.5" aria-label="Categories saved" data-testid="memory-save-categories">
+          {receipt.domains.map((domain) => (
+            <span key={domain.domain} className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+              {domain.label} <span className="tabular-nums">{domain.saved + domain.updated + domain.merged}</span>
+            </span>
+          ))}
+        </div>
+      ) : null}
+
       {notes.length ? (
         <ul className="flex flex-col gap-1 text-xs leading-4 text-foreground/70" data-testid="memory-save-notes">
           {notes.map((note) => (
@@ -128,16 +153,45 @@ export function AgentMemorySaveCard({
       {receipt.needsOwner > 0 ? (
         <div className={`${INSET} flex flex-col gap-2 p-3`} data-testid="memory-save-needs-owner">
           <p className="text-sm leading-5">
-            {plural(receipt.needsOwner, "detail needs", "details need")} your direct OK before saving: an identity
-            number, or something you already share with someone.
+            Review {plural(receipt.needsOwner, "detail", "details")} before saving.
           </p>
+          {pendingCards.length ? (
+            <div className="max-h-56 overflow-y-auto rounded-lg bg-[color:var(--app-card-surface-data)] p-2" data-testid="memory-save-owner-review">
+              <ul className="space-y-2">
+                {pendingCards.map((card) => {
+                  const review = describeOwnerMemoryReview(card);
+                  return (
+                    <li key={card.card_id} className="break-words rounded-md bg-background p-2 text-xs leading-5">
+                      <p>{card.source_text}</p>
+                      {review ? (
+                        <>
+                          <p className="mt-2 font-medium">{review.destination}</p>
+                          <p className="mt-2 font-medium">Proposed details</p>
+                          <pre className="whitespace-pre-wrap break-all font-mono text-[11px]">{review.proposedPayload}</pre>
+                          {review.recipientLabels.length > 0 ? (
+                            <p className="mt-2 font-medium text-destructive">
+                              This change enters the next shared export for: {review.recipientLabels.join(", ")}.
+                            </p>
+                          ) : null}
+                        </>
+                      ) : (
+                        <p className="mt-2 text-destructive">The proposed change or affected people could not be verified. Prepare this detail again before saving.</p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">This review is no longer available in this chat session. Ask One to retry the save.</p>
+          )}
           {confirmError ? (
             <p className="text-xs leading-4 text-destructive" role="alert">
               That didn’t save. Nothing changed. Try again.
             </p>
           ) : null}
-          {onConfirmNeedsOwner ? (
-            <Button size="standard" onClick={() => void confirm()} isLoading={confirming} disabled={confirming}>
+          {onConfirmNeedsOwner && pendingCards.length > 0 ? (
+            <Button size="standard" onClick={() => void confirm()} isLoading={confirming} disabled={confirming || !canConfirmNeedsOwner || !reviewComplete}>
               {`Save ${receipt.needsOwner === 1 ? "it" : `these ${receipt.needsOwner}`} too`}
             </Button>
           ) : null}

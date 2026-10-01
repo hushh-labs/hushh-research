@@ -3241,7 +3241,6 @@ class ConnectionsService:
                 # person is findable comes down to which branch a deployment
                 # happened to take.
                 needle = normalize_directory_name(needle)
-                compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
                     rank: int | None = directory_name_rank(
@@ -3249,10 +3248,6 @@ class ConnectionsService:
                     )
                     if rank is not None:
                         return rank
-                    email = str(person.get("email") or "").strip().lower()
-                    compact_email = "".join(char for char in email if char.isalnum())
-                    if compact_needle and compact_email.startswith(compact_needle):
-                        return 3
                     return None
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]

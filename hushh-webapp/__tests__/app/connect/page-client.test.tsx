@@ -1302,7 +1302,7 @@ describe("Connect — People", () => {
   it("reads the directory selector, then instruction, then the search field", async () => {
     // QA, on a phone: "people ke neeche supporting line is search by name, but
     // search bar upar hai". The field was rendered ABOVE the "People" heading,
-    // so the sentence telling you how to use it ("Search by name.") appeared
+    // so the sentence telling you how to use it appeared
     // UNDERNEATH the box it was instructing -- pointing backwards at a control
     // the reader had already scrolled past -- and the field itself arrived
     // before anything on screen had said what it searched.
@@ -1907,12 +1907,7 @@ describe("Connect — People", () => {
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("offers the duplicates to choose from, captioned the way the list captions them", async () => {
-    // The directory usually returns masked variants rather than a raw address,
-    // which is why the card first shipped saying "No other details" about rows
-    // the list right behind it was captioning correctly. That caption is the
-    // ONLY thing telling two identical names apart, so losing it turns the
-    // picker back into the dead end it exists to remove.
+  it("keeps directory rows name-only while preserving duplicate disambiguation", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [
         {
@@ -1933,6 +1928,11 @@ describe("Connect — People", () => {
     });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const directory = screen.getByTestId("connect-directory-group");
+    expect(within(directory).getAllByText("Ankit Kumar Singh")).toHaveLength(2);
+    expect(within(directory).queryByText("a***t@hushh.ai")).toBeNull();
+    expect(within(directory).queryByText("a***3@gmail.com")).toBeNull();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });

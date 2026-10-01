@@ -679,11 +679,12 @@ function KaiOnboardingPageContent({
               />
             ) : null
           }
-          // Back returns to the hub but retains the active task. Only the
-          // explicit terminal Skip action may clear it.
+          // Finance is an optional re-entry from One, not a step that sends an
+          // established owner back through the root setup hub. Keep the active
+          // task intact; only the explicit Skip action may clear it.
           onBack={() => {
             if (user && isStaticFinanceSetupRoute) {
-              router.replace(ROUTES.ONE_SETUP);
+              router.replace(ROUTES.ONE_HOME);
               return;
             }
             router.replace(buildOneSetupRoute({ from: onboardingFromHref }));

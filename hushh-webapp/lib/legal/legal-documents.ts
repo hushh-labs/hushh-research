@@ -47,6 +47,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-09-27";
 const LAST_UPDATED_LABEL = "September 27, 2026";
 const VERSION = "2.1";
+const PRIVACY_LAST_UPDATED = "2026-09-30";
+const PRIVACY_LAST_UPDATED_LABEL = "September 30, 2026";
+const PRIVACY_VERSION = "2.2";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -362,7 +365,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
       list(
         "Receipts of the preference subscriptions you granted to or revoked from businesses, including your account identifier, the business, the fields, and the purpose, because they form a tamper-evident ledger.",
         "A one-way code derived from your account identifier, so a deleted account cannot be silently recreated or restored.",
-        "Database backups, which expire on their own schedule. Deleted information remains in backups until they expire.",
+        "Database backups. Automated backups rotate on their configured schedule. Manually created backups may remain until an authorized operator deletes them. Deleted information can remain in those backups until they are removed.",
       ),
       p(
         "Deleting your account cannot recall what you already shared with others, such as information a recipient already saw, emails sent to your emergency contacts, or files One shared for you in Google Drive.",
@@ -702,9 +705,9 @@ export const LEGAL_DOCUMENTS: Record<LegalDocumentType, LegalDocument> = {
     type: "privacy",
     title: "Privacy Policy",
     route: "/privacy",
-    version: VERSION,
-    lastUpdated: LAST_UPDATED,
-    lastUpdatedLabel: LAST_UPDATED_LABEL,
+    version: PRIVACY_VERSION,
+    lastUpdated: PRIVACY_LAST_UPDATED,
+    lastUpdatedLabel: PRIVACY_LAST_UPDATED_LABEL,
     summary:
       "How Hussh One, your private agent, collects, protects, uses, and shares your information, and the choices you have.",
     sections: PRIVACY_SECTIONS,

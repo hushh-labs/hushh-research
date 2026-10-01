@@ -24,6 +24,40 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
+        // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
+        // credentials, or account mutation. It exercises the installed local
+        // build through the same controls a signed-in person sees.
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in live-session check; requires an already unlocked local app")
+        }
+        let app = XCUIApplication()
+        // Attach to the owner's already-open local session. A cold launch
+        // intentionally locks the vault and would turn this into a reviewer
+        // credential test rather than a live-device interaction check.
+        app.activate()
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 60), "Local app WebView did not load")
+        let open = webView.buttons.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Open chat history"
+        )).firstMatch
+        // The owner may unlock manually while automation waits; no passphrase
+        // is read from a file, argument, or test log.
+        if !open.waitForExistence(timeout: 120) {
+            let vaultLockVisible = webView.buttons["Unlock"].exists
+            XCTFail("Signed-in Chat did not load from the local build. Vault lock visible: \(vaultLockVisible)")
+            return
+        }
+        open.tap()
+        let close = app.buttons.matching(NSPredicate(
+            format: "label == %@", "Close chat history"
+        )).firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "Chat drawer cannot be closed")
+        close.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "Chat page did not resume after closing the drawer")
+    }
+
     func testAccountNotFoundRecoveryReturnsToLogin() throws {
         // Public recovery smoke: no reviewer fixture, credentials, or account
         // mutation. Unit/integration tests own the trusted deletion signal.

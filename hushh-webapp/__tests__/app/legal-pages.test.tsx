@@ -134,6 +134,12 @@ describe("Privacy Policy and Terms of Use pages", () => {
     }
   });
 
+  it("does not promise automatic expiry for manually created backups", () => {
+    const privacy = plainText(LEGAL_DOCUMENTS.privacy);
+    expect(privacy).toContain("Manually created backups may remain until an authorized operator deletes them.");
+    expect(privacy).not.toContain("Database backups, which expire on their own schedule.");
+  });
+
   it("are reachable from sign-in as plain links, never an in-app popup", () => {
     const auth = read("components/onboarding/AuthStep.tsx");
     expect(auth).toContain("href={ROUTES.TERMS}");

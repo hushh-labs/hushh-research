@@ -1877,13 +1877,15 @@ def test_search_directory_fallback_folds_separators_like_the_sql_path():
     assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
 
 
-def test_search_directory_fallback_can_match_an_eligible_email_handle_without_exposing_it():
+def test_search_directory_fallback_does_not_match_private_contact_identifiers():
     svc = _svc()
     svc._directory_lookup = lambda owner_user_id: [
         {
             "userId": "user-c",
-            "displayName": None,
+            "displayName": "Kushal",
             "email": "kushaltrivedi54@gmail.com",
+            "phoneNumber": "+1 (555) 010-0002",
+            "phoneVerified": True,
         },
         {
             "userId": "user-d",
@@ -1893,9 +1895,13 @@ def test_search_directory_fallback_can_match_an_eligible_email_handle_without_ex
     ]
     db = _RecordingDB([[], [], []])
     with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
-        out = svc.search_directory("user-a", query="kushal trivedi", page=1, limit=20)
+        name = svc.search_directory("user-a", query="Kushal", page=1, limit=20)
+        email = svc.search_directory("user-a", query="kushaltrivedi54@gmail.com")
+        phone = svc.search_directory("user-a", query="+1 555 010 0002")
 
-    assert [item["userId"] for item in out["items"]] == ["user-c"]
+    assert [item["userId"] for item in name["items"]] == ["user-c"]
+    assert email["items"] == []
+    assert phone["items"] == []
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():

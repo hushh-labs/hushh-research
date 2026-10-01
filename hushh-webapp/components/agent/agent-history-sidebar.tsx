@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState, type ReactNode } from "react";
+import { FormEvent, useMemo, useState, type ReactNode } from "react";
 import {
   Unplug as PlugIcon,
   CheckIcon as Check,
@@ -202,11 +202,6 @@ export function AgentHistorySidebar({
   const [deleteTarget, setDeleteTarget] = useState<AgentChatConversation | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const renamingConversation = useMemo(
-    () => conversations.find((conversation) => conversation.id === renamingId) || null,
-    [conversations, renamingId]
-  );
-
   const trimmedQuery = searchQuery.trim().toLowerCase();
 
   const filteredConversations = useMemo(() => {
@@ -238,11 +233,6 @@ export function AgentHistorySidebar({
     }));
   }, [filteredConversations]);
 
-  useEffect(() => {
-    if (!renamingConversation) return;
-    setRenameValue(displayConversationLabel(renamingConversation));
-  }, [renamingConversation]);
-
   const startRename = (conversation: AgentChatConversation) => {
     setRenamingId(conversation.id);
     setRenameValue(displayConversationLabel(conversation));
@@ -258,8 +248,13 @@ export function AgentHistorySidebar({
     if (!renamingId) return;
     const nextTitle = normalizeTitle(renameValue);
     if (!nextTitle) return;
-    await onRenameConversation(renamingId, nextTitle);
-    cancelRename();
+    try {
+      await onRenameConversation(renamingId, nextTitle);
+      cancelRename();
+    } catch {
+      // The owning workspace reports the error. Preserve the editor and its
+      // typed value so a transient failure can be retried without retyping.
+    }
   };
 
   const confirmDelete = () => {
@@ -355,7 +350,7 @@ export function AgentHistorySidebar({
         ) : (
           // Title, time and the actions control sit on one line, as in the
           // reference: the time stays put and the dots appear beside it.
-          <div className={cn("relative flex min-w-0 items-center", isMobileMode ? "pr-1" : "group-hover:pr-1 group-focus-within:pr-1")}>
+          <div className="relative flex min-w-0 items-center pr-1">
             <button
               type="button"
               className={cn(
@@ -377,11 +372,10 @@ export function AgentHistorySidebar({
                 <span
                   className={cn(
                     "shrink-0 text-[12.5px] tabular-nums font-normal text-[color:var(--one-chat-meta)]",
-                    // Desktop shows a row's age only on hover or focus (and
-                    // while its menu is open), and until then it takes no
-                    // room, so the title runs the full row. Touch keeps it.
+                    // Reserve the timestamp width even when visually hidden.
+                    // Inserting it only on hover made the title jump sideways.
                     !isMobileMode &&
-                      "hidden group-hover:inline group-focus-within:inline group-has-[[data-state=open]]:inline",
+                      "opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-state=open]]:opacity-100",
                   )}
                 >
                   {timeLabel}
@@ -391,12 +385,12 @@ export function AgentHistorySidebar({
 
             <div
               className={cn(
-                "shrink-0",
+                "w-8 shrink-0",
                 // Touch keeps it visible; desktop reveals it with the time,
                 // on hover or keyboard focus (focusing the row shows it before
                 // Tab reaches it), and holds it while the menu is open.
                 !isMobileMode && !pending &&
-                  "hidden group-hover:block group-focus-within:block group-has-[[data-state=open]]:block",
+                  "opacity-0 transition-opacity motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 group-has-[[data-state=open]]:opacity-100",
               )}
             >
               {pending ? (

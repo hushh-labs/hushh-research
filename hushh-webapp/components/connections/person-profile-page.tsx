@@ -762,6 +762,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               </StatusPill>
             </div>
           ) : null}
+          {viewerProfile?.relationship.status === "connected" && viewerProfile.contactEmail ? (
+            <a className="mt-2 block break-all text-center text-sm text-muted-foreground hover:underline" href={`mailto:${viewerProfile.contactEmail}`}>
+              {viewerProfile.contactEmail}
+            </a>
+          ) : null}
           <div className={styles.actions} aria-label="Relationship actions">
             {viewerProfile ? (
               <Button type="button" variant="blue-gradient" effect="fill" className={styles.request} onClick={() => availableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>

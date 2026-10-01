@@ -292,12 +292,14 @@ for (const width of [390, 768, 1440])
     const height = 720;
     await page.setViewportSize({ width, height });
     await mountAppChrome(page, barHeight);
+    const bottomBarBefore = await page.locator("[data-fixture-bottom-bar]").boundingBox();
     await page.getByRole("button", { name: "Open drawer", exact: true }).click();
     const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
     const panel = chats.locator("aside");
     await expect(panel).toBeVisible();
     // Let the slide-in settle before measuring geometry.
     await expect.poll(async () => (await chats.boundingBox())!.x).toBe(0);
+    expect(await page.locator("[data-fixture-bottom-bar]").boundingBox()).toEqual(bottomBarBefore);
     const scrim = page.locator("[data-agent-history-scrim]");
     const readScrim = () =>
       scrim.evaluate((element) => {

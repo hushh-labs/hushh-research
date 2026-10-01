@@ -40,6 +40,13 @@ source is unchanged; no isolated **image-level cloud recovery** rehearsal exists
 Therefore the release is published but **owner installation remains unverified
 and gated**. Local merge `7224e1a` adds later ADK reviewer and Memory refinements;
 it is not pushed or deployed. It must not be confused with serving `830f1f94c`.
+The next local candidate selectively incorporates local ADK `e3e41eaac`,
+including its Memory refusal-order correction. Agent registries were
+regenerated from this branch's authored sources. Exact email/phone directory
+lookup was held because the route lacks verified-requester and durable lookup
+budgets; name-only search remains. In-chat Memory approval now shows the
+proposed destination, values and affected people and requires the current
+unlocked card set. None of these local changes is serving on dev.
 
 ## Files-led acceptance matrix
 

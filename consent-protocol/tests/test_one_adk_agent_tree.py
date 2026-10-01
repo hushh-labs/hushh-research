@@ -368,6 +368,8 @@ class TestAgentTreeShape:
             "Never answer this intent from memory, prior prose, PKM context, "
             "cached labels, or guessed fields" in ONE_IDENTITY_INSTRUCTION
         )
+        assert "What is my connected person's email?" in ONE_IDENTITY_INSTRUCTION
+        assert "call list_my_connections first" in ONE_IDENTITY_INSTRUCTION
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
@@ -4142,12 +4144,15 @@ class TestBackendDirectConnectionReadTools:
                 ConnectionsService,
                 "list_connections",
                 autospec=True,
-                return_value=[{"connectionId": "cx1", "displayName": "Sarah"}],
+                return_value=[
+                    {"connectionId": "cx1", "displayName": "Sarah", "email": "sarah@example.test"}
+                ],
             ) as list_mock,
         ):
             result = await list_my_connections(_tool_context(state))
         assert result["status"] == "ok"
         assert result["connections"][0]["displayName"] == "Sarah"
+        assert result["connections"][0]["email"] == "sarah@example.test"
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
 
     @pytest.mark.asyncio
