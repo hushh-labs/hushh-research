@@ -2,6 +2,9 @@
 import { base64ToBytes } from "@/lib/vault/base64";
 import type { OwnerPodTransport } from "./owner-pod-endpoint";
 
+/** Match Hermes's signed issuance tolerance; expiration remains strict. */
+export const MAX_BINDING_CLOCK_SKEW_MS = 30_000;
+
 export class OwnerPodError extends Error {
   constructor(
     readonly code: string,

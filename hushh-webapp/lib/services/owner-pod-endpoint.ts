@@ -10,7 +10,7 @@
 import { serializeOwnerPodOperation } from "./owner-pod-session-lock";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
-import { OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
+import { MAX_BINDING_CLOCK_SKEW_MS, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
 export { OwnerPodError, canonicalJson, p1363ToDer } from "./owner-pod-crypto";
 
 export const OWNER_POD_DB_NAME = "hushh-owner-pod";
@@ -433,7 +433,7 @@ async function admitEndpoint(
     Number(binding.version) < 1 ||
     !Number.isInteger(binding.issued_at_ms) ||
     !Number.isInteger(binding.expires_at_ms) ||
-    Number(binding.issued_at_ms) > now ||
+    Number(binding.issued_at_ms) > now + MAX_BINDING_CLOCK_SKEW_MS ||
     Number(binding.expires_at_ms) <= now
   ) {
     throw new OwnerPodError("BINDING_OWNER_OR_ENDPOINT_MISMATCH");

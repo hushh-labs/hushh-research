@@ -5,11 +5,13 @@
 Canonical visual owner: [Quality and Design System Index](README.md).
 The Files-led matrix below carries the release decision.
 
-**Decision — 2026-10-01: dev application verified; owner Files activation held.**
+**Decision — 2026-10-01: disposable Files activation verified; final release held.**
 Dev serves `55681083efbd`. The personal pod remains on its predecessor with
-Files disabled. Exact-image synthetic recovery and a disposable cloud
-maintenance upgrade passed. Normal Settings-approved installation, real Files
-organization and complete Puppy cancellation remain release gates. No main,
+Files disabled. Exact-image recovery, disposable maintenance, and normal Files
+plan approval/installation passed. Live interrupted transfer and byte-exact
+download, move/undo, and automatic organization through the owner-project queue
+passed. The final candidate's CI, normal personal image installation and complete
+Puppy cancellation remain gates. No main,
 UAT, production, stable-channel or automatic owner upgrade is authorized here.
 
 The [One hierarchy](../one/one-agent-hierarchy.md), [Files contract](../operations/private-files-library.md),
@@ -32,12 +34,23 @@ Git history retains the earlier chronology; this memo records current evidence.
   Dependency owners combine Stripe and the ADK sentence-transformers 6.0
   security pin; projections are regenerated. New relay readiness and disconnect
   corrections require their own exact-SHA CI and pod installation.
-  The local core mirror passed in 248 seconds. Hosted run `36936377095`
+  Candidate `d911915a89d7` passed the local core mirror in 252 seconds. Hosted run `36936377095`
   exposed a moved comparison ancestor after main incorporated the frozen ADK
   revision; only the graph's `from_revision` pointer changed on regeneration.
   Actions, breaking-change results and both predecessor histories are preserved.
-  The failed run was stopped; its result is retained, and new hosted validation
-  is required before deployment.
+  The failed run was stopped; its result is retained. Run `36938614085`
+  passed protocol and generated-contract gates but failed one phone-test effect
+  timing assertion. The corrected test now waits for the effect and preserves
+  the actual pending code across revalidation. A live 13 ms issuer-clock lead
+  also exposed a browser binding refusal: the pending fix aligns signed issuance
+  tolerance with Hermes's 30 seconds while keeping expiry strict. All 32 direct
+  endpoint tests pass; the new case fails on the prior code. Neither correction
+  is deployed, and the completed candidate needs exact-SHA hosted validation.
+  The completed corrections passed the local core mirror in 245 seconds and
+  independent review of all 35 affected browser/phone tests. Expiration remains
+  strict; the skew tolerance applies only to verified issuance. Generic skill
+  routing now selects core before an ordinary push, preserving the dedicated
+  full pre-PR gate and hosted full-suite/browser authority.
 - **Schema:** dev readback verified migrations 943–946 and source checksums.
   An applied 944 ledger row does not independently prove deletion or recovery;
   the original 249 cleanup remains deferred. Incoming hub migration 262 must
@@ -55,10 +68,20 @@ Git history retains the earlier chronology; this memo records current evidence.
   restored it. One startup attempt failed; an unchanged-configuration retry passed.
   Preserve both receipts. Administrator-seeded phone verification is not SMS
   onboarding evidence, and maintenance is not a normal owner update receipt.
-  The disposable owner's normal Files approval reached the existing update
-  worker, then stopped at a recorded queue-creation HTTP 403 without replacing
-  the pod. Fresh queue absence, bootstrap permissions and worker identity passed;
-  a bounded continuation still needs its own successful receipt.
+  The disposable owner's normal Files approval initially stopped at queue HTTP
+  403. The existing bounded continuation completed all ten bootstrap steps on
+  the same approval/operation; the provider revision and digest were read back,
+  Files is enabled, and the lease is released. Two operator-helper pin failures
+  preceded it and remain recorded; they refused before recovery. Signed direct
+  admission, CORS, machine-route restrictions, durable key continuity and
+  encrypted settings/list reads passed on that disposable service. Analysis was
+  initially off. These receipts do not upgrade or qualify a personal pod.
+  Explicit owner opt-in then enabled automatic organization; a new synthetic
+  upload completed with an `organized` result through the authenticated queue.
+  The browser harness subsequently ended during an execution interruption; its
+  memory-only unlock material was not retained. Earlier receipts remain valid,
+  but cold unlock, live exclusions/cancellation and post-organization byte
+  verification were not performed. Do not reset an owner or infer those results.
 
 ## Reviewed integration debt
 
@@ -80,9 +103,9 @@ The baseline does not establish runtime acceptance.
 
 | Journey | Verified | Remaining gate / owner |
 | --- | --- | --- |
-| **Existing-owner Files setup** | Old pod admits directly; Files returns 503 and setup refuses an unqualified predecessor. Isolated recovery now passes. | Release/BYOC: qualify the exact target, then obtain the normal owner's exact Files plan and installation approval. Verify storage, queue, identity and digest. |
-| **Files explorer and transfer** | Local paginated move navigation and mobile actions pass. A prior enabled reviewer pod passed interrupted 5 MiB transfer, byte-exact download, rename/undo and trash/restore. | Files: repeat on the newly enabled target, including cold admission and synthetic cleanup. Prior owner/image evidence does not qualify this release. |
-| **Files Agent and background jobs** | Canonical `agent_files`, analysis opt-in, exclusions, bounded job/cancellation and original-preservation contracts pass in source. | Files/BYOC: real GCS/KMS/Cloud Tasks/model access, organization outcome, cancellation and missing-billing resume. Local adapters do not prove cloud permissions. |
+| **Existing-owner Files setup** | Disposable normal owner approved the exact Files plan. Queue continuation, installed digest, enabled capability and direct admission passed. Personal predecessor remains unchanged. | Release/BYOC: qualify the newly built target, then obtain the personal owner's exact installation approval. |
+| **Files explorer and transfer** | Disposable live 5 MiB interrupted/resumed upload, byte-exact download, rename/undo, move/undo, trash/restore and same-session vault continuity passed on the enabled target. Local paginated move/mobile checks pass. | Files: live exclusions/cancellation, cold recovery, post-organization byte verification and synthetic cleanup. New target needs its own affected checks. |
+| **Files Agent and background jobs** | Canonical `agent_files` and source boundary checks pass. Normal owner explicitly opted in; automatic organization of a new synthetic upload completed through real owner-project GCS/KMS, Cloud Tasks and model access. | Files/BYOC: live exclusion/cancellation, original preservation after organization and missing-billing resume. Local fixtures cover faults, not cloud journey acceptance. |
 | **Chat, commands and connector review** | Source checks cover queued completion recovery and exact owner/tool approval ledger. | Runtime: fresh cold/warm pod response, recorded command, exact connector review/resume and no duplicate effect. Health is not journey acceptance. |
 | **Puppy and machine** | Real normal-owner direct reply; observed model, capacity and jobs. Latest warm device inference completed in about 4.8 seconds. Existing identity/grant preserved. | Device/runtime: live stop receipt, reconnect, independent active internet and cold latency. Browser Cancel alone is not server cancellation; the older cold usability failure remains unresolved. |
 | **Update and on-demand runtime** | Historical `.6`→`.8` owner approval/drain/digest passed; new isolated maintenance recovered. Existing hosting preserved. | Release/runtime: normal approved Files installation, Settings/Feed agreement, restart/continuity, bounded overlap, idle grace and measured wake. No new personal installation is claimed. |
@@ -109,6 +132,9 @@ local regression evidence; the personal predecessor does not contain the fix.
    close current relay acceptance. No board dates, statuses or comments were changed.
 
 Three affected private Wiki sections were corrected and read back on 2026-10-01.
+The two Files/lifecycle sections were subsequently reconciled with the normal
+disposable activation and organization receipts; headings, private visibility
+and the single terminal Sources section passed readback.
 The older Plaid/Mail findings remain with their [vault contract](../kai/plaid-vault-passthrough.md)
 and [Mail/Drive acceptance record](../operations/mail-drive-uat-acceptance.md);
 this pod memo does not close their separate rollout or exchange/cache gates.

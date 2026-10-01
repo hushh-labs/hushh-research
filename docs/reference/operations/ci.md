@@ -598,9 +598,19 @@ Minimum checks for streaming changes:
 
 ---
 
-## Running CI Locally (Before Every Commit)
+## Running CI Locally
 
-**Recommended:** Run the script that mirrors CI. It uses the same versions and steps as GitHub Actions.
+During implementation, use the focused checks for the changed contract. Before
+an ordinary push, run the local core mirror once on the completed candidate:
+
+```bash
+scripts/ci/orchestrate.sh core
+```
+
+GitHub Actions remains authoritative for full web and browser validation. A
+local pass does not prove hosted success. The dedicated pre-PR workflow and an
+explicit full-mirror investigation still use the full command below; `codex
+pre-pr` already calls it, so running both duplicates the same local suite.
 
 ```bash
 ./bin/hushh ci
@@ -632,7 +642,8 @@ To verify the live GitHub branch gate matches the documented minimum contract:
 ./scripts/ci/verify-main-branch-protection.sh
 ```
 
-If it exits 0, CI should pass. If it fails, fix the reported step before committing.
+Fix failures in the selected local checks before pushing. Successful hosted
+validation of the exact SHA remains required before deployment.
 
 Secret-scan note:
 

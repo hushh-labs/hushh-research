@@ -57,6 +57,8 @@ class FakeWorld {
   couriered: Array<Record<string, unknown>> = [];
   revokes: Array<Record<string, unknown>> = [];
   now = 1_757_500_000_000;
+  bindingIssuedOffsetMs = -1000;
+  bindingExpiresOffsetMs = 24 * 3600 * 1000;
 
   transport(): ownerPod.OwnerPodTransport {
     return {
@@ -79,7 +81,7 @@ class FakeWorld {
       environment: "dev", url: POD_URL, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
       platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: "user_gcp",
-      version: this.bindingVersion || 1, issued_at_ms: this.now - 1000, expires_at_ms: this.now + 24 * 3600 * 1000,
+      version: this.bindingVersion || 1, issued_at_ms: this.now + this.bindingIssuedOffsetMs, expires_at_ms: this.now + this.bindingExpiresOffsetMs,
     };
     if (path.endsWith("/pod-binding") && init.method === "GET") {
       return this.bindingIssued
@@ -152,6 +154,23 @@ describe("owner pod endpoint", () => {
     await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("HUB_SIGNATURE_INVALID");
     expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
   });
+
+  it.each([13, 30_000])("admits a verified binding with bounded issuance skew of %ims", async (skew) => {
+    world.bindingIssuedOffsetMs = skew;
+    await ownerPod.refreshEndpointFromHub(USER, world.transport());
+    expect(world.admitted).toHaveLength(1);
+    expect(await ownerPod.loadPinnedEndpoint(USER)).not.toBeNull();
+  });
+
+  it.each([{ issued: 30_001, expires: 86_400_000 }, { issued: -1000, expires: 0 }])(
+    "refuses excessive issuance skew or expired grants before pod contact: %j", async ({ issued, expires }) => {
+      world.bindingIssuedOffsetMs = issued;
+      world.bindingExpiresOffsetMs = expires;
+      await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH");
+      expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
+      expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+    },
+  );
 
   it("refuses an unknown issuer key instead of accepting a signature prefix", async () => {
     world.endpoint.signature = world.endpoint.signature.replace(".kid.", ".unknown.");

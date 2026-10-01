@@ -88,12 +88,17 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 
 ## Required Checks
 
+Choose the checks for the resolved workflow. Before an ordinary push, run the
+local core mirror once on the completed candidate; GitHub owns the full web and
+browser suites. The dedicated `pre-pr-readiness` workflow retains its full local
+gate. `codex pre-pr` already invokes `./bin/hushh ci`; do not run both separately
+or require either for every incremental commit.
+
 ```bash
 ./bin/hushh codex ci-status
-./bin/hushh codex pre-pr
+./scripts/ci/orchestrate.sh core
 ./bin/hushh codex rca --surface uat --text
 ./bin/hushh docs verify
-./bin/hushh ci
 ./scripts/ci/verify-main-branch-protection.sh
 ./scripts/ci/apply-governance.py
 ./scripts/ci/verify-production-environment-governance.sh

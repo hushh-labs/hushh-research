@@ -125,7 +125,9 @@ describe("the phone mandate page survives an auth re-validation", () => {
 
     const view = render(<PhoneMandatePageContent />);
     await screen.findByText("step: phone");
-    expect(mountCount).toBe(1);
+    await waitFor(() => expect(mountCount).toBe(1));
+    fireEvent.click(screen.getByRole("button", { name: "Send code" }));
+    await screen.findByText("step: code");
 
     // Starting Firebase phone verification republishes auth state, and the web
     // observer sets loading=true while it re-validates the session.
@@ -135,13 +137,13 @@ describe("the phone mandate page survives an auth re-validation", () => {
     // The flow must still be on screen. If the page swapped in a loader, the
     // step state is already gone.
     await waitFor(() => {
-      expect(screen.queryByText("step: phone")).not.toBeNull();
+      expect(screen.queryByText("step: code")).not.toBeNull();
     });
     expect(screen.queryByText("Loading phone verification...")).toBeNull();
 
     authState.current = { ...authState.current, loading: false };
     view.rerender(<PhoneMandatePageContent />);
-    await screen.findByText("step: phone");
+    await screen.findByText("step: code");
 
     // One mount for the whole cycle. Two means the OTP screen would have been
     // destroyed mid-verification.
