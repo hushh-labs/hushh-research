@@ -57,7 +57,10 @@ dependencies = [
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
-    "sentence-transformers==5.2.0",
+    # GHSA-jhr6-gm9c-rqjv: 5.6 only warns after importing local custom code;
+    # 6.0 enforces trust_remote_code=False before importing it. Keep the
+    # existing pinned E5 model and prove semantic parity in integration tests.
+    "sentence-transformers==6.0.0",
     "transformers==5.10.1",
     # Keep runtime export resolvable from the default package index.
     "torch>=2,<3",
@@ -73,6 +76,7 @@ dependencies = [
     "pycountry>=26.2.16",
     "redis==5.3.1",
     "cachetools==7.1.7",
+    "stripe>=13,<20",
 ]
 
 [dependency-groups]

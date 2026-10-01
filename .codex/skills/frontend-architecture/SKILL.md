@@ -59,6 +59,7 @@ Non-owned surfaces:
 6. Keep Playwright `baseURL`, `webServer.url`, and the dev-server port in one configuration path so local browser proof does not silently wait on a different origin than the one being tested.
 7. For every added, renamed, or split app route, run the route contract cascade in one change: `ROUTES`, route builders, breadcrumbs, bottom-nav/sign-in coverage, route layout contract, generated surface map, cache manifest, voice action reachability, native inventory, docs, and focused route tests.
 8. Durable workspace panels should use finite nested routes when the route set is bounded. Keep query params for transient state, OAuth/redirects, filters/pagination, and static-export-sensitive identifiers.
+9. For a frontend runtime or bundle failure, reproduce it on the affected route and shipped engine, isolate the route/state/build boundary, fix the cause, then keep one focused regression. A working dev-server fallback does not prove the production or native bundle. Follow [Toss's diagnose/reproduce/fix/prevent loop](https://github.com/toss/frontend-fundamentals/blob/161d3d6/fundamentals/debug/pages/start.md) without copying its tooling into this repo.
 
 ## Handoff Rules
 

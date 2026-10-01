@@ -26,6 +26,8 @@ python3 scripts/ci/test_change_aware_verification_wiring.py
 python3 scripts/ci/test_web_ci_lane_partition.py
 python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 python3 scripts/ci/test_private_native_artifact.py
+node --test scripts/release/dispatch-ios-appstore.test.mjs
+python3 scripts/ci/test_resolve_ios_build_number.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check

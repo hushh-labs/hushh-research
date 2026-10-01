@@ -26,7 +26,7 @@ import {
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
-import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
+import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -338,7 +338,9 @@ function buildModes(
       // Finance remains an exception while its own resolver says setup is
       // actionable: root completion or Skip is not Finance completion.
       href: opensSetup
-        ? buildOneSetupCapabilityRoute(capability.id)
+        ? capability.id === "finance"
+          ? `${buildOneSetupCapabilityRoute(capability.id)}?from=${encodeURIComponent(ROUTES.ONE_HOME)}`
+          : buildOneSetupCapabilityRoute(capability.id)
         : capability.href,
       icon: capability.icon,
       statusTone: display.tone,

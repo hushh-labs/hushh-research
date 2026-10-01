@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { AgentMemorySaveCard } from "@/components/agent/agent-memory-save-card";
 import { Button } from "@/components/ui/button";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -19,10 +20,12 @@ export function AgentMemoryCaptureStatus({
   status,
   onConfirmNeedsOwner,
   onUnlock,
+  pendingCards,
 }: {
   status: AgentPkmCaptureStatus;
   onConfirmNeedsOwner?: () => Promise<void>;
   onUnlock?: () => void;
+  pendingCards?: readonly AgentPkmPreviewCard[];
 }) {
   if (status.phase === "skipped" && !status.receipt) return null;
   const running = isAgentPkmCaptureRunning(status);
@@ -35,6 +38,7 @@ export function AgentMemoryCaptureStatus({
           <Link href={href} className={className}>{children}</Link>
         )}
         onConfirmNeedsOwner={onConfirmNeedsOwner}
+        pendingCards={pendingCards}
       />
     );
   }

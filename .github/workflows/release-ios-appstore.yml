@@ -47,6 +47,11 @@ on:
         required: false
         default: false
         type: boolean
+      release_after_approval:
+        description: "Publish automatically after Apple approval. Requires submit_for_review and cleared publish-safety gates; false keeps manual release."
+        required: false
+        default: false
+        type: boolean
       whats_new:
         description: "What's New in This Version (App Store release notes; Apple requires this for every new version)"
         required: false
@@ -186,6 +191,10 @@ jobs:
             uat|production) echo "Backend target: ${BACKEND_TARGET}" ;;
             *) echo "Refusing release: unknown backend_target '${BACKEND_TARGET}'." >&2; exit 1 ;;
           esac
+          if [ "${{ inputs.release_after_approval }}" = "true" ] && [ "${{ inputs.submit_for_review }}" != "true" ]; then
+            echo "Automatic publication requires an explicitly authorized review submission." >&2
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud (production contract)
         if: env.BACKEND_TARGET == 'production'
@@ -244,6 +253,22 @@ jobs:
           put PROD_FB_STORAGE "$PROD_FB_STORAGE"
           [ -n "$PROD_FB_MEASUREMENT" ] && put PROD_FB_MEASUREMENT "$PROD_FB_MEASUREMENT"
           echo "Production routing contract read (backend host ${PROD_BACKEND_HOST})."
+
+      - name: Verify matching production backend revision
+        if: env.BACKEND_TARGET == 'production'
+        shell: bash
+        env:
+          EXPECTED_SHA: ${{ github.event.inputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "$PROD_GCP_PROJECT_ID" \
+            --region "$GCP_REGION" \
+            --service consent-protocol \
+            --expected-env production \
+            --expected-source deploy-production \
+            --expected-sha "$EXPECTED_SHA" \
+            --report-path "$RUNNER_TEMP/ios-backend-provenance.json"
 
       - name: Authenticate to Google Cloud (UAT)
         uses: google-github-actions/auth@v2
@@ -638,7 +663,7 @@ jobs:
           RELEASE_SHA="$(git rev-parse HEAD)" python3 - <<'PY'
           import json, os, pathlib, re
           version = re.search(r'MARKETING_VERSION\s*=\s*([^;]+)', pathlib.Path(os.environ['PBXPROJ']).read_text()).group(1).strip()
-          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'])
+          receipt = dict(source_sha=os.environ['RELEASE_SHA'], build_number=os.environ['BUILD_NUMBER'], marketing_version=version, bundle_id=os.environ['IOS_BUNDLE_ID'], backend_target=os.environ['BACKEND_TARGET'])
           pathlib.Path(os.environ['RUNNER_TEMP'], 'testflight-upload-receipt.json').write_text(json.dumps(receipt))
           PY
 
@@ -655,10 +680,16 @@ jobs:
         id: appstore
         if: ${{ github.event.inputs.dry_run != 'true' }}
         shell: bash
+        env:
+          WHATS_NEW: ${{ inputs.whats_new }}
         run: |
           set -euo pipefail
           # bash 3.2 on macos runners: guard the possibly-empty array under set -u.
           SUBMIT_ARGS=()
+          RELEASE_TYPE=MANUAL
+          if [ "${{ inputs.release_after_approval }}" = "true" ]; then
+            RELEASE_TYPE=AFTER_APPROVAL
+          fi
           if [ "${{ github.event.inputs.submit_for_review }}" = "true" ]; then
             echo "::warning title=Public App Store submission::submit_for_review=true -> this run will SUBMIT the build for public Apple review (IRREVERSIBLE). Confirm the publish-safety checklist in docs/guides/mobile/release-ios-appstore.md (led by PrivacyInfo.xcprivacy privacy-label reconciliation) is cleared, and that ASC metadata/screenshots/age rating/pricing are set for this version."
             echo "submit_for_review=true: will set What's New, attach the build, and SUBMIT for public App Store review."
@@ -673,8 +704,9 @@ jobs:
             --bundle-id "${IOS_BUNDLE_ID}" \
             --pbxproj "${PBXPROJ}" \
             --build-number "${{ steps.build_number.outputs.next_build }}" \
-            --release-type MANUAL \
-            --whats-new "${{ github.event.inputs.whats_new }}" \
+            --release-type "$RELEASE_TYPE" \
+            --evidence-path "${RUNNER_TEMP}/ios-appstore-state.json" \
+            --whats-new "$WHATS_NEW" \
             "${SUBMIT_ARGS[@]+"${SUBMIT_ARGS[@]}"}"
 
       - name: Write redacted release evidence
@@ -698,7 +730,10 @@ jobs:
               'dry_run': os.environ.get('DRY_RUN') == 'true',
               'export_outcome': os.environ.get('EXPORT_OUTCOME'),
               'appstore_outcome': os.environ.get('APPSTORE_OUTCOME'),
+              'backend_target': os.environ.get('BACKEND_TARGET'),
           }
+          state_path = pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-appstore-state.json')
+          receipt['appstore_state'] = json.loads(state_path.read_text()) if state_path.exists() else None
           pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-appstore-release-evidence.json').write_text(json.dumps(receipt))
           PY
 
@@ -714,6 +749,10 @@ jobs:
       - name: Job summary
         if: always()
         shell: bash
+        env:
+          EXPORT_OUTCOME: ${{ steps.export_ipa.outcome }}
+          APPSTORE_OUTCOME: ${{ steps.appstore.outcome }}
+          RELEASE_NOTES: ${{ inputs.notes }}
         run: |
           set -euo pipefail
           MARKETING="$(grep -m1 -E 'MARKETING_VERSION[[:space:]]*=' "${PBXPROJ}" | sed -E 's/.*= *([^;]+);.*/\1/' | tr -d ' ')"
@@ -739,11 +778,16 @@ jobs:
               echo "| Backend | UAT (hushh-pda-uat) |"
             fi
             echo "| Mode | ${MODE} |"
-            if [ -n "${{ github.event.inputs.notes }}" ]; then
-              echo "| Notes | ${{ github.event.inputs.notes }} |"
+            echo "| Export outcome | ${EXPORT_OUTCOME:-not run} |"
+            echo "| App Store outcome | ${APPSTORE_OUTCOME:-not run} |"
+            echo "| Automatic publication after approval | ${{ inputs.release_after_approval }} |"
+            if [ -n "$RELEASE_NOTES" ]; then
+              printf '| Notes | %s |\n' "$RELEASE_NOTES"
             fi
             echo ""
-            if [ "${{ github.event.inputs.dry_run }}" != "true" ] && [ "${{ github.event.inputs.submit_for_review }}" != "true" ]; then
+            if [ "$EXPORT_OUTCOME" != "success" ] || { [ "${{ github.event.inputs.dry_run }}" != "true" ] && [ "$APPSTORE_OUTCOME" != "success" ]; }; then
+              echo "> Release incomplete. Inspect the failed step and redacted evidence; do not infer upload, submission, or publication."
+            elif [ "${{ github.event.inputs.dry_run }}" != "true" ] && [ "${{ github.event.inputs.submit_for_review }}" != "true" ]; then
               echo "> Set What's New, prepared the App Store version, and attached the build."
               echo "> The final **Submit for Review** action was NOT fired. Re-dispatch with"
               echo "> \`submit_for_review=true\` to submit for public Apple review in one click"

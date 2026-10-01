@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { emptyPkmSaveReceipt } from "@/lib/agent/pkm-save-receipt";
 
 afterEach(cleanup);
 describe("quiet Memory capture receipt", () => {
@@ -36,5 +37,21 @@ describe("quiet Memory capture receipt", () => {
       "some details still need attention",
     );
     expect(screen.getAllByRole("link")).toHaveLength(1);
+  });
+  it("shows the full held-back detail before allowing an in-chat approval", () => {
+    const confirm = vi.fn(async () => undefined);
+    const receipt = { ...emptyPkmSaveReceipt(), saved: 1, needsOwner: 1,
+      items: [{ id: "pending", domainLabel: "Identity", text: "Truncated…", outcome: "needs_owner" as const }] };
+    const pendingCards = [{ card_id: "pending", source_text: "Full synthetic detail to inspect before saving",
+      write_mode: "confirm_first" as const, target_domain: "identity", candidate_payload: {} }];
+    const { rerender } = render(
+      <AgentMemoryCaptureStatus status={{ phase: "partial", saved: 1, receipt }} onConfirmNeedsOwner={confirm} />,
+    );
+    expect(screen.queryByRole("button", { name: "Save it too" })).toBeNull();
+    rerender(<AgentMemoryCaptureStatus status={{ phase: "partial", saved: 1, receipt }}
+      pendingCards={pendingCards} onConfirmNeedsOwner={confirm} />);
+    expect(screen.getByTestId("memory-save-owner-review")).toHaveTextContent("Full synthetic detail to inspect before saving");
+    fireEvent.click(screen.getByRole("button", { name: "Save it too" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
   });
 });

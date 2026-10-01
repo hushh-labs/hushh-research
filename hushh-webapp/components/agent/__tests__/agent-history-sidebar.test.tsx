@@ -99,11 +99,12 @@ describe("AgentHistorySidebar", () => {
     // focus (founder direction, 2026-09-29), and holds them while the menu is open.
     const age = within(today).getByText("19m");
     const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
-    // Until then they take no room, so a long title uses the whole row.
+    // Keep both widths reserved so hover and focus do not bounce the row.
     for (const element of [age, actions.parentElement!]) {
-      expect(element.className).toMatch(/(^|\s)hidden(\s|$)/);
-      expect(element.className).toMatch(/group-hover:(inline|block)/);
-      expect(element.className).toMatch(/group-focus-within:(inline|block)/);
+      expect(element.className).toContain("opacity-0");
+      expect(element.className).toContain("group-hover:opacity-100");
+      expect(element.className).toContain("group-focus-within:opacity-100");
+      expect(element.className).toContain("motion-reduce:transition-none");
     }
   });
 

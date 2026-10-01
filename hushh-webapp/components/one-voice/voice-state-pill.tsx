@@ -4,7 +4,8 @@
  * The always-visible strip of the One Live Voice dock while a session runs.
  *
  * Waveform + level, one state label, Mute (aria-pressed; keeps the track and
- * drops frames), Stop (X). A tap on the waveform is an interrupt. The label
+ * drops frames), Stop (X). A tap on the waveform interrupts or resumes when
+ * paused. The label
  * is plain text on purpose: VoiceOver hears the conversation through the
  * transcript log, never twice. Under prefers-reduced-motion the waveform is
  * a static level bar.
@@ -42,6 +43,7 @@ export type VoiceStatePillProps = {
   onMute: (muted: boolean) => void;
   onStop: () => void;
   onInterrupt: () => void;
+  onResume: () => void;
 };
 
 const PHASE_LABEL: Record<VoicePhase, string> = {
@@ -54,7 +56,7 @@ const PHASE_LABEL: Record<VoicePhase, string> = {
   executing: "Working…",
   complete: "Done",
   error: "Something went wrong",
-  paused: "Paused",
+  paused: "Paused — tap to resume",
 };
 
 /** The visible state label for a phase; the muted mic wins while listening. */
@@ -152,13 +154,16 @@ export function VoiceStatePill({
   onMute,
   onStop,
   onInterrupt,
+  onResume,
 }: VoiceStatePillProps) {
   const reducedMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
   const label = voicePhaseLabel(phase, { muted, speaking, halfDuplex });
   const status = waveformStatusForPhase(phase, { speaking, muted });
-  const interruptLabel = speaking
-    ? "Interrupt One"
-    : `Voice activity: ${label}`;
+  const interruptLabel = phase === "paused"
+    ? "Resume talking to One"
+    : speaking
+      ? "Interrupt One"
+      : `Voice activity: ${label}`;
 
   return (
     <>
@@ -169,7 +174,7 @@ export function VoiceStatePill({
         data-agent-action="voice"
         data-voice-phase={phase}
         aria-label={interruptLabel}
-        onClick={onInterrupt}
+        onClick={phase === "paused" ? onResume : onInterrupt}
         className="relative flex h-11 min-w-0 flex-1 touch-manipulation select-none items-center gap-2 rounded-l-full px-3 text-left text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]"
       >
         {phase === "connecting" ? (

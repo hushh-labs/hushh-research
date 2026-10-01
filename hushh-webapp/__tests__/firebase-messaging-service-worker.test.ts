@@ -507,6 +507,21 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     ]);
   });
 
+  it("opens the live Feed for payment and drops private push fields", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_payment_ready", {
+      type: "document_share_payment_ready",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      file_name: "private.pdf",
+      purpose: "private purpose",
+    });
+    expect(harness.shown[0]?.title).toBe("Payment needed");
+    expect(harness.shown[0]?.options?.body).toContain("Pay $10");
+    const data = harness.shown[0]?.options?.data as Record<string, unknown>;
+    expect(data.url).toBe("/one/feed");
+    expect(JSON.stringify(data)).not.toMatch(/private\.pdf|private purpose/);
+  });
+
   it.each([
     ["document_share_question", "Drive question"],
     ["document_share_answered", "Drive question answered"],

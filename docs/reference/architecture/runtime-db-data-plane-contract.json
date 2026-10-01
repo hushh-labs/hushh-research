@@ -24,7 +24,8 @@
     "one_capability_runs",
     "one_kyc_workflows",
     "drive_bulk_share_files",
-    "drive_bulk_share_effects"
+    "drive_bulk_share_effects",
+    "drive_request_payment_webhook_events"
   ],
   "retention_registry": [
     {
@@ -937,6 +938,19 @@
       "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, live content fingerprints, verified account identity, purpose, coverage, exact approval and permission receipts remain encrypted; only opaque workflow IDs, statuses, source versions and keyed binding digests are plaintext. A confirmation claim and pending work commit atomically before external calls.",
       "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
       "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
+    },
+    {
+      "id": "drive_request_payment_authority",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_request_payment_orders", "drive_request_payment_obligations", "drive_request_payment_webhook_events", "drive_request_payment_refunds"],
+      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority.",
+      "retention_policy": "At most one live order and one account-free obligation per request, plus one refund attempt and verified event dedupe receipts. Checkout URLs expire with their Stripe session and are cleared on settlement. The obligation and refund evidence survive request erasure until payment and refund duties are settled under merchant retention policy.",
+      "deletion_behavior": "The live order cascades from the request. Before account reset or erasure removes the request, an opaque obligation snapshots delivery state and removes all account linkage; late signed charges and in-flight refunds remain reconcilable. Stripe's own merchant records follow the payment account's retention policy.",
+      "trust_boundary": "The retained obligation has only a random request UUID, payer digest, fixed amount/currency, Stripe provider IDs, status and timestamps. No account ID, email, filename, search term, request purpose, document ID, content or Checkout URL is retained there. The requester-visible Feed event is never written after erasure.",
+      "plaintext_posture": "opaque_payment_identifiers_fixed_price_and_workflow_status_only",
+      "expected_row_growth": "one_order_per_eligible_request_plus_verified_event_dedupe_receipts"
     },
     {
       "id": "drive_document_trust_rules",

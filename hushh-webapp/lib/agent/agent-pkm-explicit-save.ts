@@ -12,18 +12,16 @@
  * dropped, so nothing was saved while One said it was.
  *
  * Here the owner's own request is the confirmation for the content they
- * supplied (`owner_confirmed`, as the chat KYC path already records). Three
- * things still need their direct tap: identifier-class values (government ids,
- * account numbers, dates of birth), details that would change what they
- * already share with someone, and anything the agents refused (reserved,
- * secret, degraded, or `do_not_save`, which is never saved).
+ * supplied (`owner_confirmed`, as the chat KYC path already records).
+ * Identifier-class values and details that would change existing shares still
+ * need a separate tap. Reserved, secret, degraded, and other refused details
+ * are never saved, even after a tap.
  *
  * Nothing here says "saved" until the server acknowledged a committed revision.
  */
 
 import {
   addToPKM,
-  isReservedPkmCard,
   type AgentPkmPreviewCard,
   type AgentPkmSaveResult,
 } from "@/lib/agent/agent-pkm-memory";
@@ -55,6 +53,13 @@ function isSecretRejected(card: AgentPkmPreviewCard): boolean {
   return (card.validation_hints || []).some((hint) => String(hint).startsWith("sensitive_"));
 }
 
+function isReservedTargetRejected(card: AgentPkmPreviewCard): boolean {
+  const decision = card.structure_decision as { action?: unknown } | undefined;
+  const action = String(decision?.action || "").toLowerCase();
+  return action === "reject_reserved_target" || action === "reserved_target" || action === "reserved" ||
+    (card.validation_hints || []).some((hint) => String(hint).toLowerCase().includes("reserved"));
+}
+
 /**
  * The merge agent's own decision that this repeats something stored: no_op
  * with the existing entity it matched. Its untargeted no_op means "not durable"
@@ -81,18 +86,18 @@ function hasIdentifierField(value: unknown, path: string[] = []): boolean {
 export function partitionExplicitSaveCards(
   cards: readonly AgentPkmPreviewCard[],
 ): ExplicitSavePartition {
-  const partition: ExplicitSavePartition = { save: [], needsOwner: [], known: [], unreadable: [], skipped: [] };
+  const partition: ExplicitSavePartition = { save: [], needsOwner: [], known: [], unreadable: [], skipped: [], excluded: [] };
   for (const card of cards) {
-    if (isRestatementOfKnownDetail(card)) {
-      partition.known.push(card);
-      continue;
-    }
     if (isDegradedPreviewCard(card)) {
       partition.unreadable.push(card);
       continue;
     }
-    if (isReservedPkmCard(card) || isSecretRejected(card)) {
-      partition.skipped.push(card);
+    if (isReservedTargetRejected(card) || isSecretRejected(card)) {
+      partition.excluded.push(card);
+      continue;
+    }
+    if (isRestatementOfKnownDetail(card)) {
+      partition.known.push(card);
       continue;
     }
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {

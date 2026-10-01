@@ -107,7 +107,7 @@ flowchart TB
 | GET    | `/api/tickers/all`                        | Full ticker universe export with enrichment metadata                                                    |
 | POST   | `/api/validate-token`                     | Validate a consent token                                                                                |
 | GET    | `/api/app-config/review-mode`             | Review mode toggle (enabled only)                                                                       |
-| POST   | `/api/app-config/review-mode/session`     | Mint Firebase custom token for `REVIEWER_UID`; non-production smoke may use `REVIEWER_VAULT_PASSPHRASE` |
+| POST   | `/api/app-config/review-mode/session`     | Non-production reviewer mint: a supplied `reviewer_uid` must name the configured reviewer paired with its passphrase; unknown or mismatched identities fail closed. Legacy callers may omit the UID and authenticate by configured passphrase. |
 
 ### Developer API (Developer Token / Developer API Enabled)
 

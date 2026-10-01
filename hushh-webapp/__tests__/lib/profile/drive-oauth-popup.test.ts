@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  hasDrivePopupMarker,
   isDrivePopupSettlement,
   navigateDriveOAuthPopup,
+  notifyDrivePopup,
   readDrivePopupAttempt,
   waitForOAuthPopup,
   waitForDrivePopup,
@@ -10,8 +12,36 @@ import {
 describe("Drive popup boundary", () => {
   beforeEach(() => {
     vi.useFakeTimers();
-    sessionStorage.clear();
-    localStorage.clear();
+    if (typeof window.localStorage?.setItem !== "function") {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        value: {
+          get length() {
+            return store.size;
+          },
+          clear: () => store.clear(),
+          getItem: (key: string) => store.get(key) ?? null,
+          key: (index: number) => Array.from(store.keys())[index] ?? null,
+          removeItem: (key: string) => {
+            store.delete(key);
+          },
+          setItem: (key: string, value: string) => {
+            store.set(key, value);
+          },
+        },
+      });
+    }
+    try {
+      sessionStorage?.clear?.();
+    } catch {
+      // The test only models Drive's localStorage persistence boundary.
+    }
+    try {
+      window.localStorage?.clear?.();
+    } catch {
+      // The local fallback above keeps this deterministic in Node test hosts.
+    }
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -44,22 +74,41 @@ describe("Drive popup boundary", () => {
     ])
       expect(isDrivePopupSettlement({ ...settlement(), ...patch })).toBe(false);
   });
-  it("only navigates retained popup to fixed Google auth and persists no credentials", () => {
+  it("keeps an opaque attempt in same-origin storage when desktop COOP clears popup session storage", () => {
     const target = popup();
+    const currentAttempt = attempt();
     navigateDriveOAuthPopup(
       target,
-      attempt(),
+      currentAttempt,
       "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state",
     );
     expect(target.location.replace).toHaveBeenCalledOnce();
-    expect(readDrivePopupAttempt()).toEqual(attempt());
-    expect(sessionStorage.getItem("one_drive_popup_attempt_v1")).not.toContain(
+    // Google COOP can create a new popup browsing-context group, losing this
+    // storage while the opener's same-origin localStorage remains intact.
+    sessionStorage.clear();
+    expect(hasDrivePopupMarker()).toBe(true);
+    expect(readDrivePopupAttempt()).toEqual(currentAttempt);
+    expect(window.localStorage.getItem("one_drive_popup_attempt_v1")).not.toContain(
       "signed-state",
     );
-    expect(localStorage.length).toBe(0);
     expect(() =>
       navigateDriveOAuthPopup(target, attempt(), "https://attacker.invalid"),
     ).toThrow();
+  });
+  it("keeps the redacted settlement available for the opener's storage event", async () => {
+    const currentAttempt = attempt();
+    navigateDriveOAuthPopup(
+      popup(),
+      currentAttempt,
+      "https://accounts.google.com/o/oauth2/v2/auth?state=signed-state",
+    );
+    notifyDrivePopup(currentAttempt, "succeeded");
+    expect(window.localStorage.getItem("one_drive_popup_attempt_v1")).toBeNull();
+    expect(window.localStorage.getItem("one_drive_popup_settlement_v1")).toContain(
+      '"outcome":"succeeded"',
+    );
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(window.localStorage.getItem("one_drive_popup_settlement_v1")).toBeNull();
   });
   it("requires exact origin, window, connector and attempt; settles once", async () => {
     const target = popup();
@@ -87,6 +136,29 @@ describe("Drive popup boundary", () => {
     await result;
     expect(done).toHaveBeenCalledOnce();
     expect(target.close).toHaveBeenCalledOnce();
+  });
+  it("accepts the storage fallback when a desktop browser omits storageArea", async () => {
+    const target = popup();
+    const controller = new AbortController();
+    const done = vi.fn();
+    const currentAttempt = attempt();
+    const result = waitForDrivePopup(
+      target,
+      currentAttempt,
+      controller.signal,
+    ).then(done);
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: "one_drive_popup_settlement_v1",
+        newValue: JSON.stringify({
+          ...currentAttempt,
+          type: "drive_oauth_settlement",
+          outcome: "succeeded",
+        }),
+      }),
+    );
+    await result;
+    expect(done).toHaveBeenCalledOnce();
   });
   it.each(["abort", "cancel", "expire"])(
     "reconciles %s without claiming provider success",

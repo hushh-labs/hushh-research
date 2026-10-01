@@ -335,18 +335,8 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("gives per-capability setup steps a back affordance to the hub", () => {
-    expect(resolveTopShellBreadcrumb("/one/setup/finance")).toEqual({
-      backHref: "/one/setup",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Finance" },
-      ],
-    });
+  it("keeps the first-run setup hub as the Finance parent", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/finance")?.backHref).toBe("/one/setup");
 
     expect(resolveTopShellBreadcrumb("/one/setup/connected-systems")).toEqual({
       backHref: "/one/setup",
@@ -365,17 +355,25 @@ describe("top shell breadcrumbs", () => {
       ],
     });
 
-    expect(resolveTopShellBreadcrumb("/one/setup/finance/")).toEqual({
-      backHref: "/one/setup",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [
-        { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup" },
-        { label: "Finance" },
-      ],
+    expect(resolveTopShellBreadcrumb("/one/setup/finance/")?.backHref).toBe("/one/setup");
+  });
+
+  it("returns completed Finance re-entry to One, not the obsolete setup hub", () => {
+    const completed = { setupDismissed: true };
+    expect(resolveTopShellBreadcrumb("/one/setup/finance", undefined, completed)).toMatchObject({
+      backHref: "/one",
+      items: [{ label: "One", href: "/one" }, { label: "Finance" }],
     });
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/one/setup"), completed,
+    )?.backHref).toBe("/one");
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/profile"), completed,
+    )?.backHref).toBe("/profile");
+    // One's tile carries an explicit origin, so no cached completion hint is required.
+    expect(resolveTopShellBreadcrumb(
+      "/one/setup/finance", new URLSearchParams("from=/one"),
+    )?.backHref).toBe("/one");
   });
 
   it("retraces a capability setup step to the internal origin that opened it", () => {

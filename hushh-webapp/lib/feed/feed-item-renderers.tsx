@@ -168,6 +168,12 @@ function driveFeedLine(
       return "Document request received";
     case "document_share_review_ready":
       return "Files ready for your review";
+    case "document_share_payment_ready":
+      return "Pay $10 to continue your document request";
+    case "document_share_payment_confirmed":
+      return "Payment confirmed for your document request";
+    case "document_share_payment_refunded":
+      return "Payment refunded for your document request";
     case "document_share_decided":
       if (sharedWithMe) {
         return status === "declined"
@@ -1032,6 +1038,9 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
     }
     case "document_share_request":
     case "document_share_review_ready":
+    case "document_share_payment_ready":
+    case "document_share_payment_confirmed":
+    case "document_share_payment_refunded":
     case "document_share_decided":
     case "document_share_outcome":
     case "document_share_revoked":
@@ -1054,10 +1063,14 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           sharedWithMe,
           metadataString(item.metadata, "user_facing_status"),
         ),
-        href: buildConsentCenterHref(
-          "pending",
-          selection ? { requestId: selection } : undefined,
-        ),
+        href: item.event_type === "document_share_payment_ready" ||
+          item.event_type === "document_share_payment_confirmed" ||
+          item.event_type === "document_share_payment_refunded"
+          ? ROUTES.ONE_FEED
+          : buildConsentCenterHref(
+              "pending",
+              selection ? { requestId: selection } : undefined,
+            ),
       };
     }
     default:

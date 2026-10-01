@@ -750,9 +750,28 @@ class PersonProfileService:
             )
 
         relationship = await asyncio.to_thread(self._relationship, viewer_user_id, subject_user_id)
+        contact_email = None
+        if relationship["status"] == "connected":
+            # Recheck the edge when reading identity: a profile URL or a
+            # relationship that was just removed grants no contact access.
+            contact_row = await asyncio.to_thread(
+                self._execute_one,
+                """
+                SELECT identity.email
+                FROM connections edge
+                JOIN actor_identity_cache identity ON identity.user_id = :subject
+                WHERE edge.status = 'active'
+                  AND edge.user_a_id = LEAST(:viewer, :subject)
+                  AND edge.user_b_id = GREATEST(:viewer, :subject)
+                LIMIT 1
+                """,
+                {"viewer": viewer_user_id, "subject": subject_user_id},
+            )
+            contact_email = str((contact_row or {}).get("email") or "").strip() or None
         return {
             **self._public_projection(row),
             "relationship": relationship,
+            "contactEmail": contact_email,
             "requestableScopes": scopes,
             **({"scopeCatalog": catalog} if catalog is not None else {}),
             "grants": grants,

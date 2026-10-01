@@ -7,7 +7,6 @@ import { usePersonInformationRequest } from "@/lib/consent/use-person-informatio
 import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { readInformationRequest, subscribeInformationRequest } from "@/lib/consent/information-request-reads";
-import { LIVE_ACCESS_EVENT_JOIN_MS } from "@/lib/consent/live-access-watch";
 import {
   informationRequestOutcome,
   type ConsentOutcome,
@@ -632,12 +631,12 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     const fromEvent = eventRefreshRef.current;
     eventRefreshRef.current = false;
     if (!published) setRefreshState("checking");
-    // Shared with every other reader of this request: an event's listeners
-    // share one fresh read, and a re-render never adds one.
+    // A status-change event must not reuse a read that began before the
+    // change. The shared reader suppresses older results after this read.
     void (published ? Promise.resolve(published) : readInformationRequest({
       bundleId: experience.bundleId,
       vaultOwnerToken,
-      ...(fromEvent ? { joinWithinMs: LIVE_ACCESS_EVENT_JOIN_MS } : {}),
+      ...(fromEvent ? { fresh: true } : {}),
     })).then((bundle) => {
       if (!active) return;
       // A restored descriptor is only a display reference. If the current

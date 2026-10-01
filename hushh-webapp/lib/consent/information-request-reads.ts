@@ -101,7 +101,10 @@ export function readInformationRequest(input: {
     bundleId: input.bundleId,
     vaultOwnerToken: input.vaultOwnerToken,
   })).then((bundle) => {
-    if (readGeneration === generation) publishBundle(key, bundle);
+    // An older read can finish after a fresh post-event read. Its result is
+    // still returned to its own caller, but must not replace newer status on
+    // every subscribed surface.
+    if (readGeneration === generation && bundleReads.get(key)?.promise === promise) publishBundle(key, bundle);
     return bundle;
   }).finally(() => {
     if (bundleReads.get(key)?.promise === promise) bundleReads.delete(key);

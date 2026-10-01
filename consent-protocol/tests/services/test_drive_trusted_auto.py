@@ -97,7 +97,9 @@ def _auto_job(bulk, *, request_id):
 
 
 @pytest.mark.asyncio
-async def test_only_new_accepted_trusted_request_gets_auto_marker(request_bulk, sharing):
+async def test_only_new_accepted_trusted_request_gets_auto_marker(
+    request_bulk, sharing, monkeypatch
+):
     with sharing.db.engine.begin() as connection:
         connection.execute(text("UPDATE connection_origins SET status='removed'"))
     unaccepted = await _request(sharing)
@@ -120,6 +122,17 @@ async def test_only_new_accepted_trusted_request_gets_auto_marker(request_bulk, 
     assert (await sharing.owner_review(user_id="owner", request_id=removed["requestId"]))[
         "trustedAuto"
     ] is False
+    with sharing.db.engine.begin() as connection:
+        payment_flags = {
+            str(request_id): required
+            for request_id, required in connection.execute(
+                text("SELECT request_id,payment_required FROM drive_share_requests")
+            ).all()
+        }
+    assert payment_flags[accepted["requestId"]] is True
+    assert all(
+        payment_flags[item["requestId"]] is False for item in (unaccepted, owner_selected, removed)
+    )
     # A pre-deploy or ordinary request does not become automatic on replay.
     with sharing.db.engine.begin() as connection:
         connection.execute(text("UPDATE connection_origins SET status='active'"))
@@ -127,6 +140,26 @@ async def test_only_new_accepted_trusted_request_gets_auto_marker(request_bulk, 
     assert (await sharing.owner_review(user_id="owner", request_id=unaccepted["requestId"]))[
         "trustedAuto"
     ] is False
+    monkeypatch.delenv("DRIVE_REQUEST_PAYMENTS_ENABLED")
+    rollout_off = await _request(sharing)
+    assert (await sharing.owner_review(user_id="owner", request_id=rollout_off["requestId"]))[
+        "trustedAuto"
+    ] is True
+    with sharing.db.engine.begin() as connection:
+        assert (
+            connection.execute(
+                text("SELECT payment_required FROM drive_share_requests WHERE request_id=:request"),
+                {"request": rollout_off["requestId"]},
+            ).scalar_one()
+            is False
+        )
+        assert (
+            connection.execute(
+                text("SELECT payment_required FROM drive_share_requests WHERE request_id=:request"),
+                {"request": accepted["requestId"]},
+            ).scalar_one()
+            is True
+        )
 
 
 @pytest.mark.asyncio
@@ -466,7 +499,10 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
     sharing = SimpleNamespace(db=object(), trusted_request_authority=AsyncMock(return_value={}))
     monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)
     monkeypatch.setattr(module, "DriveBulkShareService", FakeBulkService)
-    service = DriveTrustedAutoService(sharing=sharing, bulk=bulk, wake=wake)
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(return_value={"status": "paid"})
+    )
+    service = DriveTrustedAutoService(sharing=sharing, bulk=bulk, payment=payment, wake=wake)
     assert (
         await service.share_available(user_id="owner", request_id=str(uuid4()), max_batches=2) == 2
     )
@@ -478,6 +514,60 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
     assert [len(batch) for batch in prepared] == [25, 25, 25]
     assert len(approved) == 3 and remaining == []
     assert bulk.refresh_request.await_count == 2
+    assert payment.ensure_payment_for_frozen_batch.await_count == 3
+
+
+@pytest.mark.asyncio
+async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monkeypatch):
+    from hushh_mcp.services import drive_trusted_auto_service as module
+
+    review = {"shareId": str(uuid4()), "revision": 1, "reviewDigest": "frozen"}
+    pending = []
+    approved = AsyncMock()
+
+    class FakeRequestBulk:
+        def __init__(self, **kwargs):
+            pass
+
+        async def prepare(self, **kwargs):
+            pending.append(review)
+            return review
+
+    class FakeBulkService:
+        def __init__(self, **kwargs):
+            pass
+
+        approve = approved
+
+    async def pending_reviews(**kwargs):
+        return list(pending)
+
+    async def positions(**kwargs):
+        return [1] if not pending else []
+
+    bulk = SimpleNamespace(
+        pending_request_reviews=pending_reviews,
+        unclaimed_positions=positions,
+        refresh_request=AsyncMock(),
+    )
+    sharing = SimpleNamespace(db=object(), trusted_request_authority=AsyncMock(return_value={}))
+    payment = SimpleNamespace(
+        ensure_payment_for_frozen_batch=AsyncMock(
+            side_effect=[{"status": "awaiting_payment"}, {"status": "paid"}]
+        )
+    )
+    monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)
+    monkeypatch.setattr(module, "DriveBulkShareService", FakeBulkService)
+    wake = AsyncMock()
+    service = DriveTrustedAutoService(sharing=sharing, bulk=bulk, payment=payment, wake=wake)
+    request_id = str(uuid4())
+    assert await service.share_available(user_id="owner", request_id=request_id) == 0
+    approved.assert_not_awaited()
+    wake.assert_awaited_once_with("sharing")
+    assert len(pending) == 1
+    assert await service.share_available(user_id="owner", request_id=request_id) == 1
+    approved.assert_awaited_once()
+    assert approved.await_args.kwargs["share_id"] == review["shareId"]
 
 
 @pytest.mark.asyncio

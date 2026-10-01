@@ -154,6 +154,7 @@ describe("DataTable", () => {
     expect(scroller).toHaveAttribute("data-no-route-swipe");
     expect(scroller).toHaveAttribute("data-swipe-views-horizontal-scroll");
     expect(scroller).toHaveClass("overflow-x-auto", "max-w-full");
+    expect(scroller?.querySelector("table")).toHaveClass("min-w-max");
   });
 
   it("renders compact mobile pagination for card tables", () => {

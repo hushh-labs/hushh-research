@@ -9,9 +9,9 @@
  * holds the single voice lease while a session runs. It never reaches for
  * the bounded recorder or browser speech.
  *
- * Every server frame goes through the reducer FIRST (dispatchServerFrame);
- * side effects (playback, `pending_action.shown`, screen effects, generic
- * directives, client steps, reconnect) run after. UI success is never
+ * Turn-owned effects are fenced before dispatch. Admitted frames go through
+ * the reducer before playback, screen effects, directives and client steps.
+ * UI success is never
  * decided here: it comes from `tool.result ok:true` and
  * `pending_action.resolved executed` in the reducer.
  */
@@ -194,6 +194,12 @@ export const CLIENT_STEP_TIMEOUT_MAX_MS = 60_000;
 export const DIRECTIVE_CLAIM_MS = 500;
 const LEVEL_DISPATCH_INTERVAL_MS = 80;
 const LEVEL_QUANTUM = 0.02;
+let providerMountSequence = 0;
+
+function traceVoiceSession(event: string, facts: Record<string, string | number | boolean>): void {
+  // No owner, conversation, route, transcript or mail content enters diagnostics.
+  console.info("one_voice.session", { event, ...facts });
+}
 
 function defaultCreateAudioContext(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -421,10 +427,18 @@ function runDirective(
       session.directiveTimers.delete(claimTimer);
       claimTimer = null;
     }
-    if (!session.tornDown) session.client.uiSettled(frame.directive_id, status);
+    if (!session.tornDown)
+      session.client.uiSettled(
+        frame.directive_id,
+        isStaleOrigin(frame.turn_id) ? "ignored" : status,
+      );
   };
   const runGeneric = () => {
     if (settled) return;
+    if (isStaleOrigin(frame.turn_id)) {
+      finish("ignored");
+      return;
+    }
     void executeDirective(frame.kind, frame.payload || {}, {
       pathname: context.pathname,
     }).then(
@@ -434,6 +448,10 @@ function runDirective(
   };
   const screenOwned = isScreenOwnedDirective(frame.kind);
   const settle = (status: "opened" | "failed" | "ignored") => {
+    if (isStaleOrigin(frame.turn_id)) {
+      finish("ignored");
+      return;
+    }
     if (status === "ignored" && !screenOwned) {
       runGeneric();
       return;
@@ -462,6 +480,14 @@ function runDirective(
 }
 
 const VoiceSessionContext = createContext<VoiceSessionController | null>(null);
+
+function isStaleOrigin(turnId: string | null | undefined): boolean {
+  if (!turnId) return false;
+  const current = useVoiceSessionStore.getState().state;
+  return current.fencedTurnIds.includes(turnId) || Boolean(
+    current.activeInputTurnId && current.activeInputTurnId !== turnId
+  );
+}
 
 // --- provider -----------------------------------------------------------------
 
@@ -511,6 +537,11 @@ export function VoiceSessionProvider({
   const mutedRef = useRef(false);
   const pendingExternalRequest = useRef<AgentConversationRequest | null>(null);
   const lastLevelDispatchRef = useRef({ at: 0, level: 0 });
+  useEffect(() => {
+    const mount = ++providerMountSequence;
+    traceVoiceSession("provider_mount", { mount });
+    return () => traceVoiceSession("provider_unmount", { mount });
+  }, []);
 
   const dispatch = useCallback(
     (event: VoiceSessionEvent) =>
@@ -589,26 +620,58 @@ export function VoiceSessionProvider({
   >(async () => false);
 
   const reconnectsRef = useRef(0);
+  /** A resumable close waits here when the app is backgrounded or offline. */
+  const pendingNetworkReconnectRef = useRef<string | null>(null);
+  const reconnectEpochRef = useRef(0);
+  const reconnectRetryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const queueFailedReconnectRef = useRef<(
+    conversationId: string,
+    epoch: number,
+  ) => void>(() => undefined);
 
   const handleClose = useCallback(
     (session: LiveSession, info: LiveCloseInfo) => {
       if (session.closeHandled) return;
       session.closeHandled = true;
+      traceVoiceSession("socket_close", {
+        code: info.code,
+        clean: info.clean,
+        resumable: info.resumable,
+        locallyStopped: session.stoppedLocally,
+        paused: session.paused,
+        captureLive: session.captureReady && session.capture?.isTrackLive?.() !== false,
+      });
       const wasBackgroundPaused =
         session.paused && session.pauseReason === "app_backgrounded";
       teardown(session, `closed:${info.reason}`);
       const before = readState();
       const serverAsked = !session.stoppedLocally && canAutoReconnect(before);
-      const reconnect =
-        serverAsked &&
+      const networkLost =
+        !session.stoppedLocally &&
+        info.code === 1006 &&
+        info.resumable &&
+        !hasOpenPendingAction(before);
+      const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+      const active = appInteractionCoordinator.getLifecycleSnapshot().state === "active";
+      const eligible =
         latest.current.enabled &&
+        latest.current.isVaultUnlocked &&
+        Boolean(latest.current.vaultOwnerToken) &&
+        Boolean(latest.current.user?.uid) &&
         reconnectsRef.current < MAX_AUTO_RECONNECTS;
+      const reconnect =
+        (serverAsked || networkLost) &&
+        eligible &&
+        !offline &&
+        active;
       // The reducer reconnects on the reason alone; when this device refuses
       // (owner switched, budget spent) the close is reported as local so the
       // state lands idle instead of waiting on a socket that never opens.
       const reason =
         serverAsked && !reconnect ? localCloseReason(info.reason) : info.reason;
       dispatch({ type: "closed", code: info.code, reason, now: now() });
+      if ((serverAsked || networkLost) && eligible && !reconnect && (offline || !active))
+        pendingNetworkReconnectRef.current = session.conversationId;
       if (wasBackgroundPaused && info.code === 4009 && !reconnect) {
         // The relay's idle watchdog may expire while a tab is hidden. Keep
         // the conversation id for an explicit retry, and explain why the mic
@@ -623,10 +686,15 @@ export function VoiceSessionProvider({
         });
       }
       if (reconnect) {
+        pendingNetworkReconnectRef.current = null;
         reconnectsRef.current += 1;
+        const epoch = reconnectEpochRef.current;
         void openSessionRef.current({
           conversationId: session.conversationId,
           isReconnect: true,
+        }).then((opened) => {
+          if (!opened)
+            queueFailedReconnectRef.current(session.conversationId, epoch);
         });
       }
     },
@@ -635,8 +703,24 @@ export function VoiceSessionProvider({
 
   const stopSession = useCallback(
     (reason: string) => {
+      // A failed reconnect may wait for the next online event. A person's
+      // Stop or an ownership transition must cancel that deferred attempt.
+      if (reason !== "start_failed") reconnectEpochRef.current += 1;
+      pendingNetworkReconnectRef.current = null;
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
       if (openingRef.current) openingRef.current.cancelled = true;
       const session = sessionRef.current;
+      traceVoiceSession("stop", {
+        reason,
+        hasSession: Boolean(session),
+        paused: Boolean(session?.paused),
+        captureLive: Boolean(
+          session?.captureReady && session.capture?.isTrackLive?.() !== false,
+        ),
+      });
       if (!session) return;
       session.stoppedLocally = true;
       // The client reports its close synchronously; handleClose tears down.
@@ -662,6 +746,10 @@ export function VoiceSessionProvider({
       void loadDirectives().then(
         (directives) => {
           if (sessionRef.current !== session || session.tornDown) return;
+          if (isStaleOrigin(frame.turn_id)) {
+            session.client.uiSettled(frame.directive_id, "ignored");
+            return;
+          }
           runDirective(session, frame, directives, {
             pathname: pathnameRef.current,
             claimMs: depsRef.current?.directiveClaimMs ?? DIRECTIVE_CLAIM_MS,
@@ -671,7 +759,10 @@ export function VoiceSessionProvider({
         },
         () => {
           if (!session.tornDown)
-            session.client.uiSettled(frame.directive_id, "failed");
+            session.client.uiSettled(
+              frame.directive_id,
+              isStaleOrigin(frame.turn_id) ? "ignored" : "failed",
+            );
         },
       );
     },
@@ -746,6 +837,53 @@ export function VoiceSessionProvider({
   const handleFrame = useCallback(
     (session: LiveSession, frame: ServerFrame) => {
       if (sessionRef.current !== session || session.tornDown) return;
+      const before = useVoiceSessionStore.getState().state;
+      const origin = "turn_id" in frame && typeof frame.turn_id === "string"
+        ? frame.turn_id
+        : null;
+      if (
+        frame.type === "tool.result" && !origin &&
+        (before.turnId !== null || before.activeInputTurnId !== null ||
+          before.activeResponseTurnId !== null || before.fencedTurnIds.length > 0 ||
+          Boolean(frame.pending_action_id))
+      ) {
+        // A legacy result may settle its exact card, but once this session
+        // has seen a question it has no safe screen or answer owner. Initial
+        // autonomous results can still reach their screen handlers.
+        dispatchServerFrame(frame, now());
+        return;
+      }
+      const staleOrigin = isStaleOrigin(origin);
+      if (staleOrigin) {
+        if (frame.type === "tool.result") {
+          // An exact pending card may still settle, but an older result must
+          // never replace the current screen's Mail list or trigger a handler.
+          dispatchServerFrame(frame, now());
+          return;
+        }
+        if (frame.type === "ui_directive") {
+          session.client.uiSettled(frame.directive_id, "ignored");
+          return;
+        }
+        if (frame.type === "client_step.request") {
+          if (frame.confirmed_pending_action_id) {
+            // The relay only marks a step after the person confirmed its exact
+            // card. Finish that action even if a newer question is underway;
+            // its answer remains fenced from the newer turn.
+            requestClientStep(session, frame);
+            return;
+          }
+          session.client.clientStepResult(frame.step_id, "failed", {
+            reason: "superseded_turn",
+          });
+          return;
+        }
+        if (
+          frame.type === "pending_action" ||
+          frame.type === "entity_card" ||
+          frame.type === "candidate_picker"
+        ) return;
+      }
       dispatchServerFrame(frame, now());
       const store = useVoiceSessionStore.getState();
       switch (frame.type) {
@@ -753,10 +891,22 @@ export function VoiceSessionProvider({
           sendAppContext();
           // The relay being ready says nothing about whether getUserMedia has
           // completed. Keep the visible status honest until capture is live.
-          if (!session.captureReady && !session.paused)
+          if (session.paused || !session.captureReady)
             dispatch({ type: "paused" });
           return;
         case "transcript.input":
+          if (
+            store.state.activeInputTurnId === frame.turn_id &&
+            before.activeInputTurnId !== frame.turn_id
+          ) {
+            // Voice barge-in has already named a new question. Stop queued
+            // speech now, without waiting for a provider interrupt marker.
+            session.narrating = false;
+            session.playback.flush();
+            const previousTurn = before.activeResponseTurnId || before.turnId;
+            if (previousTurn && previousTurn !== frame.turn_id)
+              session.playback.fenceTurn(previousTurn);
+          }
           if (
             frame.request_id &&
             frame.request_id === session.awaitingTypedRequestId
@@ -1232,6 +1382,8 @@ export function VoiceSessionProvider({
     }
     if (!conversationIdRef.current)
       conversationIdRef.current = crypto.randomUUID();
+    reconnectEpochRef.current += 1;
+    pendingNetworkReconnectRef.current = null;
     reconnectsRef.current = 0;
     const opened = await openSession({
       conversationId: conversationIdRef.current,
@@ -1278,6 +1430,52 @@ export function VoiceSessionProvider({
   }, [begin, openSession, pause, stopSession]);
 
   useEffect(() => {
+    const queueFailedReconnect = (conversationId: string, epoch: number) => {
+      if (
+        reconnectEpochRef.current !== epoch ||
+        sessionRef.current ||
+        openingRef.current ||
+        pendingNetworkReconnectRef.current ||
+        reconnectsRef.current >= MAX_AUTO_RECONNECTS
+      ) return;
+      pendingNetworkReconnectRef.current = conversationId;
+      if (
+        navigator.onLine !== false &&
+        appInteractionCoordinator.getLifecycleSnapshot().state === "active" &&
+        reconnectRetryTimerRef.current === null
+      ) {
+        reconnectRetryTimerRef.current = setTimeout(() => {
+          reconnectRetryTimerRef.current = null;
+          reconnectWhenOnline();
+        }, 1000 * reconnectsRef.current);
+      }
+    };
+    queueFailedReconnectRef.current = queueFailedReconnect;
+    const reconnectWhenOnline = () => {
+      const conversationId = pendingNetworkReconnectRef.current;
+      if (
+        !conversationId ||
+        sessionRef.current ||
+        openingRef.current ||
+        !latest.current.enabled ||
+        !latest.current.isVaultUnlocked ||
+        !latest.current.vaultOwnerToken ||
+        !latest.current.user?.uid ||
+        navigator.onLine === false ||
+        appInteractionCoordinator.getLifecycleSnapshot().state !== "active" ||
+        reconnectsRef.current >= MAX_AUTO_RECONNECTS
+      ) return;
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
+      reconnectsRef.current += 1;
+      pendingNetworkReconnectRef.current = null;
+      const epoch = reconnectEpochRef.current;
+      void openSessionRef.current({ conversationId, isReconnect: true }).then((opened) => {
+        if (!opened) queueFailedReconnect(conversationId, epoch);
+      });
+    };
     const lifecycleChanged = () => {
       const lifecycle = appInteractionCoordinator.getLifecycleSnapshot();
       if (lifecycle.state === "background") {
@@ -1286,11 +1484,21 @@ export function VoiceSessionProvider({
       }
       const session = sessionRef.current;
       if (session?.paused) void resumeSession(session);
+      reconnectWhenOnline();
     };
+    window.addEventListener("online", reconnectWhenOnline);
     const unsubscribe =
       appInteractionCoordinator.subscribeLifecycle(lifecycleChanged);
     lifecycleChanged();
-    return unsubscribe;
+    return () => {
+      window.removeEventListener("online", reconnectWhenOnline);
+      unsubscribe();
+      if (reconnectRetryTimerRef.current !== null) {
+        clearTimeout(reconnectRetryTimerRef.current);
+        reconnectRetryTimerRef.current = null;
+      }
+      queueFailedReconnectRef.current = () => undefined;
+    };
   }, [resumeSession]);
 
   const submitText = useCallback(

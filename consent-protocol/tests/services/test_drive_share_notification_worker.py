@@ -248,6 +248,34 @@ async def test_unreviewed_event_type_is_suppressed_before_the_push_adapter_is_ca
 
 
 @pytest.mark.asyncio
+async def test_payment_ready_push_checks_live_order_before_dispatch():
+    store = SimpleNamespace(
+        payment_ready_current=AsyncMock(return_value=False),
+        suppress=AsyncMock(return_value=True),
+        settle=AsyncMock(return_value=True),
+    )
+    send = MagicMock(return_value=1)
+    worker = DriveShareNotificationWorker(store=store, send_push=send)
+    job = {
+        "event_id": "11111111-1111-4111-8111-111111111111",
+        "request_id": "22222222-2222-4222-8222-222222222222",
+        "event_type": "document_share_payment_ready",
+        "user_id": "requester",
+        "notification_lease_id": "33333333-3333-4333-8333-333333333333",
+    }
+
+    assert await worker._dispatch(job) == "suppressed"
+    store.payment_ready_current.assert_awaited_once_with(
+        request_id=job["request_id"], user_id=job["user_id"]
+    )
+    send.assert_not_called()
+
+    store.payment_ready_current.return_value = True
+    assert await worker._dispatch(job) == "settled"
+    send.assert_called_once()
+
+
+@pytest.mark.asyncio
 async def test_zero_push_delivery_is_retried_not_falsely_settled():
     store = SimpleNamespace(retry=AsyncMock(return_value="retry_scheduled"), settle=AsyncMock())
     send = MagicMock(return_value=0)

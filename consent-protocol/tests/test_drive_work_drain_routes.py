@@ -162,6 +162,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
                 "permissions": {"succeeded": 1},
                 "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
                 "notifications": {"settled": 1},
+                "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
             },
         }
     )
@@ -191,6 +192,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "permissions": {"succeeded": 1},
             "bulk_shares": {"succeeded": 2},
             "notifications": {"settled": 1},
+            "refunds": {"succeeded": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]

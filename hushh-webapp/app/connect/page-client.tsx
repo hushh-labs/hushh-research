@@ -1545,7 +1545,7 @@ export default function ConnectPageClient() {
       if (!catalog) return [];
       return catalog.items.map((item) => ({
         userId: person.userId,
-        title: person.displayName || person.email || person.userId,
+        title: person.displayName || "Hussh member",
         item,
       }));
     });
@@ -2092,7 +2092,7 @@ export default function ConnectPageClient() {
           id: "connect.search_people",
           actionId: "connect.search_people",
           label: "Search for someone to connect with",
-          purpose: "Search the directory for the spoken name.",
+          purpose: "Search the directory by name, email, or phone.",
         },
         {
           id: "connect.send_request",
@@ -2109,7 +2109,7 @@ export default function ConnectPageClient() {
         {
           id: "one-connect-search",
           label: "Search people",
-          purpose: "Search the directory by name.",
+          purpose: "Search the directory by name, email, or phone.",
           actionId: "connect.search_people",
           role: "textbox",
         },
@@ -2945,9 +2945,7 @@ export default function ConnectPageClient() {
                               currentUserId={user?.uid ?? null}
                               circlesState={circlesState}
                               ownerName={
-                                user?.displayName ||
-                                user?.email ||
-                                "You"
+                                user?.displayName || "You"
                               }
                               ownerPhotoUrl={user?.photoURL ?? null}
                               connections={sortedConnections}
@@ -3306,14 +3304,14 @@ export default function ConnectPageClient() {
                                 ) : hasQuery ? (
                                   "Send a request."
                                 ) : (
-                                  "Search by name."
+                                  "Find by name, email or phone."
                                 )
                               }
                               separatorInset
                               // The search row belongs to THIS list, so it is read after
                               // the heading that names the list -- not before it. It used
                               // to sit above "People", which put the sentence that
-                              // instructs it ("Search by name.") underneath the box it
+                              // instructs it underneath the box it
                               // instructs, and gave the reader a field before anything on
                               // screen had said what it searched. It still pins under the
                               // tab strips on scroll; it just no longer arrives first.
@@ -3494,7 +3492,7 @@ export default function ConnectPageClient() {
                                         ? "No advisors yet"
                                         : "No people yet"
                                     }
-                                    description="Search by name."
+                                    description="Find by name, email or phone."
                                     density="compact"
                                     disabled
                                   />
@@ -3506,10 +3504,7 @@ export default function ConnectPageClient() {
                                   );
                                   const title =
                                     person.displayName ||
-                                    person.email ||
-                                    person.userId;
-                                  const description =
-                                    getDirectoryPersonDescription(person);
+                                    "Hussh member";
                                   const isSelected = selectedPeople.has(
                                     person.userId,
                                   );
@@ -3537,17 +3532,6 @@ export default function ConnectPageClient() {
                                         >
                                           {title}
                                         </span>
-                                      }
-                                      description={
-                                        description ? (
-                                          <span
-                                            className={
-                                              CONNECT_WRAPPING_TEXT_CLASSNAME
-                                            }
-                                          >
-                                            {description}
-                                          </span>
-                                        ) : undefined
                                       }
                                       density="compact"
                                       onClick={
@@ -3826,8 +3810,7 @@ export default function ConnectPageClient() {
               <div className="space-y-4 overflow-y-auto min-h-0 flex-1 px-1 pb-2">
                 <SettingsGroup title="Selected people" separatorInset>
                   {batchConnectDraft.people.map((person) => {
-                    const title =
-                      person.displayName || person.email || person.userId;
+                    const title = person.displayName || "Hussh member";
                     return (
                       <SettingsRow
                         key={`batch-${person.userId}`}

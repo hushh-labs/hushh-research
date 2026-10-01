@@ -124,6 +124,20 @@ class DriveBulkShareStore(DriveLivePreferences):
         super().__init__(db)
         self.cipher = cipher or DriveSharingCipher()
 
+    def _require_paid_for_origin(self, connection, request_id):
+        if request_id is None:
+            return
+        from hushh_mcp.services.drive_request_payment_store import DriveRequestPaymentStore
+
+        request = self._row(
+            connection,
+            "SELECT request_id,payment_required FROM drive_share_requests WHERE request_id=:request",
+            {"request": request_id},
+        )
+        if request is None:
+            raise DriveSharingError("request_unavailable")
+        DriveRequestPaymentStore.require_paid_if_required(connection, request)
+
     def _seal(self, value, *, user_id, resource_id, purpose):
         return json.dumps(
             self.cipher.seal(value, user_id=user_id, resource_id=resource_id, purpose=purpose)
@@ -176,6 +190,48 @@ class DriveBulkShareStore(DriveLivePreferences):
         if row is None:
             raise DriveSharingError("bulk_not_found")
         return row
+
+    @staticmethod
+    def _gate_graph_for_share(connection, *, user_id, share_id):
+        """Take identity guards before connector/share locks and Feed writes."""
+        from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+
+        participants = (
+            connection.execute(
+                text("""SELECT b.user_id,r.recipient_user_id
+          FROM drive_bulk_shares b LEFT JOIN drive_bulk_share_recipients r
+            ON r.share_id=b.share_id
+          WHERE b.share_id=:share AND b.user_id=:user"""),
+                {"share": share_id, "user": user_id},
+            )
+            .mappings()
+            .all()
+        )
+        lock_connection_graph_users(
+            connection,
+            user_ids=[
+                user_id,
+                *(item["recipient_user_id"] for item in participants if item["recipient_user_id"]),
+            ],
+        )
+
+    @staticmethod
+    def _gate_graph_for_request(connection, *, user_id, request_id):
+        from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+
+        participant = (
+            connection.execute(
+                text("""SELECT recipient_user_id FROM drive_share_requests
+          WHERE request_id=:request AND user_id=:user"""),
+                {"request": request_id, "user": user_id},
+            )
+            .mappings()
+            .first()
+        )
+        lock_connection_graph_users(
+            connection,
+            user_ids=[user_id, participant["recipient_user_id"] if participant else None],
+        )
 
     @staticmethod
     def _recipient_current(connection, owner, recipient):
@@ -544,6 +600,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         share = str(uuid4())
 
         def operation(connection):
+            from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+
+            lock_connection_graph_users(
+                connection, user_ids=[user_id, *(recipient["user_id"] for recipient in cleaned)]
+            )
             if progressive:
                 # Serializes position claims with another tab and with the
                 # search page commit without holding a lock over provider I/O.
@@ -1254,6 +1315,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=user_id, share_id=share)
             if not self._owner_grants_enabled(user_id):
                 raise DriveSharingError("sharing_unavailable")
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
@@ -1286,6 +1348,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
                 ):
                     raise DriveSharingError("request_changed")
+                self._require_paid_for_origin(connection, origin["request_id"])
                 search = self._row(
                     connection,
                     """SELECT job_id,status,revision,incomplete_search,checkpoint_envelope
@@ -1420,6 +1483,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=user_id, share_id=share)
             if not self._owner_grants_enabled(user_id):
                 raise DriveSharingError("sharing_unavailable")
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
@@ -1519,6 +1583,7 @@ class DriveBulkShareStore(DriveLivePreferences):
         share = _uuid(share_id)
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=user_id, share_id=share)
             row = self._owned(connection, user_id, share, locked=True)
             if row["status"] in {"stopped", "completed", "partial", "failed"}:
                 return self._view(connection, row)
@@ -1784,6 +1849,7 @@ class DriveBulkShareStore(DriveLivePreferences):
         request = _uuid(request_id)
 
         def operation(connection):
+            self._gate_graph_for_request(connection, user_id=user_id, request_id=request)
             owner = self._row(
                 connection,
                 """SELECT user_id FROM drive_share_requests
@@ -1834,8 +1900,27 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise DriveSharingError("invalid_argument")
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=user_id, share_id=share)
             self._lock(connection, {"user_id": user_id, "connector_id": "google_drive"})
             row = self._owned(connection, user_id, share, locked=True, unexpired=False)
+            if row["origin_request_id"] is not None:
+                # A dispatcher takes the order before the effect. Claims must
+                # follow that order too, including reconciliation claims, so a
+                # concurrent webhook or account erasure cannot form a cycle.
+                origin = self._row(
+                    connection,
+                    "SELECT request_id FROM drive_share_requests WHERE request_id=:request FOR UPDATE",
+                    {"request": row["origin_request_id"]},
+                )
+                if origin is None:
+                    raise DriveSharingError("request_unavailable")
+                connection.execute(
+                    text(
+                        "SELECT request_id FROM drive_request_payment_orders "
+                        "WHERE request_id=:request FOR SHARE"
+                    ),
+                    {"request": row["origin_request_id"]},
+                )
             effect = self._row(
                 connection,
                 """SELECT * FROM drive_bulk_share_effects WHERE share_id=:share
@@ -1871,6 +1956,8 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 self._finalize(connection, share)
                 return None
+            if effect["state"] == "queued":
+                self._require_paid_for_origin(connection, row["origin_request_id"])
             try:
                 self.live_active(
                     connection, user_id=user_id, generation=row["connection_generation"]
@@ -1966,6 +2053,8 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise DriveSharingError("sharing_unavailable")
         self.live_active(connection, user_id=job["user_id"], generation=job["generation"])
         share = self._owned(connection, job["user_id"], job["share_id"], unexpired=False)
+        if not reconcile:
+            self._require_paid_for_origin(connection, share["origin_request_id"])
         effect = self._row(
             connection,
             """SELECT * FROM drive_bulk_share_effects WHERE share_id=:share
@@ -2005,6 +2094,21 @@ class DriveBulkShareStore(DriveLivePreferences):
 
     async def mark_dispatching(self, job):
         def operation(connection):
+            # Stop/settle hold the share before touching an effect. A payment
+            # webhook or refund holds request then order. Take share→request
+            # first so all three paths serialize before a provider POST.
+            self._lock(connection, {"user_id": job["user_id"], "connector_id": "google_drive"})
+            share = self._owned(
+                connection, job["user_id"], job["share_id"], locked=True, unexpired=False
+            )
+            if share["origin_request_id"] is not None:
+                origin = self._row(
+                    connection,
+                    "SELECT request_id FROM drive_share_requests WHERE request_id=:request FOR UPDATE",
+                    {"request": share["origin_request_id"]},
+                )
+                if origin is None:
+                    raise DriveSharingError("request_unavailable")
             self._effect_current(connection, job)
             connection.execute(
                 text("""UPDATE drive_bulk_share_effects SET state='dispatching',
@@ -2025,6 +2129,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             raise ValueError("invalid bulk effect state")
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=job["user_id"], share_id=job["share_id"])
             # Parent-before-effect matches Stop/claim/retry and prevents an
             # effect receipt racing Stop from forming a lock cycle.
             self._owned(connection, job["user_id"], job["share_id"], locked=True, unexpired=False)
@@ -2092,6 +2197,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             error = "provider_unavailable"
 
         def operation(connection):
+            self._gate_graph_for_share(connection, user_id=job["user_id"], share_id=job["share_id"])
             parent = self._owned(
                 connection, job["user_id"], job["share_id"], locked=True, unexpired=False
             )
@@ -2198,6 +2304,12 @@ class DriveBulkShareStore(DriveLivePreferences):
             shares = []
             for row in rows:
                 try:
+                    self._require_paid_for_origin(connection, row["origin_request_id"])
+                except DriveSharingError as error:
+                    if str(error) != "payment_required":
+                        raise
+                    continue
+                try:
                     self._recipient_identity_current(
                         connection,
                         share_id=str(row["share_id"]),
@@ -2252,6 +2364,14 @@ class DriveBulkShareStore(DriveLivePreferences):
                 recipient_user_id=recipient_user_id,
                 recipient_subject=recipient_subject,
                 recipient_email=recipient_email,
+            )
+            origin = self._row(
+                connection,
+                "SELECT origin_request_id FROM drive_bulk_shares WHERE share_id=:share",
+                {"share": share},
+            )
+            self._require_paid_for_origin(
+                connection, origin["origin_request_id"] if origin else None
             )
             count = connection.execute(
                 text("""SELECT count(*) FROM drive_bulk_share_effects
@@ -2378,6 +2498,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             if latest is None:
                 raise DriveSharingError("bulk_not_found")
+            self._require_paid_for_origin(connection, request)
             count = connection.execute(
                 text("""SELECT count(*)
                 FROM drive_bulk_share_effects e

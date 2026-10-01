@@ -4017,7 +4017,7 @@ def test_directory_candidates_query_targets_actor_identity_cache() -> None:
     assert service.list_directory_candidates(owner_user_id="owner") == []
     assert "FROM actor_profiles profile" in service.sql
     assert "LEFT JOIN actor_identity_cache identity" in service.sql
-    assert "a.phone_verified = TRUE" not in service.sql
+    assert "a.phone_verified = TRUE" in service.sql  # only the exact phone branch
     assert "profile.user_id <> :owner_user_id" in service.sql
     assert "marketplace.is_discoverable IS DISTINCT FROM FALSE" in service.sql
     # The vault-or-relationship rule sits in the eligibility subquery, ahead of
@@ -4296,6 +4296,9 @@ def test_directory_candidate_search_filters_before_pagination(
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "query": "cara",
+        "identifier_search": False,
+        "exact_email": None,
+        "exact_phone": None,
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
@@ -4357,6 +4360,29 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
     assert service.params["word_prefix"] == "% n%"
     assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
     assert "LIKE :word_prefix ESCAPE '!'" in service.sql
+    assert "LIKE :email_prefix" not in service.sql
+
+
+@pytest.mark.parametrize(
+    ("query", "email", "phone"),
+    [
+        ("Friend@Example.test", "friend@example.test", None),
+        ("+1 (555) 010-0002", None, "15550100002"),
+    ],
+)
+def test_directory_identifier_search_is_exact_and_phone_is_verified(
+    query: str, email: str | None, phone: str | None
+) -> None:
+    service = RecipientDirectoryProbe()
+    service.search_directory_candidates(owner_user_id="owner", query=query)
+
+    assert service.params["identifier_search"] is True
+    assert service.params["exact_email"] == email
+    assert service.params["exact_phone"] == phone
+    assert "LOWER(BTRIM(a.email)) = :exact_email" in service.sql
+    assert "a.phone_verified = TRUE" in service.sql
+    assert "REGEXP_REPLACE(a.phone_number, '[^0-9]', '', 'g') = :exact_phone" in service.sql
+    assert ":identifier_search = FALSE AND" in service.sql
     assert "LIKE :email_prefix" not in service.sql
 
 

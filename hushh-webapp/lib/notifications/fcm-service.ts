@@ -138,6 +138,10 @@ function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
 export function documentShareNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string | null {
+  const type = normalizedDocumentShareType(data);
+  if ((type === "document_share_payment_ready" || type === "document_share_payment_confirmed" ||
+      type === "document_share_payment_refunded") &&
+      documentShareNotificationRequestId(data)) return ROUTES.ONE_FEED;
   const selection = documentShareNotificationSelection(data);
   if (!selection) return null;
   return buildConsentCenterHref("pending", { requestId: selection });

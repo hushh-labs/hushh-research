@@ -315,6 +315,7 @@ def pending_action(
     receipt_token: str | None,
     entities: list[dict[str, Any]],
     risk_level: str,
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
     payload = {
         "type": "pending_action",
@@ -325,6 +326,8 @@ def pending_action(
     }
     if receipt_token:
         payload["receipt_token"] = receipt_token
+    if turn_id:
+        payload["turn_id"] = turn_id
     return payload
 
 
@@ -339,35 +342,63 @@ def pending_resolved(
     }
 
 
-def entity_card(*, kind: Literal["person", "circle"], payload: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "entity_card", "kind": kind, **payload}
+def entity_card(
+    *, kind: Literal["person", "circle"], payload: dict[str, Any], turn_id: str | None = None
+) -> dict[str, Any]:
+    frame = {"type": "entity_card", "kind": kind, **payload}
+    if turn_id:
+        frame["turn_id"] = turn_id
+    return frame
 
 
 def candidate_picker(
-    *, kind: Literal["person", "circle"], question: str, candidates: list[dict[str, Any]]
+    *,
+    kind: Literal["person", "circle"],
+    question: str,
+    candidates: list[dict[str, Any]],
+    turn_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    frame = {
         "type": "candidate_picker",
         "kind": kind,
         "question": question,
         "candidates": candidates,
     }
+    if turn_id:
+        frame["turn_id"] = turn_id
+    return frame
 
 
-def ui_directive(*, directive_id: str, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-    return {"type": "ui_directive", "directive_id": directive_id, "kind": kind, "payload": payload}
+def ui_directive(
+    *, directive_id: str, kind: str, payload: dict[str, Any], turn_id: str | None = None
+) -> dict[str, Any]:
+    frame = {"type": "ui_directive", "directive_id": directive_id, "kind": kind, "payload": payload}
+    if turn_id:
+        frame["turn_id"] = turn_id
+    return frame
 
 
 def client_step_request(
-    *, step_id: str, kind: str, payload: dict[str, Any], timeout_s: int
+    *,
+    step_id: str,
+    kind: str,
+    payload: dict[str, Any],
+    timeout_s: int,
+    turn_id: str | None = None,
+    confirmed_pending_action_id: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    frame = {
         "type": "client_step.request",
         "step_id": step_id,
         "kind": kind,
         "payload": payload,
         "timeout_s": timeout_s,
     }
+    if turn_id:
+        frame["turn_id"] = turn_id
+    if confirmed_pending_action_id:
+        frame["confirmed_pending_action_id"] = confirmed_pending_action_id
+    return frame
 
 
 def reconnect_required(reason: Literal["go_away", "max_duration"]) -> dict[str, Any]:

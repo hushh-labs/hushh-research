@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from hushh_mcp.one_voice.actor_proof import ActorProof, ProofOutcome, verify_firebase_actor
 from hushh_mcp.one_voice.pending_actions import (
+    ORIGIN_TURN_KEY,
     PendingAction,
     PendingActionConflict,
     PendingActionStore,
@@ -126,7 +127,12 @@ class ToolExecutor:
     # -- dispatch ------------------------------------------------------------
 
     async def call(
-        self, ctx: ToolContext, name: str, args: dict[str, Any] | None
+        self,
+        ctx: ToolContext,
+        name: str,
+        args: dict[str, Any] | None,
+        *,
+        origin_turn_id: str | None = None,
     ) -> ToolCallOutcome:
         if name in registry.SESSION_TOOL_NAMES:
             return await self._session_tool(ctx, name, args or {})
@@ -162,6 +168,8 @@ class ToolExecutor:
             superseded = await self._supersede_targeted(ctx)
         if spec.policy.needs_confirmation:
             args_json = parsed.model_dump(mode="json")
+            if origin_turn_id:
+                args_json[ORIGIN_TURN_KEY] = origin_turn_id
             if spec.prepare is not None:
                 # The exact effect is computed from authorized state now, so
                 # the card names what will really happen and execution can
@@ -264,6 +272,7 @@ class ToolExecutor:
         result: ToolResult
         args = dict(pending.args or {})
         snapshot = args.pop(PREPARED_KEY, None)
+        args.pop(ORIGIN_TURN_KEY, None)
         ctx.prepared = dict(snapshot) if isinstance(snapshot, dict) else None
         try:
             parsed = spec.input_model.model_validate(args)

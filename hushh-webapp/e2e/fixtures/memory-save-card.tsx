@@ -1,13 +1,14 @@
 import { createRoot } from "react-dom/client";
 import { AgentMemorySaveCard } from "../../components/agent/agent-memory-save-card";
 import type { PkmSaveReceipt } from "../../lib/agent/pkm-save-receipt";
+import type { AgentPkmPreviewCard } from "../../lib/agent/agent-pkm-memory";
 
 /**
  * The explicit-save receipt card, every value synthetic. `?state=` picks the
  * receipt; nothing here touches the network or a vault.
  */
 const FULL: PkmSaveReceipt = {
-  saved: 42, updated: 6, merged: 3, unchanged: 4, skipped: 2, needsOwner: 2, failed: 0, unprepared: 1,
+  saved: 42, updated: 6, merged: 3, unchanged: 4, skipped: 2, excluded: 0, unreadable: 0, needsOwner: 2, failed: 0, unprepared: 1,
   domains: [
     { domain: "career", label: "Career", saved: 11, updated: 3, merged: 1, unchanged: 1 },
     { domain: "company_context", label: "Company context", saved: 14, updated: 1, merged: 2, unchanged: 2 },
@@ -34,6 +35,10 @@ const STATES: Record<string, PkmSaveReceipt> = {
 };
 
 const state = new URLSearchParams(window.location.search).get("state") || "full";
+const PENDING: AgentPkmPreviewCard[] = [
+  { card_id: "pending-1", source_text: "Synthetic identity detail requiring review", write_mode: "confirm_first", target_domain: "identity", candidate_payload: {} },
+  { card_id: "pending-2", source_text: "Synthetic shared detail requiring review", write_mode: "confirm_first", target_domain: "profile", candidate_payload: {} },
+];
 
 function App() {
   return (
@@ -42,6 +47,7 @@ function App() {
         receipt={STATES[state] ?? FULL}
         memoryHref="/pkm/recent"
         onConfirmNeedsOwner={async () => undefined}
+        pendingCards={state === "unchanged" ? [] : PENDING}
       />
     </main>
   );

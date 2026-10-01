@@ -443,7 +443,7 @@ Rules:
    `/one/kai?tab=analysis`; route inventories normalize those URLs to
    the shared pathname without discarding their tab state.
 6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
-7. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+7. The Agent Bar and five-segment bottom navigation share the measured bottom-chrome stack with a 6px resting join. The five navigation segments use the shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
 8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
 9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
 10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
@@ -613,7 +613,7 @@ Rules:
 3. Modal popovers inherit the same backdrop by default; non-modal anchored popovers stay flat. `PopoverContent withBackdrop` remains an explicit override. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface. The sheet surface slides on its own `sheet-surface-enter` / `sheet-surface-exit` keyframes, which animate only `transform` and `opacity`; the shared tw-animate `enter` / `exit` keyframes also animate `filter`, so sheets do not use them.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
-   The Agent Chat history drawer (`AgentConnectionsDrawer`) is the one untinted modal exception: the chat header and the fixed bottom bar sit outside any z-index its close layer can reach, so a scrim there dims only the band between them and leaves a bright strip above and a patch below. Its tap-to-close layer stays transparent, and the floating, inset, opaque panel separates itself with a hairline border and shadow.
+   The Agent Chat history drawer (`AgentConnectionsDrawer`) uses this same scrim. Its panel and scrim portal to the body above the chat header and fixed bottom bar; opening it must not move the transcript or navigation.
 6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,
    4px engagement threshold, scroll-top handoff, distance/velocity dismissal,
    and non-flashing spring-back. Bottom sheets inherit this behavior by default;

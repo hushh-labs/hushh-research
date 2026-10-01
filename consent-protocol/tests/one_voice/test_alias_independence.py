@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import json
 from pathlib import Path
 
 import pytest
@@ -94,6 +95,103 @@ def test_circle_tools_bind_and_run_with_every_alias_emptied(emptied_gateway):
     # Schema validation and entity guards still stand: they are not aliases.
     bad = asyncio.run(executor.call(ctx, "rename_circle", {"circle": {"circle_id": "Family"}}))
     assert bad.result.status == "rejected" and bad.result.reason_code == "invalid_arguments"
+    assert emptied_gateway == [], f"voice path read alias fields: {emptied_gateway}"
+
+
+def test_mail_analysis_runs_with_every_alias_emptied(emptied_gateway, monkeypatch):
+    from hushh_mcp.one_voice.tools import mail
+    from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+    from hushh_mcp.services.gmail_personal_information_request_service import (
+        SensitiveRequestAssessment,
+    )
+    from tests.one_voice.test_tools_mail import AdmissionDouble, _ctx
+    from tests.services.test_email_delegated_read import _NOW, _analysis_reader
+
+    assert registry.validate_gateway_binding() == []
+    for tool in mail.TOOLS:
+        entry = action_gateway.get_action_gateway_action(tool.gateway_action_id)
+        assert entry is not None
+        assert dict.__getitem__(entry, "aliases") == []
+        assert dict.__getitem__(entry, "search_keywords") == []
+    emptied_gateway.clear()
+
+    reader = _analysis_reader()
+    gene_calls = []
+
+    async def gene(**kwargs):
+        gene_calls.append(kwargs)
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return {
+                "operation": "analyze_mail",
+                "categories": ["personal_info", "action_items", "meetings"],
+                "limit": 12,
+            }
+        category = json.loads(kwargs["prompt"])["requested_categories"][0]
+        if category == "action_items":
+            return {
+                "findings": [
+                    {
+                        "category": category,
+                        "source_ref": "mail:3",
+                        "detail": "Review the proposal by Friday.",
+                        "state": "active",
+                        "due_at": "2026-09-27T17:00:00-04:00",
+                        "event_at": None,
+                    }
+                ]
+            }
+        return {
+            "findings": [
+                {
+                    "category": category,
+                    "source_ref": "mail:3",
+                    "update_refs": ["mail:2"],
+                    "detail": "Meeting moved to 4 pm.",
+                    "state": "rescheduled",
+                    "due_at": None,
+                    "event_at": "2026-09-26T16:00:00-04:00",
+                }
+            ]
+        }
+
+    async def assess(row):
+        return SensitiveRequestAssessment(
+            is_information_request=row["source_ref"] == "mail:1",
+            confidence=0.9,
+            requested_domains=("identity",) if row["source_ref"] == "mail:1" else (),
+            requested_fields=("Address",) if row["source_ref"] == "mail:1" else (),
+        )
+
+    async def runner(**kwargs):
+        return await run_delegated_mail_read(
+            **kwargs,
+            gene_runner=gene,
+            reader_factory=lambda **_: reader,
+            personal_assessor=assess,
+            clock=lambda: _NOW,
+        )
+
+    monkeypatch.setattr(mail, "run_delegated_mail_read", runner)
+    monkeypatch.setattr(mail, "connector_feature_enabled", lambda *_args: True)
+    ctx = _ctx(voice_mail_admission=AdmissionDouble(True, True, True))
+    result = asyncio.run(
+        ToolExecutor(pending_store=MemoryPendingStore()).call(
+            ctx,
+            "read_mail",
+            {
+                "request": "Find personal information requests, action items and meetings in my mail."
+            },
+        )
+    )
+    assert result.result.status == "ok"
+    assert reader.calls[0][0] == "analyze_mail"
+    assert result.result.coverage["analysis_failed"] == []
+    assert [
+        result.result.coverage[f"findings_{category}"]
+        for category in ("personal_info", "action_items", "meetings")
+    ] == [1, 1, 1]
+    assert [call["gene_id"] for call in gene_calls].count("agent_email_read_planner") == 1
+    assert [call["gene_id"] for call in gene_calls].count("agent_email_read_analyzer") == 2
     assert emptied_gateway == [], f"voice path read alias fields: {emptied_gateway}"
 
 

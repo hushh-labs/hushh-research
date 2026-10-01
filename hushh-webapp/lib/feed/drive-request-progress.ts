@@ -26,6 +26,9 @@ export function projectFeedDriveProgress(
     if (!isDocumentShareEntry(entry)) continue;
     if (!documentShareRequestId(entry.id)) continue;
     if (entry.metadata?.automatic_progress_active !== true) continue;
+    // Checkout must never be described as if sharing is already running.
+    if (entry.metadata.paymentStatus === "awaiting_payment" || entry.metadata.paymentStatus === "checkout_open") continue;
+    if (entry.metadata.paymentReconciliationRequired === true) continue;
     const direction = entry.metadata.direction;
     if (direction !== "incoming" && direction !== "outgoing") continue;
     const pending = entry.status === "pending" &&

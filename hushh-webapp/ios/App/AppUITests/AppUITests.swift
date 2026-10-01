@@ -24,6 +24,108 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
+        // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
+        // credentials, or account mutation. It exercises the installed local
+        // build through the same controls a signed-in person sees.
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in live-session check; requires an already unlocked local app")
+        }
+        let app = XCUIApplication()
+        // Attach to the owner's already-open local session. A cold launch
+        // intentionally locks the vault and would turn this into a reviewer
+        // credential test rather than a live-device interaction check.
+        app.activate()
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 60), "Local app WebView did not load")
+        let open = webView.buttons.matching(NSPredicate(
+            format: "label BEGINSWITH %@", "Open chat history"
+        )).firstMatch
+        // A prior local rehearsal may leave the same session on Finance or
+        // another tab. Navigate through the visible bottom bar, not a test
+        // launch URL, before asserting the Chat drawer.
+        if !open.exists && !webView.buttons["Unlock"].exists {
+            perfTapNav(app, label: "Chat")
+        }
+        // The existing XCUI vault helper types into a secure field. Its secret
+        // arrives through the documented TEST_RUNNER_ process environment,
+        // never a launch argument, source file, or test diagnostic.
+        if !open.waitForExistence(timeout: 10), webView.buttons["Unlock"].exists {
+            let environment = ProcessInfo.processInfo.environment
+            let hasReviewerSecret = !(environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"]
+                ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "").isEmpty
+            guard hasReviewerSecret else {
+                throw XCTSkip("Live-session vault is locked and no process-only reviewer credential was supplied")
+            }
+            _ = attemptVaultPassphraseUnlock(app: app)
+            if !open.exists { perfTapNav(app, label: "Chat") }
+        }
+        if !open.waitForExistence(timeout: 120) {
+            let vaultLockVisible = webView.buttons["Unlock"].exists
+            XCTFail("Signed-in Chat did not load from the local build. Vault lock visible: \(vaultLockVisible)")
+            return
+        }
+        open.tap()
+        let close = app.buttons.matching(NSPredicate(
+            format: "label == %@", "Close chat history"
+        )).firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10), "Chat drawer cannot be closed")
+        close.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "Chat page did not resume after closing the drawer")
+    }
+
+    func testLocalSessionMemorySwipeStopsOnAdd() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in live-session check; requires an existing signed-in account")
+        }
+        let app = XCUIApplication()
+        // This per-launch route preference only navigates the bundled app. It
+        // does not enable UITestMode, mint a reviewer identity, or reset state.
+        app.launchArguments = [
+            "-CapacitorStorage.hushh_perf_probe", "1",
+            "-CapacitorStorage.hushh_perf_route", "/one/pkm",
+        ]
+        app.launch()
+
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 60), "Local app WebView did not load")
+        let saved = webView.buttons["Saved"]
+        let add = webView.buttons["Add"]
+        let sharing = webView.buttons["Sharing"]
+        let admissionDeadline = Date().addingTimeInterval(90)
+        while Date() < admissionDeadline, !saved.exists {
+            if webView.buttons["Unlock"].exists {
+                _ = attemptVaultPassphraseUnlock(app: app)
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        let signInVisible = webView.buttons["Continue with Apple"].exists
+        XCTAssertTrue(saved.exists, "Memory did not open from the current session. Sign-in visible: \(signInVisible)")
+        XCTAssertTrue(saved.isSelected, "Memory should start on Saved")
+        XCTAssertTrue(add.exists && sharing.exists, "Memory tabs are incomplete")
+
+        func swipeLeft() {
+            let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.56))
+            let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.56))
+            start.press(forDuration: 0.08, thenDragTo: end)
+        }
+        func waitForSelected(_ tab: XCUIElement) -> Bool {
+            let deadline = Date().addingTimeInterval(12)
+            while Date() < deadline {
+                if tab.isSelected { return true }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+            }
+            return tab.isSelected
+        }
+
+        swipeLeft()
+        XCTAssertTrue(waitForSelected(add), "One Memory swipe must land on Add")
+        XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
+        swipeLeft()
+        XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
+    }
+
     func testAccountNotFoundRecoveryReturnsToLogin() throws {
         // Public recovery smoke: no reviewer fixture, credentials, or account
         // mutation. Unit/integration tests own the trusted deletion signal.

@@ -85,7 +85,7 @@ for (const theme of ["light", "dark"] as const)
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, theme);
       const card = page.getByTestId("memory-save-card");
-      await expect(card.getByRole("status")).toHaveText("Saved to Memory");
+      await expect(card.getByRole("status")).toHaveText("Partly saved to Memory");
 
       // Symmetric 16 px insets on all four sides.
       const padding = await card.evaluate((element) => {

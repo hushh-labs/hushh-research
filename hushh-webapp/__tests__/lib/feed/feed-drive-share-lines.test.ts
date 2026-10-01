@@ -100,6 +100,20 @@ describe("Drive rows in the Feed", () => {
       .toBe("Files are available; more may arrive");
   });
 
+  it("routes payment events to the live Feed without private file details", () => {
+    const ready = presentFeedItem(item("document_share_payment_ready", {
+      file_names: ["private.pdf"],
+    }));
+    expect(ready.description).toBe("Pay $10 to continue your document request");
+    expect(ready.href).toBe("/one/feed");
+    expect(JSON.stringify(ready)).not.toContain("private.pdf");
+    expect(presentFeedItem(item("document_share_payment_confirmed")).description)
+      .toBe("Payment confirmed for your document request");
+    const refunded = presentFeedItem(item("document_share_payment_refunded"));
+    expect(refunded.description).toBe("Payment refunded for your document request");
+    expect(refunded.href).toBe("/one/feed");
+  });
+
   it("opens the Drive question card for question rows", () => {
     const question = presentFeedItem(item("document_share_question"));
     expect(question.description).toBe("Asked a question about your Drive");

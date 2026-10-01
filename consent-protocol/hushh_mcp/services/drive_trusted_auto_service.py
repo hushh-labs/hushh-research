@@ -13,6 +13,7 @@ import asyncio
 from hushh_mcp.services.drive_bulk_share_service import DriveBulkShareService
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_request_bulk_service import DriveRequestBulkService
+from hushh_mcp.services.drive_request_payment_service import DriveRequestPaymentService
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.google_drive_adapter import DriveReadError
@@ -27,10 +28,22 @@ def _defer_code(error: BaseException) -> str:
 
 
 class DriveTrustedAutoService:
-    def __init__(self, *, sharing=None, bulk=None, wake=None):
+    def __init__(self, *, sharing=None, bulk=None, payment=None, wake=None):
         self.sharing = sharing or DriveSharingStore()
         self.bulk = bulk or DriveBulkShareStore(db=self.sharing.db)
+        self.payment = payment or DriveRequestPaymentService(db=self.sharing.db)
         self.wake = wake or wake_drive_work
+
+    async def _payment_ready(self, *, user_id: str, request_id: str, share_id: str) -> bool:
+        state = await self.payment.ensure_payment_for_frozen_batch(
+            user_id=user_id, request_id=request_id, share_id=share_id
+        )
+        if state["status"] == "paid":
+            return True
+        # The order and payment-ready event are committed. Prompt the sharing
+        # drain to deliver its notification; the scheduled drain remains backup.
+        await self.wake("sharing")
+        return False
 
     def _authority(self, user_id: str, request_id: str):
         async def require_current():
@@ -125,6 +138,10 @@ class DriveTrustedAutoService:
         )
         for review in pending:
             await require_current()
+            if not await self._payment_ready(
+                user_id=user_id, request_id=request_id, share_id=review["shareId"]
+            ):
+                return queued
             await share_service.approve(
                 user_id=user_id,
                 share_id=review["shareId"],
@@ -144,6 +161,10 @@ class DriveTrustedAutoService:
                 user_id=user_id, request_id=request_id, positions=positions
             )
             await require_current()
+            if not await self._payment_ready(
+                user_id=user_id, request_id=request_id, share_id=review["shareId"]
+            ):
+                return queued
             await share_service.approve(
                 user_id=user_id,
                 share_id=review["shareId"],

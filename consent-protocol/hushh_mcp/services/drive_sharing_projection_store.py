@@ -136,6 +136,11 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                         **self._summary(row, recipient=direction == "outgoing"),
                         "createdAt": row["created_at"].isoformat(),
                         "direction": direction,
+                        **(
+                            self._payment_metadata(connection, row["request_id"])
+                            if direction == "outgoing"
+                            else {}
+                        ),
                     }
                     for row in rows[:limit]
                 ],
@@ -179,6 +184,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                     "recipient_user_id": None,
                 }
             recipient = request["recipient_user_id"] == user_id
+            payment = self._payment_metadata(connection, request_id) if recipient else {}
             private = self._open_request(request) if request.get("request_envelope") else None
             grants = (
                 connection.execute(
@@ -213,6 +219,12 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 if request.get("user_id")
                 else []
             )
+            if (
+                recipient
+                and request.get("payment_required")
+                and payment.get("paymentStatus") != "paid"
+            ):
+                bulks = []
             bulk_shared = 0
             bulk_summary = None
             bulk_file_count = 0
@@ -257,6 +269,12 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 # B sees no private candidates or failed/uncertain file names.
                 if recipient and (not delivered or removed):
                     continue
+                if (
+                    recipient
+                    and request.get("payment_required")
+                    and payment.get("paymentStatus") != "paid"
+                ):
+                    continue
                 plan = self._plan(row)
                 file_id = plan["file_id"]
                 if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
@@ -286,6 +304,7 @@ class DriveSharingProjectionStore(DriveRevocationStore):
                 "recipient": private["recipient"] if recipient and private else None,
                 "result": {
                     **self._summary(request, recipient=recipient),
+                    **payment,
                     "files": [] if bulks else files,
                     **(
                         {

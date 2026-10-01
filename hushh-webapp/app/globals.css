@@ -5638,15 +5638,6 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   }
 }
 
-/* While the desktop history column is showing, the fixed bottom navigation
-   centres over the conversation column instead of the whole window, so it
-   lines up with the composer and never sits over the sidebar footer. */
-@media (min-width: 1024px) {
-  html[data-one-chat-sidebar="open"] [data-app-bottom-shell] {
-    left: 15rem;
-  }
-}
-
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the
    scroll-driven hide transform and all control transitions from this shared
    surface. */

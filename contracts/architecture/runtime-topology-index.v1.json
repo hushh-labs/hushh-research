@@ -907,6 +907,19 @@
       "primary_access_path": "Single-use owner/generation-bound web Picker selection sessions; never a document-read or sharing grant."
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "drive_request_payment_orders",
+        "drive_request_payment_obligations",
+        "drive_request_payment_webhook_events",
+        "drive_request_payment_refunds"
+      ],
+      "id": "drive_request_payment_authority",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One $10 USD Stripe Checkout order is created only after a new eligible Trusted Circle Drive request has a nonempty frozen shareable batch. The authenticated requester alone may open Checkout. A signature-verified Stripe webhook confirms the exact session, amount, currency and requester binding before grant workers may continue. The return URL does not confer payment authority."
+    },
+    {
       "data_class": "reference",
       "exact_tables": [
         "enterprise_crm_registry",
@@ -5792,9 +5805,9 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "752336e5b4776d367a7f8832b21ab05d7802c3de66297337be69e30de9b93ac9",
-    "agent_registry": "c653d4ef1de5052b109b7688ee2483b8698ed888ae325702e9ccf9bcff407ac3",
+    "agent_registry": "5201a566b741f0a1180685463deac72574ba627586c10b1948e674fcb098218f",
     "cache_manifest": "49ee704f091bfd20121dcdeee4ee92e1efef0c993dd85e01d580214cb9845a4f",
-    "data_plane": "244dd6ae7bf3068db437c9e0aa9fa7deaf8068393f82ca72338891c928f59f4b",
+    "data_plane": "3a86228cfa3493809e9c61873aa513277b900ac9e8238d83041c1d5b68467dd8",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "04482542f54ebfb888af26aed42548a85d249159a40cd1d9d0f019ec13598791",
     "route_index": "6548ee3a2bf02511c34faaac9d21a21932e71567fa36b40b18f1bc01be3ac8d7",
@@ -5813,6 +5826,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 142,
     "semantic_routes": 14,
-    "table_families": 79
+    "table_families": 80
   }
 }

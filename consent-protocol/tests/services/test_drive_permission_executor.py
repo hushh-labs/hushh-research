@@ -117,6 +117,34 @@ def outcome(store, operation_id):
 
 
 @pytest.mark.asyncio
+async def test_per_file_grant_claim_rechecks_request_payment(permission_setup):
+    store, _, adapter, ids = permission_setup
+    request_id = rows(store, "drive_share_requests")[0]["request_id"]
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:request"),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status)
+              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+            {"request": request_id},
+        )
+    with pytest.raises(DriveSharingError, match="payment_required"):
+        await store.claim_grant(user_id="owner", operation_id=ids[0])
+    adapter.create_reader.assert_not_awaited()
+    assert outcome(store, ids[0])["state"] == "queued"
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+              SET status='paid',paid_at=clock_timestamp() WHERE request_id=:request"""),
+            {"request": request_id},
+        )
+    assert await store.claim_grant(user_id="owner", operation_id=ids[0]) is not None
+
+
+@pytest.mark.asyncio
 async def test_provider_success_becomes_encrypted_receipt_and_batch_outcome(permission_setup):
     store, executor, adapter, ids = permission_setup
     with store.db.engine.connect() as connection:

@@ -52,6 +52,8 @@ import {
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { projectFeedDriveProgress, type FeedDriveProgress } from "@/lib/feed/drive-request-progress";
+import { projectFeedDrivePayments } from "@/lib/feed/drive-request-payment";
+import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
 import { driveSharingSelectionId, isDriveSharingEntry } from "@/lib/consent/drive-query-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseConsentInstant } from "@/lib/consent/consent-owner-copy";
@@ -682,6 +684,10 @@ export function useFeedActionables(): UseFeedActionablesResult {
     () => projectFeedDriveProgress(sentProgressItems ?? []),
     [sentProgressItems],
   );
+  const sentPayments = useMemo(
+    () => projectFeedDrivePayments(sentProgressItems ?? []),
+    [sentProgressItems],
+  );
   const activeProgress = useMemo(
     () => projectFeedDriveProgress(activeProgressItems ?? []),
     [activeProgressItems],
@@ -781,7 +787,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
       sentProgressRefresh({ force: true }),
       activeProgressRefresh({ force: true }),
     ]), [receivedOverflowRefresh, sentProgressRefresh, activeProgressRefresh]),
-    Boolean(userId) && inProgress.length > 0,
+    Boolean(userId) && (inProgress.length > 0 || sentPayments.length > 0),
   );
 
   // Revoked/expired SOS cards stay in the feed as a historical alert instead
@@ -815,6 +821,34 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const actionables = useMemo<FeedActionable[]>(() => {
     if (!userId) return [];
     const items: FeedActionable[] = [];
+
+    for (const payment of sentPayments) {
+      items.push({
+        id: `drive-payment:${payment.requestId}`,
+        icon: ConsentAgentIcon,
+        iconTone: "capability",
+        title: payment.title,
+        description: payment.description,
+        chevron: false,
+        actions: [{
+          key: "pay",
+          label: "Pay $10",
+          tone: "primary",
+          run: async () => {
+            try {
+              const idToken = await user?.getIdToken();
+              if (!idToken) throw new Error("Sign in to continue");
+              const checkoutUrl = await DriveRequestPaymentService.checkout(idToken, payment.requestId);
+              window.location.assign(checkoutUrl);
+            } catch {
+              toast.error("Checkout couldn't open. Try again.");
+            }
+          },
+        }],
+        sortAt: payment.requestedAt ?? firstSeenAt(`drive-payment:${payment.requestId}`),
+        displayTimestamp: payment.requestedAt,
+      });
+    }
 
     // Consent. A request someone sent the owner is ONE row however many
     // items it names ("Kushal wants your Food preferences · dinner"), with
@@ -1390,6 +1424,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     firstSeenAt,
     locationRequests,
     receivedGrants,
+    sentPayments,
     circleMemberInvites,
     locationRefresh,
     openAnalysis,

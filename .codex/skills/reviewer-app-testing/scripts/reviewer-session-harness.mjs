@@ -80,6 +80,20 @@ export async function installReadOnlyMutationGuard(context, {
     const request = route.request();
     const method = request.method().toUpperCase();
     const pathname = requestPathname(request);
+    // Chat automatically asks for this optional card, but the backend records
+    // an offer in one_attention_ledger. A read-only rehearsal must not consume
+    // the shared reviewer's first-connection offer. Return the documented
+    // no-card result without forwarding the request; this is not a general
+    // POST exemption or proof of the insights feature.
+    if (method === "POST" && pathname === "/api/one/first-connect-insights" &&
+      new URL(request.url()).origin === appOrigin) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ status: "unavailable" }),
+      });
+      return;
+    }
     // Preparation sends source text for authorized processing but cannot save
     // Memory. Grant only this exact method/path/origin, not a mutation bypass.
     const memoryPreparation = allowMemoryPreparation && method === "POST" &&

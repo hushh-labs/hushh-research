@@ -346,7 +346,7 @@ const components: Components = {
       tabIndex={0}
       className="my-3 max-w-full overflow-x-auto rounded-xl border border-[color:var(--agent-md-rule)] first:mt-0 last:mb-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
     >
-      <table className="agent-md-table w-full border-separate border-spacing-0 text-left text-[14px] leading-5 tabular-nums">
+      <table className="agent-md-table w-full min-w-max border-separate border-spacing-0 text-left text-[14px] leading-5 tabular-nums">
         {children}
       </table>
     </div>

@@ -41,6 +41,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+from pathlib import Path
 import re
 import sys
 import time
@@ -262,9 +263,7 @@ def ensure_app_store_version(
                     "versionString": marketing_version,
                     "releaseType": release_type,
                 },
-                "relationships": {
-                    "app": {"data": {"type": "apps", "id": app_id}}
-                },
+                "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
             }
         },
     )
@@ -371,8 +370,7 @@ def set_whats_new(token: str, version_id: str, whats_new: str) -> int:
     """
     whats_new = _clamp_whats_new(whats_new)
     url = (
-        f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}"
-        "/appStoreVersionLocalizations"
+        f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations"
     )
     locs = asc_get(url, token).get("data") or []
     if not locs:
@@ -425,9 +423,7 @@ def set_whats_new(token: str, version_id: str, whats_new: str) -> int:
 # --------------------------------------------------------------------------- #
 # Gated public submission (IRREVERSIBLE)
 # --------------------------------------------------------------------------- #
-def find_open_review_submission(
-    token: str, app_id: str, platform: str
-) -> dict | None:
+def find_open_review_submission(token: str, app_id: str, platform: str) -> dict | None:
     """Return an existing not-yet-submitted review submission, if any.
 
     Apple allows only one open review submission per app at a time; a prior
@@ -466,9 +462,7 @@ def review_submission_has_version(
     return False
 
 
-def submit_for_review(
-    token: str, app_id: str, version_id: str, platform: str
-) -> str:
+def submit_for_review(token: str, app_id: str, version_id: str, platform: str) -> str:
     """Create/reuse + submit a review submission. IRREVERSIBLE public release."""
     submission = find_open_review_submission(token, app_id, platform)
     if submission is not None:
@@ -483,9 +477,7 @@ def submit_for_review(
                 "data": {
                     "type": "reviewSubmissions",
                     "attributes": {"platform": platform},
-                    "relationships": {
-                        "app": {"data": {"type": "apps", "id": app_id}}
-                    },
+                    "relationships": {"app": {"data": {"type": "apps", "id": app_id}}},
                 }
             },
         ).get("data")
@@ -538,19 +530,96 @@ def submit_for_review(
     return submission_id
 
 
+def verify_release_state(
+    token: str,
+    version_id: str,
+    build_id: str,
+    release_type: str,
+    whats_new: str | None,
+    submission_id: str | None,
+) -> dict:
+    """Read back only release identifiers/states; a successful write is not proof."""
+    version = (
+        asc_get(f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}", token).get("data")
+        or {}
+    )
+    attrs = version.get("attributes") or {}
+    attached = (
+        asc_get(
+            f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}/relationships/build",
+            token,
+        ).get("data")
+        or {}
+    )
+    if (
+        version.get("id") != version_id
+        or attrs.get("releaseType") != release_type
+        or attached.get("id") != build_id
+    ):
+        die(
+            "release readback does not confirm the expected version, release type, and attached build"
+        )
+    if whats_new and whats_new.strip():
+        localizations = (
+            asc_get(
+                f"{ASC_API_ROOT}/v1/appStoreVersions/{version_id}/appStoreVersionLocalizations",
+                token,
+            ).get("data")
+            or []
+        )
+        expected = _clamp_whats_new(whats_new)
+        if not localizations or any(
+            (loc.get("attributes") or {}).get("whatsNew") != expected
+            for loc in localizations
+        ):
+            die("release notes readback does not match the requested notes")
+    submission_state = None
+    if submission_id:
+        submission = (
+            asc_get(f"{ASC_API_ROOT}/v1/reviewSubmissions/{submission_id}", token).get(
+                "data"
+            )
+            or {}
+        )
+        submission_state = (submission.get("attributes") or {}).get("state")
+        version_state = attrs.get("appStoreState") or attrs.get("appVersionState")
+        if (
+            submission.get("id") != submission_id
+            or submission_state not in {"WAITING_FOR_REVIEW", "IN_REVIEW"}
+            or version_state not in {"WAITING_FOR_REVIEW", "IN_REVIEW"}
+        ):
+            die(
+                "submission readback has not confirmed acceptance into Apple review; inspect before retrying"
+            )
+        if not review_submission_has_version(token, submission_id, version_id):
+            die("review submission does not contain the expected App Store version")
+    return {
+        "version_id": version_id,
+        "build_id": build_id,
+        "version_state": attrs.get("appStoreState") or attrs.get("appVersionState"),
+        "release_type": attrs.get("releaseType"),
+        "submission_id": submission_id,
+        "submission_state": submission_state,
+    }
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH"))
+    parser.add_argument(
+        "--p8-path", default=os.environ.get("APPSTORE_CONNECT_API_KEY_PATH")
+    )
     parser.add_argument(
         "--key-id",
-        default=os.environ.get("APPSTORE_CONNECT_KEY_ID") or os.environ.get("ASC_KEY_ID"),
+        default=os.environ.get("APPSTORE_CONNECT_KEY_ID")
+        or os.environ.get("ASC_KEY_ID"),
     )
     parser.add_argument(
         "--issuer-id",
-        default=os.environ.get("APPSTORE_CONNECT_ISSUER_ID") or os.environ.get("ASC_ISSUER_ID"),
+        default=os.environ.get("APPSTORE_CONNECT_ISSUER_ID")
+        or os.environ.get("ASC_ISSUER_ID"),
     )
     parser.add_argument(
         "--bundle-id",
@@ -611,6 +680,10 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--evidence-path",
+        help="Write sanitized, read-back App Store release state to this JSON file.",
+    )
+    parser.add_argument(
         "--self-test",
         action="store_true",
         help="Offline validation of JWT mint + arg parsing; no network, no real key.",
@@ -658,12 +731,18 @@ def run_self_test() -> int:
     # Argument parsing must accept the documented shape without a real key.
     ns = parse_args(
         [
-            "--p8-path", "/dev/null",
-            "--key-id", "K",
-            "--issuer-id", "I",
-            "--marketing-version", "1.3.5",
-            "--build-number", "57",
-            "--whats-new", "Bug fixes and improvements.",
+            "--p8-path",
+            "/dev/null",
+            "--key-id",
+            "K",
+            "--issuer-id",
+            "I",
+            "--marketing-version",
+            "1.3.5",
+            "--build-number",
+            "57",
+            "--whats-new",
+            "Bug fixes and improvements.",
             "--submit",
         ]
     )
@@ -733,8 +812,28 @@ def main(argv: list[str]) -> int:
     )
     attach_build(token, version_id, build["id"])
 
+    # Prove preparation before the irreversible review request. Persist the
+    # prepared identifiers first, so an uncertain submission remains recoverable
+    # without repeating the write or mistaking preparation for review acceptance.
+    evidence = verify_release_state(
+        token, version_id, build["id"], args.release_type, args.whats_new, None
+    )
+    evidence["submission_attempted"] = args.submit
+    if args.evidence_path:
+        Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
     if args.submit:
-        submit_for_review(token, app_id, version_id, args.platform)
+        submission_id = submit_for_review(token, app_id, version_id, args.platform)
+        evidence = verify_release_state(
+            token,
+            version_id,
+            build["id"],
+            args.release_type,
+            args.whats_new,
+            submission_id,
+        )
+        evidence["submission_attempted"] = True
+        if args.evidence_path:
+            Path(args.evidence_path).write_text(json.dumps(evidence), encoding="utf-8")
         log(
             f"DONE: version {marketing_version} ({args.build_number}) submitted for "
             "public App Store review."

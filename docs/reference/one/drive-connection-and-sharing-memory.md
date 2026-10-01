@@ -101,6 +101,14 @@ The selected-file worker leases one owner job at a time, fetches bounded bytes, 
 
 Code: `drive_selection_service.py`, `drive_document_store.py`, `drive_ingestion_store.py`, `drive_document_worker.py`, `drive_document_processor.py`, `drive_document_retrieval.py`, migrations `228_selected_drive_documents.sql` and `229_drive_document_chunks.sql`.
 
+Embedding dependency security (2026-10-01): `sentence-transformers` is pinned to
+6.0.0; the E5 model revision and `trust_remote_code=False` remain unchanged.
+Version 5.6 only warns after importing local custom code, whereas 6.0 rejects
+that import before execution. The existing offline semantic integration suite
+checks retrieval parity and rejection of a local custom module. This source
+verification is not proof that a serving image has the updated dependency.
+See the [upstream change](https://github.com/huggingface/sentence-transformers/releases/tag/v6.0.0).
+
 ## 5. Where latency can enter
 
 These are source-level candidates. No end-to-end trace or live timing was collected for this note.

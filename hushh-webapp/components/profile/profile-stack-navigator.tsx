@@ -115,11 +115,14 @@ export function ProfileStackNavigator({
 
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const scrollRoot =
-      document.querySelector<HTMLElement>(
-        '[data-profile-pane-scroll-root="true"]',
-      ) ??
-      document.querySelector<HTMLElement>('[data-app-scroll-root="true"]');
+    // A closing pane can remain in the DOM while a route-level Profile page
+    // mounts. Select the root owned by this presentation instead of taking the
+    // first Profile pane left by that exit transition.
+    const scrollRoot = document.querySelector<HTMLElement>(
+      resetScroll
+        ? '[data-app-scroll-root="true"]'
+        : '[data-profile-pane-scroll-root="true"]',
+    );
     if (!scrollRoot) return;
 
     const activeKey =

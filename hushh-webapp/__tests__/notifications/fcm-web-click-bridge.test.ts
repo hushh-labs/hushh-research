@@ -83,6 +83,18 @@ describe("web system-notification click bridge", () => {
     );
   });
 
+  it("opens the live payment action for a requester payment push", () => {
+    expect(buildNotificationTapTarget({
+      type: "document_share_payment_ready",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      deep_link: "/one/profile?ignored=true",
+    })).toBe("/one/feed");
+    expect(buildNotificationTapTarget({
+      type: "document_share_payment_refunded",
+      request_id: "11111111-1111-4111-8111-111111111111",
+    })).toBe("/one/feed");
+  });
+
   it.each([
     {
       type: "document_share_review_ready",

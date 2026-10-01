@@ -47,6 +47,7 @@ _TYPED_RATE_LIMIT_PATHS = (
     _HUSHH_TECH_PRODUCT_PREFIX,
     "/api/marketplace/contacts/match",
     "/api/one/connections/contact-sync",
+    "/api/one/connections/directory",
 )
 
 _TYPED_RATE_LIMIT_MESSAGES = {
@@ -56,6 +57,7 @@ _TYPED_RATE_LIMIT_MESSAGES = {
     "/api/one/connections/contact-sync": (
         "You have checked many contacts recently. Give it a little time and try again."
     ),
+    "/api/one/connections/directory": "Too many searches. Try again shortly.",
 }
 
 
@@ -230,6 +232,10 @@ class RateLimits:
     # number space requires.
     CONTACT_DISCOVERY_MATCH = "12/minute"  # noqa: S105
     CONTACT_DISCOVERY_MATCH_DAILY = "60/day"  # noqa: S105
+    # Interactive name typing needs headroom; exact email/phone discovery must
+    # still have a bounded per-owner request budget.
+    ONE_CONNECT_DIRECTORY_READ = "60/minute"  # noqa: S105
+    ONE_CONNECT_DIRECTORY_READ_DAILY = "500/day"  # noqa: S105
 
     # The owner's own position heartbeat onto their live public link. Unlike
     # every other mutation on this router this one is SUPPOSED to repeat: the

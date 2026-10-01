@@ -12,6 +12,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy import text
 
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 from hushh_mcp.services.drive_bulk_share_store import DriveBulkShareStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
@@ -361,7 +362,7 @@ async def test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_rec
         threading.Event(),
     )
     stop_pid, release_pid = [], []
-    stop_owned, release_owned = stopper._owned, bulk._owned
+    stop_owned = stopper._owned
 
     def hold_stop_parent(connection, *args, **kwargs):
         row = stop_owned(connection, *args, **kwargs)
@@ -370,24 +371,26 @@ async def test_stop_serializes_pre_post_release_and_keeps_confirmed_inflight_rec
         assert let_stop_finish.wait(4), "stop barrier was not released"
         return row
 
-    def observe_release(connection, *args, **kwargs):
+    def observe_release_graph_gate(connection, *, user_ids):
         release_pid.append(connection.execute(text("SELECT pg_backend_pid()")).scalar_one())
         release_started.set()
-        return release_owned(connection, *args, **kwargs)
+        return lock_connection_graph_users(connection, user_ids=user_ids)
 
     monkeypatch.setattr(stopper, "_owned", hold_stop_parent)
-    monkeypatch.setattr(bulk, "_owned", observe_release)
     stop_task = asyncio.create_task(stopper.stop(user_id="owner", share_id=review["shareId"]))
     release_task = None
     try:
         assert await asyncio.to_thread(parent_held.wait, 2)
+        monkeypatch.setattr(
+            "hushh_mcp.services.connection_graph_service.lock_connection_graph_users",
+            observe_release_graph_gate,
+        )
         release_task = asyncio.create_task(
             bulk.release(jobs[0], error="provider_unavailable", retryable=True)
         )
         assert await asyncio.to_thread(release_started.wait, 2)
-        # Observe real PostgreSQL blocking before Stop advances. With the old
-        # effect-first release, Stop would then wait on that effect while release
-        # waited on Stop's parent lock, forming a deterministic deadlock.
+        # The recipient graph gate now serializes both writers before either
+        # can lock an effect. Observe real PostgreSQL blocking at that gate.
         deadline = asyncio.get_running_loop().time() + 1
         while True:
             with bulk.db.engine.connect() as connection:

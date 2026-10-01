@@ -3240,19 +3240,39 @@ class ConnectionsService:
                 # bare split() sees one word, the SQL sees two, and whether a
                 # person is findable comes down to which branch a deployment
                 # happened to take.
+                raw_identifier = needle
+                exact_email = (
+                    raw_identifier if "@" in raw_identifier and " " not in raw_identifier else None
+                )
+                phone_digits = "".join(char for char in raw_identifier if char.isdigit())
+                exact_phone = (
+                    phone_digits
+                    if not exact_email
+                    and 10 <= len(phone_digits) <= 15
+                    and all(char.isdigit() or char in "+-(). " for char in raw_identifier)
+                    else None
+                )
                 needle = normalize_directory_name(needle)
-                compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
+                    if exact_email or exact_phone:
+                        email = str(person.get("email") or "").strip().lower()
+                        phone = str(person.get("phoneNumber") or "")
+                        verified_phone = bool(person.get("phoneVerified"))
+                        if exact_email and email == exact_email:
+                            return 0
+                        if (
+                            exact_phone
+                            and verified_phone
+                            and "".join(char for char in phone if char.isdigit()) == exact_phone
+                        ):
+                            return 0
+                        return None
                     rank: int | None = directory_name_rank(
                         str(person.get("displayName") or ""), needle
                     )
                     if rank is not None:
                         return rank
-                    email = str(person.get("email") or "").strip().lower()
-                    compact_email = "".join(char for char in email if char.isalnum())
-                    if compact_needle and compact_email.startswith(compact_needle):
-                        return 3
                     return None
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]

@@ -1263,7 +1263,7 @@ describe("Connect — People", () => {
     });
     expect(mocks.searchDirectory.mock.calls[0][0].query).toBe("");
 
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Find by name, email or phone.")).toBeTruthy();
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
@@ -1302,13 +1302,13 @@ describe("Connect — People", () => {
   it("reads the directory selector, then instruction, then the search field", async () => {
     // QA, on a phone: "people ke neeche supporting line is search by name, but
     // search bar upar hai". The field was rendered ABOVE the "People" heading,
-    // so the sentence telling you how to use it ("Search by name.") appeared
+    // so the sentence telling you how to use it appeared
     // UNDERNEATH the box it was instructing -- pointing backwards at a control
     // the reader had already scrolled past -- and the field itself arrived
     // before anything on screen had said what it searched.
     render(<ConnectPageClient />);
 
-    const supporting = await screen.findByText("Search by name.");
+    const supporting = await screen.findByText("Find by name, email or phone.");
     const heading = screen.getByRole("button", {
       name: "Current directory: People",
     });
@@ -1460,7 +1460,7 @@ describe("Connect — People", () => {
     // The empty-query description disappearing is the unambiguous signal that
     // this is no longer the bounded discovery surface.
     await waitFor(() =>
-      expect(screen.queryByText("Search by name.")).toBeNull(),
+      expect(screen.queryByText("Find by name, email or phone.")).toBeNull(),
     );
     expect(screen.queryByLabelText("People per page")).toBeNull();
   });
@@ -1907,12 +1907,7 @@ describe("Connect — People", () => {
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("offers the duplicates to choose from, captioned the way the list captions them", async () => {
-    // The directory usually returns masked variants rather than a raw address,
-    // which is why the card first shipped saying "No other details" about rows
-    // the list right behind it was captioning correctly. That caption is the
-    // ONLY thing telling two identical names apart, so losing it turns the
-    // picker back into the dead end it exists to remove.
+  it("keeps directory rows name-only while preserving duplicate disambiguation", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [
         {
@@ -1933,6 +1928,11 @@ describe("Connect — People", () => {
     });
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const directory = screen.getByTestId("connect-directory-group");
+    expect(within(directory).getAllByText("Ankit Kumar Singh")).toHaveLength(2);
+    expect(within(directory).queryByText("a***t@hushh.ai")).toBeNull();
+    expect(within(directory).queryByText("a***3@gmail.com")).toBeNull();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });
@@ -2913,7 +2913,7 @@ describe("Connect — Circles", () => {
 
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
-    expect(await screen.findByText("Search by name.")).toBeTruthy();
+    expect(await screen.findByText("Find by name, email or phone.")).toBeTruthy();
     // Both surfaces live in one swipeable pager (as Finance and Consent do);
     // the one the URL did not ask for is present but inert and hidden.
     const circles = screen.getByTestId("connect-circles-tab");

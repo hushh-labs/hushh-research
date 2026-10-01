@@ -65,15 +65,19 @@ describe("explicit memory save", () => {
         enters_next_export_revision: true, summary: "", affected_grant_ids: [], affected_export_ids: [] } }),
       card("unknowns", { write_mode: "do_not_save" }),
       card("secret", { validation_hints: ["sensitive_credential"] }),
+      card("secret-restated", { validation_hints: ["sensitive_credential"], merge_decision: {
+        merge_mode: "no_op", target_entity_path: "profile.entities.credential" } }),
       card("restated", { write_mode: "do_not_save", merge_decision: { merge_mode: "no_op",
         target_entity_path: "profile.entities.role_senior" } }),
     ]);
     expect(partition.save.map((item) => item.card_id)).toEqual(["role", "pay"]);
     expect(partition.needsOwner.map((item) => item.card_id)).toEqual(["passport", "shared"]);
-    expect(partition.skipped.map((item) => item.card_id)).toEqual(["unknowns", "secret"]);
+    expect(partition.skipped.map((item) => item.card_id)).toEqual(["unknowns"]);
+    expect(partition.excluded.map((item) => item.card_id)).toEqual(["secret", "secret-restated"]);
     // A restatement the merge agent matched to a stored detail is "already known", not a skip.
     expect(partition.known.map((item) => item.card_id)).toEqual(["restated"]);
-    const timedOut = partitionExplicitSaveCards([card("late", { preview_degraded: true })]);
+    const timedOut = partitionExplicitSaveCards([card("late", { preview_degraded: true, merge_decision: {
+      merge_mode: "no_op", target_entity_path: "profile.entities.role_senior" } })]);
     expect(timedOut.unreadable.map((item) => item.card_id)).toEqual(["late"]);
     expect(timedOut.skipped).toEqual([]);
   });
@@ -98,8 +102,26 @@ describe("explicit memory save", () => {
       saved: 1, updated: 1, merged: 1, unchanged: 2, skipped: 1, failed: 1, unprepared: 1, needsOwner: 0,
     });
     expect(describePkmSaveReceipt(receipt)).toBe(
-      "Saved 1, updated 1, merged 1, 2 already known, skipped 1 (not facts), 1 couldn’t save, 1 section couldn’t be read.",
+      "Saved 1, updated 1, merged 1, 2 already known, 1 left out as non-facts, 1 couldn’t save, 1 section incomplete.",
     );
+  });
+
+  it("does not present an incomplete or safety-excluded section as fully saved", () => {
+    const partition = partitionExplicitSaveCards([
+      card("safe"),
+      card("degraded", { preview_degraded: true }),
+      card("credential", { validation_hints: ["sensitive_credential"] }),
+    ]);
+    const receipt = buildPkmSaveReceipt({
+      coverage: [{ sourceBlockId: "s1", disposition: "review_required", detectedFactCount: 2, accountedFactCount: 1 }],
+      partition,
+      saveResult: { attempted: 1, saved: 1, failed: 0, domains: ["career"], results: [acked("saved")] },
+    });
+    expect(receipt).toMatchObject({ saved: 1, unprepared: 1, unreadable: 1, excluded: 1 });
+    const summary = describePkmSaveReceipt(receipt);
+    expect(summary).toContain("excluded for safety");
+    expect(summary).toContain("section incomplete");
+    expect(summary).not.toContain("not facts");
   });
 
   it("tells One counts and categories only, never the owner's words", () => {

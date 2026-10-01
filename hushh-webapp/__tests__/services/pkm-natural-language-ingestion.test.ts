@@ -696,6 +696,27 @@ describe("prepareNaturalLanguagePkm long structured notes", () => {
     mocks.save.mockReset();
   });
 
+  it("prepares every section of a 20-section context transfer without a short-writer collapse", async () => {
+    const source = ["# Synthetic context transfer", ...Array.from({ length: 20 }, (_, index) =>
+      `## Topic ${index + 1}\n- Synthetic preference ${index + 1}: option A\n- Synthetic goal ${index + 1}: option B\n${"Background context. ".repeat(38)}`,
+    )].join("\n\n");
+    expect(source.length).toBeGreaterThan(16_000);
+    mocks.preview.mockImplementation(async (params: { message: string }) => simulatedAgent(params));
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "owner", message: source, currentDomains: [], vaultOwnerToken: "token",
+      source: "agent_chat_owner_request", allowEmpty: true, granularity: "section",
+    });
+    // The title-only preamble is checked separately and intentionally yields
+    // no fact; all twenty factual sections still receive their own proposal.
+    expect(mocks.preview).toHaveBeenCalledTimes(21);
+    expect(prepared.sourceCoverage).toHaveLength(21);
+    expect(prepared.sourceCoverage.filter(isUnresolvedSourceBlock)).toEqual([]);
+    expect(prepared.cards).toHaveLength(40);
+    for (let index = 1; index <= 20; index += 1) {
+      expect(prepared.cards.some((card) => card.source_text.includes(`Synthetic goal ${index}:`))).toBe(true);
+    }
+  });
+
   it("prepares every fact once, sub-splits past the per-proposal cap, and leaves nothing unresolved", async () => {
     mocks.preview.mockImplementation(async (params: { message: string }) => simulatedAgent(params));
     const prepared = await prepareNaturalLanguagePkm({

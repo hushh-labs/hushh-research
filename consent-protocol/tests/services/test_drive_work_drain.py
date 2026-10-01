@@ -18,7 +18,7 @@ def _worker(result):
     return type("Worker", (), {"run": AsyncMock(return_value=result)})()
 
 
-def _drain(workers, search_worker=None, bulk_share_worker=None):
+def _drain(workers, search_worker=None, bulk_share_worker=None, refund_worker=None):
     return DriveWorkDrain(
         document_worker=workers[0],
         suggestion_worker=workers[1],
@@ -26,6 +26,7 @@ def _drain(workers, search_worker=None, bulk_share_worker=None):
         permission_worker=workers[2],
         bulk_share_worker=bulk_share_worker or _worker({"outcomes": {"not_claimed": 1}}),
         notification_worker=workers[3],
+        refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
     )
 
 
@@ -49,6 +50,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "permissions": {"deferred": 1},
             "bulk_shares": {"deferred": 1},
             "notifications": {"deferred": 1},
+            "refunds": {"deferred": 1},
         },
     }
     workers[0].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=180)
@@ -75,6 +77,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "permissions": {"deferred": 1},
         "bulk_shares": {"deferred": 1},
         "notifications": {"deferred": 1},
+        "refunds": {"deferred": 1},
     }
 
 
@@ -99,6 +102,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "permissions": {"unavailable": 1},
         "bulk_shares": {"not_claimed": 1},
         "notifications": {"settled": 1},
+        "refunds": {"disabled": 1},
     }
     assert "private" not in str(result)
 
@@ -111,7 +115,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
 async def test_short_stage_budget_never_claims_work(monkeypatch, stage, elapsed, worker_index):
     workers = [_worker({"outcomes": {"not_claimed": 1}}) for _ in range(4)]
     drain = _drain(workers)
-    clock = iter([0, elapsed, elapsed, elapsed])
+    clock = iter([0] + [elapsed] * 8)
     monkeypatch.setattr(drain, "_now", lambda: next(clock))
 
     result = await drain.run(stage=stage)
@@ -140,6 +144,27 @@ async def test_drain_rejects_amplifying_or_unbounded_limits(kwargs):
         await _drain(workers).run(**kwargs)
     for worker in workers:
         worker.run.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sharing_stage_reconciles_refunds_with_bounded_aggregate_output():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    refund = _worker(
+        {
+            "outcomes": {
+                "claimed": 2,
+                "succeeded": 1,
+                "manual_review": 1,
+                "stripe_refund_id": "re_private",
+            }
+        }
+    )
+
+    result = await _drain(workers, refund_worker=refund).run(stage="sharing")
+
+    refund.run.assert_awaited_once_with(max_jobs=4, deadline_seconds=35)
+    assert result["workers"]["refunds"] == {"claimed": 2, "succeeded": 1, "manual_review": 1}
+    assert "re_private" not in str(result)
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,9 @@ const pendingNotificationClickAcks = new Map();
 const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
   "document_share_request",
   "document_share_review_ready",
+  "document_share_payment_ready",
+  "document_share_payment_confirmed",
+  "document_share_payment_refunded",
   "document_share_decided",
   "document_share_outcome",
   "document_share_revoked",
@@ -39,6 +42,18 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
   document_share_review_ready: {
     title: "Files ready to review",
     body: "Open One to choose what to share.",
+  },
+  document_share_payment_ready: {
+    title: "Payment needed",
+    body: "Pay $10 in One to continue your document request.",
+  },
+  document_share_payment_confirmed: {
+    title: "Payment confirmed",
+    body: "Open One for your document request update.",
+  },
+  document_share_payment_refunded: {
+    title: "Payment refunded",
+    body: "Open One for your document request update.",
   },
   document_share_decided: {
     title: "Drive sharing update",
@@ -162,6 +177,10 @@ function isSilentNotification(data) {
 function notificationTapTarget(data) {
   const documentRequestId = documentShareNotificationRequestId(data);
   if (documentRequestId) {
+    const eventType = normalizedDocumentShareType(data);
+    if (eventType === "document_share_payment_ready" ||
+        eventType === "document_share_payment_confirmed" ||
+        eventType === "document_share_payment_refunded") return "/one/feed";
     const selection = DRIVE_QUESTION_NOTIFICATION_TYPES.has(
       normalizedDocumentShareType(data),
     )

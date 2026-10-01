@@ -289,13 +289,24 @@ export function resolveTopShellBreadcrumb(
     searchParams,
     options?.connectedSystemLabel,
   );
-  if (!config || !options?.setupDismissed) return config;
-  // Once onboarding is dismissed, a product/agent surface must never send BACK
-  // into the setup funnel. Setup-internal pages (the hub, connections, a
-  // per-capability step) keep retracing to the hub; every other surface whose
-  // back target resolves to a setup route (stale `?from=/one/setup`, hardcoded
-  // defaults) is rerouted to home.
+  if (!config) return config;
+  // One's Finance tile carries its origin, so Back works before a local setup
+  // hint hydrates. A bare first-run setup entry must still retrace to the hub.
   const here = normalizeBreadcrumbPathname(pathname);
+  if (here === ROUTES.ONE_SETUP_FINANCE) {
+    const backPath = normalizeBreadcrumbPathname(config.backHref);
+    if (backPath === ROUTES.ONE_HOME || options?.setupDismissed) {
+      return {
+        ...config,
+        backHref: isOneSetupSurfaceRoute(backPath) ? ROUTES.ONE_HOME : config.backHref,
+        items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Finance" }],
+      };
+    }
+    return config;
+  }
+  if (!options?.setupDismissed) return config;
+  // Once onboarding is dismissed, other product/agent surfaces must not send
+  // Back into the setup funnel. Setup-internal pages retain their retrace.
   if (isOneSetupSurfaceRoute(here)) return config;
   const backPath = config.backHref
     ? normalizeBreadcrumbPathname(config.backHref)

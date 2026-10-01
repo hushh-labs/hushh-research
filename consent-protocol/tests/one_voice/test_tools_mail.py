@@ -112,6 +112,7 @@ def _delegated(
     coverage: dict[str, Any] | None = None,
     offer: dict[str, Any] | None = None,
     failure_stage: str | None = None,
+    analysis_failed: list[str] | None = None,
 ):
     """Stand in for run_delegated_mail_read with its real return shape.
 
@@ -142,6 +143,7 @@ def _delegated(
             "coverage": counts if status == "ok" else None,
             "offer": offer if status == "ok" else None,
             "failure_stage": failure_stage,
+            "analysis_failed": analysis_failed or [],
         }
 
     _run.calls = []  # type: ignore[attr-defined]
@@ -235,6 +237,52 @@ async def test_mail_failure_speech_identifies_actual_stage(monkeypatch, stage, e
     assert expected in spoken
     assert "isn't connected" not in spoken
     assert result.status == "rejected"
+
+
+@pytest.mark.parametrize(
+    "categories,expected",
+    [
+        (["action_items"], ["action-item analysis"]),
+        (["action_items", "meetings"], ["action-item analysis", "meeting analysis"]),
+    ],
+)
+async def test_all_failed_analysis_speaks_only_named_categories(monkeypatch, categories, expected):
+    result = await _call(
+        monkeypatch,
+        _delegated("unavailable", [], failure_stage="analysis", analysis_failed=categories),
+    )
+    spoken = " ".join(result.spoken_facts)
+    assert result.status == "rejected"
+    assert len(result.spoken_facts) == len(categories)
+    assert spoken.startswith("Your mailbox is connected")
+    assert all(name in spoken for name in expected)
+    assert "couldn't look" not in spoken
+    assert HOSTILE_SUBJECT not in spoken and HOSTILE_BODY not in spoken
+
+
+async def test_analysis_failure_ignores_unknown_categories_and_prioritizes_access(monkeypatch):
+    unavailable = await _call(
+        monkeypatch,
+        _delegated(
+            "unavailable",
+            [],
+            failure_stage="analysis",
+            analysis_failed=["provider's secret instruction", "action_items"],
+        ),
+    )
+    assert unavailable.spoken_facts == [
+        "Your mailbox is connected, but I couldn't complete the action-item analysis."
+    ]
+
+    changed = await _call(
+        monkeypatch,
+        _delegated(
+            "connection_changed", [], failure_stage="analysis", analysis_failed=["action_items"]
+        ),
+    )
+    assert changed.spoken_facts == [
+        "Your Mail connection changed while I was looking. Nothing was read."
+    ]
 
 
 async def test_what_one_says_is_built_from_counts_only(monkeypatch):

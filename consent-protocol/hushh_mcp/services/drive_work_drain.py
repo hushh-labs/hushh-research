@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_bulk_share_worker import DriveBulkShareWorker
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
 from hushh_mcp.services.drive_owner_search_worker import DriveOwnerSearchWorker
 from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
+from hushh_mcp.services.drive_request_payment_refund_worker import DriveRequestPaymentRefundWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
 
@@ -28,11 +29,12 @@ WORKER_JOB_LIMITS = {
     "permissions": 20,
     "bulk_shares": 400,
     "notifications": 20,
+    "refunds": 4,
 }
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
-    "sharing": frozenset({"permissions", "bulk_shares", "notifications"}),
+    "sharing": frozenset({"permissions", "bulk_shares", "notifications", "refunds"}),
 }
 STAGE_MAX_SECONDS = {
     "documents": 180,
@@ -41,6 +43,7 @@ STAGE_MAX_SECONDS = {
     "permissions": 75,
     "bulk_shares": 80,
     "notifications": 35,
+    "refunds": 35,
 }
 STAGE_MIN_SECONDS = {
     "documents": 160,
@@ -49,6 +52,7 @@ STAGE_MIN_SECONDS = {
     "permissions": 75,
     "bulk_shares": 75,
     "notifications": 35,
+    "refunds": 20,
 }
 MAX_OUTCOME_COUNT = 500
 
@@ -145,6 +149,20 @@ _WORKER_ALLOWED_OUTCOMES = {
             "deferred",
         }
     ),
+    "refunds": frozenset(
+        {
+            "claimed",
+            "succeeded",
+            "pending",
+            "unknown",
+            "manual_review",
+            "failed",
+            "disabled",
+            "unavailable",
+            "deadline",
+            "deferred",
+        }
+    ),
 }
 
 
@@ -196,6 +214,7 @@ class DriveWorkDrain:
         permission_worker: DrivePermissionWorker | None = None,
         bulk_share_worker: DriveBulkShareWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
+        refund_worker: DriveRequestPaymentRefundWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
@@ -206,6 +225,7 @@ class DriveWorkDrain:
             ("permissions", permission_worker or DrivePermissionWorker()),
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
+            ("refunds", refund_worker or DriveRequestPaymentRefundWorker()),
         )
 
     async def run(
@@ -257,6 +277,20 @@ class DriveWorkDrain:
             # preparation cannot starve metadata searches (or vice versa).
             # The sharing stage below retains permissions-before-notifications.
             await asyncio.gather(*(run_worker(name, worker) for name, worker in self._workers))
+        elif stage == "sharing":
+            # Refund reconciliation and notification dispatch are independent.
+            # Run them together after permission work so neither starves the
+            # other inside the existing minute-by-minute sharing drain.
+            for name, worker in self._workers:
+                if name not in {"notifications", "refunds"}:
+                    await run_worker(name, worker)
+            await asyncio.gather(
+                *(
+                    run_worker(name, worker)
+                    for name, worker in self._workers
+                    if name in {"notifications", "refunds"}
+                )
+            )
         else:
             for name, worker in self._workers:
                 await run_worker(name, worker)

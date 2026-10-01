@@ -1771,25 +1771,15 @@ export function PkmNaturalPanel({
 
             <SettingsGroup separatorInset testId="memory-export-group">
               <SettingsRow
-                title="Download Memory"
+                title={exportBusy ? "Preparing…" : "Download Memory"}
                 description={isVaultUnlocked
-                  ? "Includes readable information. Keep the file private."
+                  ? "Readable file. Keep it private."
                   : "Unlock to download."}
-                stackTrailingOnMobile
-                trailingInteractive
-                trailing={
-                  <Button
-                    type="button"
-                    variant="muted"
-                    size="sm"
-                    disabled={!isVaultUnlocked || exportBusy}
-                    onClick={() => void handleExportMemory()}
-                    data-testid="memory-export-button"
-                  >
-                    {exportBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}
-                    {exportBusy ? "Preparing…" : "Download"}
-                  </Button>
-                }
+                onClick={() => void handleExportMemory()}
+                disabled={!isVaultUnlocked || exportBusy}
+                trailing={exportBusy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : undefined}
+                ariaLabel="Download Memory"
+                testId="memory-export-button"
               />
             </SettingsGroup>
 

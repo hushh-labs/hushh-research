@@ -178,6 +178,28 @@ async def test_recipient_receives_only_successful_links_and_no_internal_evidence
 
 
 @pytest.mark.asyncio
+async def test_recipient_projection_hides_recorded_link_while_payment_is_unpaid(permission_setup):
+    store, executor, _, ids = permission_setup
+    request_id = str(rows(store, "drive_share_requests")[0]["request_id"])
+    await executor.grant(user_id="owner", operation_id=ids[0])
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET payment_required=TRUE WHERE request_id=:request"),
+            {"request": request_id},
+        )
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status)
+              VALUES (:request,'owner','recipient','awaiting_payment')"""),
+            {"request": request_id},
+        )
+    recipient = await delivery(store, request_id)
+    assert recipient["files"] == []
+    assert recipient["paymentStatus"] == "awaiting_payment"
+    assert "paymentStatus" not in await delivery(store, request_id, user_id="owner")
+
+
+@pytest.mark.asyncio
 async def test_changed_recipient_is_rejected_before_delivery(permission_setup):
     store, executor, _, ids = permission_setup
     await executor.grant(user_id="owner", operation_id=ids[0])

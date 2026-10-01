@@ -59,13 +59,6 @@ const VARIANTS: Variant[] = [
     html: {},
     htmlClass: "native-ios native-keyboard-inset kb-open",
   },
-  {
-    // The desktop history column moves the shell's left edge to 15rem, so a
-    // viewport-relative width overran the column it sits in.
-    name: "chat history column open",
-    html: { oneChatSidebar: "open" },
-    widths: [1440],
-  },
 ];
 
 let script: string;
