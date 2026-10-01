@@ -108,6 +108,20 @@ configuration alone is not capacity acceptance. Cloud Run documents
 [per-instance concurrency](https://docs.cloud.google.com/run/docs/about-concurrency)
 and [WebSocket request behavior](https://docs.cloud.google.com/run/docs/triggering/websockets).
 
+### Isolated image recovery rehearsal safeguards
+
+When constructing a fixture `PodSpec`, retain its registry `billing_space_id`
+explicitly. Normal owner update flow already carries that field. An omitted
+fixture field can clear billing attribution during image replacement; it is not
+permission to reconcile a real owner assignment implicitly. Compare runtime
+settings by environment name and provider fields rather than provider ordering.
+
+A failed candidate startup is a failed receipt even if the previous revision
+continues serving. One bounded unchanged-configuration retry may distinguish a
+transient failure, but does not establish its cause. Verify serving digest,
+durable key/cursor, private IAM and unchanged service identity before recording
+recovery. Isolated maintenance never substitutes for Settings owner approval.
+
 ### Recovering a denied Files queue creation
 
 For a blocked Files activation, retain its existing approval, lease, successful

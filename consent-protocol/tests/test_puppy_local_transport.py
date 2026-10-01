@@ -79,7 +79,8 @@ async def test_generate_rides_the_broker_and_normalises_the_result():
     assert "Authorization" not in str(sent) and "pst1." not in str(sent)
 
 
-async def test_stream_yields_chunks_in_order():
+@pytest.mark.parametrize("terminal_kind", ["inference.done", "inference.result"])
+async def test_stream_yields_chunks_in_order(terminal_kind):
     broker = pb.PuppyBroker()
     socket = _Socket()
     await broker.register(KEY, send=socket.send, close=socket.close, epoch=1)
@@ -93,7 +94,7 @@ async def test_stream_yields_chunks_in_order():
             await broker.deliver(
                 KEY, {"type": "inference.delta", "requestId": request_id, "text": piece}
             )
-        await broker.deliver(KEY, {"type": "inference.done", "requestId": request_id})
+        await broker.deliver(KEY, {"type": terminal_kind, "requestId": request_id})
 
     feeder = asyncio.create_task(device())
     chunks = [
@@ -104,6 +105,31 @@ async def test_stream_yields_chunks_in_order():
     ]
     await feeder
     assert [c.text for c in chunks] == ["a", "b"]
+    assert [frame["type"] for frame in socket.sent] == ["inference.request"]
+
+
+async def test_closing_stream_stops_the_device_before_releasing_broker_work():
+    broker = pb.PuppyBroker()
+    socket = _Socket()
+    link = await broker.register(KEY, send=socket.send, close=socket.close, epoch=1)
+    transport = local.PuppyLocalBrokerTransport(hushh_id=KEY[0], device_id=KEY[1], broker=broker)
+
+    async def device():
+        while not socket.sent:
+            await asyncio.sleep(0)
+        await broker.deliver(
+            KEY,
+            {"type": "inference.delta", "requestId": socket.sent[0]["requestId"], "text": "a"},
+        )
+
+    feeder = asyncio.create_task(device())
+    stream = await transport.aio.models.generate_content_stream(model="local", contents="x")
+    assert (await anext(stream)).text == "a"
+    await feeder
+    await stream.aclose()
+    assert [frame["type"] for frame in socket.sent] == ["inference.request", "inference.cancel"]
+    assert socket.sent[1]["requestId"] == socket.sent[0]["requestId"]
+    assert link.pending == {} and link.busy_request_id is None
 
 
 async def test_explicit_model_requires_current_catalog_and_is_forwarded_with_version():

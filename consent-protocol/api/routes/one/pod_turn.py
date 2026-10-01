@@ -31,6 +31,7 @@ from contextlib import suppress
 from types import SimpleNamespace
 from typing import Any, Awaitable, Callable, Optional
 
+import anyio
 from fastapi import APIRouter, Body, Header, HTTPException, Query, WebSocket
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -45,6 +46,14 @@ from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
 
 logger = logging.getLogger(__name__)
+_STREAM_TURN_TASKS: set[asyncio.Task[None]] = set()
+
+
+def _stream_turn_settled(task: asyncio.Task[None]) -> None:
+    _STREAM_TURN_TASKS.discard(task)
+    if not task.cancelled() and task.exception() is not None:
+        logger.error("pod_turn.stream_cleanup_failed")
+
 
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
 
@@ -1041,6 +1050,8 @@ async def pod_turn_stream_route(
                 await queue.put(("error", _stream_error(exc)))
 
         task = asyncio.create_task(run())
+        _STREAM_TURN_TASKS.add(task)
+        task.add_done_callback(_stream_turn_settled)
         try:
             while True:
                 try:
@@ -1054,8 +1065,16 @@ async def pod_turn_stream_route(
         finally:
             if not task.done():
                 task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+            # ASGI disconnect cancels Starlette's AnyIO scope repeatedly. Do not
+            # let that cancel device-stop delivery or admission release again.
+            # Retain the producer if cleanup outlives this bounded wait: update
+            # handoff must remain held until admitted work actually settles.
+            with anyio.CancelScope(shield=True):
+                try:
+                    with suppress(asyncio.CancelledError):
+                        await asyncio.wait_for(asyncio.shield(task), timeout=10)
+                except TimeoutError:
+                    logger.error("pod_turn.stream_cleanup_pending update_handoff=held")
 
     return StreamingResponse(
         events(),

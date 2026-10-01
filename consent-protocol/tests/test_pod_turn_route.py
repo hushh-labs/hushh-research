@@ -1102,25 +1102,61 @@ async def test_streamed_puppy_turn_uses_app_admission_and_emits_one_terminal(
 async def test_streamed_puppy_disconnect_cancels_the_turn(enabled, monkeypatch, local_authority):
     import asyncio
 
+    from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
+    from hushh_mcp.services.puppy_broker import PuppyBroker
+
     token, _ = await local_authority["admit"]("tdv_app_cancel", "web")
-    cancelled = asyncio.Event()
+    started = asyncio.Event()
+    frames = []
+    broker = PuppyBroker()
+    admission = PodUpgradeAdmission(log_resolver=lambda: None)
+    key = ("ha1_turn_owner", "tdv_mac_cancel")
+
+    async def send_frame(frame):
+        # A real socket write yields; repeated ASGI cancellation must not
+        # interrupt the stop frame or falsely advertise an idle pod.
+        await asyncio.sleep(0.01)
+        frames.append(frame)
+        if frame["type"] == "inference.request":
+            started.set()
+
+    async def close_socket(**_kwargs):
+        return None
+
+    link = await broker.register(key, send=send_frame, close=close_socket, epoch=1)
 
     async def _run(_payload, _authorization, _authority, _claims, *, on_token=None):
+        permit = await admission.acquire_turn(incarnation="cancel-fixture")
         try:
-            await on_token("starting")
-            await asyncio.Event().wait()
+            async for _ in broker.dispatch(
+                key,
+                {"type": "inference.request", "requestId": "cancel-1", "deviceId": key[1]},
+            ):
+                raise AssertionError("No model frames precede disconnect.")
         finally:
-            cancelled.set()
+            await permit.release()
 
     monkeypatch.setattr(pod_turn, "_run_direct_turn", _run)
     response = await pod_turn.pod_turn_stream_route(
         PodTurnRequest(message="hello", runtime_provider="puppy"),
         authorization=f"Bearer {token}",
     )
-    stream = response.body_iterator
-    assert "event: token" in await anext(stream)
-    await stream.aclose()
-    assert cancelled.is_set()
+
+    async def receive():
+        await started.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(_message):
+        return None
+
+    await asyncio.wait_for(
+        response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send),
+        timeout=2,
+    )
+    assert [frame["type"] for frame in frames] == ["inference.request", "inference.cancel"]
+    assert frames[-1]["requestId"] == "cancel-1"
+    assert link.pending == {} and link.busy_request_id is None
+    assert (await admission.status(incarnation="cancel-fixture"))["activeWork"] == 0
 
 
 async def test_puppy_catalog_read_is_bound_to_the_app_owner(enabled, monkeypatch, local_authority):

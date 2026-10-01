@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from contextlib import aclosing
 from typing import Any, AsyncIterator, Optional
 
 from .puppy_transport import (
@@ -115,22 +116,23 @@ class PuppyLocalBrokerTransport(PuppyRelayTransport):
         request_id = uuid.uuid4().hex
         payload = self._payload(request, model, request_id)
         try:
-            async for frame in self._broker.dispatch(
-                self.key, payload, incarnation=self._incarnation
-            ):
-                if str(frame.get("requestId") or "") != request_id:
-                    raise PuppyRelayProtocolError("Puppy returned a mismatched request")
-                kind = str(frame.get("type") or "")
-                if kind == "inference.error":
-                    code = str(frame.get("code") or "")
-                    if code == "MODEL_UNAVAILABLE" or code == "PUPPY_MODEL_UNAVAILABLE":
-                        raise PuppyModelUnavailable("selected local model unavailable")
-                    if code == "STALE_MODEL_CATALOG" or code == "PUPPY_CATALOG_STALE":
-                        raise PuppyCatalogStale("selected model catalog changed")
-                    raise PuppyRelayUnavailable("Puppy inference was refused")
-                yield frame
-                if kind in {"inference.done", "inference.result"}:
-                    return
+            async with aclosing(
+                self._broker.dispatch(self.key, payload, incarnation=self._incarnation)
+            ) as frames:
+                async for frame in frames:
+                    if str(frame.get("requestId") or "") != request_id:
+                        raise PuppyRelayProtocolError("Puppy returned a mismatched request")
+                    kind = str(frame.get("type") or "")
+                    if kind == "inference.error":
+                        code = str(frame.get("code") or "")
+                        if code == "MODEL_UNAVAILABLE" or code == "PUPPY_MODEL_UNAVAILABLE":
+                            raise PuppyModelUnavailable("selected local model unavailable")
+                        if code == "STALE_MODEL_CATALOG" or code == "PUPPY_CATALOG_STALE":
+                            raise PuppyCatalogStale("selected model catalog changed")
+                        raise PuppyRelayUnavailable("Puppy inference was refused")
+                    yield frame
+                    if kind in {"inference.done", "inference.result"}:
+                        return
         except PuppyBrokerOffline as exc:
             raise PuppyRelayUnavailable("Puppy inference connection unavailable") from exc
         except PuppyBrokerFenced as exc:

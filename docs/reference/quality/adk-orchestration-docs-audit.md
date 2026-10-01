@@ -2,130 +2,100 @@
 
 ## Visual Context
 
-Canonical visual owner: [Quality and Design System Index](README.md). The
-Files-led matrix below carries this revision-bound decision.
+Canonical visual owner: [Quality and Design System Index](README.md).
+The Files-led matrix below carries the release decision.
 
-**Decision at 2026-10-01:** Dev still serves baseline `830f1f94c`;
-the refreshed candidate `55681083e` passed exact-SHA CI and its governed dev deployment is running. **Hold existing-owner Files activation and main, UAT, production, and
-stable-channel promotion.** The personal pod still serves its prior image with
-Files disabled. A published dev offer does not install or configure it.
+**Decision — 2026-10-01: dev application verified; owner Files activation held.**
+Dev serves `55681083efbd`. The personal pod remains on its predecessor with
+Files disabled. Exact-image synthetic recovery and a disposable cloud
+maintenance upgrade passed. Normal Settings-approved installation, real Files
+organization and complete Puppy cancellation remain release gates. No main,
+UAT, production, stable-channel or automatic owner upgrade is authorized here.
 
-This revision-bound memo is not a fleet register. The [One hierarchy](../one/one-agent-hierarchy.md),
-[private Files contract](../operations/private-files-library.md),
-[dev update runbook](../operations/dev-pod-first-light-runbook.md), and
-[deployment standard](../architecture/deployment-standard.md) own reusable
-contracts and operator steps. Git history retains the earlier audit chronology.
+The [One hierarchy](../one/one-agent-hierarchy.md), [Files contract](../operations/private-files-library.md),
+[dev update runbook](../operations/dev-pod-first-light-runbook.md) and
+[deployment standard](../architecture/deployment-standard.md) own reusable guidance.
+Git history retains the earlier chronology; this memo records current evidence.
 
-## Decision evidence
+## Source and serving evidence
 
-- **Serving baseline:** `830f1f94c`, [CI 36792703786](https://github.com/hushh-labs/hushh-research/actions/runs/36792703786),
-  [dev deployment 36794526362](https://github.com/hushh-labs/hushh-research/actions/runs/36794526362).
-  Independent readback found backend `consent-protocol-00121-94t`
-  (`sha256:a05f5db2…cf009`) and frontend `hushh-webapp-00101-tlw`
-  (`sha256:1aa4eeee…07c7e1`), both Ready at 100% traffic. Rollback targets:
-  `consent-protocol-00120-6gz` and `hushh-webapp-00100-xnh`.
-- **Refreshed source:** branch commit `62535afa7`, local integration `5daeb48ab`
-  with main `599d3ec36`. Local ADK `f2b571762` was inspected: its main Drive
-  bundle is integrated; its unrelated iOS test and generated projections are
-  not copied over pod-owned contracts. One's composed instruction needed a
-  small budget correction and regeneration. Focused boundary/UI/migration
-  checks passed after that correction. The complete local core mirror passed
-  in 382 seconds, including 8,453 backend tests and the PKM upgrade gate;
-  [exact-SHA hosted CI 36898355625](https://github.com/hushh-labs/hushh-research/actions/runs/36898355625)
-  passed against `55681083e` on attempt 2. A bounded failed-job rerun resolved
-  the browser dependency-install timeout and editor-performance failure;
-  no gate was weakened. [Dev deployment 36905545494](https://github.com/hushh-labs/hushh-research/actions/runs/36905545494)
-  is running; serving acceptance and owner installation remain unverified.
-- **Schema and release:** the 2026-10-01 readback confirmed 943–945 applied
-  with checksums matching source;
-  source migration 946 fixes exact Files selection at pod claim, and 261
-  carries Drive background defaults. Their live application remains unverified.
-  Cleanup 944 is already recorded as applied; that ledger row alone does not
-  prove its deletion and recovery outcomes. The original migration 249 cleanup
-  remains deferred. Published `.9`
-  lists predecessor `sha256:1054cdf6…f0392` without isolated image-level recovery
-  proof; zero approvals/leases were observed at the last read. Source `.10`
-  has **no supported predecessor**. Recheck before deployment and verify the
-  unsafe offer is withdrawn when the new hub serves. No automatic installation.
-- **Owner and fixture:** the existing owner pod remains on that predecessor,
-  Files disabled, minimum zero, maximum one, one worker and concurrency eight.
-  A helper configuration typo left the first disposable fixture in a retained
-  failed dry-run attempt; no pod or substrate was created. That attempt is
-  preserved. A fresh isolated fixture now serves the exact predecessor:
-  authenticated identity/key reads pass, anonymous invocation returns 403,
-  and the existing collector recorded `provisioned`. Fixture network ingress
-  was aligned with dev without changing its template or private IAM.
-  Administrator-seeded phone
-  verification is not SMS onboarding evidence. Exact old-image → new-image
-  cloud recovery remains the Files activation gate.
+- **Application:** [exact-SHA CI 36898355625](https://github.com/hushh-labs/hushh-research/actions/runs/36898355625)
+  passed on attempt 2; [governed dev deployment 36905545494](https://github.com/hushh-labs/hushh-research/actions/runs/36905545494)
+  succeeded. Backend `consent-protocol-00122-s69` and frontend
+  `hushh-webapp-00102-ls2` were independently read back Ready at 100% traffic,
+  both on `55681083efbd`. Immutable digests: backend `b560efad…1957d`, frontend
+  `03f77655…785d0`. Application rollback targets: `00121-94t` / `00101-tlw`.
+  RIA remains degraded as `ria_stage1_query_only`.
+- **Next candidate, local:** frozen main `f5ed2eb82fbe` and local ADK
+  `1b08a07ebe93` are integrated in isolation. The root's strict memory review,
+  Files instructions, pod status and public route boundaries are preserved.
+  Dependency owners combine Stripe and the ADK sentence-transformers 6.0
+  security pin; projections are regenerated. New relay readiness and disconnect
+  corrections require their own exact-SHA CI and pod installation.
+- **Schema:** dev readback verified migrations 943–946 and source checksums.
+  An applied 944 ledger row does not independently prove deletion or recovery;
+  the original 249 cleanup remains deferred. Incoming hub migration 262 must
+  precede payment-aware Drive reads. This source integration is not its deployment.
+- **Offer:** `.10+55681083efbd.9e34284c` names immutable pod digest
+  `sha256:9e34284c…d89ba7` and has **no supported predecessor**. The unsafe `.9`
+  compatibility claim is withdrawn. The personal owner still runs exact
+  predecessor `sha256:1054cdf6…f0392`. Compatibility must identify exact digests;
+  an image built after these proofs needs a new target-bound qualification.
+- **Recovery:** two probes used the actual predecessor and target images, then
+  restarted the target with synthetic encrypted state. No source overlay was
+  used. A disposable owner-project maintenance upgrade subsequently recovered
+  on the same service with durable identity/key/cursor, private IAM and selected
+  hosting preserved. A helper omitted billing attribution; guarded reconciliation
+  restored it. One startup attempt failed; an unchanged-configuration retry passed.
+  Preserve both receipts. Administrator-seeded phone verification is not SMS
+  onboarding evidence, and maintenance is not a normal owner update receipt.
 
-## Files-led acceptance matrix
+## Files-led acceptance
 
-| Area | Dated evidence and classification | Blocking proof / accountable owner |
+| Journey | Verified | Remaining gate / owner |
 | --- | --- | --- |
-| **Existing-owner Files setup** | **Blocked.** The normal owner browser admitted to the old pod, but list returned 503 and the old release plan returned 409. The new offer is published; no image, bucket, queue, worker or owner configuration changed. | Files and release owners: prove old-image → new-image encrypted recovery in an isolated cloud pod, then use the normal owner's exact Files plan and approval. Verify installed digest, configuration and retained information. An image-only approval cannot enable Files. |
-| **Files workspace and transfer** | **Local UI accepted; live target pending.** The move picker reaches paginated nested folders and mobile actions remain usable at 320–1280 px. Focused Files tests passed. A prior already-enabled reviewer pod passed interrupted 5 MiB upload/resume, byte-exact download, rename/undo and Trash/restore. | Files browser/pod owners: repeat cold admission, list, transfer and cleanup on the newly enabled owner pod. The prior reviewer transfer does not prove this image, owner cloud or normal enrollment. |
-| **Files Agent, billing and recovery** | **Source/CI accepted; cloud recovery pending.** Opt-in, exclusions, bounded jobs, same-project billing retry and configuration approval exist; synthetic tests passed. The replacement disposable predecessor pod is provisioned with private IAM; this is not an upgrade or Files recovery receipt. Exact Files selection and pending-cloud admission corrections await serving verification. | Files and BYOC owners: prove real GCS, KMS, Cloud Tasks and model access, organization/cancellation, missing-billing return, and uncertain-step recovery on disposable setup. Preserve originals and record target-bound receipts. |
-| **Chat, commands and connectors** | **Source/CI accepted; new live turns pending.** Queued chat delivery now checks status before resend. Owner-private MCP calls retain owner authority; review-required calls retain the exact one-use ledger. A historical cold browser wait timed out before a roughly 131-second pod completion. | Runtime/agent owners: measure fresh cold and warm turns, recorded command completion and a safe review-required connector approval/resume fixture. Do not infer those journeys from a 200 health response. |
-| **Puppy and machine report** | **Partial live acceptance.** A normal owner browser completed a synthetic local-model reply (60.4 seconds overall; 42.1 seconds pod stream) and displayed model/spec/jobs. A later Cancel removed the UI wait but the stream continued; server-side cancellation was not established. Browser cancellation after response headers is corrected in source, and the committed Hermes client includes admission-permit cleanup. | Device/browser owners: restart the exact dev client, prove cancellation after headers and pod work release, reconnect, and independent-internet access. A dated heartbeat is an observation, not a live resource reading. |
-| **Updates and bounded runtime** | **Prior `.6` → `.8` owner update accepted.** Active-work drain, duplicate approval coalescing and installed digest were observed then. The new `.9` release has not been installed. | Release/runtime owners: prove exact owner-approved Files update, recovery, Settings/Feed agreement, bounded overlap, idle grace and wake. Do not describe the new release as installed or scale-to-zero as measured. |
-| **Production promotion** | **Blocked.** A dated production IAM check found `deploy_authority_drift`. No application main merge, UAT/prod deployment or stable release occurred. | Governance/release owners: reconcile IAM, graduate migrations and release channels, prove billing/recovery and repeat Files, updates and Puppy in UAT. Resolve the degraded RIA dependency separately. |
+| **Existing-owner Files setup** | Old pod admits directly; Files returns 503 and setup refuses an unqualified predecessor. Isolated recovery now passes. | Release/BYOC: qualify the exact target, then obtain the normal owner's exact Files plan and installation approval. Verify storage, queue, identity and digest. |
+| **Files explorer and transfer** | Local paginated move navigation and mobile actions pass. A prior enabled reviewer pod passed interrupted 5 MiB transfer, byte-exact download, rename/undo and trash/restore. | Files: repeat on the newly enabled target, including cold admission and synthetic cleanup. Prior owner/image evidence does not qualify this release. |
+| **Files Agent and background jobs** | Canonical `agent_files`, analysis opt-in, exclusions, bounded job/cancellation and original-preservation contracts pass in source. | Files/BYOC: real GCS/KMS/Cloud Tasks/model access, organization outcome, cancellation and missing-billing resume. Local adapters do not prove cloud permissions. |
+| **Chat, commands and connector review** | Source checks cover queued completion recovery and exact owner/tool approval ledger. | Runtime: fresh cold/warm pod response, recorded command, exact connector review/resume and no duplicate effect. Health is not journey acceptance. |
+| **Puppy and machine** | Real normal-owner direct reply; observed model, capacity and jobs. Latest warm device inference completed in about 4.8 seconds. Existing identity/grant preserved. | Device/runtime: live stop receipt, reconnect, independent active internet and cold latency. Browser Cancel alone is not server cancellation; the older cold usability failure remains unresolved. |
+| **Update and on-demand runtime** | Historical `.6`→`.8` owner approval/drain/digest passed; new isolated maintenance recovered. Existing hosting preserved. | Release/runtime: normal approved Files installation, Settings/Feed agreement, restart/continuity, bounded overlap, idle grace and measured wake. No new personal installation is claimed. |
+| **Production** | No application merge or broader rollout. | Release/security: dev acceptance, migration/channel graduation, production IAM/billing, recovery/rollback and UAT repetition. Capacity remains unmeasured. |
 
-The 2026-09-24 Plaid passthrough and Mail/Drive findings were source audits,
-not rollout receipts. Keep their separate gates with the
-[Plaid vault contract](../kai/plaid-vault-passthrough.md) and
-[Mail/Drive acceptance record](../operations/mail-drive-uat-acceptance.md).
-The inspected [Plaid client](../../../consent-protocol/hushh_mcp/integrations/plaid/client.py)
-still has a generic network retry around POST, and the
-generic Kai proxy (`hushh-webapp/app/api/kai/[...path]/route.ts`)
-still rebuilds JSON without forwarding the backend vault route's `no-store`
-header. Their owners must verify single-use exchange recovery and browser-facing
-cache policy before making those claims; this pod decision does not close them.
+The new ASGI disconnect test sends a real broker request and verifies matching
+stop delivery, cleared busy work and released admission. It fails on the prior
+unshielded cleanup. Completed streams must not emit a duplicate cancel. This is
+local regression evidence; the personal predecessor does not contain the fix.
 
-## Accountable next gate
+## Next gate and board alignment
 
-1. **Files and pod-release owners:** use the disposable dev owner and isolated
-   project to prove the exact installed predecessor image can
-   hand off to the published candidate image and recover encrypted information.
-   Existing reviewer and personal resources are not rehearsal fixtures.
-2. **Normal owner approval, after recovery proof:** obtain the read-only Files configuration plan,
-   verify its owner, pod incarnation, resources and immutable image, then use
-   the existing owner approval and durable update operation. Confirm the same
-   service and selected compute, encrypted storage, keys, recovery prefixes,
-   installed digest and `POD_FILES_ENABLED` on readback. No reviewer-session
-   self-enrolment or implicit Shared fallback is an acceptable shortcut.
-3. **One dev acceptance window:** repeat cold Files read, transfer, organization,
-   opt-in/exclusion, billing resume, chat, recorded command, exact connector
-   review, Puppy, update/restart and bounded idle/wake. Keep private receipts
-   in their restricted owner workflow; publish only sanitized outcomes.
-4. **Production gate:** complete independent-network Puppy and device cancellation,
-   hub load/soak, production IAM provenance, migration/recovery and UAT. Only
-   then reconsider main or broader rollout. Each future row remains
-   **unverified** until its target-bound result is recorded.
+1. Complete this frozen candidate and run the local core mirror once, then
+   exact-SHA hosted CI. Deploy through the governed dev workflow; read back
+   application and pod-image provenance separately.
+2. Qualify the newly built immutable target from the exact predecessor before
+   offering normal owner installation. Reuse verified image metadata only through
+   the runbook's pinned dev path; never substitute a rebuilt image into old proof.
+3. Use one owner acceptance window for Files plan/approval, transfer/organization,
+   update/recovery, Puppy and the remaining commands. Record performed outcomes.
+4. Project 79: [#5507 Personal GCP Pod simulation](https://github.com/hushh-labs/hushh-research/issues/5507)
+   remains **In Progress**. [#6790 Complete ADK orchestration migration and verification](https://github.com/hushh-labs/hushh-research/issues/6790)
+   is already closed/Done for its source scope. Historical Puppy cards do not
+   close current relay acceptance. No board dates, statuses or comments were changed.
+
+Three affected private Wiki sections were corrected and read back on 2026-10-01.
+The older Plaid/Mail findings remain with their [vault contract](../kai/plaid-vault-passthrough.md)
+and [Mail/Drive acceptance record](../operations/mail-drive-uat-acceptance.md);
+this pod memo does not close their separate rollout or exchange/cache gates.
 
 ## GCP-only pod deployment correction — 2026-09-25
 
-This heading preserves the historical link. The 2026-09-25 source correction
-removed Anypoint as a pod deployment target. Managed `gcp` and owner-project
-`user_gcp` are the supported deployment modes; `null` is inert. Unsupported
-persisted targets fail closed. The separate CRM connector remains in scope;
-no AWS or Azure pod adapter or cloud-resource change followed from that docs
-correction. The [deployment standard](../architecture/deployment-standard.md)
-owns the current decision. The 2026-08-11 first-light observations on
-asynchronous API readiness, exact GCP IAM and rendered-service checks now live
-in the [dev runbook](../operations/dev-pod-first-light-runbook.md#owner-project-first-light-checks-2026-08-11-rehearsal).
-The [recovery guide](../operations/pod-backup-and-recovery.md) retains the
-conditional first-boot key and custody lesson. Neither dated rehearsal proves
-fleet-wide recovery or Files readiness.
+Historical anchor: Anypoint pod deployment was removed; `gcp` / `user_gcp` are
+the supported modes. The separate CRM connector remains. Current decisions live
+in the deployment standard; first-light guidance lives in the dev runbook.
 
 ## Files continuation evidence — 2026-09-25
 
-This heading preserves the historical link. At the 2026-09-25 Research source
-checkpoint, focused tests exercised signed browser admission/renewal,
-encrypted Files storage and bounded folder-index rebuilding, isolated-schema
-migration restoration, queue/worker erasure and consent regressions. They
-established source contracts, not deployed schema, live erasure or owner Files
-activation. The [Files runbook](../operations/private-files-library.md) owns
-the subsequent provisioning and recovery contract. The current matrix
-above supersedes that checkpoint for the dev decision; the older tests do not
-resolve the installed-image compatibility refusal.
+Historical anchor: source checks covered signed admission, encrypted Files,
+bounded indexing, isolated migrations, worker erasure and consent. Those checks
+were not owner-cloud activation receipts. The Files contract and current matrix
+above own subsequent decisions.

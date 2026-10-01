@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import uuid
+from contextlib import aclosing
 from typing import Any, AsyncIterator
 
 from .base import ProviderTransport
@@ -368,23 +369,24 @@ class PuppyRelayTransport(ProviderTransport):
     ) -> AsyncIterator[NormalizedChunk]:
         emitted_result = False
         reported = ""
-        async for frame in self._frames(request, model=model):
-            kind = str(frame.get("type") or "")
-            reported = _reported_model(frame) or reported
-            if kind in {"inference.delta", "inference.result"}:
-                value = frame.get("text")
-                if isinstance(value, str) and value:
-                    emitted_result = True
-                    yield NormalizedChunk(
-                        text=value,
-                        function_calls=self._calls(frame.get("functionCalls")),
-                        model_version=reported,
-                    )
-                else:
-                    calls = self._calls(frame.get("functionCalls"))
-                    if calls:
-                        yield NormalizedChunk(function_calls=calls, model_version=reported)
-            if kind == "inference.done" and not emitted_result:
-                value = frame.get("text")
-                if isinstance(value, str) and value:
-                    yield NormalizedChunk(text=value, model_version=reported)
+        async with aclosing(self._frames(request, model=model)) as frames:
+            async for frame in frames:
+                kind = str(frame.get("type") or "")
+                reported = _reported_model(frame) or reported
+                if kind in {"inference.delta", "inference.result"}:
+                    value = frame.get("text")
+                    if isinstance(value, str) and value:
+                        emitted_result = True
+                        yield NormalizedChunk(
+                            text=value,
+                            function_calls=self._calls(frame.get("functionCalls")),
+                            model_version=reported,
+                        )
+                    else:
+                        calls = self._calls(frame.get("functionCalls"))
+                        if calls:
+                            yield NormalizedChunk(function_calls=calls, model_version=reported)
+                if kind == "inference.done" and not emitted_result:
+                    value = frame.get("text")
+                    if isinstance(value, str) and value:
+                        yield NormalizedChunk(text=value, model_version=reported)

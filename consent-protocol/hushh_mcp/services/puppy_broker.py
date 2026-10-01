@@ -352,17 +352,17 @@ class PuppyBroker:
                         response = await queue.get()
                 except asyncio.TimeoutError:
                     await self._cancel(link, request_id)
+                    finished = True
                     yield {
                         "type": "inference.error",
                         "requestId": request_id,
                         "code": "PUPPY_TIMEOUT",
                     }
-                    finished = True
                     return
                 await self._require_current(incarnation)
+                finished = str(response.get("type") or "") in _TERMINAL
                 yield response
-                if str(response.get("type") or "") in _TERMINAL:
-                    finished = True
+                if finished:
                     return
         finally:
             if not finished:
