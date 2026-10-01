@@ -437,13 +437,13 @@ def test_requested_uid_selects_its_pair_despite_shared_passphrase(monkeypatch, u
     assert minted["uid"] == uid
 
 
-def test_requested_unknown_uid_falls_back_to_passphrase_matching(monkeypatch):
+def test_requested_unknown_uid_never_falls_back_to_another_reviewer(monkeypatch):
     _set_shared_passphrase_pair(monkeypatch)
     minted = _install_fake_minter(monkeypatch)
 
     assert _post_session_for("someone_else", None).status_code == 403
-    assert _post_session_for("someone_else", "shared-passphrase").status_code == 200
-    assert minted["uid"] == "reviewer_uid_123"
+    assert _post_session_for("someone_else", "shared-passphrase").status_code == 403
+    assert minted == {}
 
 
 def test_requested_uid_cannot_mint_in_production(monkeypatch):

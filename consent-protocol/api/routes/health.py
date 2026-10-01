@@ -146,9 +146,10 @@ def _authenticate_review_identity(
     The credential is the configured vault passphrase of the identity being
     minted, which every legitimate caller (reviewer tooling, the native test
     bridge, deploy smoke) already holds from process env or the env resolver.
-    A request naming a configured reviewer uid must carry THAT pair's
-    passphrase, so a shared passphrase can never resolve one reviewer to the
-    other. A request naming no configured uid is matched on passphrase alone.
+    A request naming a reviewer uid must match THAT configured pair and carry
+    its passphrase. An unknown uid never falls back to another account, even
+    when both accounts share a passphrase. A request naming no uid is matched
+    on passphrase alone for older clients.
     No passphrase, or one matching no pair, returns None: there is no default
     identity any more. Values are never logged.
     """
@@ -157,8 +158,12 @@ def _authenticate_review_identity(
         return None
     configured = _configured_reviewer_identities()
     clean_requested = str(requested_uid or "").strip()
-    named = tuple(pair for pair in configured if clean_requested and pair[0] == clean_requested)
-    return _match_reviewer_identity(provided, named or configured)
+    candidates = (
+        tuple(pair for pair in configured if pair[0] == clean_requested)
+        if clean_requested
+        else configured
+    )
+    return _match_reviewer_identity(provided, candidates)
 
 
 def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:

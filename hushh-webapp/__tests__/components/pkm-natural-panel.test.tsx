@@ -276,8 +276,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(screen.getByRole("textbox", { name: "Memory note" })).toBeTruthy();
     fireEvent.click(screen.getByRole("tab", { name: "Sharing" }));
     expect(screen.getByRole("tab", { name: "Sharing" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByText("Download Memory")).toBeTruthy();
-    expect(screen.getByText("Includes readable information. Keep the file private.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Download Memory" })).toBeTruthy();
+    expect(screen.getByText("Readable file. Keep it private.")).toBeTruthy();
+    expect(screen.getAllByText("Download Memory")).toHaveLength(1);
     expect(screen.queryByText("Your copy")).toBeNull();
   });
 
