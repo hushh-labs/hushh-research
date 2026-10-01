@@ -13,6 +13,7 @@ flowchart TD
   search["google_search"]
   nav_tool["open_screen<br/>governed navigation"]
   agenttools["In-process ADK AgentTool children<br/>Kai Finance -> RIA + Investor<br/>Wallet"]
+  files["Files AgentTool<br/>agent_files<br/>dev owner pod + POD_FILES_ENABLED only"]
   dispatch["In-process adk_bridge registry<br/>Documents, Location, Email, Nav,<br/>Personal Information"]
   remoteCaller["Remote process / deployment caller"]
   a2a["External A2A entrypoints<br/>five-ID scope validation map"]
@@ -31,6 +32,7 @@ flowchart TD
   one --> search
   one --> nav_tool
   one --> agenttools
+  one -.conditional.-> files
   one --> dispatch
   remoteCaller --> a2a
   a2a --> kai
@@ -40,6 +42,7 @@ flowchart TD
   a2a --> personalInfo
   dispatch --> personalInfo
   agenttools --> operons
+  files --> operons
   kai --> operons
   nav --> operons
   kyc --> operons
@@ -80,6 +83,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Owner metadata-only inbox reads behind One's default-off typed-chat lane; existing receipts and reviewed sending remain separate | Exact `cap.email.metadata.read` invocation bound to owner, task, call and expiry; no inherited Mail write authority |
 | Documents specialist | `agent_documents` | Owner typed-chat metadata search and supported-file reading through the live Google Drive MCP grant, or answers from the limited selected library; no sharing tool | Exact `cap.documents.read` invocation and current owner token; the live path checks connection generation and Google grant, while the limited path checks selected-file authority |
+| Files specialist | `agent_files` | Manifest-authored ADK `task` AgentTool for the private object library, with a dedicated `/one/files` workspace; available only on a dev owner pod with `POD_FILES_ENABLED`, not shared dispatch or external A2A | Owner-bound `files.read` / `files.manage`, current analysis consent and exclusions; revision-checked reversible organization |
 | Memory Agent | `agent_personal_information` | Owner memory summaries plus consented information-slice workflows, reachable from One through `ask_memory_agent` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summaries retain the internal `pkm.read` gate |
 | Information Marketplace | standalone product surface | Separate consent-first Marketplace routes and APIs remain available; its conversational specialist is the Memory Agent | Admitted to One's typed specialist roster; route-specific marketplace pages remain separate |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
@@ -160,7 +164,9 @@ and the legacy Kai compatibility server are not advertised as official v1.
 
 `one_adk/agent_tree.py` exposes local ADK children through `AgentTool`. One's
 finance child is Kai, which composes RIA and Investor; Wallet is another
-roster-gated child. Nav composes its Consent child through AgentTool. These
+roster-gated child. Files is a bounded `task` child only when pod mode and
+`POD_FILES_ENABLED` both admit it; its manifest limits availability to dev.
+Nav composes its Consent child through AgentTool. These
 children execute inside the ADK runtime and are not entries in the external
 A2A scope map or `adk_bridge.dispatch` registry.
 
@@ -283,7 +289,7 @@ PKM capability boundary or claims provider ACL administration.
 
 1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`, where the restricted Location brain assesses commands. Typed Agent Chat uses the text ADK root in `hushh_mcp/one_adk/agent_tree.py`; both receive bounded current app state.
 2. The text root selects its declared tools and specialists within the ADK turn. The maintained `/api/one/voice/*` Live adapter has a separate flag and transport contract; the retired `/api/one/adk/*` path does not execute. See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for those entrypoints.
-3. Delegated specialist turns build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
+3. Local AgentTool children stay within the admitted ADK turn. The existing dispatch adapter builds its compatibility `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fails closed without it; this envelope does not establish a remote A2A transport.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
 6. Operons hold business logic. Pure operons avoid side effects; impure operons validate consent before network, LLM, or storage work.
@@ -319,12 +325,12 @@ agent, receive user information, or gain action authority.
 When adding or changing a runtime agent, update these surfaces together:
 
 1. Agent manifest and system instruction under `consent-protocol/hushh_mcp/agents`.
-2. A2A scope map and dispatch registration when the specialist is live.
+2. Registration and authority for the selected execution path: AgentTool, local dispatch, or external A2A. An AgentTool child alone needs neither a dispatch entry nor an A2A scope-map entry.
 3. Tool and operon docs if the execution boundary changes.
 4. Consent scope catalog and agent delegation boundary if authority changes.
 5. Voice/action gateway metadata when One Voice can invoke or mention the specialist.
 6. Route, cache, and native surface maps when the specialist changes reachable UI.
-7. Tests for manifest loading, routing, A2A scope validation, dispatch, and privacy boundaries.
+7. Focused tests for manifest loading, the selected routing/transport, and privacy boundaries; A2A and dispatch checks apply only when those paths are exposed.
 
 ## References
 

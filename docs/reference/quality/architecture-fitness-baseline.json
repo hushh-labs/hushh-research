@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2055,
+  "finding_count": 2059,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -428,7 +428,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
       "symbol": "InformationRequestService",
-      "value": 807
+      "value": 843
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1742,7 +1742,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": "run_app_action",
-      "value": 482
+      "value": 487
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6908,7 +6908,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": "test_trusted_auto_progress_never_claims_owner_attention",
-      "value": 106
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11525,7 +11525,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/action_tools.py",
       "symbol": null,
-      "value": 5443
+      "value": 5525
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11930,7 +11930,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/agent/connectors-panel.tsx",
       "symbol": null,
-      "value": 2555
+      "value": 2568
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12317,7 +12317,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
       "symbol": null,
-      "value": 1834
+      "value": 2005
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12866,7 +12866,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1401
+      "value": 1405
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12884,7 +12884,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/document-share-review.test.tsx",
       "symbol": null,
-      "value": 1388
+      "value": 1404
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13397,7 +13397,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/information_request_service.py",
       "symbol": null,
-      "value": 1182
+      "value": 1218
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13847,7 +13847,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/connectors-panel.test.tsx",
       "symbol": null,
-      "value": 1026
+      "value": 1060
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14495,7 +14495,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_information_request_service.py",
       "symbol": null,
-      "value": 899
+      "value": 1041
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15161,7 +15161,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/google_drive_adapter.py",
       "symbol": null,
-      "value": 772
+      "value": 775
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15224,7 +15224,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/external-connector-service.ts",
       "symbol": null,
-      "value": 765
+      "value": 770
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16322,7 +16322,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_drive_sharing_center.py",
       "symbol": null,
-      "value": 657
+      "value": 663
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18501,6 +18501,42 @@
       "path": "hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/tests/test_consent_lifecycle_chat.py|TestRevokeAndCancelAreTargetable|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/tests/test_consent_lifecycle_chat.py",
+      "symbol": "TestRevokeAndCancelAreTargetable",
+      "value": 352
+    },
+    {
+      "detail": "class exceeds the advisory operon budget",
+      "key": "class_size|consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py|DriveSharingProjectionStore|class exceeds the advisory operon budget",
+      "kind": "class_size",
+      "limit": 250,
+      "path": "consent-protocol/hushh_mcp/services/drive_sharing_projection_store.py",
+      "symbol": "DriveSharingProjectionStore",
+      "value": 309
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/tests/services/test_information_request_service.py|test_outgoing_page_filters_latest_consent_state_before_limit|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/tests/services/test_information_request_service.py",
+      "symbol": "test_outgoing_page_filters_latest_consent_state_before_limit",
+      "value": 111
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_drive_trusted_auto.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_drive_trusted_auto.py",
+      "symbol": null,
+      "value": 549
     }
   ],
   "inspected_files": 5421,
@@ -18709,6 +18745,16 @@
       ],
       "independent_review": "files_activation_review; read-only correctness and bounded-debt review",
       "source_revision": "969a4b273ce402bdf89a22812a1bcf1ac6ea460f"
+    },
+    "main_drive_freshness_20261001": {
+      "pre_merge": "62535afa78efc65e77d1944b236dff0fb35c8e33",
+      "main": "599d3ec3697a7eaff38565a0b1853110a2cf56a0",
+      "merge": "5daeb48ab1e30c53418927fd0be1fdca24926e69",
+      "independent_review": "ci_dispatch_path",
+      "reviewed_regressions": 18,
+      "new_findings": 4,
+      "worsened_findings": 14,
+      "scope": "Reviewed main Drive integration debt only: 14 values equal upstream; Connectors remains smaller than upstream; action_tools retains the four-line pod refusal, connector service retains 12 lines of owner-pod review authority, and the generated Location catalog retains compatibility revisions. Budgets, comparator and gate are unchanged; this is no runtime readiness claim."
     }
   },
   "status": "baseline"

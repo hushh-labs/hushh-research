@@ -99,7 +99,9 @@ New owner-selected Files setup requires the dev Files erasure contract (migratio
 project/bootstrap-bound setup job. The fleet flag alone cannot enable an owner's
 library. Queue and worker resources join the existing recovery and teardown inventory.
 
-Existing owners review Files setup in Hosting or Software updates. This is a distinct
+Existing owners review and approve Files setup in the `/one/files` activation
+panel. Hosting provides a link and setup status; Software updates shows the
+installed version and durable update operation. Files setup is a distinct
 approval bound to the owner, pod incarnation, observed configuration, immutable image
 and resource plan; approving an image alone cannot activate Files. The existing update
 operation records each cloud step before and after execution, preserves compute and
