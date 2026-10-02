@@ -6,7 +6,7 @@ import { FilesService, type FilesSettings } from "@/lib/files/service";
 import { estimatePodSubtotal } from "@/lib/files/economics";
 export type FilesAction = (
   operation: () => Promise<unknown>,
-  success: string,
+  success: string | (() => string),
   refresh?: boolean,
 ) => Promise<void>;
 export function FilesSettingsPanel({

@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.1",
+  "version": "2026.10-dev.2",
   "channel": "dev",
   "summary": "Private Files setup and reliable Puppy stream cleanup.",
   "notes": {
@@ -14,9 +14,11 @@
       "Payment erasure checks cover request-owned records and retained settlement evidence."
     ],
     "security": [
-      "Existing-pod installation requires recovery proof for its exact image digest.",
+      "The exact supported predecessor passed encrypted recovery and restart checks against this immutable image.",
       "The reviewed ADK dependency update includes the embedding security correction."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392"
+  ]
 }

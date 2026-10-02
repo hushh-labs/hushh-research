@@ -5,13 +5,13 @@
 Canonical visual owner: [Quality and Design System Index](README.md).
 The Files-led matrix below carries the release decision.
 
-**Decision — 2026-10-01: disposable Files activation verified; final release held.**
-Dev serves `55681083efbd`. The personal pod remains on its predecessor with
+**Decision — 2026-10-01: integrated dev candidate verified; owner installation held.**
+Dev serves `be747f06168b`. The personal pod remains on its predecessor with
 Files disabled. Exact-image recovery, disposable maintenance, and normal Files
 plan approval/installation passed. Live interrupted transfer and byte-exact
 download, move/undo, and automatic organization through the owner-project queue
-passed. The final candidate's CI, normal personal image installation and complete
-Puppy cancellation remain gates. No main,
+passed. Target-bound recovery passed. Qualified-offer publication, normal personal image
+installation and complete Puppy cancellation remain gates. No main,
 UAT, production, stable-channel or automatic owner upgrade is authorized here.
 
 The [One hierarchy](../one/one-agent-hierarchy.md), [Files contract](../operations/private-files-library.md),
@@ -21,45 +21,34 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 ## Source and serving evidence
 
-- **Application:** [exact-SHA CI 36898355625](https://github.com/hushh-labs/hushh-research/actions/runs/36898355625)
-  passed on attempt 2; [governed dev deployment 36905545494](https://github.com/hushh-labs/hushh-research/actions/runs/36905545494)
-  succeeded. Backend `consent-protocol-00122-s69` and frontend
-  `hushh-webapp-00102-ls2` were independently read back Ready at 100% traffic,
-  both on `55681083efbd`. Immutable digests: backend `b560efad…1957d`, frontend
-  `03f77655…785d0`. Application rollback targets: `00121-94t` / `00101-tlw`.
-  RIA remains degraded as `ria_stage1_query_only`.
-- **Next candidate, local:** frozen main `f5ed2eb82fbe` and local ADK
-  `1b08a07ebe93` are integrated in isolation. The root's strict memory review,
-  Files instructions, pod status and public route boundaries are preserved.
-  Dependency owners combine Stripe and the ADK sentence-transformers 6.0
-  security pin; projections are regenerated. New relay readiness and disconnect
-  corrections require their own exact-SHA CI and pod installation.
-  Candidate `d911915a89d7` passed the local core mirror in 252 seconds. Hosted run `36936377095`
-  exposed a moved comparison ancestor after main incorporated the frozen ADK
-  revision; only the graph's `from_revision` pointer changed on regeneration.
-  Actions, breaking-change results and both predecessor histories are preserved.
-  The failed run was stopped; its result is retained. Run `36938614085`
-  passed protocol and generated-contract gates but failed one phone-test effect
-  timing assertion. The corrected test now waits for the effect and preserves
-  the actual pending code across revalidation. A live 13 ms issuer-clock lead
-  also exposed a browser binding refusal: the pending fix aligns signed issuance
-  tolerance with Hermes's 30 seconds while keeping expiry strict. All 32 direct
-  endpoint tests pass; the new case fails on the prior code. Neither correction
-  is deployed, and the completed candidate needs exact-SHA hosted validation.
-  The completed corrections passed the local core mirror in 245 seconds and
-  independent review of all 35 affected browser/phone tests. Expiration remains
-  strict; the skew tolerance applies only to verified issuance. Generic skill
-  routing now selects core before an ordinary push, preserving the dedicated
-  full pre-PR gate and hosted full-suite/browser authority.
-- **Schema:** dev readback verified migrations 943–946 and source checksums.
-  An applied 944 ledger row does not independently prove deletion or recovery;
-  the original 249 cleanup remains deferred. Incoming hub migration 262 must
-  precede payment-aware Drive reads. This source integration is not its deployment.
-- **Offer:** `.10+55681083efbd.9e34284c` names immutable pod digest
-  `sha256:9e34284c…d89ba7` and has **no supported predecessor**. The unsafe `.9`
-  compatibility claim is withdrawn. The personal owner still runs exact
-  predecessor `sha256:1054cdf6…f0392`. Compatibility must identify exact digests;
-  an image built after these proofs needs a new target-bound qualification.
+- **Application:** [exact-SHA CI 36942837069](https://github.com/hushh-labs/hushh-research/actions/runs/36942837069)
+  and [governed dev deployment 36945406853](https://github.com/hushh-labs/hushh-research/actions/runs/36945406853)
+  succeeded. Independent readback confirmed backend `consent-protocol-00123-z2h`
+  and frontend `hushh-webapp-00103-l8d` at 100% traffic on `be747f06168b`.
+  Immutable digests: backend `720629cc…78664`, frontend `70df50f3…ea7a06`.
+  Rollback targets remain `00122-s69` / `00102-ls2`. Provenance, runtime parity,
+  schema and semantic checks passed; RIA remains `ria_stage1_query_only` degraded.
+- **Integrated candidate:** frozen main `f5ed2eb82fbe` and local ADK
+  `1b08a07ebe93` are preserved in `be747f06168b`. The local core mirror passed
+  in 245 seconds; [full hosted CI 36942837069](https://github.com/hushh-labs/hushh-research/actions/runs/36942837069)
+  passed on that exact SHA. The phone revalidation regression and signed binding
+  clock-lead refusal are corrected, including negative controls. The prior two
+  failed hosted results remain recorded; neither was accepted as green.
+  [Dev deployment 36945406853](https://github.com/hushh-labs/hushh-research/actions/runs/36945406853)
+  completed. Owner installation remains separate from application deployment.
+- **Schema:** the dev pre/post-deploy schema gates passed, including migration
+  262's payment tables. Payments remain disabled and unaccepted operationally.
+  Earlier 943–946 checks remain recorded; an applied 944 row does not prove
+  destructive-history recovery. The original 249 cleanup remains deferred.
+- **Offer:** published `.1+be747f06168b.d02509f1` names immutable pod digest
+  `sha256:d02509f1…9d23f` with **no supported predecessor**. The personal owner
+  still runs exact `sha256:1054cdf6…f0392`. Cloud Build `82d767a5` passed actual
+  predecessor → exact target → target restart: encrypted Files integrity,
+  session continuation, identity, revocation, memory and PKM summary recovery.
+  This uses synthetic local adapters inside the images, not owner-cloud IAM or
+  normal installation. The reviewed `.2` descriptor qualifies only that exact
+  predecessor and pins the original archive/image for reuse without rebuilding.
+  Its publication and personal Settings approval have not yet occurred.
 - **Recovery:** two probes used the actual predecessor and target images, then
   restarted the target with synthetic encrypted state. No source overlay was
   used. A disposable owner-project maintenance upgrade subsequently recovered
@@ -103,8 +92,8 @@ The baseline does not establish runtime acceptance.
 
 | Journey | Verified | Remaining gate / owner |
 | --- | --- | --- |
-| **Existing-owner Files setup** | Disposable normal owner approved the exact Files plan. Queue continuation, installed digest, enabled capability and direct admission passed. Personal predecessor remains unchanged. | Release/BYOC: qualify the newly built target, then obtain the personal owner's exact installation approval. |
-| **Files explorer and transfer** | Disposable live 5 MiB interrupted/resumed upload, byte-exact download, rename/undo, move/undo, trash/restore and same-session vault continuity passed on the enabled target. Local paginated move/mobile checks pass. | Files: live exclusions/cancellation, cold recovery, post-organization byte verification and synthetic cleanup. New target needs its own affected checks. |
+| **Existing-owner Files setup** | Disposable normal owner approved the exact Files plan. Queue continuation, installed digest, enabled capability and direct admission passed. Personal predecessor remains unchanged. | Release/BYOC: publish the exact qualified offer, then obtain the personal owner's exact installation approval. |
+| **Files explorer and transfer** | Disposable live 5 MiB interrupted/resumed upload, byte-exact download, rename/undo, move/undo, trash/restore and same-session vault continuity passed on the enabled target. Local paginated move/mobile checks pass. Cancellation feedback now follows the returned job state; the regression fails on prior code. | Files: live exclusions/cancellation, cold recovery, post-organization byte verification and synthetic cleanup. New target needs its own affected checks. |
 | **Files Agent and background jobs** | Canonical `agent_files` and source boundary checks pass. Normal owner explicitly opted in; automatic organization of a new synthetic upload completed through real owner-project GCS/KMS, Cloud Tasks and model access. | Files/BYOC: live exclusion/cancellation, original preservation after organization and missing-billing resume. Local fixtures cover faults, not cloud journey acceptance. |
 | **Chat, commands and connector review** | Source checks cover queued completion recovery and exact owner/tool approval ledger. | Runtime: fresh cold/warm pod response, recorded command, exact connector review/resume and no duplicate effect. Health is not journey acceptance. |
 | **Puppy and machine** | Real normal-owner direct reply; observed model, capacity and jobs. Latest warm device inference completed in about 4.8 seconds. Existing identity/grant preserved. | Device/runtime: live stop receipt, reconnect, independent active internet and cold latency. Browser Cancel alone is not server cancellation; the older cold usability failure remains unresolved. |
@@ -118,12 +107,11 @@ local regression evidence; the personal predecessor does not contain the fix.
 
 ## Next gate and board alignment
 
-1. Complete this frozen candidate and run the local core mirror once, then
-   exact-SHA hosted CI. Deploy through the governed dev workflow; read back
-   application and pod-image provenance separately.
-2. Qualify the newly built immutable target from the exact predecessor before
-   offering normal owner installation. Reuse verified image metadata only through
-   the runbook's pinned dev path; never substitute a rebuilt image into old proof.
+1. Publish the reviewed compatibility descriptor and cancellation feedback through
+   exact-SHA CI and the main-owned dev workflow. Reuse the qualified immutable
+   pod image; no second pod-image build is needed.
+2. Verify the same target digest and exact predecessor in the serving offer, then
+   use normal owner Settings approval. Never substitute a rebuilt image into proof.
 3. Use one owner acceptance window for Files plan/approval, transfer/organization,
    update/recovery, Puppy and the remaining commands. Record performed outcomes.
 4. Project 79: [#5507 Personal GCP Pod simulation](https://github.com/hushh-labs/hushh-research/issues/5507)

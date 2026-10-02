@@ -248,17 +248,21 @@ export function FilesEntryRow({
               size="compact"
               disabled={busy}
               aria-label="Cancel organization"
-              onClick={() =>
+              onClick={() => {
+                let outcome = "Cancellation requested";
                 void act(
                   async () => {
                     const job = await FilesService.organize(entry.id, true, signal);
                     signal.throwIfAborted();
                     setJobs((previous) => ({ ...previous, [entry.id]: job }));
+                    if (job.state === "completed") outcome = "Organization already finished";
+                    else if (job.state !== "cancelled")
+                      throw new Error("Cancellation was not confirmed. Check organization status.");
                   },
-                  "Organization cancelled",
+                  () => outcome,
                   false,
-                )
-              }
+                );
+              }}
             >
               Cancel
             </Button>

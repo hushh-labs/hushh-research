@@ -138,7 +138,7 @@ export function FilesWorkspace() {
 
   const act = async (
     operation: () => Promise<unknown>,
-    success: string,
+    success: string | (() => string),
     refresh = true,
   ) => {
     if (busy) return;
@@ -149,7 +149,7 @@ export function FilesWorkspace() {
       signal.throwIfAborted();
       if (refresh) await load();
       signal.throwIfAborted();
-      toast.success(success);
+      toast.success(typeof success === "function" ? success() : success);
     } catch (error) {
       if (!signal.aborted)
         toast.error(

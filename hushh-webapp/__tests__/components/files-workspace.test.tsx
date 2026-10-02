@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FilesWorkspace } from "@/components/files/files-workspace";
 import type { FileEntry } from "@/lib/files/service";
+import { toast } from "sonner";
 
 const files = vi.hoisted(() => ({
   list: vi.fn(async () => ({ entries: [] as FileEntry[], cursor: "" })),
@@ -14,6 +15,7 @@ const files = vi.hoisted(() => ({
   createFolder: vi.fn(async () => ({})),
   mutate: vi.fn(async () => ({})),
   upload: vi.fn(),
+  organize: vi.fn(),
 }));
 vi.mock("@/lib/files/service", () => ({ FilesService: files }));
 vi.mock("@/hooks/use-auth", () => ({
@@ -45,6 +47,7 @@ describe("Files form submission", () => {
     files.list.mockResolvedValue({ entries: [], cursor: "" });
     files.mutate.mockResolvedValue({});
     files.upload.mockReset();
+    files.organize.mockReset();
   });
   it("waits for the initial library read before enabling file actions", async () => {
     let completeRead!: (value: { entries: FileEntry[]; cursor: string }) => void;
@@ -167,6 +170,27 @@ describe("Files form submission", () => {
     expect(files.list).toHaveBeenCalledWith("root", "next-page", false, expect.any(AbortSignal));
     expect(files.list).toHaveBeenCalledWith(later.id, "", false, expect.any(AbortSignal));
     expect(files.list).toHaveBeenCalledWith(nested.id, "", false, expect.any(AbortSignal));
+  });
+
+  it.each([
+    ["completed", "Organization already finished"],
+    ["cancelled", "Cancellation requested"],
+  ])("reports the server's %s result after organization cancellation", async (state, message) => {
+    const entry: FileEntry = {
+      id: "synthetic-job", name: "notes.txt", originalName: "notes.txt",
+      parent: "root", kind: "file", size: 8, received: 8,
+      receivedHash: "synthetic-hash", state: "ready", revision: 1,
+      organization: { state: "queued" },
+    };
+    files.list.mockResolvedValue({ entries: [entry], cursor: "" });
+    files.organize.mockResolvedValue({ id: entry.id, state });
+    render(<FilesWorkspace />);
+    const cancel = await screen.findByRole("button", { name: "Cancel organization" });
+    await waitFor(() => expect(cancel).toBeEnabled());
+    fireEvent.click(cancel);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith(message));
+    expect(files.organize).toHaveBeenCalledExactlyOnceWith(entry.id, true, expect.any(AbortSignal));
+    expect(toast.success).not.toHaveBeenCalledWith("Organization cancelled");
   });
 
   it("discovers an interrupted upload and resumes its retained file identity", async () => {
