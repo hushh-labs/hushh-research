@@ -8,13 +8,13 @@ describe("FeedDriveProgressRow", () => {
     const href = "/one/consents?tab=requests&requestId=document_share_request%3A123";
     render(<FeedDriveProgressRow item={{
       id: "document_share_request:123",
-      title: "One is finding documents",
-      description: "One is handling your Trusted Circle request. Files appear after access is confirmed.",
+      title: "Finding documents",
+      description: "Files appear once access is confirmed.",
       href,
       requestedAt: null,
     }} />);
 
-    const link = screen.getByRole("link", { name: /One is finding documents/ });
+    const link = screen.getByRole("link", { name: /Finding documents/ });
     expect(link).toHaveAttribute("href", href);
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("time")).toBeNull();

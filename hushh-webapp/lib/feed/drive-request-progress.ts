@@ -11,11 +11,26 @@ export interface FeedDriveProgress {
   requestedAt: number | null;
 }
 
-function progressTitle(stage: unknown): string {
-  if (stage === "finding") return "One is finding documents";
-  if (stage === "sharing") return "One is sharing documents";
-  return "One is preparing the document request";
+/**
+ * The "In progress" label, One's icon and the live dot already say One is on
+ * it, so the row names only the step and whose files move. A received request
+ * always says sharing is automatic: that is the person's consent context.
+ */
+function progressTitle(stage: unknown, direction: "incoming" | "outgoing"): string {
+  if (direction === "incoming") {
+    if (stage === "finding") return "Finding your documents";
+    if (stage === "sharing") return "Sharing your documents";
+    return "Preparing your documents";
+  }
+  if (stage === "finding") return "Finding documents";
+  if (stage === "sharing") return "Sharing documents with you";
+  return "Preparing your request";
 }
+
+const PROGRESS_DESCRIPTION = {
+  incoming: "Trusted Circle request. Sharing is automatic.",
+  outgoing: "Files appear once access is confirmed.",
+} as const;
 
 /** Only the server's active Trusted Circle projection can create a passive row. */
 export function projectFeedDriveProgress(
@@ -38,11 +53,8 @@ export function projectFeedDriveProgress(
 
     byRequest.set(entry.id, {
       id: entry.id,
-      title: progressTitle(entry.metadata.automatic_progress_stage),
-      description:
-        direction === "incoming"
-          ? "One is handling a Trusted Circle request for you. Sharing is automatic."
-          : "One is handling your Trusted Circle request. Files appear after access is confirmed.",
+      title: progressTitle(entry.metadata.automatic_progress_stage, direction),
+      description: PROGRESS_DESCRIPTION[direction],
       href: buildConsentCenterHref(active ? "active" : "pending", {
         requestId: entry.id,
         requestView: pending && direction === "outgoing" ? "sent" : "received",
