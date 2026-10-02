@@ -362,31 +362,20 @@ class UserAzureBackend:
         token = current_jit_token()
         return await asyncio.to_thread(upgrade_agent, self, spec, self._person_factory(token))
 
+    async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
+        """The serving incarnation an erasure order must match (``azure_agent_erasure``)."""
+        from hushh_mcp.services.azure_agent_erasure import erasure_target  # noqa: PLC0415
+
+        return await asyncio.to_thread(erasure_target, self, spec)
+
     async def erase_owner_access(
         self, spec: PodSpec, *, crypto_erase: Callable[[], Awaitable[dict]]
     ) -> dict[str, Any]:
         """Fence, agent crypto-erase, revoke the agent, revoke Hussh last; a receipt."""
-        from hushh_mcp.services.azure_agent_erasure import erase_owner_access  # noqa: PLC0415
+        from hushh_mcp.services.azure_agent_erasure import erase_through_backend  # noqa: PLC0415
 
-        observation = await self.observe()
-        if not observation.present:
-            raise observation.refusal("erase")
-        handle = self.verified_handle(spec.hushh_id, observation)
-        nonce = str((handle.backend_metadata or {}).get("setupNonce") or "")
-
-        async def fence() -> None:
-            current = await self.observe()
-            fenced = self.verified_handle(spec.hushh_id, current)
-            if (fenced.backend_metadata or {}).get("serviceUid") != (
-                handle.backend_metadata or {}
-            ).get("serviceUid"):
-                raise RuntimeError("the agent was replaced during erasure; nothing was revoked")
-
-        return await erase_owner_access(
-            inputs=self.plan_inputs(spec.hushh_id, nonce),
-            observer=self._observer(),
-            verify_fence=fence,
-            crypto_erase=crypto_erase,
+        return await erase_through_backend(
+            self, spec, observer=self._observer(), crypto_erase=crypto_erase
         )
 
     async def deprovision(self, external_agent_id: str) -> None:

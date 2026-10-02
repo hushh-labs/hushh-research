@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_setup_plan import (
@@ -40,6 +40,10 @@ from hushh_mcp.services.azure_setup_plan import (
     resource_names,
     role_assignment_path,
 )
+from hushh_mcp.services.compute_backend import PodSpec
+
+if TYPE_CHECKING:
+    from hushh_mcp.services.user_azure_backend import UserAzureBackend
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +132,58 @@ def receipt_for(
     }
 
 
+def erasure_target(backend: UserAzureBackend, spec: PodSpec) -> dict[str, str]:
+    """The serving incarnation, as the pod names it, that an erasure order must match.
+
+    The pod reads CONTAINER_APP_NAME / CONTAINER_APP_REVISION: the app's own name (the
+    last segment of its ARM id) and the revision serving now.
+    """
+    observation = backend.observe_sync()
+    if not observation.present:
+        raise observation.refusal("erase")
+    metadata = backend.verified_handle(spec.hushh_id, observation).backend_metadata or {}
+    revision = str((observation.app.get("properties") or {}).get("latestReadyRevisionName") or "")
+    uid = str(spec.expected_service_uid or "")
+    if not uid or metadata.get("serviceUid") != uid or not revision or not metadata.get("url"):
+        raise RuntimeError("the agent's serving incarnation is not the recorded one")
+    return {
+        "service": backend.app_id.rsplit("/", 1)[-1],
+        "serviceUid": uid,
+        "revision": revision,
+        "podUrl": str(metadata["url"]).rstrip("/"),
+    }
+
+
+async def erase_through_backend(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    *,
+    observer: ArmClient,
+    crypto_erase: Callable[[], Awaitable[dict]],
+) -> dict[str, Any]:
+    """Bind the four steps to the agent ARM reads back as THIS person's, then run them."""
+    observation = await backend.observe()
+    if not observation.present:
+        raise observation.refusal("erase")
+    handle = backend.verified_handle(spec.hushh_id, observation)
+    nonce = str((handle.backend_metadata or {}).get("setupNonce") or "")
+
+    async def fence() -> None:
+        current = await backend.observe()
+        fenced = backend.verified_handle(spec.hushh_id, current)
+        if (fenced.backend_metadata or {}).get("serviceUid") != (handle.backend_metadata or {}).get(
+            "serviceUid"
+        ):
+            raise RuntimeError("the agent was replaced during erasure; nothing was revoked")
+
+    return await erase_owner_access(
+        inputs=backend.plan_inputs(spec.hushh_id, nonce),
+        observer=observer,
+        verify_fence=fence,
+        crypto_erase=crypto_erase,
+    )
+
+
 async def erase_owner_access(
     *,
     inputs: PlanInputs,
@@ -159,4 +215,11 @@ async def erase_owner_access(
     )
 
 
-__all__ = ["RECEIPT_VERSION", "AzureErasureRefused", "erase_owner_access", "receipt_for"]
+__all__ = [
+    "RECEIPT_VERSION",
+    "AzureErasureRefused",
+    "erase_owner_access",
+    "erase_through_backend",
+    "erasure_target",
+    "receipt_for",
+]

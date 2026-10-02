@@ -834,3 +834,5 @@ tests/test_azure_upgrade_admission.py
 # owner-access erasure through a typed capability, heal through the backend, and
 # read-only recovery of a crashed owner Azure upgrade.
 tests/test_pod_crypto_erase.py
+tests/test_owner_access_erasure.py
+tests/test_owner_access_erasure_migration.py
