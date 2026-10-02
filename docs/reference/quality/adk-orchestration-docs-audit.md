@@ -39,6 +39,12 @@ Git history retains the earlier chronology; this memo records current evidence.
   were accommodated on the existing branch by merge `fe6c02a566f6`; that later
   Azure and related delta was not part of this GCP deployment or acceptance.
   Unrelated PDF edits remain excluded. Local source and serving source differ.
+  The October 2 refresh froze main `43c70034dd99` and clean ADK `b398a9de5166`.
+  Its two relevant reviewer-harness fixes were carried selectively; the wider
+  Drive, voice, production, native and verification-policy delta is deferred
+  outside this bounded release. Eighteen additional peer commits through
+  `e8f5b20c6` were preserved by normal merge `1d45e5fe21`; that combined source
+  awaits qualification and has not served this GCP acceptance.
 - **Qualified pod offer:** `2026.10-dev.4+b70ee404bfa7.730e1702` is published,
   reusing immutable target `sha256:730e1702…43d1d5` and original image source
   `b70ee404bfa7`. Only predecessor `sha256:d02509f1…9d23f` is admitted. The archive
