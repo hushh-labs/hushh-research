@@ -173,18 +173,38 @@ reaches each one through a typed capability in
   incarnation gate as the fence, with its own proof purpose. It closes admission for
   the attempt and writes a tombstone (`erasure/crypto-erase.json`: attempt, owner
   digest, chained record keys). It then deletes the wrapped key first, followed by
-  the identity key, incarnation fence, memory bookkeeping, session projection, the
-  records, and the head last. A retry finishes from the tombstone without the key. Key
-  Vault custody refuses to mint a replacement key while the tombstone exists, so an
-  erased agent never boots again. Only after the agent confirms does Hussh revoke the
-  agent's role assignments, then its own, last.
+  the identity key, incarnation fence, session projection and the records. A retry
+  finishes from the tombstone without the key. Key Vault custody refuses to mint a
+  replacement key while the tombstone exists, so an erased agent never boots again.
+- **The fences stay closed.** Hussh cannot stop the container, and its blob role
+  lasts until revocation reaches Azure, so a process still holding the key in memory
+  could otherwise keep writing. The erase therefore never deletes the two objects
+  that refuse those writes. The log head stays the sealed erasure fence, which is
+  ciphertext under the destroyed key. Memory bookkeeping becomes a closed stub that
+  names no owner. The erase ends by checking that no head a live process could extend
+  exists, and refuses to report done otherwise.
+- **Checkpoint, then revoke.** The agent's confirmation is retained on the registry
+  row as the `agentCryptoErase` checkpoint, together with the setup nonce, before
+  any role assignment is touched. Hussh then revokes the agent's role assignments,
+  then its own, last. Revocation can stop part way: ARM retries only 429 and 503,
+  and once the agent's storage grant is gone the agent can no longer confirm
+  anything. A retry therefore resumes from the checkpoint. It never calls the agent
+  again and reads nothing from ARM, because Hussh's observer grants may already be
+  gone while the removal grant, revoked last, is still there. Each revocation is
+  idempotent, so the receipt lists every assignment confirmed gone, whether removed
+  now or earlier.
 - **Receipt.** The receipt (resources remaining, the vault's earliest purge date,
   "delete the resource group …") is retained once on the registry row under the
   reserved attempt (dev-only migration 949, validated against the reserved
-  snapshot). A database preflight proves the receipt can be retained before the
-  agent erases anything, because neither the erase nor Hussh's own revocation can
-  be repeated. The account stays refused while those resources exist. The person
-  deletes the resource group; Hussh no longer can.
+  snapshot). It must carry exactly the checkpointed confirmation. A database
+  preflight proves that the checkpoint and the receipt can be retained before the
+  agent erases anything. The account stays refused while those resources exist. The
+  person deletes the resource group; Hussh no longer can.
+- **Residual window.** Suppose the database becomes unavailable after the
+  preflight, and stays down past the last revocation, so the receipt cannot be
+  stored. A retry then cannot finish, because Hussh's removal grant is already gone.
+  It fails closed: the account stays refused and the person deletes the resource
+  group.
 - **Not enumerated by the agent:** orphan records from lost append races and Files
   objects (Files is off). Both are sealed under the destroyed key.
 - **Heal** is the observer's `revisions/restart/action` through the backend, never
