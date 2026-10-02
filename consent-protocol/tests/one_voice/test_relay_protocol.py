@@ -511,7 +511,9 @@ async def test_provider_continuation_can_prepare_a_card_for_the_same_input():
         ConfirmedPerson(user_id="u-priya", display_name="Priya", confirmed_at=now_iso())
     )
 
-    await session._handle_client_frame(protocol.TextFrame(type="text", text="Ask Priya for her location"))
+    await session._handle_client_frame(
+        protocol.TextFrame(type="text", text="Ask Priya for her location")
+    )
     input_turn = session.turn.turn_id
     await session._dispatch_tool_call({"id": "c1", "name": "echo", "args": {"text": "Priya"}})
     await session._handle_live_event(LiveEvent(kind="turn_complete"))

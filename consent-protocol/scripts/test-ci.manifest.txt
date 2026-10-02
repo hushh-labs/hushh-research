@@ -547,3 +547,4 @@ tests/test_feed_metadata_allowlist.py
 tests/test_scope_sensitivity.py
 tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
+tests/test_pkm_packets_and_directory_claims.py
