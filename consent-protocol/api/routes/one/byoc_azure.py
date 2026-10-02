@@ -17,7 +17,9 @@ token is discarded and the person picks one; ``begin`` is then run again with it
 
 Setup needs the agent record first: the agent is created during setup with its
 HusshID in its environment, so a person without a verified phone is refused with
-``AGENT_RECORD_REQUIRED`` before any Microsoft sign-in.
+``AGENT_RECORD_REQUIRED`` before any Microsoft sign-in. Both ``begin`` routes also
+prove the image can be copied into the person's registry (``IMAGE_SOURCE_*`` /
+``IMAGE_READER_*`` refusals) before the sign-in.
 """
 
 from __future__ import annotations
@@ -138,6 +140,26 @@ async def _source_image() -> str:
     return f"{source.rsplit(':', 1)[0]}@{digest}"
 
 
+async def _require_image_access(source: str) -> None:
+    """Prove the person's registry can copy this digest, before any Microsoft sign-in.
+
+    A private Google source needs the dedicated image reader (``azure_image_source``);
+    the refusal names the missing configuration instead of failing at the import step
+    after every other resource was created.
+    """
+    from hushh_mcp.services import azure_image_source
+    from hushh_mcp.services.azure_agent_setup import parse_source_image
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+
+    try:
+        registry, repository, digest = parse_source_image(source)
+        await asyncio.to_thread(
+            azure_image_source.require_import_access, registry, repository, digest
+        )
+    except AzureSetupRefused as exc:
+        raise _refuse(503, exc.code, str(exc)) from exc
+
+
 async def _authorization_url(
     user_id: str,
     *,
@@ -180,6 +202,7 @@ async def begin_azure_authorize(
     if subscription and not entra.is_guid(subscription):
         raise _refuse(422, "BAD_SUBSCRIPTION", "That is not an Azure subscription id.")
     await _require_setup_admission(firebase_uid)
+    await _require_image_access(await _source_image())
     url = await _authorization_url(firebase_uid, kind="setup", subscription_id=subscription)
     return AzureAuthorizeBeginResponse(authorizationUrl=url)
 
@@ -335,7 +358,8 @@ async def begin_azure_upgrade(
     firebase_uid: str = Depends(require_firebase_auth),
 ) -> AzureAuthorizeBeginResponse:
     """The Microsoft sign-in that authorizes ONE approved update, in the agent's directory."""
-    row, _target = await _upgrade_row(firebase_uid)
+    row, target = await _upgrade_row(firebase_uid)
+    await _require_image_access(target)
     url = await _authorization_url(
         firebase_uid,
         kind="upgrade",

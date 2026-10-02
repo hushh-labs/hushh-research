@@ -14,6 +14,8 @@ The new revision's suffix is derived from the attempt id, so the acknowledgement
 names exactly the revision this attempt created. The previous revision keeps serving
 until the new one is ready (single revision mode activates the new one only then).
 Files background organization is not available on Azure yet, so a Files plan refuses.
+The import reads the source as the configured image reader (``azure_image_source``),
+minted inside the fenced section so a refused credential releases the drained agent.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from hushh_mcp.services.azure_container_app_renderer import (
     image_reference,
     refuse_metered_configuration,
 )
+from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_setup_applier import resolve
 from hushh_mcp.services.azure_setup_plan import (
     CONTAINER_APP_NAME,
@@ -112,12 +115,11 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     handoff = _prepare_handoff(spec, app)
     try:
         step = import_image_step(scopes, registry, repository)
-        arm.post(
-            step.path,
-            api_version=API_VERSIONS[step.api],
-            body=resolve(step.body, {"imageDigest": digest}),
-            op="importing_image",
-        )
+        body = resolve(step.body, {"imageDigest": digest})
+        credentials = import_credentials(registry)
+        if credentials is not None:
+            body["source"]["credentials"] = credentials()
+        arm.post(step.path, api_version=API_VERSIONS[step.api], body=body, op="importing_image")
         current = arm.get(backend.app_id, api_version=api, op="upgrade")
         if _fence(current, spec, expected) != (nonce, created):
             raise RuntimeError("the agent changed while its image was imported; nothing replaced")

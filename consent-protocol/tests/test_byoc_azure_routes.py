@@ -46,6 +46,14 @@ class _Jobs:
         return None
 
 
+#: The real preflight, kept before the fixture stubs it: its own tests use it directly.
+_REAL_REQUIRE_IMAGE_ACCESS = byoc_azure._require_image_access
+
+
+async def _image_access_ok(_source: str) -> None:
+    return None
+
+
 @pytest.fixture
 def spawned(monkeypatch):
     from api.routes.one import runtime
@@ -80,6 +88,7 @@ def spawned(monkeypatch):
     monkeypatch.setattr(azure_setup_job, "run_azure_upgrade_job", fake_upgrade)
     monkeypatch.setattr(runtime, "_require_unassigned_byoc", unassigned)
     monkeypatch.setattr(runtime, "_reserve_pending_agent_record", no_reservation)
+    monkeypatch.setattr(byoc_azure, "_require_image_access", _image_access_ok)
     monkeypatch.setenv("HUSSH_AZURE_APP_CLIENT_ID", "44444444-4444-4444-4444-444444444444")
     monkeypatch.setenv(
         "HUSSH_AZURE_OAUTH_REDIRECT_URI", "https://app.example/one/setup/cloud/azure/return"
@@ -259,3 +268,41 @@ def test_an_upgrade_sign_in_from_another_directory_is_refused(spawned, monkeypat
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "BAD_TENANT"
     assert spawned == []
+
+
+def _private_source_without_reader(monkeypatch) -> None:
+    from hushh_mcp.services import azure_image_source
+
+    monkeypatch.setattr(byoc_azure, "_require_image_access", _REAL_REQUIRE_IMAGE_ACCESS)
+    monkeypatch.delenv(azure_image_source.READER_SA_ENV, raising=False)
+    monkeypatch.setattr(azure_image_source, "source_is_public", lambda *_a, **_k: False)
+
+
+def test_begin_refuses_a_private_image_without_a_reader_before_any_sign_in(spawned, monkeypatch):
+    _private_source_without_reader(monkeypatch)
+    response = _client().post(_BEGIN, json={})
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail["code"] == "IMAGE_SOURCE_NOT_CONFIGURED"
+    assert "HUSSH_POD_IMAGE_READER_SA" in detail["message"]
+
+
+def test_upgrade_begin_refuses_a_private_image_without_a_reader(spawned, monkeypatch):
+    _private_source_without_reader(monkeypatch)
+    _Registry.row = _provisioned(approved=_IMAGE)
+    response = _client().post(_UPGRADE)
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "IMAGE_SOURCE_NOT_CONFIGURED"
+
+
+def test_begin_preflights_the_exact_digest_it_will_import(spawned, monkeypatch):
+    from hushh_mcp.services import azure_image_source
+
+    seen: list[tuple] = []
+    monkeypatch.setattr(byoc_azure, "_require_image_access", _REAL_REQUIRE_IMAGE_ACCESS)
+    monkeypatch.setattr(
+        azure_image_source, "require_import_access", lambda *args, **_: seen.append(args)
+    )
+    assert _client().post(_BEGIN, json={}).status_code == 200
+    registry, repository, digest = seen[0]
+    assert f"{registry}/{repository}@{digest}" == _IMAGE
