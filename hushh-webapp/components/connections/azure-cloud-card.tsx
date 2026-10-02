@@ -11,6 +11,7 @@ import { isAzureSignInAvailable } from "@/lib/one/azure-sign-in";
 export const AZURE_V1_CAPABILITY_NOTES: readonly string[] = [
   "Memory recall is keyword-based for now.",
   "Voice is not available yet.",
+  "Web search is not available yet.",
   "New-mail alerts are off.",
   "Files are not organized in the background yet.",
 ];
