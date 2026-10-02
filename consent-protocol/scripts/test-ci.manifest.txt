@@ -779,3 +779,10 @@ tests/test_webauthn_service.py
 
 # Restored with the owner-cloud predicate that made it pass (2026-10-02).
 tests/test_deployment_boundary_holds.py
+
+# Restored with the pod regressions they caught (2026-10-02): memory recall,
+# private-voice directives and scoped pod Mail reads.
+tests/test_pod_memory_is_actually_used.py
+tests/test_pod_live_authority.py
+tests/test_pod_data_door_email.py
+tests/test_email_chat_service.py

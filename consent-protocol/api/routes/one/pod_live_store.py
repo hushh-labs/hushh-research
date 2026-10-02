@@ -32,6 +32,12 @@ def _record(kind: type[_Record], value: dict[str, Any]) -> _Record:
             elif name == "trusted_activation":
                 if type(item) is not bool:
                     raise ValueError()
+            elif name == "private_review":
+                # Voice directives never carry a private MCP review; the field exists
+                # for the typed-chat review path. Accept only its empty value so a
+                # populated one still fails closed here.
+                if item is not None:
+                    raise ValueError()
             elif not isinstance(item, str) or not item:
                 raise ValueError()
         return kind(**decoded)

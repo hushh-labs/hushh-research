@@ -450,11 +450,19 @@ class PodEmailReadPort:
     async def search_inbox(self, *, user_id: str, query: str, limit: int = 10) -> list[dict]:
         return (await self._read(user_id, operation="search", query=query, limit=limit))["results"]
 
-    def metadata_reader(self, *, gmail: Any, user_id: str, require_access: Any) -> Any:
+    def metadata_reader(
+        self, *, gmail: Any, user_id: str, require_access: Any, expect_account: str = ""
+    ) -> Any:
+        from hushh_mcp.services.gmail_metadata_reader import GmailMetadataError
         from hushh_mcp.services.pod_mail_reader import PodMailMetadataReader
 
         if user_id != self._owner or gmail is not self:
             raise PermissionError("Email owner mismatch")
+        # A pod read cannot prove which Google account served earlier ids, and a pod
+        # never mints a positional offer, so a request bound to an account fails
+        # closed rather than reading whatever now holds that position.
+        if expect_account:
+            raise GmailMetadataError("connection_changed")
 
         async def read(**options: Any) -> dict:
             return await self._read(user_id, **options)

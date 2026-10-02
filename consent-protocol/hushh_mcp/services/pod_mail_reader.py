@@ -17,6 +17,20 @@ class PodMailMetadataReader:
         self._observation: MailObservation | None = None
         self._used = False
 
+    @property
+    def account(self) -> str:
+        """The pod cannot verify which Google account served the ids, so it names none."""
+        return ""
+
+    def offered_message_ids(self) -> tuple[str, ...]:
+        """No positional offer from a pod read.
+
+        The Gmail reader's documented degenerate case: an empty map makes a later
+        "read the second one" refuse honestly, where a map the pod cannot vouch for
+        could bind that request to the wrong mail.
+        """
+        return ()
+
     async def read(self, operation: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if self._used:
             raise GmailMetadataError("invalid_argument")
