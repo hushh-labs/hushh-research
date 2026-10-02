@@ -173,19 +173,13 @@ describe("owner pod endpoint", () => {
     },
   );
 
-  it("admits a hub-signed binding for an agent in the owner's own Azure subscription", async () => {
-    world.deploymentTarget = "user_azure";
-    await ownerPod.refreshEndpointFromHub(USER, world.transport());
-    expect(world.admitted).toHaveLength(1);
-    expect(await ownerPod.loadPinnedEndpoint(USER)).not.toBeNull();
-  });
-
-  it.each(["gcp", "anypoint", "user_aws", ""])(
-    "refuses a binding whose home %j is not the owner's own cloud before pod contact", async (target) => {
+  it.each([["user_azure", true], ["gcp", false], ["anypoint", false], ["user_aws", false], ["", false]] as const)(
+    "admits a hub-signed binding only for an owner-cloud home: %j -> %s", async (target, admitted) => {
       world.deploymentTarget = target;
-      await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH");
-      expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
-      expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+      const refresh = ownerPod.refreshEndpointFromHub(USER, world.transport());
+      await (admitted ? refresh : expect(refresh).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH"));
+      expect(world.calls.some((call) => call.target === "direct")).toBe(admitted);
+      expect((await ownerPod.loadPinnedEndpoint(USER)) !== null).toBe(admitted);
     },
   );
 
