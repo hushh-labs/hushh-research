@@ -9,6 +9,9 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
+import { approveAgentUpdate } from "@/lib/one/agent-update-approval";
+import { azureSignInErrorMessage } from "@/lib/one/azure-sign-in";
+import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -129,9 +132,14 @@ export function AgentSettingsPanel({
       return;
     busyRef.current = true;
     setBusy(true);
+    // An Azure agent's update is approved with the person's own Microsoft
+    // sign-in; the browser leaves for Microsoft once it starts.
+    const viaMicrosoft =
+      action === "approve" && ownerCloudProvider(status?.deploymentTarget) === "azure";
     const request: Promise<void> =
       action === "approve"
-        ? ApiService.approvePersonalAgentUpdate({
+        ? approveAgentUpdate({
+            deploymentTarget: status?.deploymentTarget,
             releaseId: update.releaseId,
             idempotencyKey: crypto.randomUUID(),
           }).then(() => undefined)
@@ -141,15 +149,19 @@ export function AgentSettingsPanel({
     try {
       await morphyToast
         .promise(request, {
-          loading:
-            action === "approve"
+          loading: viaMicrosoft
+            ? "Opening Microsoft sign-in…"
+            : action === "approve"
               ? "Scheduling your update…"
               : "Saving your reminder…",
-          success:
-            action === "approve"
+          success: viaMicrosoft
+            ? "Continue in Microsoft sign-in."
+            : action === "approve"
               ? "Update scheduled."
               : "We’ll remind you later.",
-          error: "We couldn’t complete that request. Try again.",
+          error: viaMicrosoft
+            ? (cause: unknown) => azureSignInErrorMessage(cause, "upgrade")
+            : "We couldn’t complete that request. Try again.",
         })
         .unwrap();
       dispatchFeedStateChanged();

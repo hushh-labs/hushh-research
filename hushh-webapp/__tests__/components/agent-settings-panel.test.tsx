@@ -16,8 +16,14 @@ const mocks = vi.hoisted(() => ({
   report: vi.fn(),
   promiseToast: vi.fn(),
   dismissToast: vi.fn(),
+  azureUpgrade: vi.fn(),
+  assign: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/lib/utils/browser-navigation", async (original) => ({
+  ...(await original<object>()),
+  assignWindowLocation: mocks.assign,
+}));
 vi.mock("@/lib/feed/use-agent-deployment-follow", async (original) => ({
   ...(await original<object>()),
   useAgentDeploymentFollow: mocks.follow,
@@ -30,6 +36,7 @@ vi.mock("@/lib/services/api-service", () => ({
     reconnectOwnerPod: mocks.reconnect,
     adoptOrphanPod: mocks.adopt,
     reportPersonalAgentUpdateFailure: mocks.report,
+    beginAzureByocUpgrade: mocks.azureUpgrade,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -172,6 +179,28 @@ describe("owner hosting and software settings", () => {
       );
     },
   );
+
+  it("approves an Azure agent's update with the owner's own Microsoft sign-in", async () => {
+    const signIn = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
+    mocks.azureUpgrade.mockResolvedValue({ authorizationUrl: signIn });
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_azure",
+        updateOfferable: true,
+        installedRelease: { version: "2026.09-dev.1" },
+      },
+      { ...NO_UPDATE, available: true, releaseId: "rel_exact" },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(signIn));
+    expect(mocks.azureUpgrade).toHaveBeenCalledOnce();
+    expect(mocks.approve).not.toHaveBeenCalled();
+    expect(mocks.promiseToast.mock.calls[0][1].loading).toBe("Opening Microsoft sign-in…");
+    expect(mocks.promiseToast.mock.calls[0][1].error(new Error("NETWORK"))).toMatch(/keeps its current version/);
+  });
 
   it("sends a failed update report only after the owner selects the action", async () => {
     const operationId = `op_${"a".repeat(32)}`;
