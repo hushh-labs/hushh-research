@@ -315,3 +315,14 @@ def test_webhook_routing_peek():
         == "pkm_packet_order"
     )
     assert webhook_payment_kind(b"not json") is None
+
+
+def test_site_origin_defaults_per_environment(monkeypatch):
+    from hushh_mcp.services.pkm_packet_order_service import _stripe_config
+
+    monkeypatch.delenv("HUSSH_SITE_ORIGIN")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert _stripe_config()[2] == "https://uat.hushh.ai"
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    with pytest.raises(PacketOrderError):
+        _stripe_config()  # no default outside deployed environments

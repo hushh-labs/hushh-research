@@ -35,6 +35,7 @@ CHECKOUT_TTL = timedelta(hours=24)
 MAX_FEE_BPS = 3000
 REFUNDABLE_REQUEST_STATUSES = {"denied", "expired"}
 ORPHAN_PAID_GRACE = timedelta(hours=1)
+SITE_ORIGIN_BY_ENV = {"production": "https://www.hushh.ai", "uat": "https://uat.hushh.ai"}
 
 
 class PacketOrderError(ValueError):
@@ -74,11 +75,20 @@ def _stripe_config() -> tuple[str, str, str]:
     """
     key = (os.getenv("STRIPE_SECRET_KEY") or "").strip()
     webhook_secret = (os.getenv("STRIPE_WEBHOOK_SECRET") or "").strip()
-    origin = (os.getenv("HUSSH_SITE_ORIGIN") or "").strip().rstrip("/")
     env = {
         (os.getenv("ENVIRONMENT") or "").strip().lower(),
         (os.getenv("HUSSH_DEPLOY_ENV") or "").strip().lower(),
     }
+    # hussh.ai origin buyers return to; defaults per deployed environment so
+    # no extra deploy variable is needed.
+    default_origin = (
+        SITE_ORIGIN_BY_ENV["production"]
+        if "production" in env
+        else SITE_ORIGIN_BY_ENV["uat"]
+        if "uat" in env
+        else ""
+    )
+    origin = (os.getenv("HUSSH_SITE_ORIGIN") or default_origin).strip().rstrip("/")
     expected = "sk_live_" if "production" in env else "sk_test_"
     parsed = urlsplit(origin)
     local = parsed.scheme == "http" and parsed.hostname in {"localhost", "127.0.0.1"}
