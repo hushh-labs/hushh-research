@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import json
 import logging
 import re
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
@@ -43,7 +44,11 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_text_agent,
 )
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
-from hushh_mcp.one_adk.agui_factory import _authenticated_capabilities, build_authenticated_agui
+from hushh_mcp.one_adk.agui_factory import (
+    FirstUseAgent,
+    _authenticated_capabilities,
+    build_authenticated_agui,
+)
 from hushh_mcp.one_adk.agui_factory import _DurableSessionManager as _DurableSessionManager
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, TimedADKAgent
 from hushh_mcp.one_adk.consent_continuation import (
@@ -542,11 +547,6 @@ async def _admit_consent_continuation(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
-_intro_app = App(
-    name=f"{ONE_APP_NAME}_intro",
-    root_agent=build_one_intro_text_agent(),
-    resumability_config=ResumabilityConfig(is_resumable=True),
-)
 _session_service = EncryptedAdkSessionService()
 _intro_session_service = InMemorySessionService()
 
@@ -568,28 +568,54 @@ _intro_capabilities = {
 _MAX_CONCURRENT_EXECUTIONS = 64
 _EXECUTION_TIMEOUT_SECONDS = 200
 
-_agent = build_authenticated_agui(
-    build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
-    _session_service,
-    app_name=ONE_APP_NAME,
-    user_id_extractor=_user_id,
-)
-_app = _agent._app  # Compatibility handle; construction is owned by agui_factory.
-_intro_agent = TimedADKAgent.from_app(
-    _intro_app,
-    head=HEAD_INTRO,
-    user_id_extractor=_user_id,
-    max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
-    execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
-    # Anonymous and Firebase-only pre-vault turns intentionally remain
-    # ephemeral. Durable history begins only after VAULT_OWNER authority is
-    # present, where the encrypted owner-bound store can enforce teardown.
-    session_service=_intro_session_service,
-    use_in_memory_services=True,
-    use_thread_id_as_session_id=True,
-    emit_messages_snapshot=True,
-    capabilities=_intro_capabilities,
-)
+
+# Built on first use, never at import: building a head resolves the managed model,
+# and every pod imports this module, with no Google credentials off GCP (byoc-azure.md).
+@functools.cache
+def _one_head() -> TimedADKAgent:
+    agent = build_authenticated_agui(
+        build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
+        _session_service,
+        app_name=ONE_APP_NAME,
+        user_id_extractor=_user_id,
+    )
+    agent.detached_turn_hook = _notify_detached_turn
+    return agent
+
+
+@functools.cache
+def _intro_head() -> TimedADKAgent:
+    intro_app = App(
+        name=f"{ONE_APP_NAME}_intro",
+        root_agent=build_one_intro_text_agent(),
+        resumability_config=ResumabilityConfig(is_resumable=True),
+    )
+    return TimedADKAgent.from_app(
+        intro_app,
+        head=HEAD_INTRO,
+        user_id_extractor=_user_id,
+        max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
+        execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
+        # Anonymous and Firebase-only pre-vault turns intentionally remain
+        # ephemeral. Durable history begins only after VAULT_OWNER authority is
+        # present, where the encrypted owner-bound store can enforce teardown.
+        session_service=_intro_session_service,
+        use_in_memory_services=True,
+        use_thread_id_as_session_id=True,
+        emit_messages_snapshot=True,
+        capabilities=_intro_capabilities,
+    )
+
+
+def __getattr__(name: str) -> Any:
+    """The former import-time handles, now built on first read (PEP 562)."""
+    if name == "_agent":
+        return _one_head()
+    if name == "_app":
+        return _one_head()._app  # Construction is owned by agui_factory.
+    if name == "_intro_agent":
+        return _intro_head()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
@@ -606,26 +632,23 @@ async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
     await notify_one_reply(owner_id=owner_id, conversation_id=conversation_id)
 
 
-_agent.detached_turn_hook = _notify_detached_turn
-
-
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
     reference = state.get(STATE_CONSENT_TOKEN)
     if not reference:
-        return _intro_agent
+        return _intro_head()
     if (
         not isinstance(reference, str)
         or not reference.startswith("one_secret_ref:")
         or not resolve_request_secret(reference)
     ):
         raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
-    return _agent
+    return _one_head()
 
 
 add_adk_fastapi_endpoint(
     router,
-    _agent,
+    cast(ADKAgent, FirstUseAgent(_one_head)),
     path="/api/one/agent-chat",
     extract_state_from_request=_extract_state,
     agent_resolver=_resolve_agent,
