@@ -7,7 +7,7 @@ asserted against the real function rather than the string it returns:
   no key came with the turn, and a half-rendered topology refuses instead of
   reaching down the list toward Hussh's managed Gemini;
 * ``azure_openai`` and ``user_azure_mi`` are a pair at every builder (One's head, the
-  specialists' model call, the factory), so neither can be borrowed alone;
+  specialists' model call, the client door), so neither can be borrowed alone;
 * an owner who sends a key still gets their key.
 """
 
@@ -128,6 +128,15 @@ def test_the_token_comes_from_the_pods_own_identity_for_the_openai_audience(monk
     assert seen == ["https://cognitiveservices.azure.com"]
 
 
+@pytest.mark.parametrize("minted", ["", None, b"bytes-token"])
+def test_a_workload_identity_that_mints_no_string_token_refuses_typed(monkeypatch, minted) -> None:
+    module = ModuleType("hushh_mcp.services.pod_workload_identity")
+    module.get_workload_token = lambda _resource: minted  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "hushh_mcp.services.pod_workload_identity", module)
+    with pytest.raises(AzureOpenAICredentialUnavailable):
+        azure_openai.workload_token_provider()()
+
+
 def test_an_image_without_the_workload_identity_still_imports_and_refuses_typed(
     monkeypatch,
 ) -> None:
@@ -137,33 +146,48 @@ def test_an_image_without_the_workload_identity_still_imports_and_refuses_typed(
         provider()
 
 
-# -- the factory: one door, one mode -------------------------------------------
+# -- the client door: one door, one mode ---------------------------------------
 
 
-def test_the_factory_builds_azure_openai_for_user_azure_mi(azure_pod) -> None:
-    transport = factory.build_owner_azure_runtime_client("azure_openai", "user_azure_mi")
+def test_the_door_builds_azure_openai_for_user_azure_mi(azure_pod) -> None:
+    transport = azure_openai.owner_azure_client("azure_openai", "user_azure_mi")
     assert transport.provider == "azure_openai"
     assert str(transport._client.base_url) == f"{ENDPOINT}openai/v1/"
 
 
 @pytest.mark.parametrize("mode", ["byok", "user_adc", "hushh_managed_vertex", "puppy_relay", ""])
-def test_the_factory_refuses_azure_openai_in_every_other_mode(azure_pod, mode) -> None:
+def test_the_door_refuses_azure_openai_in_every_other_mode(azure_pod, mode) -> None:
     with pytest.raises(AzureOpenAIModeMismatch):
-        factory.build_owner_azure_runtime_client("azure_openai", mode)
+        azure_openai.owner_azure_client("azure_openai", mode)
 
 
-def test_the_factory_refuses_the_mode_for_another_provider_and_with_a_key(azure_pod) -> None:
+def test_the_door_refuses_the_mode_for_another_provider_and_with_a_key(azure_pod) -> None:
     with pytest.raises(AzureOpenAIModeMismatch):
-        factory.build_owner_azure_runtime_client("gemini", "user_azure_mi")
+        azure_openai.owner_azure_client("gemini", "user_azure_mi")
     with pytest.raises(AzureOpenAIModeMismatch, match="API key"):
-        factory.build_owner_azure_runtime_client(
-            "azure_openai", "user_azure_mi", credential="sk-not-here"
+        azure_openai.owner_azure_client("azure_openai", "user_azure_mi", "sk-not-here")
+
+
+@pytest.mark.parametrize(
+    ("provider", "mode"),
+    [("gemini", "byok"), ("gemini", "hushh_managed_vertex"), ("user_azure_mi", "azure_openai")],
+)
+def test_the_door_serves_only_the_exact_pair_never_two_other_values(
+    azure_pod, provider, mode
+) -> None:
+    """Agreeing that neither value is Azure is not admission: a caller that reaches an
+    Azure door with any other pair, or the pair swapped, is refused, never served."""
+    with pytest.raises(AzureOpenAIModeMismatch):
+        azure_openai.owner_azure_client(provider, mode)
+    with pytest.raises(AzureOpenAIModeMismatch):
+        azure_openai.build_owner_azure_adk_model(
+            DEPLOYMENT, mode=mode, provider=provider, api_key=None
         )
 
 
-def test_the_factory_refuses_without_rendered_topology() -> None:
+def test_the_door_refuses_without_rendered_topology() -> None:
     with pytest.raises(AzureOpenAITopologyInvalid):
-        factory.build_owner_azure_runtime_client("azure_openai", "user_azure_mi")
+        azure_openai.owner_azure_client("azure_openai", "user_azure_mi")
 
 
 def test_the_byok_and_managed_builders_never_reach_azure_openai(azure_pod) -> None:
@@ -380,7 +404,7 @@ async def test_a_specialist_model_call_uses_the_owners_azure_client(monkeypatch)
     async def _generate(*, model, contents, config):
         return SimpleNamespace(text=f"answer from {model}", function_calls=[])
 
-    def _azure_client(provider: str, mode: str, *, credential: Any = None) -> Any:
+    def _azure_client(provider: str, mode: str, credential: Any = None) -> Any:
         built.append((provider, mode, credential))
         return SimpleNamespace(
             aio=SimpleNamespace(models=SimpleNamespace(generate_content=_generate))
@@ -389,7 +413,7 @@ async def test_a_specialist_model_call_uses_the_owners_azure_client(monkeypatch)
     def _never(*_a: Any, **_k: Any) -> Any:
         raise AssertionError("a key or managed builder was reached on an Azure turn")
 
-    monkeypatch.setattr(factory, "build_owner_azure_runtime_client", _azure_client)
+    monkeypatch.setattr(azure_openai, "owner_azure_client", _azure_client)
     monkeypatch.setattr(factory, "build_runtime_client", _never)
     monkeypatch.setattr(factory, "build_managed_runtime_client", _never)
     runtime = build_pod_specialist_runtime(

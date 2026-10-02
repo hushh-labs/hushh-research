@@ -532,18 +532,6 @@ def build_managed_runtime_client(runtime_provider: str, managed_credential: str 
     return _build(provider, key, managed=True)
 
 
-def build_owner_azure_runtime_client(
-    runtime_provider: str, runtime_mode: str, *, credential: str | None = None
-) -> Any:
-    """The only door to ``azure_openai`` (unknown to the registry, so the builders above
-    refuse it), and only in mode ``user_azure_mi``, as the pod's own identity."""
-    from .azure_openai import build_owner_azure_transport  # noqa: PLC0415
-
-    return build_owner_azure_transport(
-        runtime_provider=runtime_provider, runtime_mode=runtime_mode, credential=credential
-    )
-
-
 def build_managed_live_client(*, model: str, location: str) -> Any:
     """Managed Gemini Live client from the canonical ADC contract.
 

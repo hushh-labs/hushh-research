@@ -299,7 +299,7 @@ async def run_conversation_close(
         if payload.runtime_provider
         else _turn._resolve_model()
     )
-    runtime_mode = _turn._resolve_runtime_mode(payload, provider)  # type: ignore[arg-type]
+    provider, model, runtime_mode = _turn._resolve_turn_target(payload, provider, model)  # type: ignore[arg-type]
     build = model_builder
     if build is None:
         from hushh_mcp.one_adk.text_runtime import _runtime_model  # noqa: PLC0415

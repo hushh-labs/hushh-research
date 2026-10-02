@@ -114,7 +114,10 @@ def _json_schema(declaration: Any) -> dict[str, Any] | None:
         return declared
     try:
         converted = getattr(getattr(declaration, "parameters", None), "json_schema", None)
-        dumped = converted.model_dump(mode="json", exclude_none=True, by_alias=True)
+        dump = getattr(converted, "model_dump", None)
+        if not callable(dump):
+            return None
+        dumped = dump(mode="json", exclude_none=True, by_alias=True)
     except Exception:  # noqa: BLE001 - no convertible schema leaves the field unset
         return None
     return dumped if isinstance(dumped, dict) else None

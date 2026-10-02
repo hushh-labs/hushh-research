@@ -36,6 +36,7 @@ _PROBE_TIMEOUT_SECONDS = 20
 _DETAIL_MAX = 160
 
 TokenProvider = Callable[[], str]
+ModelProbe = Callable[..., dict[str, Any]]
 
 
 class AzureOpenAITopologyInvalid(RuntimeError):
@@ -146,7 +147,10 @@ def workload_token_provider() -> TokenProvider:
             raise AzureOpenAICredentialUnavailable(
                 "this image carries no pod workload identity"
             ) from exc
-        return get_workload_token(AZURE_OPENAI_AUDIENCE)
+        minted = get_workload_token(AZURE_OPENAI_AUDIENCE)
+        if not isinstance(minted, str) or not minted:
+            raise AzureOpenAICredentialUnavailable("the pod workload identity minted no token")
+        return minted
 
     return token
 
@@ -154,10 +158,14 @@ def workload_token_provider() -> TokenProvider:
 def require_owner_azure_pair(
     *, runtime_provider: str, runtime_mode: str, credential: str | None = None
 ) -> None:
-    """Refuse ``azure_openai`` outside ``user_azure_mi``, the reverse, or with a key."""
+    """Admit exactly ``azure_openai`` in ``user_azure_mi`` with no key; refuse all else.
+
+    Every Azure door calls this, so a caller that reaches one with any other pair
+    (including two non-Azure values, or the two swapped) is refused, never served.
+    """
     is_azure_provider = str(runtime_provider or "").strip().lower() == AZURE_OPENAI_PROVIDER
     is_azure_mode = str(runtime_mode or "").strip() == USER_AZURE_MI_MODE
-    if is_azure_provider != is_azure_mode:
+    if not (is_azure_provider and is_azure_mode):
         raise AzureOpenAIModeMismatch(
             f"{AZURE_OPENAI_PROVIDER} is served only in mode {USER_AZURE_MI_MODE}, "
             "and that mode serves only that provider"
@@ -197,12 +205,28 @@ def build_owner_azure_transport(
     )
 
 
+def owner_azure_client(
+    runtime_provider: str, runtime_mode: str, credential: str | None = None
+) -> Any:
+    """The only door to ``azure_openai`` for a turn's model client.
+
+    The provider is unknown to the general registry, so the key and managed builders
+    in ``factory`` refuse it; this door serves it only in ``user_azure_mi``, as the
+    pod's own identity, and ``credential`` exists only to be refused.
+    """
+    return build_owner_azure_transport(
+        runtime_provider=runtime_provider, runtime_mode=runtime_mode, credential=credential
+    )
+
+
 def build_owner_azure_adk_model(
     deployment: str, *, mode: str, provider: str, api_key: str | None
 ) -> Any:
     """One's head on the person's deployment. The deployment name IS the model.
 
     ``api_key`` exists only to be refused: the pod's own identity is the credential.
+    Callers dispatch here BEFORE any Gemini alias rewrite, because ``default`` is a
+    legal deployment name that the rewrite would turn into a Gemini model id.
     """
     require_owner_azure_pair(runtime_provider=provider, runtime_mode=mode, credential=api_key)
     deployment = str(deployment or "").strip()
@@ -282,6 +306,24 @@ def probe_azure_openai_deployment(
                 "detail": type(exc).__name__,
             }
     return _post_probe(report, resolved, deployment, token=token, session=session)
+
+
+def model_probe(vertex_probe: ModelProbe) -> ModelProbe:
+    """The reachability probe this pod's own model topology calls for.
+
+    Any rendered Azure value, complete or not, selects the Azure probe, so a
+    half-rendered pod reports ``topology_invalid`` and never asks Vertex. ``model``
+    then names a deployment on the RENDERED resource only, and ``location`` has no
+    Azure meaning.
+    """
+    if not azure_openai_configured():
+        return vertex_probe
+
+    def azure_probe(model: str, *, location: str = "") -> dict[str, Any]:
+        del location
+        return probe_azure_openai_deployment(model)
+
+    return azure_probe
 
 
 def _post_probe(

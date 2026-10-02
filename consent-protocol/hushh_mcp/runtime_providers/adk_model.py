@@ -93,11 +93,9 @@ class ProviderAdkModel(BaseLlm):
 
     def _client(self) -> Any:
         if self.runtime_mode == "user_azure_mi":
-            from .factory import build_owner_azure_runtime_client
+            from .azure_openai import owner_azure_client
 
-            return build_owner_azure_runtime_client(
-                self.provider, self.runtime_mode, credential=self.credential
-            )
+            return owner_azure_client(self.provider, self.runtime_mode, self.credential)
         if self.runtime_mode in {"user_adc", "hushh_managed_vertex"} and not self.credential:
             from .factory import build_managed_runtime_client
 

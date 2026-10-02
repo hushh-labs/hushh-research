@@ -192,7 +192,6 @@ def _runtime_model(
 ) -> Any:
     """Build a turn-local ADK model without persisting a BYOK secret."""
     if runtime_mode == "user_azure_mi" or str(runtime_provider or "").lower() == "azure_openai":
-        # The owner's Azure deployment as the pod's own identity; before the Gemini default.
         return build_owner_azure_adk_model(
             runtime_model, mode=runtime_mode, provider=runtime_provider, api_key=runtime_credential
         )

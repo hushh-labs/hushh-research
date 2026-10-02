@@ -62,6 +62,7 @@ from api.routes.one.pod_session import router as pod_session_router  # noqa: E40
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
+from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
 from hushh_mcp.runtime_settings import (  # noqa: E402
     pod_heartbeat_interval_seconds,
     pod_mode,
@@ -399,19 +400,14 @@ def probe_model_reachability(
 
 @app.get("/pod/diagnostics/model", tags=["pod"])
 async def pod_model_diagnostic(model: str, location: str = "") -> dict:
-    """Owner-relayed, read-only: whether this pod can reach a model on its own Vertex."""
+    """Owner-relayed, read-only: whether this pod reaches a model as its own identity."""
     if not pod_mode():
         raise HTTPException(status_code=404, detail="not a pod")
     model = (model or "").strip()
     location = (location or "").strip()
     if not _model_name_ok(model) or (location and not _model_name_ok(location)):
         raise HTTPException(status_code=400, detail="invalid model or location")
-    from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
-
-    if azure_openai.azure_openai_configured():
-        # An Azure pod: ``model`` names a deployment on the RENDERED resource only.
-        return await asyncio.to_thread(azure_openai.probe_azure_openai_deployment, model)
-    return await asyncio.to_thread(probe_model_reachability, model, location=location)
+    return await asyncio.to_thread(model_probe(probe_model_reachability), model, location=location)
 
 
 def _self_report() -> dict:

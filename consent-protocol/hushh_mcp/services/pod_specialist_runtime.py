@@ -550,18 +550,12 @@ def build_pod_specialist_runtime(
         nonlocal client
         await require_access()
         if client is None:
-            from hushh_mcp.runtime_providers.factory import (
-                build_managed_runtime_client,
-                build_owner_azure_runtime_client,
-                build_runtime_client,
-            )
+            from hushh_mcp.runtime_providers import azure_openai, factory
 
             if runtime_mode == "user_azure_mi":
-                client = build_owner_azure_runtime_client(
-                    provider, runtime_mode, credential=credential
-                )
+                client = azure_openai.owner_azure_client(provider, runtime_mode, credential)
             elif runtime_mode in {"byok", "puppy_relay"}:
-                client = build_runtime_client(
+                client = factory.build_runtime_client(
                     provider,
                     credential or "",
                     gemini_byok_transport=credential_transport,
@@ -571,7 +565,7 @@ def build_pod_specialist_runtime(
                     puppy_catalog_version=puppy_catalog_version,
                 )
             elif runtime_mode in {"user_adc", "hushh_managed_vertex"} and not credential:
-                client = build_managed_runtime_client(provider)
+                client = factory.build_managed_runtime_client(provider)
             else:
                 raise RuntimeError("Pod model authority unavailable")
         try:

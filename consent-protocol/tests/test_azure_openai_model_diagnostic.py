@@ -156,3 +156,17 @@ async def test_a_gcp_pod_still_answers_with_vertex_negative_control(monkeypatch)
 
     out = await pod_server.pod_model_diagnostic(model="gemini-3.7-flash", location="global")
     assert out == {"model": "gemini-3.7-flash", "location": "global"}
+
+
+async def test_a_half_rendered_azure_pod_reports_it_and_never_asks_vertex(monkeypatch) -> None:
+    monkeypatch.setattr(pod_server, "pod_mode", lambda: True)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", f"https://{HOST}/")
+    monkeypatch.delenv("AZURE_OPENAI_DEPLOYMENT", raising=False)
+
+    def _vertex(*_a: Any, **_k: Any) -> dict:
+        raise AssertionError("a half-rendered Azure pod asked Vertex")
+
+    monkeypatch.setattr(pod_server, "probe_model_reachability", _vertex)
+
+    out = await pod_server.pod_model_diagnostic(model="gpt-5-mini", location="eastus2")
+    assert out["outcome"] == "topology_invalid" and out["reachable"] is None

@@ -39,6 +39,7 @@ from api.routes.one.pod_turn_memory_authority import (
     memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
 )
 from api.routes.one.pod_turn_stream import TurnKey, cancel_stream_turn, stream_turn_events
+from api.routes.one.pod_turn_target import TurnTarget, owner_azure_model, turn_target
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.pod_commit_log import PodLogFenced
@@ -468,9 +469,7 @@ async def run_pod_turn(
             # The session IS the Puppy authority on the local path; the marker keeps
             # every existing non-empty credential check honest without a hub grant.
             payload = payload.model_copy(update={"runtime_credential": consent_token})
-    runtime_mode = _resolve_runtime_mode(payload, provider)
-    if runtime_mode == "user_azure_mi":  # the deployment IS the model, for every specialist
-        provider, model = _owner_azure_model() or (provider, model)
+    provider, model, runtime_mode = _resolve_turn_target(payload, provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
@@ -828,7 +827,7 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         # pins the value a function returns, rather than what the next function does
         # with it, passes for exactly as long as both ends are wrong together.
         return "byok"
-    if _owner_azure_model() is not None:
+    if owner_azure_model() is not None:
         return "user_azure_mi"
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         pod_managed_model_enabled,
@@ -859,20 +858,9 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
     )
 
 
-def _owner_azure_model() -> tuple[str, str] | None:
-    """(provider, deployment) of this pod's own Azure model; None when not rendered."""
-    from hushh_mcp.runtime_providers.azure_openai import (  # noqa: PLC0415
-        AzureOpenAITopologyInvalid,
-        owner_azure_model,
-    )
-
-    try:
-        return owner_azure_model()
-    except AzureOpenAITopologyInvalid:
-        logger.warning("pod_turn.azure_model_topology_invalid")
-        raise HTTPException(
-            status_code=503, detail={"code": "AZURE_MODEL_TOPOLOGY_INVALID"}
-        ) from None
+def _resolve_turn_target(payload: PodTurnRequest, provider: str, model: str) -> TurnTarget:
+    """(provider, model, mode) for every door that runs a model here, never the mode alone."""
+    return turn_target(provider, model, _resolve_runtime_mode(payload, provider))
 
 
 def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
