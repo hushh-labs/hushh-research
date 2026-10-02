@@ -199,7 +199,7 @@ try {
       } catch {
         throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
       }
-      await custom.getByRole("textbox", { name: "Server address" }).waitFor({
+      await custom.getByRole("textbox", { name: "Server URL" }).waitFor({
         state: "visible", timeout: 15_000,
       });
     }
