@@ -9,12 +9,17 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { ByocSetupFailedCard } from "@/components/connections/byoc-setup-failed-card";
 import { SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useAzureSignIn } from "@/lib/one/azure-sign-in";
-import { setupChecklistFor, setupJobProvider } from "@/lib/one/cloud-setup-stages";
+import {
+  setupChecklistFor,
+  setupJobProvider,
+  setupRetryFor,
+} from "@/lib/one/cloud-setup-stages";
 import {
   isOwnerCloudTarget,
   ownerCloudProvider,
@@ -431,48 +436,18 @@ export function ByocCloudSetupPage() {
         ) : job && job.status === "running" && !job.stale ? (
           // The live checklist owns the screen while the job runs. Nothing
           // else competes with it: no form, no dead buttons, no guessing.
-          <SetupStageChecklist {...setupChecklistFor(job)} job={job} />
+          <SetupStageChecklist {...setupChecklistFor(job, ownerProvider)} job={job} />
         ) : job && (job.status === "failed" || job.stale) && !authorized ? (
-          <div
-            role="alert"
-            className="flex flex-col gap-1.5 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3"
-            data-testid="byoc-setup-failed"
-          >
-            <p className="text-sm font-semibold text-destructive">
-              Your cloud is not set up yet
-            </p>
-            <p className="text-sm text-destructive">
-              {job.stale
-                ? "The setup stopped partway (our side restarted). Everything already done is kept."
-                : job.errorMessage || "The setup could not finish."}
-            </p>
-            {job.errorCode === "NEEDS_BILLING" ? (
-              <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                <a href="https://console.cloud.google.com/billing" target="_blank" rel="noreferrer"
-                  className="underline underline-offset-4" data-testid="byoc-open-billing">
-                  Set up Google Cloud billing
-                </a>
-                <a href="https://console.cloud.google.com/billing/projects" target="_blank" rel="noreferrer"
-                  className="underline underline-offset-4" data-testid="byoc-link-project-billing">
-                  Link billing to this project
-                </a>
-                <p className="w-full text-muted-foreground">Return here after billing is active. Your project is preserved.</p>
-              </div>
-            ) : null}
-            <button
-              type="button"
-              disabled={saving || azureSignIn.starting}
-              className="min-h-11 self-start text-sm underline underline-offset-4 text-destructive disabled:opacity-50"
-              onClick={() =>
-                void (setupJobProvider(job) === "azure"
-                  ? startAzureSetup()
-                  : handleProjectNamed(job.projectId))
-              }
-              data-testid="byoc-setup-retry"
-            >
-              Deploy to your cloud
-            </button>
-          </div>
+          <ByocSetupFailedCard
+            job={job}
+            retry={setupRetryFor(job, ownerProvider)}
+            busy={saving || azureSignIn.starting}
+            onRetry={(retry) =>
+              void (retry.provider === "azure"
+                ? startAzureSetup()
+                : handleProjectNamed(retry.projectId))
+            }
+          />
         ) : (!checked || !hostingStatusChecked) && !checkTimedOut && !authorized ? (
           <p
             className="text-sm text-[var(--app-text-secondary)]"

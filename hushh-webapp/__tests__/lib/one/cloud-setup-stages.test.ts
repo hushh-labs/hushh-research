@@ -8,11 +8,17 @@ import {
   isAzureUpgradeJob,
   setupChecklistFor,
   setupJobProvider,
+  setupRetryFor,
 } from "@/lib/one/cloud-setup-stages";
 
 function job(stage: string, reached: string[] = [stage]) {
   return { stage, stages: reached.map((id) => ({ stage: id })), projectId: "" };
 }
+
+/** What the hub writes for an Azure job: `azure_setup_plan.group_id`. */
+const AZURE_GROUP = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hussh-one-abc";
+/** Every job row starts here (`byoc_setup_job_service.start`). */
+const STARTING = { stage: "starting", stages: [] };
 
 describe("cloud setup stages", () => {
   it("keeps the hub's Azure stage order exactly", () => {
@@ -45,13 +51,33 @@ describe("cloud setup stages", () => {
   });
 
   it("reads the cloud from the stages a job reported", () => {
-    expect(setupJobProvider(null)).toBe("gcp");
-    expect(setupJobProvider(job("creating_project"))).toBe("gcp");
+    expect(setupJobProvider(null)).toBeNull();
+    expect(setupJobProvider({ ...job("creating_project"), projectId: "owner-project" })).toBe("gcp");
     expect(setupJobProvider(job("creating_storage", ["creating_resource_group", "creating_storage"]))).toBe("azure");
     // `proving` is shared; the earlier Azure-only history decides.
     expect(setupJobProvider(job("proving", ["deploying_agent", "proving"]))).toBe("azure");
-    expect(setupJobProvider(job("proving", ["settling_grant", "proving"]))).toBe("gcp");
-    expect(setupJobProvider({ stage: "", stages: [] })).toBe("gcp");
+    expect(setupJobProvider({ ...job("proving", ["settling_grant", "proving"]), projectId: "owner-project" })).toBe("gcp");
+  });
+
+  it("reads a just-started job's cloud from its record, never by guessing Google", () => {
+    expect(setupJobProvider({ ...STARTING, projectId: AZURE_GROUP })).toBe("azure");
+    expect(setupJobProvider({ ...STARTING, projectId: "owner-project" })).toBe("gcp");
+    expect(setupJobProvider({ ...STARTING, projectId: "owner-project", deploymentTarget: "user_azure" })).toBe("azure");
+    expect(setupJobProvider({ ...STARTING, projectId: "" })).toBeNull();
+    expect(setupJobProvider({ ...STARTING, projectId: "" }, "azure")).toBe("azure");
+    expect(setupJobProvider({ ...STARTING, projectId: "Not A Project" }, "gcp")).toBe("gcp");
+  });
+
+  it("retries Google only with a valid Google project id", () => {
+    expect(setupRetryFor({ ...STARTING, projectId: AZURE_GROUP })).toEqual({ provider: "azure" });
+    expect(setupRetryFor({ ...STARTING, projectId: AZURE_GROUP }, "gcp")).toEqual({ provider: "azure" });
+    expect(setupRetryFor({ ...job("linking_billing"), projectId: "owner-project" })).toEqual({
+      provider: "gcp",
+      projectId: "owner-project",
+    });
+    // A registry that says Google never sends a non-Google id down that path.
+    expect(setupRetryFor({ ...STARTING, projectId: "Not A Project" }, "gcp")).toBeNull();
+    expect(setupRetryFor({ ...STARTING, projectId: "" })).toBeNull();
   });
 
   it("shows a setup all twelve stages and an update only its own tail", () => {
@@ -71,6 +97,18 @@ describe("cloud setup stages", () => {
       "proving",
     ]);
     expect(isAzureUpgradeJob(empty)).toBe(false);
+  });
+
+  it("shows a just-started job one neutral row instead of the Google list", () => {
+    expect(setupChecklistFor({ ...STARTING, projectId: AZURE_GROUP })).toEqual({
+      title: "Starting in Microsoft Azure",
+      stages: [{ id: "starting", label: "Starting" }],
+    });
+    expect(setupChecklistFor({ ...STARTING, projectId: "" })).toEqual({
+      title: "Starting your cloud setup",
+      stages: [{ id: "starting", label: "Starting" }],
+    });
+    expect(setupChecklistFor({ ...STARTING, projectId: "owner-project" }).stages).toBe(GCP_SETUP_STAGES);
   });
 
   it("titles the cloud step's checklist for the job's cloud", () => {

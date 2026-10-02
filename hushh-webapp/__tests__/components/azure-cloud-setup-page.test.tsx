@@ -62,6 +62,8 @@ import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
+/** What the hub writes as an Azure job's projectId: `azure_setup_plan.group_id`. */
+const AZURE_GROUP = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hussh-one-abc";
 const NO_JOB = {
   status: "none", stage: "", stages: [], projectId: "", errorCode: null,
   errorMessage: null, stale: false, updatedAt: null,
@@ -73,7 +75,7 @@ function azureJob(stage: string, reached: string[], status: "running" | "failed"
     status,
     stage,
     stages: reached.map((id) => ({ stage: id, at: "2026-10-02T00:00:00Z" })),
-    projectId: "rg-hussh-one-abc",
+    projectId: AZURE_GROUP,
   };
 }
 
@@ -160,6 +162,42 @@ describe("Connect Azure on the cloud step", () => {
     expect(progress).toHaveTextContent("Creating your agent’s key vault…");
     expect(progress).toHaveTextContent("Checking your private agent");
     expect(progress).not.toHaveTextContent("Linking your billing");
+  });
+
+  it("shows a just-started Azure job as starting, never as a Google project", async () => {
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(azureJob("starting", []));
+    render(<ByocCloudSetupPage />);
+    const progress = await screen.findByTestId("byoc-setup-progress");
+    expect(progress).toHaveTextContent("Starting in Microsoft Azure");
+    expect(progress).toHaveTextContent("Starting…");
+    expect(progress).not.toHaveTextContent("/subscriptions/");
+    expect(progress).not.toHaveTextContent("Creating your project");
+    expect(progress).not.toHaveTextContent("Linking your billing");
+  });
+
+  it("retries an Azure job that failed before its first stage through the Microsoft sign-in", async () => {
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({
+      ...azureJob("starting", [], "failed"),
+      errorCode: "NEEDS_BILLING",
+      errorMessage: "Approve the Hussh app in your directory, then try again.",
+    });
+    render(<ByocCloudSetupPage />);
+    const failed = await screen.findByTestId("byoc-setup-failed");
+    expect(failed).toHaveTextContent("Your agent is not set up in Azure yet");
+    expect(failed).toHaveTextContent("Approve the Hussh app in your directory, then try again.");
+    expect(screen.queryByTestId("byoc-open-billing")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Microsoft again" }));
+    await waitFor(() => expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({}));
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
+  });
+
+  it("only offers a refresh for a failed job whose cloud cannot be told", async () => {
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ ...azureJob("starting", [], "failed"), projectId: "" });
+    render(<ByocCloudSetupPage />);
+    await screen.findByTestId("byoc-setup-failed");
+    expect(screen.queryByTestId("byoc-setup-retry")).toBeNull();
+    expect(screen.getByTestId("byoc-setup-refresh")).toBeTruthy();
+    expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 
   it("retries a failed Azure job through the Microsoft sign-in", async () => {

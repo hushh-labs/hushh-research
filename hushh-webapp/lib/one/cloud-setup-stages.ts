@@ -1,4 +1,4 @@
-import type { OwnerCloudProvider } from "@/lib/one/owner-cloud";
+import { ownerCloudProvider, type OwnerCloudProvider } from "@/lib/one/owner-cloud";
 
 /**
  * The background setup job's stages, per owner cloud, with copy a person can
@@ -12,6 +12,17 @@ export type SetupStage = { id: string; label: string };
 export type SetupJobProgress = {
   stage: string;
   stages: ReadonlyArray<{ stage: string }>;
+};
+
+/**
+ * A setup-status record as far as choosing its cloud goes. `projectId` is a
+ * Google project id for a Google job and the resource group's Azure Resource
+ * Manager id for an Azure job. `deploymentTarget` is not sent today; when the
+ * hub names the job's cloud it is authoritative.
+ */
+export type SetupJobRecord = SetupJobProgress & {
+  projectId: string;
+  deploymentTarget?: string | null;
 };
 
 /** Google Cloud: the six stages, in product order. */
@@ -45,6 +56,15 @@ export const AZURE_SETUP_FIRST_STAGE = "creating_resource_group";
 /** An approved update re-runs only the tail of the Azure job, from here on. */
 export const AZURE_UPGRADE_FIRST_STAGE = "importing_image";
 
+/** Every job row starts here with no stages (`byoc_setup_job_service.start`). */
+const STARTING_STAGES: readonly SetupStage[] = [{ id: "starting", label: "Starting" }];
+
+/** Google's project-id rule (`validate_project_id`): all the Google path accepts. */
+const GCP_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+
+/** An Azure job's subject: `/subscriptions/<id>/resourceGroups/<name>`. */
+const AZURE_RESOURCE_GROUP_ID = /^\/subscriptions\/[^/\s]+\/resourcegroups\/[^/\s]+$/i;
+
 const GCP_STAGE_IDS = new Set(GCP_SETUP_STAGES.map((stage) => stage.id));
 
 const AZURE_ONLY_STAGE_IDS = new Set(
@@ -65,13 +85,43 @@ function firstReachedAzureIndex(job: SetupJobProgress): number {
 }
 
 /**
- * Which cloud a setup job belongs to, read from the stages it has reported.
- * The two stage vocabularies share only `proving`, so any Azure-only stage is
- * decisive. A job with no Azure-only stage keeps the existing Google reading.
+ * Which cloud a setup job belongs to, from evidence in the record itself:
+ * the cloud the hub names, then the shape of `projectId`, then any Azure-only
+ * stage (the vocabularies share only `proving`). A record with none of these,
+ * such as a malformed id, falls back to the registry's owner cloud, and is
+ * otherwise unknown (`null`) rather than guessed to be Google.
  */
-export function setupJobProvider(job: SetupJobProgress | null): OwnerCloudProvider {
-  if (!job) return "gcp";
-  return reachedStageIds(job).some((id) => AZURE_ONLY_STAGE_IDS.has(id)) ? "azure" : "gcp";
+export function setupJobProvider(
+  job: SetupJobRecord | null,
+  registryProvider: OwnerCloudProvider | null = null,
+): OwnerCloudProvider | null {
+  if (!job) return null;
+  const declared = ownerCloudProvider(job.deploymentTarget);
+  if (declared) return declared;
+  if (AZURE_RESOURCE_GROUP_ID.test(job.projectId)) return "azure";
+  if (reachedStageIds(job).some((id) => AZURE_ONLY_STAGE_IDS.has(id))) return "azure";
+  if (GCP_PROJECT_ID.test(job.projectId)) return "gcp";
+  return registryProvider;
+}
+
+/** How a failed setup is retried; `null` when its cloud cannot be told. */
+export type SetupRetry = { provider: "azure" } | { provider: "gcp"; projectId: string };
+
+/**
+ * The retry for a failed or stopped job. Only a valid Google project id ever
+ * reaches the Google authorization path; an Azure job restarts the person's
+ * Microsoft sign-in.
+ */
+export function setupRetryFor(
+  job: SetupJobRecord,
+  registryProvider: OwnerCloudProvider | null = null,
+): SetupRetry | null {
+  const provider = setupJobProvider(job, registryProvider);
+  if (provider === "azure") return { provider: "azure" };
+  if (provider === "gcp" && GCP_PROJECT_ID.test(job.projectId)) {
+    return { provider: "gcp", projectId: job.projectId };
+  }
+  return null;
 }
 
 /**
@@ -94,18 +144,32 @@ export function isAzureUpgradeJob(job: SetupJobProgress): boolean {
   return start >= 0 && start >= azureStageIndex(AZURE_UPGRADE_FIRST_STAGE);
 }
 
-/** The cloud step's checklist heading and stages for a running job. */
-export function setupChecklistFor(job: SetupJobProgress & { projectId: string }): {
+/**
+ * The cloud step's checklist heading and stages for a running job. An Azure
+ * job that has not reported a stage yet (it may be a setup or an update) and a
+ * job whose cloud cannot be told show one neutral "Starting" row.
+ */
+export function setupChecklistFor(
+  job: SetupJobRecord,
+  registryProvider: OwnerCloudProvider | null = null,
+): {
   title: string;
   stages: readonly SetupStage[];
 } {
-  if (setupJobProvider(job) === "gcp") {
+  const provider = setupJobProvider(job, registryProvider);
+  if (provider === "gcp") {
     return { title: `Setting up ${job.projectId}`, stages: GCP_SETUP_STAGES };
   }
+  if (provider === "azure" && firstReachedAzureIndex(job) >= 0) {
+    return {
+      title: isAzureUpgradeJob(job)
+        ? "Updating your agent in Microsoft Azure"
+        : "Setting up your agent in Microsoft Azure",
+      stages: azureChecklistStages(job),
+    };
+  }
   return {
-    title: isAzureUpgradeJob(job)
-      ? "Updating your agent in Microsoft Azure"
-      : "Setting up your agent in Microsoft Azure",
-    stages: azureChecklistStages(job),
+    title: provider === "azure" ? "Starting in Microsoft Azure" : "Starting your cloud setup",
+    stages: STARTING_STAGES,
   };
 }
