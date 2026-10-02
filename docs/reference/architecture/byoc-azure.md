@@ -1,10 +1,12 @@
 # The private agent in the person's own Azure subscription
 
 **Status:** approved design (2026-10-01), live platform spike done in a consumer
-free-trial subscription (2026-10-02), implementation in progress on the dev
-workspace branch. Not on `main`, UAT or production. Inherits
-`private-agent-north-star.md` by pointer; where this page and the north star
-disagree, the north star wins and this page moves.
+free-trial subscription (2026-10-02). Implementation lanes 1 to 5 and the
+image-source round are on the dev workspace branch with unit evidence only; no
+live Azure agent has answered a turn through this code yet (see *Known gaps*).
+Not on `main`, UAT or production. Inherits `private-agent-north-star.md` by
+pointer; where this page and the north star disagree, the north star wins and
+this page moves.
 
 ## Visual Map
 
@@ -47,7 +49,7 @@ Who may do what in the person's subscription, per lifecycle operation.
 | Operation | Authority | Standing or just-in-time |
 |---|---|---|
 | Setup (resource group, identities, Key Vault + key, storage, registry, Azure OpenAI, environment, role assignments) | The person's own delegated ARM token (`user_impersonation`, auth code + PKCE, online only, no refresh token) | Just-in-time: the Connect Azure sign-in |
-| Image import + upgrade | The person's delegated token after they approve the update | Just-in-time: approve + sign-in |
+| Image import + upgrade | The person's delegated token after they approve the update; the image source is read with a 15-minute image-reader token (see *Image source credential*) | Just-in-time: approve + sign-in |
 | Re-create after the agent is gone | The person's delegated token | Just-in-time |
 | Full teardown ("delete everything") | The person's delegated token | Just-in-time |
 | Read status, revisions, address (FQDN) | Hussh app service principal, custom role "Hussh Pod Observer" | Standing |
@@ -108,7 +110,61 @@ pinned by a golden vector in `consent-protocol/tests/test_pod_request_signing.py
   request from it is refused, including while it waits for the hub to pull a
   signing key for a new pod key. Until then a GCP agent keeps sending its Google
   ID token beside the signature. Everything is behind the dev-only
-  `POD_HUB_IDENTITY_AUTH_ENABLED`.
+  `POD_HUB_IDENTITY_AUTH_ENABLED`. An Azure agent has no metadata server and
+  signs alone, so it can reach only a hub where that flag is on.
+
+## The setup binding
+
+Setup writes into the person's subscription only under their own sign-in, and
+only into a resource group it can prove it created for this agent. The group and
+the agent carry two tags:
+
+- `hussh-setup-nonce`: 16 hex characters, minted once per new group.
+- `hussh-setup-binding`: HMAC-SHA256 over (HusshID, nonce) under a key derived
+  from `APP_SIGNING_KEY` for the label `setup-binding`
+  (`consent-protocol/hushh_mcp/services/azure_keyed.py`).
+
+The binding is over the **HusshID, not the account uid**: the backend that
+re-verifies it is database-free and `PodSpec` deliberately carries no user id;
+the registry binds the two one to one. A retry reuses the nonce of a group
+already bound to this agent; a group with this agent's name but no valid binding
+is refused (`RESOURCE_GROUP_FOREIGN`) and nothing is changed. Attach, discover,
+upgrade and erasure re-verify the binding from ARM. Rotating `APP_SIGNING_KEY`
+makes existing bindings stop verifying, which fails closed. The group name is
+`rg-hussh-one-<keyed digest of the HusshID>`, so it names the person to nobody but
+the hub.
+
+## Image source credential
+
+The person's registry pulls the approved digest straight from Hussh's private
+Artifact Registry repository with ARM `importImage`. No public mirror exists, and
+Azure never receives the hub's own runtime token, which carries everything the hub
+may do in Google Cloud.
+
+- The hub impersonates one dedicated reader service account,
+  `HUSSH_POD_IMAGE_READER_SA`, through IAM Credentials `generateAccessToken`
+  (lifetime 900 s, scope `cloud-platform`). Its only grant is Artifact Registry
+  reader on the pod image repository, so the token's effective power is read-only
+  on that one repository for 15 minutes.
+- The token is minted at the moment of the import call, for setup and for each
+  approved update, and exists only in that request body as source credentials
+  (username `oauth2accesstoken`, password the token). It is never logged and never
+  put in an error message.
+- A Google token is only ever offered to a Google registry host
+  (`*-docker.pkg.dev`, `gcr.io`). A reader equal to the hub's own identity, or a
+  minted token equal to the hub's token, is refused.
+- **Preflight before the Microsoft sign-in:** both `authorize/begin` and
+  `upgrade/begin` prove the import will work before the person signs in. With a
+  reader configured, the hub mints a token and reads the exact digest's manifest
+  with it. Without one, the source must be readable anonymously. Otherwise the
+  route answers 503 with a typed code: `IMAGE_SOURCE_NOT_CONFIGURED` (names the
+  missing `HUSSH_POD_IMAGE_READER_SA`), `IMAGE_READER_CANNOT_READ`,
+  `IMAGE_READER_UNAVAILABLE`, `IMAGE_READER_IS_HUB`, `IMAGE_READER_MISCONFIGURED`
+  or `IMAGE_SOURCE_UNSUPPORTED`.
+
+Implemented in `consent-protocol/hushh_mcp/services/azure_image_source.py`;
+`HUSSH_POD_IMAGE_READER_SA` is hub deployment configuration, not a secret and not
+pod behaviour.
 
 ## Agent environment contract (rendered by the hub, read by the agent)
 
@@ -148,17 +204,24 @@ person's subscription.
 | Google service-account token to Entra token (federated credential) | works in 1 s; a managed identity token lasts 24 h (86,399 s), which is why Hussh's standing principal is an app registration |
 | Azure OpenAI on a free trial (eastus2) | available; e.g. gpt-5-mini Global Standard 500K tokens/min |
 
-Off GCP the current pod image does not boot: it constructs a Google model at
-import time (`api/routes/one/agent_chat.py` intro agent) and needs
-`APP_SIGNING_KEY`. Lazy model construction is part of the agent-side work.
+At the spike the pod image did not boot off Google Cloud: it built a Google model
+at import time (`api/routes/one/agent_chat.py` intro agent). The agent-side lane
+now builds the chat heads on first use, so the same image boots on Container
+Apps; it still needs `APP_SIGNING_KEY`, which setup provides as a Key Vault
+reference.
 
 ## Azure version 1 capabilities, stated honestly
 
+`GET /pod/info` reports these from rendered topology, never from a flag
+(`consent-protocol/api/routes/one/pod_capabilities.py`):
+
 - Memory recall from the sealed commit log (keyword-based); no managed memory
   service yet.
-- Voice unavailable.
+- Voice unavailable (it needs a Vertex model); the voice route refuses before
+  accepting a connection.
 - Gmail push alerts off (Gmail push only targets Google Pub/Sub).
-- Files background organization off.
+- Files background organization off; an update that carries a Files plan is
+  refused on Azure.
 - Web search unavailable. One's web search is Google Search grounding, a Gemini
   tool that ADK refuses for any other model. A head on the person's Azure OpenAI
   deployment (or on Puppy) is built without it and, when a request needs the
@@ -169,6 +232,9 @@ import time (`api/routes/one/agent_chat.py` intro agent) and needs
   `webSearch: {available: false, reason: "requires_gemini_model"}` for a pod
   whose own model is Azure OpenAI. A turn that brings its own Gemini key keeps
   web search.
+- Private commands (structured output, audio input) refuse the Azure OpenAI mode
+  with a typed 503 `COMMAND_MODEL_UNAVAILABLE`; they still work with the person's
+  own Gemini key.
 
 Each item above is reported under `capabilities` on `/pod/info`, which the hub
 relays to the owner (`GET /api/one/u/{hushh_id}/info`).
@@ -236,6 +302,44 @@ reaches each one through a typed capability in
   to provision or to run, or ARM settled without creating it. Anything still
   activating keeps the lease. No new update starts without the person's sign-in.
 
+## What shipped (2026-10-02, dev workspace branch)
+
+| Lane | What landed |
+|---|---|
+| Agent seams | Chat heads built on first use; opaque object versions; `AzureBlobObjectStore` with the measured 409/412/404 mapping (403 is always a refusal); Key Vault custody (RSA-OAEP-256 wrap locally, unwrap through Key Vault, create-once key); `pod_workload_identity` (`IDENTITY_ENDPOINT` + `AZURE_CLIENT_ID`); `pod_platform` incarnation for the erasure fence, upgrade admission and heartbeat; the capability report above |
+| Identity | Ed25519 request signing derived from the pod key, `GET /pod/public-key` publishes it, hub verifier with replay window, single-use nonces, pulled keys and the `identity_mode` latch; dev-only migration 947 |
+| Model | Mode `user_azure_mi`: One and every specialist on the person's Azure OpenAI deployment as the pod's own identity; streamed tool calls assembled; one (provider, model, mode) decision for every model door; `/pod/diagnostics/model` probes the deployment |
+| Hub | Raw-REST ARM client, Entra auth code + PKCE (no refresh token), federated app identity, deterministic setup plan with an ARM template held to it by a parity test, Container App renderer, `user_azure` backend (attach, typed gone reasons, restart, JIT upgrade with the pod handoff, erasure revoking Hussh last), the three Connect Azure routes, setup and update jobs on the existing job record, dev-only migration 948 |
+| Frontend | Connect Azure on the cloud step, the Microsoft return route, subscription picker, update approval through the owner's sign-in, privacy-policy copy naming Microsoft Azure |
+| Lifecycle | In-pod crypto-erase behind the erasure fence with closed fences after erase; owner-access erasure through a typed capability with a checkpoint before revocation and the receipt retained (dev-only migration 949); heal through the backend's restart; crashed-update recovery from observer reads |
+| Honest capabilities | Non-Gemini heads are built without Google Search grounding and say web search is unavailable; `/pod/info` reports `webSearch` |
+| Image source | The image-reader credential and preflight above; `GET /api/one/runtime/byoc/setup/status` now returns `jobId`, and the update progress shows only the record of the job its sign-in started |
+
+## Known gaps
+
+- **No live proof yet.** No Azure agent has been created or answered a turn
+  through this code; every gate in the admission bar still needs live evidence.
+- **Operator setup is not done:** the Entra app, the broker and reader service
+  accounts and their grants (runbook below) do not exist yet.
+- **The dev deploy lane does not render the Azure hub variables.**
+  `HUSSH_AZURE_APP_CLIENT_ID`, `HUSSH_AZURE_BROKER_SA`,
+  `HUSSH_AZURE_OAUTH_REDIRECT_URI` and `HUSSH_POD_IMAGE_READER_SA` are plain
+  environment, not secrets, so the secret-coverage check does not require them;
+  adding them to the dev backend is a change to protected pipeline paths.
+- **Agent-to-hub calls are dev-only:** they need `POD_HUB_IDENTITY_AUTH_ENABLED`
+  and the parked migrations 947 and 948.
+- **Re-create after Azure deletes the environment:** the gone reason
+  `environment_deleted` is typed, but the person-facing re-create flow is not
+  wired (setup refuses a person whose agent record is already provisioned).
+- **Full teardown** under a sign-in is not built; erasure crypto-erases the agent,
+  revokes access and the receipt names the resource group to delete. Account
+  deletion stays refused while that resource group exists.
+- **Registry retention:** every imported digest stays in the person's Basic
+  registry; pruning to the current and previous digest is not built.
+- **Placement** is fixed to `eastus2` (where the model was measured available).
+- **Azure OpenAI quality** has not passed the evals that make a model "proven".
+- **Measurements pending:** the 48-hour bill readout and the 20-wake series.
+
 ## Cost (list prices, not measured bills)
 
 From the Azure Retail Prices API, eastus, 2026-10-01: Basic container registry
@@ -252,3 +356,74 @@ Azure becomes a selectable home only when each gate in
 parity) has live evidence from a real subscription, recorded in
 `config/pod-completion-ledger.yaml` under Azure rows, never credited from GCP
 evidence.
+
+## Operator runbook: localhost and dev live test
+
+An operator does this once per environment. No step creates a client secret,
+and nothing here is run by the hub or an agent.
+
+### Google Cloud, in the project that runs the hub
+
+1. **Broker service account** (the federation subject, never the hub runtime
+   account). Record its numeric unique id
+   (`gcloud iam service-accounts describe <broker> --format='value(uniqueId)'`)
+   and grant the hub runtime identity `roles/iam.serviceAccountTokenCreator` on
+   it: the hub mints the broker's ID token through `generateIdToken`.
+2. **Image reader service account.** Grant it `roles/artifactregistry.reader` on
+   the pod image repository only, never project-wide, and grant the hub runtime
+   identity `roles/iam.serviceAccountTokenCreator` on it.
+
+### Microsoft Entra, the Hussh app registration
+
+1. Supported account types: any organizational directory and personal Microsoft
+   accounts (personal accounts are served through tenant discovery).
+2. API permission: Azure Service Management, delegated `user_impersonation`,
+   and nothing else (no `offline_access`).
+3. Federated credential (issuer type "Other issuer"): issuer
+   `https://accounts.google.com`, subject = the broker's numeric unique id,
+   audience `api://AzureADTokenExchange`.
+4. Redirect URIs on the **Web** platform (the hub redeems the code server-side
+   with the federated client assertion and PKCE):
+   `http://localhost:3000/one/setup/cloud/azure/return` for localhost and
+   `<dev web origin>/one/setup/cloud/azure/return` for dev. Each hub's
+   `HUSSH_AZURE_OAUTH_REDIRECT_URI` must equal its registered value exactly;
+   only `https` or `http://localhost` is accepted.
+
+### Hub configuration
+
+| Variable | Value |
+|---|---|
+| `HUSSH_AZURE_APP_CLIENT_ID` | The app registration's application (client) id |
+| `HUSSH_AZURE_BROKER_SA` | The broker service account email |
+| `HUSSH_AZURE_OAUTH_REDIRECT_URI` | This hub's registered return address |
+| `HUSSH_POD_IMAGE_READER_SA` | The image reader service account email |
+
+Already required and unchanged: `HUSSH_ONE_POD_IMAGE` (the pod release; a tag
+is resolved to its digest), `HUSSH_CONSENT_PLANE_SA` (the hub identity the
+agent's wall admits), `HUSSH_HUB_BASE_URL` (rendered into the agent as its hub
+address), `APP_SIGNING_KEY`, and, for agent-to-hub calls, the dev-only
+`POD_HUB_IDENTITY_AUTH_ENABLED` with migrations 947 and 948 applied.
+
+### Localhost
+
+1. Point Application Default Credentials at the hub identity by impersonation
+   (`gcloud auth application-default login --impersonate-service-account=<hub SA>`).
+   The acting identity must resolve to a service-account email, so a plain user
+   login is refused, and this is the identity holding Token Creator on the broker
+   and the reader.
+2. Run the three terminals (`./bin/hushh proxy`, `backend`, `web`, each with
+   `--mode local`) with the hub variables above in the backend environment.
+3. Sign in with the second Hussh test account (verified phone), open the cloud
+   step and choose Microsoft Azure; the founder completes the Microsoft sign-in.
+4. Hub-to-agent turns work from localhost (a Google ID token for the agent's own
+   address). Azure cannot reach localhost, so agent-to-hub calls (heartbeat,
+   consent verify) need `HUSSH_HUB_BASE_URL` set to a public tunnel to the
+   localhost backend, or are proven on the dev lane.
+
+### Dev
+
+The dev lane is shared; coordinate before dispatching. Add the four hub
+variables to the dev backend (see *Known gaps*), deploy a CI-green SHA, register
+the dev redirect URI, then repeat the localhost steps against the dev web
+origin. Record each result in `config/pod-completion-ledger.yaml` under Azure
+rows.
