@@ -25,6 +25,7 @@ import {
   type KaiStreamEnvelope,
 } from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
+import * as AzureByoc from "@/lib/services/azure-byoc-contract";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
   toDurationBucket,
@@ -1751,6 +1752,31 @@ export class ApiService {
     });
     if (!response.ok) throw new Error("BYOC_AUTHORIZATION_INSTRUCTIONS_FAILED");
     return response.json();
+  }
+
+  /** Connect Azure (contract: azure-byoc-contract.ts): the setup sign-in, optionally for one subscription. */
+  static async beginAzureByocAuthorize(input: { subscriptionId?: string } = {}): Promise<AzureByoc.AzureAuthorizationStart> {
+    const body: Record<string, string> = input.subscriptionId ? { subscriptionId: input.subscriptionId } : {};
+    return AzureByoc.parseAzureAuthorizationStart(await ApiService.postAzureByoc("authorize/begin", body, "AZURE_AUTHORIZE_BEGIN_FAILED"));
+  }
+
+  static async completeAzureByocAuthorize(input: { code: string; state: string }): Promise<AzureByoc.AzureAuthorizeCompletion> {
+    const body = { code: input.code, state: input.state };
+    return AzureByoc.parseAzureAuthorizeCompletion(await ApiService.postAzureByoc("authorize/complete", body, "AZURE_AUTHORIZE_COMPLETE_FAILED"));
+  }
+
+  static async beginAzureByocUpgrade(): Promise<AzureByoc.AzureAuthorizationStart> {
+    return AzureByoc.parseAzureAuthorizationStart(await ApiService.postAzureByoc("upgrade/begin", {}, "AZURE_UPGRADE_BEGIN_FAILED"));
+  }
+
+  private static async postAzureByoc(path: AzureByoc.AzureByocPath, body: Record<string, string>, failure: AzureByoc.AzureByocFailure): Promise<unknown> {
+    const token = await ApiService.getFirebaseToken();
+    const response = await apiFetch(`/api/one/runtime/byoc/azure/${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(body),
+    });
+    return AzureByoc.readAzureByocResponse(response, failure);
   }
 
   static async selectHostedCloud(): Promise<{
