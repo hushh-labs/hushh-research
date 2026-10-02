@@ -38,6 +38,28 @@ def circle_fixture(db, monkeypatch, action):
         CREATE TABLE connection_scope_proposal_events(id BIGSERIAL PRIMARY KEY,
           connection_scope_proposal_id UUID NOT NULL REFERENCES connection_scope_proposals(id),
           event_type TEXT NOT NULL,actor_user_id TEXT,reason TEXT);
+        -- get_circle() left-joins one_location_recipient_keys; sms_schema's
+        -- minimal fixture doesn't create it, so create_or_get_circle's
+        -- read-back 500s without this (see audience_writer_schema, which
+        -- needs it too). Declared inline rather than replaying migration 061
+        -- wholesale: that migration's own indexes assume its full
+        -- one_location_share_grants/one_location_events shapes, which
+        -- collide with the simpler tables sms_schema already created for
+        -- this fixture (both are CREATE TABLE IF NOT EXISTS onto the same
+        -- names, so 061's CREATE INDEX ... (..., expires_at) then fails
+        -- against sms_schema's columns).
+        CREATE TABLE one_location_recipient_keys(
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(), user_id TEXT NOT NULL, key_id TEXT NOT NULL,
+          public_key_jwk JSONB NOT NULL, algorithm TEXT NOT NULL DEFAULT 'ECDH-P256-AES256-GCM',
+          status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());
+        -- get_circle() also selects identity.phone_verified; sms_schema's
+        -- actor_identity_cache (unlike audience_writer_schema's) doesn't
+        -- carry that column.
+        ALTER TABLE actor_identity_cache ADD COLUMN phone_verified BOOLEAN;
+        -- get_circle()'s is_ria EXISTS subquery reads ria_profiles, which
+        -- nothing in this fixture's migration chain creates (mirrors the
+        -- fixture at test_location_command_postgres.py's ria_profiles line).
+        CREATE TABLE ria_profiles(user_id TEXT, verification_status TEXT);
     """)
     migrations = Path(__file__).resolve().parents[2] / "db/migrations"
     for name in (
@@ -365,3 +387,53 @@ async def test_expiry_while_acceptance_waits_for_profile_rolls_back_membership_a
     assert db.execute_raw("SELECT effect_receipt FROM one_action_directive_ledger").data == [
         {"effect_receipt": None}
     ]
+
+
+def test_capability_run_creates_one_circle_and_reads_back_its_receipt(db, monkeypatch):
+    """The direct create-circle capability's replay key is the run id: a retry of
+    the same run returns the Circle it already made, and the receipt read never
+    writes. A run that created nothing raises, so the executor cannot report
+    completion without a Circle."""
+    service, _ = circle_fixture(db, monkeypatch, "rename_circle")
+
+    first, created = service.create_or_get_circle(
+        owner_user_id="owner", name="Family", kind="other", capability_run_id="run-1"
+    )
+    again, created_again = service.create_or_get_circle(
+        owner_user_id="owner", name="Family", kind="other", capability_run_id="run-1"
+    )
+    receipt = service.get_circle_for_capability_run(
+        owner_user_id="owner", capability_run_id="run-1"
+    )
+
+    assert (created, created_again) == (True, False)
+    assert again["id"] == first["id"] == receipt["id"]
+    assert first["name"] == "Family"
+    families = db.execute_raw(
+        "SELECT COUNT(*) AS n FROM one_location_circles WHERE owner_user_id='owner' AND name='Family'"
+    ).data[0]["n"]
+    assert families == 1
+    with pytest.raises(OneLocationCircleError) as missing:
+        service.get_circle_for_capability_run(owner_user_id="owner", capability_run_id="run-2")
+    assert missing.value.code == "LOCATION_CAPABILITY_RUN_INVALID"
+
+
+def test_concurrent_retries_of_one_capability_run_create_one_circle(db, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    service, _ = circle_fixture(db, monkeypatch, "rename_circle")
+
+    def attempt(_):
+        return service.create_or_get_circle(
+            owner_user_id="owner", name="Trip", kind="friends", capability_run_id="run-race"
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(attempt, range(4)))
+
+    assert sorted(created for _, created in results) == [False, False, False, True]
+    assert len({circle["id"] for circle, _ in results}) == 1
+    trips = db.execute_raw(
+        "SELECT COUNT(*) AS n FROM one_location_circles WHERE owner_user_id='owner' AND name='Trip'"
+    ).data[0]["n"]
+    assert trips == 1
