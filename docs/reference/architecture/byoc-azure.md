@@ -181,7 +181,9 @@ reaches each one through a typed capability in
 - **Receipt.** The receipt (resources remaining, the vault's earliest purge date,
   "delete the resource group …") is retained once on the registry row under the
   reserved attempt (dev-only migration 949, validated against the reserved
-  snapshot). The account stays refused while those resources exist. The person
+  snapshot). A database preflight proves the receipt can be retained before the
+  agent erases anything, because neither the erase nor Hussh's own revocation can
+  be repeated. The account stays refused while those resources exist. The person
   deletes the resource group; Hussh no longer can.
 - **Not enumerated by the agent:** orphan records from lost append races and Files
   objects (Files is off). Both are sealed under the destroyed key.

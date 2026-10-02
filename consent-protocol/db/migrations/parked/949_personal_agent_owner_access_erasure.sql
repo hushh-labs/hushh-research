@@ -91,6 +91,32 @@ EXCEPTION WHEN invalid_datetime_format OR datetime_field_overflow THEN RETURN fa
 END;
 $$;
 
+-- Asked BEFORE anything irreversible: the agent's crypto-erase and Hussh's own
+-- revocation cannot be repeated, so a receipt that could not be retained afterwards
+-- would be lost for good. True only for this exact reserved owner Azure attempt,
+-- with the registry guard installed and no receipt retained yet.
+CREATE OR REPLACE FUNCTION public.verify_erasure_owner_access_preflight(
+  owner_id text, attempt_id text, expected jsonb
+) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path = public AS $$
+DECLARE current_row public.personal_agent_registry%ROWTYPE; reservation jsonb;
+BEGIN
+  SELECT * INTO current_row FROM public.personal_agent_registry WHERE user_id=owner_id;
+  IF NOT FOUND OR current_row.status IS DISTINCT FROM 'suspended' THEN RETURN false; END IF;
+  reservation := current_row.backend_metadata->'erasure';
+  RETURN reservation IS NOT DISTINCT FROM expected
+     AND reservation->>'ownerId' IS NOT DISTINCT FROM owner_id
+     AND reservation->>'attemptId' IS NOT DISTINCT FROM attempt_id
+     AND reservation->>'phase' IS NOT DISTINCT FROM 'reserved'
+     AND reservation->'registrySnapshot'->>'deployment_target' IS NOT DISTINCT FROM 'user_azure'
+     AND NOT (reservation ? 'ownerAccessErasure')
+     AND EXISTS (SELECT 1 FROM pg_trigger
+       WHERE tgrelid='public.personal_agent_registry'::regclass
+         AND tgname='zz_personal_agent_erasure_registry' AND tgenabled IN ('O','A')
+         AND tgtype=27 AND tgnargs=0 AND tgqual IS NULL
+         AND tgfoid='public.guard_personal_agent_erasure_registry()'::regprocedure);
+END;
+$$;
+
 CREATE OR REPLACE FUNCTION public.retain_erasure_owner_access(
   owner_id text, attempt_id text, expected jsonb, receipt jsonb
 ) RETURNS boolean LANGUAGE plpgsql SET search_path = public AS $$

@@ -378,6 +378,22 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def verify_erasure_owner_access_preflight(
+        self, *, user_id: str, reservation: dict
+    ) -> bool:
+        """Before anything irreversible: can this attempt's receipt be retained at all?"""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_owner_access_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
     async def retain_erasure_owner_access(
         self, *, user_id: str, reservation: dict, receipt: dict
     ) -> bool:

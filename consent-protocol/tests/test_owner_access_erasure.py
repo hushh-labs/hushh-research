@@ -79,6 +79,11 @@ class _Registry:
         self.row = {**snapshot, "status": "suspended"}
         self.row["backend_metadata"] = {**snapshot["backend_metadata"], "erasure": self.reservation}
         self.retained: list[dict] = []
+        self.receipt_storage_ready = True
+
+    async def verify_erasure_owner_access_preflight(self, *, user_id, reservation) -> bool:
+        erasure = self.row["backend_metadata"]["erasure"]
+        return self.receipt_storage_ready and reservation == erasure == self.reservation
 
     async def reserve_erasure(self, *, user_id: str) -> dict:
         return copy.deepcopy(self.row["backend_metadata"]["erasure"])
@@ -191,6 +196,16 @@ async def test_a_retry_never_asks_the_pod_again_and_stays_refused(arm, remaining
     with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
         await _service(registry).deprovision(user_id=OWNER)
     assert len(pod_calls) == 1 and len(arm.writes()) == writes and len(registry.retained) == 1
+
+
+async def test_without_receipt_storage_nothing_irreversible_starts(arm, remaining, monkeypatch):
+    """The erase and Hussh's own revocation cannot be repeated; a lost receipt is final."""
+    registry, pod_calls = _Registry(_snapshot(arm)), []
+    registry.receipt_storage_ready = False
+    monkeypatch.setattr(pod_migration_transport, "crypto_erase_for_erasure", _pod(arm, pod_calls))
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    assert pod_calls == [] and arm.writes() == [] and registry.retained == []
 
 
 async def test_an_unconfirmed_crypto_erase_revokes_and_retains_nothing(arm, remaining, monkeypatch):

@@ -134,11 +134,21 @@ def _retain(pg, reservation: dict, receipt: dict) -> bool:
     )[0][0]
 
 
+def _preflight(pg, reservation: dict) -> bool:
+    return pg.execute(
+        "SELECT verify_erasure_owner_access_preflight(%s,%s,%s::jsonb)",
+        (OWNER, reservation["attemptId"], json.dumps(reservation)),
+    )[0][0]
+
+
 @_needs_pg
 def test_the_receipt_is_retained_once_and_bound_to_the_attempt(pg):
     reservation, receipt = _reserve(pg), _receipt()
+    assert _preflight(pg, reservation) is True
+    assert _preflight(pg, {**reservation, "attemptId": "attempt-2"}) is False
     assert _retain(pg, {**reservation, "attemptId": "attempt-2"}, receipt) is False
     assert _retain(pg, reservation, receipt) is True
+    assert _preflight(pg, reservation) is False  # never a second irreversible erase
     assert _retain(pg, reservation, receipt) is True  # an identical retry is acknowledged
     assert (
         _retain(pg, reservation, {**receipt, "nextStep": f"Delete {_resource_group()} now"})
@@ -176,6 +186,7 @@ def test_a_receipt_that_does_not_describe_this_agent_is_refused(pg, mutation):
 @_needs_pg
 def test_only_an_owner_azure_reservation_takes_the_receipt(pg):
     reservation = _reserve(pg, target="user_gcp")
+    assert _preflight(pg, reservation) is False
     assert _retain(pg, reservation, _receipt()) is False
 
 

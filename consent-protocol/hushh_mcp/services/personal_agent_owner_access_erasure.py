@@ -25,6 +25,7 @@ from hushh_mcp.services.compute_backend import (
     OwnerAccessErasableBackend,
     PodSpec,
     adoption_expectations,
+    is_owner_cloud_target,
 )
 from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 
@@ -56,7 +57,7 @@ def owner_access_backend(
     None hands the reservation to the existing erasure chain unchanged. A row whose
     backend cannot even be resolved is that chain's to refuse, exactly as before.
     """
-    if not isinstance(row, dict) or not row.get("deployment_target"):
+    if not isinstance(row, dict) or not is_owner_cloud_target(row.get("deployment_target")):
         return None
     spec = _snapshot_spec(row)
     try:
@@ -162,6 +163,11 @@ async def erase_reserved_owner_access(
     backend, spec = resolved
     _require_reserved(reservation, user_id=user_id, row=row, backend=backend)
     if reservation.get(RECEIPT_FIELD) is None:
+        # The erase and the hub's own revocation cannot be repeated; prove the receipt
+        # can be retained before either, or a lost receipt is the only outcome.
+        preflight = getattr(service._registry, "verify_erasure_owner_access_preflight", None)
+        if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
+            raise RuntimeError("owner-access erasure receipt storage unavailable")
         receipt = await _erase(
             service, user_id=user_id, reservation=reservation, row=row, backend=backend, spec=spec
         )

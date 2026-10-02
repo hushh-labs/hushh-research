@@ -193,5 +193,6 @@ END;
 $$;
 
 DROP FUNCTION IF EXISTS public.retain_erasure_owner_access(text, text, jsonb, jsonb);
+DROP FUNCTION IF EXISTS public.verify_erasure_owner_access_preflight(text, text, jsonb);
 DROP FUNCTION IF EXISTS public.valid_erasure_owner_access(jsonb, jsonb);
 COMMIT;
