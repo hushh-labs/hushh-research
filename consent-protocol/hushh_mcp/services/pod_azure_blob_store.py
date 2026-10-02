@@ -154,8 +154,9 @@ class AzureBlobObjectStore:
     def _send(self, method: str, url: str, extra: dict[str, str], **kwargs: Any) -> Any:
         """One request, re-minting the bearer ONCE if it is refused.
 
-        Every request here is safe to repeat: reads are reads and every write
-        carries a precondition a refused attempt cannot have consumed.
+        Every request here is safe to repeat: reads are reads, every write
+        carries a precondition a refused attempt cannot have consumed, and a
+        refused delete removed nothing.
         """
 
         def attempt() -> Any:
@@ -214,6 +215,16 @@ class AzureBlobObjectStore:
             return None  # the version we expected is gone: also a lost swap
         raise PodBlobStorageError("pod storage write unconfirmed")
 
+    def delete_blocking(self, key: str) -> bool:
+        """202 removed it; only 404 ``BlobNotFound`` is already gone; 403 raised in _send."""
+        response = self._send("delete", self._url(key), {"x-ms-delete-snapshots": "include"})
+        status = getattr(response, "status_code", 0)
+        if status == 202:
+            return True
+        if status == 404 and _error_code(response) == "BlobNotFound":
+            return False
+        raise PodBlobStorageError("pod storage delete unconfirmed")
+
     async def get(self, key: str) -> Optional[bytes]:
         data, _ = await self.get_with_generation(key)
         return data
@@ -229,6 +240,9 @@ class AzureBlobObjectStore:
         self, key: str, data: bytes, expected: ObjectVersion
     ) -> Optional[ObjectVersion]:
         return await run_write_to_completion(self.put_if_generation_blocking, key, data, expected)
+
+    async def delete(self, key: str) -> bool:
+        return await asyncio.to_thread(self.delete_blocking, key)
 
 
 __all__ = [

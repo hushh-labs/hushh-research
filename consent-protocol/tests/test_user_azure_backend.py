@@ -165,7 +165,7 @@ async def test_a_refused_read_of_a_present_agent_is_never_gone(arm):
     assert arm.writes() == []
 
 
-async def _never_called() -> dict:  # pragma: no cover - a refused erasure never reaches it
+async def _never_called(_resume: dict) -> dict:  # pragma: no cover - never reached
     raise AssertionError("crypto-erase ran without an observed agent")
 
 
@@ -277,14 +277,15 @@ async def test_files_activation_is_refused_on_azure(arm):
 async def test_erasure_crypto_erases_first_and_revokes_hussh_last(arm):
     backend, order = _backend(arm), []
 
-    async def crypto_erase():
-        order.append(("ERASE", len(arm.writes())))
+    async def crypto_erase(resume: dict) -> dict:
+        order.append(("ERASE", len(arm.writes()), resume))
         return {"erased": True, "objects": 3}
 
     nonce = arm.resources[backend.app_id]["tags"]["hussh-setup-nonce"]
     receipt = await backend.erase_owner_access(_spec(), crypto_erase=crypto_erase)
     deletes = [path for method, path in arm.writes() if method == "DELETE"]
-    assert order == [("ERASE", 0)]
+    # The pod erased before any write, handed what a resumed revocation needs.
+    assert order == [("ERASE", 0, {"setupNonce": nonce})]
     group = f"/subscriptions/{_SUB}/resourceGroups/{resource_group_name(_HUSHH_ID)}"
     inputs = backend.plan_inputs(_HUSHH_ID, nonce)
     scopes = Scopes(inputs, resource_names(inputs))
@@ -319,11 +320,60 @@ async def test_erasure_crypto_erases_first_and_revokes_hussh_last(arm):
 async def test_an_unconfirmed_crypto_erase_revokes_nothing(arm):
     backend = _backend(arm)
 
-    async def crypto_erase():
+    async def crypto_erase(_resume: dict) -> dict:
         return {"erased": False}
 
     with pytest.raises(Exception, match="nothing was revoked"):
         await backend.erase_owner_access(_spec(), crypto_erase=crypto_erase)
+    assert arm.writes() == []
+
+
+def _agent_erased(arm: FakeArm, backend: UserAzureBackend, **overrides) -> dict:
+    uid = arm.resources[backend.app_id]["tags"][INCARNATION_TAG]
+    return {"erased": True, "hushhId": _HUSHH_ID, "serviceUid": uid, **overrides}
+
+
+async def test_a_resumed_revocation_reads_nothing_and_revokes_hussh_last(arm):
+    """Hussh's agent observer grant may be gone already; only the removal grant is used."""
+    backend = _backend(arm)
+    tags = arm.resources[backend.app_id]["tags"]
+    nonce, uid = tags["hussh-setup-nonce"], tags[INCARNATION_TAG]
+    arm.forbidden.add(backend.app_id)
+    receipt = await backend.resume_owner_access_revocation(
+        _spec(expected_service_uid=uid),
+        agent_erased=_agent_erased(arm, backend),
+        resume={"setupNonce": nonce},
+    )
+    assert [method for method, _path, _body in arm.calls if method != "DELETE"] == []
+    inputs = backend.plan_inputs(_HUSHH_ID, nonce)
+    scopes = Scopes(inputs, resource_names(inputs))
+    deletes = [path for method, path in arm.writes() if method == "DELETE"]
+    assert len(deletes) == 8 and deletes[-1] == role_assignment_path(
+        scopes.group, removal_role_id(inputs), HUSSH_PRINCIPAL
+    )
+    assert receipt["agentErased"] == _agent_erased(arm, backend)
+    assert receipt["husshAccessRevoked"] == deletes[5:]
+
+
+@pytest.mark.parametrize(
+    "agent, resume",
+    [
+        ({"serviceUid": "another-incarnation"}, None),
+        ({"hushhId": "ha1_someone_else"}, None),
+        ({"erased": False}, None),
+        ({}, {"setupNonce": "not-a-nonce"}),
+        ({}, {"setupNonce": "0123456789abcdef", "extra": "x"}),
+    ],
+)
+async def test_a_checkpoint_for_another_agent_resumes_nothing(arm, agent, resume):
+    backend = _backend(arm)
+    tags = arm.resources[backend.app_id]["tags"]
+    with pytest.raises(Exception, match="nothing was revoked"):
+        await backend.resume_owner_access_revocation(
+            _spec(expected_service_uid=tags[INCARNATION_TAG]),
+            agent_erased=_agent_erased(arm, backend, **agent),
+            resume=resume or {"setupNonce": tags["hussh-setup-nonce"]},
+        )
     assert arm.writes() == []
 
 

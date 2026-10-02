@@ -195,8 +195,11 @@ class _FakeRegistry:
 # -- the default client path, which no test reached until now -------------------
 
 
-async def test_default_client_path_builds_from_the_row(_no_key_refresh, monkeypatch):
+@pytest.mark.parametrize("owner_cloud", [None, {"deployment_target": "user_gcp"}])
+async def test_default_client_path_builds_from_the_row(_no_key_refresh, monkeypatch, owner_cloud):
     """The branch every existing heal test skipped by passing `client=`.
+
+    An owner GCP row stays on this path: its backend declares no restart capability.
 
     `heal_pod` used to call `GcpRunClient()` with no arguments -- `project` and
     `region` are required keyword-only -- and that call sat OUTSIDE the try block,
@@ -225,12 +228,76 @@ async def test_default_client_path_builds_from_the_row(_no_key_refresh, monkeypa
             "url": "https://one-pod-h1.run.app",
             "project": "hushh-pda-dev",
             "region": "us-central1",
-        }
+        },
+        **(owner_cloud or {}),
+        user_cloud_project="hushh-pda-dev",
     )
     assert await adapters.heal_pod(row) is True
     # Bound to the pod's OWN project, not to ambient process config -- which now
     # matters, because those two are known to differ on the dev lane.
     assert built == {"project": "hushh-pda-dev", "region": "us-central1"}
+
+
+# -- an owner Azure pod heals through its backend, never the hub's Cloud Run client --
+
+
+@pytest.fixture
+def azure_row(monkeypatch):
+    from hushh_mcp.services import azure_agent_setup as setup
+    from hushh_mcp.services.azure_setup_plan import resource_group_name
+    from hushh_mcp.services.user_azure_backend import UserAzureBackend
+    from tests.azure_arm_fake import FakeArm
+    from tests.test_user_azure_backend import _HUSHH_ID, _OLD, _SOURCE, _SUB, _TENANT, _Http, _spec
+
+    monkeypatch.setenv(
+        "HUSSH_CONSENT_PLANE_SA", "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+    )
+    arm = FakeArm()
+    setup.run_agent_setup(
+        access_token="person-token-for-tests", tenant_id=_TENANT, subscription_id=_SUB,  # noqa: S106
+        location="eastus2", spec=_spec(), source_image=f"{_SOURCE}@{_OLD}",
+        advance=lambda _s: None, arm=arm, hussh_principal_id="88888888-8888-8888-8888-888888888888",
+        http=_Http(), sleep=lambda _s: None,
+    )  # fmt: skip
+    arm.calls.clear()
+    monkeypatch.setattr(UserAzureBackend, "_observer", lambda self: arm)
+
+    def _refuse(*_args, **_kwargs):
+        raise AssertionError("the hub's Cloud Run client reached an owner Azure pod")
+
+    monkeypatch.setattr("hushh_mcp.services.gcp_run_client.GcpRunClient", _refuse)
+    group = resource_group_name(_HUSHH_ID)
+    app = f"/subscriptions/{_SUB}/resourceGroups/{group}/providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+    row = _row(
+        hushh_id=_HUSHH_ID, external_agent_id=app, deployment_target="user_azure",
+        user_cloud_tenant_id=_TENANT, user_cloud_subscription_id=_SUB,
+        user_cloud_resource_group=group, user_cloud_region="eastus2",
+        backend_metadata={"url": "https://ca-hussh-one-pod.example", "region": "eastus2"},
+    )  # fmt: skip
+    return arm, row
+
+
+async def test_an_owner_azure_heal_is_the_observers_restart_action(azure_row, monkeypatch):
+    import hushh_mcp.services.pod_key_collector as collector
+
+    arm, row = azure_row
+    refreshed: list[dict] = []
+
+    async def _refresh(row_):
+        refreshed.append(row_)
+
+    monkeypatch.setattr(collector, "refresh_pod_key", _refresh)
+    assert await adapters.heal_pod(row) is True
+    revision = arm.resources[row["external_agent_id"]]["properties"]["latestRevisionName"]
+    assert arm.writes() == [("POST", f"{row['external_agent_id']}/revisions/{revision}/restart")]
+    assert refreshed == [row]
+
+
+async def test_a_refused_owner_azure_restart_reports_false(azure_row, _no_key_refresh):
+    arm, row = azure_row
+    arm.forbidden.add(row["external_agent_id"])
+    assert await adapters.heal_pod(row) is False
+    assert arm.writes() == []
 
 
 async def test_default_client_path_refuses_without_a_location(_no_key_refresh, monkeypatch):

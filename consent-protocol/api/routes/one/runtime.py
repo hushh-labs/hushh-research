@@ -1044,6 +1044,7 @@ class ByocSetupStatusResponse(BaseModel):
     stage: str
     stages: list[dict]
     projectId: str
+    jobId: str = ""  # lets a surface that started a job show only that job's record
     errorCode: str | None = None
     errorMessage: str | None = None
     stale: bool = False
@@ -1266,6 +1267,7 @@ async def byoc_setup_status(
         stage=str(row.get("stage") or ""),
         stages=list(row.get("stages") or []),
         projectId=str(row.get("project_id") or ""),
+        jobId=str(row.get("job_id") or ""),
         errorCode=row.get("error_code"),
         errorMessage=row.get("error_message"),
         stale=jobs.is_stale(row),

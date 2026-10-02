@@ -830,3 +830,16 @@ tests/test_azure_setup_job.py
 tests/test_byoc_azure_routes.py
 tests/test_azure_agent_upgrade_handoff.py
 tests/test_azure_upgrade_admission.py
+# Azure lane lifecycle (2026-10-02): in-pod crypto-erase behind the erasure fence,
+# owner-access erasure through a typed capability, heal through the backend, and
+# read-only recovery of a crashed owner Azure upgrade.
+tests/test_pod_crypto_erase.py
+tests/test_owner_access_erasure.py
+tests/test_owner_access_erasure_migration.py
+tests/test_azure_upgrade_recovery.py
+# Azure lane honest-capabilities (2026-10-02): a non-Gemini head (Azure OpenAI,
+# Puppy) is built without Google Search and says so; /pod/info reports webSearch.
+tests/test_one_web_search_honesty.py
+# Azure lane image-source (2026-10-02): the importImage source credential, minted by
+# impersonating the dedicated image reader, never the hub's own token.
+tests/test_azure_image_source.py

@@ -11,7 +11,7 @@ contracts independent of provider adapters.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -331,6 +331,35 @@ class ComputeBackend(Protocol):
     def render_deploy_config(self, spec: PodSpec) -> dict[str, Any]: ...
 
     async def health(self) -> bool: ...
+
+
+# Optional lifecycle capabilities, outside the five methods every provider owes: the
+# shared layer asks isinstance(backend, <capability>), never a provider id or getattr.
+
+
+@runtime_checkable
+class RestartableBackend(Protocol):
+    """Heal in place with standing authority; never a re-provision."""
+
+    async def restart(self, spec: PodSpec) -> dict[str, Any]: ...
+
+
+@runtime_checkable
+class OwnerAccessErasableBackend(Protocol):
+    """Erase without delete authority. ``crypto_erase(resume)`` returns only once the pod's
+    confirmation is checkpointed with ``resume``; revocation (the hub's last) resumes from it."""
+
+    backend_id: str
+
+    async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]: ...
+
+    async def erase_owner_access(
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> dict[str, Any]: ...
+
+    async def resume_owner_access_revocation(
+        self, spec: PodSpec, *, agent_erased: dict[str, Any], resume: dict[str, str]
+    ) -> dict[str, Any]: ...
 
 
 class NullBackend:

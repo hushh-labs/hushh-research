@@ -28,6 +28,7 @@ from typing import Any, Callable, Optional
 from hushh_mcp.services import azure_federation as federation
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
+from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_keyed import digest_matches
 from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, SetupApplier
 from hushh_mcp.services.azure_setup_plan import (
@@ -203,8 +204,14 @@ def run_agent_setup(
     http: Any = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> AzureSetupResult:
-    """Every setup stage before and including ``proving``. Synchronous."""
+    """Every setup stage before and including ``proving``. Synchronous.
+
+    ``image_credentials`` defaults to the configured image reader
+    (``azure_image_source``): minted at the import call, never the hub's own token.
+    """
     registry, repository, digest = parse_source_image(source_image)
+    if image_credentials is None:
+        image_credentials = import_credentials(registry)
     arm = arm or ArmClient(access_token, sleep=sleep)
     nonce = bound_nonce(arm, subscription_id=subscription_id, hushh_id=spec.hushh_id)
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id

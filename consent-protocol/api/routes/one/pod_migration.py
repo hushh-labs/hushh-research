@@ -213,6 +213,20 @@ def _require_erasure_caller(payload: dict[str, Any], proof: str | None, *, purpo
     _require_hub_caller(proof, audience=erasure_proof_audience(payload, purpose=purpose))
 
 
+async def _fenced_log(body: ErasureFenceRequest) -> Any:
+    """Close Files, log and memory admission for one reserved attempt; idempotent."""
+    from hushh_mcp.services.pod_files.runtime import fence_files
+    from hushh_mcp.services.pod_memory_bank import fence_memory_bank_admission
+
+    log = _commit_log()
+    await fence_files()
+    await log.fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
+    await fence_memory_bank_admission(
+        store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId
+    )
+    return log
+
+
 @router.post("/erasure/fence")
 async def fence_erasure(
     body: ErasureFenceRequest,
@@ -222,19 +236,45 @@ async def fence_erasure(
     payload = body.model_dump()
     _require_erasure_caller(payload, x_hussh_hub_proof, purpose="fence")
     try:
-        from hushh_mcp.services.pod_memory_bank import fence_memory_bank_admission
-
-        log = _commit_log()
-        from hushh_mcp.services.pod_files.runtime import fence_files
-
-        await fence_files()
-        await log.fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
-        await fence_memory_bank_admission(
-            store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId
-        )
+        await _fenced_log(body)
     except Exception:
         raise HTTPException(status_code=409, detail="erasure fence incomplete") from None
     return {"status": "fenced", **payload}
+
+
+@router.post("/erasure/crypto-erase")
+async def crypto_erase_pod(
+    body: ErasureFenceRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Fence this attempt, then destroy the wrapped key and the pod's objects.
+
+    Its own proof purpose, so a fence or memory proof can never authorize it. Safe to
+    repeat for the same attempt: a retry finishes from the tombstone without the key.
+    """
+    payload = body.model_dump()
+    _require_erasure_caller(payload, x_hussh_hub_proof, purpose="crypto-erase")
+    try:
+        from hushh_mcp.services.byoc_key_custody import (
+            WRAPPED_KEY_OBJECT_ENV,
+            WRAPPED_LOG_KEY_OBJECT,
+        )
+        from hushh_mcp.services.pod_crypto_erase import crypto_erase
+        from hushh_mcp.services.pod_storage import resolve_pod_object_store
+
+        counts = await crypto_erase(
+            store=resolve_pod_object_store(),
+            owner_id=body.hushhId,
+            attempt_id=body.attemptId,
+            wrapped_key_object=(
+                os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT
+            ).strip(),
+            open_fenced_log=lambda: _fenced_log(body),
+        )
+    except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
+        logger.warning("pod_migration.crypto_erase_incomplete")
+        raise HTTPException(status_code=409, detail="erasure crypto-erase incomplete") from None
+    return {"status": "erased", "erased": True, **payload, **counts}
 
 
 @router.post("/erasure/memory/binding")

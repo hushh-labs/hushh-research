@@ -42,6 +42,8 @@ _LAYER_ONE = (
     "hushh_mcp/services/personal_agent_provisioning_service.py",
     "hushh_mcp/services/personal_agent_registry_repo.py",
     "hushh_mcp/services/personal_agent_reconcile_worker.py",
+    # Owner-access erasure is orchestration too: the capability selects it, never a name.
+    "hushh_mcp/services/personal_agent_owner_access_erasure.py",
 )
 
 # Provider-specific vocabulary. Deliberately the PRODUCT names rather than generic

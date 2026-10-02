@@ -368,6 +368,7 @@ async def test_status_route_serves_none_then_the_live_record(monkeypatch):
 
     empty = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
     assert empty.status == "none"
+    assert empty.jobId == ""
 
     calls: list[str] = []
     _patch_chain(monkeypatch, oauth, calls)
@@ -387,5 +388,7 @@ async def test_status_route_serves_none_then_the_live_record(monkeypatch):
     status = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
     assert status.status == "recorded"
     assert status.projectId == "hussh-one-fresh1"
+    # The record names its job, so a surface that started one can tell it from another.
+    assert status.jobId and status.jobId == _FakeJobRepo.store["u1"]["job_id"]
     assert [entry["stage"] for entry in status.stages][-1] == "proving"
     assert status.stale is False

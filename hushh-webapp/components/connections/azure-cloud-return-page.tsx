@@ -41,7 +41,7 @@ type ReturnView =
   | { kind: "completing" }
   | { kind: "redirecting" }
   | { kind: "needs_subscription"; subscriptions: AzureSubscription[] }
-  | { kind: "upgrading" }
+  | { kind: "upgrading"; jobId: string }
   | { kind: "error"; message: string };
 
 const RETURN_MESSAGES = {
@@ -76,7 +76,7 @@ function returnLinkProblem(input: {
 
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
   if (result.status === "setup_started") return { kind: "redirecting" };
-  if (result.status === "upgrade_started") return { kind: "upgrading" };
+  if (result.status === "upgrade_started") return { kind: "upgrading", jobId: result.jobId };
   return { kind: "needs_subscription", subscriptions: result.subscriptions };
 }
 
@@ -193,7 +193,11 @@ export function AzureCloudReturnPage() {
             onContinue={(subscriptionId) => start("setup", subscriptionId)}
           />
         ) : view.kind === "upgrading" ? (
-          <AzureUpgradeProgress onRetry={() => start("upgrade")} retrying={signIn.starting} />
+          <AzureUpgradeProgress
+            jobId={view.jobId}
+            onRetry={() => start("upgrade")}
+            retrying={signIn.starting}
+          />
         ) : (
           <ReturnError
             message={view.message}

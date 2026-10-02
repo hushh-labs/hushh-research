@@ -9,7 +9,8 @@ The Azure twin of the GCP path in ``byoc_key_custody``, with the same promises:
 3. The wrapped form is written **create-only** to the person's own blob container.
    A lost race adopts the winner's key; a read failure other than absence refuses
    rather than minting, because a second key would start a second history and
-   present it as the same agent.
+   present it as the same agent. So does absence after a crypto-erase
+   (``pod_crypto_erase`` leaves a tombstone): an erased agent never boots again.
 4. Later boots unwrap through Key Vault (``POST {key}/unwrapkey``, api-version 7.4).
 
 The pod's identity holds ``Key Vault Crypto Service Encryption User`` at key scope
@@ -199,6 +200,14 @@ def _wrap_and_prove(dek: bytes, key: KeyVaultKey, vault: _Vault) -> bytes:
     return _envelope(key, wrapped)
 
 
+def _refuse_after_erasure(store: Any) -> None:
+    """An erased agent's missing key is not a first boot: never mint a second history."""
+    from hushh_mcp.services.pod_crypto_erase import ERASURE_TOMBSTONE_OBJECT  # noqa: PLC0415
+
+    if store.get_with_generation_blocking(ERASURE_TOMBSTONE_OBJECT)[0] is not None:
+        raise PodKeyVaultCustodyError("this agent was erased; refusing to mint a replacement key")
+
+
 def resolve_key_vault_log_key(
     *,
     store: Any = None,
@@ -229,6 +238,7 @@ def resolve_key_vault_log_key(
     stored, _ = store.get_with_generation_blocking(obj)
     if stored is not None:
         return _opened(key, stored, vault)
+    _refuse_after_erasure(store)
     dek = generate_dek()
     if store.put_if_generation_blocking(obj, _wrap_and_prove(dek, key, vault), ABSENT) is not None:
         logger.info("key_vault_custody.log_key_created")

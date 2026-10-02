@@ -14,13 +14,16 @@ The new revision's suffix is derived from the attempt id, so the acknowledgement
 names exactly the revision this attempt created. The previous revision keeps serving
 until the new one is ready (single revision mode activates the new one only then).
 Files background organization is not available on Azure yet, so a Files plan refuses.
+The import reads the source as the configured image reader (``azure_image_source``),
+minted inside the fenced section so a refused credential releases the drained agent.
 """
 
 from __future__ import annotations
 
 import copy
 import logging
-from typing import TYPE_CHECKING, Any
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any, Optional
 
 from hushh_mcp.services.azure_agent_setup import binding_is_valid, parse_source_image
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
@@ -29,6 +32,7 @@ from hushh_mcp.services.azure_container_app_renderer import (
     image_reference,
     refuse_metered_configuration,
 )
+from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_setup_applier import resolve
 from hushh_mcp.services.azure_setup_plan import (
     CONTAINER_APP_NAME,
@@ -38,6 +42,7 @@ from hushh_mcp.services.azure_setup_plan import (
     resource_names,
 )
 from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
+from hushh_mcp.services.pod_release import is_immutable_image_reference
 
 if TYPE_CHECKING:
     from hushh_mcp.services.user_azure_backend import UserAzureBackend
@@ -110,12 +115,11 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     handoff = _prepare_handoff(spec, app)
     try:
         step = import_image_step(scopes, registry, repository)
-        arm.post(
-            step.path,
-            api_version=API_VERSIONS[step.api],
-            body=resolve(step.body, {"imageDigest": digest}),
-            op="importing_image",
-        )
+        body = resolve(step.body, {"imageDigest": digest})
+        credentials = import_credentials(registry)
+        if credentials is not None:
+            body["source"]["credentials"] = credentials()
+        arm.post(step.path, api_version=API_VERSIONS[step.api], body=body, op="importing_image")
         current = arm.get(backend.app_id, api_version=api, op="upgrade")
         if _fence(current, spec, expected) != (nonce, created):
             raise RuntimeError("the agent changed while its image was imported; nothing replaced")
@@ -213,6 +217,101 @@ def _release_handoff(handoff: Any, spec: PodSpec) -> None:
         logger.info("user_azure_backend.handoff_release_failed", exc_info=True)
 
 
+#: App provisioning states after which ARM is no longer applying the replacement.
+_SETTLED_APP_STATES = frozenset({"Succeeded", "Failed", "Canceled"})
+
+
+def upgrade_verdict(
+    app: dict[str, Any],
+    *,
+    revision: str,
+    image: str,
+    read_revision: Callable[[], Optional[dict[str, Any]]],
+) -> Optional[str]:
+    """``live``, ``failed``, or None while the platform has not decided.
+
+    Failed only on a definitive platform verdict: the attempt's revision failed to
+    provision or to run, or ARM settled without ever creating it. A revision still
+    activating keeps the lease (None), because calling it failed would record the old
+    image while the new one may yet start serving.
+    """
+    properties = app.get("properties") or {}
+    latest = properties.get("latestRevisionName")
+    if (
+        latest == revision
+        and properties.get("latestReadyRevisionName") == revision
+        and properties.get("provisioningState") == "Succeeded"
+    ):
+        if _image(app) != image:
+            raise RuntimeError("the acknowledged replacement changed; reconcile before resolving")
+        return "live"
+    resource = read_revision()
+    if resource is not None:
+        state = resource.get("properties") or {}
+        return (
+            "failed"
+            if "Failed" in (state.get("provisioningState"), state.get("runningState"))
+            else None
+        )
+    if latest != revision and properties.get("provisioningState") in _SETTLED_APP_STATES:
+        return "failed"
+    return None
+
+
+def observe_upgrade(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    receipt: dict[str, Any],
+    observer: ArmClient,
+) -> Optional[BackendHandle]:
+    """Resolve a crashed update's lease from the observer's reads alone; writes nothing.
+
+    The revision name derives from the attempt id, so the observer reads exactly the
+    revision this attempt created. No person token is needed to read, and nothing
+    here can start an update, which still needs the person's sign-in.
+    """
+    expected, attempt = str(spec.expected_service_uid or ""), str(spec.upgrade_attempt_id or "")
+    if not expected or not attempt:
+        raise RuntimeError("upgrade recovery authority unavailable")
+    revision = f"{CONTAINER_APP_NAME}--{revision_suffix(attempt)}"
+    image = str(receipt.get("image") or "")
+    if (
+        receipt.get("version") != 1
+        or receipt.get("service") != backend.app_id
+        or receipt.get("serviceUid") != expected
+        or receipt.get("attemptId") != attempt
+        or receipt.get("revision") != revision
+        or not is_immutable_image_reference(image)
+    ):
+        raise RuntimeError("upgrade recovery receipt binding invalid")
+    observation = backend.observe_sync()
+    if not observation.present:
+        raise observation.refusal("observe the update of")
+    _fence(observation.app, spec, expected)
+    handle = backend.verified_handle(spec.hushh_id, observation)
+    verdict = upgrade_verdict(
+        observation.app,
+        revision=revision,
+        image=image,
+        read_revision=lambda: observer.get_or_none(
+            f"{backend.app_id}/revisions/{revision}",
+            api_version=API_VERSIONS["container_apps"],
+            op="observe_upgrade",
+        ),
+    )
+    if verdict == "live":
+        return _with_metadata(handle, upgraded=True, source_image=receipt.get("targetImage") or "")
+    if verdict is None:
+        return None
+    return BackendHandle(
+        external_agent_id=handle.external_agent_id,
+        a2a_route=handle.a2a_route,
+        status="failed",
+        backend=handle.backend,
+        backend_metadata={"image": observation.image, "failedRevision": revision},
+    )
+
+
 def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
     return BackendHandle(
         external_agent_id=handle.external_agent_id,
@@ -223,4 +322,10 @@ def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
     )
 
 
-__all__ = ["replacement_body", "revision_suffix", "upgrade_agent"]
+__all__ = [
+    "observe_upgrade",
+    "replacement_body",
+    "revision_suffix",
+    "upgrade_agent",
+    "upgrade_verdict",
+]

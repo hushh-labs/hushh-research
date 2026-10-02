@@ -122,6 +122,7 @@ from hushh_mcp.services.personal_agent_identity_service import (
     mint_billing_space_id,
     mint_hushh_id,
 )
+from hushh_mcp.services.personal_agent_owner_access_erasure import erase_reserved_owner_access
 from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
     parse_pod_public_key,
@@ -3629,6 +3630,8 @@ class PersonalAgentProvisioningService:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
+                    if await erase_reserved_owner_access(self, user_id=user_id, reservation=reservation):  # fmt: skip
+                        return {"status": "unprovisioned", "noOp": False, "rowDeleteDeferred": True}
                     if not reservation.get("bootstrapGrantRelease"):
                         if not (reservation.get("accountErasure") or {}).get("admission"):
                             if not reservation.get("computeAdmission"):

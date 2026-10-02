@@ -1716,6 +1716,7 @@ export class ApiService {
     stage: string;
     stages: Array<{ stage: string; at: string }>;
     projectId: string;
+    jobId?: string; // the record's job ("" when none); absent from an older hub
     errorCode: string | null;
     errorMessage: string | null;
     stale: boolean;

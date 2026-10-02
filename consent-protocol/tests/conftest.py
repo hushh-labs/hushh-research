@@ -64,6 +64,14 @@ def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
         "APP_FRONTEND_ORIGIN",
         "GENAI_GOOGLE_CLOUD_PROJECT",
         "BACKEND_RUNTIME_CONFIG_JSON",
+        # Connect Azure hub configuration. An operator's .env (loaded into
+        # os.environ by runtime_settings) would otherwise make unit tests mint
+        # real Google credentials from whatever ADC is on the machine; tests
+        # that need these set them with monkeypatch.
+        "HUSSH_AZURE_APP_CLIENT_ID",
+        "HUSSH_AZURE_BROKER_SA",
+        "HUSSH_AZURE_OAUTH_REDIRECT_URI",
+        "HUSSH_POD_IMAGE_READER_SA",
     ):
         monkeypatch.delenv(key, raising=False)
     yield

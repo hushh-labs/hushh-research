@@ -5,7 +5,7 @@
  * failure is one plain sentence with a retry that restarts the right sign-in.
  */
 import { StrictMode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -143,7 +143,7 @@ describe("the Microsoft sign-in return", () => {
   it("shows an approved update's own stages while it runs", async () => {
     complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(
-      status({ stage: "deploying_agent", stages: [{ stage: "importing_image", at: "t" }, { stage: "deploying_agent", at: "t" }] }),
+      status({ jobId: "job-2", stage: "deploying_agent", stages: [{ stage: "importing_image", at: "t" }, { stage: "deploying_agent", at: "t" }] }),
     );
     render(<AzureCloudReturnPage />);
     expect(await screen.findByRole("heading", { name: "Updating your agent" })).toBeTruthy();
@@ -156,16 +156,54 @@ describe("the Microsoft sign-in return", () => {
 
   it("confirms a finished update", async () => {
     complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
-    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(status({ status: "recorded", stage: "proving" }));
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(status({ jobId: "job-2", status: "recorded", stage: "proving" }));
     render(<AzureCloudReturnPage />);
     expect(await screen.findByTestId("azure-upgrade-done")).toHaveTextContent("Your agent is updated");
     expect(screen.getByRole("link", { name: "Open Software updates" })).toHaveAttribute("href", ROUTES.PROFILE_SOFTWARE_UPDATES);
   });
 
+  it("never reports another job's record as this update's result", async () => {
+    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
+    vi.mocked(ApiService.getByocSetupStatus)
+      .mockResolvedValueOnce(status({ jobId: "job-1", status: "recorded", stage: "proving" }))
+      .mockResolvedValue(status({ jobId: "job-2", stage: "importing_image", stages: [{ stage: "importing_image", at: "t" }] }));
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<AzureCloudReturnPage />);
+      await waitFor(() => expect(ApiService.getByocSetupStatus).toHaveBeenCalledOnce());
+      await act(async () => { await Promise.resolve(); });
+      expect(screen.queryByTestId("azure-upgrade-done")).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+      expect(await screen.findByTestId("byoc-setup-progress")).toHaveTextContent("Copying your agent into your subscription");
+      expect(screen.queryByTestId("azure-upgrade-done")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up honestly when the record never names this update's job", async () => {
+    complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
+    vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(
+      status({ jobId: "job-9", status: "failed", errorMessage: "Some other job failed." }),
+    );
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<AzureCloudReturnPage />);
+      await waitFor(() => expect(ApiService.getByocSetupStatus).toHaveBeenCalledOnce());
+      await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+      expect(await screen.findByTestId("azure-upgrade-unreadable")).toBeTruthy();
+      expect(ApiService.getByocSetupStatus).toHaveBeenCalledTimes(3);
+      expect(screen.queryByText("Some other job failed.")).toBeNull();
+      expect(screen.queryByTestId("azure-upgrade-failed")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("offers the update sign-in again when the update fails", async () => {
     complete.mockResolvedValue({ status: "upgrade_started", jobId: "job-2" });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue(
-      status({ status: "failed", stage: "deploying_agent", errorMessage: "The new version did not start." }),
+      status({ jobId: "job-2", status: "failed", stage: "deploying_agent", errorMessage: "The new version did not start." }),
     );
     render(<AzureCloudReturnPage />);
     expect(await screen.findByTestId("azure-upgrade-failed")).toHaveTextContent("The new version did not start.");

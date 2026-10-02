@@ -116,6 +116,7 @@ describe("Connect Azure on the cloud step", () => {
     const notes = screen.getByTestId("azure-capability-notes");
     expect(notes).toHaveTextContent("Memory recall is keyword-based for now.");
     expect(notes).toHaveTextContent("Voice is not available yet.");
+    expect(notes).toHaveTextContent("Web search is not available yet.");
     expect(notes).toHaveTextContent("New-mail alerts are off.");
     expect(screen.getByTestId("azure-cost-note")).toHaveTextContent(
       "About $5/month while idle, billed by Microsoft to your subscription; list price, not yet measured.",

@@ -86,7 +86,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "PersonalAgentProvisioningService",
-      "value": 3238
+      "value": 3240
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -149,7 +149,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": "PersonalAgentRegistryRepo",
-      "value": 1892
+      "value": 1942
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1175,7 +1175,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
       "symbol": "PodCommitLog",
-      "value": 309
+      "value": 328
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -8915,7 +8915,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/pod_liveness_adapters.py",
       "symbol": "heal_pod",
-      "value": 92
+      "value": 95
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -10760,7 +10760,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": "deprovision",
-      "value": 82
+      "value": 84
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -11642,7 +11642,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6044
+      "value": 6045
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -11822,7 +11822,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py",
       "symbol": null,
-      "value": 3822
+      "value": 3825
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12272,7 +12272,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": null,
-      "value": 2113
+      "value": 2163
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13091,7 +13091,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/runtime.py",
       "symbol": null,
-      "value": 1372
+      "value": 1374
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14099,7 +14099,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_commit_log.py",
       "symbol": null,
-      "value": 1013
+      "value": 1056
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18329,7 +18329,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_server.py",
       "symbol": null,
-      "value": 520
+      "value": 523
     },
     {
       "detail": "module exceeds the advisory operon budget",
