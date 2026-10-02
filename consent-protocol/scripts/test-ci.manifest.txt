@@ -826,3 +826,5 @@ tests/test_azure_agent_setup.py
 tests/test_user_azure_backend.py
 tests/test_user_cloud_azure_coordinates.py
 tests/test_azure_registry_migration.py
+tests/test_azure_setup_job.py
+tests/test_byoc_azure_routes.py
