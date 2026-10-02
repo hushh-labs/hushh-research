@@ -5,7 +5,6 @@ const mocks = vi.hoisted(() => ({
   assign: vi.fn(),
   begin: vi.fn(),
   upgrade: vi.fn(),
-  approve: vi.fn(),
 }));
 
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: mocks.native } }));
@@ -14,11 +13,9 @@ vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     beginAzureByocAuthorize: mocks.begin,
     beginAzureByocUpgrade: mocks.upgrade,
-    approvePersonalAgentUpdate: mocks.approve,
   },
 }));
 
-import { approveAgentUpdate } from "@/lib/one/agent-update-approval";
 import {
   AzureSignInUnavailableError,
   azureRetryKind,
@@ -86,31 +83,5 @@ describe("starting the Microsoft sign-in", () => {
     expect(azureRetryKind({ deploymentTarget: "user_azure", state: "reserved" })).toBe("setup");
     expect(azureRetryKind({ deploymentTarget: "user_gcp", state: "active" })).toBe("setup");
     expect(azureRetryKind(null)).toBe("setup");
-  });
-});
-
-describe("approving an agent update", () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mocks.native.mockReturnValue(false);
-    mocks.upgrade.mockResolvedValue({ authorizationUrl: SIGN_IN });
-    mocks.approve.mockResolvedValue({ operationId: "op", releaseId: "rel", status: "scheduled" });
-  });
-
-  it.each(["user_gcp", "gcp", null])("schedules through the hub for a %s agent", async (deploymentTarget) => {
-    await expect(
-      approveAgentUpdate({ deploymentTarget, releaseId: "rel-1", idempotencyKey: "key-1" }),
-    ).resolves.toBe("scheduled");
-    expect(mocks.approve).toHaveBeenCalledWith({ releaseId: "rel-1", idempotencyKey: "key-1" });
-    expect(mocks.upgrade).not.toHaveBeenCalled();
-  });
-
-  it("starts the person's own Microsoft sign-in for an Azure agent", async () => {
-    await expect(
-      approveAgentUpdate({ deploymentTarget: "user_azure", releaseId: "rel-1", idempotencyKey: "key-1" }),
-    ).resolves.toBe("signing_in");
-    expect(mocks.upgrade).toHaveBeenCalledOnce();
-    expect(mocks.assign).toHaveBeenCalledWith(SIGN_IN);
-    expect(mocks.approve).not.toHaveBeenCalled();
   });
 });

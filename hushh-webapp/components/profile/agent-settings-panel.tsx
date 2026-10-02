@@ -4,14 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { AgentUpdateProgress } from "@/components/agent/agent-update-progress";
+import { AzureUpdateSignInPrompt } from "@/components/profile/azure-update-sign-in-prompt";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
-import { approveAgentUpdate } from "@/lib/one/agent-update-approval";
-import { azureSignInErrorMessage } from "@/lib/one/azure-sign-in";
-import { ownerCloudProvider } from "@/lib/one/owner-cloud";
+import { agentUpdateApprovalToast, approveAgentUpdate } from "@/lib/one/agent-update-approval";
+import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -81,6 +81,11 @@ export function AgentSettingsPanel({
     : "unknown";
   const isPod = mode === "byoc" || mode === "hussh_pods";
   const needsLinkRecovery = mode === "byoc" && status?.state === "failed";
+  // An approved Azure update starts only with the owner's Microsoft sign-in.
+  const awaitingMicrosoft = useAzureUpdateAwaitingSignIn({
+    deploymentTarget: kind === "software-updates" ? status?.deploymentTarget : null,
+    update,
+  });
   const working =
     !update.failed &&
     update.presentationState !== "blocked" &&
@@ -132,10 +137,7 @@ export function AgentSettingsPanel({
       return;
     busyRef.current = true;
     setBusy(true);
-    // An Azure agent's update is approved with the person's own Microsoft
-    // sign-in; the browser leaves for Microsoft once it starts.
-    const viaMicrosoft =
-      action === "approve" && ownerCloudProvider(status?.deploymentTarget) === "azure";
+    // An Azure approval is recorded, then the browser leaves for Microsoft.
     const request: Promise<void> =
       action === "approve"
         ? approveAgentUpdate({
@@ -148,20 +150,10 @@ export function AgentSettingsPanel({
           }).then(() => undefined);
     try {
       await morphyToast
-        .promise(request, {
-          loading: viaMicrosoft
-            ? "Opening Microsoft sign-in…"
-            : action === "approve"
-              ? "Scheduling your update…"
-              : "Saving your reminder…",
-          success: viaMicrosoft
-            ? "Continue in Microsoft sign-in."
-            : action === "approve"
-              ? "Update scheduled."
-              : "We’ll remind you later.",
-          error: viaMicrosoft
-            ? (cause: unknown) => azureSignInErrorMessage(cause, "upgrade")
-            : "We couldn’t complete that request. Try again.",
+        .promise(request, action === "approve" ? agentUpdateApprovalToast(status?.deploymentTarget) : {
+          loading: "Saving your reminder…",
+          success: "We’ll remind you later.",
+          error: "We couldn’t complete that request. Try again.",
         })
         .unwrap();
       dispatchFeedStateChanged();
@@ -352,6 +344,7 @@ export function AgentSettingsPanel({
     );
   }
 
+  const activity = awaitingMicrosoft ? AZURE_UPDATE_AWAITING_LABEL : updateActivityLabel(update);
   const stateLabel = !status
     ? "Checking update status…"
     : mode === "shared"
@@ -360,8 +353,8 @@ export function AgentSettingsPanel({
         ? "Available after setup finishes"
         : mode === "unknown"
           ? "Hosting status unavailable"
-          : updateActivityLabel(update)
-            ? updateActivityLabel(update)
+          : activity
+            ? activity
             : update.presentationState === "deferred" && !canInstallUpdate(status)
               ? "Update reminder saved"
               : update.available === true && canInstallUpdate(status)
@@ -399,7 +392,8 @@ export function AgentSettingsPanel({
         ) : null}
       </SettingsGroup>
 
-      {isPod ? <AgentUpdateProgress update={update} /> : null}
+      {isPod && awaitingMicrosoft ? <AzureUpdateSignInPrompt /> : null}
+      {isPod && !awaitingMicrosoft ? <AgentUpdateProgress update={update} /> : null}
 
       {release && update.available ? (
         <details className="text-sm">
