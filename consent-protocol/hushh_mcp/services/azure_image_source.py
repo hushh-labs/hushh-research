@@ -7,10 +7,14 @@ Google Cloud, and ``importImage`` hands its source credential to Azure.
 
 Instead the hub impersonates ONE dedicated reader service account,
 ``HUSSH_POD_IMAGE_READER_SA``, through IAM Credentials ``generateAccessToken``
-(900 s, ``cloud-platform`` scope). That account's only grant is meant to be
-Artifact Registry reader on the pod image repository, so the token's effective
-power is read-only on that one repository and expires within 15 minutes. It is
-minted at the moment of the import call and exists only in that request body.
+(900 s, ``cloud-platform`` scope). The token carries whatever that account is
+granted, for at most 15 minutes; the hub does not check those grants. The only
+grant must be Artifact Registry reader on the repository holding the pod release.
+On a ``gcr.io/<project>`` source that repository also holds the hub and web
+images, so the token can pull them too: logged on every preflight as
+``reader_on_shared_repository`` and recorded under Known gaps in
+``docs/reference/architecture/byoc-azure.md``. The token is minted at the moment
+of the import call and exists only in that request body.
 
 * A Google token is only ever offered to a Google registry host; a foreign registry
   must be public (proven by an anonymous read) or it is refused.
@@ -41,6 +45,7 @@ REGISTRY_USERNAME = "oauth2accesstoken"
 
 _IAM_CREDENTIALS = "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts"
 _GOOGLE_REGISTRY = re.compile(r"^(?:[a-z0-9-]+-docker\.pkg\.dev|(?:[a-z]+\.)?gcr\.io)$")
+_PROJECT_WIDE_REGISTRY = re.compile(r"^(?:[a-z]+\.)?gcr\.io$")
 _SERVICE_ACCOUNT = re.compile(
     r"^[a-z][a-z0-9-]{4,28}[a-z0-9]@[a-z0-9.-]+\.iam\.gserviceaccount\.com$"
 )
@@ -78,6 +83,15 @@ def _hub_identity(hub_identity: Optional[HubIdentity]) -> tuple[str, str]:
 def is_google_registry(host: str) -> bool:
     """Artifact Registry or Container Registry: the only hosts a Google token may reach."""
     return bool(_GOOGLE_REGISTRY.match(str(host or "").strip().lower()))
+
+
+def is_project_wide_registry(host: str) -> bool:
+    """A ``gcr.io`` host: every image under ``gcr.io/<project>/`` is ONE repository.
+
+    A reader granted there can pull every image of the project, the hub and web
+    images included, not only the pod release.
+    """
+    return bool(_PROJECT_WIDE_REGISTRY.match(str(host or "").strip().lower()))
 
 
 def reader_service_account() -> str:
@@ -234,6 +248,12 @@ def require_import_access(
     """
     reader = reader_service_account()
     if reader and is_google_registry(registry):
+        if is_project_wide_registry(registry):
+            logger.warning(
+                "azure_image_source.reader_on_shared_repository host=%s "
+                "(the reader's token can pull every image in this project's registry)",
+                registry.strip().lower(),
+            )
         token = mint_reader_token(reader, session=session, hub_identity=hub_identity)
         if not readable_with(token, registry, repository, digest, session=session):
             raise AzureSetupRefused(
@@ -264,6 +284,7 @@ __all__ = [
     "ImportAccess",
     "import_credentials",
     "is_google_registry",
+    "is_project_wide_registry",
     "mint_reader_token",
     "readable_with",
     "reader_service_account",

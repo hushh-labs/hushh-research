@@ -241,6 +241,32 @@ def test_no_token_is_ever_logged_or_put_in_an_error(reader, caplog):
         assert not any(secret in message for message in errors)
 
 
+def test_a_reader_on_a_project_wide_gcr_source_is_flagged_every_preflight(reader, caplog):
+    """Dev publishes the pod release under gcr.io/<project>/, the same repository as the
+    hub and web images, so the reader's token can pull those too. Not refused (that is
+    a founder decision, byoc-azure.md Known gaps); never silent."""
+    caplog.set_level(logging.WARNING, logger=source.__name__)
+    shared_repository = "hushh-pda-dev/consent-protocol-pod"
+    for host in ("gcr.io", "US.GCR.IO"):
+        assert source.is_project_wide_registry(host)
+        access = source.require_import_access(
+            host, shared_repository, _DIGEST, session=_Google(), hub_identity=_hub
+        )
+        assert access == "reader"
+    flagged = [r for r in caplog.records if "reader_on_shared_repository" in r.getMessage()]
+    assert [r.levelno for r in flagged] == [logging.WARNING, logging.WARNING]
+    assert _READER_TOKEN not in caplog.text and _HUB_TOKEN not in caplog.text
+
+
+def test_a_dedicated_artifact_registry_source_is_not_flagged(reader, caplog):
+    caplog.set_level(logging.WARNING, logger=source.__name__)
+    assert not source.is_project_wide_registry(_REGISTRY)
+    source.require_import_access(
+        _REGISTRY, _REPOSITORY, _DIGEST, session=_Google(), hub_identity=_hub
+    )
+    assert "reader_on_shared_repository" not in caplog.text
+
+
 def _patch_mint(monkeypatch, minted: list[str]) -> None:
     def fake_mint(reader, *, session=None, hub_identity=None):
         assert reader == _READER

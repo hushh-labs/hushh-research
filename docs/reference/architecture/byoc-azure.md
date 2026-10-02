@@ -143,9 +143,22 @@ may do in Google Cloud.
 
 - The hub impersonates one dedicated reader service account,
   `HUSSH_POD_IMAGE_READER_SA`, through IAM Credentials `generateAccessToken`
-  (lifetime 900 s, scope `cloud-platform`). Its only grant is Artifact Registry
-  reader on the pod image repository, so the token's effective power is read-only
-  on that one repository for 15 minutes.
+  (lifetime 900 s, scope `cloud-platform`). The token carries whatever that
+  account is granted, for 15 minutes, and **the hub does not check those
+  grants**. The only grant must be Artifact Registry reader on the repository
+  that holds the pod release.
+- **On today's release layout that repository is not pod-only.** Dev publishes
+  the pod release as `gcr.io/<project>/consent-protocol-pod`
+  (`deploy/backend.cloudbuild.yaml`, rendered into `HUSSH_ONE_POD_IMAGE` by
+  `scripts/deploy/backend-deploy.sh`). Everything under `gcr.io/<project>/` is
+  one repository (the `gcr.io` repository in Artifact Registry, or one storage
+  bucket on legacy Container Registry; which one backs dev is not verified
+  here), and it also holds the hub's own image (`consent-protocol`) and the web
+  image (`hushh-webapp`). So even the narrowest grant lets the token Azure
+  receives pull the hub and web images for 15 minutes. It cannot write or
+  deploy. The hub logs `azure_image_source.reader_on_shared_repository` on every
+  preflight against a `gcr.io` source. The fix is a dedicated pod repository
+  (see *Known gaps*).
 - The token is minted at the moment of the import call, for setup and for each
   approved update, and exists only in that request body as source credentials
   (username `oauth2accesstoken`, password the token). It is never logged and never
@@ -326,6 +339,19 @@ reaches each one through a typed capability in
   `HUSSH_AZURE_OAUTH_REDIRECT_URI` and `HUSSH_POD_IMAGE_READER_SA` are plain
   environment, not secrets, so the secret-coverage check does not require them;
   adding them to the dev backend is a change to protected pipeline paths.
+- **The image reader is not pod-only on the current release layout.** The pod
+  release lives in `gcr.io/<project>/consent-protocol-pod`, the same repository
+  as the hub (`consent-protocol`) and web (`hushh-webapp`) images, so the
+  reader's 15-minute token can pull all three. The fix is to publish the pod
+  release to a dedicated Artifact Registry repository and grant the reader only
+  there. That changes `deploy/backend.cloudbuild.yaml`, a protected pipeline
+  path (maintainer cohort), and must also move GCP's build-provenance check in
+  `consent-protocol/hushh_mcp/services/pod_image_copy.py`, which accepts only
+  `gcr.io/<project>/consent-protocol-pod` today. Not verified: whether an IAM
+  condition on the package name, or a narrower token scope, is honoured by the
+  registry's Docker endpoint. Refusing a `gcr.io` source outright would block
+  the dev live test until then, so that is a founder decision; today the hub
+  only logs it.
 - **Agent-to-hub calls are dev-only:** they need `POD_HUB_IDENTITY_AUTH_ENABLED`
   and the parked migrations 947 and 948.
 - **Re-create after Azure deletes the environment:** the gone reason
@@ -370,8 +396,13 @@ and nothing here is run by the hub or an agent.
    and grant the hub runtime identity `roles/iam.serviceAccountTokenCreator` on
    it: the hub mints the broker's ID token through `generateIdToken`.
 2. **Image reader service account.** Grant it `roles/artifactregistry.reader` on
-   the pod image repository only, never project-wide, and grant the hub runtime
-   identity `roles/iam.serviceAccountTokenCreator` on it.
+   the repository that holds the pod release only, never project-wide, and grant
+   the hub runtime identity `roles/iam.serviceAccountTokenCreator` on it. On
+   today's `gcr.io/<project>` layout that repository is the project's whole
+   `gcr.io` repository, so this grant can also read the hub and web images.
+   Accept that knowingly for a dev live test, or publish the pod release to a
+   dedicated repository first (see *Known gaps*). The hub does not check what
+   the reader is granted.
 
 ### Microsoft Entra, the Hussh app registration
 
