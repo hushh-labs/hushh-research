@@ -825,3 +825,4 @@ tests/test_azure_pod_ingress_wall.py
 tests/test_azure_agent_setup.py
 tests/test_user_azure_backend.py
 tests/test_user_cloud_azure_coordinates.py
+tests/test_azure_registry_migration.py
