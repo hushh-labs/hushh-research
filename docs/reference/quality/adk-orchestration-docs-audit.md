@@ -11,8 +11,10 @@ approved the qualified `.4` release during active synthetic chat. One operation
 survived duplicate approval, a temporary unconfirmed outcome and reconciliation;
 installed digest, durable key and selected hosting configuration are verified.
 Owner-cloud Files organization now completes with original bytes preserved.
-Files/Puppy cancellation and cold-session history now pass. Cold-chat UX,
-operation-linked Feed history and remaining journeys still gate acceptance.
+Files/Puppy cancellation, cold-session history and the existing operation's
+repaired Feed notice now pass. Cold-chat UX and remaining journeys gate acceptance.
+The cold-admission and reconciled Feed corrections are implemented locally;
+their serving verification is pending.
 No main, UAT, production or stable-channel promotion occurred.
 
 The [One hierarchy](../one/one-agent-hierarchy.md),
@@ -71,7 +73,11 @@ Git history retains the earlier chronology; this memo records current evidence.
   exact synthetic user message and completed assistant response; the failed
   original harness did not retain an exact assistant-byte comparator. Feed's
   current status agrees on the same operation, but its historical update notices
-  lack that operation's completion receipt. Observed drain overlap remains open.
+  initially lacked that operation's completion receipt. A scoped repair through
+  the existing Feed writer produced one source-key notice under two calls, with
+  unchanged registry state and owner Settings/Feed readback. This is presentation
+  repair, not another installation or proof the serving reconciler is corrected.
+  Observed drain overlap remains open.
 - **Economic configuration:** 1 vCPU/1 GiB, minimum zero, maximum one instance
   on one serving revision, concurrency eight, one worker and ten-minute relay
   grace are preserved. Before the update, management metrics recorded zero
@@ -92,7 +98,7 @@ Git history retains the earlier chronology; this memo records current evidence.
 | **Chat and recovery** | Prior fresh unlock, signed admission, private response, exact encrypted history and pod-side revocation. Startup repair restores authenticated service. | Runtime: cold admission consumed the browser stream watchdog before POST. Local repair separates admission from stream silence; serving frontend is unchanged. Exact history continuity and replay latency remain open. |
 | **Commands and connectors** | Exact approval-ledger and completion-recovery source checks pass. | Runtime: recorded command and eligible connector review/resume. This owner's connector inventory has no eligible saved review-required read-only fixture. |
 | **Puppy and machine** | Updated-image direct response, `200/stopped`, released pod work and Mac inference cancellation pass; a subsequent response completes. Owner withdrawal confirms pod revocation and refuses a new binding; access re-enabled. Qualified actual model/capacity report passes. | Runtime: independent active internet, updated-image idle wake and latency. The earlier 409 was the canonical rehearsal guard, corrected with an exact pinned cancellation route. A later extra modal-navigation timeout remains a failed harness action. |
-| **Updates and runtime** | `.4` normal exact approval, one operation, durable idle, restart, digest/key/configuration and Settings verification pass. Fresh unlock retains exact synthetic user and completed assistant information. Feed current status follows the same verified operation. | Updates: historical Feed completion receipt after reconciliation; runtime: observed drain overlap, updated-image idle and bounded load. Exact assistant-byte comparison was unavailable. |
+| **Updates and runtime** | `.4` normal exact approval, one operation, durable idle, restart, digest/key/configuration and Settings verification pass. Fresh unlock retains exact synthetic user and completed assistant information. Feed current status and repaired historical notice agree, without another install. | Updates: deploy the automatic reconciled projection correction; runtime: observed drain overlap, updated-image idle and bounded load. Exact assistant-byte comparison was unavailable. |
 | **Production** | No main, UAT, production or stable-channel promotion. | Release/security: complete dev acceptance, graduate migrations/channels, prove production IAM/billing and UAT recovery/rollback. |
 
 ## Verification and measured debt
@@ -129,6 +135,15 @@ limit starts after successful response headers, remains byte-based, and still
 rejects genuine silence. Cancellation refuses late responses and private writes
 without cancelling another caller's shared admission.
 
+The confirmed reconciliation gap now has a local correction: completion emits
+through the existing Feed owner only after successful registry publication and
+uses the operation ID for existing database deduplication. Failed, unchanged
+and lost-publication outcomes do not emit. Feed remains a best-effort projection;
+status has no new writes and installation authority is unchanged. Focused
+backend (59) and frontend (27) checks pass. The same-image negative control fails
+on the original default-true behavior. Combined core and hosted qualification
+remain pending. The fitness ratchet passes with the original baseline unchanged.
+
 On the updated image, one Puppy follow-up took about 139 seconds end to end,
 including roughly 98 seconds of local-model generation and 37 seconds to first
 content. Earlier short-response and cancellation receipts remain separate.
@@ -137,14 +152,13 @@ credential or private file content is part of the diagnostic record.
 
 ## Next gate and board alignment
 
-1. Finish the cold-chat repair locally through the existing client facade. Keep
-   the 90-second stream silence gate and separate HTTP admission bounds; cancel
-   late responses without cancelling another tab's shared admission. The bounded
-   liveness extraction keeps the reviewed architecture baseline unchanged.
-2. Repair the confirmed missing historical Feed completion projection for the
-   reconciled operation through its existing owner. Preserve the installed image
-   and original operation; do not repeat an installation to replace a failed
-   harness receipt. Files/Puppy cancellation and fresh history readback now pass.
+1. Qualify and deploy the local cold-admission and Feed corrections on one exact
+   branch SHA. Preserve the stream silence limit, shared admission cancellation
+   boundary and reviewed fitness baseline.
+2. Preserve the installed image and original operation; no further installation
+   is needed to repair its Feed notice. Files/Puppy cancellation, fresh history
+   and repaired notice readback pass; automatic future projection needs the fix
+   deployed.
 3. Complete recorded commands, eligible connector, billing and bounded runtime
    journeys. This owner's eligible review-required read-only MCP fixture and
    independent-network browser evidence remain unavailable.

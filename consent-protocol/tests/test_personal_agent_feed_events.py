@@ -15,6 +15,8 @@ Three properties are load-bearing:
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from hushh_mcp.runtime_settings import get_core_security_settings
@@ -30,6 +32,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     record_provisioning_feed_event_safe,
 )
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
+from tests import test_personal_agent_upgrade_authority as authority
 from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase_uid_feed_test_123"
@@ -339,3 +342,86 @@ async def test_flag_off_makes_the_feed_helper_inert(monkeypatch):
     # Not even constructed: the writer import is deferred behind the flag check.
     await record_provisioning_feed_event_safe(user_id=_UID, event_type=FEED_EVENT_RESERVED)
     assert RaisingFeedService.calls == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("completion", ["changed", "noop", "explicit_noop", "lost_publication"])
+async def test_reconciled_update_projects_only_published_image_changes(monkeypatch, completion):
+    from hushh_mcp.services import personal_agent_provisioning_service as pas
+
+    monkeypatch.setenv("HUSHH_DEPLOY_ENV", "dev")
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
+    monkeypatch.setattr(pas, "resolve_user_cloud", lambda *args, **kwargs: authority._no_cloud())
+    events = []
+
+    class RecordingFeed:
+        def record_event(self, **fields):
+            events.append(fields)
+
+    monkeypatch.setattr("hushh_mcp.services.feed_service.FeedService", RecordingFeed)
+    lease = "persisted-lease"
+    row = authority._row(
+        approval=authority._approval(authority._row(), authority.OLD_IMAGE, status="blocked"),
+        lease=lease,
+    )
+    if completion != "noop":
+        row["backend_metadata"].update(
+            source_image=authority.NEW_IMAGE,
+            image=authority.NEW_IMAGE,
+            image_digest=authority.NEW_DIGEST,
+        )
+    # The operation's approval is for the old target; current hub configuration has
+    # moved on. Reconciliation must use the receipt's binding, never the new offer.
+    row["backend_metadata"]["upgradeAcknowledgement"] = {
+        "version": 1,
+        "attemptId": hashlib.sha256(lease.encode()).hexdigest(),
+        "serviceUid": authority.SERVICE_UID,
+        "service": authority.SERVICE,
+        "targetImage": authority.OLD_IMAGE,
+        "image": authority.OLD_IMAGE,
+        "operationId": row["backend_metadata"]["upgradeApproval"]["operationId"],
+        "releaseId": row["backend_metadata"]["upgradeApproval"]["releaseId"],
+        "podIncarnation": authority.SERVICE_UID,
+    }
+    registry = authority._RecoveryRegistry(row)
+    if completion == "lost_publication":
+
+        async def lost_publication(**fields):
+            return False
+
+        monkeypatch.setattr(registry, "record_image_upgrade", lost_publication)
+    backend = authority._ObservingBackend(
+        authority.BackendHandle(
+            external_agent_id=authority.SERVICE,
+            a2a_route="https://a2a.invalid/owner",
+            status="live",
+            backend="fake",
+            backend_metadata={
+                "image": authority.OLD_IMAGE,
+                "image_digest": authority.OLD_DIGEST,
+                # Real recovery adapters omit this flag. A same-image capability
+                # restart must still be silent; explicit False also stays silent.
+                **({"upgraded": False} if completion == "explicit_noop" else {}),
+            },
+        )
+    )
+    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
+    if completion == "lost_publication":
+        with pytest.raises(RuntimeError, match="publication lost authority"):
+            await service.upgrade_pod(user_id=authority.OWNER, current_image=authority.NEW_IMAGE)
+        assert events == []
+        return
+    result = await service.upgrade_pod(user_id=authority.OWNER, current_image=authority.NEW_IMAGE)
+    assert result["reconciled"] is True
+    assert result["upgraded"] is True
+    assert backend.observed
+    assert registry.row["backend_metadata"]["upgradeApproval"]["status"] == "succeeded"
+    assert "upgradeLease" not in registry.row["backend_metadata"]
+    if completion == "changed":
+        assert len(events) == 1
+        assert events[0]["event_type"] == "personal_agent_updated"
+        assert events[0]["source_row_id"] == "op-original"
+        assert events[0]["metadata"] == {}
+    else:
+        assert events == []

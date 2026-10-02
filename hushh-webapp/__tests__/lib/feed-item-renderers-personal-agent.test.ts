@@ -34,7 +34,7 @@ const PROVISIONING_SERVICE = join(
   "consent-protocol",
   "hushh_mcp",
   "services",
-  "personal_agent_provisioning_service.py"
+  "personal_agent_feed.py"
 );
 
 /**

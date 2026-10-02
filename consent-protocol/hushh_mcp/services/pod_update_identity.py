@@ -4,6 +4,35 @@ from __future__ import annotations
 
 import hashlib
 import re
+from datetime import datetime, timezone
+from typing import Any
+
+from hushh_mcp.services.pod_release import image_digest
+
+
+def verified_image_changed(
+    previous: dict[str, Any], target: str, observation: dict[str, Any]
+) -> bool:
+    """Compare saved image identities after provider verification, not tag labels."""
+    prior = previous.get("image_digest") or previous.get("source_image") or previous.get("image")
+    return observation.get("upgraded") is not False and image_digest(prior) != image_digest(target)
+
+
+def verified_upgrade_approval(approval: object) -> dict[str, Any] | None:
+    """Label an externally verified completion, preserving the exact approval.
+
+    Call only after the owning upgrade path verifies the provider result. This
+    projection neither approves an installation nor changes its identity.
+    """
+    if not isinstance(approval, dict) or not approval.get("operationId"):
+        return None
+    return {
+        **approval,
+        "status": "succeeded",
+        "operationState": "succeeded",
+        "presentationPhase": "verified",
+        "verifiedAt": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 def release_identity(

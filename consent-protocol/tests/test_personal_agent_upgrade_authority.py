@@ -257,50 +257,6 @@ async def test_files_recovery_requires_completed_resources_and_persists_discover
 
 
 @pytest.mark.asyncio
-async def test_blocked_operation_reconciles_even_when_a_newer_target_is_offered(monkeypatch):
-    from hushh_mcp.services import personal_agent_provisioning_service as pas
-
-    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
-    monkeypatch.setenv("PERSONAL_AGENT_UPGRADE_APPROVAL_REQUIRED", "1")
-    monkeypatch.setattr(pas, "resolve_user_cloud", lambda *args, **kwargs: _no_cloud())
-
-    lease = "persisted-lease"
-    row = _row(approval=_approval(_row(), OLD_IMAGE, status="blocked"), lease=lease)
-    # The operation's approval is for the old target; current hub configuration has
-    # moved on. Reconciliation must use the receipt's binding, never the new offer.
-    row["backend_metadata"]["upgradeAcknowledgement"] = {
-        "version": 1,
-        "attemptId": hashlib.sha256(lease.encode()).hexdigest(),
-        "serviceUid": SERVICE_UID,
-        "service": SERVICE,
-        "targetImage": OLD_IMAGE,
-        "image": OLD_IMAGE,
-        "operationId": row["backend_metadata"]["upgradeApproval"]["operationId"],
-        "releaseId": row["backend_metadata"]["upgradeApproval"]["releaseId"],
-        "podIncarnation": SERVICE_UID,
-    }
-    registry = _RecoveryRegistry(row)
-    backend = _ObservingBackend(
-        BackendHandle(
-            external_agent_id=SERVICE,
-            a2a_route="https://a2a.invalid/owner",
-            status="live",
-            backend="fake",
-            backend_metadata={"image": OLD_IMAGE, "image_digest": OLD_DIGEST},
-        )
-    )
-    service = PersonalAgentProvisioningService(registry=registry, backend=backend)
-
-    result = await service.upgrade_pod(user_id=OWNER, current_image=NEW_IMAGE)
-
-    assert result["reconciled"] is True
-    assert result["upgraded"] is True
-    assert backend.observed
-    assert registry.row["backend_metadata"]["upgradeApproval"]["status"] == "succeeded"
-    assert "upgradeLease" not in registry.row["backend_metadata"]
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["planned", "live"])
 async def test_nonterminal_or_wrong_digest_provider_result_keeps_the_lease(monkeypatch, status):
     from hushh_mcp.services import personal_agent_provisioning_service as pas

@@ -86,6 +86,17 @@ service version without pod installation controls. The authored dev release and
 its source tests do not establish a completed live update rehearsal or authorize
 publication through the production stable channel.
 
+Verified completion projects into the existing Feed only after registry
+publication succeeds, using the approved operation ID as the Feed source key.
+The synchronous and reconciliation paths share this projection; a retry cannot
+create another notice. Failed, pending, unchanged-image and lost-publication
+results do not emit completion. A Feed failure cannot undo an installation;
+status remains a pure reader and the registry remains authoritative.
+If a deployed defect omitted a notice, repair only that verified operation's
+presentation through the existing Feed writer after checking its owner,
+incarnation, installed digest and ready acknowledgement. Read back one source-key
+row and unchanged registry state; never reinstall to manufacture a notice.
+
 ### Request concurrency and responsive controls
 
 Verify Cloud Run request concurrency separately from the pod's one-instance,
