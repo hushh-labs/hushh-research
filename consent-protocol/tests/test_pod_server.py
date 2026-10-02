@@ -151,6 +151,9 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/pod/migration/erasure/fence",
         "/pod/migration/erasure/memory/binding",
         "/pod/migration/erasure/memory/reconcile",
+        # Destroys the pod's own key and objects for one reserved attempt: dark behind
+        # HUSSH_POD_MIGRATION_ENABLED, the platform incarnation and its own hub proof.
+        "/pod/migration/erasure/crypto-erase",
     }
     assert not (_paths() - allowed), "pod exposes an unreviewed route"
 
