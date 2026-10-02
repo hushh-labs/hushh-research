@@ -26,10 +26,29 @@ export type AzureSubscription = {
 
 export type AzureAuthorizationStart = { authorizationUrl: string };
 
+/**
+ * Why the hub needs a subscription choice. A personal Microsoft account cannot
+ * list its subscriptions to an app, so it must name its subscription id.
+ */
+export type AzureSubscriptionReason =
+  | "choose_subscription"
+  | "no_enabled_subscription"
+  | "personal_account";
+
+const SUBSCRIPTION_REASONS: readonly AzureSubscriptionReason[] = [
+  "choose_subscription",
+  "no_enabled_subscription",
+  "personal_account",
+];
+
 export type AzureAuthorizeCompletion =
   | { status: "setup_started"; jobId: string }
   | { status: "upgrade_started"; jobId: string }
-  | { status: "needs_subscription"; subscriptions: AzureSubscription[] };
+  | {
+      status: "needs_subscription";
+      subscriptions: AzureSubscription[];
+      reason?: AzureSubscriptionReason;
+    };
 
 export type AzureByocFailure =
   | "AZURE_AUTHORIZE_BEGIN_FAILED"
@@ -164,9 +183,17 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
     const subscriptions = payload.subscriptions
       .map(toSubscription)
       .filter((entry): entry is AzureSubscription => entry !== null);
-    return { status, subscriptions };
+    const reason = SUBSCRIPTION_REASONS.find((known) => known === payload.reason);
+    return reason ? { status, subscriptions, reason } : { status, subscriptions };
   }
   throw invalidResponse();
+}
+
+const SUBSCRIPTION_ID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;
+
+/** An Azure subscription id is a GUID; anything else is refused before sign-in. */
+export function isAzureSubscriptionId(value: string): boolean {
+  return SUBSCRIPTION_ID.test(value.trim());
 }
 
 /** Only an enabled subscription can hold new resources. */

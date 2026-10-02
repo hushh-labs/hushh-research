@@ -25,6 +25,7 @@ import { ApiService } from "@/lib/services/api-service";
 import type {
   AzureAuthorizeCompletion,
   AzureSubscription,
+  AzureSubscriptionReason,
 } from "@/lib/services/azure-byoc-contract";
 
 /**
@@ -40,7 +41,11 @@ import type {
 type ReturnView =
   | { kind: "completing" }
   | { kind: "redirecting" }
-  | { kind: "needs_subscription"; subscriptions: AzureSubscription[] }
+  | {
+      kind: "needs_subscription";
+      subscriptions: AzureSubscription[];
+      reason?: AzureSubscriptionReason;
+    }
   | { kind: "upgrading"; jobId: string }
   | { kind: "error"; message: string };
 
@@ -77,7 +82,11 @@ function returnLinkProblem(input: {
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
   if (result.status === "setup_started") return { kind: "redirecting" };
   if (result.status === "upgrade_started") return { kind: "upgrading", jobId: result.jobId };
-  return { kind: "needs_subscription", subscriptions: result.subscriptions };
+  return {
+    kind: "needs_subscription",
+    subscriptions: result.subscriptions,
+    reason: result.reason,
+  };
 }
 
 function useAzureCompletion(): ReturnView {
@@ -189,6 +198,7 @@ export function AzureCloudReturnPage() {
         ) : view.kind === "needs_subscription" ? (
           <AzureSubscriptionPicker
             subscriptions={view.subscriptions}
+            reason={view.reason}
             busy={signIn.starting}
             onContinue={(subscriptionId) => start("setup", subscriptionId)}
           />
