@@ -7,7 +7,8 @@
       "Encrypted PKM recovery reports its verified record count without scanning the entire log twice."
     ],
     "fixes": [
-      "Removes duplicate recovery work observed before a Puppy turn timed out."
+      "Removes duplicate recovery work observed before a Puppy turn timed out.",
+      "Puppy connection and inference have separate bounded waits, preventing cold startup from consuming response time."
     ],
     "security": [
       "Owner filtering, encrypted chain verification and erasure checks remain required before index publication."

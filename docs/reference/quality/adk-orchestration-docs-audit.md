@@ -11,8 +11,8 @@ Both dev application services now serve verified source `a9c479328fd0`.
 The personal pod retains its independently qualified `.4` image, encrypted
 information, trusted device and selected on-demand configuration. Private chat
 and typed/recorded synthetic commands pass through that pod. Puppy failed the
-two-operation rehearsal before inference had time to finish; redundant encrypted
-recovery is the measured blocker. Eligible connector review, billing recovery
+two-operation and cold rehearsals before inference had time to finish; recovery
+work and client deadline allocation are confirmed defects. Eligible connector review, billing recovery
 and bounded mixed work remain gates. No main, UAT, production or stable-channel
 promotion occurred.
 
@@ -63,8 +63,9 @@ Git history retains the earlier chronology; this memo records current evidence.
   relay grace; the immutable image retains one worker. The service-level maximum
   is distinct from the serving revision limit. Earlier metrics recorded zero
   active/idle instances followed by a roughly 104-second wake. Updated-image
-  metrics recorded zero at 14:24 UTC, but a later empty metrics series is
-  unavailable evidence, not another zero observation. Capacity remains unproved.
+  metrics recorded zero at 14:24 UTC and again at 17:00 UTC before the cold Puppy
+  rehearsal. Empty metrics series remain unavailable evidence, not zero.
+  Capacity remains unproved.
 - **Schema:** pre/post-deploy guards passed at integrated version 262. Migrations
   943, 944 and 946–949 are applied with source-matching checksums. Ledger 249 is
   the public-profile bridge, not the destructive cleanup. Dev history cutover
@@ -91,7 +92,7 @@ Git history retains the earlier chronology; this memo records current evidence.
 | **Files Agent and jobs** | Explicit opt-in/exclusions, automatic organization of a new synthetic upload, authenticated queue completion, terminal cancellation and original-byte preservation on the installed image. Isolated malicious/unsupported-content tests. | Files: bounded overlapping work. Original analysis settings restored; synthetic creations trashed under retention. Failed and cancellation-only harness receipts stay separate. |
 | **Chat and recovery** | Two direct browser replies completed in approximately 74 and 71 seconds on the serving candidate; terminal UI and exact-thread history agree. Signed admission, same-session continuity and pod/hub session revocation pass. Fresh unlock recovered exact synthetic user and completed assistant information. | Runtime: original failed/inconclusive harness receipts remain preserved. Recovery latency remains poor. |
 | **Commands and connectors** | Typed and five-second recorded synthetic commands completed pod transcription/assessment and the existing hub ledger's Location settings plan on this serving candidate; same-session continuity and both cleanup authorities pass. | Runtime: a real physical microphone and eligible connector approval/resume are unverified. This owner's inventory has no eligible saved review-required read-only fixture. |
-| **Puppy and machine** | Existing Hermes identity: direct response, `200/stopped`, released work, Mac inference cancellation, reconnect, owner withdrawal/new-binding refusal and re-enable; dated model/capacity report. A controlled relay restart followed by a warm browser response passed in approximately 73 seconds. | Runtime: two-operation rehearsal failed at the 155-second pod timeout after approximately 151 seconds of recovery; independent active internet and usable cold latency remain unverified. Earlier modal failure is retained. |
+| **Puppy and machine** | Existing Hermes identity: direct response, `200/stopped`, released work, Mac inference cancellation, reconnect, owner withdrawal/new-binding refusal and re-enable; dated model/capacity report. A controlled relay restart followed by a warm browser response passed in approximately 73 seconds. | Runtime: mixed work exhausted the 155-second pod timeout after approximately 151 seconds of recovery. The confirmed-zero cold browser attempt exhausted its 205-second total after 172 seconds of setup. Independent active internet and usable cold latency remain unverified. Failed receipts are retained. |
 | **Updates and runtime** | Exact `.4` approval, one operation, durable idle, restart, digest/key/configuration and Settings/Feed verification. Automatic projection correction is deployed. | Updates/runtime: observed drain overlap, bounded mixed work and measured idle/wake after the final candidate. No live rollback-fault acceptance. |
 | **Billing recovery** | Typed retry contracts preserve the recorded project and setup operation. | Provisioning: real missing-billing return through fresh authorization on a disposable setup; never disable an existing owner's billing to manufacture failure. |
 | **Production** | No main, UAT, production or stable-channel promotion. | Release/security: finish dev acceptance, graduate migrations/channels and prove production IAM/billing and UAT recovery/rollback. |
@@ -133,7 +134,28 @@ owner, erasure, initialization or constructor contracts. This is local evidence;
 the `.4` owner image remains installed. `.5` compatibility stays empty until the
 exact immutable predecessor-to-target recovery rehearsal passes. The completed
 count-only candidate passed its local core mirror in 407 seconds and docs/link
-governance; hosted exact-SHA validation and deployment remain pending.
+governance. Its [hosted validation](https://github.com/hushh-labs/hushh-research/actions/runs/37037299501)
+succeeded for `09d0e4f9af4e`. Deployment is held for the completed deadline fix;
+the combined candidate still requires its own exact-SHA validation.
+
+A subsequent cold Puppy attempt followed observed zero active/idle instances.
+The browser submitted at 17:02:43 UTC, but direct inference dispatched only at
+17:05:35; its 205-second deadline cancelled at 17:06:08. Two client timers included
+preparation, leaving approximately 33 seconds for inference. The pending source
+fix keeps preparation bounded at 205 seconds and starts a fresh 170-second
+inference ceiling only at the authenticated direct POST. UI waiting begins at
+that same point; cancellation authority and no-cloud-fallback remain unchanged.
+This fixes deadline allocation, not the underlying cold-start latency. Both
+pod/hub cleanup succeeded and the old browser session was refused afterward.
+All 41 focused stream/parser/UI checks pass, including the real inference
+deadline and authenticated stop. The delayed-admission regression fails with
+the old stream consumer substituted in memory; shared source files are not
+overwritten. Typecheck, docs links and diagram governance pass. Independent
+review found no change to admission, consent or cancellation authority.
+The completed recovery-plus-deadline candidate passed the local core mirror
+in 334 seconds, including the unchanged architecture ratchet. The first attempt
+stopped at duplicated test scaffolding; consolidation into the existing shared
+SSE helper cleared that finding without a baseline allowance or removed coverage.
 
 A prior Puppy response took approximately 139 seconds, including 98 seconds of
 local generation and 37 seconds to first content. Recovery replay held 459

@@ -185,6 +185,13 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 and update permits. The browser keeps its abort listener through the response
 body and never falls back to a cloud model for unavailable Puppy inference.
 
+Preparation is bounded at 205 seconds. Immediately before the authenticated
+direct POST, the existing dispatch callback starts a separate 170-second
+inference deadline in both the stream consumer and its caller. Cold admission
+does not consume that inference budget. Neither tokens nor retries extend it;
+an aborted preparation cannot dispatch later. The panel reports connection
+until that dispatch point, then waits for the machine's response.
+
 HTTP edges may keep the upstream alive after browser abort. The explicit
 [turn stop](../architecture/api-contracts.md#direct-puppy-turn-cancellation) joins
 that existing producer using the same request identity. Duplicate stops do not

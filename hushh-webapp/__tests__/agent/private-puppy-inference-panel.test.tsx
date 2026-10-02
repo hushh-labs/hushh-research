@@ -23,6 +23,7 @@ vi.mock("@/lib/services/puppy-one-service", () => ({
 }));
 vi.mock("@/lib/services/api-service", () => ({
   PUPPY_TURN_DEADLINE_MS: 205_000,
+  PUPPY_INFERENCE_DEADLINE_MS: 170_000,
   ApiService: {
     streamPuppyPodTurn: mocks.streamPuppyPodTurn,
     getPuppyRelayStatus: mocks.getPuppyRelayStatus,
@@ -52,7 +53,8 @@ beforeEach(() => {
     state: "active",
     hushhId: "owner-pod-1",
   });
-  mocks.streamPuppyPodTurn.mockImplementation(async ({ onToken }: { onToken: (text: string) => void }) => {
+  mocks.streamPuppyPodTurn.mockImplementation(async ({ onToken, onDispatch }: { onToken: (text: string) => void; onDispatch: () => void }) => {
+    onDispatch();
     onToken("Puppy ");
     onToken("answered");
     return {
@@ -113,18 +115,52 @@ describe("private Puppy relay", () => {
   it("ends an unanswered turn with a useful timeout instead of spinning forever", async () => {
     vi.useFakeTimers();
     try {
-      mocks.streamPuppyPodTurn.mockImplementation(({ signal }: { signal: AbortSignal }) =>
-        new Promise((_resolve, reject) => {
+      mocks.streamPuppyPodTurn.mockImplementation(({ signal, onDispatch }: { signal: AbortSignal; onDispatch: () => void }) => {
+        onDispatch();
+        return new Promise((_resolve, reject) => {
           signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-        }),
-      );
+        });
+      });
       render(<PrivatePuppyInferencePanel />);
       await act(async () => { await ask(); });
       expect(mocks.streamPuppyPodTurn).toHaveBeenCalledTimes(1);
 
-      await act(async () => { await vi.advanceTimersByTimeAsync(205_000); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(170_000); });
       expect(screen.getByText("Puppy did not answer in time. Check your machine and try again.")).toBeInTheDocument();
       expect(screen.queryByText(/Still waiting for your machine/)).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps cold connection time separate from the dispatched inference budget", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.streamPuppyPodTurn.mockImplementation(({ signal, onDispatch, onToken }: {
+        signal: AbortSignal; onDispatch: () => void; onToken: (text: string) => void;
+      }) => new Promise((resolve, reject) => {
+        let completion: ReturnType<typeof setTimeout>;
+        const dispatch = setTimeout(() => {
+          onDispatch();
+          completion = setTimeout(() => {
+            onToken("Puppy answered");
+            resolve({ model: "local-model", modelReported: true });
+          }, 40_000);
+        }, 172_000);
+        signal.addEventListener("abort", () => {
+          clearTimeout(dispatch);
+          clearTimeout(completion);
+          reject(signal.reason);
+        }, { once: true });
+      }));
+      render(<PrivatePuppyInferencePanel />);
+      await act(async () => { await ask(); });
+      expect(screen.getByText("Connecting your private agent…")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(172_000); });
+      expect(screen.getByText("Waiting for Puppy to answer…")).toBeInTheDocument();
+      await act(async () => { await vi.advanceTimersByTimeAsync(40_000); });
+      expect(screen.getByText("Puppy answered")).toBeInTheDocument();
+      expect(screen.queryByText(/did not answer in time/)).not.toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }

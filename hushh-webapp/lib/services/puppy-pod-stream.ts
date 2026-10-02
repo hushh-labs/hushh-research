@@ -2,8 +2,10 @@ import { Capacitor } from "@capacitor/core";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import { getOrCreateRequestId } from "@/lib/observability/request-id";
 
-/** Total Puppy turn budget, including cold pod admission and its streamed body. */
+/** Bound preparation separately so cold admission cannot consume inference time. */
 export const PUPPY_TURN_DEADLINE_MS = 205_000;
+/** Above the pod's 155-second turn ceiling, including streamed-body settlement. */
+export const PUPPY_INFERENCE_DEADLINE_MS = 170_000;
 
 export type PuppyPodStreamResult = {
   model: string;
@@ -24,6 +26,7 @@ export type PuppyPodTurnInput = {
   puppyCatalogVersion?: string;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   signal?: AbortSignal;
+  onDispatch?: () => void;
   onToken: (text: string) => void;
 };
 
@@ -38,12 +41,18 @@ export function streamDirectPuppyTurn(input: PuppyPodTurnInput, transport: {
     signal: input.signal,
     onToken: input.onToken,
     cancel: () => dispatched ? transport.stop(requestId) : Promise.resolve(true),
-    open: (signal) => transport.open(JSON.stringify({
+    open: (signal, startInference) => transport.open(JSON.stringify({
       message: input.message, conversationId: input.conversationId,
       runtimeProvider: "puppy", puppyDeviceId: input.puppyDeviceId,
       puppyModel: input.puppyModel, puppyCatalogVersion: input.puppyCatalogVersion,
       history: input.history,
-    }), signal, requestId, () => { dispatched = true; }),
+    }), signal, requestId, () => {
+      signal.throwIfAborted();
+      if (dispatched) return;
+      dispatched = true;
+      startInference();
+      input.onDispatch?.();
+    }),
   });
 }
 
@@ -72,7 +81,7 @@ async function openWhileActive(open: (signal: AbortSignal) => Promise<Response |
 /** Own the abort listener until the stream reaches a terminal event or fails. */
 export async function consumePuppyPodStream(input: {
   signal?: AbortSignal;
-  open: (signal: AbortSignal) => Promise<Response | null>;
+  open: (signal: AbortSignal, startInference: () => void) => Promise<Response | null>;
   onToken: (text: string) => void;
   cancel?: () => Promise<boolean>;
 }): Promise<PuppyPodStreamResult> {
@@ -80,11 +89,22 @@ export async function consumePuppyPodStream(input: {
   const abortFromCaller = () => controller.abort(input.signal?.reason);
   if (input.signal?.aborted) abortFromCaller();
   else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
-  const deadline = setTimeout(() => controller.abort(
+  const abortAtDeadline = () => controller.abort(
     new DOMException("Puppy stream timed out", "TimeoutError"),
-  ), PUPPY_TURN_DEADLINE_MS);
+  );
+  let deadline = setTimeout(abortAtDeadline, PUPPY_TURN_DEADLINE_MS);
+  let inferenceStarted = false;
+  const startInference = () => {
+    controller.signal.throwIfAborted();
+    if (inferenceStarted) return;
+    inferenceStarted = true;
+    clearTimeout(deadline);
+    deadline = setTimeout(abortAtDeadline, PUPPY_INFERENCE_DEADLINE_MS);
+  };
   try {
-    const response = await openWhileActive(input.open, controller.signal);
+    const response = await openWhileActive(
+      (signal) => input.open(signal, startInference), controller.signal,
+    );
     if (!response?.body) throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();

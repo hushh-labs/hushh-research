@@ -8,7 +8,7 @@ import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePuppyLink } from "@/lib/hermes/use-puppy-link";
 import { refreshPuppyLink } from "@/lib/services/puppy-one-service";
-import { ApiService, PUPPY_TURN_DEADLINE_MS } from "@/lib/services/api-service";
+import { ApiService, PUPPY_TURN_DEADLINE_MS, PUPPY_INFERENCE_DEADLINE_MS } from "@/lib/services/api-service";
 import { PodMemoryConsentRow } from "@/components/agent/pod-memory-consent-row";
 import { PuppyRemoteModelPicker } from "@/components/agent/puppy-remote-model-picker";
 import {
@@ -136,10 +136,10 @@ export function PrivatePuppyInferencePanel({
     setTurnStage("checking");
     window.performance.mark("puppy.turn.start");
     const controller = new AbortController();
-    const deadline = window.setTimeout(
-      () => controller.abort(new DOMException("Puppy did not answer in time", "TimeoutError")),
-      PUPPY_TURN_DEADLINE_MS,
+    const abortAtDeadline = () => controller.abort(
+      new DOMException("Puppy did not answer in time", "TimeoutError"),
     );
+    let deadline = window.setTimeout(abortAtDeadline, PUPPY_TURN_DEADLINE_MS);
     requestRef.current = controller;
     const assistantId = `a-${Date.now()}`;
     const nextTurns = [
@@ -173,7 +173,6 @@ export function PrivatePuppyInferencePanel({
         if (controller.signal.aborted) throw controller.signal.reason;
         if (!currentLink.device?.id || (currentLink.state !== "live" && currentLink.state !== "quiet"))
           throw new Error("PUPPY_OFFLINE");
-        setTurnStage("waiting");
         window.performance.mark("puppy.turn.device-confirmed");
         return { hushhId: status.hushhId, deviceId: currentLink.device.id };
       })(), controller.signal);
@@ -189,6 +188,14 @@ export function PrivatePuppyInferencePanel({
           puppyCatalogVersion: chatModel?.catalogVersion,
           signal: controller.signal,
           history: nextTurns.map(({ role, text }) => ({ role, content: text })),
+          onDispatch: () => {
+            controller.signal.throwIfAborted();
+            window.clearTimeout(deadline);
+            deadline = window.setTimeout(abortAtDeadline, PUPPY_INFERENCE_DEADLINE_MS);
+            setElapsedSeconds(0);
+            setTurnStage("waiting");
+            window.performance.mark("puppy.turn.dispatched");
+          },
           onToken: (text) => {
             if (controller.signal.aborted) return;
             if (!streamedText) {
@@ -312,7 +319,7 @@ export function PrivatePuppyInferencePanel({
                   <Loader2 className="size-4 animate-spin" aria-hidden />
                   {turnStage === "stopping" ? "Stopping Puppy…"
                     : turnStage === "checking" ? "Checking your private pod…"
-                    : turnStage === "connecting" ? "Checking your trusted machine…"
+                    : turnStage === "connecting" ? "Connecting your private agent…"
                     : elapsedSeconds < 60 ? "Waiting for Puppy to answer…"
                     : "Still waiting for your machine. You can cancel below."}
                 </span>

@@ -66,7 +66,7 @@ import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
 import { streamDirectPuppyTurn, fetchDirectPuppyStream, type PuppyPodTurnInput } from "./puppy-pod-stream";
 import type { PuppyPodStreamResult } from "./puppy-pod-stream";
 
-export { PUPPY_TURN_DEADLINE_MS } from "./puppy-pod-stream";
+export { PUPPY_TURN_DEADLINE_MS, PUPPY_INFERENCE_DEADLINE_MS } from "./puppy-pod-stream";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";

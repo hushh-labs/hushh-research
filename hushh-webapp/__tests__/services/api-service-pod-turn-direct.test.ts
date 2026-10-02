@@ -1,5 +1,6 @@
 /** Direct owner turns never retry private work on the hub after a named failure. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createSseResponse } from "../utils/test-helpers";
 
 const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -343,13 +344,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
-    const response = (parts: string[]) => new Response(new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const part of parts) controller.enqueue(new TextEncoder().encode(part));
-        controller.close();
-      },
-    }), { headers: { "Content-Type": "text/event-stream" } });
-    mockFetch.mockResolvedValueOnce(response([
+    mockFetch.mockResolvedValueOnce(createSseResponse([
       'event: token\ndata: {"text":"Hello',
       ' "}\n\nevent: token\ndata: {"text":"world"}\n\n',
       'event: done\ndata: {"model":"local-m","modelReported":true,"provider":"puppy","grounded":false,"runtimeMode":"puppy_relay"}\n\n',
@@ -366,12 +361,12 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(JSON.parse(String(mockFetch.mock.calls[0][1]?.body))).toMatchObject({
       runtimeProvider: "puppy", puppyDeviceId: "tdv_mac_1", conversationId: "puppy-chat-1",
     });
-    mockFetch.mockResolvedValueOnce(response(['event: error\ndata: {"code":"PUPPY_OFFLINE"}\n\n']));
+    mockFetch.mockResolvedValueOnce(createSseResponse(['event: error\ndata: {"code":"PUPPY_OFFLINE"}\n\n']));
     await expect(ApiService.streamPuppyPodTurn(input)).rejects.toThrow("PUPPY_OFFLINE");
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it.each([true, false, "offline"])("bounds authoritative cancellation after browser abort (stopped=%s)", async (stopped) => {
+  it.each([true, false, "offline", "deadline"])("bounds authoritative cancellation after abort or inference deadline (stopped=%s)", async (stopped) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
@@ -380,22 +375,20 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     mockFetch.mockImplementation((_url: string, init: RequestInit) => {
       if (_url.endsWith("/turn/cancel")) return stopped === "offline"
         ? new Promise<Response>(() => {}) // a stuck admission/transport cannot strand the UI
-        : Promise.resolve(json({ state: stopped ? "stopped" : "unconfirmed" }));
+        : Promise.resolve(json({ state: stopped === true || stopped === "deadline" ? "stopped" : "unconfirmed" }));
       transportSignal = init.signal ?? undefined;
-      return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
-        start(controller) {
-          transportSignal?.addEventListener("abort", () => controller.error(transportSignal?.reason));
-        },
-      }), { headers: { "Content-Type": "text/event-stream" } }));
+      return Promise.resolve(createSseResponse([], transportSignal));
     });
     const turn = ApiService.streamPuppyPodTurn({
       ...PUPPY_INPUT, onToken: vi.fn(), signal: caller.signal,
     });
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
     expect(transportSignal?.aborted).toBe(false);
-    caller.abort(new DOMException("owner cancelled", "AbortError"));
-    const outcome = stopped === true ? expect(turn).rejects.toMatchObject({ name: "AbortError" })
+    if (stopped !== "deadline") caller.abort(new DOMException("owner cancelled", "AbortError"));
+    const outcome = stopped === "deadline" ? expect(turn).rejects.toMatchObject({ name: "TimeoutError" })
+      : stopped === true ? expect(turn).rejects.toMatchObject({ name: "AbortError" })
       : expect(turn).rejects.toThrow("PUPPY_CANCEL_UNCONFIRMED");
+    if (stopped === "deadline") await vi.advanceTimersByTimeAsync(170_000);
     if (stopped === "offline") await vi.advanceTimersByTimeAsync(12_000);
     await outcome;
     expect(transportSignal?.aborted).toBe(true);
@@ -408,28 +401,36 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(new Headers(cancellation.headers).get("Authorization")).toBe(`Bearer ${SESSION.session}`);
   });
 
-  it.each([false, true])("bounds cold admission and activation (cancel=%s)", async (cancel) => {
+  it.each([false, true])("preserves inference time after cold admission without late dispatch (cancel=%s)", async (cancel) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     let admit!: (session: typeof SESSION) => void;
     ownerPodMocks.currentPodSession.mockReturnValue(new Promise((resolve) => { admit = resolve; }));
     const activate = vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
-    mockFetch.mockResolvedValue(
-      new Response('event: done\ndata: {"model":"local","modelReported":true}\n\n'),
-    );
-    const caller = new AbortController();
-    const turn = ApiService.streamPuppyPodTurn({
-      ...PUPPY_INPUT, onToken: vi.fn(), signal: caller.signal,
+    mockFetch.mockImplementation((_url: string, init: RequestInit) => {
+      if (_url.endsWith("/turn/cancel")) return Promise.resolve(json({ state: "stopped" }));
+      return Promise.resolve(createSseResponse(
+        ['event: done\ndata: {"model":"local","modelReported":true}\n\n'], init.signal, 40_000,
+      ));
     });
+    const caller = new AbortController();
+    const onDispatch = vi.fn();
+    const turn = ApiService.streamPuppyPodTurn({
+      ...PUPPY_INPUT, onToken: vi.fn(), signal: caller.signal, onDispatch,
+    });
+    const outcome = cancel ? expect(turn).rejects.toMatchObject({ name: "AbortError" })
+      : expect(turn).resolves.toMatchObject({ model: "local" });
     await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(172_000);
     expect(mockFetch).not.toHaveBeenCalled();
     if (cancel) {
       caller.abort(new DOMException("owner cancelled", "AbortError"));
-      await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+      await outcome;
     }
     admit(SESSION);
-    if (!cancel) await expect(turn).resolves.toMatchObject({ model: "local" });
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(40_000);
+    if (!cancel) await outcome;
     expect(mockFetch).toHaveBeenCalledTimes(cancel ? 0 : 1);
+    expect(onDispatch).toHaveBeenCalledTimes(cancel ? 0 : 1);
   });
 
   it("gives the pod turn its own ceiling above the proxies", async () => {
