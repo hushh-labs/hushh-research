@@ -6,11 +6,13 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 The Files-led matrix below carries the release decision.
 
 **Decision — 2026-10-02: personal update and Files transfer pass; dev acceptance remains blocked.**
-Dev serves `241558e553b6`. The personal owner approved and installed the exact
+Dev serves `b70ee404bfa7`. The personal owner approved and installed the exact
 qualified `.2` image, then completed the separate Files configuration operation.
 Encrypted transfer, reversible file actions and exclusions pass. Personal Files
 organization exceeded ADK's model-call limit, and Puppy cancellation did not stop
-live inference. Focused corrections have local evidence; neither is deployed yet.
+live inference. Corrections pass hosted CI and serve in the dev application;
+the personal pod still runs its prior image. Exact-image recovery passed for the
+new image; qualified publication and normal owner installation remain required.
 Production remains blocked. No main merge or broader rollout occurred.
 
 The [One hierarchy](../one/one-agent-hierarchy.md),
@@ -21,23 +23,35 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 ## Source and serving evidence
 
-- **Application:** [full exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/36948290521)
-  and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/36950372819)
-  succeeded for `241558e553b6`. Independent readback confirmed backend
-  `consent-protocol-00124-gf9` and frontend `hushh-webapp-00104-k74` at 100%
-  traffic. Deployment took about 15 minutes 39 seconds. GitHub Actions governed
-  deployment; Cloud Build built application images and reused the qualified pod image.
+- **Application:** [full exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/36987368258)
+  and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/36989437842)
+  succeeded for `b70ee404bfa7`. Independent readback confirmed backend
+  `consent-protocol-00125-b96` and frontend `hushh-webapp-00105-gw2` at 100%
+  traffic. Deployment took 22 minutes 53 seconds. GitHub Actions governed
+  deployment; Cloud Build built the application and pod images.
   Candidate verification, provenance, schema and runtime parity passed.
-  Rollback application revisions are `00123-z2h` / `00103-l8d`.
+  Rollback application revisions are `00124-gf9` / `00104-k74`.
 - **Frozen integration:** main `f5ed2eb82fbe` and local ADK `1b08a07ebe93`
-  remain the reviewed inputs. The completed candidate's local core mirror passed
-  in 257 seconds. No later unrelated ADK delta is claimed in this release.
-- **Release:** dev-only `2026.10-dev.2+be747f06168b.d02509f1` reuses immutable
+  remain the reviewed inputs. The earlier `.2` integration's local core mirror
+  passed in 257 seconds. The correction's verification is recorded below;
+  no later unrelated ADK delta is claimed in this release.
+- **Concurrent branch work:** seven subsequent commits through `e1a60e5c2` were
+  fast-forwarded locally without changing the deployment SHA or unrelated PDF
+  edits. They include restored CI coverage and owner-cloud contract corrections;
+  their source is not claimed in the serving pod image.
+- **Installed personal release:** dev-only `2026.10-dev.2+be747f06168b.d02509f1` reuses immutable
   digest `sha256:d02509f1…9d23f` and original image source `be747f06168b`.
   Serving release metadata matches its archived descriptor. Only exact predecessor
   `sha256:1054cdf6…f0392` is qualified. Cloud Build `82d767a5` proved actual
   predecessor → exact target → target restart using synthetic encrypted state,
   without source overlays. That isolated evidence does not establish owner-cloud IAM.
+- **New image:** `2026.10-dev.3+b70ee404bfa7.730e1702` was published with no
+  admitted predecessor. Cloud Build `dda7c96e` passed exact `d02509f1` →
+  `730e1702` → restart recovery of synthetic encrypted Files, session state,
+  authority tombstones and PKM summaries, without source overlays. The reviewed
+  `.4` qualification pins that original archive and admits only `d02509f1`.
+  It remains unpublished and uninstalled; fixture success is not owner-cloud
+  queue delivery or a normal installation receipt.
 - **Personal update:** normal owner approval occurred while a real synthetic pod
   chat was active. Authenticated drain produced a durable idle receipt, and the
   turn completed before image replacement. A repeated exact approval returned
@@ -87,7 +101,7 @@ stops. A settled pod producer is not proof of device acknowledgement.
 | --- | --- | --- |
 | **Personal Files setup** | Exact image and Files plan approved; same-operation queue continuation, capability, queue, digest and encrypted continuity verified. | BYOC: cold recovery and remaining runtime conditions. |
 | **Files explorer and transfer** | Personal live 5 MiB interrupted/resumed upload, byte-exact download, folders, rename/move undo, trash/restore and same-session continuity pass. Local mobile/paginated move checks pass. | Files: affected recheck after the next image; trash retention still applies. |
-| **Files Agent and jobs** | Personal explicit opt-in and exclusions pass; original bytes survived live model failure. Revised instructions pass three isolated real-model cases within six calls: organization, malicious content and unsupported content. | Files: deploy the correction; prove personal queue terminal organization and cancellation. Local model evidence is not owner-cloud delivery evidence. |
+| **Files Agent and jobs** | Personal explicit opt-in and exclusions pass; original bytes survived live model failure. Revised instructions pass three isolated Gemini 3.6 cases within six calls: organization, malicious content and unsupported content. | Files: install the qualified image; prove personal queue terminal organization and cancellation. Local model evidence is not owner-cloud delivery evidence. |
 | **Chat and recovery** | Fresh personal unlock, signed admission, completed private response, encrypted history and pod-side revocation pass after update. | Runtime: explain the preserved timeout; separate cold/warm and provider-stage timings. |
 | **Commands and connectors** | Source checks preserve exact approval ledger and completion recovery. | Runtime: recorded command, exact connector review/resume, cancellation and no duplicate effect. |
 | **Puppy and machine** | Updated-image direct reply and owner withdrawal pass; fresh binding is refused after withdrawal and the existing pod subject is revoked. Grant is re-enabled; identity is unchanged. | Device/runtime: install and prove explicit stop; reconnect, independent active internet, idle wake and cold latency. |
@@ -102,16 +116,16 @@ core mirror passed secret, governance and web-core. Protocol passed 8,523 tests
 but exposed a stale generated catalog and two exact route-wall expectations;
 the owning generator and reviewed `/turn/cancel` entry corrected both. The 33
 route-wall checks then passed, followed by MCP and the 94-check PKM integration
-lane. Original failures remain retained; full hosted CI still gates this candidate.
-The next dev-only `.3` offer has no admitted predecessor until exact-image
-recovery qualifies it. No owner installation is implied.
+lane. Original failures remain retained; full hosted CI passed at exact
+`b70ee404bfa7`. The deployed `.3` offer has no admitted predecessor. The `.4`
+qualification still requires its own exact-SHA CI and governed publication;
+no owner installation is implied.
 
 ## Next gate and board alignment
 
-1. Freeze the completed Files-instruction and Puppy-stop corrections; run the
-   local core mirror once and hosted exact-SHA CI, then one governed dev deployment.
-2. Publish a dev-only immutable image after exact-predecessor recovery proof;
-   install it through the normal owner approval. Repeat personal organization,
+1. Verify and publish the `.4` qualification through the existing backend lane,
+   reusing the tested pod image and preserving its original provenance.
+2. Install it through normal exact-release owner approval. Repeat personal organization,
    cancellation and affected continuity checks. Preserve earlier failed receipts.
 3. Complete the remaining recorded command, connector, billing and bounded runtime
    journeys. Keep physical-device/network prerequisites explicitly unverified.

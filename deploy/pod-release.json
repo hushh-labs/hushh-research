@@ -1,5 +1,5 @@
 {
-  "version": "2026.10-dev.3",
+  "version": "2026.10-dev.4",
   "channel": "dev",
   "summary": "Bounded Files organization and explicit Puppy stopping.",
   "notes": {
@@ -15,5 +15,7 @@
       "No cloud inference fallback or new device grants are introduced."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:d02509f1bd6373605790f06fc775be1ffccc5eaf10da1b7eec576cb24b69d23f"
+  ]
 }
