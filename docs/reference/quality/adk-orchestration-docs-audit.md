@@ -155,6 +155,14 @@ on the original default-true behavior. Combined core passed in 292 seconds at
 runtime-contract and fitness gates. Hosted exact-revision qualification remains
 pending. No handwritten fitness allowance was widened.
 
+The typed Location command reached the pod and settled, but its rehearsal then
+refused Location's background SMS-circle migration. The failed receipt remains
+intact; no contacts were changed. The app now uses the existing bounded-review
+policy to suppress only that bootstrap write, retaining ordinary bootstrap,
+explicit owner actions and roster reads. The nearest normal/bounded regression
+passes, and removing the guard makes it fail. Recorded-command acceptance
+requires this correction to serve; the network guard is unchanged.
+
 On the updated image, one Puppy follow-up took about 139 seconds end to end,
 including roughly 98 seconds of local-model generation and 37 seconds to first
 content. Earlier short-response and cancellation receipts remain separate.

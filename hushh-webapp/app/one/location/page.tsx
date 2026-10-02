@@ -60,6 +60,7 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
@@ -3662,13 +3663,12 @@ export function OneLocationAgentPageContent({
     [smsContactUserIds, sosActionRecipients],
   );
 
-  // Provision on bootstrap, once the vault token exists. Idempotent server-side,
-  // so a re-run costs one request and changes nothing.
+  // Normal bootstrap may migrate contacts; bounded rehearsals must remain read-only.
   useEffect(() => {
     setSmsSystemCircleMemberIds(null);
     setSmsRosterLoading(true);
     const rosterRevision = ++smsRosterRevision.current;
-    if (!auth.userId || !vaultOwnerToken) {
+    if (!auth.userId || !vaultOwnerToken || shouldSkipReviewerBackgroundWritesForAutomation()) {
       setSmsRosterLoading(false);
       return;
     }
