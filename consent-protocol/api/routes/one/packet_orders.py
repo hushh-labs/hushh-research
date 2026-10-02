@@ -28,6 +28,8 @@ _STATUS = {
     "PACKET_UNAVAILABLE": 404,
     "OWN_PACKET": 400,
     "INVALID_LISTING_ID": 400,
+    "NOT_ENOUGH_CREDITS": 402,
+    "NO_CREDIT_PRICE": 400,
 }
 
 
@@ -49,6 +51,28 @@ async def create_packet_order(
             packet_id=body.get("packetId"),
         )
         return checkout
+    except (PacketOrderError, ClaimError) as exc:
+        raise HTTPException(
+            status_code=_STATUS.get(exc.code, 400),
+            detail={"code": exc.code, "message": str(exc)},
+        ) from None
+
+
+@router.post("/credits")
+async def buy_with_credits(
+    response: Response,
+    body: dict[str, Any] = Body(...),
+    buyer_user_id: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Buy a packet with credits: paid immediately, then the owner decides."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        order: dict[str, Any] = await _service().buy_with_credits(
+            buyer_user_id=buyer_user_id,
+            listing_id=body.get("listingId"),
+            packet_id=body.get("packetId"),
+        )
+        return order
     except (PacketOrderError, ClaimError) as exc:
         raise HTTPException(
             status_code=_STATUS.get(exc.code, 400),

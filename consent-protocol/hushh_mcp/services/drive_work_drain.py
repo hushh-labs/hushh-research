@@ -20,6 +20,7 @@ from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_request_payment_refund_worker import DriveRequestPaymentRefundWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
+from hushh_mcp.services.pkm_packet_order_worker import PkmPacketOrderWorker
 
 MAX_JOBS_PER_WORKER = 20
 WORKER_JOB_LIMITS = {
@@ -30,11 +31,14 @@ WORKER_JOB_LIMITS = {
     "bulk_shares": 400,
     "notifications": 20,
     "refunds": 4,
+    "packet_orders": 20,
 }
 STAGE_WORKERS = {
     "documents": frozenset({"documents"}),
     "suggestions": frozenset({"suggestions", "searches"}),
-    "sharing": frozenset({"permissions", "bulk_shares", "notifications", "refunds"}),
+    "sharing": frozenset(
+        {"permissions", "bulk_shares", "notifications", "refunds", "packet_orders"}
+    ),
 }
 STAGE_MAX_SECONDS = {
     "documents": 180,
@@ -44,6 +48,7 @@ STAGE_MAX_SECONDS = {
     "bulk_shares": 80,
     "notifications": 35,
     "refunds": 35,
+    "packet_orders": 35,
 }
 STAGE_MIN_SECONDS = {
     "documents": 160,
@@ -53,6 +58,7 @@ STAGE_MIN_SECONDS = {
     "bulk_shares": 75,
     "notifications": 35,
     "refunds": 20,
+    "packet_orders": 20,
 }
 MAX_OUTCOME_COUNT = 500
 
@@ -163,6 +169,9 @@ _WORKER_ALLOWED_OUTCOMES = {
             "deferred",
         }
     ),
+    "packet_orders": frozenset(
+        {"marked", "refunded", "cancelled", "disabled", "unavailable", "deadline", "deferred"}
+    ),
 }
 
 
@@ -215,6 +224,7 @@ class DriveWorkDrain:
         bulk_share_worker: DriveBulkShareWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
         refund_worker: DriveRequestPaymentRefundWorker | None = None,
+        packet_order_worker: PkmPacketOrderWorker | None = None,
     ) -> None:
         # Sharing permissions precede notifications in the same stage. Other
         # stages run on their own fixed scheduler jobs, never in this request.
@@ -226,6 +236,8 @@ class DriveWorkDrain:
             ("bulk_shares", bulk_share_worker or DriveBulkShareWorker()),
             ("notifications", notification_worker or DriveShareNotificationWorker()),
             ("refunds", refund_worker or DriveRequestPaymentRefundWorker()),
+            # PKM packet refunds ride the same minute-by-minute sharing drain.
+            ("packet_orders", packet_order_worker or PkmPacketOrderWorker()),
         )
 
     async def run(
@@ -282,13 +294,13 @@ class DriveWorkDrain:
             # Run them together after permission work so neither starves the
             # other inside the existing minute-by-minute sharing drain.
             for name, worker in self._workers:
-                if name not in {"notifications", "refunds"}:
+                if name not in {"notifications", "refunds", "packet_orders"}:
                     await run_worker(name, worker)
             await asyncio.gather(
                 *(
                     run_worker(name, worker)
                     for name, worker in self._workers
-                    if name in {"notifications", "refunds"}
+                    if name in {"notifications", "refunds", "packet_orders"}
                 )
             )
         else:

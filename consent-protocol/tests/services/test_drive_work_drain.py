@@ -18,7 +18,13 @@ def _worker(result):
     return type("Worker", (), {"run": AsyncMock(return_value=result)})()
 
 
-def _drain(workers, search_worker=None, bulk_share_worker=None, refund_worker=None):
+def _drain(
+    workers,
+    search_worker=None,
+    bulk_share_worker=None,
+    refund_worker=None,
+    packet_order_worker=None,
+):
     return DriveWorkDrain(
         document_worker=workers[0],
         suggestion_worker=workers[1],
@@ -27,6 +33,7 @@ def _drain(workers, search_worker=None, bulk_share_worker=None, refund_worker=No
         bulk_share_worker=bulk_share_worker or _worker({"outcomes": {"not_claimed": 1}}),
         notification_worker=workers[3],
         refund_worker=refund_worker or _worker({"outcomes": {"disabled": 1}}),
+        packet_order_worker=packet_order_worker or _worker({"outcomes": {"disabled": 1}}),
     )
 
 
@@ -51,6 +58,7 @@ async def test_document_stage_is_exclusive_bounded_and_aggregate_only():
             "bulk_shares": {"deferred": 1},
             "notifications": {"deferred": 1},
             "refunds": {"deferred": 1},
+            "packet_orders": {"deferred": 1},
         },
     }
     workers[0].run.assert_awaited_once_with(max_jobs=1, deadline_seconds=180)
@@ -78,6 +86,7 @@ async def test_suggestion_stage_does_not_claim_document_or_sharing_work():
         "bulk_shares": {"deferred": 1},
         "notifications": {"deferred": 1},
         "refunds": {"deferred": 1},
+        "packet_orders": {"deferred": 1},
     }
 
 
@@ -103,6 +112,7 @@ async def test_sharing_stage_continues_notification_after_permission_failure():
         "bulk_shares": {"not_claimed": 1},
         "notifications": {"settled": 1},
         "refunds": {"disabled": 1},
+        "packet_orders": {"disabled": 1},
     }
     assert "private" not in str(result)
 
@@ -336,3 +346,15 @@ async def test_search_failure_does_not_erase_the_preparation_result():
     assert result["workers"]["suggestions"] == {"review_ready": 1}
     assert result["workers"]["searches"] == {"unavailable": 1}
     assert "private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_sharing_stage_reconciles_packet_orders_with_aggregate_output_only():
+    workers = [_worker({"outcomes": {}}) for _ in range(4)]
+    packet = _worker({"outcomes": {"marked": 1, "refunded": 1, "private_order_id": "o-1"}})
+
+    result = await _drain(workers, packet_order_worker=packet).run(stage="sharing")
+
+    packet.run.assert_awaited_once_with(max_jobs=20, deadline_seconds=35)
+    assert result["workers"]["packet_orders"] == {"marked": 1, "refunded": 1}
+    assert "o-1" not in str(result)

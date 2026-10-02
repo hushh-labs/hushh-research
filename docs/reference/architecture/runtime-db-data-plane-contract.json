@@ -685,6 +685,37 @@
       "expected_row_growth": "medium_per_user_request"
     },
     {
+      "id": "pkm_credits",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_credit_subscriptions",
+        "pkm_credit_ledger"
+      ],
+      "primary_access_path": "hussh.ai credits plans: a buyer subscribes monthly through Stripe Checkout; the signed webhook grants the plan's credits once per paid invoice (pkm_grant_credits, expiring the unused balance) and records plan status; buying a packet with credits spends from the ledger (pkm_spend_credits under a per-user advisory lock); refunds of credit-paid orders return credits.",
+      "retention_policy": "Subscription row retained while the plan exists; ledger rows are append-only and retained for the life of the account for balance and audit.",
+      "deletion_behavior": "On account deletion the ledger is deleted and the subscription row is deleted after its Stripe subscription id is moved to pkm_credit_subscription_cancellations for cancellation.",
+      "trust_boundary": "Stores user references, plan, Stripe customer and subscription ids, status, period end, and integer credit deltas with idempotency refs. No card data and no PKM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
+      "id": "pkm_credit_subscription_cancellations",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_credit_subscription_cancellations"
+      ],
+      "primary_access_path": "Account deletion moves a deleted subscriber's Stripe subscription id here; the scheduled work drain cancels it at Stripe and deletes the row.",
+      "retention_policy": "Transient: deleted as soon as the Stripe cancellation succeeds.",
+      "deletion_behavior": "Holds no user identity; rows are removed by the drain after cancellation.",
+      "trust_boundary": "Stripe subscription id and timestamp only; no user id.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_ttl_workflow"
+    },
+    {
       "id": "information_marketplace_delivery",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

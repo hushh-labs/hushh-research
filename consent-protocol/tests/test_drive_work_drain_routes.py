@@ -239,6 +239,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
                 "bulk_shares": {"succeeded": 2, "private_file_id": "not-allowed"},
                 "notifications": {"settled": 1},
                 "refunds": {"succeeded": 1, "private_payment_id": "not-allowed"},
+                "packet_orders": {"refunded": 1, "private_order_id": "not-allowed"},
             },
         }
     )
@@ -269,9 +270,11 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "bulk_shares": {"succeeded": 2},
             "notifications": {"settled": 1},
             "refunds": {"succeeded": 1},
+            "packet_orders": {"refunded": 1},
         },
     }
     assert "no-store" in response.headers["Cache-Control"]
+    assert "private_order_id" not in response.text
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()
