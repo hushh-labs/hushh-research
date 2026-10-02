@@ -14,5 +14,7 @@
       "Owner filtering, encrypted chain verification and erasure checks remain required before index publication."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:730e17029fdbb74e381002d74b224dc4a855897b7181c7b7b8f36c2caa43d1d5"
+  ]
 }

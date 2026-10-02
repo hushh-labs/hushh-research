@@ -7,10 +7,11 @@ The Files-led matrix below carries the release decision.
 
 **Decision — 2026-10-02: Files and the owner-approved dev update pass;
 full dev acceptance and production remain blocked.**
-Both dev application services now serve verified source `a9c479328fd0`.
+Both dev application services now serve verified source `3f968a985e3c`. Files is
+a dedicated `/one` agent; Hosting no longer links its workspace.
 The personal pod retains its independently qualified `.4` image, encrypted
 information, trusted device and selected on-demand configuration. Private chat
-and typed/recorded synthetic commands pass through that pod. Puppy failed the
+and typed/recorded synthetic commands pass through that pod on the earlier `a9c479328fd0` application. Puppy failed the
 two-operation and cold rehearsals before inference had time to finish; recovery
 work and client deadline allocation are confirmed defects. Eligible connector review, billing recovery
 and bounded mixed work remain gates. No main, UAT, production or stable-channel
@@ -24,16 +25,16 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 ## Source and serving evidence
 
-- **Application:** [exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/37020459136)
-  and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37023785833)
-  succeeded for `a9c479328fd04dfc8f5394202ca43090e5d93975`. Independent readback
-  at 15:43 UTC confirmed backend `consent-protocol-00128-kk2` and frontend
-  `hushh-webapp-00107-j72`, both at 100% traffic on that SHA. Immutable digests
-  are `sha256:9c4eb6fe3483805f772a7027f0b32a3f056eb4d05ae0c74d326248ac6ad1dedf`
-  and `sha256:11fc24397c5b0d948a8fae132f2cf6ae910e965bead2b56ba879cd966fd12fac`.
+- **Application:** [exact-SHA CI](https://github.com/hushh-labs/hushh-research/actions/runs/37043837731)
+  and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37046577862)
+  succeeded for `3f968a985e3c02178ed51c817607842bca65f4a8`. Independent readback
+  at 18:42 UTC confirmed backend `consent-protocol-00129-jnb` and frontend
+  `hushh-webapp-00108-2rj`, both at 100% traffic on that SHA. Immutable digests
+  are `sha256:360e99a18221b2291ed9671bc7b1b316977cad0a31b03e8b5146bd0cb4350b7f`
+  and `sha256:25d5d8ce928412deacf1b260fb564c38da791a3359e8b0fb3ee5831f887290d0`.
   GitHub Actions governed; Cloud Build built and deployed. Health, provenance,
   model, parity and database guards passed. Application rollback targets are
-  `00127-qhs` / `00106-s2d`. Deployment took approximately 21 minutes; no speed
+  `00128-kk2` / `00107-j72`. Deployment took approximately 23 minutes; no speed
   improvement or live rollback acceptance is claimed.
 - **Integration boundary:** the refresh froze main `43c70034dd99` and clean local
   ADK `b398a9de5166`. Two relevant reviewer fixes were carried selectively; the
@@ -56,7 +57,7 @@ Git history retains the earlier chronology; this memo records current evidence.
 - **Updates and Feed:** the missing historical notice was repaired through the
   existing Feed writer: two calls produced one operation-key notice and no
   registry mutation. Settings/Feed readback agrees. The corrected automatic
-  reconciled projection now serves in `a9c479328fd0`; this deployment does not
+  reconciled projection now serves in `3f968a985e3c`; this deployment does not
   prove a second normal update or observed drain overlap.
 - **Economic configuration:** fresh management readback preserves 1 vCPU/1 GiB,
   minimum zero, revision maximum one instance, concurrency eight and ten-minute
@@ -87,12 +88,12 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 | Journey | Verified | Remaining gate / owner |
 | --- | --- | --- |
-| **Files discovery** | Authored ADK specialist and dedicated `/one/files` explorer exist. The launcher correction adds Files to the canonical `/one` roster and navigation catalog and removes its Hosting link; development-only visibility follows the authored manifest. | Frontend: exact-SHA deployment and live roster readback remain pending; discovery is not installed capability or consent. |
+| **Files discovery** | Authored ADK specialist and dedicated `/one/files` explorer exist. The launcher correction adds Files to the canonical `/one` roster and navigation catalog and removes its Hosting link; development-only visibility follows the authored manifest. | Frontend: live list/grid entry and explorer navigation pass at 390/768/1440 px with vault continuity; Hosting has no Files launcher. Discovery is not installed capability or consent. |
 | **Files setup** | Exact-plan approval, same-operation queue continuation, installed capability, encrypted keys and queue configuration. | Preserve the existing operation, bucket and selected hosting settings. |
 | **Files explorer and transfer** | Live 5 MiB interrupted/resumed upload, byte-exact download, folders, rename/move undo, trash/restore and same-session continuity; mobile/paginated move checks. | Files: mixed-work recheck; trash retention is not physical deletion. |
 | **Files Agent and jobs** | Explicit opt-in/exclusions, automatic organization of a new synthetic upload, authenticated queue completion, terminal cancellation and original-byte preservation on the installed image. Isolated malicious/unsupported-content tests. | Files: bounded overlapping work. Original analysis settings restored; synthetic creations trashed under retention. Failed and cancellation-only harness receipts stay separate. |
-| **Chat and recovery** | Two direct browser replies completed in approximately 74 and 71 seconds on the serving candidate; terminal UI and exact-thread history agree. Signed admission, same-session continuity and pod/hub session revocation pass. Fresh unlock recovered exact synthetic user and completed assistant information. | Runtime: original failed/inconclusive harness receipts remain preserved. Recovery latency remains poor. |
-| **Commands and connectors** | Typed and five-second recorded synthetic commands completed pod transcription/assessment and the existing hub ledger's Location settings plan on this serving candidate; same-session continuity and both cleanup authorities pass. | Runtime: a real physical microphone and eligible connector approval/resume are unverified. This owner's inventory has no eligible saved review-required read-only fixture. |
+| **Chat and recovery** | Two direct browser replies completed in approximately 74 and 71 seconds on the dated `a9c479328fd0` candidate; terminal UI and exact-thread history agree. Signed admission, same-session continuity and pod/hub session revocation pass. Fresh unlock recovered exact synthetic user and completed assistant information. | Runtime: original failed/inconclusive harness receipts remain preserved. Recovery latency remains poor. |
+| **Commands and connectors** | Typed and five-second recorded synthetic commands completed pod transcription/assessment and the existing hub ledger's Location settings plan on dated `a9c479328fd0`; same-session continuity and both cleanup authorities pass. | Runtime: a real physical microphone and eligible connector approval/resume are unverified. This owner's inventory has no eligible saved review-required read-only fixture. |
 | **Puppy and machine** | Existing Hermes identity: direct response, `200/stopped`, released work, Mac inference cancellation, reconnect, owner withdrawal/new-binding refusal and re-enable; dated model/capacity report. A controlled relay restart followed by a warm browser response passed in approximately 73 seconds. | Runtime: mixed work exhausted the 155-second pod timeout after approximately 151 seconds of recovery. The confirmed-zero cold browser attempt exhausted its 205-second total after 172 seconds of setup. Independent active internet and usable cold latency remain unverified. Failed receipts are retained. |
 | **Updates and runtime** | Exact `.4` approval, one operation, durable idle, restart, digest/key/configuration and Settings/Feed verification. Automatic projection correction is deployed. | Updates/runtime: observed drain overlap, bounded mixed work and measured idle/wake after the final candidate. No live rollback-fault acceptance. |
 | **Billing recovery** | Typed retry contracts preserve the recorded project and setup operation. | Provisioning: real missing-billing return through fresh authorization on a disposable setup; never disable an existing owner's billing to manufacture failure. |
@@ -127,22 +128,24 @@ only for statistics, then memory hydration. Local inference started approximatel
 admitted the relay in 1.7 seconds and generated locally in nine seconds. The
 four-operation and ten-minute soak stages were not run after this failure.
 
-The pending `.5` source correction retains the exact verified rebuild count and
-removes that statistics scan. All 28 resolver tests and five existing PKM/log
-recovery tests pass; restoring the old initializer makes the nearest regression
-read ten objects instead of five. Independent boundary review found no change to
-owner, erasure, initialization or constructor contracts. This is local evidence;
-the `.4` owner image remains installed. `.5` compatibility stays empty until the
-exact immutable predecessor-to-target recovery rehearsal passes. The completed
-count-only candidate passed its local core mirror in 407 seconds and docs/link
-governance. Its [hosted validation](https://github.com/hushh-labs/hushh-research/actions/runs/37037299501)
-succeeded for `09d0e4f9af4e`. Deployment is held for the completed deadline fix;
-the combined candidate still requires its own exact-SHA validation.
+The `.5` source correction retains the verified rebuild count and removes the
+statistics scan. All 28 resolver tests and five existing PKM/log recovery tests
+pass; restoring the old initializer reads ten objects instead of five. Owner,
+erasure and initialization boundaries are unchanged. The qualified immutable
+image `sha256:a313b9f7…194126d` has source `3f968a985e3c`. Recovery build
+`37d515ab-5b54-4688-8e92-711be0e09d96` passed actual immutable `.4` predecessor
+`sha256:730e1702…43d1d5` → target → target restart, without application source
+overlays. Synthetic encrypted Files bytes/rename, sessions/deletion, identity,
+authority tombstones and corrected memory/PKM summaries survived. The image
+modules came from `/app/`. This proves isolated compatibility, not owner-cloud
+IAM, provider access or a normal live installation. The qualified descriptor
+admits only that exact predecessor and reuses the original image/run/archive
+provenance. The owner's `.4` image remains installed until exact Settings approval.
 
 A subsequent cold Puppy attempt followed observed zero active/idle instances.
 The browser submitted at 17:02:43 UTC, but direct inference dispatched only at
 17:05:35; its 205-second deadline cancelled at 17:06:08. Two client timers included
-preparation, leaving approximately 33 seconds for inference. The pending source
+preparation, leaving approximately 33 seconds for inference. The deployed browser source
 fix keeps preparation bounded at 205 seconds and starts a fresh 170-second
 inference ceiling only at the authenticated direct POST. UI waiting begins at
 that same point; cancellation authority and no-cloud-fallback remain unchanged.
@@ -161,7 +164,9 @@ SSE helper cleared that finding without a baseline allowance or removed coverage
 The Files launcher correction passes 44 focused roster, navigation, availability
 and Hosting checks, typecheck and independent boundary review. The completed
 combined candidate passes the local core mirror in 372 seconds. Documentation
-links and governance pass; live roster readback remains a deployment gate.
+links and governance pass; exact-SHA hosted CI and dev deployment pass. The original live harness proved
+the narrow roster and explorer, then failed at its Hosting navigation; its failed
+receipt is retained and responsive readback is repeated with actual Profile clicks.
 
 A prior Puppy response took approximately 139 seconds, including 98 seconds of
 local generation and 37 seconds to first content. Recovery replay held 459
@@ -170,9 +175,23 @@ budget repair was failed-start maintenance, separate from the normal image
 update. These measurements identify usability debt, not a latency guarantee.
 No confirmed provider 429 count or sustainable capacity envelope is available.
 
+### Dev connection-budget correction
+
+Live database readback found 92 idle clients against 100 total slots, with three
+reserved. Zero-traffic revision `00128-kk2` still had three active instances;
+`00129-jnb` had four. The six LISTEN sessions per instance match a confirmed
+entrypoint defect: the workflow declares `WEB_CONCURRENCY=1`, but Docker hardcodes
+two Gunicorn workers. The pending hub correction honors that existing setting;
+unset still runs two workers for UAT/production. The real shell entrypoint test
+passes for one worker and rejects the old command as a negative control. All 56
+nearest deployment/release checks pass. The owner-pod image is separate and
+unchanged by this hub correction. Idle sessions are not terminated indiscriminately.
+Publication requires migration/startup headroom and a live worker/listener readback;
+the pooled 40-connection budget excludes dedicated locks and revision overlap.
+
 ## Next gate and board alignment
 
-1. Qualify and offer the recovery correction through the governed dev channel;
+1. Publish the qualified recovery offer through the governed dev channel;
    install only through exact owner approval. Repeat the failed two-operation
    stage before bounded four-operation work, soak and idle/wake observations.
 2. Finish the eligible connector, disposable billing-return and independent-internet

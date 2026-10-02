@@ -369,10 +369,9 @@ env_vars=(
 )
 worker_count="2"
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
-  # The dev owner pilot deliberately keeps Puppy relay state process-local and
-  # runs one Cloud Run instance. UAT/production retain the existing two-worker
-  # default and must use an explicit rendezvous design before scaling out this
-  # relay lane.
+  # One worker per dev hub instance matches its declared connection budget.
+  # The direct owner-pod relay has its own single-worker contract. UAT/production
+  # retain the existing two-worker default.
   worker_count="1"
 fi
 env_vars+=("WEB_CONCURRENCY=${worker_count}")
@@ -843,7 +842,8 @@ deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-
 
 # Dev hub uses UAT-sized resources; owner pods retain their own limits.
 # Five demand-scaled instances give consent SSE and pod heartbeats headroom
-# (2026-09-30 incident). Declared database pools allow at most 40 connections.
+# (2026-09-30 incident). Normal pools budget 40 connections with one worker per
+# instance; dedicated locks and deployment overlap require additional headroom.
 # Only legacy template defaults change; explicit overrides stay authoritative.
 # BEGIN DEV HUB CAPACITY DEFAULTS
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then

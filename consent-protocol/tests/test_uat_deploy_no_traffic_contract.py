@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-import re
+import json
+import os
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -14,6 +16,33 @@ def _read(path: str) -> str:
 
 def _backend_deploy() -> str:
     return _read("scripts/deploy/backend-deploy.sh")
+
+
+def _container_worker_count(tmp_path: Path, worker_count: str | None = None) -> int:
+    """Exercise the real Docker shell entrypoint without starting a server."""
+    executable = tmp_path / "gunicorn"
+    executable.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n', encoding="utf-8")
+    executable.chmod(0o700)
+    command = next(
+        line
+        for line in _read("consent-protocol/Dockerfile").splitlines()
+        if line.startswith("CMD ")
+    )
+    env = {**os.environ, "PATH": str(tmp_path) + os.pathsep + os.environ["PATH"]}
+    env.pop("WEB_CONCURRENCY", None)
+    if worker_count is not None:
+        env["WEB_CONCURRENCY"] = worker_count
+    result = subprocess.run(  # noqa: S603 - authored entrypoint, hermetic fake Gunicorn
+        json.loads(command[4:]), env=env, capture_output=True, text=True, check=True
+    )
+    arguments = result.stdout.splitlines()
+    return int(arguments[arguments.index("-w") + 1])
+
+
+def test_backend_container_honors_governed_worker_count(tmp_path: Path) -> None:
+    # Regression: dev declared one worker but the entrypoint launched two,
+    # doubling its database connection budget and process-local listeners.
+    assert _container_worker_count(tmp_path, "1") == 1
 
 
 def test_uat_no_op_finishes_before_creating_a_deployment() -> None:
@@ -395,7 +424,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
     )
 
 
-def test_hosted_backend_bounds_database_connection_fanout() -> None:
+def test_hosted_backend_bounds_database_connection_fanout(tmp_path: Path) -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     backend_deploy = _backend_deploy()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
@@ -423,10 +452,7 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     # worker count from the image rather than hardcoding it: raising -w without
     # lowering the pools multiplies the ceiling silently, which is exactly how
     # this arithmetic drifted 2x out of date before 2026-08-23.
-    dockerfile = _read("consent-protocol/Dockerfile")
-    worker_flag = re.search(r"gunicorn\s+server:app\s+-w\s+(\d+)", dockerfile)
-    assert worker_flag is not None, "could not read the gunicorn worker count from the Dockerfile"
-    gunicorn_workers = int(worker_flag.group(1))
+    gunicorn_workers = _container_worker_count(tmp_path)
     assert gunicorn_workers == 2
 
     assert "_DB_POOL_MIN_SIZE=1" in uat_workflow
@@ -437,42 +463,13 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert "_CONSENT_SSE_ENABLED=false" in uat_workflow
     assert "_CLOUD_RUN_MIN_INSTANCES=2" in uat_workflow
     assert "_CLOUD_RUN_MAX_INSTANCES=5" in uat_workflow
-    # Each gunicorn WORKER opens the asyncpg pool (DB_POOL_MAX_SIZE) plus the
-    # SQLAlchemy pool (DB_SQLALCHEMY_POOL_SIZE + DB_SQLALCHEMY_MAX_OVERFLOW).
-    # Both pools are module globals, so the ceiling is per worker process and
-    # multiplies by the gunicorn worker count before it multiplies by instances.
-    # UAT: 7 per worker, 14 per instance, 70 total across 5 instances.
-    #
-    # Two incidents shaped this number, in opposite directions.
-    #
-    # 2026-08-23: the bound was 5 per worker (3 + 2 + 0). Cloud Run admits 80
-    # concurrent requests per instance and every asyncpg call site did a plain
-    # pool.acquire() with no timeout, so once three connections were held by
-    # slow routes every later request waited forever and died at Cloud Run's
-    # 3600s request timeout, holding a concurrency slot for the full hour.
-    #
-    # 2026-08-24: raising it to 18 per worker to fix that exhausted Postgres.
-    # db-custom-1-3840 gets a Cloud SQL default max_connections near 100 — NOT
-    # the ~400 the first fix assumed from the disk/tier size. 18 x 2 workers x
-    # 3 instances is 108 on its own, and a revision cutover briefly runs a
-    # fourth instance, so UAT started answering
-    # "FATAL: remaining connection slots are reserved for non-replication
-    # superuser connections" as soon as traffic scaled out.
-    #
-    # 2026-08-24 later the same day: maxScale=3 saturated the Cloud Run request
-    # plane under long-lived consent event requests, so UAT answered Cloud Run's
-    # own "no available instance" 429 before authenticated setup calls could hit
-    # app code. Rebalance toward more instances and smaller deterministic pools:
-    # request headroom grows, while deploy peak stays under the same Postgres cap.
-    #
-    # So the ceiling is Postgres, not the app. Keep the total under ~70 and the
-    # cutover peak under ~85 to leave room for migrations, cron jobs, ad-hoc
-    # psql, and the extra instance a deploy briefly adds. Starvation is no
-    # longer a hang: db/connection.py bounds pool.acquire(), so a pool that is
-    # too small fails fast with a 503 instead of queueing until Cloud Run kills
-    # the request.
-    #
-    # Overflow stays pinned at 0 so the ceiling remains deterministic.
+    # Per-worker pools multiply by workers and instances: UAT uses 7 x 2 x 5.
+    # Keep normal demand under 70 and cutover peak under 85 of Cloud SQL's 100
+    # slots, reserving room for migrations, scheduled work and operator reads.
+    # Prior incidents combined pool exhaustion with Cloud Run request saturation;
+    # bounded pool acquisition now refuses with 503 instead of hanging. Overflow
+    # remains zero so this envelope is deterministic. Operational background:
+    # docs/reference/operations/safe-changes-history.md, database capacity rule.
     POSTGRES_MAX_CONNECTIONS = 100  # Cloud SQL default for db-custom-1-3840
 
     uat_per_worker = 4 + 3 + 0
