@@ -1,9 +1,12 @@
-"""Model access for GCP private-agent hosting.
+"""Model access for private-agent hosting.
 
-BYOC uses the owner's Vertex identity after verified project preconditions, or a
-per-turn owner key. Hussh-managed GCP remains behind the fleet model-access gate.
-Unknown deployment targets refuse provisioning. A precondition check establishes
-configuration; successful generation inside the pod requires runtime evidence.
+Owner-project GCP uses the owner's Vertex identity after verified project
+preconditions, or a per-turn owner key. An owner Azure subscription uses the pod's
+own managed identity against Azure OpenAI in that subscription (``user_azure_mi``),
+or a per-turn owner key. Hussh-managed GCP remains behind the fleet model-access
+gate. Unknown deployment targets refuse provisioning. A precondition check
+establishes configuration; successful generation inside the pod requires runtime
+evidence.
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import Any, Optional
 from hushh_mcp.services.compute_backend import (
     BACKEND_GCP,
     BACKEND_NULL,
+    BACKEND_USER_AZURE,
     BACKEND_USER_GCP,
 )
 
@@ -27,6 +31,9 @@ ACTIVATION_BYOK_PER_TURN = "byok_per_turn"
 ACTIVATION_USER_ADC = "user_adc"
 #: Vertex ADC on hushh's fleet identity. Managed tier only.
 ACTIVATION_FLEET_ADC = "fleet_adc"
+#: Azure OpenAI in the USER's own subscription, reached with the pod's own
+#: user-assigned managed identity (BYOC on Azure). No key exists to hold.
+ACTIVATION_USER_AZURE_MI = "user_azure_mi"
 
 #: The provider id the managed runtime selection route reports.
 MANAGED_PROVIDER = "hushh_managed_vertex"
@@ -93,6 +100,9 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
             activation_order=AGENT_ACTIVATION_ORDER,
         )
 
+    if backend == BACKEND_USER_AZURE:
+        return _owner_azure_verdict(managed)
+
     # An unset backend is treated as the hushh-managed tier, NOT as "anything goes".
     # It resolves to the inert NullBackend today, but the question here is which
     # IDENTITY a managed turn would borrow, and for an unconfigured deployment the
@@ -131,6 +141,31 @@ def model_access_for(backend_id: str, provider: str) -> ModelAccessVerdict:
         can_serve=False,
         activation="",
         reason=f"no model-access rule is declared for backend {backend!r}",
+    )
+
+
+def _owner_azure_verdict(managed: bool) -> ModelAccessVerdict:
+    """The owner-Azure rule: the pod's own identity first, the owner's key second.
+
+    Stated as its own branch rather than inherited from the GCP owner rule: the
+    identity differs (an Azure managed identity, not Vertex ADC), so a shared branch
+    would let a future change to one cloud's model access silently move the other.
+    """
+    if managed:
+        return ModelAccessVerdict(
+            can_serve=True,
+            activation=ACTIVATION_USER_AZURE_MI,
+            reason=(
+                "the pod runs under its own managed identity in the USER's subscription, "
+                "calling Azure OpenAI there: their identity, their quota, their bill"
+            ),
+            activation_order=AGENT_ACTIVATION_ORDER,
+        )
+    return ModelAccessVerdict(
+        can_serve=True,
+        activation=ACTIVATION_BYOK_PER_TURN,
+        reason="the user brought a key; an owner Azure pod serves it per turn",
+        activation_order=AGENT_ACTIVATION_ORDER,
     )
 
 
@@ -219,6 +254,7 @@ __all__ = [
     "ACTIVATION_BYOK_PER_TURN",
     "ACTIVATION_FLEET_ADC",
     "ACTIVATION_USER_ADC",
+    "ACTIVATION_USER_AZURE_MI",
     "AGENT_ACTIVATION_ORDER",
     "MANAGED_PROVIDER",
     "ModelAccessVerdict",

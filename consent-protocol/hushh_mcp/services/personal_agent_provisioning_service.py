@@ -106,7 +106,11 @@ from hushh_mcp.services.pod_request_identity_store import (
     bind_published_signing_key,
     signing_key_columns,
 )
-from hushh_mcp.services.user_cloud_service import resolve_user_cloud
+from hushh_mcp.services.user_cloud_service import (
+    resolve_user_cloud,
+    spec_coordinates,
+    spec_coordinates_from_row,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -970,9 +974,7 @@ class PersonalAgentProvisioningService:
                 model_credential_mode=model_credential_mode,
                 # WHICH cloud, not merely which kind. Without these the target was
                 # per-person while the destination stayed a process-wide env var.
-                user_cloud_project=(cloud.project if cloud else None),
-                user_cloud_region=(cloud.region if cloud else None),
-                user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+                **spec_coordinates(cloud),
                 files_library_enabled=bool(cloud and cloud.files_library_enabled),
             )
             # The person's own target wins over the one this service was constructed
@@ -1744,9 +1746,7 @@ class PersonalAgentProvisioningService:
             or (cloud.deployment_target if cloud else None),
             model_credential_mode=row.get("model_credential_mode")
             or (cloud.model_credential_mode if cloud else None),
-            user_cloud_project=(cloud.project if cloud else None),
-            user_cloud_region=(cloud.region if cloud else None),
-            user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+            **spec_coordinates(cloud),
             files_library_enabled=bool(cloud and cloud.files_library_enabled),
             upgrade_operation_id=upgrade_operation_id,
             files_upgrade_plan=files_capability.model_dump() if files_capability else None,
@@ -2340,9 +2340,7 @@ class PersonalAgentProvisioningService:
             billing_space_id=(row or {}).get("billing_space_id"),
             pod_pubkey="",
             deployment_target=cloud.deployment_target,
-            user_cloud_project=cloud.project,
-            user_cloud_region=cloud.region,
-            user_cloud_bootstrap_sa=cloud.bootstrap_sa,
+            **spec_coordinates(cloud),
         )
         backend = self._backend_for(spec)
         discover = getattr(backend, "discover", None)
@@ -2490,9 +2488,7 @@ class PersonalAgentProvisioningService:
             expected_service_uid=metadata["serviceUid"],
             deployment_target=row.get("deployment_target"),
             model_credential_mode=row.get("model_credential_mode"),
-            user_cloud_project=row.get("user_cloud_project"),
-            user_cloud_region=row.get("user_cloud_region"),
-            user_cloud_bootstrap_sa=row.get("user_cloud_bootstrap_sa"),
+            **spec_coordinates_from_row(row),
         )
         backend = self._backend_for(spec)
         observe = getattr(backend, "observe_erasure_target", None)
@@ -2644,9 +2640,7 @@ class PersonalAgentProvisioningService:
             expected_service_uid=metadata["serviceUid"],
             deployment_target=row.get("deployment_target"),
             model_credential_mode=row.get("model_credential_mode"),
-            user_cloud_project=row.get("user_cloud_project"),
-            user_cloud_region=row.get("user_cloud_region"),
-            user_cloud_bootstrap_sa=row.get("user_cloud_bootstrap_sa"),
+            **spec_coordinates_from_row(row),
         )
         backend = self._backend_for(spec)
         if getattr(backend, "backend_id", None) != row.get("backend") or not hasattr(
@@ -2738,9 +2732,7 @@ class PersonalAgentProvisioningService:
             pod_pubkey=str(snapshot.get("pod_pubkey") or ""),
             deployment_target=snapshot.get("deployment_target"),
             model_credential_mode=snapshot.get("model_credential_mode"),
-            user_cloud_project=snapshot.get("user_cloud_project"),
-            user_cloud_region=snapshot.get("user_cloud_region"),
-            user_cloud_bootstrap_sa=snapshot.get("user_cloud_bootstrap_sa"),
+            **spec_coordinates_from_row(snapshot),
         )
         backend = self._backend_for(spec)
         if getattr(backend, "backend_id", None) != snapshot.get("backend"):

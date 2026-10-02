@@ -1,7 +1,8 @@
-"""GCP managed and owner-project renderers preserve shared pod capabilities.
+"""Managed GCP, owner-project GCP and owner-subscription Azure renderers preserve
+shared pod capabilities.
 
-Check identity, private ingress, referenced secrets and runtime configuration in
-the rendered service. Rendering is not live deployment or generation evidence.
+Check identity, ingress, referenced secrets and runtime configuration in the rendered
+service. Rendering is not live deployment or generation evidence.
 """
 
 from __future__ import annotations
@@ -13,7 +14,16 @@ import pytest
 
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.gcp_backend import GcpBackend
+from hushh_mcp.services.user_azure_backend import UserAzureBackend
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+_HUB_CALLER = "consent-plane@hushh-pda-dev.iam.gserviceaccount.com"
+
+
+@pytest.fixture(autouse=True)
+def _hub_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hub identity every owner pod's wall admits; the Azure renderer requires it."""
+    monkeypatch.setenv("HUSSH_CONSENT_PLANE_SA", _HUB_CALLER)
 
 
 @dataclass
@@ -24,6 +34,11 @@ class Capabilities:
     by_reference: set[str] = field(default_factory=set)
     internal_only: bool = False
     blob: str = ""
+    #: Set only by a platform whose ingress is public by construction. The in-pod
+    #: wall (api/middlewares/pod_ingress.py) is then the lock, so the artifact must
+    #: name who the wall admits and refuse plain HTTP.
+    public_ingress_reason: str = ""
+    https_only: bool = False
 
     def declares(self, name: str) -> bool:
         """The slot exists (value may be empty when unconfigured)."""
@@ -50,9 +65,43 @@ def _extract_knative(config: dict[str, Any]) -> Capabilities:
     )
 
 
+def _extract_container_apps(config: dict[str, Any]) -> Capabilities:
+    """Container Apps (UserAzureBackend): env entries on the first template container."""
+    container = config["properties"]["template"]["containers"][0]
+    properties: dict[str, str] = {}
+    by_reference: set[str] = set()
+    for entry in container.get("env", []):
+        if "secretRef" in entry:
+            by_reference.add(entry["name"])
+        else:
+            properties[entry["name"]] = str(entry.get("value", ""))
+    ingress = config["properties"]["configuration"]["ingress"]
+    return Capabilities(
+        properties=properties,
+        by_reference=by_reference,
+        internal_only=not ingress.get("external", True),
+        blob=str(config),
+        public_ingress_reason=(
+            "Container Apps has no platform invoker lock: the hub's Google ID token is "
+            "verified inside the pod against its own address (byoc-azure.md)"
+        ),
+        https_only=ingress.get("allowInsecure") is False,
+    )
+
+
+def _azure() -> UserAzureBackend:
+    return UserAzureBackend(
+        tenant_id="11111111-1111-1111-1111-111111111111",
+        subscription_id="22222222-2222-2222-2222-222222222222",
+        resource_group="rg-hussh-one-0123456789abcdef0123",
+        location="eastus2",
+    )
+
+
 _BACKENDS: list[tuple[str, Callable[[], Any], Callable[[dict], Capabilities]]] = [
     ("gcp", lambda: GcpBackend(project="p", image="i", live=False), _extract_knative),
     ("user_gcp", lambda: UserGcpBackend(user_project="up", image="i"), _extract_knative),
+    ("user_azure", _azure, _extract_container_apps),
 ]
 _IDS = [b[0] for b in _BACKENDS]
 
@@ -118,6 +167,15 @@ def test_every_platform_declares_how_the_pod_reaches_a_model(caps: Capabilities)
         )
 
 
+def test_an_owner_azure_pod_names_its_own_model_by_address_only():
+    """`user_azure_mi`: an endpoint and a deployment, never a key and never Vertex."""
+    caps = _extract_container_apps(_azure().render_deploy_config(_spec()))
+    assert caps.properties["AZURE_OPENAI_ENDPOINT"].startswith("https://")
+    assert caps.properties["AZURE_OPENAI_ENDPOINT"].endswith(".openai.azure.com/")
+    assert caps.properties["AZURE_OPENAI_DEPLOYMENT"]
+    assert caps.properties["GOOGLE_GENAI_USE_VERTEXAI"] == "false"
+
+
 def test_no_platform_renders_a_model_credential(caps: Capabilities):
     """A BYOK key is turn-bounded and never belongs in a deploy artifact."""
     lowered = caps.blob.lower()
@@ -137,7 +195,19 @@ def test_every_platform_turns_the_personal_agent_surface_on(caps: Capabilities):
 
 
 def test_no_platform_exposes_the_pod_publicly(caps: Capabilities):
-    assert caps.internal_only, "the pod must not be reachable from the public internet"
+    """Private ingress, or a reasoned public one whose in-pod wall is fully configured.
+
+    The exception exists for Azure alone: Container Apps cannot restrict callers at
+    the platform, so the wall is the lock. It must then admit a named hub identity
+    (an empty allowlist would refuse everyone, a missing one would be a regression
+    nobody sees) and refuse plain HTTP. `test_azure_pod_ingress_wall` is the
+    negative control that the wall actually refuses on an Azure-shaped request.
+    """
+    if caps.internal_only:
+        return
+    assert caps.public_ingress_reason, "public ingress needs an explicit, reasoned exception"
+    assert caps.properties.get("HUSSH_POD_HUB_CALLER_EMAILS") == _HUB_CALLER
+    assert caps.https_only, "a public pod must refuse plain HTTP at its ingress"
 
 
 # --- what no platform may ever render ---------------------------------------------------

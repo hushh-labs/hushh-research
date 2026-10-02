@@ -117,6 +117,8 @@ def test_resolver_reads_env_setting(monkeypatch):
     [
         ("user_gcp", True),
         (" user_gcp ", True),
+        ("user_azure", True),
+        ("azure-not-yet", False),
         ("gcp", False),
         ("null", False),
         ("", False),
@@ -158,3 +160,84 @@ def test_adding_a_provider_is_one_entry_and_the_provisioning_gate_follows(monkey
     )
     assert cloud.is_user_owned
     assert cloud.blocks_provisioning
+
+
+# --- user_azure: the person's own subscription, resolved only per person -------------
+
+_AZURE_COORDINATES = {
+    "user_cloud_tenant_id": "11111111-1111-1111-1111-111111111111",
+    "user_cloud_subscription_id": "22222222-2222-2222-2222-222222222222",
+    "user_cloud_resource_group": "rg-hussh-one-0123456789abcdef0123",
+    "user_cloud_region": "eastus2",
+}
+
+
+def _azure_spec(**overrides) -> PodSpec:
+    fields = {**_AZURE_COORDINATES, **overrides}
+    return PodSpec(
+        hushh_id="ha1_abc",
+        phone_e164_hash="hash",
+        pod_pubkey="pub",
+        deployment_target="user_azure",
+        **fields,
+    )
+
+
+def test_user_azure_resolves_to_the_owner_subscription_backend():
+    from hushh_mcp.services.compute_backend import (
+        BACKEND_USER_AZURE,
+        resolve_compute_backend_for_spec,
+    )
+    from hushh_mcp.services.user_azure_backend import UserAzureBackend
+
+    backend = resolve_compute_backend_for_spec(_azure_spec())
+    assert isinstance(backend, UserAzureBackend)
+    assert backend.backend_id == BACKEND_USER_AZURE
+    assert backend.app_id == (
+        "/subscriptions/22222222-2222-2222-2222-222222222222/resourceGroups/"
+        "rg-hussh-one-0123456789abcdef0123/providers/Microsoft.App/containerApps/ca-hussh-one-pod"
+    )
+    assert isinstance(backend, ComputeBackend)
+
+
+@pytest.mark.parametrize("missing", sorted(_AZURE_COORDINATES))
+def test_user_azure_without_every_coordinate_fails_closed(missing):
+    """Like user_gcp without a project: never defaulted, never inferred."""
+    from hushh_mcp.services.compute_backend import resolve_compute_backend_for_spec
+
+    for blank in (None, "", "   "):
+        with pytest.raises(ValueError, match="user_azure"):
+            resolve_compute_backend_for_spec(_azure_spec(**{missing: blank}))
+
+
+def test_user_azure_has_no_deployment_wide_default():
+    """A subscription is never a property of the hub, so the env resolver refuses it."""
+    with pytest.raises(NotImplementedError):
+        resolve_compute_backend("user_azure")
+
+
+def test_owner_cloud_coordinates_are_declared_per_target():
+    from hushh_mcp.services.compute_backend import owner_cloud_coordinates_complete
+
+    assert owner_cloud_coordinates_complete("user_gcp", {"project": "p"})
+    assert not owner_cloud_coordinates_complete("user_gcp", {"project": " "})
+    complete = {"tenant_id": "t", "subscription_id": "s", "resource_group": "g", "region": "r"}
+    assert owner_cloud_coordinates_complete("user_azure", complete)
+    assert not owner_cloud_coordinates_complete("user_azure", {**complete, "region": ""})
+    assert not owner_cloud_coordinates_complete("user_next", complete)
+    assert not owner_cloud_coordinates_complete("gcp", {"project": "p"})
+
+
+def test_the_gcp_branch_is_unchanged_by_the_azure_branch():
+    from hushh_mcp.services.compute_backend import resolve_compute_backend_for_spec
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    spec = PodSpec(
+        hushh_id="ha1_abc",
+        phone_e164_hash="hash",
+        pod_pubkey="pub",
+        deployment_target="user_gcp",
+        user_cloud_project="owner-project",
+        **{k: v for k, v in _AZURE_COORDINATES.items() if k != "user_cloud_region"},
+    )
+    assert isinstance(resolve_compute_backend_for_spec(spec), UserGcpBackend)
