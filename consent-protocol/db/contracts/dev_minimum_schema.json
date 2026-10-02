@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 263,
+  "expected_migration_version": 265,
   "migration_version_policy": "minimum",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -1710,6 +1710,30 @@
       "one_chat_onboarding",
       "created_at",
       "updated_at"
+    ],
+    "pkm_packets": [
+      "id",
+      "owner_user_id",
+      "packet_kind",
+      "title",
+      "description",
+      "contents",
+      "price_cents",
+      "credit_cost",
+      "currency",
+      "for_sale",
+      "created_at",
+      "updated_at"
+    ],
+    "directory_listing_claims": [
+      "id",
+      "user_id",
+      "listing_id",
+      "listing_name",
+      "status",
+      "created_at",
+      "resolved_at",
+      "resolution_note"
     ]
   }
 }

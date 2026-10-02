@@ -450,6 +450,12 @@ from api.routes import one_wallet_card  # noqa: E402
 app.include_router(one_wallet_card.router)
 logger.info("one_wallet_card.routes_registered")
 
+# White Pages public lookup: unauthenticated, rate-limited; returns only verified
+# claims and the titles/prices of their for-sale packets.
+from api.routes import white_pages_public  # noqa: E402
+
+app.include_router(white_pages_public.router)
+
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
 )

@@ -202,6 +202,10 @@ class AccountService:
             "marketplace_recipient_keys": text(
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
+            "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
+            "directory_listing_claims": text(
+                "DELETE FROM directory_listing_claims WHERE user_id = :user_id"
+            ),
             "marketplace_opportunity_signals": text(
                 "DELETE FROM marketplace_opportunity_signals WHERE user_id = :user_id"
             ),
@@ -1366,6 +1370,8 @@ class AccountService:
                 "marketplace_delivery_envelopes",
                 "marketplace_access_requests",
                 "marketplace_recipient_keys",
+                "pkm_packets",
+                "directory_listing_claims",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1715,6 +1721,8 @@ class AccountService:
             "marketplace_delivery_envelopes": False,
             "marketplace_access_requests": False,
             "marketplace_recipient_keys": False,
+            "pkm_packets": False,
+            "directory_listing_claims": False,
             "marketplace_opportunity_signals": False,
             "one_kyc_workflows": False,
             "one_referral_risk_reviews": False,
@@ -1831,6 +1839,8 @@ class AccountService:
                         "marketplace_delivery_envelopes",
                         "marketplace_access_requests",
                         "marketplace_recipient_keys",
+                        "pkm_packets",
+                        "directory_listing_claims",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",

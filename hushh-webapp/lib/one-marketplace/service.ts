@@ -92,6 +92,36 @@ function jsonAuthHeaders(vaultOwnerToken: string): Record<string, string> {
   return { ...authHeaders(vaultOwnerToken), "Content-Type": "application/json" };
 }
 
+/** One PKM detail referenced by a packet. Never a value. */
+export interface PacketDetail {
+  domain: string;
+  scopeHandle: string;
+  label: string;
+}
+
+/** An owner's named, priced bundle of PKM details (migration 264). */
+export interface PkmPacket {
+  id: string;
+  kind: string;
+  title: string;
+  description?: string | null;
+  contents: PacketDetail[];
+  priceCents: number | null;
+  creditCost: number | null;
+  currency: string;
+  forSale: boolean;
+}
+
+export interface PacketCatalogEntry {
+  kind: string;
+  title: string;
+  description: string;
+}
+
+export type PacketWrite = Partial<
+  Pick<PkmPacket, "kind" | "title" | "description" | "contents" | "priceCents" | "creditCost" | "forSale">
+>;
+
 /**
  * Client for the Information Marketplace: the conversational agent plus the
  * durable access-request inbox. Requests are real server-side records — approve/
@@ -309,5 +339,42 @@ export class OneMarketplaceService {
       `/api/one/marketplace/requests/${encodeURIComponent(params.requestId)}/revoke`,
       { method: "POST", headers: jsonAuthHeaders(params.vaultOwnerToken) },
     );
+  }
+
+  /** The owner's packets plus the standard catalogue. */
+  static async listPackets(params: {
+    vaultOwnerToken: string;
+  }): Promise<{ packets: PkmPacket[]; catalog: PacketCatalogEntry[] }> {
+    return apiJson("/api/one/packets", { headers: jsonAuthHeaders(params.vaultOwnerToken) });
+  }
+
+  static async createPacket(params: {
+    vaultOwnerToken: string;
+    packet: PacketWrite;
+  }): Promise<{ packet: PkmPacket }> {
+    return apiJson("/api/one/packets", {
+      method: "POST",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify(params.packet),
+    });
+  }
+
+  static async updatePacket(params: {
+    vaultOwnerToken: string;
+    packetId: string;
+    patch: PacketWrite;
+  }): Promise<{ packet: PkmPacket }> {
+    return apiJson(`/api/one/packets/${encodeURIComponent(params.packetId)}`, {
+      method: "PATCH",
+      headers: jsonAuthHeaders(params.vaultOwnerToken),
+      body: JSON.stringify(params.patch),
+    });
+  }
+
+  static async deletePacket(params: { vaultOwnerToken: string; packetId: string }): Promise<void> {
+    await apiJson(`/api/one/packets/${encodeURIComponent(params.packetId)}`, {
+      method: "DELETE",
+      headers: authHeaders(params.vaultOwnerToken),
+    });
   }
 }

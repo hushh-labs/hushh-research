@@ -46,6 +46,7 @@ import {
   type SlicePricingInput,
 } from "@/lib/services/slice-pricing-service";
 import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
+import { PacketsPanel, type PacketDetailOption } from "@/components/one-marketplace/packets-panel";
 import {
   OneMarketplaceService,
   type AvailableListing,
@@ -737,6 +738,18 @@ function OneMarketplacePageImpl() {
     return out;
   }, [records]);
 
+  // Packet contents are references to these same sections, never values.
+  const packetDetails = useMemo<PacketDetailOption[]>(
+    () =>
+      sections.map((section) => ({
+        domain: section.domainKey,
+        scopeHandle: section.permission.scopeHandle ?? section.permission.topLevelScopePath,
+        label: section.permission.label,
+        domainTitle: section.domainTitle,
+      })),
+    [sections]
+  );
+
   const priceInput = useCallback(
     (section: Section): SlicePricingInput => ({
       category: categoryFromSensitivity(section.permission.sensitivityTier),
@@ -1084,6 +1097,7 @@ function OneMarketplacePageImpl() {
           {/* OWNER VIEW — the single consent-first control panel */}
           <div className="space-y-4">
               {bandControls}
+              <PacketsPanel token={token} details={packetDetails} />
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />

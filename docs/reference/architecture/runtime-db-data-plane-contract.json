@@ -640,6 +640,36 @@
       "expected_row_growth": "medium_per_user_request"
     },
     {
+      "id": "pkm_packets",
+      "owner": "vault-pkm-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_packets"
+      ],
+      "primary_access_path": "One marketplace Owner tab: the owner creates, prices and lists packets (named bundles of their own PKM scope references) for sale; hussh.ai White Pages reads only the titles and prices of a verified owner's for-sale packets through the public listing lookup.",
+      "retention_policy": "Retained while the owner keeps the packet; deleting a packet removes its row.",
+      "deletion_behavior": "Delete every row for the owner on account reset and account deletion.",
+      "trust_boundary": "Stores packet titles, prices and PKM scope references ({domain, scopeHandle, label}) only. It never stores a PKM value; a sale moves data only through an owner-approved marketplace request sealed to the buyer's key.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "directory_listing_claims",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "directory_listing_claims"
+      ],
+      "primary_access_path": "hussh.ai White Pages 'Is this you?' claim: a signed-in, phone-verified One user claims a public-record listing id; an operator verifies it; the public listing lookup then shows the verified owner's for-sale packets.",
+      "retention_policy": "Active claims are retained while pending or verified; withdrawn and rejected claims are retained only for bounded operational review.",
+      "deletion_behavior": "Delete every row for the user on account reset and account deletion, returning the listing to unclaimed.",
+      "trust_boundary": "Stores the user reference, the public listing id and name, status and timestamps. The public lookup never returns a user id.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
       "id": "information_marketplace_delivery",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
