@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING, Any
 
+from hushh_mcp.services.pod_object_version import ABSENT
+
 from .contracts import FilesRefused, identifier
 
 if TYPE_CHECKING:
@@ -29,7 +31,7 @@ async def configure(
     except FilesRefused as exc:
         if exc.status != 404:
             raise
-        current, generation = {"revision": 0}, 0
+        current, generation = {"revision": 0}, ABSENT
     if current["revision"] != revision:
         raise FilesRefused("FILES_REVISION_CONFLICT")
     if len(excluded) > 1000:

@@ -47,7 +47,7 @@ THE CONCURRENT-BOOT RACE, AND WHY IT CONVERGES
 ----------------------------------------------
 ``maxScale`` is 1, but a revision switch can briefly overlap two instances, and
 both would find no key and generate one. The write is therefore a
-create-if-absent CAS (``put_if_generation(..., 0)``), and **the loser of that
+create-if-absent CAS (``put_if_generation(..., ABSENT)``), and **the loser of that
 race re-reads and adopts the winner's key** rather than keeping its own. Two
 pods that disagree about their own identity is precisely the state this module
 exists to prevent, so the race resolves toward agreement rather than toward
@@ -61,6 +61,8 @@ import logging
 import os
 import secrets
 from typing import Any, Optional
+
+from hushh_mcp.services.pod_object_version import ABSENT
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +161,7 @@ async def load_or_create_private_key(store: Any, dek: bytes) -> tuple[bytes, boo
         encryption_algorithm=serialization.NoEncryption(),
     )
     written = await store.put_if_generation(
-        IDENTITY_KEY_OBJECT, seal_private_key(dek, candidate), 0
+        IDENTITY_KEY_OBJECT, seal_private_key(dek, candidate), ABSENT
     )
     if written is not None:
         return candidate, True

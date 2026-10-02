@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from hushh_mcp.services.pod_files.contracts import decode_metadata
 from hushh_mcp.services.pod_files.library import FilesRefused, identifier
 from hushh_mcp.services.pod_files.runtime import files_access, operation
+from hushh_mcp.services.pod_object_version import ABSENT
 
 
 class OrganizationResult(BaseModel):
@@ -72,7 +73,7 @@ async def prepare_delivery(
     except FilesRefused as exc:
         if exc.status != 404:
             raise
-        generation = 0
+        generation = ABSENT
     if job is None or job["state"] != "pending_delivery":
         history = (
             list((job or {}).get("history", []))

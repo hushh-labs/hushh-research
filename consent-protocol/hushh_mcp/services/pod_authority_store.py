@@ -302,7 +302,7 @@ class PodIncarnationError(RuntimeError):
 @dataclass(frozen=True)
 class Incarnation:
     epoch: int
-    generation: int
+    generation: str  # the store's opaque version of the fence object
     instance_id: str
     claimed_at_ms: int
 
@@ -373,7 +373,7 @@ async def claim_incarnation(
         if written is not None:
             logger.info("pod_incarnation.claimed epoch=%s", epoch)
             return Incarnation(
-                epoch=epoch, generation=int(written), instance_id=name, claimed_at_ms=claimed_at
+                epoch=epoch, generation=written, instance_id=name, claimed_at_ms=claimed_at
             )
     raise PodIncarnationError("the incarnation object kept moving; giving up after retries")
 

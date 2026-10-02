@@ -17,6 +17,7 @@ from typing import Any
 from hushh_mcp.one_adk import pod_adk_checkpoint as checkpoint
 from hushh_mcp.services.chat_key import CHAT_CIPHERTEXT_LIKE
 from hushh_mcp.services.pod_commit_log import PodCommitLog, PodLogConflict, PodLogCursor
+from hushh_mcp.services.pod_object_version import ABSENT
 
 _KIND = "pod.adk.session.v1"
 _MAX_SESSIONS = 1000
@@ -51,7 +52,7 @@ class PodAdkSessionProjection:
         self._entries: dict[tuple[str, str], dict] = {}
         self._lock = asyncio.Lock()
         self._loaded = False
-        self._checkpoint_generation = 0
+        self._checkpoint_generation = ABSENT
         self._checkpoint_seq = 0
 
     async def snapshot(self) -> tuple[int, dict[tuple[str, str], dict]]:

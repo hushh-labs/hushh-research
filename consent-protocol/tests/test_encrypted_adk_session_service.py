@@ -459,7 +459,8 @@ async def test_pod_repository_recovers_owner_cipher_and_rejects_stale_or_revoked
     blob, generation = await log._store.get_with_generation(pod_adk_checkpoint.KEY)
     assert b"synthetic message" not in blob
     # A stale cache publisher cannot replace the current encrypted checkpoint.
-    assert await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, generation - 1) is None
+    stale = str(int(generation) - 1 or "")  # the version before the current one
+    assert await log._store.put_if_generation(pod_adk_checkpoint.KEY, blob, stale) is None
     corrupted_generation = await log._store.put_if_generation(
         pod_adk_checkpoint.KEY, blob[:-1] + bytes([blob[-1] ^ 1]), generation
     )
@@ -482,8 +483,8 @@ async def test_pod_chat_recovers_across_more_than_ten_thousand_unrelated_commits
     objects = {}
     store = SimpleNamespace(
         get=AsyncMock(side_effect=lambda key: objects.get(key)),
-        get_with_generation=AsyncMock(side_effect=lambda key: (objects.get(key), 1)),
-        put_if_generation=AsyncMock(return_value=2),
+        get_with_generation=AsyncMock(side_effect=lambda key: (objects.get(key), "1")),
+        put_if_generation=AsyncMock(return_value="2"),
     )
     log = PodCommitLog(store, b"k" * 32, owner_id="HA1fixture")
     previous_key = previous_sha = None

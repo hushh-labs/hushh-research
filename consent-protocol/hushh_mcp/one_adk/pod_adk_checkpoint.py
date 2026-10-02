@@ -38,7 +38,7 @@ async def load(log, *, owner: str, hushh_id: str):
     return cursor, record["entries"], generation
 
 
-async def save(log, *, owner: str, hushh_id: str, cursor, entries, generation: int):
+async def save(log, *, owner: str, hushh_id: str, cursor, entries, generation: str):
     await log.require_open()
     blob = log._seal(
         {

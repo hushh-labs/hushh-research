@@ -196,7 +196,7 @@ async def test_unconfirmed_fence_is_reconciled_without_reopening(tmp_path, failu
                 if failure == "failed_readback":
                     raise OSError("synthetic readback refusal")
                 if failure == "mismatch":
-                    return None, 0
+                    return None, ""
             return await super().get_with_generation(key)
 
     store = UncertainStore(str(tmp_path / "fence"))
@@ -335,7 +335,7 @@ class _RacingStore(LocalObjectStore):
         super().__init__(root)
         self.raced = False
 
-    async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
+    async def put_if_generation(self, key: str, data: bytes, expected: str) -> Optional[str]:
         if key == PodCommitLog.HEAD and not self.raced:
             self.raced = True
             # Another writer swapped first: advance the real pointer once so the
@@ -427,9 +427,9 @@ async def test_gcs_writes_are_conditional_by_construction():
     transport = _FakeGcsTransport()
     store = GcsObjectStore("user-bucket", "pods/ha1", session=transport)
 
-    generation = await store.put_if_generation("head.json", b"{}", 3)
+    generation = await store.put_if_generation("head.json", b"{}", "3")
 
-    assert generation == 7
+    assert generation == "7"
     assert transport.uploads[0]["ifGenerationMatch"] == "3"
     assert transport.uploads[0]["name"] == "pods/ha1/head.json"
 
@@ -437,7 +437,7 @@ async def test_gcs_writes_are_conditional_by_construction():
 @pytest.mark.asyncio
 async def test_gcs_precondition_failure_reports_a_lost_race_not_an_error():
     store = GcsObjectStore("user-bucket", session=_FakeGcsTransport())
-    assert await store.put_if_generation("head.json", b"{}", 412) is None
+    assert await store.put_if_generation("head.json", b"{}", "412") is None
 
 
 # --- the GCS client's round trips: one credential, one read --------------------------
@@ -558,7 +558,7 @@ async def test_gcs_read_is_one_media_call_that_states_its_own_generation():
     transport = _CountingGcsTransport()
     store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
 
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
 
     assert transport.object_gets == [{"alt": "media"}]
     # A COLD read is two round trips: this one, plus the credential mint.
@@ -571,8 +571,8 @@ async def test_gcs_mints_one_credential_across_many_reads_and_a_write():
     store = GcsObjectStore("user-bucket", session=transport)
 
     for _ in range(3):
-        assert await store.get_with_generation("head.json") == (b"stored", 9)
-    assert await store.put_if_generation("head.json", b"{}", 9) == 7
+        assert await store.get_with_generation("head.json") == (b"stored", "9")
+    assert await store.put_if_generation("head.json", b"{}", "9") == "7"
 
     # Four object operations, four round trips, ONE minted credential.
     assert transport.token_calls == 1
@@ -646,7 +646,7 @@ async def test_the_token_lock_is_not_held_while_the_metadata_call_is_in_flight()
 
     store._session = _WatchingTheLock()
 
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
     assert lock_was_free == [True]
 
 
@@ -655,7 +655,7 @@ async def test_gcs_missing_object_still_reads_as_absent():
     transport = _CountingGcsTransport(content=None)
     store = GcsObjectStore("user-bucket", "pods/abc", session=transport)
 
-    assert await store.get_with_generation("head.json") == (None, 0)
+    assert await store.get_with_generation("head.json") == (None, "")
     assert await store.get("head.json") is None
     assert transport.object_gets == [{"alt": "media"}, {"alt": "media"}]
 
@@ -666,7 +666,7 @@ async def test_gcs_read_falls_back_to_a_pinned_read_when_no_generation_is_stated
     transport = _CountingGcsTransport(media_generation=None)
     store = GcsObjectStore("user-bucket", session=transport)
 
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
 
     assert transport.object_gets == [
         {"alt": "media"},
@@ -689,7 +689,7 @@ async def test_a_header_stripping_path_costs_a_discarded_body_only_once():
     store = GcsObjectStore("user-bucket", session=transport)
 
     for _ in range(3):
-        assert await store.get_with_generation("head.json") == (b"stored", 9)
+        assert await store.get_with_generation("head.json") == (b"stored", "9")
 
     assert [params for params in transport.object_gets if params == {"alt": "media"}] == [
         {"alt": "media"}
@@ -711,7 +711,7 @@ async def test_gcs_read_falls_back_when_the_stated_generation_is_unusable(stated
     transport = _CountingGcsTransport(generation="9", media_generation=stated)
     store = GcsObjectStore("user-bucket", session=transport)
 
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
 
     # The request SHAPE is what distinguishes the header path from the body
     # path: the old two-call read never issues a bare {'alt': 'media'} first,
@@ -748,9 +748,9 @@ async def test_a_credential_refused_mid_life_is_dropped_and_reminted(refusal_sta
     transport = _CountingGcsTransport(credential_dies_after=1, refusal_status=refusal_status)
     store = GcsObjectStore("user-bucket", session=transport)
 
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
-    assert await store.get_with_generation("head.json") == (b"stored", 9)
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
+    assert await store.get_with_generation("head.json") == (b"stored", "9")
 
     assert transport.token_calls == 2
     assert transport.authorizations == ["Bearer t1", "Bearer t1", "Bearer t2", "Bearer t2"]
@@ -762,7 +762,7 @@ async def test_a_refused_write_credential_is_reminted_and_the_write_still_lands(
     transport = _CountingGcsTransport(credential_dies_after=0)
     store = GcsObjectStore("user-bucket", session=transport)
 
-    assert await store.put_if_generation("head.json", b"{}", 3) == 7
+    assert await store.put_if_generation("head.json", b"{}", "3") == "7"
 
     assert transport.token_calls == 2
     assert transport.authorizations == ["Bearer t1", "Bearer t2"]
@@ -898,7 +898,7 @@ async def test_a_traversing_key_never_reaches_a_sibling_pod_prefix():
         with pytest.raises(ValueError):
             await store.get_with_generation(unsafe)
         with pytest.raises(ValueError):
-            await store.put_if_generation(unsafe, b"{}", 0)
+            await store.put_if_generation(unsafe, b"{}", "")
 
     # Refused before any credential is minted or any request is sent.
     assert (transport.token_calls, transport.object_gets, transport.uploads) == (0, [], [])
@@ -1151,7 +1151,7 @@ async def test_local_store_interrupted_generation_write_never_returns_torn_pair(
 ):
     root = tmp_path / "recoverable-store"
     store = LocalObjectStore(str(root))
-    assert await store.put_if_generation("head.json", b"old", 0) == 1
+    assert await store.put_if_generation("head.json", b"old", "") == "1"
     original = store._atomic_write
 
     def interrupt_generation(path, data):
@@ -1162,9 +1162,9 @@ async def test_local_store_interrupted_generation_write_never_returns_torn_pair(
     with monkeypatch.context() as patcher:
         patcher.setattr(store, "_atomic_write", interrupt_generation)
         with pytest.raises(OSError):
-            await store.put_if_generation("head.json", b"new", 1)
+            await store.put_if_generation("head.json", b"new", "1")
     recovered = await LocalObjectStore(str(root)).get_with_generation("head.json")
-    assert recovered in [(b"old", 1), (b"new", 2)]
+    assert recovered in [(b"old", "1"), (b"new", "2")]
 
 
 @pytest.mark.asyncio
@@ -1172,7 +1172,7 @@ async def test_local_store_interrupted_generation_write_never_returns_torn_pair(
 async def test_local_store_process_restart_recovers_each_publication_boundary(tmp_path, phase):
     root = tmp_path / "crash-store"
     store = LocalObjectStore(str(root))
-    assert await store.put_if_generation("head.json", b"old", 0) == 1
+    assert await store.put_if_generation("head.json", b"old", "") == "1"
     script = r"""
 import asyncio, os, sys
 from pathlib import Path
@@ -1203,7 +1203,7 @@ def crash_after_unlink(path, *args, **kwargs):
 os.replace = crash_before_publication
 store._atomic_write = crash_after_publication
 Path.unlink = crash_after_unlink
-asyncio.run(store.put_if_generation("head.json", b"new", 1))
+asyncio.run(store.put_if_generation("head.json", b"new", "1"))
 """
     process = subprocess.run(  # noqa: S603 - fixed interpreter/script and pytest-owned temp path
         [sys.executable, "-c", script, str(root), phase],
@@ -1213,26 +1213,27 @@ asyncio.run(store.put_if_generation("head.json", b"new", 1))
     )
     assert process.returncode == 73
     reopened = LocalObjectStore(str(root))
-    expected = (b"old", 1) if phase == "before_journal" else (b"new", 2)
+    expected = (b"old", "1") if phase == "before_journal" else (b"new", "2")
     assert await reopened.get_with_generation("head.json") == expected
     assert not (root / LocalObjectStore._JOURNAL).exists()
-    assert await reopened.put_if_generation("head.json", b"stale", 0) is None
+    assert await reopened.put_if_generation("head.json", b"stale", "") is None
 
 
 @pytest.mark.asyncio
 async def test_local_store_legacy_and_unchanged_bytes_keep_monotonic_generation(tmp_path):
     (tmp_path / "head.json").write_bytes(b"legacy")
     store = LocalObjectStore(str(tmp_path))
-    assert await store.get_with_generation("head.json") == (b"legacy", 1)
-    assert await store.put_if_generation("head.json", b"legacy", 1) == 2
-    assert await LocalObjectStore(str(tmp_path)).get_with_generation("head.json") == (b"legacy", 2)
-    assert await store.put_if_generation("head.json", b"stale", 1) is None
+    assert await store.get_with_generation("head.json") == (b"legacy", "1")
+    assert await store.put_if_generation("head.json", b"legacy", "1") == "2"
+    reopened = LocalObjectStore(str(tmp_path))
+    assert await reopened.get_with_generation("head.json") == (b"legacy", "2")
+    assert await store.put_if_generation("head.json", b"stale", "1") is None
 
 
 @pytest.mark.asyncio
 async def test_corrupt_local_journal_fails_closed_without_discarding_it(tmp_path):
     store = LocalObjectStore(str(tmp_path))
-    await store.put_if_generation("head.json", b"old", 0)
+    await store.put_if_generation("head.json", b"old", "")
     journal = tmp_path / LocalObjectStore._JOURNAL
     journal.write_bytes(b"not-json")
     with pytest.raises(PodLogTampered, match="cannot be safely recovered"):
@@ -1248,7 +1249,7 @@ async def test_corrupt_local_journal_fails_closed_without_discarding_it(tmp_path
 async def test_local_store_reserves_internal_metadata_keys(tmp_path, key):
     store = LocalObjectStore(str(tmp_path))
     with pytest.raises(ValueError, match="reserved"):
-        await store.put_if_generation(key, b"synthetic", 0)
+        await store.put_if_generation(key, b"synthetic", "")
     with pytest.raises(ValueError, match="reserved"):
         await store.get(key)
 
@@ -1329,7 +1330,7 @@ async def test_gcs_write_keeps_loop_responsive_and_joins_cancelled_worker():
                 completed.set()
 
     store = GcsObjectStore("user-bucket", session=BlockingTransport())
-    task = asyncio.create_task(store.put_if_generation("head.json", b"{}", 3))
+    task = asyncio.create_task(store.put_if_generation("head.json", b"{}", "3"))
     try:
         assert await asyncio.to_thread(entered.wait, 2)
         task.cancel()
@@ -1359,7 +1360,7 @@ async def test_gcs_write_refuses_redirect_or_invalid_generation(status, generati
 
     store = GcsObjectStore("user-bucket", session=InvalidTransport())
     with pytest.raises(RuntimeError, match="pod storage (write unconfirmed|generation unverified)"):
-        await store.put_if_generation("head.json", b"{}", 3)
+        await store.put_if_generation("head.json", b"{}", "3")
 
 
 @pytest.mark.asyncio

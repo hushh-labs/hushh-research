@@ -174,15 +174,15 @@ class _Store:
     async def get(self, key):
         return self.objects.get(key)
 
-    async def get_with_generation(self, key):
-        return self.objects.get(key), self.generations.get(key, 0)
+    async def get_with_generation(self, key):  # opaque versions, as GCS states them
+        return self.objects.get(key), str(self.generations.get(key, 0) or "")
 
     async def put_if_generation(self, key, data, expected):
-        if self.generations.get(key, 0) != expected:
+        if str(self.generations.get(key, 0) or "") != expected:
             return None
         self.objects[key] = data
-        self.generations[key] = expected + 1
-        return expected + 1
+        self.generations[key] = self.generations.get(key, 0) + 1
+        return str(self.generations[key])
 
 
 @pytest.mark.asyncio
@@ -2384,7 +2384,7 @@ async def test_memory_admission_fence_preserves_source_and_prevents_boot_provide
     )
     record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
     assert all(record[key] == value for key, value in before.items())
-    assert record["erasure"]["priorGeneration"] == generation
+    assert record["erasure"]["priorGeneration"] == int(generation or 0)  # persisted form
     await mb.fence_memory_bank_admission(
         store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
     )

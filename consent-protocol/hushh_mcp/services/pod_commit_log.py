@@ -10,8 +10,8 @@ Wire shape:
     {prefix}records/000000000042-ab12.bin one sealed RECORD, immutable once written
 
 * **Atomicity** is the object store's conditional write. Advancing the log is a
-  compare-and-swap on the pointer's generation (`ifGenerationMatch` on GCS, a
-  locked generation file locally). Two concurrent writers both write record
+  compare-and-swap on the pointer's opaque version (`ifGenerationMatch` on GCS,
+  `If-Match` on Azure Blob, a locked generation file locally). Two writers both write record
   objects; exactly one wins the pointer swap; the loser's record is an orphan
   the chain never references, and the loser retries. This IS the
   ``expected_content_revision`` idea, enforced by the platform, identically on
@@ -34,7 +34,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import contextlib
-import contextvars
 import fcntl
 import hashlib
 import json
@@ -62,6 +61,14 @@ from hushh_mcp.services.pod_log_replay import (
 from hushh_mcp.services.pod_log_replay import (
     replay_chain,
 )
+from hushh_mcp.services.pod_object_version import (
+    ABSENT,
+    ObjectVersion,
+    decimal_generation,
+    decimal_version,
+    run_write_to_completion,
+)
+from hushh_mcp.services.pod_workload_identity import google_metadata_access_endpoint
 
 POD_LOG_KEY_ENV = "HUSSH_POD_LOG_KEY"
 
@@ -93,19 +100,25 @@ def log_key_from_env() -> bytes:
 
 
 class ObjectStore(Protocol):
-    """The minimum object-store surface the log needs, on every platform."""
+    """The minimum object-store surface the log needs, on every platform.
+
+    Versions are opaque tokens (:mod:`pod_object_version`): ``ABSENT`` for an
+    object that does not exist, otherwise exactly what the store stated.
+    """
 
     async def get(self, key: str) -> Optional[bytes]: ...
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], int]: ...
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]: ...
 
     async def put(self, key: str, data: bytes) -> None:
         """Write-once: refuses to overwrite an existing object."""
         ...
 
-    async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
-        """Compare-and-swap: write only if the object's generation is ``expected``
-        (0 = must not exist). Returns the new generation, or None on a lost race."""
+    async def put_if_generation(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        """Compare-and-swap: write only if the object's version is ``expected``
+        (``ABSENT`` = must not exist). Returns the new version, or None on a lost race."""
         ...
 
 
@@ -343,9 +356,10 @@ class LocalObjectStore:
         data, _ = await self.get_with_generation(key)
         return data
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         with self._lock():
-            return self._read_pair(self._path(key))
+            data, generation = self._read_pair(self._path(key))
+        return data, decimal_version(generation)
 
     def _commit_pair(self, key: str, data: bytes, current: Optional[bytes], generation: int) -> int:
         record = {
@@ -368,12 +382,15 @@ class LocalObjectStore:
                 raise FileExistsError(f"record object already exists: {key}")
             self._commit_pair(key, data, current, generation)
 
-    async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
+    async def put_if_generation(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        wanted = decimal_generation(expected)
         with self._lock():
             current, generation = self._read_pair(self._path(key))
-            if generation != expected:
+            if generation != wanted:
                 return None
-            return self._commit_pair(key, data, current, generation)
+            return decimal_version(self._commit_pair(key, data, current, generation))
 
 
 class GcsObjectStore:
@@ -399,12 +416,6 @@ class GcsObjectStore:
     one instance serves many reads, and a log replay reads every record
     through a single store.
     """
-
-    # The GCE metadata endpoint that mints the pod's OWN access credential -- an
-    # address, not a secret. (Named to make that plain to scanners and readers.)
-    _METADATA_ACCESS_ENDPOINT = (
-        "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token"
-    )
 
     # Stop reusing a minted credential this long before the issuer says it dies,
     # so a request that starts inside the window still completes with a live one.
@@ -520,7 +531,7 @@ class GcsObjectStore:
     def _mint_token(self) -> tuple[str, int]:
         """One metadata round trip: the credential and the seconds it is usable."""
         response = self._session.get(
-            self._METADATA_ACCESS_ENDPOINT,
+            google_metadata_access_endpoint(),  # refuses on Azure, before any request
             headers={"Metadata-Flavor": "Google"},
             timeout=10,
             allow_redirects=False,
@@ -596,8 +607,9 @@ class GcsObjectStore:
         data, _ = await self.get_with_generation(key)
         return data
 
-    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
-        return await asyncio.to_thread(self._get_with_generation, key)
+    async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
+        data, generation = await asyncio.to_thread(self._get_with_generation, key)
+        return data, decimal_version(generation)
 
     def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
@@ -641,33 +653,17 @@ class GcsObjectStore:
 
     async def put(self, key: str, data: bytes) -> None:
         # Records are immutable: ifGenerationMatch=0 means "must not exist yet".
-        created = await self.put_if_generation(key, data, 0)
+        created = await self.put_if_generation(key, data, ABSENT)
         if created is None:
             raise FileExistsError(f"record object already exists: {key}")
 
-    async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
-        # Offloading must not make cancellation report completion while a write
-        # is still running. Retain and join the bounded HTTP worker first. This
-        # is process-local completion, not a durable upload-drain receipt.
-        worker = asyncio.get_running_loop().run_in_executor(
-            None, contextvars.copy_context().run, self._put_if_generation, key, data, expected
-        )
-        cancelled = False
-        while not worker.done():
-            try:
-                await asyncio.shield(worker)
-            except asyncio.CancelledError:
-                cancelled = True
-            except Exception:
-                break
-        if cancelled:
-            # Observe any worker exception without releasing it to a cancelled caller.
-            if not worker.cancelled():
-                worker.exception()
-            raise asyncio.CancelledError
-        return worker.result()
+    async def put_if_generation(
+        self, key: str, data: bytes, expected: ObjectVersion
+    ) -> Optional[ObjectVersion]:
+        generation = decimal_generation(expected)
+        return await run_write_to_completion(self._put_if_generation, key, data, generation)
 
-    def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
+    def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[ObjectVersion]:
         name = self._key(key)
         response = self._authorized(
             lambda headers: self._session.post(
@@ -687,7 +683,7 @@ class GcsObjectStore:
             return None  # lost the race; the caller retries from a fresh pointer
         if response.status_code not in (200, 201):
             raise RuntimeError("pod storage write unconfirmed")
-        return self._generation(response.json())
+        return decimal_version(self._generation(response.json()))
 
 
 # --- the log --------------------------------------------------------------------------
