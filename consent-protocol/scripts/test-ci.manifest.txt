@@ -554,3 +554,5 @@ tests/test_shared_with_me_card.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+
+tests/test_one_career_routes.py

@@ -117,6 +117,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`
+- `/one/career`
 - `/one/location`
 - `/one/location/map`
 - `/one/location/check-in`

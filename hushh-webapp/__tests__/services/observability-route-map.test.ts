@@ -80,6 +80,7 @@ describe("observability route map", () => {
       "marketplace_connection_portfolio",
     );
     expect(resolveRouteId("/marketplace/ria")).toBe("marketplace_ria_profile");
+    expect(resolveRouteId("/one/career")).toBe("one_career");
     expect(resolveRouteId("/register-phone")).toBe("phone_mandate");
     expect(resolveRouteId("/one/profile/regulatory")).toBe(
       "profile_regulatory",

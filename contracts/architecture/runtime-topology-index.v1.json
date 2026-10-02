@@ -34,6 +34,39 @@
       }
     },
     {
+      "id": "agent_career",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "ONE_CAREER_ENABLED",
+        "rollback": "Turn off ONE_CAREER_ENABLED; resumes already saved stay in the owner's PKM and nothing else changes.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "hybrid",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": false,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
@@ -2647,6 +2680,29 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.calendar"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-career",
+      "page_file": "app/one/career/page.tsx",
+      "pathname": "/one/career",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.career"
       }
     },
     {
@@ -5791,26 +5847,26 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "d992c638cb0261c31022bc583622de2f08615e0835e51f3257ab7e1035cc1002",
-    "agent_registry": "1363b2d630b8f985f19549a79a974f2769683950ab02d6f4a0ca91589624012b",
-    "cache_manifest": "bb1fd935f1fb2ee571f6cafbc49689dea661b71993550797b779784735e57886",
+    "agent_registry": "7bc13af0d6b65f15b620d92bda07c6c505d61ff33e9f04c17444f9e6cee75458",
+    "cache_manifest": "4c65bf69059165aa93b06f367e084d11ab75cc73b390b9aafe88c59ba9f40402",
     "data_plane": "1df49f95104f4d30fc5ed6de778ff88e0180f690a8d3a736e2df0cb567be8c5a",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "55b39926a1b6fbda093c53346e7e007aceba0ed6b3e5d61af244c8d70dd8e29a",
-    "route_layout": "467ac69cd8610e2c9299202b97fad06587d347c55835ea46e117668ac5e53849",
-    "surface_map": "78ddd564abd49487f114a9c2ab04679fa323a00486149ddfaf45f8b4f0061091",
+    "route_index": "033bd4a2311c0966c19342cae1c45336e68f3e56b7a8d6ebfc749c585507dd72",
+    "route_layout": "c56c24d3530c54b46e391411cc32c87ce54b53225b0bd916a6f4fe562f12bc89",
+    "surface_map": "59044fd8cfa3acdfa342ca52afcce8d07e954e90fb3fea3c1b33bfb1e8c248c7",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
     "actions": 224,
-    "agents": 19,
+    "agents": 20,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 142,
+    "physical_routes": 143,
     "semantic_routes": 14,
     "table_families": 83
   }
