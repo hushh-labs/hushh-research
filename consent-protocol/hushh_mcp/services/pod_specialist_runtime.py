@@ -552,10 +552,15 @@ def build_pod_specialist_runtime(
         if client is None:
             from hushh_mcp.runtime_providers.factory import (
                 build_managed_runtime_client,
+                build_owner_azure_runtime_client,
                 build_runtime_client,
             )
 
-            if runtime_mode in {"byok", "puppy_relay"}:
+            if runtime_mode == "user_azure_mi":
+                client = build_owner_azure_runtime_client(
+                    provider, runtime_mode, credential=credential
+                )
+            elif runtime_mode in {"byok", "puppy_relay"}:
                 client = build_runtime_client(
                     provider,
                     credential or "",

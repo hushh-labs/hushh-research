@@ -469,6 +469,8 @@ async def run_pod_turn(
             # every existing non-empty credential check honest without a hub grant.
             payload = payload.model_copy(update={"runtime_credential": consent_token})
     runtime_mode = _resolve_runtime_mode(payload, provider)
+    if runtime_mode == "user_azure_mi":  # the deployment IS the model, for every specialist
+        provider, model = _owner_azure_model() or (provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
@@ -826,12 +828,14 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         # pins the value a function returns, rather than what the next function does
         # with it, passes for exactly as long as both ends are wrong together.
         return "byok"
+    if _owner_azure_model() is not None:
+        return "user_azure_mi"
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         pod_managed_model_enabled,
         pod_user_adc_enabled,
     )
 
-    # ORDER IS LOAD-BEARING, and it is BYOK -> user ADC -> managed.
+    # ORDER IS LOAD-BEARING: BYOK -> owner Azure (half-rendered refuses) -> user ADC -> managed.
     #
     # An owner who sends a key gets their key: that is checked above and nothing here
     # can take it from them. Next comes the person's own project, which is the
@@ -853,6 +857,22 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         status_code=400,
         detail="this pod has no model access; connect an AI key first",
     )
+
+
+def _owner_azure_model() -> tuple[str, str] | None:
+    """(provider, deployment) of this pod's own Azure model; None when not rendered."""
+    from hushh_mcp.runtime_providers.azure_openai import (  # noqa: PLC0415
+        AzureOpenAITopologyInvalid,
+        owner_azure_model,
+    )
+
+    try:
+        return owner_azure_model()
+    except AzureOpenAITopologyInvalid:
+        logger.warning("pod_turn.azure_model_topology_invalid")
+        raise HTTPException(
+            status_code=503, detail={"code": "AZURE_MODEL_TOPOLOGY_INVALID"}
+        ) from None
 
 
 def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:

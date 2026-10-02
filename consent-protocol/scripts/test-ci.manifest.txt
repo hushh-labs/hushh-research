@@ -808,3 +808,8 @@ tests/test_pod_request_verifier.py
 tests/test_pod_signing_key_recording.py
 tests/test_pod_request_signing_postgres.py
 tests/test_pod_signing_key_rotation_postgres.py
+# Azure lane model (2026-10-02): the person's own Azure OpenAI deployment as the
+# agent's model (mode user_azure_mi), streamed tool calls, and the pod's own
+# deployment reachability probe.
+tests/test_azure_openai_transport.py
+tests/test_azure_openai_owner_mode.py
