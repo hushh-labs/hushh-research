@@ -160,6 +160,40 @@ import time (`api/routes/one/agent_chat.py` intro agent) and needs
 - Gmail push alerts off (Gmail push only targets Google Pub/Sub).
 - Files background organization off.
 
+## Erasure, heal and update recovery, as implemented
+
+Hussh can delete nothing in the person's subscription, so each lifecycle path is
+built from the authority the trust matrix leaves it. The shared orchestrator
+reaches each one through a typed capability in
+`consent-protocol/hushh_mcp/services/compute_backend.py` (`OwnerAccessErasableBackend`,
+`RestartableBackend`), never a provider name.
+
+- **Erasure.** After the registry reserves erasure, the agent erases itself:
+  `POST /pod/migration/erasure/crypto-erase` sits behind the same hub-proof and
+  incarnation gate as the fence, with its own proof purpose. It closes admission for
+  the attempt and writes a tombstone (`erasure/crypto-erase.json`: attempt, owner
+  digest, chained record keys). It then deletes the wrapped key first, followed by
+  the identity key, incarnation fence, memory bookkeeping, session projection, the
+  records, and the head last. A retry finishes from the tombstone without the key. Key
+  Vault custody refuses to mint a replacement key while the tombstone exists, so an
+  erased agent never boots again. Only after the agent confirms does Hussh revoke the
+  agent's role assignments, then its own, last.
+- **Receipt.** The receipt (resources remaining, the vault's earliest purge date,
+  "delete the resource group …") is retained once on the registry row under the
+  reserved attempt (dev-only migration 949, validated against the reserved
+  snapshot). The account stays refused while those resources exist. The person
+  deletes the resource group; Hussh no longer can.
+- **Not enumerated by the agent:** orphan records from lost append races and Files
+  objects (Files is off). Both are sealed under the destroyed key.
+- **Heal** is the observer's `revisions/restart/action` through the backend, never
+  the hub's Cloud Run client.
+- **A crashed update** leaves the lease and the provider acknowledgement on the row.
+  The observer resolves it from reads alone, because the revision name derives from
+  the attempt id. Live means that revision is the latest ready one and runs the
+  acknowledged image. Failed needs a definitive platform verdict: the revision failed
+  to provision or to run, or ARM settled without creating it. Anything still
+  activating keeps the lease. No new update starts without the person's sign-in.
+
 ## Cost (list prices, not measured bills)
 
 From the Azure Retail Prices API, eastus, 2026-10-01: Basic container registry
