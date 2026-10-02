@@ -129,14 +129,10 @@ def test_owner_cloud_predicate_names_only_owner_targets(target, expected):
     assert is_owner_cloud_target(target) is expected
 
 
-def test_owner_cloud_sql_fragment_binds_every_target_and_inlines_none():
-    from hushh_mcp.services.compute_backend import OWNER_CLOUD_TARGETS, owner_cloud_sql_in
+def test_owner_cloud_bind_is_a_list_parameter_for_static_sql():
+    from hushh_mcp.services.compute_backend import OWNER_CLOUD_TARGETS, owner_cloud_bind
 
-    fragment, params = owner_cloud_sql_in()
-    assert fragment == ", ".join(f":{name}" for name in params)
-    assert tuple(params.values()) == OWNER_CLOUD_TARGETS
-    for target in OWNER_CLOUD_TARGETS:
-        assert target not in fragment
+    assert owner_cloud_bind() == {"owner_cloud_targets": list(OWNER_CLOUD_TARGETS)}
 
 
 def test_adding_a_provider_is_one_entry_and_the_provisioning_gate_follows(monkeypatch):

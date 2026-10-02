@@ -50,14 +50,13 @@ def is_known_pod_target(target: object) -> bool:
     return str(target or "").strip() in (BACKEND_GCP, *OWNER_CLOUD_TARGETS)
 
 
-def owner_cloud_sql_in(param_prefix: str = "owner_cloud_target") -> tuple[str, dict[str, str]]:
-    """Return ``(":p_0, :p_1", {"p_0": ..., "p_1": ...})`` for a SQL ``IN (...)``.
+def owner_cloud_bind() -> dict[str, list[str]]:
+    """Bind ``:owner_cloud_targets`` for static SQL: ``deployment_target = ANY(:owner_cloud_targets)``.
 
-    Bind parameters rather than inlined literals keep the provider ids out of the
-    statement text, so registry SQL stays provider-neutral.
+    A bound list keeps the provider ids out of the statement text, so registry SQL
+    stays provider-neutral without building SQL from strings.
     """
-    params = {f"{param_prefix}_{index}": target for index, target in enumerate(OWNER_CLOUD_TARGETS)}
-    return ", ".join(f":{name}" for name in params), params
+    return {"owner_cloud_targets": list(OWNER_CLOUD_TARGETS)}
 
 
 # --- the pod's resource profile, in ONE place -------------------------------------

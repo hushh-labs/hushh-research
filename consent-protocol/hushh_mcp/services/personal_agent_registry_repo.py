@@ -24,13 +24,11 @@ from typing import Any, Optional
 
 from db.db_client import get_db
 from hushh_mcp.services import personal_agent_direct_admission as direct_admission
-from hushh_mcp.services.compute_backend import owner_cloud_sql_in
+from hushh_mcp.services.compute_backend import owner_cloud_bind
 
 _REGISTRY = "personal_agent_registry"
 _TOMBSTONES = "personal_agent_deletion_tombstones"
 
-# Owner-cloud targets as bind parameters: the registry never names a provider.
-_OWNER_CLOUD_IN, _OWNER_CLOUD_PARAMS = owner_cloud_sql_in()
 
 # Statuses that mean this row is holding, or is in the act of standing up, a real
 # host. ``provisioning`` is counted deliberately: provision() records that status
@@ -1128,7 +1126,7 @@ class PersonalAgentRegistryRepo:
                 )
               END
             WHERE user_id = :user_id AND hushh_id = :hushh_id
-              AND status = 'provisioned' AND deployment_target IN (__OWNER_CLOUD_IN__)
+              AND status = 'provisioned' AND deployment_target = ANY(:owner_cloud_targets)
               AND pod_key_id = :pod_key_id
               AND backend_metadata->>'serviceUid' = :service_uid
               AND backend_metadata->>'ingress' = 'direct'
@@ -1145,9 +1143,9 @@ class PersonalAgentRegistryRepo:
                 )
               )
             RETURNING backend_metadata->'puppyModelSelection'->:device_id AS selection
-            """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
+            """,
             {
-                **_OWNER_CLOUD_PARAMS,
+                **owner_cloud_bind(),
                 "user_id": user_id,
                 "device_id": device_id,
                 "hushh_id": command["hushhId"],
@@ -1188,7 +1186,7 @@ class PersonalAgentRegistryRepo:
                 true
             )
             WHERE user_id = :user_id AND hushh_id = :hushh_id
-              AND status = 'provisioned' AND deployment_target IN (__OWNER_CLOUD_IN__)
+              AND status = 'provisioned' AND deployment_target = ANY(:owner_cloud_targets)
               AND pod_key_id = :pod_key_id
               AND backend_metadata->>'serviceUid' = :service_uid
               AND backend_metadata->>'ingress' = 'direct'
@@ -1198,9 +1196,9 @@ class PersonalAgentRegistryRepo:
               AND (backend_metadata->'puppyModelSelection'->:device_id->>'expiresAt')::bigint
                     > :now_ms
             RETURNING backend_metadata->'puppyModelSelection'->:device_id AS selection
-            """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
+            """,
             {
-                **_OWNER_CLOUD_PARAMS,
+                **owner_cloud_bind(),
                 "user_id": user_id,
                 "device_id": device_id,
                 "hushh_id": previous["hushhId"],

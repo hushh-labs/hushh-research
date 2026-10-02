@@ -11,9 +11,7 @@ import asyncio
 import json
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_owner_cloud_target, owner_cloud_sql_in
-
-_OWNER_CLOUD_IN, _OWNER_CLOUD_PARAMS = owner_cloud_sql_in()
+from hushh_mcp.services.compute_backend import is_owner_cloud_target, owner_cloud_bind
 
 
 def _next_endpoint(previous: Any, *, url: str, pod_key_id: str) -> dict | None:
@@ -260,15 +258,15 @@ async def record_direct_readiness(
             '{directReadiness}', CAST(:readiness AS jsonb), true
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
-          AND deployment_target IN (__OWNER_CLOUD_IN__) AND status = 'provisioned'
+          AND deployment_target = ANY(:owner_cloud_targets) AND status = 'provisioned'
           AND pod_key_id = :pod_key_id
           AND backend_metadata->>'serviceUid' = :service_uid
           AND backend_metadata->>'url' = :url
           AND backend_metadata->>'ingress' = 'direct'
         RETURNING user_id
-        """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
+        """,
         {
-            **_OWNER_CLOUD_PARAMS,
+            **owner_cloud_bind(),
             "user_id": user_id,
             "hushh_id": hushh_id,
             "service_uid": service_uid,
@@ -303,15 +301,15 @@ async def record_direct_ingress_observed(
             '{ingress}', '"direct"'::jsonb, true
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
-          AND deployment_target IN (__OWNER_CLOUD_IN__) AND status = 'provisioned'
+          AND deployment_target = ANY(:owner_cloud_targets) AND status = 'provisioned'
           AND pod_key_id = :pod_key_id
           AND backend_metadata->>'serviceUid' = :service_uid
           AND backend_metadata->>'url' = :url
           AND backend_metadata->>'ingress' = 'internal'
         RETURNING user_id
-        """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
+        """,
         {
-            **_OWNER_CLOUD_PARAMS,
+            **owner_cloud_bind(),
             "user_id": user_id,
             "hushh_id": hushh_id,
             "service_uid": service_uid,
