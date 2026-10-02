@@ -6,6 +6,10 @@ call), the agent's ``hussh-incarnation`` tag, which must equal the recorded
 ``serviceUid``, and ``systemData.createdAt``, re-read immediately before the PUT. A
 replaced or re-created agent changes one of them and the upgrade refuses.
 
+With an owner-approved operation, the running agent is first fenced through the
+existing pod upgrade handoff (prepare, idle receipt) and released again if anything
+fails before the replacement is submitted, exactly as on Google Cloud.
+
 The new revision's suffix is derived from the attempt id, so the acknowledgement
 names exactly the revision this attempt created. The previous revision keeps serving
 until the new one is ready (single revision mode activates the new one only then).
@@ -27,6 +31,7 @@ from hushh_mcp.services.azure_container_app_renderer import (
 )
 from hushh_mcp.services.azure_setup_applier import resolve
 from hushh_mcp.services.azure_setup_plan import (
+    CONTAINER_APP_NAME,
     NONCE_TAG,
     Scopes,
     import_image_step,
@@ -102,16 +107,36 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     if previous == target:
         current = backend.verified_handle(spec.hushh_id, backend.observe_sync())
         return _with_metadata(current, upgraded=False, source_image=spec.upgrade_target_image)
-    step = import_image_step(scopes, registry, repository)
-    arm.post(
-        step.path,
-        api_version=API_VERSIONS[step.api],
-        body=resolve(step.body, {"imageDigest": digest}),
-        op="importing_image",
-    )
-    current = arm.get(backend.app_id, api_version=api, op="upgrade")
-    if _fence(current, spec, expected) != (nonce, created):
-        raise RuntimeError("the agent changed while its image was imported; nothing was replaced")
+    handoff = _prepare_handoff(spec, app)
+    try:
+        step = import_image_step(scopes, registry, repository)
+        arm.post(
+            step.path,
+            api_version=API_VERSIONS[step.api],
+            body=resolve(step.body, {"imageDigest": digest}),
+            op="importing_image",
+        )
+        current = arm.get(backend.app_id, api_version=api, op="upgrade")
+        if _fence(current, spec, expected) != (nonce, created):
+            raise RuntimeError("the agent changed while its image was imported; nothing replaced")
+    except Exception:
+        _release_handoff(handoff, spec)
+        raise
+    return _replace(backend, spec, arm, current=current, target=target, previous=previous)
+
+
+def _replace(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    arm: ArmClient,
+    *,
+    current: dict[str, Any],
+    target: str,
+    previous: str,
+) -> BackendHandle:
+    """Submit the one-image replacement, acknowledge it, and wait for its revision."""
+    api = API_VERSIONS["container_apps"]
+    expected = str(spec.expected_service_uid or "")
     suffix = revision_suffix(spec.upgrade_attempt_id or spec.upgrade_operation_id or "")
     started = arm.request(
         "PUT",
@@ -120,7 +145,7 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
         body=replacement_body(current, image=target, suffix=suffix),
         op="deploying_agent",
     )
-    revision = f"{names.container_app}--{suffix}"
+    revision = f"{CONTAINER_APP_NAME}--{suffix}"
     if spec.on_upgrade_ack is not None:
         spec.on_upgrade_ack(
             {
@@ -143,6 +168,49 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )
+
+
+def _prepare_handoff(spec: PodSpec, app: dict[str, Any]) -> Any:
+    """Fence the running agent's work before replacement (the GCP handoff, unchanged).
+
+    Single revision mode keeps the old revision serving until the new one is ready,
+    so without this two revisions could write one sealed log at once. The client is
+    cloud-neutral: a Google ID token for the agent's own address, the same hub-to-pod
+    identity Azure keeps. The incarnation is the serving revision, which the agent
+    reads as CONTAINER_APP_REVISION.
+    """
+    if not spec.upgrade_operation_id:
+        return None
+    from hushh_mcp.services.pod_upgrade_handoff import PodUpgradeHandoffClient  # noqa: PLC0415
+
+    properties = app.get("properties") or {}
+    fqdn = str(((properties.get("configuration") or {}).get("ingress") or {}).get("fqdn") or "")
+    revision = str(properties.get("latestReadyRevisionName") or "")
+    if not fqdn or not revision:
+        raise RuntimeError("pod upgrade handoff capability is unavailable")
+    client = PodUpgradeHandoffClient(url=f"https://{fqdn}", hushh_id=spec.hushh_id)
+    handoff = (client, revision)
+    try:
+        receipt = client.prepare_and_wait(
+            operation_id=spec.upgrade_operation_id, incarnation=revision
+        )
+        if spec.on_upgrade_idle is not None:
+            spec.on_upgrade_idle(receipt)
+    except Exception:
+        _release_handoff(handoff, spec)
+        raise
+    return handoff
+
+
+def _release_handoff(handoff: Any, spec: PodSpec) -> None:
+    """Release the fence when no replacement was submitted. Never masks the cause."""
+    if handoff is None:
+        return
+    client, revision = handoff
+    try:
+        client.release(operation_id=spec.upgrade_operation_id, incarnation=revision)
+    except Exception:  # noqa: BLE001 - the original failure is the one to report
+        logger.info("user_azure_backend.handoff_release_failed", exc_info=True)
 
 
 def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
