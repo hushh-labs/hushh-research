@@ -815,3 +815,7 @@ tests/test_azure_openai_transport.py
 tests/test_azure_openai_owner_mode.py
 tests/test_azure_openai_model_diagnostic.py
 tests/test_azure_openai_turn_doors.py
+# Azure lane hub-azure (2026-10-02)
+tests/test_azure_arm_client.py
+tests/test_azure_federation.py
+tests/test_azure_entra_authorizer.py
