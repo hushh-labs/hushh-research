@@ -807,3 +807,4 @@ tests/test_pod_request_signing.py
 tests/test_pod_request_verifier.py
 tests/test_pod_signing_key_recording.py
 tests/test_pod_request_signing_postgres.py
+tests/test_pod_signing_key_rotation_postgres.py

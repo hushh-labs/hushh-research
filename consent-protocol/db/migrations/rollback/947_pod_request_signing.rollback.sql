@@ -9,6 +9,10 @@ BEGIN;
 
 DROP TABLE IF EXISTS public.pod_request_nonces;
 
+-- The trigger's WHEN clause depends on the signing columns: drop it first.
+DROP TRIGGER IF EXISTS zzz_pod_signing_key_follows_pod_key ON public.personal_agent_registry;
+DROP FUNCTION IF EXISTS public.retire_superseded_pod_signing_key();
+
 ALTER TABLE public.personal_agent_registry
   DROP CONSTRAINT IF EXISTS personal_agent_registry_pod_signing_key_check,
   DROP CONSTRAINT IF EXISTS personal_agent_registry_identity_mode_check;

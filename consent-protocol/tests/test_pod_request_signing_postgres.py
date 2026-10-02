@@ -166,9 +166,15 @@ def test_the_rollback_removes_everything_and_947_reapplies(pg, db):
     try:
         assert "pod_signing_key_id" not in _row(db)
         assert pg.execute("SELECT to_regclass('public.pod_request_nonces')") == [(None,)]
+        assert pg.execute(
+            "SELECT to_regprocedure('public.retire_superseded_pod_signing_key()')"
+        ) == [(None,)]
     finally:
         pg.apply_file(MIGRATIONS / "parked/947_pod_request_signing.sql")
     assert {"pod_signing_pubkey", "pod_signing_key_id", "identity_mode"} <= set(_row(db))
+    assert pg.execute(
+        "SELECT count(*) FROM pg_trigger WHERE tgname='zzz_pod_signing_key_follows_pod_key'"
+    ) == [(1,)]
 
 
 # -- the store -------------------------------------------------------------------------

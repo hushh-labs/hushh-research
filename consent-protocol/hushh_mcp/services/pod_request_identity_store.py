@@ -19,6 +19,12 @@ Four writes, each conditional, each idempotent:
 * **Signing-key binding** -- records the pod's signing public key against the
   X25519 key already on the row, compared in the same statement, so a signing key
   can never be attached to a different pod key than the one it was published with.
+
+The reverse direction is the database's: migration 947's
+``zzz_pod_signing_key_follows_pod_key`` trigger drops the signing key in the same
+statement as any write that moves ``pod_pubkey`` without a new one, so rotating
+the pod key always revokes the signing authority derived from the old one, even
+when the pull that rotated it carried no usable signing key.
 """
 
 from __future__ import annotations

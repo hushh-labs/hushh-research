@@ -3,8 +3,10 @@
 --
 -- The pod signs every hub request with an Ed25519 key derived from its own X25519
 -- key. The hub records the public half only from a GET it initiates itself, in the
--- same write as pod_pubkey, so the signing key can never outlive or precede the pod
--- key it was published with. identity_mode='signed' is a one-way latch: once a row
+-- same write as pod_pubkey (or bound to the pod_pubkey already on the row), and the
+-- trigger below drops it in the same statement as any write that moves pod_pubkey
+-- without a new one, so the signing key can never outlive or precede the pod key
+-- it was published with. identity_mode='signed' is a one-way latch: once a row
 -- has presented a valid signature, a Google-only request from it is refused.
 -- pod_request_nonces makes every signature single-use within its 90-second window.
 BEGIN;
@@ -28,6 +30,34 @@ ALTER TABLE public.personal_agent_registry
   ADD CONSTRAINT personal_agent_registry_identity_mode_check CHECK (
     identity_mode IS NULL OR identity_mode = 'signed'
   );
+
+-- Rotating the pod key is the remedy for a compromised one, so it must also revoke
+-- the signing authority derived from the superseded key, whichever writer moved it:
+-- a rotation whose pull carried no usable signing key (an image that publishes
+-- none, a malformed one, the hub flag off, no HusshID reported), a re-adoption, or
+-- an exact-attempt publication. The write itself cannot be trusted to remember,
+-- because the registry upsert drops NULL fields. Named to fire after every guard
+-- trigger, so it never changes what a guard is asked to judge; it only ever
+-- removes authority. The latch is kept: a latched row is refused until the hub
+-- pulls a valid signing key for the new pod key.
+CREATE OR REPLACE FUNCTION public.retire_superseded_pod_signing_key()
+RETURNS trigger LANGUAGE plpgsql SET search_path = public AS $$
+BEGIN
+  NEW.pod_signing_pubkey := NULL;
+  NEW.pod_signing_key_id := NULL;
+  RETURN NEW;
+END;
+$$;
+DROP TRIGGER IF EXISTS zzz_pod_signing_key_follows_pod_key ON public.personal_agent_registry;
+CREATE TRIGGER zzz_pod_signing_key_follows_pod_key
+BEFORE UPDATE ON public.personal_agent_registry
+FOR EACH ROW
+WHEN (
+  NEW.pod_pubkey IS DISTINCT FROM OLD.pod_pubkey
+  AND OLD.pod_signing_key_id IS NOT NULL
+  AND NEW.pod_signing_key_id IS NOT DISTINCT FROM OLD.pod_signing_key_id
+)
+EXECUTE FUNCTION public.retire_superseded_pod_signing_key();
 
 CREATE TABLE IF NOT EXISTS public.pod_request_nonces (
   kid text NOT NULL CHECK (kid ~ '^pods_[0-9a-f]{32}$'),
