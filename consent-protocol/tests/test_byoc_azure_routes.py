@@ -137,6 +137,17 @@ def test_begin_refuses_a_person_without_an_agent_record(spawned):
     assert response.json()["detail"]["code"] == "AGENT_RECORD_REQUIRED"
 
 
+def test_an_unreadable_registry_is_a_typed_503_not_a_missing_record(spawned, monkeypatch):
+    async def unreadable(self, user_id):
+        raise ConnectionError("registry down")
+
+    monkeypatch.setattr(_Registry, "get", unreadable)
+    for path in (_BEGIN, _UPGRADE):
+        response = _client().post(path, json={})
+        assert response.status_code == 503
+        assert response.json()["detail"]["code"] == "POD_ASSIGNMENT_UNVERIFIED"
+
+
 def test_begin_without_federation_configured_is_a_typed_503(spawned, monkeypatch):
     monkeypatch.delenv("HUSSH_AZURE_APP_CLIENT_ID")
     response = _client().post(_BEGIN, json={})

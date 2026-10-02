@@ -83,15 +83,25 @@ def _pass_through(exc: Any) -> HTTPException:
     return _refuse(int(getattr(exc, "status_code", 400)), str(exc.code), str(exc))
 
 
+async def _registry_row(user_id: str) -> Optional[dict]:
+    """The registry row, or a typed 503 when the registry cannot answer (never a 500)."""
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    try:
+        return await PersonalAgentRegistryRepo().get(user_id)
+    except Exception as exc:  # noqa: BLE001 - an unreadable registry is not "no agent"
+        raise _refuse(
+            503, "POD_ASSIGNMENT_UNVERIFIED", "Cloud setup could not verify your agent record."
+        ) from exc
+
+
 async def _agent_record(user_id: str) -> dict:
     """The registry row with a HusshID, reserving it when the phone is verified."""
     from api.routes.one.runtime import _reserve_pending_agent_record
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
-    repo = PersonalAgentRegistryRepo()
-    row = await repo.get(user_id)
+    row = await _registry_row(user_id)
     if not row and await _reserve_pending_agent_record(user_id):
-        row = await repo.get(user_id)
+        row = await _registry_row(user_id)
     if not row or not row.get("hushh_id") or not row.get("phone_e164_hash"):
         raise _refuse(
             409, "AGENT_RECORD_REQUIRED", "Verify your phone number first, then connect Azure."
@@ -291,10 +301,9 @@ async def complete_azure_authorize(
 async def _upgrade_row(user_id: str) -> tuple[dict, str]:
     """The person's provisioned Azure agent and the digest they approved."""
     from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
     from hushh_mcp.services.pod_release import is_immutable_image_reference
 
-    row = await PersonalAgentRegistryRepo().get(user_id) or {}
+    row = await _registry_row(user_id) or {}
     if row.get("deployment_target") != BACKEND_USER_AZURE or row.get("status") != "provisioned":
         raise _refuse(
             409, "NO_AZURE_AGENT", "There is no agent in your Azure subscription to update."
