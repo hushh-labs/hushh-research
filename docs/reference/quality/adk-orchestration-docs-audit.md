@@ -87,6 +87,7 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 | Journey | Verified | Remaining gate / owner |
 | --- | --- | --- |
+| **Files discovery** | Authored ADK specialist and dedicated `/one/files` explorer exist. The launcher correction adds Files to the canonical `/one` roster and navigation catalog and removes its Hosting link; development-only visibility follows the authored manifest. | Frontend: exact-SHA deployment and live roster readback remain pending; discovery is not installed capability or consent. |
 | **Files setup** | Exact-plan approval, same-operation queue continuation, installed capability, encrypted keys and queue configuration. | Preserve the existing operation, bucket and selected hosting settings. |
 | **Files explorer and transfer** | Live 5 MiB interrupted/resumed upload, byte-exact download, folders, rename/move undo, trash/restore and same-session continuity; mobile/paginated move checks. | Files: mixed-work recheck; trash retention is not physical deletion. |
 | **Files Agent and jobs** | Explicit opt-in/exclusions, automatic organization of a new synthetic upload, authenticated queue completion, terminal cancellation and original-byte preservation on the installed image. Isolated malicious/unsupported-content tests. | Files: bounded overlapping work. Original analysis settings restored; synthetic creations trashed under retention. Failed and cancellation-only harness receipts stay separate. |
@@ -156,6 +157,11 @@ The completed recovery-plus-deadline candidate passed the local core mirror
 in 334 seconds, including the unchanged architecture ratchet. The first attempt
 stopped at duplicated test scaffolding; consolidation into the existing shared
 SSE helper cleared that finding without a baseline allowance or removed coverage.
+
+The Files launcher correction passes 44 focused roster, navigation, availability
+and Hosting checks, typecheck and independent boundary review. The completed
+combined candidate passes the local core mirror in 372 seconds. Documentation
+links and governance pass; live roster readback remains a deployment gate.
 
 A prior Puppy response took approximately 139 seconds, including 98 seconds of
 local generation and 37 seconds to first content. Recovery replay held 459

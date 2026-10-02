@@ -1,4 +1,4 @@
-import { FolderLock, Laptop, LayoutDashboard } from "@/components/icons";
+import { Laptop, LayoutDashboard } from "@/components/icons";
 
 import {
   ONE_CAPABILITIES,
@@ -84,6 +84,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     routeFamily: "one",
     bottomNavScope: "one",
     screenId: "one_marketplace",
+  },
+  files: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "one_files",
   },
   "connected-systems": {
     routeFamily: "one",
@@ -219,7 +224,6 @@ export function getAgentSections(): readonly AgentSection[] {
   } else {
     sections.push(RIA_WORKSPACE_SECTION);
   }
-  sections.push({ id: "files", label: "Files", href: ROUTES.ONE_FILES, icon: lucideCapabilityIcon(FolderLock), routeFamily: "one", bottomNavScope: "one", screenId: "one_files", controlId: "top_agent_section_files" });
   sections.push(PUPPY_WORKSPACE_SECTION);
   // One is the relationship-level app and the first destination in the
   // selector. Specialist apps follow it; the durable internal id stays

@@ -127,6 +127,7 @@ describe("owner hosting and software settings", () => {
 
     expect(screen.getByText("Your cloud")).toBeTruthy();
     expect(screen.getByText("owner-project · us-central1")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Files and storage/ })).toBeNull();
     expect(screen.getByText("Hussh Shared")).toBeTruthy();
     expect(screen.getByText("Hussh Pods")).toBeTruthy();
     expect(

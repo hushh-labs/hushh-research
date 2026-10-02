@@ -2,7 +2,8 @@
 
 **Dev status — 2026-10-02:** the personal owner completed exact Files setup and
 encrypted transfer. The qualified correction is published; live organization on
-that image remains unverified. Production and broad rollout remain gated. Read the
+that image also passed opt-in, exclusions, authenticated queue completion and
+cancellation with originals preserved. Production and broad rollout remain gated. Read the
 [readiness audit](../quality/adk-orchestration-docs-audit.md#files-led-acceptance)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
@@ -67,6 +68,12 @@ removal and recovery barriers through the existing erasure ledger; uncertain pro
 results remain unresolved. Never apply a bucket-wide cleanup rule to remove Files.
 
 ## Files Agent and background organization
+
+Files is a development-only agent in One's `/one` roster and shared navigation catalog;
+its dedicated `/one/files` explorer owns the library and analysis preferences.
+Hosting contains hosting controls, not a Files launcher or embedded explorer.
+Discovery does not establish installed capability or consent; the workspace
+checks the owner's admitted pod and Files setup before enabling library tools.
 
 `agent_files` is authored in the canonical product manifest and invoked by One in
 ADK task mode. System instructions own naming and folder decisions. Tools enforce

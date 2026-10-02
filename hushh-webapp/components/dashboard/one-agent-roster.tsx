@@ -283,6 +283,7 @@ const ROSTER_DISPLAY_ORDER: readonly string[] = [
   "ria",
   "wallet",
   "pkm",
+  "files",
   "consent",
 ];
 
@@ -543,8 +544,7 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
-        // own comment. Icons stay full color regardless of setup state.
+        // Icons stay full color regardless of setup state.
         isActive
         size="roster-lg"
         treatment="profile"
