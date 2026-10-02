@@ -843,3 +843,6 @@ tests/test_one_web_search_honesty.py
 # Azure lane image-source (2026-10-02): the importImage source credential, minted by
 # impersonating the dedicated image reader, never the hub's own token.
 tests/test_azure_image_source.py
+
+# Placement detach (2026-10-02): keep the host and data, free the slot.
+tests/test_personal_agent_placement_detach_postgres.py
