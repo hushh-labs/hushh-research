@@ -121,6 +121,10 @@ class ObjectStore(Protocol):
         (``ABSENT`` = must not exist). Returns the new version, or None on a lost race."""
         ...
 
+    async def delete(self, key: str) -> bool:
+        """True if removed, False if already absent; a refusal raises, never reads absent."""
+        ...
+
 
 # --- the shared key validator ---------------------------------------------------------
 
@@ -391,6 +395,16 @@ class LocalObjectStore:
             if generation != wanted:
                 return None
             return decimal_version(self._commit_pair(key, data, current, generation))
+
+    async def delete(self, key: str) -> bool:
+        with self._lock():
+            path = self._path(key)
+            existed = path.exists()
+            # Generation first: content without it reads as a legacy object, never tampered.
+            path.with_suffix(path.suffix + ".gen").unlink(missing_ok=True)
+            path.unlink(missing_ok=True)
+            self._sync_directory(path.parent)
+        return existed
 
 
 class GcsObjectStore:
@@ -685,6 +699,20 @@ class GcsObjectStore:
             raise RuntimeError("pod storage write unconfirmed")
         return decimal_version(self._generation(response.json()))
 
+    async def delete(self, key: str) -> bool:
+        quoted = urllib.parse.quote(self._key(key), safe="")
+        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
+        response = await asyncio.to_thread(
+            self._authorized,
+            lambda headers: self._session.delete(
+                url, headers=headers, timeout=60, allow_redirects=False
+            ),
+        )
+        status = getattr(response, "status_code", 0)
+        if status not in (204, 404):  # a refused delete (403) is never "already gone"
+            raise RuntimeError("pod storage delete unconfirmed")
+        return status == 204
+
 
 # --- the log --------------------------------------------------------------------------
 
@@ -813,6 +841,9 @@ class PodCommitLog:
 
     async def require_fenced(self, *, owner_id: str, attempt_id: str) -> None:
         """Verify an existing authenticated fence without exposing prior history."""
+        await self._verified_fence(owner_id=owner_id, attempt_id=attempt_id)
+
+    async def _verified_fence(self, *, owner_id: str, attempt_id: str) -> dict[str, Any]:
         if (
             not self._valid_identity(owner_id)
             or owner_id != self._owner_id
@@ -823,6 +854,22 @@ class PodCommitLog:
         fence = self._read_fence(raw) if raw is not None else None
         if fence is None or fence["attempt_id"] != attempt_id:
             raise PodLogFenced("log erasure fence does not match")
+        return fence
+
+    async def fenced_record_keys(self, *, owner_id: str, attempt_id: str) -> list[str]:
+        """Every chained record key behind this attempt's fence, chain-verified, for erasure."""
+        prior = (await self._verified_fence(owner_id=owner_id, attempt_id=attempt_id))["prior_head"]
+        keys = [prior["key"]] if prior else []
+        await replay_chain(
+            prior,
+            read_record=self._store.get,
+            unseal=self._unseal,
+            record_sha=_record_sha,
+            visit_reverse=lambda record: (
+                keys.append(record["prev_key"]) if record.get("prev_key") else None
+            ),
+        )
+        return keys
 
     async def fence_for_erasure(self, *, owner_id: str, attempt_id: str) -> None:
         """Close committed appends and ordinary replay on the existing head CAS.

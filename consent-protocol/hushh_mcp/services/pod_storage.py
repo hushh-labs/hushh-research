@@ -245,6 +245,15 @@ def resolve_pod_storage() -> PodStorage:
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")
 
 
+def resolve_pod_object_store() -> Any:
+    """The configured object store alone, with no key: what erasure reads once the key is gone."""
+    if (os.getenv(_BACKEND_ENV) or "").strip().lower() != BACKEND_COMMIT_LOG:
+        raise RuntimeError(
+            "this pod has no durable object store (storage backend is not commit_log)"
+        )
+    return _object_store()
+
+
 def _object_store() -> Any:
     """The one object store the rendered topology names: local, GCS or Azure Blob."""
     from hushh_mcp.services.pod_commit_log import GcsObjectStore, LocalObjectStore

@@ -381,3 +381,39 @@ def test_erasure_memory_binding_uses_separate_proof_and_exact_envelope(minted, m
         "https://pod-one.run.app",
         erasure_proof_audience(payload, purpose="memory-binding"),
     ]
+
+
+@pytest.mark.parametrize("tamper", [None, "attempt", "unconfirmed", "negative", "extra"])
+def test_crypto_erase_carries_its_own_proof_and_accepts_only_a_bound_receipt(minted, tamper):
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    payload = dict(
+        hushhId="ha1_owner",
+        attemptId="attempt-one",
+        service="ca-hussh-one-pod",
+        serviceUid="uid-one",
+        revision="ca-hussh-one-pod--r1",
+    )
+    reply = {"status": "erased", "erased": True, **payload, "deleted": 6}
+    reply.update(alreadyAbsent=3, records=3)
+    reply.update(
+        {
+            None: {},
+            "attempt": {"attemptId": "foreign"},
+            "unconfirmed": {"erased": False},
+            "negative": {"deleted": -1},
+            "extra": {"owner": "leaked"},
+        }[tamper]
+    )
+    session = _Recorder(body=reply)
+    pod = "https://ca-hussh-one-pod.happyfield.eastus2.azurecontainerapps.io"
+    if tamper is None:
+        acknowledged = transport.crypto_erase_for_erasure(
+            pod_url=pod, payload=payload, session=session
+        )
+        assert acknowledged == reply
+    else:
+        with pytest.raises(PodMigrationTransportError):
+            transport.crypto_erase_for_erasure(pod_url=pod, payload=payload, session=session)
+    assert session.calls[0]["url"] == f"{pod}/pod/migration/erasure/crypto-erase"
+    assert minted == [pod, erasure_proof_audience(payload, purpose="crypto-erase")]

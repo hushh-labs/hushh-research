@@ -91,6 +91,15 @@ class FakeBlobService:
         self.blobs[url] = (bytes(data), etag)
         return FakeResponse(201, headers={"ETag": etag})
 
+    def delete(self, url: str, *, headers: dict[str, str], **_kwargs: Any) -> FakeResponse:
+        self.requests.append(("delete", url, dict(headers)))
+        scripted = self._scripted("delete")
+        if scripted is not None:
+            return scripted
+        if self.blobs.pop(url, None) is None:
+            return _error(404, "BlobNotFound")
+        return FakeResponse(202)
+
 
 class FakeGcsService:
     """One bucket over the JSON API, plus the GCE metadata token endpoint."""
@@ -98,6 +107,7 @@ class FakeGcsService:
     def __init__(self) -> None:
         self.objects: dict[str, tuple[bytes, int]] = {}
         self.metadata_calls = 0
+        self.refuse_delete = False
         self._generation = 1_700_000_000_000_000
 
     def get(self, url: str, *, params=None, **_kwargs: Any) -> FakeResponse:
@@ -118,6 +128,12 @@ class FakeGcsService:
         self._generation += 1
         self.objects[name] = (bytes(data), self._generation)
         return FakeResponse(200, body={"generation": str(self._generation)})
+
+    def delete(self, url: str, **_kwargs: Any) -> FakeResponse:
+        if self.refuse_delete:
+            return FakeResponse(403)
+        name = urllib.parse.unquote(url.split("/o/", 1)[1])
+        return FakeResponse(204 if self.objects.pop(name, None) is not None else 404)
 
 
 class FakeKeyVault:
@@ -198,6 +214,9 @@ class RoutingSession:
 
     def post(self, url: str, **kwargs: Any) -> Any:
         return self._route(url).post(url, **kwargs)
+
+    def delete(self, url: str, **kwargs: Any) -> Any:
+        return self._route(url).delete(url, **kwargs)
 
 
 def azure_workload_env(monkeypatch) -> None:

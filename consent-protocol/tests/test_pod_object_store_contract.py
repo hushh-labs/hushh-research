@@ -78,6 +78,26 @@ async def test_compare_and_swap_succeeds_on_current_and_fails_on_stale(store):
     assert await store.get_with_generation("head.json") == (b"two", second)
 
 
+async def test_delete_removes_once_then_reports_already_gone(store):
+    await store.put_if_generation("keys/log-key.wrapped", b"sealed", ABSENT)
+    assert await store.delete("keys/log-key.wrapped") is True
+    assert await store.get_with_generation("keys/log-key.wrapped") == (None, ABSENT)
+    assert await store.delete("keys/log-key.wrapped") is False
+    with pytest.raises(ValueError):
+        await store.delete("../ha2/keys/log-key.wrapped")
+
+
+async def test_a_refused_gcs_delete_is_a_failure_never_already_gone():
+    gcs = FakeGcsService()
+    store = GcsObjectStore("pod-bucket", session=gcs)
+    await store.put_if_generation("head.json", b"x", ABSENT)
+    gcs.refuse_delete = True
+    with pytest.raises(RuntimeError, match="delete unconfirmed"):
+        await store.delete("head.json")
+    assert gcs.metadata_calls == 2  # re-minted once, then refused
+    assert "head.json" in gcs.objects
+
+
 async def test_integer_versions_of_the_retired_contract_are_refused(store):
     with pytest.raises((TypeError, ValueError)):
         await store.put_if_generation("head.json", b"x", 0)
@@ -127,17 +147,19 @@ async def test_blob_compare_and_swap_sends_the_etag_and_maps_412_to_a_lost_swap(
     assert await store.get_with_generation("head.json") == (b"b", second)
 
 
-@pytest.mark.parametrize("operation", ["read", "create", "swap"])
+@pytest.mark.parametrize("operation", ["read", "create", "swap", "delete"])
 async def test_a_refused_identity_is_never_absence_or_a_lost_race(operation):
     blob = FakeBlobService()
     store, tokens = _azure(blob)
     current = await store.put_if_generation("keys/log-key.wrapped", b"sealed", ABSENT)
-    method = "get" if operation == "read" else "put"
+    method = {"read": "get", "delete": "delete"}.get(operation, "put")
     refusal = _error(403, "AuthorizationPermissionMismatch")
     blob.scripted += [(method, refusal), (method, refusal)]
     with pytest.raises(PodBlobStorageForbidden):
         if operation == "read":
             await store.get_with_generation("keys/log-key.wrapped")
+        elif operation == "delete":
+            await store.delete("keys/log-key.wrapped")
         else:
             expected = ABSENT if operation == "create" else current
             await store.put_if_generation("keys/log-key.wrapped", b"other", expected)
@@ -153,12 +175,26 @@ async def test_an_expired_bearer_is_reminted_once_and_the_call_lands():
 
 
 @pytest.mark.parametrize("code", ["ContainerNotFound", "ResourceNotFound", ""])
-async def test_only_blob_not_found_is_absence(code):
+@pytest.mark.parametrize("method", ["get", "delete"])
+async def test_only_blob_not_found_is_absence(code, method):
     blob = FakeBlobService()
     store, _ = _azure(blob)
-    blob.scripted.append(("get", _error(404, code)))
+    blob.scripted.append((method, _error(404, code)))
     with pytest.raises(PodBlobStorageError):
-        await store.get_with_generation("head.json")
+        if method == "get":
+            await store.get_with_generation("head.json")
+        else:
+            await store.delete("head.json")
+
+
+async def test_blob_delete_removes_snapshots_with_the_base_blob():
+    blob = FakeBlobService()
+    store, _ = _azure(blob)
+    await store.put_if_generation("head.json", b"x", ABSENT)
+    assert await store.delete("head.json") is True
+    method, url, headers = blob.requests[-1]
+    assert (method, url) == ("delete", f"{CONTAINER_URL}/head.json")
+    assert headers["x-ms-delete-snapshots"] == "include"
 
 
 async def test_a_write_without_a_stated_etag_is_unconfirmed():

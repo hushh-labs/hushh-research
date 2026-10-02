@@ -99,6 +99,15 @@ def test_a_refused_or_failed_read_never_mints(status, code):
     assert all(method == "get" for method, _url, _headers in blob.requests)
 
 
+def test_an_erased_agent_never_mints_a_replacement_key():
+    """After a crypto-erase the key is absent by design; minting would resurrect it."""
+    blob, vault = FakeBlobService(), FakeKeyVault()
+    _store(blob).put_if_generation_blocking("erasure/crypto-erase.json", b"{}", ABSENT)
+    with pytest.raises(PodKeyVaultCustodyError, match="erased"):
+        _resolve(blob, vault)
+    assert WRAPPED not in blob.blobs and vault.calls == []
+
+
 def test_a_refused_unwrap_refuses_rather_than_replacing_the_key():
     blob, vault = FakeBlobService(), FakeKeyVault()
     _resolve(blob, vault)

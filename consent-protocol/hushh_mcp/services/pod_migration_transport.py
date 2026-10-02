@@ -217,6 +217,41 @@ def reconcile_memory_for_erasure(
     return result
 
 
+_ERASE_COUNTS = ("deleted", "alreadyAbsent", "records")
+
+
+def crypto_erase_for_erasure(
+    *, pod_url: str, payload: dict[str, Any], session: Any = None, token_minter: Any = None
+) -> dict[str, Any]:
+    """Ask the pod to destroy its own key and objects under the exact reserved attempt.
+
+    Its proof carries its own purpose, so no fence or memory proof can authorize it.
+    Only an acknowledgement bound to this attempt, with bare counts, is accepted.
+    """
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    result = _post(
+        pod_url,
+        "/pod/migration/erasure/crypto-erase",
+        payload["hushhId"],
+        payload,
+        timeout=180,
+        session=session,
+        minter=token_minter,
+        proof_audience=erasure_proof_audience(payload, purpose="crypto-erase"),
+    )
+    counts = {key: result.get(key) for key in _ERASE_COUNTS}
+    if {key: value for key, value in result.items() if key not in _ERASE_COUNTS} != {
+        "status": "erased",
+        "erased": True,
+        **payload,
+    } or not all(type(value) is int and value >= 0 for value in counts.values()):
+        raise PodMigrationTransportError(
+            "POD_RESPONSE_INVALID", "crypto-erase acknowledgement mismatch"
+        )
+    return result
+
+
 def export_from(
     *,
     pod_url: str,

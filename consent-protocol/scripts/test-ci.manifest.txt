@@ -830,3 +830,7 @@ tests/test_azure_setup_job.py
 tests/test_byoc_azure_routes.py
 tests/test_azure_agent_upgrade_handoff.py
 tests/test_azure_upgrade_admission.py
+# Azure lane lifecycle (2026-10-02): in-pod crypto-erase behind the erasure fence,
+# owner-access erasure through a typed capability, heal through the backend, and
+# read-only recovery of a crashed owner Azure upgrade.
+tests/test_pod_crypto_erase.py
