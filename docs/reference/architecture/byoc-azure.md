@@ -99,10 +99,16 @@ pinned by a golden vector in `consent-protocol/tests/test_pod_request_signing.py
   and nonce. Accepted window: 60 s back, 30 s ahead. Each (kid, nonce) is
   single-use (`pod_request_nonces`, dev-only migration 947).
 - An unknown kid only triggers the hub's own key pull, at most once per agent per
-  30 s and under a per-process cap. The first valid signature latches the agent's
-  registry entry (`identity_mode = signed`); afterwards a Google-only request from
-  it is refused. Until then a GCP agent keeps sending its Google ID token beside
-  the signature. Everything is behind the dev-only `POD_HUB_IDENTITY_AUTH_ENABLED`.
+  30 s and under a per-process cap that only a request which won its agent's slot
+  can spend. A signing key is valid only with the pod key it was published with:
+  any write that moves the pod key without a new signing key drops the old one in
+  the same statement (a trigger in migration 947), so rotating a compromised pod
+  key also revokes its signing authority. The first valid signature latches the
+  agent's registry entry (`identity_mode = signed`); afterwards a Google-only
+  request from it is refused, including while it waits for the hub to pull a
+  signing key for a new pod key. Until then a GCP agent keeps sending its Google
+  ID token beside the signature. Everything is behind the dev-only
+  `POD_HUB_IDENTITY_AUTH_ENABLED`.
 
 ## Agent environment contract (rendered by the hub, read by the agent)
 

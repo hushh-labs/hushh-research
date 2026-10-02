@@ -10,10 +10,12 @@ The order of checks is the security argument, so it is spelled out:
 3. **The key.** If the row's recorded ``pod_signing_key_id`` is the header's kid,
    the stored key verifies. Otherwise the request may only TRIGGER a hub-initiated
    pull -- throttled per row (about 30 s, a conditional write) and by a per-process
-   cap -- to the address the hub recorded when it created the pod, with the hub's
-   own credential. The request never carries key material. Then the row is re-read
-   and the comparison repeated. A kid that is still unknown is ``KEY_UNRESOLVED``,
-   which a caller may treat as "unsigned" for a row that has never signed.
+   cap that only a request which won its row's slot can spend, so hammering one
+   row never starves another -- to the address the hub recorded when it created
+   the pod, with the hub's own credential. The request never carries key
+   material. Then the row is re-read and the comparison repeated. A kid that is
+   still unknown is ``KEY_UNRESOLVED``, which a caller may treat as "unsigned"
+   for a row that has never signed.
 4. **The signature**, over the exact method, path, query and raw body.
 5. **The nonce**, consumed only after the signature verifies, so unauthenticated
    junk can never fill the replay table. A reused nonce is a replay: refused.
@@ -50,7 +52,8 @@ logger = logging.getLogger(__name__)
 #: One hub-initiated key pull per row per interval, however many requests ask.
 PULL_INTERVAL_MS = 30_000
 #: And at most this many pulls per window in one hub process, across all rows, so
-#: the hub can never be used to wake (and bill) a fleet of pods.
+#: the hub can never be used to wake (and bill) a fleet of pods. It counts pulls,
+#: never attempts: a request that loses its row's slot does not spend it.
 GLOBAL_PULL_CAP = 20
 GLOBAL_PULL_WINDOW_SECONDS = 60.0
 #: A nonce must outlive every moment its timestamp could still be accepted, with a
@@ -96,11 +99,21 @@ class PullCap:
         self._stamps: deque[float] = deque()
         self._lock = threading.Lock()
 
+    def _expire(self, now: float) -> None:
+        while self._stamps and now - self._stamps[0] >= self._window:
+            self._stamps.popleft()
+
+    def has_room(self) -> bool:
+        """Whether a pull would be allowed now. Spends nothing."""
+        with self._lock:
+            self._expire(time.monotonic())
+            return len(self._stamps) < self._limit
+
     def allow(self) -> bool:
+        """Spend one slot for a pull that is about to happen. False when full."""
         now = time.monotonic()
         with self._lock:
-            while self._stamps and now - self._stamps[0] >= self._window:
-                self._stamps.popleft()
+            self._expire(now)
             if len(self._stamps) >= self._limit:
                 return False
             self._stamps.append(now)
@@ -138,9 +151,15 @@ async def _read_row(registry: Any, hushh_id: str) -> Optional[dict]:
 async def _pull_then_reread(
     row: dict, *, registry: Any, store: Any, refresh: Refresh, cap: PullCap, now_ms: int
 ) -> Optional[dict]:
-    """Trigger at most one throttled hub-initiated pull, then re-read the row."""
+    """Trigger at most one throttled hub-initiated pull, then re-read the row.
+
+    The row's slot is claimed BEFORE the cap is spent, so a request that loses the
+    per-row throttle never touches the cap: junk aimed at one row buys at most one
+    cap slot per interval. A full cap is checked first without spending, so it does
+    not burn the row's 30 s stamp either.
+    """
     hushh_id = str(row.get("hushh_id") or "")
-    if not cap.allow():
+    if not cap.has_room():
         logger.warning("pod_request_auth.pull_capped")
         return None
     try:
@@ -151,6 +170,9 @@ async def _pull_then_reread(
         logger.info("pod_request_auth.pull_claim_failed %s", type(exc).__name__)
         return None
     if not claimed:
+        return None
+    if not cap.allow():  # filled by other rows between the check and the claim
+        logger.warning("pod_request_auth.pull_capped")
         return None
     try:
         await refresh(row)

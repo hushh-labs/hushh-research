@@ -313,6 +313,39 @@ async def test_the_global_pull_cap_holds_across_rows(hub, monkeypatch):
     assert pull.calls == [VICTIM]
 
 
+async def test_requests_that_lose_the_row_throttle_never_spend_the_cap(hub, monkeypatch):
+    """Junk kids aimed at one row buy one pull per interval and nothing more, so a
+    latched pod on another row whose key rotated on restart still gets its pull."""
+    verify, registry, _, pull = hub
+    cap = PullCap(limit=2)
+    monkeypatch.setattr("hushh_mcp.services.pod_request_verifier._DEFAULT_CAP", cap)
+    junk = Ed25519PrivateKey.from_private_bytes(bytes(range(2, 34)))
+    for _ in range(25):
+        assert await verify(_request(key=junk, hushh_id=VICTIM)) is None
+    assert pull.calls == [VICTIM]
+    assert cap.has_room(), "24 throttled requests spent nothing"
+
+    stale_public, stale_kid = _public(OTHER_KEY)  # latched, then it restarted with POD_KEY
+    registry.rows[OWNER].update(
+        identity_mode="signed", pod_signing_pubkey=stale_public, pod_signing_key_id=stale_kid
+    )
+    assert await verify(_request()) == prs.VerifiedPod(OWNER, key_id=_public(POD_KEY)[1])
+    assert pull.calls == [VICTIM, OWNER]
+    assert not cap.has_room()
+
+
+async def test_a_full_cap_does_not_burn_the_rows_pull_slot(hub, monkeypatch):
+    verify, registry, store, pull = hub
+    registry.rows["ha1_third"] = _row("ha1_third")
+    pull.real_keys["ha1_third"] = OTHER_KEY
+    monkeypatch.setattr("hushh_mcp.services.pod_request_verifier._DEFAULT_CAP", PullCap(limit=1))
+    await verify(_request(key=OTHER_KEY, hushh_id="ha1_third"))  # spends the only slot
+
+    assert await verify(_request(key=OTHER_KEY, hushh_id=VICTIM)) is None
+    assert VICTIM not in store.pull_stamps, "the row can still pull once the cap frees"
+    assert pull.calls == ["ha1_third"]
+
+
 # -- the transitional Google path ------------------------------------------------------
 
 
