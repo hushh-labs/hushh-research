@@ -238,7 +238,8 @@
     "264_pkm_packets.sql",
     "265_directory_listing_claims.sql",
     "266_pkm_packet_orders.sql",
-    "267_pkm_credits.sql"
+    "267_pkm_credits.sql",
+    "268_pkm_owner_payouts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -496,6 +497,7 @@
     "264_pkm_packets.sql": "rollback/264_pkm_packets.rollback.sql",
     "265_directory_listing_claims.sql": "rollback/265_directory_listing_claims.rollback.sql",
     "266_pkm_packet_orders.sql": "rollback/266_pkm_packet_orders.rollback.sql",
-    "267_pkm_credits.sql": "rollback/267_pkm_credits.rollback.sql"
+    "267_pkm_credits.sql": "rollback/267_pkm_credits.rollback.sql",
+    "268_pkm_owner_payouts.sql": "rollback/268_pkm_owner_payouts.rollback.sql"
   }
 }

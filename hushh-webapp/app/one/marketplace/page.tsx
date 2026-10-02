@@ -48,6 +48,7 @@ import {
 import { MarketplaceChatPanel } from "@/components/one-marketplace/marketplace-chat-panel";
 import { isPacketDeliveryPayload } from "@/lib/one-marketplace/packet-delivery";
 import { PacketsPanel, type PacketDetailOption } from "@/components/one-marketplace/packets-panel";
+import { PayoutsCard } from "@/components/one-marketplace/payouts-card";
 import {
   OneMarketplaceService,
   type AvailableListing,
@@ -1122,6 +1123,7 @@ function OneMarketplacePageImpl() {
           <div className="space-y-4">
               {bandControls}
               <PacketsPanel token={token} details={packetDetails} />
+              <PayoutsCard token={token} />
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
                   <Store className="mx-auto mb-2 h-6 w-6 opacity-60" aria-hidden />

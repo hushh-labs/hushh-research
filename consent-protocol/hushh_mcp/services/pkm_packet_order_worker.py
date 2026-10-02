@@ -22,13 +22,19 @@ class PkmPacketOrderWorker:
         if not os.getenv("STRIPE_SECRET_KEY") or not os.getenv("STRIPE_WEBHOOK_SECRET"):
             return {"outcomes": {"disabled": 1}}
         from hushh_mcp.services.pkm_credit_service import PkmCreditService
+        from hushh_mcp.services.pkm_payout_service import PkmPayoutService
 
         result = await (self.service or PkmPacketOrderService()).reconcile()
         cancelled = await PkmCreditService().cancel_deleted_subscriptions(max_jobs=max_jobs)
+        payouts = PkmPayoutService()
+        due = await payouts.mark_delivered_earnings_due()
+        transferred = await payouts.transfer_due(max_orders=max_jobs)
         return {
             "outcomes": {
                 "marked": result["markedRefundable"],
                 "refunded": result["refunded"],
                 "cancelled": cancelled,
+                "due": due,
+                "transferred": transferred,
             }
         }

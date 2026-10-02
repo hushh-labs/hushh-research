@@ -118,6 +118,13 @@ export interface PacketCatalogEntry {
   description: string;
 }
 
+/** Owner payout readiness and earnings (hussh pays owners via Stripe Connect). */
+export interface OwnerPayouts {
+  account: { detailsSubmitted: boolean; payoutsEnabled: boolean } | null;
+  earningsCents: { awaitingDelivery: number; due: number; paidOut: number };
+  currency: string;
+}
+
 export type PacketWrite = Partial<
   Pick<PkmPacket, "kind" | "title" | "description" | "contents" | "priceCents" | "creditCost" | "forSale">
 >;
@@ -374,6 +381,18 @@ export class OneMarketplaceService {
   static async deletePacket(params: { vaultOwnerToken: string; packetId: string }): Promise<void> {
     await apiJson(`/api/one/packets/${encodeURIComponent(params.packetId)}`, {
       method: "DELETE",
+      headers: authHeaders(params.vaultOwnerToken),
+    });
+  }
+
+  static async getPayouts(params: { vaultOwnerToken: string }): Promise<OwnerPayouts> {
+    return apiJson("/api/one/payouts", { headers: authHeaders(params.vaultOwnerToken) });
+  }
+
+  /** Stripe-hosted Express onboarding URL for the owner's payout account. */
+  static async startPayoutOnboarding(params: { vaultOwnerToken: string }): Promise<{ url: string }> {
+    return apiJson("/api/one/payouts/onboard", {
+      method: "POST",
       headers: authHeaders(params.vaultOwnerToken),
     });
   }

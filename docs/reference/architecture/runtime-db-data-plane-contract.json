@@ -679,7 +679,7 @@
       ],
       "primary_access_path": "hussh.ai White Pages buy flow: a signed-in buyer pays hussh for one packet through Stripe Checkout; the signed Stripe webhook marks the order paid and files an owner-approved marketplace access request; denied, expired or orphaned requests are refunded by the packet-order reconcile.",
       "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; snapshots the packet title and price paid.",
-      "deletion_behavior": "On account deletion, rows with no unsettled payment are deleted; paid, undelivered orders move to refund_pending, are refunded in full by the reconcile, and the row is then deleted.",
+      "deletion_behavior": "On account deletion, paid but undelivered orders move to refund_pending, are refunded in full by the reconcile, and the row is then deleted; all other rows (unpaid, settled, or delivered) are deleted, and an owner earning not yet transferred is forfeited.",
       "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_request"
@@ -714,6 +714,21 @@
       "trust_boundary": "Stripe subscription id and timestamp only; no user id.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "low_ttl_workflow"
+    },
+    {
+      "id": "pkm_owner_payout_accounts",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_owner_payout_accounts"
+      ],
+      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts.",
+      "retention_policy": "Retained while the owner keeps their account.",
+      "deletion_behavior": "Delete the row on account reset and deletion; the Stripe Express account itself is held by Stripe.",
+      "trust_boundary": "Stores the user reference, Stripe Connect account id and readiness flags only. Bank and identity details stay with Stripe.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "information_marketplace_delivery",
