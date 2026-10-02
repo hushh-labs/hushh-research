@@ -93,6 +93,10 @@ Browser abort now requests an authenticated stop bound to owner, pod incarnation
 originating app subject, device and request ID. An unconfirmed stop remains visible.
 Local tests cover a still-connected HTTP upstream, mismatched subjects and duplicate
 stops. A settled pod producer is not proof of device acknowledgement.
+An independent review accepted only the generated workflow catalog's 1408 → 1409
+line change for the exact serving predecessor. The original baseline revision,
+budgets and all other findings remain unchanged; the regression test lives in
+the existing service suite instead of growing the oversized component suite.
 
 
 ## Files-led acceptance

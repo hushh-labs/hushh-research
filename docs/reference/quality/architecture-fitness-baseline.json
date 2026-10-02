@@ -13028,7 +13028,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1408
+      "value": 1409
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18701,6 +18701,15 @@
     "adk_revision": "1b08a07ebe9314a4e67e3fac1a082a102c8a3d40",
     "date": "2026-10-01",
     "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+    "generated_catalog_compatibility": {
+      "date": "2026-10-02",
+      "generator": "hushh-webapp/scripts/voice/generate-one-location-workflow-card-catalog.mjs",
+      "predecessor_revision": "b70ee404bfa79ea8bd187d7e5fc809c851fed83d",
+      "previous_lines": 1408,
+      "reviewed_lines": 1409,
+      "source_revision": "1e0fca67dd09b70f5f704f2d5ad6f28086d5dd45",
+      "reason": "One generated compatibility entry preserves verified serving workflow semantics; handwritten budgets and findings are unchanged."
+    },
     "integrated_revision": "785019eb20f9e640e76a3185073488291e4cf9a1",
     "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f"
   },

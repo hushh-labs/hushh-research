@@ -6,10 +6,15 @@ import {
   type OneLocationDeviceInteractionPort,
   type OneLocationInteractionSurfacePort,
 } from "@/lib/services/one-location-onboarding-device-orchestrator";
-import type {
-  LocationOnboardingRunResultV1,
-  LocationRunProjectionV1,
+import {
+  isSupportedLocationGraphRevision,
+  type LocationOnboardingRunResultV1,
+  type LocationRunProjectionV1,
 } from "@/lib/services/one-location-onboarding-run-client";
+it("admits the serving pod's workflow revision and refuses an unknown revision", () => {
+  expect(isSupportedLocationGraphRevision("83966cd4fefe54f6")).toBe(true);
+  expect(isSupportedLocationGraphRevision("ffffffffffffffff")).toBe(false);
+});
 
 function run(
   overrides: Partial<LocationRunProjectionV1> = {},

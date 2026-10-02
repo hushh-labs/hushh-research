@@ -235,15 +235,6 @@ function Controls() {
   );
 }
 
-it("resumes an active serving-pod workflow while refusing an unknown graph revision", () => {
-  const value = projection("one.location.permission_offer.v2", 1);
-  value.run.graphRevision = "83966cd4fefe54f6";
-  expect(parseLocationOnboardingRunResult(value)).not.toBeNull();
-
-  value.run.graphRevision = "ffffffffffffffff";
-  expect(parseLocationOnboardingRunResult(value)).toBeNull();
-});
-
 it("preserves the server's microsecond expiry through parsing and private-save serialization", () => {
   const value = projection("one.location.awaiting_vault_finalize.v2", 6);
   const expiresAt = new Date(Date.now() + 60_000).toISOString().replace(/\.\d{3}Z$/, ".123456+00:00");
