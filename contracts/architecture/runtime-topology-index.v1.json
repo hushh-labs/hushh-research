@@ -6055,7 +6055,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
-    "agent_registry": "bea9524238229dbb97d560e78c2ffc8263f26115d9d0aa06640e4c670e323f84",
+    "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
     "cache_manifest": "0889819bf4d42919ea84318ccb92b53f978dd8db392f09ae06cea0b349ea6407",
     "data_plane": "f6f88bafa2c4261e89389edb0337a8dd3f69c7fb8d0bd5fbd01d06d0fd3d6165",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",

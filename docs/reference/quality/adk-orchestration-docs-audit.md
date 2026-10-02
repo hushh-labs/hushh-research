@@ -111,14 +111,18 @@ stops. A settled pod producer is not proof of device acknowledgement.
 ## Local correction evidence — 2026-10-02
 
 The bounded Files/Puppy corrections pass 94 focused backend and 32 frontend
-checks, typecheck, docs verification and the architecture ratchet. The required
-core mirror passed secret, governance and web-core. Protocol passed 8,523 tests
-but exposed a stale generated catalog and two exact route-wall expectations;
-the owning generator and reviewed `/turn/cancel` entry corrected both. The 33
-route-wall checks then passed, followed by MCP and the 94-check PKM integration
-lane. Original failures remain retained; full hosted CI passed at exact
-`b70ee404bfa7`. The deployed `.3` offer has no admitted predecessor. The `.4`
-qualification still requires its own exact-SHA CI and governed publication;
+checks, typecheck, docs verification and the architecture ratchet. Full hosted
+CI passed at exact `b70ee404bfa7`. The qualification's required core mirror
+passed secret, governance and web-core, then exposed four failures in restored
+coverage: an erasure fixture left Files fenced for subsequent tests, and two
+unauthored child model defaults made generated metadata depend on a local model
+override. The fixture now restores its process state; canonical agent metadata
+uses the existing fleet alias and regenerates consistently under 3.6 and 3.7.
+Protocol recheck passed 12,052 parallel and 149 serial tests, with 246 declared
+skips, followed by whole-suite import collection. MCP package verification and
+the 94-check PKM integration lane passed. Original failed receipts remain
+retained. The deployed `.3` offer has no admitted predecessor. The `.4`
+qualification still requires exact-SHA hosted CI and governed publication;
 no owner installation is implied.
 
 ## Next gate and board alignment

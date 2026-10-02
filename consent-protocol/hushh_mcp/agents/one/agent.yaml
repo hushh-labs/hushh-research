@@ -189,6 +189,10 @@ subagents:
   - id: one_intro
     name: one_intro
     description: One's informational, pre-vault private-agent surface.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
     runtime:
       kind: adk
       adk_mode: chat
@@ -218,6 +222,10 @@ subagents:
   - id: google_search
     name: google_search
     description: Search current public web information with Google grounding.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
     runtime:
       kind: adk
       adk_mode: task

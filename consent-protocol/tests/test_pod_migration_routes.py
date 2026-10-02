@@ -57,6 +57,11 @@ async def test_erasure_fence_requires_bound_attempt_and_running_incarnation(
 ):
     from hushh_mcp.services import scheduler_identity
     from hushh_mcp.services.pod_commit_log import PodLogFenced
+    from hushh_mcp.services.pod_files import runtime as files_runtime
+
+    # The successful erasure permanently fences its process. Restore that
+    # process state after this fixture instead of fencing subsequent tests.
+    monkeypatch.setattr(files_runtime, "_draining", False)
 
     payload = dict(
         hushhId="ha1_owner",

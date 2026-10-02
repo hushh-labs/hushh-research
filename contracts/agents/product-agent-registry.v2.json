@@ -3900,7 +3900,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-default",
             "provider": "gemini",
             "thinking_level": null
           },
@@ -3946,7 +3946,7 @@
           "model": {
             "credential_ref": null,
             "mode": "hushh_managed_vertex",
-            "name": "gemini-3.6-flash",
+            "name": "gemini-default",
             "provider": "gemini",
             "thinking_level": null
           },
