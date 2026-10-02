@@ -10,7 +10,9 @@ from deployment topology the hub already renders, or from what the platform sets
 * **voice** needs a Vertex model, so a pod with no Vertex project says so here and
   refuses before accepting a connection, rather than failing after it;
 * **Files background organization** needs Google Cloud Storage and its worker;
-* **Gmail push** alerts are delivered through Google Pub/Sub only.
+* **Gmail push** alerts are delivered through Google Pub/Sub only;
+* **web search** is Google Search grounding, which only a Gemini model has, so a pod
+  whose own model is the person's Azure OpenAI deployment reports it unavailable.
 """
 
 from __future__ import annotations
@@ -59,6 +61,26 @@ def _files_organization() -> dict[str, Any]:
     return _capability("")
 
 
+def web_search_capability() -> dict[str, Any]:
+    """Web search for this pod's OWN model, from the predicate One's head is built with.
+
+    Any rendered Azure model topology, complete or not, means the own model is the
+    person's Azure OpenAI deployment; every other pod's own model is Gemini (its Vertex,
+    or a Gemini key). A turn that brings its own key or a Puppy device is decided by its
+    head (``hushh_mcp/one_adk/web_search.py``), never by this report.
+    """
+    from hushh_mcp.one_adk.web_search import provider_supports_web_search  # noqa: PLC0415
+    from hushh_mcp.runtime_providers.azure_openai import (  # noqa: PLC0415
+        AZURE_OPENAI_PROVIDER,
+        azure_openai_configured,
+    )
+
+    own_provider = AZURE_OPENAI_PROVIDER if azure_openai_configured() else "gemini"
+    return _capability(
+        "" if provider_supports_web_search(own_provider) else "requires_gemini_model"
+    )
+
+
 def pod_capabilities() -> dict[str, Any]:
     from hushh_mcp.services.pod_memory_bank import memory_bank_config  # noqa: PLC0415
 
@@ -69,7 +91,14 @@ def pod_capabilities() -> dict[str, Any]:
         "voice": voice_capability(),
         "filesBackgroundOrganization": _files_organization(),
         "gmailPush": _capability("requires_google_pubsub" if platform == "azure" else ""),
+        "webSearch": web_search_capability(),
     }
 
 
-__all__ = ["pod_capabilities", "vertex_model_configured", "voice_available", "voice_capability"]
+__all__ = [
+    "pod_capabilities",
+    "vertex_model_configured",
+    "voice_available",
+    "voice_capability",
+    "web_search_capability",
+]

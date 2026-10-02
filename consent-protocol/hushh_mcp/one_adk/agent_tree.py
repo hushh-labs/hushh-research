@@ -8,7 +8,7 @@ Architecture (0->1 rebuild of One's orchestration):
 - Every product agent on the /one home grid is a subagent exposed to One as
   a callable tool (specialist turn functions delegating to the existing
   ``adk_bridge`` handlers, which own consent validation and business logic).
-- ``google_search`` gives One real web access for fresh public information.
+- ``google_search`` gives a Gemini head web access (``web_search.py``).
 - Session state carries the caller's identity/consent posture; tools read it
   from ``tool_context.state`` so the LLM never sees or supplies credentials.
 
@@ -35,7 +35,6 @@ from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.tools.google_search_tool import GoogleSearchTool
 from google.adk.tools.tool_context import ToolContext
 from google.genai import types as genai_types
 
@@ -148,6 +147,7 @@ from hushh_mcp.one_adk.specialist_availability import (
     specialist_label,
 )
 from hushh_mcp.one_adk.turn_location import get_my_location
+from hushh_mcp.one_adk.web_search import instruction_for_head, web_search_tools
 from hushh_mcp.one_adk.workspace_mcp_tools import (
     READ_WORKSPACE_TOOL,
     STATE_DRIVE_SEARCH_SELECTION,
@@ -2404,17 +2404,10 @@ def _one_roster_tools(
 
     # Full roster below.
     text_model = specialist_model or build_managed_regional_gemini_adk_model(_SPECIALIST_MODEL)
-    manifest = next(child for child in _ONE_MANIFEST.subagents if child.id == "google_search")
-    search_agent = LlmAgent(
-        name=manifest.name,
-        model=text_model,
-        description=manifest.description,
-        instruction=manifest.system_instruction,
-        tools=[GoogleSearchTool()],
-    )
     tools = [
         *memory_tools,
-        AgentTool(agent=search_agent, propagate_grounding_metadata=True),
+        # Empty for a head that cannot ground on Google Search (web_search.py).
+        *web_search_tools(text_model, manifest=_ONE_MANIFEST),
         open_screen,
         resolve_onboarding_goal,
         run_app_action,
@@ -2580,7 +2573,7 @@ def build_one_text_agent(
         name="one",
         model=text_model,
         description=_ONE_MANIFEST.description,
-        instruction=_one_runtime_instruction,
+        instruction=instruction_for_head(text_model, _one_runtime_instruction),
         tools=_one_roster_tools(
             specialist_model=text_model,
             allow_workspace_tools=allow_workspace_tools,

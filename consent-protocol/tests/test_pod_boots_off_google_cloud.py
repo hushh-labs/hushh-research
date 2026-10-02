@@ -75,12 +75,15 @@ def _azure(monkeypatch) -> None:
 
 def test_an_azure_pod_states_its_version_one_capabilities(monkeypatch):
     _azure(monkeypatch)
+    monkeypatch.setenv("AZURE_OPENAI_ENDPOINT", "https://owner-ai.openai.azure.com/")
+    monkeypatch.setenv("AZURE_OPENAI_DEPLOYMENT", "gpt-5-mini")
     assert pod_capabilities() == {
         "platform": "azure",
         "memoryRecall": {"source": "sealed_log"},
         "voice": {"available": False, "reason": "no_vertex_model"},
         "filesBackgroundOrganization": {"available": False, "reason": "files_disabled"},
         "gmailPush": {"available": False, "reason": "requires_google_pubsub"},
+        "webSearch": {"available": False, "reason": "requires_gemini_model"},
     }
 
 

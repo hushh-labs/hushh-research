@@ -159,6 +159,26 @@ import time (`api/routes/one/agent_chat.py` intro agent) and needs
 - Voice unavailable.
 - Gmail push alerts off (Gmail push only targets Google Pub/Sub).
 - Files background organization off.
+- Web search unavailable. One's web search is Google Search grounding, a Gemini
+  tool that ADK refuses for any other model. A head on the person's Azure OpenAI
+  deployment (or on Puppy) is built without it and, when a request needs the
+  web, says "Web search is not available on this setup yet." instead of
+  failing with a tool error. No other search provider stands in. The decision
+  is one predicate (`consent-protocol/hushh_mcp/one_adk/web_search.py`), read
+  by both the head and the capability report, so `/pod/info` reports
+  `webSearch: {available: false, reason: "requires_gemini_model"}` for a pod
+  whose own model is Azure OpenAI. A turn that brings its own Gemini key keeps
+  web search.
+
+Each item above is reported under `capabilities` on `/pod/info`, which the hub
+relays to the owner (`GET /api/one/u/{hushh_id}/info`).
+
+**Turn timeouts.** An Azure OpenAI head keeps Gemini's budgets (20 s to the
+first event, 30 s between events, 90 s per turn, and 30 s per specialist model
+call). Reasoning deployments may need more, but no Azure turn
+latency has been measured yet, so nothing changes until a measured series
+says it must. Puppy keeps its own measured budgets
+(`consent-protocol/tests/test_timeout_ladder.py`).
 
 ## Erasure, heal and update recovery, as implemented
 
