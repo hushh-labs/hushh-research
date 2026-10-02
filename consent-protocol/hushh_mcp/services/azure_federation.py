@@ -109,7 +109,7 @@ def token_claims(token: str) -> dict[str, Any]:
 def _session(session: Any) -> Any:
     if session is not None:
         return session
-    import requests  # noqa: PLC0415
+    import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
     return requests
 

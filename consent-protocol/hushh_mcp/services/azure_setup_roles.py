@@ -40,8 +40,11 @@ _NAMESPACE = uuid.UUID("6f0f3b7e-4d55-4b9f-9a35-0c3a9e1a7c21")
 
 
 class _Placement(Protocol):
-    subscription_id: str
-    resource_group: str
+    @property
+    def subscription_id(self) -> str: ...
+
+    @property
+    def resource_group(self) -> str: ...
 
 
 def deterministic_guid(*parts: str) -> str:

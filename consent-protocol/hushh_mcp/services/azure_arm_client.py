@@ -157,7 +157,7 @@ class ArmClient:
 
     def _http(self) -> Any:
         if self._session is None:
-            import requests  # noqa: PLC0415
+            import requests  # type: ignore[import-untyped]  # noqa: PLC0415
 
             self._session = requests.Session()
         return self._session

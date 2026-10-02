@@ -88,11 +88,12 @@ async def _registry_row(user_id: str) -> Optional[dict]:
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
     try:
-        return await PersonalAgentRegistryRepo().get(user_id)
+        row = await PersonalAgentRegistryRepo().get(user_id)
     except Exception as exc:  # noqa: BLE001 - an unreadable registry is not "no agent"
         raise _refuse(
             503, "POD_ASSIGNMENT_UNVERIFIED", "Cloud setup could not verify your agent record."
         ) from exc
+    return dict(row) if row else None
 
 
 async def _agent_record(user_id: str) -> dict:
@@ -137,12 +138,24 @@ async def _source_image() -> str:
     return f"{source.rsplit(':', 1)[0]}@{digest}"
 
 
-async def _authorization_url(user_id: str, **selection: str) -> str:
+async def _authorization_url(
+    user_id: str,
+    *,
+    kind: entra.AuthorizationKind,
+    subscription_id: str = "",
+    tenant_id: str = "",
+) -> str:
     """``entra.begin`` off the loop, every configuration refusal typed."""
     from hushh_mcp.services.azure_federation import AzureFederationError
 
     try:
-        return await asyncio.to_thread(entra.begin, user_id, **selection)
+        return await asyncio.to_thread(
+            entra.begin,
+            user_id,
+            kind=kind,
+            subscription_id=subscription_id,
+            tenant_id=tenant_id,
+        )
     except entra.AzureAuthorizeError as exc:
         raise _pass_through(exc) from exc
     except AzureFederationError as exc:

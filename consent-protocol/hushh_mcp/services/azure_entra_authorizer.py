@@ -162,7 +162,9 @@ def discover_tenant_for_subscription(subscription_id: str, *, session: Any = Non
     if not is_guid(subscription_id):
         raise AzureAuthorizeError("That is not an Azure subscription id", code="BAD_SUBSCRIPTION")
     if session is None:
-        import requests as session  # noqa: PLC0415
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        session = requests
     response = session.get(
         f"https://management.azure.com/subscriptions/{subscription_id}",
         params={"api-version": "2022-12-01"},

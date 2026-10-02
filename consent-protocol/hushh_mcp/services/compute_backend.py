@@ -11,7 +11,7 @@ contracts independent of provider adapters.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -56,7 +56,7 @@ def is_owner_cloud_target(target: object) -> bool:
     return str(target or "").strip() in OWNER_CLOUD_TARGETS
 
 
-def owner_cloud_coordinates_complete(target: object, coordinates: dict[str, object]) -> bool:
+def owner_cloud_coordinates_complete(target: object, coordinates: Mapping[str, object]) -> bool:
     """True when every coordinate ``target`` needs is present and non-blank.
 
     An unknown target has no declared coordinates and is never complete, so a new

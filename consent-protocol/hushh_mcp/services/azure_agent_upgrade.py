@@ -105,8 +105,8 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     target = image_reference(f"{names.registry}.azurecr.io", digest)
     previous = _image(app)
     if previous == target:
-        current = backend.verified_handle(spec.hushh_id, backend.observe_sync())
-        return _with_metadata(current, upgraded=False, source_image=spec.upgrade_target_image)
+        running = backend.verified_handle(spec.hushh_id, backend.observe_sync())
+        return _with_metadata(running, upgraded=False, source_image=spec.upgrade_target_image)
     handoff = _prepare_handoff(spec, app)
     try:
         step = import_image_step(scopes, registry, repository)

@@ -231,7 +231,9 @@ def run_agent_setup(
     result = applier.apply(plan_for(inputs), values=values, plan_for=plan_for)
     advance("proving")
     if http is None:
-        import requests as http  # noqa: PLC0415
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        http = requests
     plan = result.plan or plan_for(inputs)
     fqdn, app = prove(arm, plan, result.values, http=http, sleep=sleep)
     return AzureSetupResult(
