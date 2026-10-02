@@ -829,3 +829,4 @@ tests/test_azure_registry_migration.py
 tests/test_azure_setup_job.py
 tests/test_byoc_azure_routes.py
 tests/test_azure_agent_upgrade_handoff.py
+tests/test_azure_upgrade_admission.py

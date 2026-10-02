@@ -122,6 +122,10 @@ class PodSpec:
     prompt_version: Optional[str] = None
     # Recorded provider incarnation for an in-place upgrade; never inferred from a name.
     expected_service_uid: Optional[str] = None
+    # Recorded workload identity and image digest of an EXISTING pod, copied from the
+    # registry for adoption; a backend that can read both refuses a pod that differs.
+    expected_runtime_principal: Optional[str] = None
+    expected_image_digest: Optional[str] = None
     # Opaque binding to the existing registry upgrade reservation.
     upgrade_attempt_id: Optional[str] = None
     # Durable owner approval operation used by the pod lifecycle handoff.
@@ -262,6 +266,19 @@ class PodSpec:
             self.on_stage(stage)
         except Exception:  # noqa: BLE001 - a listener's bug is not the pod's problem
             pass
+
+
+def adoption_expectations(metadata: object) -> dict[str, Optional[str]]:
+    """What a registry row recorded about its pod, as the PodSpec fields adoption checks.
+
+    Copied, never inferred: a backend that can read a pod's workload identity and
+    image refuses to adopt one that differs. Malformed metadata records nothing.
+    """
+    recorded = metadata if isinstance(metadata, dict) else {}
+    return {
+        "expected_runtime_principal": str(recorded.get("runtime_principal_id") or "") or None,
+        "expected_image_digest": str(recorded.get("image_digest") or "") or None,
+    }
 
 
 @dataclass(frozen=True)
@@ -448,5 +465,7 @@ def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
         subscription_id=str(spec.user_cloud_subscription_id).strip(),
         resource_group=str(spec.user_cloud_resource_group).strip(),
         location=str(spec.user_cloud_region).strip(),
+        recorded_principal=spec.expected_runtime_principal or "",
+        recorded_digest=spec.expected_image_digest or "",
     )
     return azure

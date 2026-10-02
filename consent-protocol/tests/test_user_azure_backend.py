@@ -28,9 +28,11 @@ from hushh_mcp.services.azure_setup_plan import (
 from hushh_mcp.services.azure_setup_plan import POD_PRINCIPAL as POD_PRINCIPAL_SYMBOL
 from hushh_mcp.services.compute_backend import PodSpec
 from hushh_mcp.services.user_azure_backend import (
+    AGENT_UNREADABLE,
     GONE_ACCESS_REMOVED,
     GONE_ENVIRONMENT_DELETED,
     GONE_OWNER_DELETED_AGENT,
+    AzureAgentUnreadable,
     AzureJitAuthorizationRequired,
     UserAzureBackend,
     jit_person_authority,
@@ -80,7 +82,7 @@ def _spec(**overrides) -> PodSpec:
     )
 
 
-def _backend(arm: FakeArm) -> UserAzureBackend:
+def _backend(arm: FakeArm, **recorded: str) -> UserAzureBackend:
     return UserAzureBackend(
         tenant_id=_TENANT,
         subscription_id=_SUB,
@@ -88,6 +90,7 @@ def _backend(arm: FakeArm) -> UserAzureBackend:
         location="eastus2",
         observer=lambda: arm,
         person=lambda _token: arm,
+        **recorded,
     )
 
 
@@ -124,17 +127,46 @@ async def test_an_agent_without_this_persons_binding_is_refused(arm):
     assert await backend.discover(_HUSHH_ID) is None
 
 
-async def test_gone_is_typed_by_what_hussh_can_still_read(arm):
+async def test_gone_needs_a_404_on_the_agent_and_is_typed_by_what_hussh_can_read(arm):
     backend = _backend(arm)
     env = environment_id(_SUB, resource_group_name(_HUSHH_ID))
     arm.resources.pop(backend.app_id)
     assert await backend.gone_reason() == GONE_OWNER_DELETED_AGENT
+    assert (await backend.get(backend.app_id)).status == "gone"
     arm.resources.pop(env)
     assert await backend.gone_reason() == GONE_ENVIRONMENT_DELETED
-    arm.forbidden |= {backend.app_id, env}
+    arm.forbidden.add(env)
     assert await backend.gone_reason() == GONE_ACCESS_REMOVED
     status = await backend.get(backend.app_id)
     assert (status.status, status.healthy) == ("gone", False)
+    assert await backend.discover(_HUSHH_ID) is None
+
+
+async def test_a_refused_read_of_a_present_agent_is_never_gone(arm):
+    """Right after setup the agent-scope read can 403 while the agent runs."""
+    backend = _backend(arm)
+    arm.forbidden.add(backend.app_id)
+    assert backend.app_id in arm.resources
+    assert await backend.gone_reason() == AGENT_UNREADABLE
+    with pytest.raises(AzureAgentUnreadable):
+        await backend.get(backend.app_id)
+    for refused in (
+        backend.provision(_spec()),
+        backend.discover(_HUSHH_ID),
+        backend.restart(_spec()),
+        backend.erase_owner_access(_spec(), crypto_erase=_never_called),
+    ):
+        with pytest.raises(AzureAgentUnreadable):
+            await refused
+    arm.forbidden.add(environment_id(_SUB, resource_group_name(_HUSHH_ID)))
+    assert await backend.gone_reason() == GONE_ACCESS_REMOVED
+    with pytest.raises(AzureAgentUnreadable):
+        await backend.get(backend.app_id)
+    assert arm.writes() == []
+
+
+async def _never_called() -> dict:  # pragma: no cover - a refused erasure never reaches it
+    raise AssertionError("crypto-erase ran without an observed agent")
 
 
 async def test_get_reports_live_and_refuses_a_foreign_agent_id(arm):
@@ -146,13 +178,34 @@ async def test_get_reports_live_and_refuses_a_foreign_agent_id(arm):
         )
 
 
-async def test_discover_adopts_only_a_bound_digest_pinned_agent(arm):
+async def test_discover_adopts_only_a_bound_digest_pinned_agent(arm, monkeypatch):
+    monkeypatch.setenv("HUSSH_ONE_POD_IMAGE", f"{_SOURCE}@{_OLD}")
     backend = _backend(arm)
     adopted = await backend.discover(_HUSHH_ID)
     assert adopted is not None and adopted.backend_metadata["adopted"] is True
     container = arm.resources[backend.app_id]["properties"]["template"]["containers"][0]
     container["image"] = container["image"].split("@")[0] + ":latest"
     assert await backend.discover(_HUSHH_ID) is None
+
+
+async def test_discover_refuses_a_digest_hussh_never_approved(arm, monkeypatch):
+    monkeypatch.setenv("HUSSH_ONE_POD_IMAGE", f"{_SOURCE}@{_NEW}")
+    container = arm.resources[_backend(arm).app_id]["properties"]["template"]["containers"][0]
+    assert container["image"].endswith(f"@{_OLD}")
+    assert await _backend(arm).discover(_HUSHH_ID) is None
+    assert await _backend(arm, recorded_digest=_NEW).discover(_HUSHH_ID) is None
+    assert await _backend(arm, recorded_digest=_OLD).discover(_HUSHH_ID) is not None
+    monkeypatch.delenv("HUSSH_ONE_POD_IMAGE")
+    assert await _backend(arm).discover(_HUSHH_ID) is None
+
+
+async def test_discover_refuses_an_agent_whose_identity_is_not_the_recorded_one(arm):
+    stranger = "99999999-9999-9999-9999-999999999999"
+    recorded = {"recorded_digest": _OLD}
+    assert await _backend(arm, recorded_principal=stranger, **recorded).discover(_HUSHH_ID) is None
+    same = _backend(arm, recorded_principal=POD_PRINCIPAL, **recorded)
+    adopted = await same.discover(_HUSHH_ID)
+    assert adopted is not None and adopted.backend_metadata["runtime_principal_id"] == POD_PRINCIPAL
 
 
 async def test_restart_uses_only_the_observers_restart_action(arm):

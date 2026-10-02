@@ -11,16 +11,14 @@ AUTHORITY, PER OPERATION (byoc-azure.md trust matrix)
   signing key from.
 * ``restart`` (heal) uses the observer's ``revisions/restart/action``.
 * ``upgrade`` needs a just-in-time person token (approve + sign-in), supplied with
-  ``jit_person_authority``; without one it refuses.
+  ``jit_person_authority``; without one it refuses, and ``live`` is False, so the
+  orchestrator turns the call away before it claims an upgrade lease.
 * ``deprovision`` refuses: Hussh holds no delete authority in the subscription.
   ``erase_owner_access`` revokes access instead and returns a receipt.
 
-GONE IS TYPED. A missing agent is classified from what ARM still lets Hussh read:
-``owner_deleted_agent`` (the environment remains), ``environment_deleted`` (Azure's
-idle-environment policy, or the owner, removed the environment; storage and vault
-survive, so a JIT re-create adopts them), or ``access_removed`` (the owner removed
-Hussh's access or deleted the resource group). The registry-facing status stays
-``gone`` so the wake and reinit paths keep one vocabulary.
+GONE IS A CONFIRMED ABSENCE, never a refused read: ``azure_agent_observation``
+types what ARM lets Hussh read, and the registry-facing status for a confirmed
+absence stays ``gone`` so the wake and reinit paths keep one vocabulary.
 """
 
 from __future__ import annotations
@@ -29,10 +27,21 @@ import asyncio
 import logging
 from contextlib import contextmanager
 from contextvars import ContextVar
-from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable, Iterator, Optional
 
-from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
+from hushh_mcp.services.azure_agent_observation import (
+    AGENT_UNREADABLE,
+    GONE_ACCESS_REMOVED,
+    GONE_ENVIRONMENT_DELETED,
+    GONE_OWNER_DELETED_AGENT,
+    AzureAgentObservation,
+    AzureAgentUnreadable,
+    AzureJitAuthorizationRequired,
+    adoption_refusal,
+    approved_image_digests,
+    observe_agent,
+)
+from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_container_app_renderer import INCARNATION_TAG
 from hushh_mcp.services.azure_setup_plan import (
     NONCE_TAG,
@@ -53,17 +62,7 @@ from hushh_mcp.services.compute_backend import (
 
 logger = logging.getLogger(__name__)
 
-GONE_OWNER_DELETED_AGENT = "owner_deleted_agent"
-GONE_ENVIRONMENT_DELETED = "environment_deleted"
-GONE_ACCESS_REMOVED = "access_removed"
-
 _JIT_PERSON_TOKEN: ContextVar[str] = ContextVar("hussh_azure_jit_person_token", default="")
-
-
-class AzureJitAuthorizationRequired(RuntimeError):
-    """This operation needs the person's approval and a fresh Microsoft sign-in."""
-
-    code = "JIT_SIGN_IN_REQUIRED"
 
 
 @contextmanager
@@ -93,67 +92,15 @@ def current_jit_token() -> str:
     return token
 
 
-@dataclass(frozen=True)
-class AzureAgentObservation:
-    present: bool
-    gone_reason: str = ""
-    app: dict[str, Any] = field(default_factory=dict, repr=False)
+def _federation_configured() -> bool:
+    from hushh_mcp.services import azure_federation  # noqa: PLC0415
 
-    def _properties(self) -> dict[str, Any]:
-        return dict(self.app.get("properties") or {})
-
-    @property
-    def tags(self) -> dict[str, str]:
-        return dict(self.app.get("tags") or {})
-
-    @property
-    def fqdn(self) -> str:
-        ingress = (self._properties().get("configuration") or {}).get("ingress") or {}
-        return str(ingress.get("fqdn") or "")
-
-    @property
-    def ready(self) -> bool:
-        props = self._properties()
-        latest = str(props.get("latestRevisionName") or "")
-        return (
-            str(props.get("provisioningState") or "") == "Succeeded"
-            and bool(latest)
-            and latest == str(props.get("latestReadyRevisionName") or "")
-        )
-
-    @property
-    def image(self) -> str:
-        containers = ((self._properties().get("template") or {}).get("containers")) or [{}]
-        return str(containers[0].get("image") or "")
-
-    def principal(self, identity: str) -> tuple[str, str]:
-        identities = (self.app.get("identity") or {}).get("userAssignedIdentities") or {}
-        entry = identities.get(identity) or {}
-        return str(entry.get("principalId") or ""), str(entry.get("clientId") or "")
-
-
-def _read_or_forbidden(arm: ArmClient, path: str) -> tuple[Optional[dict], bool]:
-    """(resource or None, forbidden). Any refusal other than 403 propagates."""
     try:
-        return arm.get_or_none(
-            path, api_version=API_VERSIONS["container_apps"], op="observe"
-        ), False
-    except ArmError as exc:
-        if exc.kind != "forbidden":
-            raise
-        return None, True
-
-
-def observe_agent(arm: ArmClient, app_path: str, environment_path: str) -> AzureAgentObservation:
-    """Present, or gone with the reason ARM still lets Hussh read."""
-    app, _ = _read_or_forbidden(arm, app_path)
-    if app is not None:
-        return AzureAgentObservation(present=True, app=app)
-    environment, forbidden = _read_or_forbidden(arm, environment_path)
-    if forbidden:
-        return AzureAgentObservation(present=False, gone_reason=GONE_ACCESS_REMOVED)
-    reason = GONE_OWNER_DELETED_AGENT if environment is not None else GONE_ENVIRONMENT_DELETED
-    return AzureAgentObservation(present=False, gone_reason=reason)
+        azure_federation.app_client_id()
+        azure_federation.broker_service_account()
+    except azure_federation.AzureFederationError:
+        return False
+    return True
 
 
 def verified_handle(
@@ -215,6 +162,8 @@ class UserAzureBackend:
         location: str,
         observer: Optional[Callable[[], ArmClient]] = None,
         person: Optional[Callable[[str], ArmClient]] = None,
+        recorded_principal: str = "",
+        recorded_digest: str = "",
     ) -> None:
         self._tenant = tenant_id
         self._subscription = subscription_id
@@ -222,20 +171,26 @@ class UserAzureBackend:
         self._location = location
         self._observer_factory = observer
         self._person_factory = person or (lambda token: ArmClient(token))
+        # What the registry recorded for this person's agent; adoption must match it.
+        self._recorded_principal = recorded_principal.strip()
+        self._recorded_digest = recorded_digest.strip()
 
     # -- identity and addressing ---------------------------------------------------
 
     @property
     def live(self) -> bool:
-        """Reads and restarts are live once the federated app is configured."""
-        from hushh_mcp.services import azure_federation  # noqa: PLC0415
+        """Whether THIS call may change the agent: only under the person's JIT sign-in.
 
-        try:
-            azure_federation.app_client_id()
-            azure_federation.broker_service_account()
-        except azure_federation.AzureFederationError:
-            return self._observer_factory is not None
-        return True
+        The orchestrator reads ``live`` before it claims an upgrade lease and refuses a
+        backend that is not, so a call without the person's token (the upgrade sweep,
+        an operator script) is turned away before anything durable is written. True on
+        federation alone let the sweep claim the lease, fail on the missing token and
+        keep the lease, which nothing on Azure can resolve. Reads and restarts never
+        consult ``live``.
+        """
+        if not _JIT_PERSON_TOKEN.get():
+            return False
+        return self._observer_factory is not None or _federation_configured()
 
     @property
     def app_id(self) -> str:
@@ -309,10 +264,7 @@ class UserAzureBackend:
         """Attach to the agent the person's setup created; never create one here."""
         observation = await self.observe()
         if not observation.present:
-            raise AzureJitAuthorizationRequired(
-                f"no agent to attach in the person's subscription ({observation.gone_reason}); "
-                "re-creating it needs their Microsoft sign-in"
-            )
+            raise observation.refusal("attach")
         handle = self.verified_handle(spec.hushh_id, observation)
         spec.emit_stage("host_created")
         if spec.provision_attempt_id and spec.on_provision_ack is not None:
@@ -333,18 +285,28 @@ class UserAzureBackend:
         return handle
 
     async def discover(self, hushh_id: str) -> Optional[BackendHandle]:
-        """Adopt only an agent bound to this person, with its identity, pinned by digest."""
-        from hushh_mcp.services.pod_release import is_immutable_image_reference  # noqa: PLC0415
+        """Adopt only this person's bound agent, on its recorded identity and an approved digest.
 
+        The pod then proves its key (the orchestrator's key pull) before anything is
+        granted. An unreadable agent raises rather than reading as nothing to adopt.
+        """
         observation = await self.observe()
         if not observation.present:
-            return None
+            if observation.absence_confirmed:
+                return None
+            raise observation.refusal("adopt")
         try:
             handle = self.verified_handle(hushh_id, observation)
         except RuntimeError:
             logger.warning("user_azure_backend.discover_foreign group=%s", self._group)
             return None
-        if not is_immutable_image_reference(observation.image):
+        refused = adoption_refusal(
+            handle.backend_metadata or {},
+            recorded_principal=self._recorded_principal,
+            recorded_digest=self._recorded_digest,
+        )
+        if refused:
+            logger.warning("user_azure_backend.discover_refused reason=%s", refused)
             return None
         metadata = {**(handle.backend_metadata or {}), "adopted": True}
         return BackendHandle(
@@ -356,10 +318,13 @@ class UserAzureBackend:
         )
 
     async def get(self, external_agent_id: str) -> BackendStatus:
+        """``gone`` only on a confirmed absence; an unreadable agent raises."""
         if external_agent_id and external_agent_id != self.app_id:
             raise ValueError("this agent id does not belong to the recorded subscription")
         observation = await self.observe()
         if not observation.present:
+            if not observation.absence_confirmed:
+                raise observation.refusal("observe")
             return BackendStatus(external_agent_id=self.app_id, status="gone", healthy=False)
         return BackendStatus(
             external_agent_id=self.app_id,
@@ -368,7 +333,7 @@ class UserAzureBackend:
         )
 
     async def gone_reason(self) -> str:
-        """Why the agent is gone, or "" when it is present."""
+        """Why the agent is not present, or "" when it is. For display only."""
         return (await self.observe()).gone_reason
 
     async def restart(self, spec: PodSpec) -> dict[str, Any]:
@@ -377,9 +342,7 @@ class UserAzureBackend:
         def _restart() -> dict[str, Any]:
             observation = self.observe_sync()
             if not observation.present:
-                raise AzureJitAuthorizationRequired(
-                    f"no agent to restart ({observation.gone_reason})"
-                )
+                raise observation.refusal("restart")
             self.verified_handle(spec.hushh_id, observation)
             revision = str(
                 (observation.app.get("properties") or {}).get("latestRevisionName") or ""
@@ -407,7 +370,7 @@ class UserAzureBackend:
 
         observation = await self.observe()
         if not observation.present:
-            raise AzureJitAuthorizationRequired(f"no agent to erase ({observation.gone_reason})")
+            raise observation.refusal("erase")
         handle = self.verified_handle(spec.hushh_id, observation)
         nonce = str((handle.backend_metadata or {}).get("setupNonce") or "")
 
@@ -437,12 +400,16 @@ class UserAzureBackend:
 
 
 __all__ = [
+    "AGENT_UNREADABLE",
     "GONE_ACCESS_REMOVED",
     "GONE_ENVIRONMENT_DELETED",
     "GONE_OWNER_DELETED_AGENT",
     "AzureAgentObservation",
+    "AzureAgentUnreadable",
     "AzureJitAuthorizationRequired",
     "UserAzureBackend",
+    "adoption_refusal",
+    "approved_image_digests",
     "current_jit_token",
     "jit_person_authority",
     "observe_agent",

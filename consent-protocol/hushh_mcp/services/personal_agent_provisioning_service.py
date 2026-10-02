@@ -68,6 +68,7 @@ from hushh_mcp.services.compute_backend import (
     NullBackend,
     PodBootFailedError,
     PodSpec,
+    adoption_expectations,
 )
 from hushh_mcp.services.personal_agent_grant_service import (
     PersonalAgentDisabledError,
@@ -2340,6 +2341,7 @@ class PersonalAgentProvisioningService:
             billing_space_id=(row or {}).get("billing_space_id"),
             pod_pubkey="",
             deployment_target=cloud.deployment_target,
+            **adoption_expectations(row.get("backend_metadata")),
             **spec_coordinates(cloud),
         )
         backend = self._backend_for(spec)
