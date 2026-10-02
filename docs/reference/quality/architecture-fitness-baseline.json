@@ -13028,7 +13028,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts",
       "symbol": null,
-      "value": 1409
+      "value": 1410
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18711,7 +18711,15 @@
       "reason": "One generated compatibility entry preserves verified serving workflow semantics; handwritten budgets and findings are unchanged."
     },
     "integrated_revision": "785019eb20f9e640e76a3185073488291e4cf9a1",
-    "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f"
+    "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f",
+    "live_dev_workflow_compatibility": {
+      "date": "2026-10-02",
+      "source_revision": "b28b953d0e20a54007edbb05e84b21250632b2aa",
+      "predecessor_revision": "684a44768f32c226a7d65f9167553116643b2229",
+      "previous_lines": 1409,
+      "reviewed_lines": 1410,
+      "reason": "Independent review verified one exact serving workflow predecessor across eight unchanged workflow digests. No handwritten budget, other finding or authority policy changed."
+    }
   },
   "status": "advisory"
 }

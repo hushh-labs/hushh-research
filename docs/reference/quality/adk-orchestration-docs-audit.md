@@ -119,9 +119,12 @@ MCP package checks and the 94-check PKM lane. Original failures are retained.
 Exact-SHA hosted CI subsequently passed at `deab16040b8a` and `684a44768f32`.
 
 The fitness baseline remains bound to `785019eb2`, with budgets 500/250/80 and
-all existing findings retained. Only the reviewed generated workflow catalog's
-1408 → 1409 line change was accepted. The exact image ancestor's graph revision
-is admitted only after generated checks prove unchanged workflow semantics.
+all existing findings retained. The generated catalog's reviewed 1408 → 1409
+change preserved the exact pod image ancestor. A further 1409 → 1410 entry
+preserves the serving dev workflow revision `9c1f8b9bcf9e2d4b` across deployment.
+Independent review and the owning generator verified all eight workflow digests,
+actions and refusal policies unchanged; the pod's `83966cd4fefe54f6` remains
+compatible. Only that generated finding's measured value changed.
 The Puppy stop uses the existing producer and authority, not a second turn ledger;
 a stopped pod producer alone does not prove device acknowledgement.
 
@@ -147,8 +150,10 @@ uses the operation ID for existing database deduplication. Failed, unchanged
 and lost-publication outcomes do not emit. Feed remains a best-effort projection;
 status has no new writes and installation authority is unchanged. Focused
 backend (59) and frontend (27) checks pass. The same-image negative control fails
-on the original default-true behavior. Combined core and hosted qualification
-remain pending. The fitness ratchet passes with the original baseline unchanged.
+on the original default-true behavior. Combined core passed in 292 seconds at
+`b28b953d0`; the sole subsequent contract delta received the owning generator,
+runtime-contract and fitness gates. Hosted exact-revision qualification remains
+pending. No handwritten fitness allowance was widened.
 
 On the updated image, one Puppy follow-up took about 139 seconds end to end,
 including roughly 98 seconds of local-model generation and 37 seconds to first

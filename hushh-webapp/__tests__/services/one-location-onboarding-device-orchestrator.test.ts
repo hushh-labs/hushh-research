@@ -11,8 +11,9 @@ import {
   type LocationOnboardingRunResultV1,
   type LocationRunProjectionV1,
 } from "@/lib/services/one-location-onboarding-run-client";
-it("admits the serving pod's workflow revision and refuses an unknown revision", () => {
+it("admits serving pod and dev workflow revisions and refuses an unknown revision", () => {
   expect(isSupportedLocationGraphRevision("83966cd4fefe54f6")).toBe(true);
+  expect(isSupportedLocationGraphRevision("9c1f8b9bcf9e2d4b")).toBe(true);
   expect(isSupportedLocationGraphRevision("ffffffffffffffff")).toBe(false);
 });
 
