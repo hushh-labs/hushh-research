@@ -135,6 +135,9 @@ async def heal_pod(row: dict, *, client: Any = None, registry: Any = None) -> bo
     if not name:
         logger.warning("pod_liveness.heal_skipped reason=no_external_agent_id")
         return False
+    restartable = _restartable_backend(row) if client is None else None
+    if restartable is not None:
+        return await _restart_through_backend(row, *restartable)
 
     run_client = client
     if run_client is None:
@@ -199,6 +202,60 @@ async def heal_pod(row: dict, *, client: Any = None, registry: Any = None) -> bo
         logger.warning("pod_liveness.key_refresh_failed service=%s %s", name, type(exc).__name__)
 
     logger.warning("pod_liveness.healed service=%s", name)
+    return True
+
+
+def _restartable_backend(row: dict) -> Optional[tuple[Any, Any]]:
+    """(backend, spec) when the row's owner-cloud backend restarts on standing authority.
+
+    Typed capability, never a provider id: a backend that declares
+    ``RestartableBackend`` heals through its own credential (on an owner Azure
+    subscription, the observer's ``revisions/restart/action``), never the hub's
+    Cloud Run client. Anything else, including any row whose backend cannot be
+    resolved, keeps the existing path unchanged.
+    """
+    from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
+        PodSpec,
+        RestartableBackend,
+        adoption_expectations,
+        is_owner_cloud_target,
+        resolve_compute_backend_for_spec,
+    )
+    from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row  # noqa: PLC0415
+
+    if not is_owner_cloud_target(row.get("deployment_target")) or not row.get("hushh_id"):
+        return None
+    metadata = row.get("backend_metadata") if isinstance(row.get("backend_metadata"), dict) else {}
+    spec = PodSpec(
+        hushh_id=str(row["hushh_id"]),
+        phone_e164_hash=str(row.get("phone_e164_hash") or ""),
+        pod_pubkey=str(row.get("pod_pubkey") or ""),
+        expected_service_uid=metadata.get("serviceUid"),
+        deployment_target=row.get("deployment_target"),
+        **spec_coordinates_from_row(row),
+        **adoption_expectations(metadata),
+    )
+    try:
+        backend = resolve_compute_backend_for_spec(spec)
+    except Exception:  # noqa: BLE001 - see docstring: the existing path decides
+        return None
+    return (backend, spec) if isinstance(backend, RestartableBackend) else None
+
+
+async def _restart_through_backend(row: dict, backend: Any, spec: Any) -> bool:
+    """Restart in place through the backend, then re-pull the key, as the GCP heal does."""
+    try:
+        await backend.restart(spec)
+    except Exception as exc:  # noqa: BLE001 - a failed heal is reported, never raised
+        logger.warning("pod_liveness.heal_failed path=backend %s", type(exc).__name__)
+        return False
+    try:
+        from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415
+
+        await refresh_pod_key(row)
+    except Exception as exc:  # noqa: BLE001 - the restart itself succeeded
+        logger.warning("pod_liveness.key_refresh_failed path=backend %s", type(exc).__name__)
+    logger.warning("pod_liveness.healed path=backend")
     return True
 
 
