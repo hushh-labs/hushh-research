@@ -1,3 +1,4 @@
+import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
@@ -380,67 +381,7 @@ export class AgentChatStreamLostError extends Error {
   }
 }
 
-/**
- * How long a turn's stream may be silent before the turn is treated as lost.
- * The server writes a `: ping` comment every 15 s while a model or tool call is
- * pending (sse-starlette's keep-alive), so this is six missed pings. It is keyed
- * on bytes, never on content: a slow model is not a dead connection.
- */
-export const AGENT_CHAT_STREAM_IDLE_MS = 90_000;
-const AGENT_CHAT_STREAM_WATCHDOG_TICK_MS = 5_000;
-
-/**
- * Byte-level liveness for One's AG-UI stream. The serving instance can be
- * killed, redeployed or scaled down mid-turn; the stream then either stops
- * sending or closes without RUN_FINISHED / RUN_ERROR, and `@ag-ui/client`
- * completes such a run quietly. `fetch` is the HttpAgent transport with every
- * body chunk noted; `start` arms the silence watchdog for one run.
- */
-function createAgentStreamLiveness(
-  onSilent: () => void,
-  onBytes: () => void = () => undefined,
-  transport: (init: RequestInit | undefined) => Promise<Response> = (init) => nativeStreamFetch("/api/one/agent-chat", init),
-) {
-  let lastBytesAtMs = Date.now();
-  let timer: ReturnType<typeof setInterval> | null = null;
-  const touch = () => {
-    lastBytesAtMs = Date.now();
-  };
-  const stop = () => {
-    if (timer !== null) clearInterval(timer);
-    timer = null;
-  };
-  return {
-    fetch: async (init: RequestInit | undefined): Promise<Response> => {
-      const response = await transport(init);
-      touch();
-      onBytes();
-      if (!response.ok || !response.body) return response;
-      const body = response.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-        transform(chunk, controller) {
-          touch();
-          onBytes();
-          controller.enqueue(chunk);
-        },
-      }));
-      return new Response(body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    },
-    start: () => {
-      stop();
-      touch();
-      timer = setInterval(() => {
-        if (Date.now() - lastBytesAtMs < AGENT_CHAT_STREAM_IDLE_MS) return;
-        stop();
-        onSilent();
-      }, AGENT_CHAT_STREAM_WATCHDOG_TICK_MS);
-    },
-    stop,
-  };
-}
+export { AGENT_CHAT_STREAM_IDLE_MS } from "./agent-chat-liveness";
 
 type ParkedAppActionDirective = {
   actionId: string;
@@ -1268,19 +1209,19 @@ export async function streamAgentChat(input: {
     throw error;
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
-  const liveness = createAgentStreamLiveness(() => {
-    loseStream();
-    agent.abortRun();
-  }, () => handlers.onStreamHealth?.({ kind: "bytes" }),
-  (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
-    (hushhId) => {
-      if (!mcpSessionCurrent()) return;
-      lastPodConversation = {
-        hushhId, conversationId: threadId, runtimeCredential: null,
-        runtimeCredentialTransport: null, runtimeProvider: null, puppyDeviceId: null,
-        vertexProject: null, vertexLocation: null,
-      };
-    }));
+  const liveness = createAgentStreamLiveness(
+    (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
+      (hushhId) => {
+        if (!mcpSessionCurrent()) return;
+        lastPodConversation = {
+          hushhId, conversationId: threadId, runtimeCredential: null,
+          runtimeCredentialTransport: null, runtimeProvider: null, puppyDeviceId: null,
+          vertexProject: null, vertexLocation: null,
+        };
+      }),
+    () => { loseStream(); agent.abortRun(); },
+    () => handlers.onStreamHealth?.({ kind: "bytes" }),
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -1328,7 +1269,10 @@ export async function streamAgentChat(input: {
     handlers.onError?.(failure.message);
     finishTerminalRun();
   };
-  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0]) => {
+  const runUntilTerminal = async (parameters: Parameters<HttpAgent["runAgent"]>[0], resumeSignal?: AbortSignal) => {
+    if (input.signal?.aborted || resumeSignal?.aborted) {
+      throw new DOMException("Agent turn cancelled", "AbortError");
+    }
     runTerminal = false;
     streamLost = false;
     liveness.start();
@@ -1348,6 +1292,7 @@ export async function streamAgentChat(input: {
     // the action or append a second answer while the owner is deciding.
     handlers.onInterrupt?.({ conversationId: threadId });
     finishTerminalRun();
+    liveness.stop();
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
@@ -1838,7 +1783,7 @@ export async function streamAgentChat(input: {
               )) throw new Error("This confirmation does not match the connector review.");
               // A lost acknowledgement must not cause an automatic second mutation.
               attempted = true;
-              const abortResume = () => agent.abortRun();
+              const abortResume = () => { liveness.stop(); agent.abortRun(); };
               input.signal?.addEventListener("abort", abortResume, { once: true });
               signal?.addEventListener("abort", abortResume, { once: true });
               try {
@@ -1859,7 +1804,7 @@ export async function streamAgentChat(input: {
                     } } : {}),
                   },
                   resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
-                });
+                }, signal);
                 if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
                 if (failure) throw failure;
               } finally {
@@ -1900,7 +1845,7 @@ export async function streamAgentChat(input: {
       // Our own abort of a detached stream is not a failure of the turn, which
       // is still running server-side. A stream this client already gave up on
       // was reported once; its abort must not replace that with a second error.
-      if (intentionallyStoppedAtConfirmation || detached || streamLost) {
+      if (intentionallyStoppedAtConfirmation || detached || streamLost || input.signal?.aborted) {
         finishTerminalRun();
         return;
       }
@@ -1922,6 +1867,7 @@ export async function streamAgentChat(input: {
     // A detach reason means the caller stopped reading (it left the chat); the
     // server keeps the turn. Any other abort is the caller cancelling.
     if (input.signal?.reason === AGENT_TURN_DETACH_REASON) detached = true;
+    liveness.stop();
     agent.abortRun();
     finishTerminalRun();
   };
@@ -1931,6 +1877,7 @@ export async function streamAgentChat(input: {
     conversationId: threadId,
     detach: () => {
       detached = true;
+      liveness.stop();
       agent.abortRun();
       finishTerminalRun();
     },
@@ -2004,10 +1951,10 @@ export async function streamAgentIntro(input: {
     failure = new Error(AGENT_CHAT_STREAM_LOST_ERROR);
     handlers.onError?.(failure.message);
   };
-  const liveness = createAgentStreamLiveness(() => {
-    loseStream();
-    agent.abortRun();
-  });
+  const liveness = createAgentStreamLiveness(
+    (init) => nativeStreamFetch("/api/one/agent-chat", init),
+    () => { loseStream(); agent.abortRun(); },
+  );
   const agent = new HttpAgent({
     url: "/api/one/agent-chat",
     threadId,
@@ -2042,7 +1989,8 @@ export async function streamAgentIntro(input: {
       handlers.onError?.(failure.message);
     },
   };
-  const abort = () => agent.abortRun();
+  const abort = () => { liveness.stop(); agent.abortRun(); };
+  if (input.signal?.aborted) throw new DOMException("Agent turn cancelled", "AbortError");
   input.signal?.addEventListener("abort", abort, { once: true });
   liveness.start();
   try {

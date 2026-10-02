@@ -11,6 +11,11 @@ export async function ownerPodRequest(
   ports: AccessPorts,
   expectedHushhId?: string,
 ): Promise<Response> {
+  const refuseCancelled = () => {
+    if (init.signal?.aborted)
+      throw init.signal.reason ?? new DOMException("Agent request cancelled", "AbortError");
+  };
+  refuseCancelled();
   const route = path.split("?")[0] ?? "";
   const allowed = new Set([
     "files/list",
@@ -42,6 +47,9 @@ export async function ownerPodRequest(
   if (!endpoint)
     endpoint = await ownerPod.refreshEndpointFromHub(uid, transport);
   const connection = await ownerPod.currentPodConnection(uid, transport);
+  // Admission is shared with other tabs. A cancelled caller must not dispatch
+  // grants or private work when that independently owned admission finishes.
+  refuseCancelled();
   endpoint = connection.endpoint;
   if (expectedHushhId && endpoint.hushhId !== expectedHushhId)
     throw new Error("POD_DIRECT_OWNER_MISMATCH");
@@ -62,6 +70,7 @@ export async function ownerPodRequest(
     };
     body = JSON.stringify(turn);
   }
+  refuseCancelled();
   const response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
     ...init,
     credentials: "omit",

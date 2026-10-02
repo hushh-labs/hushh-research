@@ -37,6 +37,10 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
 - In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+- Agent Chat's 90-second byte-idle watchdog begins after response headers and a
+  stream body arrive. Cold pod admission retains its separate HTTP deadline;
+  admission is not a silent model stream. Cancellation invalidates the run so
+  late admission cannot dispatch a cancelled turn or restart its watchdog.
 
 ### Private connector events
 
