@@ -76,4 +76,11 @@ regexes = [
   '''^max_length=[0-9]+$''',
   # Public financial subdomain identifiers, not credentials; exact values only.
   '''^financial\.(holdings|securities|derived)_v1$''',
+  # Azure's built-in "Key Vault Secrets User" role definition id. It is the same
+  # GUID in every Azure tenant and is published in Microsoft's built-in roles
+  # reference; `generic-api-key` fires only because the constant that names it
+  # (ROLE_KEY_VAULT_SECRETS_USER in azure_setup_roles.py) contains "SECRETS".
+  # Anchored and matched against the SECRET, following the entries above: any
+  # other value assigned to that name still trips the rule.
+  '''^4633458b-17de-408a-b874-0445c86b69e6$''',
 ]
