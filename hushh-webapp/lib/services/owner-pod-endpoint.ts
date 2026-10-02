@@ -8,6 +8,7 @@
  */
 
 import { serializeOwnerPodOperation } from "./owner-pod-session-lock";
+import { isOwnerCloudTarget } from "@/lib/one/owner-cloud";
 import { base64ToBytes, bytesToBase64 } from "@/lib/vault/base64";
 
 import { MAX_BINDING_CLOCK_SKEW_MS, OwnerPodError, canonicalJson, p1363ToDer, readJson, subtle, verifyHubSignature } from "./owner-pod-crypto";
@@ -426,7 +427,7 @@ async function admitEndpoint(
     binding.role !== "app" ||
     binding.platform !== "web" ||
     binding.subject_public_key !== record.publicKeyB64 ||
-    binding.deployment_target !== "user_gcp" ||
+    !isOwnerCloudTarget(binding.deployment_target) ||
     !Array.isArray(binding.scopes) ||
     !binding.scopes.includes("pkm.read") ||
     !Number.isInteger(binding.version) ||

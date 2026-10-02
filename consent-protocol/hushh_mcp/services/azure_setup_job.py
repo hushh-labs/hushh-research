@@ -1,0 +1,210 @@
+"""Connect Azure and the JIT agent update, as observable background jobs.
+
+Reuses the GCP setup job's record, not its chain: the same ``byoc_setup_jobs`` row,
+the same atomic single-job claim (``ByocSetupJobRepo.start``), the same heartbeat,
+stage records, ``JobSuperseded`` exit and typed refusals; the stages are the Azure
+ones (``AZURE_JOB_STAGES``). ``project_id`` holds the resource group's ARM id, the
+Azure equivalent of "which place".
+
+TOKEN CUSTODY: the person's delegated token lives in this task's memory for the job's
+lifetime and is never written to the jobs table, logged or persisted.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from typing import Any, Awaitable, Callable, Optional
+
+from hushh_mcp.services.azure_agent_setup import AzureSetupResult, run_agent_setup
+from hushh_mcp.services.azure_arm_client import ArmError
+from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
+from hushh_mcp.services.azure_entra_authorizer import AzureAuthorizeError
+from hushh_mcp.services.azure_federation import AzureFederationError
+from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
+from hushh_mcp.services.compute_backend import PodSpec
+
+logger = logging.getLogger(__name__)
+
+_HEARTBEAT_SECONDS = 15
+_TYPED = (AzureSetupRefused, AzureFederationError, AzureAuthorizeError)
+
+#: ARM refusals in the person's words. Azure's own code rides along for support.
+_ARM_REFUSALS: dict[str, tuple[str, str]] = {
+    "forbidden": (
+        "AZURE_PERMISSION_DENIED",
+        "Your Microsoft account needs Owner on this subscription to set up your agent.",
+    ),
+    "unauthorized": ("AZURE_SIGN_IN_EXPIRED", "Your Microsoft sign-in expired; start again."),
+    "throttled": ("AZURE_BUSY", "Azure is busy right now. Try again in a few minutes."),
+    "conflict": (
+        "AZURE_CONFLICT",
+        "Something in your subscription is in the way of this setup. Nothing was removed.",
+    ),
+}
+_ARM_DEFAULT = (
+    "AZURE_REFUSED",
+    "Azure refused a setup step. Everything already created is kept; try again.",
+)
+
+
+def arm_refusal(exc: ArmError) -> tuple[str, str]:
+    code, message = _ARM_REFUSALS.get(exc.kind, _ARM_DEFAULT)
+    if exc.code == "RequestDisallowedByPolicy":
+        code, message = "AZURE_POLICY_REFUSED", "An Azure policy on this subscription refused it."
+    return code, f"{message} ({exc.code or exc.kind})"
+
+
+async def _finish_failed(jobs: Any, *, user_id: str, job_id: str, code: str, message: str) -> None:
+    try:
+        await jobs.finish(
+            user_id=user_id, job_id=job_id, status="failed", error_code=code, error_message=message
+        )
+    except JobSuperseded:
+        pass
+
+
+def _start_heartbeat(jobs: Any, *, user_id: str, job_id: str) -> Optional[asyncio.Task]:
+    touch = getattr(jobs, "touch", None)
+    if not callable(touch):
+        return None
+
+    async def pulse() -> None:
+        while True:
+            await asyncio.sleep(_HEARTBEAT_SECONDS)
+            try:
+                if not await touch(user_id=user_id, job_id=job_id):
+                    return
+            except Exception as exc:  # noqa: BLE001 - a heartbeat failure must not end the job
+                logger.warning("azure_setup_job.heartbeat_failed err=%s", type(exc).__name__)
+
+    return asyncio.create_task(pulse())
+
+
+async def _guarded(
+    jobs: Any, *, user_id: str, job_id: str, work: Callable[[], Awaitable[None]]
+) -> None:
+    """Run ``work``; every failure becomes a typed record, never a silent death."""
+    heartbeat = _start_heartbeat(jobs, user_id=user_id, job_id=job_id)
+    try:
+        await work()
+        await jobs.finish(user_id=user_id, job_id=job_id, status="recorded")
+    except JobSuperseded:
+        logger.info("azure_setup_job.superseded user=%s job=%s", user_id, job_id)
+    except _TYPED as exc:
+        await _finish_failed(jobs, user_id=user_id, job_id=job_id, code=exc.code, message=str(exc))
+    except ArmError as exc:
+        code, message = arm_refusal(exc)
+        await _finish_failed(jobs, user_id=user_id, job_id=job_id, code=code, message=message)
+    except Exception as exc:  # noqa: BLE001 - the record must never die silently
+        logger.exception("azure_setup_job.unexpected user=%s job=%s", user_id, job_id)
+        code = str(getattr(exc, "code", "") or "UNEXPECTED")
+        await _finish_failed(
+            jobs,
+            user_id=user_id,
+            job_id=job_id,
+            code=code,
+            message=(
+                "Something unexpected stopped the setup. Everything already created is "
+                f"kept; try again. ({type(exc).__name__})"
+            ),
+        )
+    finally:
+        if heartbeat is not None:
+            heartbeat.cancel()
+
+
+def _stage_writer(jobs: Any, *, user_id: str, job_id: str) -> Callable[[str], None]:
+    """A synchronous ``advance`` for the applier's worker thread."""
+    loop = asyncio.get_running_loop()
+
+    def advance(stage: str) -> None:
+        asyncio.run_coroutine_threadsafe(
+            jobs.advance(user_id=user_id, job_id=job_id, stage=stage), loop
+        ).result(timeout=30)
+
+    return advance
+
+
+async def run_azure_setup_job(
+    *,
+    user_id: str,
+    job_id: str,
+    access_token: str,
+    tenant_id: str,
+    subscription_id: str,
+    location: str,
+    spec: PodSpec,
+    source_image: str,
+    repo: Optional[ByocSetupJobRepo] = None,
+    setup: Callable[..., AzureSetupResult] = run_agent_setup,
+    publish: Callable[..., Awaitable[None]] = record_proven_azure_cloud,
+    on_recorded: Optional[Callable[[], Awaitable[None]]] = None,
+) -> None:
+    jobs = repo or ByocSetupJobRepo()
+
+    async def work() -> None:
+        advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
+        result = await asyncio.to_thread(
+            setup,
+            access_token=access_token,
+            tenant_id=tenant_id,
+            subscription_id=subscription_id,
+            location=location,
+            spec=spec,
+            source_image=source_image,
+            advance=advance,
+        )
+        await publish(
+            jobs,
+            user_id=user_id,
+            job_id=job_id,
+            tenant_id=result.tenant_id,
+            subscription_id=result.subscription_id,
+            resource_group=result.resource_group,
+            location=result.location,
+            model_credential_mode=result.model_credential_mode,
+        )
+        if on_recorded is not None:
+            await on_recorded()
+        logger.info(
+            "azure_setup_job.recorded user=%s job=%s model=%s",
+            user_id,
+            job_id,
+            result.model_outcome,
+        )
+
+    await _guarded(jobs, user_id=user_id, job_id=job_id, work=work)
+
+
+async def run_azure_upgrade_job(
+    *,
+    user_id: str,
+    job_id: str,
+    access_token: str,
+    target_image: str,
+    upgrade: Callable[..., Awaitable[dict]],
+    repo: Optional[ByocSetupJobRepo] = None,
+) -> None:
+    """The approved update under the person's JIT token, through the orchestrator."""
+    from hushh_mcp.services.user_azure_backend import jit_person_authority  # noqa: PLC0415
+
+    jobs = repo or ByocSetupJobRepo()
+
+    async def work() -> None:
+        await jobs.advance(user_id=user_id, job_id=job_id, stage="importing_image")
+        with jit_person_authority(access_token):
+            outcome = await upgrade(user_id=user_id, current_image=target_image)
+        skipped = str((outcome or {}).get("skipped") or "")
+        if skipped:
+            raise AzureSetupRefused(
+                "The update did not run this time; try again shortly.",
+                code=f"UPGRADE_{skipped.upper()}",
+            )
+        await jobs.advance(user_id=user_id, job_id=job_id, stage="proving")
+
+    await _guarded(jobs, user_id=user_id, job_id=job_id, work=work)
+
+
+__all__ = ["arm_refusal", "run_azure_setup_job", "run_azure_upgrade_job"]

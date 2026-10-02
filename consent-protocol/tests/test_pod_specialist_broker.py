@@ -19,6 +19,7 @@ from __future__ import annotations
 import pytest
 
 import api.routes.one.pod_specialist as broker
+from hushh_mcp.services.pod_request_signing import VerifiedPod
 
 
 class _Parsed:
@@ -28,7 +29,7 @@ class _Parsed:
 
 
 class _Request:
-    """Minimal stand-in; verify_pod_identity is monkeypatched, so the request
+    """Minimal stand-in; verify_pod_request is monkeypatched, so the request
     object is never actually inspected."""
 
 
@@ -44,9 +45,9 @@ def flags_on(monkeypatch):
 
 def _identity(monkeypatch, hushh_id):
     async def _verify(_request, _authorization):
-        return hushh_id
+        return VerifiedPod(hushh_id) if hushh_id else None
 
-    monkeypatch.setattr(broker, "verify_pod_identity", _verify)
+    monkeypatch.setattr(broker, "verify_pod_request", _verify)
 
 
 def _validator(user_id="u-owner", scope="cap.location.live.view", valid=True):
@@ -178,7 +179,7 @@ async def test_person_a_scope_on_person_b_pod_is_refused(flags_on, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_non_pod_caller_is_401(flags_on, monkeypatch):
-    _identity(monkeypatch, None)  # verify_pod_identity returns None for non-pods
+    _identity(monkeypatch, None)  # verify_pod_request returns None for non-pods
     with pytest.raises(broker.HTTPException) as exc:
         await _call(
             monkeypatch,

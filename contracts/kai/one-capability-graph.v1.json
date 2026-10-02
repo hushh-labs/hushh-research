@@ -18727,7 +18727,7 @@
         "requires_trusted_tap": false,
         "surface": null
       },
-      "description": "Keeps the person's own Google Cloud project as the home for their private agent and returns to the One setup hub.",
+      "description": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
       "execution": {
         "binding_ref": "semantic_action:setup.finish_cloud",
         "executor": {
@@ -18820,7 +18820,7 @@
         "finish",
         "cloud",
         "project",
-        "google cloud",
+        "subscription",
         "byoc"
       ],
       "settlement_proof": "directive_ledger_settlement",
@@ -38406,7 +38406,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "785d79fb385c1404f374d30d4b97413744fd235ef8de48ef88764a577250b687",
+      "projection_digest": "3b1192cc87ff33349bb28c549c3e7dee86480434e3349f6060943b1f32cbf183",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38425,7 +38425,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "9c1f8b9bcf9e2d4b",
+      "source_revision": "c6b5921869adcff4",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39943,7 +39943,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9c1f8b9bcf9e2d4b",
+    "source_revision": "c6b5921869adcff4",
     "web": {
       "actions": [
         {
@@ -39986,7 +39986,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "3435337bf27a678646b697307ade25ab44a08a95c2d52a2b08efe9440688013c",
+      "projection_digest": "31ebde6d23c4d22cc2bb21e0a105dacc4e7f387f356c0d53af8ea81b2bbd1871",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -40005,7 +40005,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
       },
-      "source_revision": "9c1f8b9bcf9e2d4b",
+      "source_revision": "c6b5921869adcff4",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41562,7 +41562,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9c1f8b9bcf9e2d4b",
+  "revision": "c6b5921869adcff4",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42928,6 +42928,17 @@
     },
     {
       "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "capability_id": "screen:/one/setup/cloud/azure/return",
+      "kind": "screen",
+      "label": "one_setup_cloud",
+      "route_pattern": "/one/setup/cloud/azure/return",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
         "setup.finish_connected_systems",
         "setup.skip_connected_systems"
       ],
@@ -43324,6 +43335,7 @@
       "screens:screen:/one/profile/hosting",
       "screens:screen:/one/profile/software-updates",
       "screens:screen:/one/setup/cloud",
+      "screens:screen:/one/setup/cloud/azure/return",
       "services:service.cloud",
       "workflows:workflow.setup.cloud"
     ],
@@ -45869,18 +45881,18 @@
     "capability_graph_evolution": "5e2d7b693a2833e24c09069f0e4a05800a60d36517bca0c6f7ef10f7753de45a",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
+    "kai_action_gateway": "3a39beaae71b30f4217756d824b0975af64727847d29d305ad50a7e85773cf47",
     "location_agent_manifest": "9d72f4c6724a956f85a13822b8ae5c72be3c3e7a9c9bf6a3791abcfd97d29e6e",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
-    "route_orchestration_index": "f6d63684462a85922b88fb696c003a5a1bbc0169bc622b0ad241008fcf69466e",
+    "route_orchestration_index": "37b7c1a286fa79fcf52802b1595ba6df58cddb9259a397f7d443b066d372c6a6",
     "service_knowledge_packages": "0d5c8eddf74dddda6513b48600a0218935dc53559cc6549ede7ebde660734430"
   },
-  "source_revision": "9c1f8b9bcf9e2d4b",
+  "source_revision": "c6b5921869adcff4",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9c1f8b9bcf9e2d4b",
+    "current_graph_revision": "c6b5921869adcff4",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

@@ -15393,10 +15393,10 @@
         "finish",
         "cloud",
         "project",
-        "google cloud",
+        "subscription",
         "byoc"
       ],
-      "meaning": "Keeps the person's own Google Cloud project as the home for their private agent and returns to the One setup hub.",
+      "meaning": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -15408,7 +15408,7 @@
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A project has been named AND hushh has proven it can reach it by minting a short-lived token against the person's own bootstrap account."
+          "The person's own cloud has been authorized AND hushh has proven it can reach it without holding a long-lived credential."
         ],
         "active_personas": [
           "investor",
@@ -15434,7 +15434,7 @@
         "one-setup-cloud-terminal"
       ],
       "state_exposure": [
-        "Own-cloud project selection and authorization state"
+        "Own-cloud selection and authorization state"
       ],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"

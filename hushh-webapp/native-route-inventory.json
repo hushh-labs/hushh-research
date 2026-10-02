@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 128,
+  "total_routes": 129,
   "native_required_routes": 107,
-  "excluded_routes": 21,
+  "excluded_routes": 22,
   "routes": [
     {
       "route": "/",
@@ -1143,6 +1143,11 @@
       "allowedDataStates": [
         "loaded"
       ]
+    },
+    {
+      "route": "/one/setup/cloud/azure/return",
+      "classification": "excluded-web-only",
+      "reason": "Microsoft sign-in return leg. It receives a browser redirect carrying a one-time code and hands control back to cloud setup; Microsoft sign-in is web-only in this version, so there is nothing for a native surface to render."
     },
     {
       "route": "/one/setup/connected-systems",

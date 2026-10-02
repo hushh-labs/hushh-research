@@ -47,9 +47,9 @@ const GOOGLE_PERMISSIONS_URL = "https://myaccount.google.com/permissions";
 const LAST_UPDATED = "2026-09-27";
 const LAST_UPDATED_LABEL = "September 27, 2026";
 const VERSION = "2.1";
-const PRIVACY_LAST_UPDATED = "2026-09-30";
-const PRIVACY_LAST_UPDATED_LABEL = "September 30, 2026";
-const PRIVACY_VERSION = "2.2";
+const PRIVACY_LAST_UPDATED = "2026-10-02";
+const PRIVACY_LAST_UPDATED_LABEL = "October 2, 2026";
+const PRIVACY_VERSION = "2.3";
 
 const p = (...text: LegalInline[]): LegalBlock => ({ kind: "p", text });
 const h = (text: string): LegalBlock => ({ kind: "h", text });
@@ -170,6 +170,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "Google processes these requests as our service provider under Google Cloud’s terms. Requests may be processed in any Google Cloud location, including the United States and the European Union.",
         "When One searches the web for you, it uses Google Search through Vertex AI. The search can include your approximate location if you shared it with that request.",
         "In Settings you can instead connect One to Gemini with your own key or your own Google Cloud project. Requests then go to Google under your own account, in the location you choose. Your key is stored in your vault.",
+        "If you run your private agent in your own Microsoft Azure subscription, it can answer you with an Azure OpenAI model deployed in that subscription. Requests then go to Microsoft under your own Azure account and Microsoft’s terms, and Microsoft may process them in other Azure locations, depending on how the model is deployed.",
         "Where voice mode is available, your speech is streamed to Google’s Gemini Live model on Google Cloud Vertex AI in the United States, which transcribes it to understand and answer you. We do not store your audio or a transcript; we keep a short-lived session record, without your words, for up to two hours.",
         "If you use Siri to ask One something or to send an alert, Apple processes that request under Apple’s own terms before handing it to One.",
         "Hussh does not use your information, your memories, or your connected services’ information to train AI models.",
@@ -337,9 +338,9 @@ const PRIVACY_SECTIONS: LegalSection[] = [
         "We do not sell your information or share it for advertising. We share it only in these cases:",
       ),
       list(
-        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
+        "Service providers that run One for us, under contracts that limit their use of it: Google Cloud (hosting, database, logging, and Vertex AI, including Gemini and Google Search), Google Firebase (sign-in, text-message codes, notifications, and app analytics), Google Analytics and Google Tag Manager, Google Maps Platform (places, addresses, and travel times), Apple (Sign in with Apple, notifications, Siri, and Apple Wallet cards you choose to add), Microsoft (sign-in and resource management, only for a private agent you run in your own Azure subscription), and Plaid (bank connections you make). Email we send for you or to you, such as emergency alerts, goes through our own mail service using Google.",
         "Market-information providers, which receive only the company or ticker you ask Kai about, as described above.",
-        "Providers you choose. When you connect a service, add your own tool, or use your own model key, information goes to that provider to do what you asked.",
+        "Providers you choose. When you connect a service, add your own tool, use your own model key, or run your private agent in your own cloud (your own Google Cloud project or Microsoft Azure subscription), information goes to that provider to do what you asked.",
         "People and businesses you approve, as described above.",
         "Legal reasons. If we reasonably believe disclosure is needed to comply with law, legal process, or an enforceable government request, to protect the safety or rights of any person, or to detect and prevent fraud or security problems. Information encrypted with your vault key cannot be read by us, so we cannot disclose it in readable form.",
         "Business transfers. If Hussh is involved in a merger, acquisition, or sale of assets, information may be transferred, and this policy will continue to apply to it. We will tell you before that happens.",
@@ -441,7 +442,7 @@ const PRIVACY_SECTIONS: LegalSection[] = [
     title: "Where information is processed",
     blocks: [
       p(
-        "Hussh is based in the United States, and One runs on Google Cloud in the United States. AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you use One from elsewhere, your information is transferred to and processed in those places, where privacy laws may differ from those where you live.",
+        "Hussh is based in the United States, and One runs on Google Cloud in the United States. AI requests may be processed in any Google Cloud location, including the United States and the European Union. If you run your private agent in your own cloud, such as your own Google Cloud project or Microsoft Azure subscription, it runs in the location chosen for it there, and that provider may process its AI requests in other locations, depending on how the model is deployed. If you use One from elsewhere, your information is transferred to and processed in those places, where privacy laws may differ from those where you live.",
       ),
     ],
   },

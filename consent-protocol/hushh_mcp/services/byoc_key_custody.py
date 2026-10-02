@@ -73,6 +73,8 @@ WRAPPED_LOG_KEY_OBJECT = "keys/log-key.wrapped"
 #: key: the KMS resource to decrypt with and the object to decrypt.
 KMS_KEY_ENV = "HUSSH_POD_KMS_KEY"
 WRAPPED_KEY_OBJECT_ENV = "HUSSH_POD_WRAPPED_LOG_KEY_OBJECT"
+#: Azure: the versioned Key Vault key the DEK is wrapped to (``pod_key_vault_custody``).
+KEY_VAULT_KEY_ENV = "HUSSH_POD_KEY_VAULT_KEY"
 
 
 class ByocKeyCustodyError(RuntimeError):
@@ -177,16 +179,15 @@ def byoc_key_env(
 
 def byoc_custody_configured() -> bool:
     """Is this process a BYOC pod that should unwrap rather than read its key?"""
-    return bool((os.getenv(KMS_KEY_ENV) or "").strip())
+    return bool((os.getenv(KMS_KEY_ENV) or os.getenv(KEY_VAULT_KEY_ENV) or "").strip())
 
 
 def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> bytes:
     """The pod's log key, whichever custody model it was provisioned under.
 
-    Managed pods read ``HUSSH_POD_LOG_KEY``; BYOC pods unwrap from KMS. Resolving both
-    behind one call is what lets the rest of the pod -- the commit log, the memory
-    service -- stay identical across tiers, which is the parity the managed tier
-    exists to rehearse.
+    Managed pods read ``HUSSH_POD_LOG_KEY``; BYOC pods unwrap from KMS, or on Azure
+    from Key Vault. Resolving all three behind one call is what lets the rest of the
+    pod -- the commit log, the memory service -- stay identical across tiers.
     """
     if not byoc_custody_configured():
         from hushh_mcp.services.pod_commit_log import log_key_from_env  # noqa: PLC0415
@@ -195,6 +196,14 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
         return key
 
     kms_key = (os.getenv(KMS_KEY_ENV) or "").strip()
+    if (os.getenv(KEY_VAULT_KEY_ENV) or "").strip():
+        if kms_key:
+            raise ByocKeyCustodyError("a pod's log key has exactly one custodian")
+        from hushh_mcp.services.pod_key_vault_custody import (  # noqa: PLC0415
+            resolve_key_vault_log_key,
+        )
+
+        return resolve_key_vault_log_key(session=session)
     obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
     bucket = (os.getenv("POD_STORAGE_GCS_BUCKET") or "").strip()
     if not bucket:
@@ -340,13 +349,17 @@ def resolve_pod_memory_key(*, session: Any = None, token: Optional[str] = None) 
 
 def _metadata_token(session: Any) -> str:
     """The pod's OWN identity, from the metadata server. An address, not a secret."""
+    from hushh_mcp.services.pod_workload_identity import (  # noqa: PLC0415
+        PodWorkloadIdentityUnavailable,
+        google_metadata_access_endpoint,
+    )
+
+    try:
+        endpoint = google_metadata_access_endpoint()  # refuses on Azure, before any request
+    except PodWorkloadIdentityUnavailable:
+        raise ByocKeyCustodyError("pod custody credential unavailable") from None
     response = _custody_request(
-        session,
-        "get",
-        "http://metadata.google.internal/computeMetadata/v1/instance"
-        "/service-accounts/default/token",
-        headers={"Metadata-Flavor": "Google"},
-        timeout=10,
+        session, "get", endpoint, headers={"Metadata-Flavor": "Google"}, timeout=10
     )
     try:
         if response.status_code != 200:
@@ -361,6 +374,7 @@ def _metadata_token(session: Any) -> str:
 
 __all__ = [
     "ByocKeyCustodyError",
+    "KEY_VAULT_KEY_ENV",
     "KMS_KEY_ENV",
     "WRAPPED_KEY_OBJECT_ENV",
     "WRAPPED_LOG_KEY_OBJECT",

@@ -13,7 +13,7 @@ from pydantic import Field
 
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_session import verified_session
-from api.routes.one.pod_turn import PodTurnRequest, _resolve_model, _resolve_runtime_mode
+from api.routes.one.pod_turn import PodTurnRequest, _resolve_model, _resolve_turn_target
 from hushh_mcp.agents.location.command_brain import LocationCommandBrain, _load_transcriber_gene
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
@@ -36,6 +36,11 @@ from hushh_mcp.services.pod_upgrade_admission import (
 
 router = APIRouter(prefix="/api/one/pod/commands", tags=["personal-agent"])
 _slots = asyncio.Semaphore(2)
+# The only modes a command brain is built for, each named. ``user_azure_mi`` is not
+# one: commands need structured output and audio input, which the owner's Azure
+# transport does not carry, and a mode outside both sets must never reach a builder.
+_KEY_MODES = frozenset({"byok", "puppy_relay"})
+_AMBIENT_MODES = frozenset({"user_adc", "hushh_managed_vertex"})
 
 
 class CommandModel(CommandValue):
@@ -94,7 +99,11 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
         marker = authority.local_token(claims)
         model = model.model_copy(update={"runtimeCredential": marker})
         selection = selection.model_copy(update={"runtime_credential": marker})
-    mode = _resolve_runtime_mode(selection, provider)
+    provider, selected_model, mode = _resolve_turn_target(selection, provider, selected_model)
+    if mode not in _KEY_MODES | _AMBIENT_MODES:
+        # Refused before any builder: the person's audio and location never reach an
+        # identity this mode did not name.
+        raise HTTPException(503, detail={"code": "COMMAND_MODEL_UNAVAILABLE", "runtimeMode": mode})
     manifest = ManifestLoader.load(str(Path(command_brain.__file__).with_name("agent.yaml")))
 
     def adk(name: str):
@@ -126,8 +135,8 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
             vertex_location=model.vertexLocation,
             puppy_device_id=model.puppyDeviceId,
         )
-        if mode in {"byok", "puppy_relay"}
-        else build_managed_runtime_client(provider)
+        if mode in _KEY_MODES
+        else build_managed_runtime_client(provider)  # an _AMBIENT_MODES member, checked above
     )
     return LocationCommandBrain(
         client=client,

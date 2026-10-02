@@ -1,15 +1,17 @@
-"""Cloud Run compute contracts for the private agent.
+"""Compute contracts for the private agent.
 
-GCP is the only supported cloud provider. ``user_gcp`` provisions in the owner's
-project; ``gcp`` serves the gated Hussh-managed tier. ``NullBackend`` is an inert
-unconfigured state, not a deployment provider. Live provisioning still requires
-explicit configuration and owner authority. The backend protocol keeps lifecycle,
-identity and recovery contracts independent of provider adapters.
+``user_gcp`` provisions in the owner's Google Cloud project; ``user_azure`` in the
+owner's own Azure subscription (dev workspace only until its admission gates in
+``docs/reference/architecture/byoc-azure.md`` carry live evidence); ``gcp`` serves
+the gated Hussh-managed tier. ``NullBackend`` is an inert unconfigured state, not a
+deployment provider. Live provisioning still requires explicit configuration and
+owner authority. The backend protocol keeps lifecycle, identity and recovery
+contracts independent of provider adapters.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -31,18 +33,39 @@ RESOURCE_TIERS = (RESOURCE_TIER_ECONOMY, RESOURCE_TIER_WARM)
 BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
+BACKEND_USER_AZURE = "user_azure"  # BYOC: the pod runs in the USER's own Azure subscription.
 
 # Targets whose pod runs in the PERSON's own cloud account (BYOC), on any provider.
 # Callers outside this module ask "is this the owner's own cloud?" through
 # `is_owner_cloud_target` instead of spelling a provider id, so adding a provider
 # is one entry here rather than a new branch at every call site. Ordered, so the
 # SQL fragment and its bind names are deterministic.
-OWNER_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_USER_GCP,)
+OWNER_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_USER_GCP, BACKEND_USER_AZURE)
+
+# WHICH coordinates make an owner cloud reachable, per target. Read through
+# `owner_cloud_coordinates_complete` so the readiness gate in user_cloud_service
+# never spells a provider. An Azure location rides the neutral region coordinate.
+_OWNER_CLOUD_REQUIRED_COORDINATES: dict[str, tuple[str, ...]] = {
+    BACKEND_USER_GCP: ("project",),
+    BACKEND_USER_AZURE: ("tenant_id", "subscription_id", "resource_group", "region"),
+}
 
 
 def is_owner_cloud_target(target: object) -> bool:
     """True when ``target`` places the pod in the person's own cloud account."""
     return str(target or "").strip() in OWNER_CLOUD_TARGETS
+
+
+def owner_cloud_coordinates_complete(target: object, coordinates: Mapping[str, object]) -> bool:
+    """True when every coordinate ``target`` needs is present and non-blank.
+
+    An unknown target has no declared coordinates and is never complete, so a new
+    provider fails closed until it states what makes it reachable.
+    """
+    required = _OWNER_CLOUD_REQUIRED_COORDINATES.get(str(target or "").strip())
+    if not required:
+        return False
+    return all(str(coordinates.get(name) or "").strip() for name in required)
 
 
 def is_known_pod_target(target: object) -> bool:
@@ -99,6 +122,10 @@ class PodSpec:
     prompt_version: Optional[str] = None
     # Recorded provider incarnation for an in-place upgrade; never inferred from a name.
     expected_service_uid: Optional[str] = None
+    # Recorded workload identity and image digest of an EXISTING pod, copied from the
+    # registry for adoption; a backend that can read both refuses a pod that differs.
+    expected_runtime_principal: Optional[str] = None
+    expected_image_digest: Optional[str] = None
     # Opaque binding to the existing registry upgrade reservation.
     upgrade_attempt_id: Optional[str] = None
     # Durable owner approval operation used by the pod lifecycle handoff.
@@ -174,6 +201,14 @@ class PodSpec:
     user_cloud_project: Optional[str] = None
     user_cloud_region: Optional[str] = None
     user_cloud_bootstrap_sa: Optional[str] = None
+    # The same "which one" for an Azure subscription: directory (tenant), subscription
+    # and the resource group the person's own setup created. The Azure location rides
+    # `user_cloud_region`, so one coordinate never has two columns. Deployment topology,
+    # recorded by the setup job, never inferred: a `user_azure` spec missing any of
+    # them is refused by `resolve_compute_backend_for_spec`.
+    user_cloud_tenant_id: Optional[str] = None
+    user_cloud_subscription_id: Optional[str] = None
+    user_cloud_resource_group: Optional[str] = None
     # Frozen owner setup selection; a fleet flag cannot grant this capability.
     files_library_enabled: bool = False
 
@@ -231,6 +266,19 @@ class PodSpec:
             self.on_stage(stage)
         except Exception:  # noqa: BLE001 - a listener's bug is not the pod's problem
             pass
+
+
+def adoption_expectations(metadata: object) -> dict[str, Optional[str]]:
+    """What a registry row recorded about its pod, as the PodSpec fields adoption checks.
+
+    Copied, never inferred: a backend that can read a pod's workload identity and
+    image refuses to adopt one that differs. Malformed metadata records nothing.
+    """
+    recorded = metadata if isinstance(metadata, dict) else {}
+    return {
+        "expected_runtime_principal": str(recorded.get("runtime_principal_id") or "") or None,
+        "expected_image_digest": str(recorded.get("image_digest") or "") or None,
+    }
 
 
 @dataclass(frozen=True)
@@ -338,6 +386,8 @@ def resolve_compute_backend(backend_id: Optional[str] = None) -> ComputeBackend:
         # Plan-mode by default; live raises until the owner bootstrap exists.
         user_gcp: ComputeBackend = UserGcpBackend()
         return user_gcp
+    # `user_azure` is deliberately absent: it has no deployment-wide destination, so it
+    # resolves only per person, through `resolve_compute_backend_for_spec`.
     raise NotImplementedError(
         f"compute backend '{chosen}' is not recognized (expected: null | gcp | user_gcp)"
     )
@@ -360,6 +410,8 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
     instead of their own. That is the one failure mode worth being noisy about.
     """
     target = (spec.deployment_target or "").strip() or None
+    if target == BACKEND_USER_AZURE:
+        return _owner_azure_backend(spec)
     if target != BACKEND_USER_GCP:
         return resolve_compute_backend(target)
 
@@ -384,3 +436,36 @@ def resolve_compute_backend_for_spec(spec: PodSpec) -> ComputeBackend:
         bootstrap_sa=spec.user_cloud_bootstrap_sa or None,
     )
     return tenant
+
+
+def _owner_azure_backend(spec: PodSpec) -> ComputeBackend:
+    """The person's own Azure subscription, from their spec alone. Fails closed.
+
+    There is no deployment default for this target at all: a subscription is never a
+    property of the hub, so a missing coordinate is refused rather than defaulted, for
+    the same reason the GCP branch refuses a missing project.
+    """
+    coordinates = {
+        "tenant_id": spec.user_cloud_tenant_id,
+        "subscription_id": spec.user_cloud_subscription_id,
+        "resource_group": spec.user_cloud_resource_group,
+        "region": spec.user_cloud_region,
+    }
+    if not owner_cloud_coordinates_complete(BACKEND_USER_AZURE, coordinates):
+        missing = sorted(name for name, value in coordinates.items() if not (value or "").strip())
+        raise ValueError(
+            "a user_azure pod needs the person's own tenant, subscription, resource group "
+            f"and location on its spec, and none is ever inferred (missing: {missing})."
+        )
+
+    from hushh_mcp.services.user_azure_backend import UserAzureBackend
+
+    azure: ComputeBackend = UserAzureBackend(
+        tenant_id=str(spec.user_cloud_tenant_id).strip(),
+        subscription_id=str(spec.user_cloud_subscription_id).strip(),
+        resource_group=str(spec.user_cloud_resource_group).strip(),
+        location=str(spec.user_cloud_region).strip(),
+        recorded_principal=spec.expected_runtime_principal or "",
+        recorded_digest=spec.expected_image_digest or "",
+    )
+    return azure

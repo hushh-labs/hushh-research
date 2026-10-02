@@ -7606,9 +7606,9 @@
         },
         "voice_playbook": {
           "playbook_id": "route.one.setup.cloud",
-          "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+          "purpose": "Choose and authorize the person's own cloud so their private agent can be built there, before any AI-access choice is made.",
           "screen": "one_setup_cloud",
-          "entry_cue": "Name the project your agent will live in, then run the one-line grant we give you.",
+          "entry_cue": "Choose where your agent lives, then sign in to your cloud so it can be built there.",
           "proactivity": "on_entry",
           "primary_action_id": "setup.finish_cloud",
           "happy_path_action_ids": [
@@ -7652,6 +7652,64 @@
       "voice_action_contract_ids": [
         "setup.finish_cloud"
       ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
+      "route": "/one/setup/cloud/azure/return",
+      "page_file": "app/one/setup/cloud/azure/return/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/azure-cloud-return-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.cloud.azure.return",
+          "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+          "screen": "one_setup_cloud",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Return to cloud setup and explain that Azure was not connected.",
+            "timeout": "Retain the goal and offer a safe retry.",
+            "callback_error": "Return to cloud setup without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+          "next_route": "/one/setup/cloud",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/cloud/azure/return",
+        "classification": "excluded-web-only",
+        "reason": "Microsoft sign-in return leg. It receives a browser redirect carrying a one-time code and hands control back to cloud setup; Microsoft sign-in is web-only in this version, so there is nothing for a native surface to render."
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": true,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
       "api_dependencies": [],
       "native_plugin_dependencies": [],
       "thread_and_consent_contract": null
@@ -9962,5 +10020,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "0775903dddd39d243fefe73a89384fbd2f8751cf1d0c7b7712f309d9890b8824"
+  "content_sha256": "78824e62703f0d6a2d59e2a53869c9ddea633c43b1f11c9d12e5a79a6c573725"
 }

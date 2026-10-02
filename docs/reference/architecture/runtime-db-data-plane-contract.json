@@ -153,7 +153,7 @@
         "byoc_setup_jobs",
         "pod_lifecycle_events"
       ],
-      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup (Google Cloud and Connect Azure; an Azure job's project_id holds its resource group ARM id), provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
       "retention_policy": "Retain current setup rows while they may own provider work. Lifecycle events use the existing 30-day operational TTL. Registry and deletion-intent retention is owned by the personal_agent_registry family. Orphaned lifecycle state cannot prove resource absence. Dev-only migration928 retains authorization intents and verified bootstrap grant acknowledgements in the existing setup row across retries and attachment; unresolved entries cannot be discarded or rolled back.",
       "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
       "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists. Authorization receipts contain exact owner/job/project, bootstrap account identity, grantee and bounded policy etags, never OAuth tokens. Public setup status does not expose the internal authorization_attempts column. Late acknowledgements remain bound to their original admitted intent; historical project dependencies participate in grant-release fencing.",
@@ -1375,12 +1375,27 @@
         "personal_agent_registry",
         "personal_agent_deletion_tombstones"
       ],
-      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-917 and PERSONAL_AGENT_ENABLED",
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement",
       "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
       "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
-      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities.",
+      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. Azure coordinates are directory, subscription and resource-group identifiers only; one owner per resource group is enforced by a partial unique index. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities. Dev-only migration947 adds the pod's public request-signing key and key id (recorded only from a hub-initiated pull, bound to pod_pubkey) and the one-way identity_mode latch; they are removed with the row by the same deletion path.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
+    },
+    {
+      "id": "pod_request_replay_guard",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "pod_request_nonces"
+      ],
+      "primary_access_path": "Dev-only migration947. The hub's signed pod-request verifier (hushh_mcp/services/pod_request_verifier.py via pod_request_identity_store.py) consumes one (kid, nonce) per verified request with INSERT .. ON CONFLICT DO NOTHING; a conflicting insert is a replay and is refused. Reached only where pod_hub_identity_auth_enabled is on.",
+      "retention_policy": "Rows live only for the signature acceptance window plus a skew margin (about 120 seconds after the signing time); expired rows are pruned opportunistically by the verifier at most once a minute per process.",
+      "deletion_behavior": "No owner column and no per-account rows: account deletion needs no action. A row names only a public-key-derived kid and a random nonce, cannot be joined to a person once the registry row is deleted, and self-expires within about two minutes.",
+      "trust_boundary": "Stores a public-key-derived key id, a random 16-byte nonce and an expiry timestamp. No user identifiers, personal information, tokens, request bodies or signatures; a row grants no access and only prevents replay.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     },
     {
       "id": "agent_prompt_registry",

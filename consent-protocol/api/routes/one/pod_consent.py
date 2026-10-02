@@ -54,7 +54,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.routes.one.pod_identity_auth import verify_pod_identity
+from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
@@ -85,11 +85,12 @@ async def verify_consent_for_pod(
     if not personal_agent_enabled():
         raise HTTPException(status_code=404, detail="personal agent is not available")
 
-    asserted = await verify_pod_identity(request, authorization)
-    if not asserted:
+    verified = await verify_pod_request(request, authorization)
+    if verified is None:
         # One shape for every rejection so this is not an oracle for which pods,
         # tokens, or configurations exist.
         raise HTTPException(status_code=401, detail="pod identity required")
+    asserted = verified.hushh_id
 
     check = validator
     if check is None:

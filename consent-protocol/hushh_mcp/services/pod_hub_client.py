@@ -18,15 +18,24 @@ for the asserted ``HUSSH_ID``. The managed/simulation path accepts the configure
 fleet account, which does not independently distinguish owners. Neither path alone
 proves workload attestation. Hub acceptance remains flag-gated; each protected route
 must also enforce its own current assignment and information/action authority.
+
+**Every request is also signed** (``pod_request_signing``) with the Ed25519 key the
+pod derives from its own X25519 key -- the one identity that works on every cloud.
+On Google Cloud the ID token still rides alongside it during the transition; where
+no metadata server exists (Azure) the signature is the pod's whole identity. The
+body is serialised ONCE and sent as those exact bytes, so the signed body is the
+sent body.
 """
 
 from __future__ import annotations
 
+import json as _json
 import logging
 import os
 import time
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests  # type: ignore[import-untyped]
 
@@ -46,6 +55,11 @@ POD_SPACE_HEADER = "X-Hushh-Pod-Space"
 # the boundary. Cloud Run identity tokens are ~1h.
 _TOKEN_REFRESH_SKEW_SECONDS = 300
 
+# Off Google Cloud there is no metadata server. Asking again on every call would
+# spend a failed lookup per request, so an absence is remembered this long and the
+# request goes out signed only.
+_METADATA_ABSENT_RETRY_SECONDS = 60
+
 
 @dataclass(frozen=True)
 class VerifiedOwnerPod:
@@ -64,6 +78,31 @@ def hub_base_url() -> Optional[str]:
     return (os.getenv("HUSSH_HUB_BASE_URL") or "").strip().rstrip("/") or None
 
 
+def _signature_headers(
+    aud: str, method: str, url: str, query_pairs: list[tuple[str, str]], body: bytes
+) -> dict[str, str]:
+    """This request's signature headers, or {} when the pod cannot sign it."""
+    hushh_id = (os.getenv("HUSSH_ID") or "").strip()
+    if not hushh_id:
+        return {}
+    try:
+        from hushh_mcp.services.pod_request_signing import sign_pod_request  # noqa: PLC0415
+        from hushh_mcp.services.pod_self_registration import pod_signing_key  # noqa: PLC0415
+
+        return sign_pod_request(
+            pod_signing_key(),
+            aud=aud,
+            hushh_id=hushh_id,
+            method=method,
+            path=urlsplit(url).path,
+            query_pairs=query_pairs,
+            body=body,
+        )
+    except Exception as exc:  # noqa: BLE001 - an unsignable request keeps the token path
+        logger.warning("pod_hub_client.signing_unavailable %s", type(exc).__name__)
+        return {}
+
+
 class PodHubClient:
     """Authenticated GETs from a pod to the hub. Sync; callers use asyncio.to_thread."""
 
@@ -74,12 +113,16 @@ class PodHubClient:
         timeout_seconds: float = 10.0,
         session: Any = None,
     ) -> None:
-        self._base = (base_url if base_url is not None else hub_base_url()) or ""
+        # Normalised exactly like hub_base_url(): the base is both the URL prefix and
+        # the signed audience, and a trailing slash would change both.
+        self._base = ((base_url if base_url is not None else hub_base_url()) or "").rstrip("/")
         self._timeout = timeout_seconds
         # Injectable for hermetic tests; never reaches the metadata server in unit tests.
         self._session = session if session is not None else requests
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
+        self._metadata_absent_until: float = 0.0
+        self._metadata_failure: str = ""
 
     # -- identity ---------------------------------------------------------------
 
@@ -110,14 +153,40 @@ class PodHubClient:
         self._token_expiry = now + 3600 - _TOKEN_REFRESH_SKEW_SECONDS
         return self._token
 
+    def _google_identity_token(self) -> Optional[str]:
+        """The Google ID token, or None when this pod has no metadata server to ask."""
+        if time.time() < self._metadata_absent_until:
+            return None
+        try:
+            return self._identity_token()
+        except PodHubUnavailable as exc:
+            self._metadata_absent_until = time.time() + _METADATA_ABSENT_RETRY_SECONDS
+            self._metadata_failure = str(exc)
+            return None
+
     # -- transport --------------------------------------------------------------
 
-    def _identity_headers(self, extra: Optional[dict[str, str]] = None) -> dict[str, str]:
+    def _identity_headers(
+        self,
+        method: str,
+        url: str,
+        *,
+        query_pairs: Optional[list[tuple[str, str]]] = None,
+        body: bytes = b"",
+        extra: Optional[dict[str, str]] = None,
+    ) -> dict[str, str]:
+        """The ONE place a pod's identity is attached to a hub request."""
         merged = {
-            "Authorization": f"Bearer {self._identity_token()}",
             POD_IDENTITY_HEADER: (os.getenv("HUSSH_ID") or "").strip(),
             POD_SPACE_HEADER: (os.getenv("HUSSH_SPACE_ID") or "").strip(),
         }
+        token = self._google_identity_token()
+        if token:
+            merged["Authorization"] = f"Bearer {token}"
+        signature = _signature_headers(self._base, method, url, list(query_pairs or []), body)
+        if not token and not signature:
+            raise PodHubUnavailable(self._metadata_failure or "pod has no identity to present")
+        merged.update(signature)
         merged.update(extra or {})
         return merged
 
@@ -139,8 +208,14 @@ class PodHubClient:
         hub cannot be reached at all -- callers must degrade deliberately rather than
         treat an outage as "no data", which would silently look like a missing record.
         """
+        from hushh_mcp.services.pod_request_signing import (  # noqa: PLC0415
+            query_pairs_from_params,
+        )
+
         url = self._url(path)
-        merged = self._identity_headers(headers)
+        merged = self._identity_headers(
+            "GET", url, query_pairs=query_pairs_from_params(params), extra=headers
+        )
         try:
             return self._session.get(
                 url, params=params or {}, headers=merged, timeout=self._timeout
@@ -161,11 +236,22 @@ class PodHubClient:
         returning something a caller could mistake for a rejection. The distinction
         matters more here than on a read -- "the hub refused this" and "the hub could
         not be asked" call for opposite responses, and only one of them is worth a retry.
+
+        The body is serialised here, once, and those exact bytes are both signed and
+        sent. Letting the transport re-serialise would sign one body and send another.
         """
         url = self._url(path)
-        merged = self._identity_headers(headers)
+        body = _json.dumps(
+            json or {}, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
+        merged = self._identity_headers(
+            "POST",
+            url,
+            body=body,
+            extra={"Content-Type": "application/json", **(headers or {})},
+        )
         try:
-            return self._session.post(url, json=json or {}, headers=merged, timeout=self._timeout)
+            return self._session.post(url, data=body, headers=merged, timeout=self._timeout)
         except Exception as exc:  # noqa: BLE001
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
 
@@ -177,6 +263,7 @@ class PodHubClient:
         calendar_read: dict[str, Any] | None = None,
         marketplace_read: dict[str, Any] | None = None,
         email_read: dict[str, Any] | None = None,
+        command_read: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Read a DB-backed specialist's state THROUGH the hub broker (the data door).
 
@@ -202,6 +289,8 @@ class PodHubClient:
             payload["emailRead"] = email_read
         if marketplace_read is not None:
             payload["marketplaceRead"] = marketplace_read
+        if command_read is not None:
+            payload["commandRead"] = command_read
         response = self.post(f"/api/one/pod/specialist/{name}/read", json=payload)
         status = getattr(response, "status_code", 502)
         if status != 200:

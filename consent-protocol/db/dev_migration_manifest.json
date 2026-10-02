@@ -12,7 +12,8 @@
     "webauthn_credentials",
     "webauthn_challenges",
     "consent_audit_receipts",
-    "pod_lifecycle_events"
+    "pod_lifecycle_events",
+    "pod_request_nonces"
   ],
   "ordered_migrations": [
     "900_personal_agent_registry.sql",
@@ -58,6 +59,8 @@
     "943_personal_agent_files_upgrade_evidence.sql",
     "944_one_chat_history_legacy_cutover.sql",
     "945_pod_mcp_action_authority.sql",
-    "946_personal_agent_files_provision_admission.sql"
+    "946_personal_agent_files_provision_admission.sql",
+    "947_pod_request_signing.sql",
+    "948_personal_agent_user_azure.sql"
   ]
 }

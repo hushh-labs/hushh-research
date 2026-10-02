@@ -39,6 +39,7 @@ from api.routes.one.pod_turn_memory_authority import (
     memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
 )
 from api.routes.one.pod_turn_stream import TurnKey, cancel_stream_turn, stream_turn_events
+from api.routes.one.pod_turn_target import TurnTarget, owner_azure_model, turn_target
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.pod_commit_log import PodLogFenced
@@ -468,7 +469,7 @@ async def run_pod_turn(
             # The session IS the Puppy authority on the local path; the marker keeps
             # every existing non-empty credential check honest without a hub grant.
             payload = payload.model_copy(update={"runtime_credential": consent_token})
-    runtime_mode = _resolve_runtime_mode(payload, provider)
+    provider, model, runtime_mode = _resolve_turn_target(payload, provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
@@ -826,12 +827,14 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         # pins the value a function returns, rather than what the next function does
         # with it, passes for exactly as long as both ends are wrong together.
         return "byok"
+    if owner_azure_model() is not None:
+        return "user_azure_mi"
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         pod_managed_model_enabled,
         pod_user_adc_enabled,
     )
 
-    # ORDER IS LOAD-BEARING, and it is BYOK -> user ADC -> managed.
+    # ORDER IS LOAD-BEARING: BYOK -> owner Azure (half-rendered refuses) -> user ADC -> managed.
     #
     # An owner who sends a key gets their key: that is checked above and nothing here
     # can take it from them. Next comes the person's own project, which is the
@@ -853,6 +856,11 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         status_code=400,
         detail="this pod has no model access; connect an AI key first",
     )
+
+
+def _resolve_turn_target(payload: PodTurnRequest, provider: str, model: str) -> TurnTarget:
+    """(provider, model, mode) for every door that runs a model here, never the mode alone."""
+    return turn_target(provider, model, _resolve_runtime_mode(payload, provider))
 
 
 def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
@@ -1078,10 +1086,10 @@ async def pod_live_route(websocket: WebSocket) -> None:
     import re
 
     from api.routes.one.adk_live import run_one_live_session
+    from api.routes.one.pod_capabilities import voice_available
     from api.routes.one.pod_live_session import PodLiveSession
     from api.routes.one.pod_live_store import PodVoiceDirectiveStore
     from api.routes.one.pod_live_transport import PodLiveTransport
-    from api.routes.one.relay_auth import one_voice_enabled
     from hushh_mcp.services.pod_upgrade_admission import (
         ADMISSION,
         PodUpgradeAdmissionRefused,
@@ -1090,7 +1098,7 @@ async def pod_live_route(websocket: WebSocket) -> None:
 
     try:
         _require_enabled()
-        if not one_voice_enabled():
+        if not voice_available():  # disabled, or no Vertex model: refuse before accept
             raise HTTPException(status_code=503, detail="voice unavailable")
         consent = str(websocket.headers.get("x-consent-token") or "")
         session_id = str(websocket.headers.get("x-hussh-voice-session") or "")

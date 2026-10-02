@@ -32,6 +32,11 @@ class NeutralTool:
     name: str
     description: str
     parameters: dict[str, Any] = field(default_factory=dict)
+    # The same parameters as standard JSON Schema (lowercase types, camelCase
+    # keywords), or None. Read only by OpenAI-wire adapters: ADK declares One's
+    # tools through ``parameters_json_schema``, which ``parameters`` above never
+    # sees, and a genai ``Schema`` dump carries types the OpenAI API refuses.
+    json_schema: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -102,6 +107,22 @@ def _schema_dict(value: Any) -> dict[str, Any] | None:
     return None
 
 
+def _json_schema(declaration: Any) -> dict[str, Any] | None:
+    """A declaration's parameters as standard JSON Schema, or None when it has none."""
+    declared = getattr(declaration, "parameters_json_schema", None)
+    if isinstance(declared, dict):
+        return declared
+    try:
+        converted = getattr(getattr(declaration, "parameters", None), "json_schema", None)
+        dump = getattr(converted, "model_dump", None)
+        if not callable(dump):
+            return None
+        dumped = dump(mode="json", exclude_none=True, by_alias=True)
+    except Exception:  # noqa: BLE001 - no convertible schema leaves the field unset
+        return None
+    return dumped if isinstance(dumped, dict) else None
+
+
 def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
     tools_attr = getattr(config, "tools", None) or []
     neutral: list[NeutralTool] = []
@@ -115,7 +136,14 @@ def _tools_from_config(config: Any) -> tuple[NeutralTool, ...]:
             params_dict = _schema_dict(getattr(decl, "parameters", None))
             if params_dict is None:
                 params_dict = {"type": "object", "properties": {}}
-            neutral.append(NeutralTool(name=name, description=description, parameters=params_dict))
+            neutral.append(
+                NeutralTool(
+                    name=name,
+                    description=description,
+                    parameters=params_dict,
+                    json_schema=_json_schema(decl),
+                )
+            )
     return tuple(neutral)
 
 

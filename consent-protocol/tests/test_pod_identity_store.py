@@ -142,7 +142,7 @@ async def test_a_corrupted_stored_key_is_refused_rather_than_reminted(tmp_path):
 
     stored = bytearray(await store.get(IDENTITY_KEY_OBJECT))
     stored[-1] ^= 0x01
-    await store.put_if_generation(IDENTITY_KEY_OBJECT, bytes(stored), 1)
+    await store.put_if_generation(IDENTITY_KEY_OBJECT, bytes(stored), "1")
 
     with pytest.raises(PodIdentityStoreError):
         await load_or_create_private_key(store, _DEK)
@@ -151,7 +151,7 @@ async def test_a_corrupted_stored_key_is_refused_rather_than_reminted(tmp_path):
 async def test_a_truncated_stored_key_is_refused(tmp_path):
     store = _store(tmp_path)
     await load_or_create_private_key(store, _DEK)
-    await store.put_if_generation(IDENTITY_KEY_OBJECT, b"tiny", 1)
+    await store.put_if_generation(IDENTITY_KEY_OBJECT, b"tiny", "1")
 
     with pytest.raises(PodIdentityStoreError):
         await load_or_create_private_key(store, _DEK)
@@ -177,7 +177,7 @@ async def test_the_loser_of_a_create_race_adopts_the_winners_key(tmp_path):
         if key == IDENTITY_KEY_OBJECT and calls["n"] == 0:
             calls["n"] += 1
             # The winner's write lands first, so ours must fail the CAS.
-            await real_put(key, seal_private_key(_DEK, other_key), 0)
+            await real_put(key, seal_private_key(_DEK, other_key), "")
             return None
         return await real_put(key, data, expected)
 

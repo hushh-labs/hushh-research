@@ -8,6 +8,7 @@ from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
 from .agent_prompt import router as agent_prompt_router
+from .byoc_azure import router as byoc_azure_router
 from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
 from .command_proposals import router as command_proposals_router
@@ -104,5 +105,7 @@ router.include_router(puppy_relay_router)
 router.include_router(pod_specialist_router)
 router.include_router(referrals_router)
 router.include_router(runtime_router)
+# Hub-only, beside the GCP one-click routes: Connect Azure (byoc-azure.md).
+router.include_router(byoc_azure_router)
 router.include_router(webauthn_router)
 router.include_router(voice_router)

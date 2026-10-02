@@ -92,6 +92,47 @@ def test_managed_tier_serves_byok_regardless_of_the_fleet_flag(monkeypatch) -> N
     assert model_access_for(BACKEND_GCP, BYOK).can_serve is True
 
 
+# -- owner Azure: the pod's own managed identity first, the owner's key second -------
+
+
+def test_owner_azure_serves_its_own_model_on_the_pods_managed_identity(monkeypatch) -> None:
+    """Azure OpenAI in the person's subscription is theirs; the fleet flag is irrelevant."""
+    from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE
+    from hushh_mcp.services.model_access_policy import ACTIVATION_USER_AZURE_MI
+
+    monkeypatch.setenv("HUSSH_POD_MANAGED_MODEL_ENABLED", "false")
+    verdict = model_access_for(BACKEND_USER_AZURE, MANAGED_PROVIDER)
+    assert verdict.can_serve is True
+    assert verdict.activation == ACTIVATION_USER_AZURE_MI == "user_azure_mi"
+    assert verdict.activation_order == AGENT_ACTIVATION_ORDER
+
+
+def test_owner_azure_serves_the_owners_key_per_turn() -> None:
+    from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE
+
+    verdict = model_access_for(BACKEND_USER_AZURE, BYOK)
+    assert verdict.can_serve is True
+    assert verdict.activation == ACTIVATION_BYOK_PER_TURN
+
+
+def test_owner_azure_never_borrows_a_vertex_activation() -> None:
+    """Its own rule, not the GCP owner rule: no Vertex ADC exists in a subscription."""
+    from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE
+
+    for provider in (MANAGED_PROVIDER, BYOK):
+        assert model_access_for(BACKEND_USER_AZURE, provider).activation not in {
+            ACTIVATION_USER_ADC,
+            ACTIVATION_FLEET_ADC,
+        }
+
+
+def test_retired_and_deferred_backends_still_refuse() -> None:
+    for backend in ("anypoint", "aws", "azure-not-yet"):
+        verdict = model_access_for(backend, MANAGED_PROVIDER)
+        assert verdict.can_serve is False
+        assert verdict.activation_order == ()
+
+
 # -- fail closed -------------------------------------------------------------------
 
 

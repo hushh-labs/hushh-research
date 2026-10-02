@@ -55,11 +55,14 @@ BACKEND_NULL = "null"
 #   POD_STORAGE_LOCAL_ROOT  -- filesystem root (tests, dev, single-node hardware)
 #   POD_STORAGE_GCS_BUCKET  -- a bucket in the POD'S OWN project (BYOC), reached
 #                              keylessly with the pod's identity token
-# plus HUSSH_POD_LOG_KEY for the seal. Anything missing fails LOUD at resolve.
+#   POD_STORAGE_AZURE_BLOB_URL -- https://<account>.blob.core.windows.net/<container>[/<prefix>]
+#                              in the person's own subscription, as the pod's identity
+# plus the log key's custody (resolve_pod_log_key). Anything missing fails LOUD.
 BACKEND_COMMIT_LOG = "commit_log"
 _LOCAL_ROOT_ENV = "POD_STORAGE_LOCAL_ROOT"
 _GCS_BUCKET_ENV = "POD_STORAGE_GCS_BUCKET"
 _GCS_PREFIX_ENV = "POD_STORAGE_GCS_PREFIX"
+_AZURE_BLOB_URL_ENV = "POD_STORAGE_AZURE_BLOB_URL"
 
 
 @dataclass(frozen=True)
@@ -221,24 +224,9 @@ def resolve_pod_storage() -> PodStorage:
         return NullPodStorage()
     if selected == BACKEND_COMMIT_LOG:
         from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
-        from hushh_mcp.services.pod_commit_log import (
-            GcsObjectStore,
-            LocalObjectStore,
-            PodCommitLog,
-        )
+        from hushh_mcp.services.pod_commit_log import PodCommitLog
 
-        local_root = (os.getenv(_LOCAL_ROOT_ENV) or "").strip()
-        bucket = (os.getenv(_GCS_BUCKET_ENV) or "").strip()
-        if bool(local_root) == bool(bucket):
-            raise RuntimeError(
-                f"pod storage 'commit_log' needs exactly one of {_LOCAL_ROOT_ENV} or "
-                f"{_GCS_BUCKET_ENV}"
-            )
-        store: Any = (
-            LocalObjectStore(local_root)
-            if local_root
-            else GcsObjectStore(bucket, (os.getenv(_GCS_PREFIX_ENV) or "").strip())
-        )
+        store = _object_store()
         # The TIER-AGNOSTIC resolver, deliberately. `log_key_from_env()` here was
         # the defect that made every BYOC pod forget: a BYOC pod is provisioned
         # with `HUSSH_POD_KMS_KEY` + a wrapped key object and never carries
@@ -255,3 +243,24 @@ def resolve_pod_storage() -> PodStorage:
             )
         )
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")
+
+
+def _object_store() -> Any:
+    """The one object store the rendered topology names: local, GCS or Azure Blob."""
+    from hushh_mcp.services.pod_commit_log import GcsObjectStore, LocalObjectStore
+
+    local_root = (os.getenv(_LOCAL_ROOT_ENV) or "").strip()
+    bucket = (os.getenv(_GCS_BUCKET_ENV) or "").strip()
+    blob_url = (os.getenv(_AZURE_BLOB_URL_ENV) or "").strip()
+    if [bool(local_root), bool(bucket), bool(blob_url)].count(True) != 1:
+        raise RuntimeError(
+            f"pod storage 'commit_log' needs exactly one of {_LOCAL_ROOT_ENV}, "
+            f"{_GCS_BUCKET_ENV} or {_AZURE_BLOB_URL_ENV}"
+        )
+    if local_root:
+        return LocalObjectStore(local_root)
+    if bucket:
+        return GcsObjectStore(bucket, (os.getenv(_GCS_PREFIX_ENV) or "").strip())
+    from hushh_mcp.services.pod_azure_blob_store import AzureBlobObjectStore
+
+    return AzureBlobObjectStore(blob_url)

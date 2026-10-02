@@ -51,6 +51,7 @@ from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
+from api.routes.one.pod_capabilities import pod_capabilities
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
@@ -61,6 +62,7 @@ from api.routes.one.pod_session import router as pod_session_router  # noqa: E40
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
+from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
 from hushh_mcp.runtime_settings import (  # noqa: E402
     pod_heartbeat_interval_seconds,
     pod_mode,
@@ -71,10 +73,12 @@ from hushh_mcp.services.pod_hub_client import (  # noqa: E402
     PodHubUnavailable,
     hub_base_url,
 )
+from hushh_mcp.services.pod_platform import pod_revision_name  # noqa: E402
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
     pod_keypair,
     pod_public_key_payload,
+    pod_signing_public_payload,
 )
 
 # MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
@@ -280,6 +284,7 @@ def pod_info() -> dict:
         # process's own constants (never a hand-written roster): the drill refuses to
         # run against an image that predates the join rather than measuring a gap.
         "memoryJoin": _memory_join(),
+        "capabilities": pod_capabilities(),
         **memory_bank_status(),
         **_self_report(),
     }
@@ -395,14 +400,14 @@ def probe_model_reachability(
 
 @app.get("/pod/diagnostics/model", tags=["pod"])
 async def pod_model_diagnostic(model: str, location: str = "") -> dict:
-    """Owner-relayed, read-only: whether this pod can reach a model on its own Vertex."""
+    """Owner-relayed, read-only: whether this pod reaches a model as its own identity."""
     if not pod_mode():
         raise HTTPException(status_code=404, detail="not a pod")
     model = (model or "").strip()
     location = (location or "").strip()
     if not _model_name_ok(model) or (location and not _model_name_ok(location)):
         raise HTTPException(status_code=400, detail="invalid model or location")
-    return await asyncio.to_thread(probe_model_reachability, model, location=location)
+    return await asyncio.to_thread(model_probe(probe_model_reachability), model, location=location)
 
 
 def _self_report() -> dict:
@@ -417,7 +422,7 @@ def _self_report() -> dict:
     image_tag = (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()
     if image_tag:
         report["imageTag"] = image_tag[:128]
-    revision = (os.getenv("K_REVISION") or "").strip()
+    revision = pod_revision_name()
     if revision:
         report["revision"] = revision[:128]
     # The Memory Bank engine this pod created for itself, once known: the hub cannot
@@ -449,6 +454,7 @@ def pod_public_key() -> dict:
         # durable material wrapped to it. Ephemeral keys rotate on restart.
         "podKeyDurable": pod_key_is_durable(),
         **pod_public_key_payload(),
+        **pod_signing_public_payload(),  # additive; recorded only from this hub GET
     }
 
 

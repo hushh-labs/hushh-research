@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/firebase/auth-context";
 
 import { ApiService } from "@/lib/services/api-service";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
+import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { useProactiveAgentWake } from "@/lib/feed/use-proactive-agent-wake";
@@ -196,7 +197,10 @@ function OwnerAgentPresence({ userId, compact }: { userId: string; compact: bool
         ? "An update is ready. Choose Update now in Feed when you are ready."
         : null;
   // Where it lives, kept as a tooltip rather than two more lines on the screen.
-  const whereItLives = cloud
+  // An Azure home has a subscription, not a project, so it is named as one.
+  const whereItLives = ownerCloudProvider(deploymentTarget) === "azure"
+    ? "In your own Microsoft Azure subscription"
+    : cloud
     ? `In your project ${cloud.project}${cloud.region ? ` (${cloud.region})` : ""}${
         cloud.credentialMode === "user_adc"
           ? ", thinking with your own project's Vertex AI"

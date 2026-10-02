@@ -797,6 +797,9 @@ class PersonalAgentRegistryRepo:
         user_cloud_project: Optional[str] = None,
         user_cloud_region: Optional[str] = None,
         user_cloud_bootstrap_sa: Optional[str] = None,
+        # Dev-only migration 947; only the hub's own key pull supplies these.
+        pod_signing_pubkey: Optional[str] = None,
+        pod_signing_key_id: Optional[str] = None,
     ) -> None:
         # None fields are dropped so a PENDING/logical row (phone-verify seam, or the
         # NullBackend) leaves them at the schema NULL default; a full provision with a
@@ -832,6 +835,8 @@ class PersonalAgentRegistryRepo:
             "user_cloud_project": user_cloud_project,
             "user_cloud_region": user_cloud_region,
             "user_cloud_bootstrap_sa": user_cloud_bootstrap_sa,
+            "pod_signing_pubkey": pod_signing_pubkey,
+            "pod_signing_key_id": pod_signing_key_id,
             "status": status,
         }
         data = {k: v for k, v in data.items() if v is not None}

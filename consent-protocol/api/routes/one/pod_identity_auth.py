@@ -15,12 +15,23 @@ accepts a configured shared fleet account: there the header remains an assertion
 not independent owner proof. Neither path establishes workload attestation or
 information/action permission; callers retain those route-specific checks.
 Acceptance is gated by ``pod_hub_identity_auth_enabled``.
+
+The cloud-neutral path
+----------------------
+Routes call :func:`verify_pod_request`. A request signed with the pod's own
+Ed25519 key (``pod_request_signing``) is verified against the key the hub pulled
+itself from the pod's recorded address (``pod_request_verifier``); that works on
+every cloud and is owner-bound by construction. The Google ID token above remains
+the transitional path, accepted only for a row that has never signed: the first
+valid signature latches the row, and from then on a Google-only request from it is
+refused. A present-but-invalid signature is refused outright, never downgraded.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Optional
+from urllib.parse import parse_qsl
 
 from fastapi import Request
 from starlette.concurrency import run_in_threadpool
@@ -31,14 +42,116 @@ from hushh_mcp.runtime_settings import (
     pod_hub_identity_auth_enabled,
 )
 from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER, VerifiedOwnerPod
+from hushh_mcp.services.pod_request_signing import SIGNATURE_HEADER, VerifiedPod
+from hushh_mcp.services.pod_request_verifier import (
+    SignedOutcome,
+    SignedRequest,
+    SignedVerification,
+    verify_signed_request,
+)
 
 logger = logging.getLogger(__name__)
+
+
+async def verify_pod_request(
+    request: Request,
+    authorization: Optional[str],
+    *,
+    owner_bound: bool = False,
+    registry: Any = None,
+    store: Any = None,
+    refresh: Any = None,
+) -> Optional[VerifiedPod]:
+    """The verified pod behind this request, or None. Never raises.
+
+    ``owner_bound`` demands evidence that distinguishes this pod from every other
+    one: a valid signature, or (transitionally) a BYOC service account bound to the
+    row. The managed fleet account never satisfies it.
+    """
+    if not pod_hub_identity_auth_enabled():
+        return None
+    signed = await _verify_signature(request, registry=registry, store=store, refresh=refresh)
+    if signed.outcome is SignedOutcome.VERIFIED:
+        return signed.pod
+    if signed.outcome is SignedOutcome.INVALID:
+        return None
+    google = await verify_pod_identity(request, authorization, owner_bound=owner_bound)
+    if not google:
+        return None
+    pod = (
+        VerifiedPod(google.hushh_id, service_account=google.service_account)
+        if isinstance(google, VerifiedOwnerPod)
+        else VerifiedPod(str(google))
+    )
+    if await _latched_to_signed(pod.hushh_id, signed.row, registry):
+        logger.warning("pod_hub_auth.rejected_identity reason=signed_latch")
+        return None
+    return pod
+
+
+async def _verify_signature(
+    request: Request, *, registry: Any, store: Any, refresh: Any
+) -> SignedVerification:
+    """Run the signed path, or report UNSIGNED without touching body or registry."""
+    if not str(request.headers.get(SIGNATURE_HEADER) or "").strip():
+        return SignedVerification(SignedOutcome.UNSIGNED)
+    try:
+        signed_request = SignedRequest(
+            headers=request.headers,
+            method=request.method,
+            path=request.url.path,
+            query_pairs=parse_qsl(request.url.query, keep_blank_values=True),
+            body=await request.body(),
+        )
+    except Exception as exc:  # noqa: BLE001 - an unreadable request is not a pod
+        logger.info("pod_hub_auth.unreadable_signed_request %s", type(exc).__name__)
+        return SignedVerification(SignedOutcome.INVALID)
+    return await verify_signed_request(
+        signed_request,
+        aud=pod_hub_expected_audience(),
+        registry=registry or _registry(),
+        store=store or _identity_store(),
+        refresh=refresh or _refresh_pod_key,
+    )
+
+
+async def _latched_to_signed(hushh_id: str, row: Optional[dict], registry: Any) -> bool:
+    """Whether this row has ever signed. An unreadable row counts as latched."""
+    if not isinstance(row, dict) or str(row.get("hushh_id") or "") != hushh_id:
+        try:
+            row = await (registry or _registry()).get_by_hushh_id(hushh_id)
+        except Exception as exc:  # noqa: BLE001 - cannot rule the latch out: refuse
+            logger.warning("pod_hub_auth.latch_read_failed %s", type(exc).__name__)
+            return True
+    return str((row or {}).get("identity_mode") or "") == "signed"
+
+
+def _registry() -> Any:
+    from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+        PersonalAgentRegistryRepo,
+    )
+
+    return PersonalAgentRegistryRepo()
+
+
+def _identity_store() -> Any:
+    from hushh_mcp.services.pod_request_identity_store import (  # noqa: PLC0415
+        PodRequestIdentityStore,
+    )
+
+    return PodRequestIdentityStore()
+
+
+async def _refresh_pod_key(row: dict) -> Any:
+    from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415
+
+    return await refresh_pod_key(row)
 
 
 async def verify_pod_identity(
     request: Request, authorization: Optional[str], *, owner_bound: bool = False
 ) -> str | VerifiedOwnerPod | None:
-    """The pod's asserted HusshID once its token verifies, else None.
+    """The pod's asserted HusshID once its token verifies, else None (transitional path).
 
     Returns None -- never raises -- for every failure mode, so each caller decides
     what a non-pod caller means for its own route. The prompt route falls through to

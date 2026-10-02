@@ -795,3 +795,38 @@ tests/test_pod_data_door_specialist.py
 tests/test_pod_fleet_wiring.py
 tests/test_pod_no_trace_reset.py
 tests/test_no_orphaned_agents.py
+
+# Azure lane pod-seams (2026-10-02)
+tests/test_pod_boots_off_google_cloud.py
+tests/test_pod_key_vault_custody.py
+tests/test_pod_object_store_contract.py
+tests/test_pod_platform_incarnation.py
+tests/test_pod_workload_identity.py
+# Azure lane identity (2026-10-02): cloud-neutral pod-to-hub request signing.
+tests/test_pod_request_signing.py
+tests/test_pod_request_verifier.py
+tests/test_pod_signing_key_recording.py
+tests/test_pod_request_signing_postgres.py
+tests/test_pod_signing_key_rotation_postgres.py
+# Azure lane model (2026-10-02): the person's own Azure OpenAI deployment as the
+# agent's model (mode user_azure_mi), streamed tool calls, and the pod's own
+# deployment reachability probe, and every pod door that runs a model on it.
+tests/test_azure_openai_transport.py
+tests/test_azure_openai_owner_mode.py
+tests/test_azure_openai_model_diagnostic.py
+tests/test_azure_openai_turn_doors.py
+# Azure lane hub-azure (2026-10-02)
+tests/test_azure_arm_client.py
+tests/test_azure_federation.py
+tests/test_azure_entra_authorizer.py
+tests/test_azure_setup_plan.py
+tests/test_azure_container_app_renderer.py
+tests/test_azure_pod_ingress_wall.py
+tests/test_azure_agent_setup.py
+tests/test_user_azure_backend.py
+tests/test_user_cloud_azure_coordinates.py
+tests/test_azure_registry_migration.py
+tests/test_azure_setup_job.py
+tests/test_byoc_azure_routes.py
+tests/test_azure_agent_upgrade_handoff.py
+tests/test_azure_upgrade_admission.py

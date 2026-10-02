@@ -867,6 +867,9 @@ def pod_hub_identity_auth_enabled() -> bool:
     where pods hold real holdings would let one compromised pod read another user's
     prompt. Cryptographic per-pod identity is the attested ``dedicated`` tier (M5).
 
+    The same flag gates the cloud-neutral signed path (``pod_request_verifier``),
+    whose per-pod Ed25519 key does distinguish pods; it needs dev-only migration 947.
+
     See ``docs/future/personal-agent/POD-HUB-DATA-PATH.md``.
     """
     return _bool_from_value(_clean_env("POD_HUB_IDENTITY_AUTH_ENABLED"), default=False)

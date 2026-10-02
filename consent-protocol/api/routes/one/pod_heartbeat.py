@@ -66,7 +66,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
-from api.routes.one.pod_identity_auth import verify_pod_identity
+from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
@@ -91,12 +91,13 @@ async def record_pod_heartbeat(
     if not personal_agent_enabled():
         raise HTTPException(status_code=404, detail="personal agent is not available")
 
-    hushh_id = await verify_pod_identity(request, authorization)
-    if not hushh_id:
-        # One shape for every rejection -- flag off, bad token, wrong service
-        # account, missing header -- so this is not an oracle for which of those
-        # applies.
+    verified = await verify_pod_request(request, authorization)
+    if verified is None:
+        # One shape for every rejection -- flag off, bad token, bad signature, wrong
+        # service account, missing header -- so this is not an oracle for which of
+        # those applies.
         raise HTTPException(status_code=401, detail="pod identity required")
+    hushh_id = verified.hushh_id
 
     repo = registry or PersonalAgentRegistryRepo()
     row = await repo.record_heartbeat(hushh_id=hushh_id, observed=await _read_self_report(request))

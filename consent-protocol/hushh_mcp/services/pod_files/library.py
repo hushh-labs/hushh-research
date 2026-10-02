@@ -20,6 +20,8 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from hushh_mcp.services.pod_object_version import ABSENT, ObjectVersion
+
 from . import analysis_policy, catalog, transfers
 from .contracts import CHUNK_BYTES as CHUNK_BYTES
 from .contracts import MAX_FILE_BYTES, decode_metadata, display_name
@@ -53,7 +55,7 @@ class FilesLibrary:
         except Exception as exc:
             raise FilesRefused("FILES_INTEGRITY_FAILURE", 409) from exc
 
-    async def _read(self, path: str) -> tuple[dict[str, Any], int]:
+    async def _read(self, path: str) -> tuple[dict[str, Any], ObjectVersion]:
         await self.check()
         data, generation = await self.store.get_with_generation(path)
         if data is None:
@@ -61,7 +63,7 @@ class FilesLibrary:
         await self.check()
         return decode_metadata(self._open(path, data)), generation
 
-    async def _write(self, path: str, value: dict[str, Any], generation: int) -> None:
+    async def _write(self, path: str, value: dict[str, Any], generation: ObjectVersion) -> None:
         await self.check()
         blob = self._seal(
             path,
@@ -113,7 +115,7 @@ class FilesLibrary:
         path = f"folders/{parent}/{file_id}.bin"
         await self.check()
         # Index is a hint. Writing it before the authoritative CAS prevents lost visibility.
-        await self.store.put_if_generation(path, self._seal(path, file_id.encode()), 0)
+        await self.store.put_if_generation(path, self._seal(path, file_id.encode()), ABSENT)
 
     async def create(
         self, *, name: str, parent: str, size: int, request_id: str, folder: bool = False
@@ -165,7 +167,7 @@ class FilesLibrary:
             "automaticConsentRevision": settings["revision"] if settings["automatic"] else None,
         }
         await self._index(parent, file_id)
-        await self._write(path, entry, 0)
+        await self._write(path, entry, ABSENT)
         return self.public(entry)
 
     async def stat(self, file_id: str) -> dict[str, Any]:

@@ -23,7 +23,10 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from hushh_mcp.services.compute_backend import is_owner_cloud_target
+from hushh_mcp.services.compute_backend import (
+    is_owner_cloud_target,
+    owner_cloud_coordinates_complete,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +50,12 @@ class UserCloud:
     #: hushh's compute.
     lookup_failed: bool = False
     files_library_enabled: bool = False
+    #: Directory, subscription and resource group for an owner cloud that is
+    #: addressed that way. Neutral names: which targets need them is declared beside
+    #: the target ids in compute_backend, never spelled here.
+    tenant_id: Optional[str] = None
+    subscription_id: Optional[str] = None
+    resource_group: Optional[str] = None
 
     @property
     def is_user_owned(self) -> bool:
@@ -75,7 +84,18 @@ class UserCloud:
         than fall back to hussh's own cloud, which would put their agent and their bill
         somewhere they did not choose, with nothing saying so.
         """
-        return self.is_user_owned and bool((self.project or "").strip()) and self.authorized
+        coordinates = {
+            "project": self.project,
+            "region": self.region,
+            "tenant_id": self.tenant_id,
+            "subscription_id": self.subscription_id,
+            "resource_group": self.resource_group,
+        }
+        return (
+            self.is_user_owned
+            and owner_cloud_coordinates_complete(self.deployment_target, coordinates)
+            and self.authorized
+        )
 
     @property
     def blocks_provisioning(self) -> bool:
@@ -142,7 +162,48 @@ def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
         region=(row.get("user_cloud_region") or None),
         bootstrap_sa=(row.get("user_cloud_bootstrap_sa") or None),
         authorized=bool(row.get("user_cloud_authorized_at")),
+        tenant_id=(row.get("user_cloud_tenant_id") or None),
+        subscription_id=(row.get("user_cloud_subscription_id") or None),
+        resource_group=(row.get("user_cloud_resource_group") or None),
     )
+
+
+#: Registry columns that are also PodSpec fields of the same name.
+_SPEC_COORDINATE_COLUMNS: tuple[str, ...] = (
+    "user_cloud_project",
+    "user_cloud_region",
+    "user_cloud_bootstrap_sa",
+    "user_cloud_tenant_id",
+    "user_cloud_subscription_id",
+    "user_cloud_resource_group",
+)
+
+
+def spec_coordinates(cloud: Optional[UserCloud]) -> dict[str, Optional[str]]:
+    """The PodSpec placement kwargs for this person's cloud; all None without one.
+
+    One projection instead of the same field list at every PodSpec construction, so a
+    coordinate added for a new owner cloud reaches provisioning, upgrade and adoption
+    together rather than one call site at a time.
+    """
+    if cloud is None:
+        return dict.fromkeys(_SPEC_COORDINATE_COLUMNS)
+    # getattr: a cloud recorded before a coordinate existed (or a caller's double)
+    # simply has no value for it, which is exactly what None means here.
+    return {
+        "user_cloud_project": getattr(cloud, "project", None),
+        "user_cloud_region": getattr(cloud, "region", None),
+        "user_cloud_bootstrap_sa": getattr(cloud, "bootstrap_sa", None),
+        "user_cloud_tenant_id": getattr(cloud, "tenant_id", None),
+        "user_cloud_subscription_id": getattr(cloud, "subscription_id", None),
+        "user_cloud_resource_group": getattr(cloud, "resource_group", None),
+    }
+
+
+def spec_coordinates_from_row(row: Optional[dict[str, Any]]) -> dict[str, Optional[str]]:
+    """The same projection read straight from a registry row or retained snapshot."""
+    source = row or {}
+    return {column: (source.get(column) or None) for column in _SPEC_COORDINATE_COLUMNS}
 
 
 async def resolve_user_cloud(

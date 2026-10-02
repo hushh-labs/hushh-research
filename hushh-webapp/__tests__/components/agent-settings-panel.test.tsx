@@ -16,8 +16,15 @@ const mocks = vi.hoisted(() => ({
   report: vi.fn(),
   promiseToast: vi.fn(),
   dismissToast: vi.fn(),
+  azureUpgrade: vi.fn(),
+  setupStatus: vi.fn(),
+  assign: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
+vi.mock("@/lib/utils/browser-navigation", async (original) => ({
+  ...(await original<object>()),
+  assignWindowLocation: mocks.assign,
+}));
 vi.mock("@/lib/feed/use-agent-deployment-follow", async (original) => ({
   ...(await original<object>()),
   useAgentDeploymentFollow: mocks.follow,
@@ -30,6 +37,8 @@ vi.mock("@/lib/services/api-service", () => ({
     reconnectOwnerPod: mocks.reconnect,
     adoptOrphanPod: mocks.adopt,
     reportPersonalAgentUpdateFailure: mocks.report,
+    beginAzureByocUpgrade: mocks.azureUpgrade,
+    getByocSetupStatus: mocks.setupStatus,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -173,6 +182,66 @@ describe("owner hosting and software settings", () => {
     },
   );
 
+  it("records the exact Azure release, then starts the owner's own Microsoft sign-in", async () => {
+    const signIn = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
+    mocks.approve.mockResolvedValue({ operationId: "op", releaseId: "rel_exact", status: "scheduled" });
+    mocks.azureUpgrade.mockResolvedValue({ authorizationUrl: signIn });
+    status(
+      "byoc",
+      {
+        deploymentTarget: "user_azure",
+        updateOfferable: true,
+        installedRelease: { version: "2026.09-dev.1" },
+      },
+      { ...NO_UPDATE, available: true, releaseId: "rel_exact" },
+    );
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Update now" }));
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(signIn));
+    expect(mocks.approve).toHaveBeenCalledWith({
+      releaseId: "rel_exact",
+      idempotencyKey: "azure-update.rel_exact",
+    });
+    expect(mocks.approve.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.azureUpgrade.mock.invocationCallOrder[0],
+    );
+    expect(mocks.azureUpgrade).toHaveBeenCalledOnce();
+    expect(mocks.promiseToast.mock.calls[0][1].loading).toBe("Opening Microsoft sign-in…");
+    expect(mocks.promiseToast.mock.calls[0][1].error(new Error("NETWORK"))).toMatch(/keeps its current version/);
+  });
+
+  it("lets an owner who closed the Microsoft sign-in continue an approved Azure update", async () => {
+    const signIn = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=r";
+    mocks.azureUpgrade.mockResolvedValue({ authorizationUrl: signIn });
+    mocks.setupStatus.mockResolvedValue({ status: "recorded", stale: false });
+    status("byoc", { deploymentTarget: "user_azure", installedRelease: { version: "existing" } }, {
+      ...NO_UPDATE, available: true, releaseId: "rel_exact", operationId: "op_1",
+      presentationState: "scheduled", phase: "scheduled", inProgress: true,
+    });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    expect(await screen.findByText("Approved. Waiting for your Microsoft sign-in")).toBeTruthy();
+    expect(screen.queryByRole("status", { name: /Software update/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Continue to Microsoft sign-in" }));
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(signIn));
+    expect(mocks.approve).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for a sign-in while the approved Azure update's job is running", async () => {
+    mocks.setupStatus.mockResolvedValue({ status: "running", stale: false });
+    status("byoc", { deploymentTarget: "user_azure", installedRelease: { version: "existing" } }, {
+      ...NO_UPDATE, available: true, releaseId: "rel_exact", operationId: "op_1",
+      presentationState: "scheduled", phase: "scheduled", inProgress: true,
+    });
+    render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
+
+    await waitFor(() => expect(mocks.setupStatus).toHaveBeenCalled());
+    expect(screen.getByText("Update scheduled")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Continue to Microsoft sign-in" })).toBeNull();
+  });
+
   it("sends a failed update report only after the owner selects the action", async () => {
     const operationId = `op_${"a".repeat(32)}`;
     status("byoc", { installedRelease: { version: "2026.09-dev.5" } }, {
@@ -204,6 +273,8 @@ describe("owner hosting and software settings", () => {
     expect(screen.getByText(label)).toBeTruthy();
     expect(screen.getByText("existing")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    // Only an Azure agent waits on its owner's sign-in.
+    expect(mocks.setupStatus).not.toHaveBeenCalled();
   });
 
   it("keeps the concise changelog behind one disclosure", () => {

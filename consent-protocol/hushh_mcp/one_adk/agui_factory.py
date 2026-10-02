@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 from ag_ui_adk.request_state_service import RequestStateSessionService
@@ -83,3 +84,20 @@ def build_authenticated_agui(
         emit_messages_snapshot=True,
         capabilities=_authenticated_capabilities,
     )
+
+
+class FirstUseAgent:
+    """Stands in for an ``ADKAgent`` and builds the real one on first attribute use.
+
+    ``add_adk_fastapi_endpoint`` takes a fallback agent at registration. A route
+    whose resolver always selects a head never uses it, and this keeps registration
+    from building one, and resolving its model, while the module is imported.
+    """
+
+    def __init__(self, build: Callable[[], Any]) -> None:
+        self._build = build
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("__") or name == "_build":  # protocol probes never build
+            raise AttributeError(name)
+        return getattr(self._build(), name)

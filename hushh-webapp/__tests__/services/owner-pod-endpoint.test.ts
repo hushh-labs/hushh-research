@@ -59,6 +59,7 @@ class FakeWorld {
   now = 1_757_500_000_000;
   bindingIssuedOffsetMs = -1000;
   bindingExpiresOffsetMs = 24 * 3600 * 1000;
+  deploymentTarget = "user_gcp";
 
   transport(): ownerPod.OwnerPodTransport {
     return {
@@ -80,7 +81,7 @@ class FakeWorld {
       kind: "pod_binding_v1", hushh_id: "ha1_owner", user_id: USER,
       environment: "dev", url: POD_URL, pod_key_id: "podk_1",
       subject_id: "tdv_app_1", subject_kind: "app", subject_public_key: this.appPublicKey,
-      platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: "user_gcp",
+      platform: "web", role: "app", scopes: ["pkm.read"], deployment_target: this.deploymentTarget,
       version: this.bindingVersion || 1, issued_at_ms: this.now + this.bindingIssuedOffsetMs, expires_at_ms: this.now + this.bindingExpiresOffsetMs,
     };
     if (path.endsWith("/pod-binding") && init.method === "GET") {
@@ -169,6 +170,16 @@ describe("owner pod endpoint", () => {
       await expect(ownerPod.refreshEndpointFromHub(USER, world.transport())).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH");
       expect(world.calls.filter((call) => call.target === "direct")).toHaveLength(0);
       expect(await ownerPod.loadPinnedEndpoint(USER)).toBeNull();
+    },
+  );
+
+  it.each([["user_azure", true], ["gcp", false], ["anypoint", false], ["user_aws", false], ["", false]] as const)(
+    "admits a hub-signed binding only for an owner-cloud home: %j -> %s", async (target, admitted) => {
+      world.deploymentTarget = target;
+      const refresh = ownerPod.refreshEndpointFromHub(USER, world.transport());
+      await (admitted ? refresh : expect(refresh).rejects.toThrow("BINDING_OWNER_OR_ENDPOINT_MISMATCH"));
+      expect(world.calls.some((call) => call.target === "direct")).toBe(admitted);
+      expect((await ownerPod.loadPinnedEndpoint(USER)) !== null).toBe(admitted);
     },
   );
 

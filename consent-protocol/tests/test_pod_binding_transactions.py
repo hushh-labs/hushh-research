@@ -520,8 +520,8 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     from hushh_mcp.services import pod_binding_service
     from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore
     from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
-    from hushh_mcp.services.pod_hub_client import VerifiedOwnerPod
     from hushh_mcp.services.pod_mcp_approval import PodMcpApprovalPort
+    from hushh_mcp.services.pod_request_signing import VerifiedPod
     from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
     from tests.helpers.chat_keys import bound_request_chat_key
     from tests.test_adk_specialist_chat_services import _ScriptedModel
@@ -556,8 +556,12 @@ async def test_private_native_mcp_suspend_preview_confirm_resume(
     monkeypatch.setattr(broker_route, "personal_agent_enabled", lambda: True)
     monkeypatch.setattr(
         broker_route,
-        "verify_pod_identity",
-        AsyncMock(return_value=VerifiedOwnerPod(hushh_id, "pod@synthetic.iam.gserviceaccount.com")),
+        "verify_pod_request",
+        AsyncMock(
+            return_value=VerifiedPod(
+                hushh_id, service_account="pod@synthetic.iam.gserviceaccount.com"
+            )
+        ),
     )
     native = AsyncMock(return_value={"content": [], "structuredContent": {"count": 1}})
     monkeypatch.setattr(McpTool, "_run_async_impl", native)

@@ -17,6 +17,7 @@ import pytest
 from fastapi import HTTPException
 
 from api.routes.one import pod_heartbeat
+from hushh_mcp.services.pod_request_signing import VerifiedPod
 
 
 class _FakeRequest:
@@ -49,9 +50,9 @@ def enabled(monkeypatch):
 
 def _verifies_as(monkeypatch, hushh_id):
     async def _verify(_request, _authorization):
-        return hushh_id
+        return VerifiedPod(hushh_id) if hushh_id else None
 
-    monkeypatch.setattr(pod_heartbeat, "verify_pod_identity", _verify)
+    monkeypatch.setattr(pod_heartbeat, "verify_pod_request", _verify)
 
 
 async def test_a_verified_pod_records_a_heartbeat(monkeypatch, enabled):

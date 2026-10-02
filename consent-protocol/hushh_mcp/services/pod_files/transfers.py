@@ -8,6 +8,8 @@ import hmac
 import time
 from typing import TYPE_CHECKING, Any
 
+from hushh_mcp.services.pod_object_version import ABSENT
+
 from .contracts import CHUNK_BYTES, FilesRefused
 
 if TYPE_CHECKING:
@@ -30,7 +32,7 @@ async def put_chunk(library: FilesLibrary, file_id: str, index: int, data: bytes
     stored = await library.store.get(chunk_path)
     if stored is None:
         sealed = library._seal(chunk_path, data, key)
-        await library.store.put_if_generation(chunk_path, sealed, 0)
+        await library.store.put_if_generation(chunk_path, sealed, ABSENT)
         stored = await library.store.get(chunk_path)
     if stored is None or not hmac.compare_digest(
         hashlib.sha256(library._open(chunk_path, stored, key)).digest(),

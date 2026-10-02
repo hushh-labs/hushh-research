@@ -88,6 +88,7 @@ import {
 } from "@/lib/services/connections-service";
 import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { approveAgentUpdate } from "@/lib/one/agent-update-approval";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { updateActivityLabel, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 
@@ -407,7 +408,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
-  const { update: agentUpdate } = useAgentDeploymentFollow({
+  const { update: agentUpdate, deploymentTarget: agentDeploymentTarget } = useAgentDeploymentFollow({
     enabled: Boolean(userId),
     userId,
   });
@@ -844,14 +845,15 @@ export function useFeedActionables(): UseFeedActionablesResult {
         if (updateActionBusyRef.current || !releaseId || updateActivity || !agentUpdate.offerable) return;
         updateActionBusyRef.current = true;
         try {
-          await ApiService.approvePersonalAgentUpdate({
+          const approval = await approveAgentUpdate({
+            deploymentTarget: agentDeploymentTarget,
             releaseId,
             idempotencyKey:
               typeof crypto !== "undefined" && "randomUUID" in crypto
                 ? crypto.randomUUID()
                 : `${userId}:${releaseId}`,
           });
-          notifyFeedActionResolved();
+          if (approval === "scheduled") notifyFeedActionResolved();
         } finally {
           updateActionBusyRef.current = false;
         }
@@ -1480,6 +1482,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
   }, [
     appTaskState.tasks,
     agentUpdate,
+    agentDeploymentTarget,
     consentDecision.allow,
     declineConsentRequest,
     markConsentSettled,

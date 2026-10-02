@@ -49,6 +49,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
 
+from hushh_mcp.services.pod_object_version import (
+    ABSENT,
+    is_object_version,
+    persisted_version,
+    version_from_persisted,
+)
+
 logger = logging.getLogger(__name__)
 
 #: Where the pod keeps the engine id: one small object in its own prefix.
@@ -479,8 +486,7 @@ def _creation_provenance(record: dict[str, Any]) -> dict[str, Any]:
         or set(proof) != {"version", "reservationGeneration", "engineIncarnation"}
         or type(proof.get("version")) is not int
         or proof["version"] != 1
-        or type(proof.get("reservationGeneration")) is not int
-        or proof["reservationGeneration"] <= 0
+        or not version_from_persisted(proof.get("reservationGeneration"))
         or not isinstance(record.get("engineIncarnation"), dict)
         or proof.get("engineIncarnation") != record["engineIncarnation"]
         or record.get("generationProtocol") != 2
@@ -547,8 +553,7 @@ def _admission_fence(record: dict[str, Any], owner_id: str) -> dict[str, Any]:
         or state.get("phase") != "admission_closed"
         or not isinstance(state.get("attemptId"), str)
         or not 0 < len(state["attemptId"]) <= 128
-        or type(state.get("priorGeneration")) is not int
-        or state["priorGeneration"] < 0
+        or version_from_persisted(state.get("priorGeneration")) is None
     ):
         raise MemoryBankUnavailable("memory admission fence mismatch")
     return state
@@ -602,7 +607,7 @@ async def fence_memory_bank_admission(
                 "ownerId": owner_id,
                 "attemptId": attempt_id,
                 "phase": "admission_closed",
-                "priorGeneration": generation,
+                "priorGeneration": persisted_version(generation),
             },
         }
         _admission_fence(record, owner_id)
@@ -625,7 +630,7 @@ async def memory_bank_erasure_binding(
             raise MemoryBankUnavailable("memory owner configuration unavailable")
         await log.require_fenced(owner_id=owner_id, attempt_id=attempt_id)
         raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
-        if type(generation) is not int or generation <= 0:
+        if not is_object_version(generation):
             raise MemoryBankUnavailable("memory record unavailable")
         record = json.loads(raw)
         engine_id = record.get("engineId")
@@ -709,14 +714,13 @@ def _erasure_state(record: dict[str, Any], cfg: MemoryBankConfig, engine_id: str
     return state
 
 
-async def _persist_record(store: Any, record: dict[str, Any], generation: int) -> int:
+async def _persist_record(store: Any, record: dict[str, Any], generation: str) -> str:
     payload = json.dumps(record, sort_keys=True).encode()
     updated = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, generation)
     observed, observed_generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
     if (
-        type(updated) is not int
-        or updated <= 0
-        or type(observed_generation) is not int
+        not is_object_version(updated)
+        or not is_object_version(observed_generation)
         or observed != payload
         or observed_generation != updated
     ):
@@ -724,7 +728,7 @@ async def _persist_record(store: Any, record: dict[str, Any], generation: int) -
     return updated
 
 
-async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
+async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> str:
     payload = json.dumps(
         {
             "status": "creating",
@@ -734,12 +738,8 @@ async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
     ).encode()
-    generation = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, 0)
-    if (
-        type(generation) is not int
-        or generation <= 0
-        or await store.get(MEMORY_BANK_RECORD_KEY) != payload
-    ):
+    generation = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, ABSENT)
+    if not is_object_version(generation) or await store.get(MEMORY_BANK_RECORD_KEY) != payload:
         raise MemoryBankUnavailable("creation reservation not confirmed")
     return generation
 
@@ -749,7 +749,7 @@ async def _write_record(
     cfg: MemoryBankConfig,
     engine_id: str,
     *,
-    expected_generation: int = 0,
+    expected_generation: str = ABSENT,
     creation_incarnation: Optional[dict[str, str]] = None,
 ) -> None:
     if store is None:
@@ -762,12 +762,12 @@ async def _write_record(
     incarnation = await asyncio.to_thread(_observe_engine_incarnation, cfg, engine_id)
     provenance = {}
     if creation_incarnation is not None:
-        if creation_incarnation != incarnation or expected_generation <= 0:
+        if creation_incarnation != incarnation or not is_object_version(expected_generation):
             raise MemoryBankUnavailable("memory creation observation mismatch")
         provenance = {
             "creationProvenance": {
                 "version": 1,
-                "reservationGeneration": expected_generation,
+                "reservationGeneration": persisted_version(expected_generation),
                 "engineIncarnation": incarnation,
             }
         }
@@ -795,7 +795,8 @@ async def _write_record(
     current = json.loads(observed) if observed is not None else {}
     if isinstance(current, dict) and "erasure" in current:
         state = _admission_fence(current, cfg.display_name.removeprefix(_DISPLAY_PREFIX))
-        if state["priorGeneration"] != expected_generation or any(
+        prior = version_from_persisted(state["priorGeneration"])
+        if prior != expected_generation or any(
             current.get(key) != value
             for key, value in {
                 "project": cfg.project,
@@ -976,7 +977,7 @@ async def rebuild_memory_bank(*, store: Any, log: Any = None, service: Any = Non
     if log is not None:
         await log.require_open()
     raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
-    if raw is None or type(generation) is not int or generation <= 0:
+    if raw is None or not is_object_version(generation):
         raise MemoryBankUnavailable("memory record unavailable for rebuild")
     record = json.loads(raw)
     if not isinstance(record, dict) or "erasure" in record:
@@ -1172,14 +1173,14 @@ def build_rest_memory_bank_service(
             parts[1] = cfg.project
             return "/".join(parts)
 
-        async def _record_state(self) -> tuple[dict[str, Any], int]:
+        async def _record_state(self) -> tuple[dict[str, Any], str]:
             await require_record()
             raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
             if _decode_record(raw, cfg) != engine_id or not is_current():
                 raise MemoryBankUnavailable("memory generation admission changed")
             return json.loads(raw), generation
 
-        async def _save_state(self, record: dict[str, Any], generation: int) -> int:
+        async def _save_state(self, record: dict[str, Any], generation: str) -> str:
             if _decode_record(json.dumps(record), cfg) != engine_id:
                 raise MemoryBankUnavailable("memory ordinary write binding changed")
             if not is_current():
@@ -1195,7 +1196,7 @@ def build_rest_memory_bank_service(
             field: str,
             expected: dict[str, Any],
             replacement: Optional[dict[str, Any]],
-        ) -> tuple[dict[str, Any], int]:
+        ) -> tuple[dict[str, Any], str]:
             # Acknowledgements may race another slot or the erasure fence. Merge
             # only this exact operation; never republish a stale whole record.
             for _ in range(4):
@@ -1227,8 +1228,8 @@ def build_rest_memory_bank_service(
             raise MemoryBankUnavailable("memory completion persistence unconfirmed")
 
         async def _save_generation_acknowledgement(
-            self, record: dict[str, Any], generation: int
-        ) -> tuple[dict[str, Any], int]:
+            self, record: dict[str, Any], generation: str
+        ) -> tuple[dict[str, Any], str]:
             incoming = _generation_slot(record)
             if incoming is None or incoming["phase"] != "pending":
                 raise MemoryBankUnavailable("memory acknowledgement unavailable")
@@ -1449,7 +1450,7 @@ def build_rest_memory_bank_service(
                 generation = await _persist_record(store, record, generation)
                 await log.require_fenced(owner_id=user_id, attempt_id=attempt_id)
 
-                async def delete_and_record_acknowledgement() -> tuple[dict, dict, dict, int]:
+                async def delete_and_record_acknowledgement() -> tuple[dict, dict, dict, str]:
                     # Once admitted, a disconnected caller must not discard a
                     # provider acknowledgement. Process loss still leaves the
                     # durable submitting state unresolved; never repeat DELETE.
@@ -1549,8 +1550,8 @@ def build_rest_memory_bank_service(
             return newest_name
 
         async def _finish_operation(
-            self, record: dict[str, Any], generation: int, payload: dict[str, Any]
-        ) -> tuple[dict[str, Any], int]:
+            self, record: dict[str, Any], generation: str, payload: dict[str, Any]
+        ) -> tuple[dict[str, Any], str]:
             if payload.get("done") is not True:
                 raise MemoryBankGenerationPending("memory generation still pending")
             failed = "error" in payload
