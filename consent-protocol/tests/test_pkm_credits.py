@@ -293,3 +293,27 @@ async def test_deleted_accounts_subscription_is_cancelled_at_stripe(world):
     assert await credits.cancel_deleted_subscriptions() == 1
     assert fake.cancelled == ["sub_9"]
     assert db.tables["pkm_credit_subscription_cancellations"] == []
+
+
+async def test_old_api_invoice_without_inline_metadata_reads_the_subscription(world, monkeypatch):
+    orders, credits, db, fake = world
+    meta = {"payment_kind": "pkm_credits", "user_id": "buyer", "plan": "professional"}
+
+    class _Sub:
+        @staticmethod
+        def retrieve(sub_id, **_kw):
+            assert sub_id == "sub_1"
+            return {"object": "subscription", "id": sub_id, "metadata": meta}
+
+    fake.Subscription.retrieve = _Sub.retrieve
+    invoice = {
+        "object": "invoice",
+        "id": "in_old",
+        "billing_reason": "subscription_create",
+        "amount_paid": 4900,
+        "subscription": "sub_1",
+        "lines": {"data": []},
+    }
+    payload = json.dumps({"type": "invoice.paid", "data": {"object": invoice}}).encode()
+    await orders.process_webhook(payload=payload, signature="good")
+    assert await credits.balance("buyer") == PLANS["professional"]["credits"]

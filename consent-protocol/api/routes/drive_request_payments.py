@@ -15,6 +15,8 @@ from hushh_mcp.services.pkm_packet_order_service import (
 from hushh_mcp.services.pkm_packet_order_service import (
     PacketOrderError,
     PkmPacketOrderService,
+    is_subscription_event,
+    webhook_event_type,
     webhook_payment_kind,
 )
 
@@ -81,7 +83,10 @@ async def stripe_drive_request_webhook(
         raise HTTPException(status_code=413, detail="Payment event is too large.")
     # One Stripe endpoint, two kinds of payment. Route on the (unverified)
     # payment_kind; each handler verifies the signature before acting.
-    if webhook_payment_kind(payload) in {PKM_PACKET_PAYMENT_KIND, "pkm_credits"}:
+    if webhook_payment_kind(payload) in {
+        PKM_PACKET_PAYMENT_KIND,
+        "pkm_credits",
+    } or is_subscription_event(webhook_event_type(payload)):
         try:
             await PkmPacketOrderService().process_webhook(
                 payload=payload, signature=stripe_signature

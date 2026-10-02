@@ -365,7 +365,7 @@ class PkmPacketOrderService:
         session = event.get("data", {}).get("object", {}) or {}
         from hushh_mcp.services.pkm_credit_service import PkmCreditService, credits_metadata
 
-        if credits_metadata(session):
+        if credits_metadata(session) or is_subscription_event(str(event.get("type") or "")):
             credit_service = PkmCreditService(stripe_api=self.stripe_api)
             credit_service._db = self.db
             await credit_service.handle_event(event)
@@ -533,3 +533,15 @@ def webhook_payment_kind(payload: bytes) -> str | None:
         return None
     except (ValueError, AttributeError):
         return None
+
+
+def is_subscription_event(event_type: str) -> bool:
+    """Invoice and subscription events belong to credits plans; Drive never uses them."""
+    return event_type.startswith(("invoice.", "customer.subscription."))
+
+
+def webhook_event_type(payload: bytes) -> str:
+    try:
+        return str(json.loads(payload).get("type") or "")
+    except (ValueError, AttributeError):
+        return ""

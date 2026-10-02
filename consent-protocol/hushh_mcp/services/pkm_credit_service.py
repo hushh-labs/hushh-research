@@ -225,10 +225,28 @@ class PkmCreditService:
                 self.db.table("pkm_credit_subscriptions").insert({"user_id": user_id, **patch})
             )
 
+    async def _metadata(self, obj: dict[str, Any]) -> dict[str, Any]:
+        """Our metadata for an event object. Older Stripe API versions (the UAT
+        endpoint is pinned to 2022-08-01) send invoices without the subscription's
+        metadata, so fall back to reading it from the subscription itself."""
+        meta = credits_metadata(obj)
+        if meta or obj.get("object") != "invoice":
+            return meta
+        sub_id = obj.get("subscription") or (
+            ((obj.get("parent") or {}).get("subscription_details") or {}).get("subscription")
+        )
+        if not sub_id:
+            return {}
+        key, _, _ = _stripe_config()
+        sub = _stripe_dict(
+            await asyncio.to_thread(self.stripe_api.Subscription.retrieve, str(sub_id), api_key=key)
+        )
+        return credits_metadata(sub)
+
     async def handle_event(self, event: dict[str, Any]) -> None:
         kind = str(event.get("type") or "")
         obj = event.get("data", {}).get("object", {}) or {}
-        meta = credits_metadata(obj)
+        meta = await self._metadata(obj)
         user_id, plan = str(meta.get("user_id") or ""), str(meta.get("plan") or "")
         if not user_id or plan not in PLANS:
             return
