@@ -77,6 +77,7 @@ from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
     pod_keypair,
     pod_public_key_payload,
+    pod_signing_public_payload,
 )
 
 # MAKE THE POD SPEAK. Without these two lines a pod is silent, and a silent pod is
@@ -452,6 +453,7 @@ def pod_public_key() -> dict:
         # durable material wrapped to it. Ephemeral keys rotate on restart.
         "podKeyDurable": pod_key_is_durable(),
         **pod_public_key_payload(),
+        **pod_signing_public_payload(),  # additive; recorded only from this hub GET
     }
 
 

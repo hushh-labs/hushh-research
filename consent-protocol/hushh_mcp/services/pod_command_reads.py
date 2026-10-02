@@ -94,17 +94,14 @@ class PodCommandReads(LocationCommandReadService):
                         "reason": "Run the authored Nearby search to obtain current provider results.",
                     }
                 )
-            response = await asyncio.to_thread(
-                self._hub.post,
-                "/api/one/pod/specialist/location/read",
-                json={
-                    "scopeToken": self._scope_token,
-                    "commandRead": options.model_dump(mode="json"),
-                },
+            # Through the client's data door, so the request is signed and its
+            # refusals fail loud exactly like every other specialist read.
+            value = await asyncio.to_thread(
+                self._hub.read_specialist,
+                "location",
+                self._scope_token,
+                command_read=options.model_dump(mode="json"),
             )
-            if response.status_code != 200:
-                raise PodHubUnavailable("Command read authority is unavailable")
-            value = response.json().get("state")
             if (
                 not isinstance(value, dict)
                 or len(json.dumps(value)) > 64_000

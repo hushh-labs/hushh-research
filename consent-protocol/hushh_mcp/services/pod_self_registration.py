@@ -34,6 +34,11 @@ TWO KEY SOURCES, one honest distinction:
   key, and ``pod_key_is_durable()`` is how storage layers refuse to. Pretending
   an ephemeral key is durable would make the registry's record of "this agent's
   key" quietly stop being true -- worse than admitting the limitation.
+
+THE SIGNING KEY. The pod signs its requests to the hub with an Ed25519 key derived
+from this X25519 private key (:func:`derive_signing_key`). It is published beside
+the X25519 public key and recorded by the same hub-initiated pull, so it inherits
+both the durability and the rotation story above, and adds no custody object.
 """
 
 from __future__ import annotations
@@ -44,8 +49,10 @@ import logging
 import os
 from typing import Optional
 
-from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
@@ -63,10 +70,16 @@ POD_PRIVATE_KEY_FILE_ENV = "HUSSH_POD_PRIVATE_KEY_FILE"
 
 _X25519_RAW_LEN = 32
 
+#: HKDF info for the pod's request-signing key. Versioned so a future derivation can
+#: never collide with this one.
+SIGNING_KEY_INFO = b"hushh/pod-hub-request-signing/ed25519/v1"
+
 # This pod's keypair for the life of the process. Module-level because every
 # consumer inside the pod must see the same key. (durable, keypair) so callers
 # can ask which world they are in.
 _STATE: Optional[tuple[bool, PodKeyPair]] = None
+# (X25519 key id it was derived from, signing key): re-derived if the keypair moves.
+_SIGNING: Optional[tuple[str, Ed25519PrivateKey]] = None
 
 
 def _decode_private_key(material: str) -> Optional[bytes]:
@@ -177,4 +190,45 @@ def pod_public_key_payload() -> dict[str, str]:
         "podPublicKey": keypair.public_key_b64,
         "podKeyId": keypair.key_id,
         "podKeyWrappingAlg": keypair.wrapping_alg,
+    }
+
+
+def derive_signing_key(private_key: X25519PrivateKey) -> Ed25519PrivateKey:
+    """The Ed25519 request-signing key that belongs to ``private_key``.
+
+    ``HKDF-SHA256(ikm = raw X25519 private key, salt = none, info = SIGNING_KEY_INFO)``.
+    Derived rather than stored, so it adds no custody object: it is exactly as
+    durable as the X25519 key it comes from, and rotates when that key rotates.
+    """
+    raw = private_key.private_bytes(
+        encoding=serialization.Encoding.Raw,
+        format=serialization.PrivateFormat.Raw,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+    seed = HKDF(algorithm=hashes.SHA256(), length=32, salt=None, info=SIGNING_KEY_INFO).derive(raw)
+    return Ed25519PrivateKey.from_private_bytes(seed)
+
+
+def pod_signing_key() -> Ed25519PrivateKey:
+    """This pod's request-signing key, derived from its current X25519 keypair."""
+    global _SIGNING
+    keypair = pod_keypair()
+    if _SIGNING is None or _SIGNING[0] != keypair.key_id:
+        _SIGNING = (keypair.key_id, derive_signing_key(keypair.private_key))
+    return _SIGNING[1]
+
+
+def pod_signing_public_payload() -> dict[str, str]:
+    """The public half of the signing key, additive to :func:`pod_public_key_payload`."""
+    from hushh_mcp.services.pod_request_signing import (  # noqa: PLC0415
+        SIGNING_ALG,
+        public_key_b64,
+        signing_key_id,
+    )
+
+    public = public_key_b64(pod_signing_key())
+    return {
+        "podSigningKey": public,
+        "podSigningKeyId": signing_key_id(public),
+        "podSigningAlg": SIGNING_ALG,
     }

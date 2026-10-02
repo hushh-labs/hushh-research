@@ -9,6 +9,7 @@ person who shares with many -- a confident wrong answer, the worst kind.
 
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 import pytest
@@ -45,8 +46,11 @@ class _Session:
         # The pod fetches its own identity token from the metadata server first.
         return _TokenResp()
 
-    def post(self, url, json=None, headers=None, timeout=None):
-        self.calls.append({"url": url, "json": json, "headers": headers})
+    def post(self, url, data=None, headers=None, timeout=None):
+        # The client serialises the body once and sends those exact (signed) bytes.
+        self.calls.append(
+            {"url": url, "json": json.loads(data) if data else None, "headers": headers}
+        )
         if self._boom:
             raise self._boom
         return self._resp
