@@ -17,7 +17,16 @@ const RETRY_INTERVAL_MS = 4_000;
 /** A missed read or a job not yet visible is not a verdict; three in a row is. */
 const MAX_UNSETTLED_READS = 3;
 
-function useAzureUpgradeJob(): { job: SetupStatus | null; unreadable: boolean } {
+/**
+ * Whether a setup-status record is the update this page started. The record
+ * holds the person's latest job, which may be an earlier setup or another
+ * attempt: only a record naming this job id is its progress or its result.
+ */
+function isUpgradeJobRecord(status: SetupStatus, jobId: string): boolean {
+  return status.status !== "none" && Boolean(jobId) && status.jobId === jobId;
+}
+
+function useAzureUpgradeJob(jobId: string): { job: SetupStatus | null; unreadable: boolean } {
   const [job, setJob] = useState<SetupStatus | null>(null);
   const [unreadable, setUnreadable] = useState(false);
 
@@ -37,7 +46,7 @@ function useAzureUpgradeJob(): { job: SetupStatus | null; unreadable: boolean } 
       try {
         const status = await ApiService.getByocSetupStatus();
         if (cancelled) return;
-        if (status.status === "none") {
+        if (!isUpgradeJobRecord(status, jobId)) {
           retryOrGiveUp();
           return;
         }
@@ -55,7 +64,7 @@ function useAzureUpgradeJob(): { job: SetupStatus | null; unreadable: boolean } 
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [jobId]);
 
   return { job, unreadable };
 }
@@ -71,16 +80,19 @@ const softwareUpdatesLink = (
 
 /**
  * The approved update's progress, read from the same setup-status record the
- * setup checklist uses. Only the update's own tail of stages is shown.
+ * setup checklist uses. Only the update's own tail of stages is shown, and
+ * only from a record of the job the sign-in started (`jobId`).
  */
 export function AzureUpgradeProgress({
+  jobId,
   onRetry,
   retrying = false,
 }: {
+  jobId: string;
   onRetry: () => void | Promise<void>;
   retrying?: boolean;
 }) {
-  const { job, unreadable } = useAzureUpgradeJob();
+  const { job, unreadable } = useAzureUpgradeJob(jobId);
 
   if (unreadable) {
     return (
