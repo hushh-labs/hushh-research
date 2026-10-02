@@ -23,6 +23,8 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
+
 logger = logging.getLogger(__name__)
 
 
@@ -48,7 +50,7 @@ class UserCloud:
 
     @property
     def is_user_owned(self) -> bool:
-        return (self.deployment_target or "").strip() == "user_gcp"
+        return is_owner_cloud_target(self.deployment_target)
 
     @property
     def is_hosted(self) -> bool:

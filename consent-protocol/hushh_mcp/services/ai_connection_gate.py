@@ -37,6 +37,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Optional
 
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
+
 logger = logging.getLogger(__name__)
 
 # Registry statuses meaning a host exists or is being created. Matches
@@ -50,7 +52,7 @@ async def _reserved_byoc_ready(
     user_id: str, row: dict, repo: Any, setup_jobs: Any
 ) -> tuple[bool, Any]:
     """Admit a proven reservation only after its one-click setup has finished."""
-    if row.get("status") != "pending" or row.get("deployment_target") != "user_gcp":
+    if row.get("status") != "pending" or not is_owner_cloud_target(row.get("deployment_target")):
         return False, None
 
     from hushh_mcp.services.user_cloud_service import resolve_user_cloud

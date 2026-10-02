@@ -32,6 +32,29 @@ BACKEND_NULL = "null"
 BACKEND_GCP = "gcp"
 BACKEND_USER_GCP = "user_gcp"  # BYOC: the pod runs in the USER's own GCP project.
 
+# Targets whose pod runs in the PERSON's own cloud account (BYOC), on any provider.
+# Callers outside this module ask "is this the owner's own cloud?" through
+# `is_owner_cloud_target` instead of spelling a provider id, so adding a provider
+# is one entry here rather than a new branch at every call site. Ordered, so the
+# SQL fragment and its bind names are deterministic.
+OWNER_CLOUD_TARGETS: tuple[str, ...] = (BACKEND_USER_GCP,)
+
+
+def is_owner_cloud_target(target: object) -> bool:
+    """True when ``target`` places the pod in the person's own cloud account."""
+    return str(target or "").strip() in OWNER_CLOUD_TARGETS
+
+
+def owner_cloud_sql_in(param_prefix: str = "owner_cloud_target") -> tuple[str, dict[str, str]]:
+    """Return ``(":p_0, :p_1", {"p_0": ..., "p_1": ...})`` for a SQL ``IN (...)``.
+
+    Bind parameters rather than inlined literals keep the provider ids out of the
+    statement text, so registry SQL stays provider-neutral.
+    """
+    params = {f"{param_prefix}_{index}": target for index, target in enumerate(OWNER_CLOUD_TARGETS)}
+    return ", ".join(f":{name}" for name in params), params
+
+
 # --- the pod's resource profile, in ONE place -------------------------------------
 #
 # GCP renderers share this baseline. Per-owner configuration may override it.

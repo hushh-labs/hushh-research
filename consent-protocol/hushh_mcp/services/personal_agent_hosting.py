@@ -4,6 +4,12 @@ from __future__ import annotations
 
 import logging
 
+from hushh_mcp.services.compute_backend import (
+    BACKEND_GCP,
+    OWNER_CLOUD_TARGETS,
+    is_owner_cloud_target,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -24,14 +30,14 @@ def resolve_hosting_mode(
         return "unknown"
 
     deployment_target = str((row or {}).get("deployment_target") or "").strip()
-    if deployment_target and deployment_target not in {"user_gcp", "gcp"}:
+    if deployment_target and deployment_target not in {BACKEND_GCP, *OWNER_CLOUD_TARGETS}:
         return "unknown"
 
     status = str((row or {}).get("status") or "").strip()
     if status in {"pending", "provisioning", "connecting"}:
         return "pending"
 
-    if deployment_target == "user_gcp":
+    if is_owner_cloud_target(deployment_target):
         return "byoc"
     if deployment_target == "gcp":
         return "hussh_pods"

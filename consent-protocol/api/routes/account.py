@@ -875,6 +875,7 @@ async def issue_puppy_inference_grant(
     await _trusted_device_guard(firebase_uid)
     from hushh_mcp.consent.token import issue_token
     from hushh_mcp.constants import ConsentScope
+    from hushh_mcp.services.compute_backend import is_owner_cloud_target
     from hushh_mcp.services.consent_db import ConsentDBService
     from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
@@ -890,7 +891,7 @@ async def issue_puppy_inference_grant(
     pod_url = str((metadata or {}).get("url") or "").strip() if isinstance(metadata, dict) else ""
     if (
         not isinstance(row, dict)
-        or str(row.get("deployment_target") or "").strip() != "user_gcp"
+        or not is_owner_cloud_target(row.get("deployment_target"))
         or str(row.get("status") or "").strip() != "provisioned"
         or not pod_url.startswith("https://")
         or not str(row.get("pod_key_id") or "").strip()
@@ -943,7 +944,10 @@ async def issue_puppy_inference_grant(
             token_id=token.token,
             expires_at=token.expires_at,
             scope_description="Puppy inference through the owner's BYOC pod",
-            metadata={"grant_kind": "puppy_inference", "deployment_target": "user_gcp"},
+            metadata={
+                "grant_kind": "puppy_inference",
+                "deployment_target": str(row.get("deployment_target") or "").strip(),
+            },
         )
     except Exception:  # noqa: BLE001 - never return an unrecorded inference capability
         from hushh_mcp.consent.token import revoke_token

@@ -11,6 +11,10 @@ import asyncio
 import json
 from typing import Any, Optional
 
+from hushh_mcp.services.compute_backend import is_owner_cloud_target, owner_cloud_sql_in
+
+_OWNER_CLOUD_IN, _OWNER_CLOUD_PARAMS = owner_cloud_sql_in()
+
 
 def _next_endpoint(previous: Any, *, url: str, pod_key_id: str) -> dict | None:
     """Preserve a valid version on rediscovery; advance it only for a new endpoint."""
@@ -35,7 +39,7 @@ def direct_owner_matches(
     return bool(
         owner["hushh_id"] == hushh_id
         and owner["status"] == "provisioned"
-        and owner["deployment_target"] == "user_gcp"
+        and is_owner_cloud_target(owner["deployment_target"])
         and owner["pod_key_id"] == pod_key_id
         and owner["pod_pubkey"] == pod_public_key
         and "erasure" not in metadata
@@ -195,7 +199,7 @@ async def record_binding(
             if puppy_approval is not None:
                 approval = (metadata.get("puppyAccess") or {}).get(device_id) or {}
                 if (
-                    owner["deployment_target"] != "user_gcp"
+                    not is_owner_cloud_target(owner["deployment_target"])
                     or approval.get("enabled") is not True
                     or approval.get("podKeyId") != puppy_approval["podKeyId"]
                     or approval.get("serviceUid") != puppy_approval["serviceUid"]
@@ -256,14 +260,15 @@ async def record_direct_readiness(
             '{directReadiness}', CAST(:readiness AS jsonb), true
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
-          AND deployment_target = 'user_gcp' AND status = 'provisioned'
+          AND deployment_target IN (__OWNER_CLOUD_IN__) AND status = 'provisioned'
           AND pod_key_id = :pod_key_id
           AND backend_metadata->>'serviceUid' = :service_uid
           AND backend_metadata->>'url' = :url
           AND backend_metadata->>'ingress' = 'direct'
         RETURNING user_id
-        """,
+        """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
         {
+            **_OWNER_CLOUD_PARAMS,
             "user_id": user_id,
             "hushh_id": hushh_id,
             "service_uid": service_uid,
@@ -298,14 +303,15 @@ async def record_direct_ingress_observed(
             '{ingress}', '"direct"'::jsonb, true
         )
         WHERE user_id = :user_id AND hushh_id = :hushh_id
-          AND deployment_target = 'user_gcp' AND status = 'provisioned'
+          AND deployment_target IN (__OWNER_CLOUD_IN__) AND status = 'provisioned'
           AND pod_key_id = :pod_key_id
           AND backend_metadata->>'serviceUid' = :service_uid
           AND backend_metadata->>'url' = :url
           AND backend_metadata->>'ingress' = 'internal'
         RETURNING user_id
-        """,
+        """.replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
         {
+            **_OWNER_CLOUD_PARAMS,
             "user_id": user_id,
             "hushh_id": hushh_id,
             "service_uid": service_uid,

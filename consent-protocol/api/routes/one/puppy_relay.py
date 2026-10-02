@@ -28,6 +28,7 @@ from redis import asyncio as redis_asyncio
 from api.middleware import require_firebase_auth
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 
 logger = logging.getLogger(__name__)
@@ -397,7 +398,7 @@ async def _puppy_eligible_byoc_owner(user_id: str, device_id: str) -> bool:
         metadata = row.get("backend_metadata")
         pod_url = str(metadata.get("url") or "").strip() if isinstance(metadata, dict) else ""
         if (
-            str(row.get("deployment_target") or "").strip() != "user_gcp"
+            not is_owner_cloud_target(row.get("deployment_target"))
             or str(row.get("status") or "").strip() != "provisioned"
             or not pod_url.startswith("https://")
             or not str(row.get("pod_key_id") or "").strip()

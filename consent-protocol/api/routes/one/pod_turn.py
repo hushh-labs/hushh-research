@@ -40,6 +40,7 @@ from api.routes.one.pod_turn_memory_authority import (
 )
 from api.routes.one.pod_turn_stream import TurnKey, cancel_stream_turn, stream_turn_events
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
 
@@ -354,7 +355,7 @@ async def _require_local_puppy_admission(
         and status.trust is not None
         and status.trust.role == ROLE_DEVICE
         and SCOPE_PUPPY_INFERENCE in (binding.get("scopes") or [])
-        and binding.get("deployment_target") == "user_gcp"
+        and is_owner_cloud_target(binding.get("deployment_target"))
         and str(binding.get("user_id") or "") == user_id
         and str(binding.get("hushh_id") or "") == hushh_id
         and str(session.get("user_id") or "") == user_id

@@ -107,3 +107,58 @@ def test_resolver_reads_env_setting(monkeypatch):
     assert isinstance(resolve_compute_backend(), GcpBackend)
     monkeypatch.setenv("PERSONAL_AGENT_BACKEND", "")
     assert isinstance(resolve_compute_backend(), NullBackend)
+
+
+# --- owner-cloud targets: one predicate instead of a provider literal per call site ---
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("user_gcp", True),
+        (" user_gcp ", True),
+        ("gcp", False),
+        ("null", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_owner_cloud_predicate_names_only_owner_targets(target, expected):
+    from hushh_mcp.services.compute_backend import is_owner_cloud_target
+
+    assert is_owner_cloud_target(target) is expected
+
+
+def test_owner_cloud_sql_fragment_binds_every_target_and_inlines_none():
+    from hushh_mcp.services.compute_backend import OWNER_CLOUD_TARGETS, owner_cloud_sql_in
+
+    fragment, params = owner_cloud_sql_in()
+    assert fragment == ", ".join(f":{name}" for name in params)
+    assert tuple(params.values()) == OWNER_CLOUD_TARGETS
+    for target in OWNER_CLOUD_TARGETS:
+        assert target not in fragment
+
+
+def test_adding_a_provider_is_one_entry_and_the_provisioning_gate_follows(monkeypatch):
+    """An unauthorized owner cloud on a NEW provider must block provisioning.
+
+    Before the predicate, `UserCloud.is_user_owned` compared against one provider id,
+    so an unauthorized cloud on any other provider read as "not user owned" and
+    `blocks_provisioning` let it through to a backend (fail-open).
+    """
+    from hushh_mcp.services import compute_backend
+    from hushh_mcp.services.user_cloud_service import UserCloud
+
+    monkeypatch.setattr(
+        compute_backend, "OWNER_CLOUD_TARGETS", (*compute_backend.OWNER_CLOUD_TARGETS, "user_next")
+    )
+    cloud = UserCloud(
+        deployment_target="user_next",
+        model_credential_mode=None,
+        project=None,
+        region=None,
+        bootstrap_sa=None,
+        authorized=False,
+    )
+    assert cloud.is_user_owned
+    assert cloud.blocks_provisioning

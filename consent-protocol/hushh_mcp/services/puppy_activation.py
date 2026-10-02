@@ -7,7 +7,10 @@ import json
 import time
 from uuid import uuid4
 
+from hushh_mcp.services.compute_backend import owner_cloud_sql_in
 from hushh_mcp.services.pod_binding_service import PodBindingError, PodBindingService
+
+_OWNER_CLOUD_IN, _OWNER_CLOUD_PARAMS = owner_cloud_sql_in()
 
 ACTIVATION_SECONDS = 120
 
@@ -68,13 +71,14 @@ async def request_activation(user_id: str, device_id: str) -> dict:
             backend_metadata, '{puppyActivation}',
             coalesce(backend_metadata->'puppyActivation','{}'::jsonb) || CAST(:hint AS jsonb), true)
         WHERE user_id=:owner AND hushh_id=:hushh_id AND status='provisioned'
-          AND deployment_target='user_gcp' AND pod_key_id=:pod_key
+          AND deployment_target IN (__OWNER_CLOUD_IN__) AND pod_key_id=:pod_key
           AND backend_metadata->>'ingress'='direct'
           AND backend_metadata->>'serviceUid'=:service
           AND backend_metadata->'puppyAccess'->:device=CAST(:choice AS jsonb)
           AND backend_metadata->'directReadiness'=CAST(:ready AS jsonb)
-        RETURNING user_id""",
+        RETURNING user_id""".replace("__OWNER_CLOUD_IN__", _OWNER_CLOUD_IN),
         {
+            **_OWNER_CLOUD_PARAMS,
             "owner": user_id,
             "hushh_id": row["hushh_id"],
             "pod_key": row["pod_key_id"],

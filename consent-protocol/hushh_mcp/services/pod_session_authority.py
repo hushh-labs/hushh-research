@@ -44,6 +44,11 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from hushh_mcp.consent.token_signing import CONSENT_TOKENS, known_kids, verify_payload
+from hushh_mcp.services.compute_backend import (
+    BACKEND_GCP,
+    OWNER_CLOUD_TARGETS,
+    is_owner_cloud_target,
+)
 from hushh_mcp.services.pod_authority_store import (
     IncarnationLease,
     PodAuthorityError,
@@ -222,7 +227,7 @@ class PodBindingV1:
             values[name] = value
         deployment_target = raw.get("deployment_target")
         if deployment_target is not None:
-            if deployment_target not in {"user_gcp", "gcp"}:
+            if deployment_target not in {BACKEND_GCP, *OWNER_CLOUD_TARGETS}:
                 raise PodSessionRefused(
                     "malformed", "binding deployment target is unsupported", status=400
                 )
@@ -391,7 +396,9 @@ class PodSessionAuthority:
             raise PodSessionRefused("foreign_environment", "the binding names another environment")
         if binding.pod_key_id != self._pod_key_id or binding.pod_public_key != self._pod_public_key:
             raise PodSessionRefused("foreign_deployment", "the binding names another pod")
-        if SCOPE_PUPPY_INFERENCE in binding.scopes and binding.deployment_target != "user_gcp":
+        if SCOPE_PUPPY_INFERENCE in binding.scopes and not is_owner_cloud_target(
+            binding.deployment_target
+        ):
             raise PodSessionRefused(
                 "non_byoc_puppy", "Puppy inference bindings require the owner's BYOC pod"
             )

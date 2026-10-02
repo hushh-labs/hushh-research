@@ -33,6 +33,7 @@ from typing import Any, Optional
 
 from hushh_mcp.consent.token_signing import sign_payload
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.pod_access_audit import (
     PERSONAL_AGENT_ID,
@@ -197,7 +198,7 @@ class PodBindingService:
             and _clean(readiness.get("serviceUid")) == service_uid
             and _clean(choice.get("podKeyId")) == _clean(row.get("pod_key_id"))
             and _clean(choice.get("serviceUid")) == service_uid
-            and _clean(row.get("deployment_target")) == "user_gcp"
+            and is_owner_cloud_target(row.get("deployment_target"))
         )
 
     async def set_puppy_access(
@@ -211,7 +212,7 @@ class PodBindingService:
                 "TRUSTED_DEVICE_NOT_ACTIVE", "An active Puppy device is required.", status=403
             )
         if (
-            _clean(row.get("deployment_target")) != "user_gcp"
+            not is_owner_cloud_target(row.get("deployment_target"))
             or _clean(row.get("status")) != "provisioned"
         ):
             raise PodBindingError(
@@ -253,7 +254,7 @@ class PodBindingService:
         row = await self._owner_row(user_id, request_id=f"pod-binding:{device_id}")
         pod_key_id, pod_public_key, url = self._deployment(row)
         deployment_target = _clean(row.get("deployment_target")) or None
-        if puppy_inference and deployment_target != "user_gcp":
+        if puppy_inference and not is_owner_cloud_target(deployment_target):
             raise PodBindingError(
                 "PUPPY_REQUIRES_BYOC_POD",
                 "Puppy inference is available only on the owner's BYOC pod.",
@@ -386,7 +387,7 @@ class PodBindingService:
         )
         readiness = metadata.get("directReadiness")
         if (
-            _clean(row.get("deployment_target")) != "user_gcp"
+            not is_owner_cloud_target(row.get("deployment_target"))
             or _clean(row.get("status")) != "provisioned"
             or _clean(metadata.get("ingress")) != "direct"
             or not isinstance(readiness, dict)
