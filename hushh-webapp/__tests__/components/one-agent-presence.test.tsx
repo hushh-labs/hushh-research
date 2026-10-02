@@ -220,4 +220,19 @@ describe("OneAgentPresence", () => {
     expect(where).toMatch(/their-own-project/);
     expect(where).not.toMatch(/hosted by hussh/i);
   });
+
+  it("names an Azure home as the person's own subscription, never a project", async () => {
+    mockStatus.mockResolvedValue({
+      state: "active",
+      hushhId: "ha1_abc",
+      deploymentTarget: "user_azure",
+      cloudProject: "rg-hussh-one-abc",
+    });
+    render(<OneAgentPresence />);
+
+    const where =
+      (await screen.findByTestId("one-agent-presence")).getAttribute("title") || "";
+    expect(where).toMatch(/your own Microsoft Azure subscription/);
+    expect(where).not.toMatch(/project|hosted by hussh/i);
+  });
 });
