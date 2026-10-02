@@ -109,7 +109,7 @@ def test_startup_probe_is_http_not_the_tcp_default():
     assert probe["httpGet"]["path"] == "/health"
     assert probe["httpGet"]["port"] == 8080
     assert "tcpSocket" not in probe
-    # The probe port has to match a declared container port or Cloud Run rejects it.
+    assert probe["periodSeconds"] * probe["failureThreshold"] == 240
     assert container["ports"][0]["containerPort"] == 8080
 
 

@@ -326,13 +326,11 @@ class GcpBackend:
             # bolting a second health check onto each of the three readers.
             "ports": [{"name": "http1", "containerPort": 8080}],
             "startupProbe": {
-                # /health, NEVER /health/ready. Readiness includes a database check and
-                # a pod holds no database credential by design, so it answers 503 -- a
-                # startup probe pointed one path further would mean no pod ever starts.
+                # Use the stable process-health route after pod recovery completes.
                 "httpGet": {"path": "/health", "port": 8080},
                 "timeoutSeconds": 5,
                 "periodSeconds": 5,
-                "failureThreshold": 12,
+                "failureThreshold": 48,  # 240s: encrypted recovery precedes readiness.
             },
             # Sizing is CHOSEN here, not inherited. Without this block Cloud Run applies
             # its own default of 1 vCPU / 512 MiB, which is how a per-user pod ended up

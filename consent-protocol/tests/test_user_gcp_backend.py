@@ -413,3 +413,28 @@ def test_bootstrap_release_binds_actual_minting_credential(monkeypatch, actual):
     else:
         with pytest.raises(RuntimeError, match="credential identity unverified"):
             backend._bootstrap_release_source_token()
+
+
+@pytest.mark.parametrize("honest_http", [True, False])
+def test_image_update_preserves_recovery_probe_and_refuses_tcp_readiness(honest_http):
+    from copy import deepcopy
+
+    from hushh_mcp.services.pod_upgrade_configuration import preserve_image_upgrade_configuration
+
+    existing = _backend().render_deploy_config(_spec())
+    desired = deepcopy(existing)
+    container = existing["spec"]["template"]["spec"]["containers"][0]
+    container["startupProbe"]["failureThreshold"] = 32
+    container["livenessProbe"] = {"httpGet": {"path": "/health", "port": 8080}}
+    if not honest_http:
+        container["startupProbe"] = {"tcpSocket": {"port": 8080}}
+        with pytest.raises(ValueError, match="startup probe changed"):
+            preserve_image_upgrade_configuration(existing, desired)
+        return
+
+    observed = deepcopy(existing)
+    preserve_image_upgrade_configuration(existing, desired)
+    updated = desired["spec"]["template"]["spec"]["containers"][0]
+    assert updated["startupProbe"] == container["startupProbe"]
+    assert updated["livenessProbe"] == container["livenessProbe"]
+    assert existing == observed

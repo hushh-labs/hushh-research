@@ -57,6 +57,14 @@ def preserve_image_upgrade_configuration(existing: dict[str, Any], desired: dict
     new = desired["spec"]["template"]
     previous = old["spec"]["containers"][0]
     replacement = new["spec"]["containers"][0]
+    # An approved image cannot undo an owner's bounded recovery-probe repair.
+    probe = previous.get("startupProbe")
+    if probe is not None:
+        if probe.get("httpGet") != {"path": "/health", "port": 8080}:
+            raise ValueError("pod startup probe changed; reconcile before updating")
+        replacement["startupProbe"] = deepcopy(probe)
+    if "livenessProbe" in previous:
+        replacement["livenessProbe"] = deepcopy(previous["livenessProbe"])
     replacement["env"] = [
         item for item in replacement["env"] if not _owner_policy(item["name"])
     ] + deepcopy([item for item in previous.get("env", []) if _owner_policy(item["name"])])

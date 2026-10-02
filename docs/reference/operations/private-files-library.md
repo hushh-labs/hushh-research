@@ -1,8 +1,9 @@
 # Private Files library
 
-**Source status — 2026-09-27:** implementation on the infrastructure branch, behind
-owner setup and Files gates. This is not evidence of a deployed library. Read the
-[readiness audit](../quality/adk-orchestration-docs-audit.md#files-continuation-evidence--2026-09-25)
+**Dev status — 2026-10-02:** the personal owner completed exact Files setup and
+encrypted transfer. The qualified correction is published; live organization on
+that image remains unverified. Production and broad rollout remain gated. Read the
+[readiness audit](../quality/adk-orchestration-docs-audit.md#files-led-acceptance)
 and [private-agent north star](../architecture/private-agent-north-star.md) together.
 
 ## Visual Map
@@ -113,8 +114,9 @@ A lost replacement response can be recovered by observing the exact attempt mark
 pod identity, image and Files configuration after all resource checkpoints completed.
 An incomplete or uncertain cloud step stays reserved for reconciliation. The worker
 does not replay whole-pod bootstrap or clear its reservation on a timeout. Partial
-resource reconciliation and retry acceptance still require completion before broad
-rollout; neither a visible setup control nor these source checks proves live acceptance.
+resource reconciliation and retry acceptance still require broader evidence. The
+personal dev rehearsal completed one denied queue-create continuation under its
+original operation; that receipt does not qualify other uncertain provider outcomes.
 
 The opt-in economy configuration uses 1 vCPU, 1 GiB, minimum zero, maximum one,
 one worker and request concurrency eight. Existing owners retain their chosen shape.

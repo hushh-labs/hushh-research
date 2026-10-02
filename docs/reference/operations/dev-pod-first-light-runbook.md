@@ -110,6 +110,13 @@ configuration alone is not capacity acceptance. Cloud Run documents
 [per-instance concurrency](https://docs.cloud.google.com/run/docs/about-concurrency)
 and [WebSocket request behavior](https://docs.cloud.google.com/run/docs/triggering/websockets).
 
+The HTTP startup probe allows up to 240 seconds for encrypted recovery before
+accepting requests. Image-only BYOC updates preserve the observed HTTP health and
+liveness probes; a TCP startup probe requires reconciliation before replacement.
+A longer startup allowance does not qualify cold latency. Capture recovery phases
+and replay work separately; the existing 150-second update observation window can
+leave slower starts unconfirmed until reconciliation verifies the installed digest.
+
 ### Isolated image recovery rehearsal safeguards
 
 When constructing a fixture `PodSpec`, retain its registry `billing_space_id`
