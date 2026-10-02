@@ -172,8 +172,10 @@ def _row_to_packet(row: dict[str, Any]) -> dict[str, Any]:
 
 
 def public_packet(row: dict[str, Any]) -> dict[str, Any]:
-    """What a stranger may see: name and price. Never contents or ids."""
+    """What a stranger may see: name, price and the packet id to buy it. Never
+    contents or the owner's id."""
     return {
+        "id": _str_or_none(row.get("id")),
         "kind": row.get("packet_kind"),
         "title": row.get("title"),
         "description": row.get("description"),

@@ -203,6 +203,21 @@ class AccountService:
                 "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
             ),
             "pkm_packets": text("DELETE FROM pkm_packets WHERE owner_user_id = :user_id"),
+            # A paid, undelivered packet is money owed back to the buyer: move it
+            # to refund_pending (the reconcile refunds it, then removes the row)
+            # and delete everything that carries no unsettled payment.
+            "pkm_packet_orders": text(
+                """
+                WITH settle AS (
+                  UPDATE pkm_packet_orders SET status = 'refund_pending', updated_at = NOW()
+                  WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id) AND status = 'paid'
+                  RETURNING id
+                )
+                DELETE FROM pkm_packet_orders
+                WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id)
+                  AND status NOT IN ('paid', 'refund_pending')
+                """
+            ),
             "directory_listing_claims": text(
                 "DELETE FROM directory_listing_claims WHERE user_id = :user_id"
             ),
@@ -1371,6 +1386,7 @@ class AccountService:
                 "marketplace_access_requests",
                 "marketplace_recipient_keys",
                 "pkm_packets",
+                "pkm_packet_orders",
                 "directory_listing_claims",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
@@ -1722,6 +1738,7 @@ class AccountService:
             "marketplace_access_requests": False,
             "marketplace_recipient_keys": False,
             "pkm_packets": False,
+            "pkm_packet_orders": False,
             "directory_listing_claims": False,
             "marketplace_opportunity_signals": False,
             "one_kyc_workflows": False,
@@ -1840,6 +1857,7 @@ class AccountService:
                         "marketplace_access_requests",
                         "marketplace_recipient_keys",
                         "pkm_packets",
+                        "pkm_packet_orders",
                         "directory_listing_claims",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
