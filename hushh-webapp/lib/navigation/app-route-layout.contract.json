@@ -2301,9 +2301,9 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.cloud",
-      "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+      "purpose": "Choose and authorize the person's own cloud so their private agent can be built there, before any AI-access choice is made.",
       "screen": "one_setup_cloud",
-      "entryCue": "Name the project your agent will live in, then run the one-line grant we give you.",
+      "entryCue": "Choose where your agent lives, then sign in to your cloud so it can be built there.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.finish_cloud",
       "happyPathActionIds": [
@@ -2321,6 +2321,41 @@
       "completionBoundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/cloud/azure/return",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/azure-cloud-return-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud.azure.return",
+      "purpose": "Finish the Microsoft sign-in that sets up or updates the person's private agent in their own Azure subscription, without exposing credentials.",
+      "screen": "one_setup_cloud",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to cloud setup and explain that Azure was not connected.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to cloud setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the hub verifies the sign-in state and starts the setup or update job; progress is read from that job's record.",
+      "nextRoute": "/one/setup/cloud",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

@@ -798,7 +798,7 @@ export function OneSetupHub() {
                       ? "Your agent's hosting choice is saved."
                       : cloudSetupRunning
                         ? "Being set up in the background. Keep going; this finishes on its own."
-                        : "Choose Hussh Shared, your own Google Cloud, or Hussh Pods when available."
+                        : "Choose Hussh Shared, your own cloud, or Hussh Pods when available."
                   }
                   href={ROUTES.ONE_SETUP_CLOUD}
                   voiceControlId="one_setup_tile_cloud"

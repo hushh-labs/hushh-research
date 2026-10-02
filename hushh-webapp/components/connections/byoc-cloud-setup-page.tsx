@@ -9,9 +9,17 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { ByocCloudCard } from "@/components/connections/byoc-cloud-card";
+import { SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
+import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { useAzureSignIn } from "@/lib/one/azure-sign-in";
+import { setupChecklistFor, setupJobProvider } from "@/lib/one/cloud-setup-stages";
+import {
+  isOwnerCloudTarget,
+  ownerCloudProvider,
+  type OwnerCloudProvider,
+} from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -25,63 +33,19 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
  * Shared is the default when the server confirms no pod assignment or pending
  * setup; BYOC and the gated Hussh Pods path are explicit alternatives.
  *
- * The owner signs in to Google once; the server creates or verifies the
- * project, proves authorization, and only then records the cloud assignment.
+ * The owner signs in to their cloud once: Google for a Google Cloud project,
+ * Microsoft for an Azure subscription. The server creates or verifies the home,
+ * proves authorization, and only then records the cloud assignment.
  */
-/** The six stages, in the product order, with copy a person can trust. */
-const SETUP_STAGES: Array<{ id: string; label: string }> = [
-  { id: "creating_project", label: "Creating your project" },
-  { id: "linking_billing", label: "Linking your billing" },
-  { id: "enabling_apis", label: "Preparing cloud services" },
-  { id: "applying_iam", label: "Configuring private access" },
-  { id: "settling_grant", label: "Confirming cloud access" },
-  { id: "proving", label: "Checking your private agent" },
-];
 
-function SetupStageChecklist({
-  job,
-}: {
-  job: { stage: string; stages: Array<{ stage: string }>; projectId: string };
-}) {
-  const reached = new Set(job.stages.map((entry) => entry.stage));
-  return (
-    <div
-      className="space-y-3 rounded-2xl border border-[var(--app-border)] p-4"
-      data-testid="byoc-setup-progress"
-      aria-live="polite"
-    >
-      <p className="text-sm font-semibold">Setting up {job.projectId}</p>
-      <ul className="space-y-1.5">
-        {SETUP_STAGES.map((stage) => {
-          const isCurrent = job.stage === stage.id;
-          const isDone = reached.has(stage.id) && !isCurrent;
-          return (
-            <li key={stage.id} className="flex items-center gap-2 text-sm">
-              <span aria-hidden className="w-4 text-center">
-                {isDone ? "✓" : isCurrent ? "•" : ""}
-              </span>
-              <span
-                className={
-                  isDone
-                    ? "text-[var(--app-text-secondary)]"
-                    : isCurrent
-                      ? "font-medium"
-                      : "text-[var(--app-text-secondary)] opacity-60"
-                }
-              >
-                {stage.label}
-                {isCurrent ? "…" : ""}
-              </span>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="text-xs text-[var(--app-text-secondary)]">
-        This runs on its own. You can go back to Setup and continue the other
-        steps; this page and the setup list will show when your cloud is ready.
-      </p>
-    </div>
-  );
+/** The revisit state for an agent whose home is the person's Azure subscription. */
+function azureConnected(location: string | null | undefined) {
+  return {
+    projectId: "Microsoft Azure",
+    rationale: location
+      ? `Your private agent runs in ${location}, in your own Azure subscription.`
+      : "Your private agent runs in your own Azure subscription.",
+  };
 }
 
 /** How long "Checking your cloud..." may stay on screen before the form shows. */
@@ -122,6 +86,11 @@ export function ByocCloudSetupPage() {
   >(null);
   const [hostingStatusChecked, setHostingStatusChecked] = useState(false);
   const [reservedProjectId, setReservedProjectId] = useState<string | null>(null);
+  // Which owner cloud the registry names, so a reserved or assigned Azure home
+  // is never sent down the Google authorization path.
+  const [ownerProvider, setOwnerProvider] = useState<OwnerCloudProvider | null>(null);
+  const azureSignIn = useAzureSignIn();
+  const { start: startAzureSignIn } = azureSignIn;
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
   const [job, setJob] = useState<Awaited<
@@ -157,17 +126,21 @@ export function ByocCloudSetupPage() {
       .then((status) => {
         if (cancelled) return;
         const mode = status.hostingMode ?? "unknown";
+        const provider = ownerCloudProvider(status.deploymentTarget);
         setHostingMode(mode);
+        setOwnerProvider(provider);
         setHostingStatusChecked(true);
         const unassignedByoc =
           (mode === "pending" || mode === "byoc") &&
           status.state === "reserved" &&
-          status.deploymentTarget === "user_gcp" &&
+          isOwnerCloudTarget(status.deploymentTarget) &&
           Boolean(status.cloudProject);
         setReservedProjectId(
           unassignedByoc ? status.cloudProject ?? null : null,
         );
-        if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
+        if (mode === "byoc" && provider === "azure" && !unassignedByoc) {
+          setExisting(azureConnected(status.cloudProject));
+        } else if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
           setExisting({
             projectId: status.cloudProject,
             rationale: "Your BYOC pod assignment is still active.",
@@ -201,7 +174,9 @@ export function ByocCloudSetupPage() {
         setChecked(true);
         setSetupStatusReadOk(true);
         if (status.status === "recorded") {
-          if (hostingMode === "byoc") {
+          // Only a Google job restores its project from the Google suggestion;
+          // an Azure home is already named by the registry status above.
+          if (hostingMode === "byoc" && setupJobProvider(status) === "gcp") {
             // The durable marker just landed server-side; refresh the shared
             // bootstrap and restore the BYOC project shown to the person.
             await PreVaultUserStateService.bootstrapState(user.uid, {
@@ -246,7 +221,7 @@ export function ByocCloudSetupPage() {
   }, [user?.uid, hostingMode]);
 
   useEffect(() => {
-    if (!user?.uid || hostingMode !== "byoc") return;
+    if (!user?.uid || hostingMode !== "byoc" || ownerProvider === "azure") return;
     let cancelled = false;
     void (async () => {
       try {
@@ -270,7 +245,7 @@ export function ByocCloudSetupPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid, hostingMode]);
+  }, [user?.uid, hostingMode, ownerProvider]);
 
   usePublishVoiceSurfaceMetadata({ screenId: "one_setup_cloud" });
 
@@ -322,6 +297,12 @@ export function ByocCloudSetupPage() {
       setSaving(false);
     }
   }, []);
+
+  // Azure's one-click setup: the Microsoft sign-in, then the return route.
+  const startAzureSetup = useCallback(() => {
+    setError(null);
+    return startAzureSignIn("setup");
+  }, [startAzureSignIn]);
 
   const chooseHosted = useCallback(async () => {
     setError(null);
@@ -386,6 +367,8 @@ export function ByocCloudSetupPage() {
   const authorized =
     connectedBefore || recordedReservedProject || hostedChosen || sharedChosen ||
     hostingMode === "hussh_pods";
+  // One alert, whichever cloud's authorization refused.
+  const shownError = error ?? azureSignIn.error;
 
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
@@ -448,7 +431,7 @@ export function ByocCloudSetupPage() {
         ) : job && job.status === "running" && !job.stale ? (
           // The live checklist owns the screen while the job runs. Nothing
           // else competes with it: no form, no dead buttons, no guessing.
-          <SetupStageChecklist job={job} />
+          <SetupStageChecklist {...setupChecklistFor(job)} job={job} />
         ) : job && (job.status === "failed" || job.stale) && !authorized ? (
           <div
             role="alert"
@@ -478,9 +461,13 @@ export function ByocCloudSetupPage() {
             ) : null}
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || azureSignIn.starting}
               className="min-h-11 self-start text-sm underline underline-offset-4 text-destructive disabled:opacity-50"
-              onClick={() => void handleProjectNamed(job.projectId)}
+              onClick={() =>
+                void (setupJobProvider(job) === "azure"
+                  ? startAzureSetup()
+                  : handleProjectNamed(job.projectId))
+              }
               data-testid="byoc-setup-retry"
             >
               Deploy to your cloud
@@ -529,9 +516,13 @@ export function ByocCloudSetupPage() {
             </p>
             <button
               type="button"
-              disabled={saving}
+              disabled={saving || azureSignIn.starting}
               className="min-h-11 rounded-full border border-[var(--app-border)] px-4 text-sm font-medium disabled:opacity-60"
-              onClick={() => void handleProjectNamed(reservedProjectId)}
+              onClick={() =>
+                void (ownerProvider === "azure"
+                  ? startAzureSetup()
+                  : handleProjectNamed(reservedProjectId))
+              }
               data-testid="byoc-reserved-project-deploy"
             >
               {saving ? "Starting…" : "Deploy to your cloud"}
@@ -613,9 +604,12 @@ export function ByocCloudSetupPage() {
             </button>
           </div>
         ) : choice === "own" ? (
-          <div className="space-y-4">
-            <ByocCloudCard busy={saving} onProjectNamed={handleProjectNamed} />
-          </div>
+          <OwnerCloudProviderChoice
+            onProjectNamed={handleProjectNamed}
+            projectBusy={saving}
+            onConnectAzure={startAzureSetup}
+            azureBusy={azureSignIn.starting}
+          />
         ) : hostingMode === "shared" || sharedChosen ? (
           <div className="space-y-3" data-testid="shared-hosting-selected">
             <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">
@@ -639,9 +633,9 @@ export function ByocCloudSetupPage() {
               onClick={() => setChoice("own")}
               data-testid="cloud-tier-own"
             >
-              <p className="text-sm font-semibold">BYOC — your own Google Cloud</p>
+              <p className="text-sm font-semibold">BYOC — your own cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Your project, compute, and bill. The private agent runs in your cloud.
+                Your cloud, your compute, your bill. The private agent runs in your cloud.
               </p>
             </button>
             <button
@@ -685,9 +679,9 @@ export function ByocCloudSetupPage() {
               onClick={() => setChoice("own")}
               data-testid="cloud-tier-own"
             >
-              <p className="text-sm font-semibold">BYOC — your own Google Cloud</p>
+              <p className="text-sm font-semibold">BYOC — your own cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Your Google Cloud project hosts the pod and pays its usage. Hussh uses the authorization you grant to provision it.
+                Your own cloud hosts the pod and pays its usage. Hussh uses the authorization you grant to provision it.
               </p>
             </button>
             <button
@@ -724,7 +718,7 @@ export function ByocCloudSetupPage() {
           </p>
         ) : null}
 
-        {error && !(job && job.status === "running" && !job.stale) ? (
+        {shownError && !(job && job.status === "running" && !job.stale) ? (
           // A refusal must be impossible to miss and must name the next MOVE.
           // The plain one-line rendering read as body copy and the founder
           // scrolled past it (2026-08-21); this is the app's standing alert
@@ -738,8 +732,8 @@ export function ByocCloudSetupPage() {
             <p className="text-sm font-semibold text-destructive">
               Your cloud is not set up yet
             </p>
-            <p className="text-sm text-destructive">{error}</p>
-            {/phone/i.test(error) ? (
+            <p className="text-sm text-destructive">{shownError}</p>
+            {/phone/i.test(shownError) ? (
               <a
                 className="self-start text-sm underline underline-offset-4 text-destructive"
                 href={ROUTES.PHONE_MANDATE}
@@ -776,7 +770,7 @@ export function ByocCloudSetupPage() {
         // the authorize block above already says what is needed.
         supportingText={
           authorized
-            ? "Your agent will be built in your own project."
+            ? "Your agent will be built in your own cloud."
             : undefined
         }
       />

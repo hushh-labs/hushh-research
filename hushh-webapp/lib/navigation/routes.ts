@@ -153,6 +153,7 @@ export const ROUTES = {
   ONE_SETUP_RIA: "/one/setup/ria",
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
   ONE_SETUP_CLOUD: "/one/setup/cloud",
+  ONE_SETUP_CLOUD_AZURE_RETURN: "/one/setup/cloud/azure/return",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
@@ -352,6 +353,7 @@ export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
   ROUTES.ONE_SETUP,
   // Product order: the cloud is named and authorized before AI access is chosen.
   ROUTES.ONE_SETUP_CLOUD,
+  ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN, // one-time code: admit during and after setup
   ROUTES.ONE_SETUP_CONNECTIONS,
 ];
 

@@ -74,7 +74,11 @@ export function deriveVoiceRouteScreen(
   if (normalizedPath === ROUTES.ONE_SETUP) {
     return { screen: "one_setup_hub", subview: null };
   }
-  if (normalizedPath === ROUTES.ONE_SETUP_CLOUD) {
+  // Microsoft's return leg belongs to the cloud step it lands back on.
+  if (
+    normalizedPath === ROUTES.ONE_SETUP_CLOUD ||
+    normalizedPath === ROUTES.ONE_SETUP_CLOUD_AZURE_RETURN
+  ) {
     return { screen: "one_setup_cloud", subview: null };
   }
   if (normalizedPath === ROUTES.ONE_SETUP_CONNECTIONS) {

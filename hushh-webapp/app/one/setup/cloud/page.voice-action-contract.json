@@ -13,20 +13,20 @@
     {
       "action_id": "setup.finish_cloud",
       "label": "Finish cloud setup",
-      "meaning": "Keeps the person's own Google Cloud project as the home for their private agent and returns to the One setup hub.",
+      "meaning": "Keeps the person's own cloud as the home for their private agent and returns to the One setup hub.",
       "aliases": [
         "finish cloud setup",
         "finish my cloud",
         "use this project",
         "continue with my cloud"
       ],
-      "search_keywords": ["finish", "cloud", "project", "google cloud", "byoc"],
+      "search_keywords": ["finish", "cloud", "project", "subscription", "byoc"],
       "reachability": {
         "routes": ["/one/setup/cloud"],
         "screens": ["one_setup_cloud"],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "A project has been named AND hushh has proven it can reach it by minting a short-lived token against the person's own bootstrap account."
+          "The person's own cloud has been authorized AND hushh has proven it can reach it without holding a long-lived credential."
         ]
       },
       "guard_ids": ["auth_signed_in"],
@@ -38,7 +38,7 @@
         "target": "setup.finish_cloud"
       },
       "control_ids": ["one-setup-cloud-terminal"],
-      "state_exposure": ["Own-cloud project selection and authorization state"],
+      "state_exposure": ["Own-cloud selection and authorization state"],
       "docs_references": [
         "docs/reference/one/one-voice-runtime-architecture.md"
       ]
