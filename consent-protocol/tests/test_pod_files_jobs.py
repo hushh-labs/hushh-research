@@ -272,7 +272,7 @@ async def test_document_instructions_cannot_broaden_job_or_delete(queued_library
     assert (await library.stat(entry["id"]))["name"] == "original"
 
 
-@pytest.mark.parametrize("terminal_task", [True, False])
+@pytest.mark.parametrize("terminal_task", [True, False, "loop"])
 async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_task):
     """A task's prose turn is not completion; its validated finish_task output is."""
     from google.adk.models.base_llm import BaseLlm
@@ -287,7 +287,9 @@ async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_
             result = {"state": "unchanged", "explanation": "Synthetic fixture needs no change."}
             part = (
                 types.Part(function_call=types.FunctionCall(name="finish_task", args=result))
-                if terminal_task
+                if terminal_task is True
+                else types.Part(function_call=types.FunctionCall(name="list_files", args={}))
+                if terminal_task == "loop"
                 else types.Part.from_text(text="I can organize that file.")
             )
             yield LlmResponse(content=types.Content(role="model", parts=[part]))
@@ -311,13 +313,18 @@ async def test_organization_uses_real_adk_task_completion(monkeypatch, terminal_
         "hushh_mcp.runtime_providers.ManagedGeminiRuntimeBinding.build_adk_model",
         lambda self, name: Model(model=name),
     )
-    if terminal_task:
+    if terminal_task is True:
         result = await jobs._organize("a" * 32)
         assert result.state == "unchanged"
+    elif terminal_task == "loop":
+        from google.adk.agents.invocation_context import LlmCallsLimitExceededError
+
+        with pytest.raises(LlmCallsLimitExceededError):
+            await jobs._organize("a" * 32)
     else:
         with pytest.raises(FilesRefused, match="FILES_MODEL_RESULT_MISSING"):
             await jobs._organize("a" * 32)
-    assert len(calls) == 1
+    assert len(calls) == (6 if terminal_task == "loop" else 1)
     assert calls[0].config.thinking_config.thinking_level == types.ThinkingLevel.LOW
     declarations = [
         declaration

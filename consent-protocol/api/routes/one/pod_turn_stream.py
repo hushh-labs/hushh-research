@@ -20,6 +20,9 @@ logger = logging.getLogger(__name__)
 TokenSink = Callable[[str], Awaitable[None]]
 Turn = Callable[[TokenSink], Awaitable[dict[str, Any]]]
 _STREAM_TURN_TASKS: set[asyncio.Task[None]] = set()
+TurnKey = tuple[str, str, str, str, str, str]
+# Transport handles only: admission, consent and update permits retain their owners.
+_CANCELLABLE_TURNS: dict[TurnKey, asyncio.Task[None]] = {}
 _METADATA = (
     "model",
     "modelReported",
@@ -38,7 +41,7 @@ def _settled(task: asyncio.Task[None]) -> None:
 
 
 async def _stop(task: asyncio.Task[None]) -> None:
-    if not task.done():
+    if not task.done() and task.cancelling() == 0:
         task.cancel()
     # Starlette's ASGI disconnect repeatedly cancels its enclosing AnyIO scope.
     # Shield cleanup so the device-stop delivery and admission release settle.
@@ -52,11 +55,19 @@ async def _stop(task: asyncio.Task[None]) -> None:
 
 
 async def stream_turn_events(
-    turn: Turn, *, public_error: Callable[[Exception], dict[str, str]]
+    turn: Turn,
+    *,
+    public_error: Callable[[Exception], dict[str, str]],
+    cancellation_key: TurnKey | None = None,
 ) -> AsyncIterator[str]:
     """Stream bounded tokens and one terminal; stop the producer on disconnect."""
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=8)
     emitted = False
+    if cancellation_key is not None and (
+        cancellation_key in _CANCELLABLE_TURNS or len(_CANCELLABLE_TURNS) >= 32
+    ):
+        yield 'event: error\ndata: {"code":"PUPPY_BUSY","message":"Puppy is finishing other work."}\n\n'
+        return
 
     async def on_token(value: str) -> None:
         nonlocal emitted
@@ -78,6 +89,19 @@ async def stream_turn_events(
     task = asyncio.create_task(run())
     _STREAM_TURN_TASKS.add(task)
     task.add_done_callback(_settled)
+
+    def completed(finished: asyncio.Task[None]) -> None:
+        # Even a task cancelled before its first instruction needs a terminal.
+        if finished.cancelled():
+            while not queue.empty():
+                queue.get_nowait()
+            queue.put_nowait(("error", {"code": "PUPPY_CANCELLED", "message": "Request stopped."}))
+        if cancellation_key is not None and _CANCELLABLE_TURNS.get(cancellation_key) is finished:
+            _CANCELLABLE_TURNS.pop(cancellation_key, None)
+
+    if cancellation_key is not None:
+        _CANCELLABLE_TURNS[cancellation_key] = task
+    task.add_done_callback(completed)
     try:
         while True:
             try:
@@ -90,3 +114,12 @@ async def stream_turn_events(
                 return
     finally:
         await _stop(task)
+
+
+async def cancel_stream_turn(key: TurnKey) -> bool:
+    """Join only the producer selected by the route's verified subject binding."""
+    task = _CANCELLABLE_TURNS.get(key)
+    if task is None or task.done():
+        return False
+    await _stop(task)
+    return task.cancelled()

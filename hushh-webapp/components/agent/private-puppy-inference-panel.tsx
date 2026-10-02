@@ -59,7 +59,7 @@ export function PrivatePuppyInferencePanel({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [turnStage, setTurnStage] = useState<"checking" | "connecting" | "waiting" | "answering">("checking");
+  const [turnStage, setTurnStage] = useState<"checking" | "connecting" | "waiting" | "answering" | "stopping">("checking");
   const requestRef = useRef<AbortController | null>(null);
   const [target, setTarget] = useState("Your machine · Private connection");
   // Revocations the pod has not received yet ("pending delivery"). Read from the
@@ -158,7 +158,7 @@ export function PrivatePuppyInferencePanel({
     try {
       if (!user?.uid || !vaultOwnerToken)
         throw new Error("PRIVATE_AGENT_UNLOCK_REQUIRED");
-      const response = await whileNotAborted((async () => {
+      const { hushhId: currentHushhId, deviceId } = await whileNotAborted((async () => {
         const status = await ApiService.getPersonalAgentStatus({ signal: controller.signal });
         if (controller.signal.aborted) throw controller.signal.reason;
         if (status.hostingMode !== "byoc")
@@ -175,17 +175,22 @@ export function PrivatePuppyInferencePanel({
           throw new Error("PUPPY_OFFLINE");
         setTurnStage("waiting");
         window.performance.mark("puppy.turn.device-confirmed");
-        return ApiService.streamPuppyPodTurn({
-          hushhId: status.hushhId,
+        return { hushhId: status.hushhId, deviceId: currentLink.device.id };
+      })(), controller.signal);
+      // Keep the turn pending until its authenticated stop settles. Preflight
+      // may stop locally; an admitted stream must not announce success early.
+      const response = await ApiService.streamPuppyPodTurn({
+          hushhId: currentHushhId,
           vaultOwnerToken,
           message,
           conversationId,
-          puppyDeviceId: currentLink.device.id,
+          puppyDeviceId: deviceId,
           puppyModel: chatModel?.model,
           puppyCatalogVersion: chatModel?.catalogVersion,
           signal: controller.signal,
           history: nextTurns.map(({ role, text }) => ({ role, content: text })),
           onToken: (text) => {
+            if (controller.signal.aborted) return;
             if (!streamedText) {
               setTurnStage("answering");
               window.performance.mark("puppy.turn.first-token");
@@ -194,7 +199,6 @@ export function PrivatePuppyInferencePanel({
             if (pendingFrame === null) pendingFrame = window.requestAnimationFrame(paint);
           },
         });
-      })(), controller.signal);
       // A heartbeat model is a prior observation, not proof of which model
       // answered this turn. Show a model only when this response reports it.
       setTarget(response.modelReported
@@ -219,6 +223,8 @@ export function PrivatePuppyInferencePanel({
           ? "Puppy did not answer in time. Check your machine and try again."
           : cancelled
           ? "Puppy request cancelled."
+          : reason === "PUPPY_CANCEL_UNCONFIRMED"
+          ? "Could not confirm the stop. Your machine may still be finishing this request."
           : reason === "PUPPY_OFFLINE"
           ? "Puppy unavailable—open Puppy on your computer and try again."
           : reason === "PUPPY_REQUIRES_BYOC_POD"
@@ -304,7 +310,8 @@ export function PrivatePuppyInferencePanel({
               {turn.role === "assistant" && busy && !turn.text ? (
                 <span className="flex items-center gap-2 text-muted-foreground" role="status" aria-live="polite">
                   <Loader2 className="size-4 animate-spin" aria-hidden />
-                  {turnStage === "checking" ? "Checking your private pod…"
+                  {turnStage === "stopping" ? "Stopping Puppy…"
+                    : turnStage === "checking" ? "Checking your private pod…"
                     : turnStage === "connecting" ? "Checking your trusted machine…"
                     : elapsedSeconds < 60 ? "Waiting for Puppy to answer…"
                     : "Still waiting for your machine. You can cancel below."}
@@ -355,8 +362,8 @@ export function PrivatePuppyInferencePanel({
           </ShellActionSurface>
         </div>
         {busy ? (
-          <button type="button" onClick={() => requestRef.current?.abort()} aria-label="Cancel" className="mt-2 px-1 text-sm text-muted-foreground underline-offset-2 hover:underline">
-            Cancel request
+          <button type="button" disabled={turnStage === "stopping"} onClick={() => { setTurnStage("stopping"); requestRef.current?.abort(); }} aria-label="Cancel" className="mt-2 px-1 text-sm text-muted-foreground underline-offset-2 hover:underline">
+            {turnStage === "stopping" ? "Stopping…" : "Cancel request"}
           </button>
         ) : null}
       </div>

@@ -1,24 +1,19 @@
 {
-  "version": "2026.10-dev.2",
+  "version": "2026.10-dev.3",
   "channel": "dev",
-  "summary": "Private Files setup and reliable Puppy stream cleanup.",
+  "summary": "Bounded Files organization and explicit Puppy stopping.",
   "notes": {
     "improvements": [
-      "Files remains a dedicated workspace with its own private agent.",
-      "Agent instructions and connector review follow the reviewed ADK revision.",
-      "Existing hosting, storage and owner approval remain authoritative."
+      "Files organization instructions use bounded exploration and the declared completion contract."
     ],
     "fixes": [
-      "Disconnected Puppy streams finish bounded cancellation before releasing work.",
-      "Offline or busy trusted devices no longer appear ready for a new turn.",
-      "Payment erasure checks cover request-owned records and retained settlement evidence."
+      "Puppy Cancel stops the exact admitted turn even when an HTTP edge retains its stream.",
+      "Cancellation during cold admission and failed device-stop delivery have bounded, visible outcomes."
     ],
     "security": [
-      "The exact supported predecessor passed encrypted recovery and restart checks against this immutable image.",
-      "The reviewed ADK dependency update includes the embedding security correction."
+      "Stops remain bound to the owner, pod incarnation, originating app, trusted device and request.",
+      "No cloud inference fallback or new device grants are introduced."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:1054cdf63259bafb9cabfd5559b304f2da49c9457db0715579ae644d166f0392"
-  ]
+  "supportedUpgradeDigests": []
 }

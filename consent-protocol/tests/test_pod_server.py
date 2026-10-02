@@ -90,6 +90,7 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/live",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
+        "/api/one/pod/turn/cancel",
         "/api/one/pod/puppy/models",
         # The learning loop's doors (api/routes/one/pod_memory.py): same admission
         # as the turn. Reviewed here because each carries owner authority.
@@ -104,8 +105,8 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/revoke",
         # Each command/Files route enforces its scoped session; worker verifies
         # its exact queue identity instead. Reachability grants no authority.
-        # Direct chat/history: owner app role, pkm.read, current pod session,
-        # owner-bound chat key and the encrypted recovery fence are all required.
+        # Direct chat/history requires a current owner app session, pkm.read,
+        # owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
@@ -372,8 +373,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         # Capabilities remain private; only liveness is public.
         # Each command/Files route enforces its scoped session; worker verifies
         # its exact queue identity instead. Reachability grants no authority.
-        # Direct chat/history: owner app role, pkm.read, current pod session,
-        # owner-bound chat key and the encrypted recovery fence are all required.
+        # Direct chat/history requires a current owner app session, pkm.read,
+        # owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
@@ -396,6 +397,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/config",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
+        "/api/one/pod/turn/cancel",
         "/api/one/pod/puppy/models",
         # NOT /api/one/pod/live: the Live websocket is walled on purpose, and
         # test_a_walled_websocket_is_closed_before_accept pins the 1008 close.
@@ -404,9 +406,7 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/admit",
         "/api/one/pod/session/renew",
         "/api/one/pod/session/revoke",
-        # The learning loop's owner doors. Each carries the turn's two-door
-        # admission; see api/middlewares/pod_ingress.APP_SURFACE_EXACT for why each
-        # one is reachable rather than walled.
+        # Memory uses the same two-door admission; APP_SURFACE_EXACT owns reachability.
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/revoke",

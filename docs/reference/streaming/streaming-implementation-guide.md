@@ -172,3 +172,20 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
 - Validate: `npm run typecheck`, `npm run lint -- --max-warnings=0`, `npm run test:ci`.
 - Validate backend: `ruff`, `mypy`, `pytest`.
 - Run manual smoke on Import / Optimize / Analyze in iOS, Android, and web.
+
+
+## Direct Puppy streams
+
+`/api/one/pod/turn/stream` emits bounded `token` deltas followed by one `done` or
+`error` terminal. It shares the ordinary turn's owner/device consent, admission
+and update permits. The browser keeps its abort listener through the response
+body and never falls back to a cloud model for unavailable Puppy inference.
+
+HTTP edges may keep the upstream alive after browser abort. The explicit
+[turn stop](../architecture/api-contracts.md#direct-puppy-turn-cancellation) joins
+that existing producer using the same request identity. Duplicate stops do not
+interrupt cleanup or dispatch another turn. A stopped producer ends the upstream
+with `PUPPY_CANCELLED`; the bounded browser stop wait reports
+`PUPPY_CANCEL_UNCONFIRMED` if settlement cannot be established. Neither code
+proves a device-side stop acknowledgement. The UI retains a stopping state until
+the authoritative request settles; late deltas cannot repopulate a cancelled turn.

@@ -38,7 +38,7 @@ from api.routes.one.pod_turn_memory_authority import commit_gate
 from api.routes.one.pod_turn_memory_authority import (
     memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
 )
-from api.routes.one.pod_turn_stream import stream_turn_events
+from api.routes.one.pod_turn_stream import TurnKey, cancel_stream_turn, stream_turn_events
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.pod_commit_log import PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
@@ -987,6 +987,9 @@ async def pod_puppy_models(
 async def pod_turn_stream_route(
     payload: PodTurnRequest = Body(...),
     authorization: Optional[str] = Header(default=None),
+    x_request_id: Optional[str] = Header(
+        default=None, min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+    ),
 ) -> StreamingResponse:
     """Stream a direct Puppy turn through the existing owner, device and update gates."""
     _require_enabled()
@@ -998,10 +1001,50 @@ async def pod_turn_stream_route(
         return await _run_direct_turn(payload, authorization, authority, claims, on_token=on_token)
 
     return StreamingResponse(
-        stream_turn_events(turn, public_error=_stream_error),
+        stream_turn_events(
+            turn,
+            public_error=_stream_error,
+            cancellation_key=_turn_key(authority, claims, payload.puppy_device_id, x_request_id)
+            if isinstance(x_request_id, str)
+            else None,
+        ),
         media_type="text/event-stream",
         headers={"Cache-Control": "private, no-store, no-transform", "X-Accel-Buffering": "no"},
     )
+
+
+class PodTurnCancellation(BaseModel):
+    request_id: str = Field(
+        alias="requestId", min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    puppy_device_id: str = Field(alias="puppyDeviceId", min_length=1, max_length=128)
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+
+def _turn_key(authority: Any, claims: dict, device: str | None, request_id: str) -> TurnKey:
+    return (
+        authority.hushh_id,
+        authority.pod_key_id,
+        str(claims["epoch"]),
+        claims["subject_id"],
+        device or "",
+        request_id,
+    )
+
+
+@router.post("/turn/cancel")
+async def pod_turn_cancel_route(
+    payload: PodTurnCancellation = Body(...),
+    authorization: Optional[str] = Header(default=None),
+) -> dict[str, str]:
+    """Stop the exact originating app turn even when an edge hides disconnect."""
+    _require_enabled()
+    authority, claims = _direct_turn_session(authorization)
+    await authority.require_held()
+    stopped = await cancel_stream_turn(
+        _turn_key(authority, claims, payload.puppy_device_id, payload.request_id)
+    )
+    return {"state": "stopped" if stopped else "unconfirmed"}
 
 
 async def _bounded_turn(turn: Any) -> dict:

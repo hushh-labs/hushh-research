@@ -1,12 +1,4 @@
-/**
- * A pinned owner dials their pod directly; an unpinned one keeps the hub path.
- *
- * The property that matters is the absence: on a pinned turn no request reaches
- * `/api/one/u/...` at all, the bearer is the pod session (never a Firebase or hub
- * token), and a direct failure is NAMED rather than quietly retried on the hub.
- * The per-call ceiling is also pinned here, because the ladder is only a ladder
- * if the outermost rung (this client) sits above the ones below it.
- */
+/** Direct owner turns never retry private work on the hub after a named failure. */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const capacitorMocks = vi.hoisted(() => ({
@@ -112,11 +104,14 @@ const SESSION = {
   subjectId: "tdv_app_1",
 };
 
+const PUPPY_INPUT = {
+  hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
+  conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1",
+  history: [] as Array<{ role: "user" | "assistant"; content: string }>,
+};
+
 function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
+  return Response.json(body, { status });
 }
 
 describe("ApiService.runPodTurn on the owner-direct path", () => {
@@ -361,9 +356,7 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     ]));
     const tokens: string[] = [];
     const input = {
-      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
-      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1",
-      history: [{ role: "user" as const, content: "hi" }], onToken: (text: string) => tokens.push(text),
+      ...PUPPY_INPUT, onToken: (text: string) => tokens.push(text),
     };
     const done = await ApiService.streamPuppyPodTurn(input);
     expect(tokens).toEqual(["Hello ", "world"]);
@@ -378,13 +371,16 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     expect(mockFetch).toHaveBeenCalledTimes(2);
   });
 
-  it("aborts the direct HTTP stream after headers when the owner cancels", async () => {
+  it.each([true, false, "offline"])("bounds authoritative cancellation after browser abort (stopped=%s)", async (stopped) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     ownerPodMocks.currentPodSession.mockResolvedValue(SESSION);
     vi.spyOn(ApiService, "activatePuppyWhenIdle").mockResolvedValue(undefined);
     const caller = new AbortController();
     let transportSignal: AbortSignal | undefined;
     mockFetch.mockImplementation((_url: string, init: RequestInit) => {
+      if (_url.endsWith("/turn/cancel")) return stopped === "offline"
+        ? new Promise<Response>(() => {}) // a stuck admission/transport cannot strand the UI
+        : Promise.resolve(json({ state: stopped ? "stopped" : "unconfirmed" }));
       transportSignal = init.signal ?? undefined;
       return Promise.resolve(new Response(new ReadableStream<Uint8Array>({
         start(controller) {
@@ -393,18 +389,26 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
       }), { headers: { "Content-Type": "text/event-stream" } }));
     });
     const turn = ApiService.streamPuppyPodTurn({
-      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
-      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1", history: [],
-      onToken: vi.fn(), signal: caller.signal,
+      ...PUPPY_INPUT, onToken: vi.fn(), signal: caller.signal,
     });
     await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
     expect(transportSignal?.aborted).toBe(false);
     caller.abort(new DOMException("owner cancelled", "AbortError"));
-    await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    const outcome = stopped === true ? expect(turn).rejects.toMatchObject({ name: "AbortError" })
+      : expect(turn).rejects.toThrow("PUPPY_CANCEL_UNCONFIRMED");
+    if (stopped === "offline") await vi.advanceTimersByTimeAsync(12_000);
+    await outcome;
     expect(transportSignal?.aborted).toBe(true);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+    const started = mockFetch.mock.calls[0][1] as RequestInit;
+    const cancellation = mockFetch.mock.calls[1][1] as RequestInit;
+    expect(JSON.parse(String(cancellation.body))).toEqual({
+      requestId: new Headers(started.headers).get("x-request-id"), puppyDeviceId: "tdv_mac_1",
+    });
+    expect(new Headers(cancellation.headers).get("Authorization")).toBe(`Bearer ${SESSION.session}`);
   });
 
-  it("starts owner-approved Puppy activation while a cold pod session is opening", async () => {
+  it.each([false, true])("bounds cold admission and activation (cancel=%s)", async (cancel) => {
     ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
     let admit!: (session: typeof SESSION) => void;
     ownerPodMocks.currentPodSession.mockReturnValue(new Promise((resolve) => { admit = resolve; }));
@@ -412,15 +416,20 @@ describe("ApiService.runPodTurn on the owner-direct path", () => {
     mockFetch.mockResolvedValue(
       new Response('event: done\ndata: {"model":"local","modelReported":true}\n\n'),
     );
+    const caller = new AbortController();
     const turn = ApiService.streamPuppyPodTurn({
-      hushhId: "ha1_owner", vaultOwnerToken: "synthetic-owner", message: "hi",
-      conversationId: "puppy-chat-1", puppyDeviceId: "tdv_mac_1", history: [], onToken: vi.fn(),
+      ...PUPPY_INPUT, onToken: vi.fn(), signal: caller.signal,
     });
     await vi.waitFor(() => expect(activate).toHaveBeenCalledTimes(1));
     expect(mockFetch).not.toHaveBeenCalled();
+    if (cancel) {
+      caller.abort(new DOMException("owner cancelled", "AbortError"));
+      await expect(turn).rejects.toMatchObject({ name: "AbortError" });
+    }
     admit(SESSION);
-    await expect(turn).resolves.toMatchObject({ model: "local" });
-    expect(mockFetch).toHaveBeenCalledTimes(1);
+    if (!cancel) await expect(turn).resolves.toMatchObject({ model: "local" });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockFetch).toHaveBeenCalledTimes(cancel ? 0 : 1);
   });
 
   it("gives the pod turn its own ceiling above the proxies", async () => {
@@ -478,21 +487,13 @@ describe("ApiService.revokeTrustedDeviceEverywhere", () => {
     );
   });
 
-  it("does not revoke or report completion after a refused hub revocation", async () => {
-    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(PIN);
-    mockFetch.mockResolvedValue(json({ detail: "refused" }, 403));
+  it.each(["refused", "unpinned"])("keeps revocation authority at the hub (%s)", async (boundary) => {
+    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(boundary === "refused" ? PIN : null);
+    mockFetch.mockResolvedValue(boundary === "refused" ? json({ detail: "refused" }, 403) : json({ success: true }));
     const result = await ApiService.revokeTrustedDeviceEverywhere("tdv_mac_1");
-    expect(result.hub.ok).toBe(false);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(result.hub.ok).toBe(boundary !== "refused");
     expect(ownerPodMocks.revokeAtPod).not.toHaveBeenCalled();
-  });
-
-  it("runs only the hub leg without a pin", async () => {
-    ownerPodMocks.loadPinnedEndpoint.mockResolvedValue(null);
-    mockFetch.mockResolvedValue(json({ success: true }));
-
-    const result = await ApiService.revokeTrustedDeviceEverywhere("tdv_mac_1");
-
-    expect(ownerPodMocks.revokeAtPod).not.toHaveBeenCalled();
-    expect(result.pod).toEqual({ delivered: false, pending: null, unpinned: true });
+    if (boundary === "unpinned") expect(result.pod).toEqual({ delivered: false, pending: null, unpinned: true });
   });
 });

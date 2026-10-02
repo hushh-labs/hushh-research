@@ -86,6 +86,19 @@ class DeviceLink:
     catalog_received_at: int | None = None
 
 
+async def _deliver_stop(link: DeviceLink, request_id: str) -> bool:
+    if link.replaced:
+        return False
+    try:
+        await asyncio.wait_for(
+            link.send({"type": "inference.cancel", "requestId": request_id}),
+            timeout=3.0,
+        )
+        return True
+    except Exception:  # noqa: BLE001 - never claim successful device delivery
+        return False
+
+
 class PuppyBroker:
     def __init__(self) -> None:
         self._links: dict[tuple[str, str], DeviceLink] = {}
@@ -351,7 +364,7 @@ class PuppyBroker:
                     async with asyncio.timeout(min(INTER_FRAME_TIMEOUT_SECONDS, remaining)):
                         response = await queue.get()
                 except asyncio.TimeoutError:
-                    await self._cancel(link, request_id)
+                    await _deliver_stop(link, request_id)
                     finished = True
                     yield {
                         "type": "inference.error",
@@ -365,26 +378,14 @@ class PuppyBroker:
                 if finished:
                     return
         finally:
-            if not finished:
-                # The consumer stopped early (cancelled turn, closed stream): tell the
-                # device to stop generating rather than let it run to the end.
-                await self._cancel(link, request_id)
-            link.last_work_monotonic = time.monotonic()
-            link.pending.pop(request_id, None)
-            if link.busy_request_id == request_id:
-                link.busy_request_id = None
-
-    @staticmethod
-    async def _cancel(link: DeviceLink, request_id: str) -> None:
-        if link.replaced:
-            return
-        try:
-            await asyncio.wait_for(
-                link.send({"type": "inference.cancel", "requestId": request_id}),
-                timeout=3.0,
-            )
-        except Exception:  # noqa: BLE001 - the socket may be gone; nothing to cancel
-            pass
+            try:
+                if not finished and not await _deliver_stop(link, request_id):
+                    raise PuppyBrokerOffline("device stop delivery was not confirmed")
+            finally:
+                link.last_work_monotonic = time.monotonic()
+                link.pending.pop(request_id, None)
+                if link.busy_request_id == request_id:
+                    link.busy_request_id = None
 
     # -- reporting ------------------------------------------------------------------
 

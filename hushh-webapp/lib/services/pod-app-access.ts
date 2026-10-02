@@ -26,6 +26,7 @@ export async function ownerPodRequest(
     "commands/transcriptions",
     "commands/assess",
     "turn/stream",
+    "turn/cancel",
     "puppy/models",
   ]);
   const chatRoute = route === "agent-chat" || route === "agent-chat/capabilities" ||

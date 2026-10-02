@@ -83,6 +83,7 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/config",
         "/api/one/pod/turn",
         "/api/one/pod/turn/stream",
+        "/api/one/pod/turn/cancel",
         "/api/one/pod/puppy/models",
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",

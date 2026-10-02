@@ -62,7 +62,7 @@ import {
 import { ACCOUNT_SESSION_STATUS_REQUEST_TIMEOUT_MS } from "@/lib/auth/account-session-policy";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { oneChatKeyHeaders } from "@/lib/vault/one-chat-key";
-import { consumePuppyPodStream, fetchDirectPuppyStream } from "./puppy-pod-stream";
+import { streamDirectPuppyTurn, fetchDirectPuppyStream, type PuppyPodTurnInput } from "./puppy-pod-stream";
 import type { PuppyPodStreamResult } from "./puppy-pod-stream";
 
 export { PUPPY_TURN_DEADLINE_MS } from "./puppy-pod-stream";
@@ -4192,6 +4192,8 @@ export class ApiService {
     signal?: AbortSignal,
     puppy?: { deviceId: string; vaultOwnerToken?: string },
     stream = false,
+    requestId?: string,
+    onDispatch?: () => void,
   ): Promise<Response | null> {
     const ownerPod = await import("./owner-pod-endpoint");
     const uid = AuthService.getCurrentUser()?.uid;
@@ -4240,7 +4242,7 @@ export class ApiService {
       Authorization: `Bearer ${session.session}`,
       ...(stream ? {
         Accept: "text/event-stream",
-        [REQUEST_ID_HEADER]: getOrCreateRequestId(null),
+        [REQUEST_ID_HEADER]: requestId ?? getOrCreateRequestId(null),
         [REQUEST_TIMESTAMP_HEADER]: String(getOrCreateRequestTimestampMs(null)),
       } : {}),
     };
@@ -4255,6 +4257,8 @@ export class ApiService {
     // presses Cancel. The ordinary web fetch wrapper releases its caller-abort
     // listener at that point, so use the browser fetch directly for this one
     // admitted stream. The Puppy stream consumer owns the full-body deadline.
+    if (signal?.aborted) throw signal.reason;
+    onDispatch?.();
     const response = stream
       ? await fetchDirectPuppyStream(url, init)
       : await apiFetch(url, { ...init, timeoutMs: POD_TURN_FETCH_TIMEOUT_MS });
@@ -4303,35 +4307,20 @@ export class ApiService {
   }
 
   /** Direct BYOC Puppy stream. The pod owns admission and terminal truth. */
-  static async streamPuppyPodTurn(input: {
-    hushhId: string;
-    vaultOwnerToken?: string;
-    message: string;
-    conversationId: string;
-    puppyDeviceId: string;
-    puppyModel?: string;
-    puppyCatalogVersion?: string;
-    history: Array<{ role: "user" | "assistant"; content: string }>;
-    signal?: AbortSignal;
-    onToken: (text: string) => void;
-  }): Promise<PuppyPodStreamResult> {
-    return consumePuppyPodStream({
-      signal: input.signal,
-      onToken: input.onToken,
-      open: (signal) => ApiService.ownerDirectPodResponse(
-        input.hushhId,
-        JSON.stringify({
-          message: input.message,
-          conversationId: input.conversationId,
-          runtimeProvider: "puppy",
-          puppyDeviceId: input.puppyDeviceId,
-          puppyModel: input.puppyModel,
-          puppyCatalogVersion: input.puppyCatalogVersion,
-          history: input.history,
-        }),
-        signal,
+  static streamPuppyPodTurn(input: PuppyPodTurnInput): Promise<PuppyPodStreamResult> {
+    return streamDirectPuppyTurn(input, {
+      stop: async (requestId) => {
+        const response = await ApiService.ownerPodRequest("turn/cancel", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requestId, puppyDeviceId: input.puppyDeviceId }),
+          signal: AbortSignal.timeout(12_000),
+        }, false, undefined, input.hushhId);
+        return response.ok && (await response.json()).state === "stopped";
+      },
+      open: (body, signal, requestId, dispatched) => ApiService.ownerDirectPodResponse(
+        input.hushhId, body, signal,
         { deviceId: input.puppyDeviceId, vaultOwnerToken: input.vaultOwnerToken },
-        true,
+        true, requestId, dispatched,
       ),
     });
   }

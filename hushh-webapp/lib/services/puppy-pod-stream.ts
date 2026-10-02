@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
+import { getOrCreateRequestId } from "@/lib/observability/request-id";
 
 /** Total Puppy turn budget, including cold pod admission and its streamed body. */
 export const PUPPY_TURN_DEADLINE_MS = 205_000;
@@ -13,6 +14,39 @@ export type PuppyPodStreamResult = {
   degraded?: string;
 };
 
+export type PuppyPodTurnInput = {
+  hushhId: string;
+  vaultOwnerToken?: string;
+  message: string;
+  conversationId: string;
+  puppyDeviceId: string;
+  puppyModel?: string;
+  puppyCatalogVersion?: string;
+  history: Array<{ role: "user" | "assistant"; content: string }>;
+  signal?: AbortSignal;
+  onToken: (text: string) => void;
+};
+
+/** One request identity ties the admitted stream to its explicit stop. */
+export function streamDirectPuppyTurn(input: PuppyPodTurnInput, transport: {
+  open: (body: string, signal: AbortSignal, requestId: string, dispatched: () => void) => Promise<Response | null>;
+  stop: (requestId: string) => Promise<boolean>;
+}): Promise<PuppyPodStreamResult> {
+  const requestId = getOrCreateRequestId(null);
+  let dispatched = false;
+  return consumePuppyPodStream({
+    signal: input.signal,
+    onToken: input.onToken,
+    cancel: () => dispatched ? transport.stop(requestId) : Promise.resolve(true),
+    open: (signal) => transport.open(JSON.stringify({
+      message: input.message, conversationId: input.conversationId,
+      runtimeProvider: "puppy", puppyDeviceId: input.puppyDeviceId,
+      puppyModel: input.puppyModel, puppyCatalogVersion: input.puppyCatalogVersion,
+      history: input.history,
+    }), signal, requestId, () => { dispatched = true; }),
+  });
+}
+
 /** The web request must keep the caller's abort signal after response headers. */
 export async function fetchDirectPuppyStream(url: string, init: RequestInit): Promise<Response> {
   return Capacitor.isNativePlatform()
@@ -20,11 +54,27 @@ export async function fetchDirectPuppyStream(url: string, init: RequestInit): Pr
     : fetch(url, init);
 }
 
+/** Admission may outlive an HTTP abort; its losing continuation must not dispatch. */
+async function openWhileActive(open: (signal: AbortSignal) => Promise<Response | null>, signal: AbortSignal) {
+  signal.throwIfAborted();
+  let onAbort!: () => void;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+  try {
+    return await Promise.race([open(signal), aborted]);
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}
+
 /** Own the abort listener until the stream reaches a terminal event or fails. */
 export async function consumePuppyPodStream(input: {
   signal?: AbortSignal;
   open: (signal: AbortSignal) => Promise<Response | null>;
   onToken: (text: string) => void;
+  cancel?: () => Promise<boolean>;
 }): Promise<PuppyPodStreamResult> {
   const controller = new AbortController();
   const abortFromCaller = () => controller.abort(input.signal?.reason);
@@ -34,7 +84,7 @@ export async function consumePuppyPodStream(input: {
     new DOMException("Puppy stream timed out", "TimeoutError"),
   ), PUPPY_TURN_DEADLINE_MS);
   try {
-    const response = await input.open(controller.signal);
+    const response = await openWhileActive(input.open, controller.signal);
     if (!response?.body) throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
@@ -77,6 +127,18 @@ export async function consumePuppyPodStream(input: {
       await reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
+  } catch (error) {
+    if (controller.signal.aborted && input.cancel) {
+      // HTTP edges may retain the upstream request after browser abort.
+      // A local reader stop alone cannot advertise authoritative cancellation.
+      let stopTimer: ReturnType<typeof setTimeout> | undefined;
+      const stopped = await Promise.race([
+        input.cancel().catch(() => false),
+        new Promise<boolean>((resolve) => { stopTimer = setTimeout(() => resolve(false), 12_000); }),
+      ]).finally(() => clearTimeout(stopTimer));
+      if (!stopped) throw new Error("PUPPY_CANCEL_UNCONFIRMED");
+    }
+    throw error;
   } finally {
     clearTimeout(deadline);
     input.signal?.removeEventListener("abort", abortFromCaller);

@@ -136,13 +136,29 @@ do not publish another approval, clear the lease or reset owner resources.
 
 The registry claims continuation by strict comparison with the observed metadata.
 Only the unfinished resource suffix runs, followed by the normal authenticated
-drain and image replacement. Configuration refusal remains visibly blocked and
+drain and approved image/configuration installation. If the approved digest is
+already installed, record this as a configuration restart, not an image upgrade. Configuration refusal remains visibly blocked and
 retains the reservation. Unknown provider outcomes or a second denial require
 investigation; they do not authorize replay. Queue permission checks allow a
 bounded propagation wait before the durable pre-write authority checkpoint.
 Verify installed digest, encrypted continuity and the exact completion receipt
 before recording acceptance. This source recovery path does not itself prove a
-successful live continuation.
+successful live continuation. On 2026-10-01 the personal dev operation completed
+this continuation on the same service and digest; that receipt does not qualify
+other owners or production.
+
+### Reconciling a legacy Files resource receipt
+
+An untyped legacy bucket/key receipt requires original successful creation
+records, the original bootstrap principal and current resource identities.
+Current IAM alone does not prove creation ownership. Reconcile only the receipt
+through a full-snapshot conditional write; preserve approvals, leases and unrelated
+metadata. Missing creation evidence stops reconciliation.
+
+If Files requires public-access prevention to be enforced, snapshot and read back
+the bucket's retention, encryption, IAM and object inventory around that precise
+change. Preserve recovery and PKM prefixes. Receipt correction grants no deletion
+authority and does not replace the owner's exact Files-plan approval.
 
 ### Controlled owner-direct access
 

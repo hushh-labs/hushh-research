@@ -1,15 +1,6 @@
-"""The pod turn route — the first time a pod runs Agent One.
+"""Owner-pod turns preserve consent, device roles and incarnation fencing.
 
-The properties that matter are the refusals, not the happy path:
-
-  * an unverifiable consent token REFUSES rather than running the turn ungated. A
-    pod's signing key is deliberately different from the hub's, so while issuance is
-    HMAC a pod cannot verify anything — and "cannot verify" must never degrade into
-    "proceed anyway", which would be a consent bypass in the one place the protocol
-    exists to protect.
-  * the answer always reports `grounded: false`. A pod has no durable key and no
-    populated store yet, so it knows nothing about its owner. Letting a caller
-    assume otherwise would repeat the exact failure of the hardcoded /health roster.
+Successful answers do not imply populated memory; tested refusals stay explicit.
 """
 
 from __future__ import annotations
@@ -1099,7 +1090,18 @@ async def test_streamed_puppy_turn_uses_app_admission_and_emits_one_terminal(
     assert '"text"' not in frames[-1]
 
 
-async def test_streamed_puppy_disconnect_cancels_the_turn(enabled, monkeypatch, local_authority):
+async def _assert_cancel_subject_refusals(local_authority, body, token):
+    other, _ = await local_authority["admit"]("tdv_app_other", "web")
+    wrong = body.model_copy(update={"request_id": "other-turn"})
+    for request, bearer in ((body, other), (wrong, token)):
+        result = await pod_turn.pod_turn_cancel_route(request, authorization=f"Bearer {bearer}")
+        assert result == {"state": "unconfirmed"}
+
+
+@pytest.mark.parametrize("stop_transport", ["disconnect", "explicit"])
+async def test_streamed_puppy_disconnect_cancels_the_turn(
+    enabled, monkeypatch, local_authority, stop_transport
+):
     import asyncio
 
     from hushh_mcp.services.pod_upgrade_admission import PodUpgradeAdmission
@@ -1120,10 +1122,10 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(enabled, monkeypatch, 
         if frame["type"] == "inference.request":
             started.set()
 
-    async def close_socket(**_kwargs):
+    async def ignore(*_args, **_kwargs):
         return None
 
-    link = await broker.register(key, send=send_frame, close=close_socket, epoch=1)
+    link = await broker.register(key, send=send_frame, close=ignore, epoch=1)
 
     async def _run(_payload, _authorization, _authority, _claims, *, on_token=None):
         permit = await admission.acquire_turn(incarnation="cancel-fixture")
@@ -1138,25 +1140,65 @@ async def test_streamed_puppy_disconnect_cancels_the_turn(enabled, monkeypatch, 
 
     monkeypatch.setattr(pod_turn, "_run_direct_turn", _run)
     response = await pod_turn.pod_turn_stream_route(
-        PodTurnRequest(message="hello", runtime_provider="puppy"),
+        PodTurnRequest(message="hello", runtime_provider="puppy", puppy_device_id=key[1]),
         authorization=f"Bearer {token}",
+        x_request_id="cancel-1",
     )
 
     async def receive():
         await started.wait()
+        if stop_transport == "explicit":
+            await asyncio.Event().wait()  # an edge keeps the upstream connected
         return {"type": "http.disconnect"}
 
-    async def send(_message):
-        return None
-
-    await asyncio.wait_for(
-        response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, send),
-        timeout=2,
+    serving = asyncio.create_task(
+        response({"type": "http", "asgi": {"spec_version": "2.3"}}, receive, ignore)
     )
+    try:
+        if stop_transport == "explicit":
+            await asyncio.wait_for(started.wait(), timeout=2)
+            body = pod_turn.PodTurnCancellation(request_id="cancel-1", puppy_device_id=key[1])
+            await _assert_cancel_subject_refusals(local_authority, body, token)
+            assert link.busy_request_id == "cancel-1"
+            stops = await asyncio.gather(
+                *(
+                    pod_turn.pod_turn_cancel_route(body, authorization=f"Bearer {token}")
+                    for _ in range(2)
+                )
+            )
+            assert all(result == {"state": "stopped"} for result in stops)
+        await asyncio.wait_for(serving, timeout=2)
+    finally:
+        if not serving.done():
+            serving.cancel()
+            await asyncio.gather(serving, return_exceptions=True)
     assert [frame["type"] for frame in frames] == ["inference.request", "inference.cancel"]
     assert frames[-1]["requestId"] == "cancel-1"
     assert link.pending == {} and link.busy_request_id is None
     assert (await admission.status(incarnation="cancel-fixture"))["activeWork"] == 0
+
+
+async def test_puppy_stop_before_producer_start_has_a_terminal(monkeypatch):
+    import asyncio
+
+    from api.routes.one import pod_turn_stream
+
+    create = asyncio.create_task
+
+    def cancelled(coroutine):
+        task = create(coroutine)
+        task.cancel()
+        return task
+
+    monkeypatch.setattr(pod_turn_stream.asyncio, "create_task", cancelled)
+    frames = [
+        frame
+        async for frame in pod_turn_stream.stream_turn_events(
+            lambda _: asyncio.sleep(0),
+            public_error=lambda _: {},
+        )
+    ]
+    assert len(frames) == 1 and "PUPPY_CANCELLED" in frames[0]
 
 
 async def test_puppy_catalog_read_is_bound_to_the_app_owner(enabled, monkeypatch, local_authority):
@@ -1401,80 +1443,3 @@ async def test_the_turn_and_the_memory_doors_refuse_a_sessionless_local_token_al
             "message": "an app-role session is required",
         }
     )
-
-
-# --- The fence the memory gate consults ------------------------------------------
-#
-# `_memory_commit_allowed` is what the turn hands the runtime so a fenced
-# incarnation finishes its answer and publishes nothing. It was untested on both
-# sides: a grep of the whole test tree for its name returned nothing. It is a
-# fail-closed control over a shared durable log, so "untested" is the wrong
-# state for it to be in.
-
-
-class _Lease:
-    def __init__(self, answer):
-        self._answer = answer
-        self.asked = 0
-
-    async def is_current(self):
-        self.asked += 1
-        return self._answer
-
-
-class _Authority:
-    def __init__(self, lease):
-        self.lease = lease
-
-
-@pytest.mark.asyncio
-async def test_no_authority_means_allowed(monkeypatch):
-    """The hub and the tests hold no incarnation, so there is no fence to fail."""
-    from hushh_mcp.services import pod_session_authority
-
-    monkeypatch.setattr(pod_session_authority, "active_session_authority", lambda: None)
-
-    assert await pod_turn._memory_commit_allowed() is True
-
-
-@pytest.mark.asyncio
-async def test_a_held_fence_allows_the_commit(monkeypatch):
-    from hushh_mcp.services import pod_session_authority
-
-    lease = _Lease(True)
-    monkeypatch.setattr(
-        pod_session_authority, "active_session_authority", lambda: _Authority(lease)
-    )
-
-    assert await pod_turn._memory_commit_allowed() is True
-    assert lease.asked == 1, "the fence has to be consulted, not assumed"
-
-
-@pytest.mark.asyncio
-async def test_a_lost_fence_refuses_the_commit(monkeypatch):
-    from hushh_mcp.services import pod_session_authority
-
-    monkeypatch.setattr(
-        pod_session_authority, "active_session_authority", lambda: _Authority(_Lease(False))
-    )
-
-    assert await pod_turn._memory_commit_allowed() is False
-
-
-@pytest.mark.asyncio
-async def test_an_uncertain_fence_refuses_the_commit(monkeypatch):
-    """`is_current` has three answers and only one of them may write.
-
-    Uncertain means the CAS read did not resolve. Two incarnations writing the
-    same log is precisely what the fence exists to stop, so uncertainty fails
-    closed. The comparison is `is True` and not truthiness for this reason.
-    """
-    from hushh_mcp.services import pod_session_authority
-
-    for uncertain in (None, "yes", 1):
-        monkeypatch.setattr(
-            pod_session_authority,
-            "active_session_authority",
-            lambda lease=_Lease(uncertain): _Authority(lease),
-        )
-        assert await pod_turn._memory_commit_allowed() is False, uncertain

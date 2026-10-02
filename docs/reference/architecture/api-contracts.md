@@ -91,6 +91,22 @@ flowchart TB
 
 ---
 
+## Direct Puppy turn cancellation
+
+An admitted app-role pod session can call
+`POST /api/one/pod/turn/cancel` with `{requestId, puppyDeviceId}`. The request ID
+must match the originating `/api/one/pod/turn/stream` `X-Request-ID` header.
+Cancellation is bound to the verified owner, pod key/incarnation, app subject,
+device and request; a different app subject cannot cancel another turn.
+The route retains the held-incarnation check and does not grant device settings
+or hub authority. It is an exact pod ingress allowlist entry.
+
+`state: stopped` means the matching producer settled after cancellation, including
+its broker cleanup and admission release; it is not a device acknowledgement.
+Absent, completed or mismatched turns return `state: unconfirmed`. The browser
+bounds the stop wait and displays uncertainty rather than claiming success.
+See the [stream implementation](../streaming/streaming-implementation-guide.md#direct-puppy-streams).
+
 ## Route Categories
 
 ### Public (No Auth)

@@ -1369,7 +1369,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "283f6706b0eb6fac17ecd8b6c558b6a1e3b3e73553a1f77fcc982562b898a96e",
+      "system_instruction_sha256": "7292f68a8c87a9ce216fbc6a902aec5203ed0829a3286f72b6b4e210042f907b",
       "telemetry_namespace": "agent.files",
       "tools": [
         {

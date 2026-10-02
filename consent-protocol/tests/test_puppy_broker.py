@@ -211,7 +211,8 @@ async def test_the_request_deadline_bounds_a_device_that_keeps_streaming(monkeyp
     assert socket.sent[-1]["type"] == "inference.cancel"
 
 
-async def test_an_abandoned_consumer_cancels_at_the_device():
+@pytest.mark.parametrize("delivery", [True, False])
+async def test_an_abandoned_consumer_requires_confirmed_stop_delivery(monkeypatch, delivery):
     broker = pb.PuppyBroker()
     socket = _Socket()
     await _link(broker, socket)
@@ -227,8 +228,19 @@ async def test_an_abandoned_consumer_cancels_at_the_device():
     task = asyncio.create_task(consume())
     await asyncio.sleep(0)
     await broker.deliver(KEY, {"type": "inference.delta", "requestId": "r1", "text": "a"})
-    assert (await task)["text"] == "a"
-    assert socket.sent[-1] == {"type": "inference.cancel", "requestId": "r1"}
+    if not delivery:
+
+        async def failed_send(_frame):
+            raise ConnectionError("synthetic closed socket")
+
+        link = await broker.get(KEY)
+        monkeypatch.setattr(link, "send", failed_send)
+    if delivery:
+        assert (await task)["text"] == "a"
+        assert socket.sent[-1] == {"type": "inference.cancel", "requestId": "r1"}
+    else:
+        with pytest.raises(pb.PuppyBrokerOffline):
+            await task
     assert (await broker.status(KEY))["busy"] is False
 
 
