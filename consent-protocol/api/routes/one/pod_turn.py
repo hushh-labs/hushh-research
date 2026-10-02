@@ -1078,10 +1078,10 @@ async def pod_live_route(websocket: WebSocket) -> None:
     import re
 
     from api.routes.one.adk_live import run_one_live_session
+    from api.routes.one.pod_capabilities import voice_available
     from api.routes.one.pod_live_session import PodLiveSession
     from api.routes.one.pod_live_store import PodVoiceDirectiveStore
     from api.routes.one.pod_live_transport import PodLiveTransport
-    from api.routes.one.relay_auth import one_voice_enabled
     from hushh_mcp.services.pod_upgrade_admission import (
         ADMISSION,
         PodUpgradeAdmissionRefused,
@@ -1090,7 +1090,7 @@ async def pod_live_route(websocket: WebSocket) -> None:
 
     try:
         _require_enabled()
-        if not one_voice_enabled():
+        if not voice_available():  # disabled, or no Vertex model: refuse before accept
             raise HTTPException(status_code=503, detail="voice unavailable")
         consent = str(websocket.headers.get("x-consent-token") or "")
         session_id = str(websocket.headers.get("x-hussh-voice-session") or "")

@@ -52,6 +52,7 @@ from hushh_mcp.services.pod_authority_store import (
     TombstoneRecord,
 )
 from hushh_mcp.services.pod_consent_client import ConsentVerdict
+from hushh_mcp.services.pod_platform import pod_revision_name
 
 logger = logging.getLogger(__name__)
 
@@ -774,7 +775,7 @@ async def build_pod_session_authority(*, instance_id: Optional[str] = None) -> P
     incarnation = await claim_incarnation(
         store_backend,
         dek,
-        instance_id=_clean(instance_id or os.getenv("K_REVISION")) or secrets.token_hex(8),
+        instance_id=_clean(instance_id or pod_revision_name()) or secrets.token_hex(8),
     )
     store = PodAuthorityStore(log, hushh_id=hushh_id)
     await store.load()

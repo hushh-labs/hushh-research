@@ -21,6 +21,8 @@ from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
+from hushh_mcp.services.pod_platform import pod_revision_name
+
 
 class PodUpgradeAdmissionRefused(RuntimeError):
     """A turn arrived after the pod began an upgrade handoff."""
@@ -43,7 +45,7 @@ def pod_incarnation() -> str:
     return (
         str(
             os.getenv("HUSSH_POD_INCARNATION")
-            or os.getenv("K_REVISION")
+            or pod_revision_name()
             or os.getenv("HUSSH_ID")
             or "unknown"
         ).strip()

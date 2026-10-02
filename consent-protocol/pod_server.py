@@ -51,6 +51,7 @@ from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
+from api.routes.one.pod_capabilities import pod_capabilities
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
@@ -71,6 +72,7 @@ from hushh_mcp.services.pod_hub_client import (  # noqa: E402
     PodHubUnavailable,
     hub_base_url,
 )
+from hushh_mcp.services.pod_platform import pod_revision_name  # noqa: E402
 from hushh_mcp.services.pod_self_registration import (  # noqa: E402
     pod_key_is_durable,
     pod_keypair,
@@ -280,6 +282,7 @@ def pod_info() -> dict:
         # process's own constants (never a hand-written roster): the drill refuses to
         # run against an image that predates the join rather than measuring a gap.
         "memoryJoin": _memory_join(),
+        "capabilities": pod_capabilities(),
         **memory_bank_status(),
         **_self_report(),
     }
@@ -417,7 +420,7 @@ def _self_report() -> dict:
     image_tag = (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()
     if image_tag:
         report["imageTag"] = image_tag[:128]
-    revision = (os.getenv("K_REVISION") or "").strip()
+    revision = pod_revision_name()
     if revision:
         report["revision"] = revision[:128]
     # The Memory Bank engine this pod created for itself, once known: the hub cannot

@@ -24,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.pod_config import PodConfigError, active_pod_config
+from hushh_mcp.services.pod_platform import pod_revision_name
 from hushh_mcp.services.pod_session_authority import (
     ROLE_APP,
     SCOPE_POD_CONFIG,
@@ -262,7 +263,7 @@ async def pod_status(authorization: Optional[str] = Header(default=None)) -> dic
         "upgradeHandoff": handoff,
         "subjects": authority.subjects_report(),
         "imageTag": (os.getenv("HUSSH_POD_IMAGE_TAG") or "").strip()[:128] or None,
-        "revision": (os.getenv("K_REVISION") or "").strip()[:128] or None,
+        "revision": pod_revision_name()[:128] or None,
         "puppy": await _puppy_report(authority.hushh_id),
     }
 

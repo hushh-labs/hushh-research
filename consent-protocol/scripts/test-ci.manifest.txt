@@ -795,3 +795,10 @@ tests/test_pod_data_door_specialist.py
 tests/test_pod_fleet_wiring.py
 tests/test_pod_no_trace_reset.py
 tests/test_no_orphaned_agents.py
+
+# Azure lane pod-seams (2026-10-02)
+tests/test_pod_boots_off_google_cloud.py
+tests/test_pod_key_vault_custody.py
+tests/test_pod_object_store_contract.py
+tests/test_pod_platform_incarnation.py
+tests/test_pod_workload_identity.py

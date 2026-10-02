@@ -52,6 +52,7 @@ from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from hushh_mcp.services.pod_commit_log import PodCommitLog
+from hushh_mcp.services.pod_platform import pod_revision_name, pod_service_name
 
 logger = logging.getLogger(__name__)
 
@@ -200,14 +201,14 @@ def erasure_proof_audience(payload: dict[str, Any], *, purpose: str = "fence") -
 
 def _require_erasure_caller(payload: dict[str, Any], proof: str | None, *, purpose: str) -> None:
     _require_enabled()
-    if any(
-        payload[key] != str(os.getenv(env) or "").strip()
-        for key, env in (
-            ("hushhId", "HUSSH_ID"),
-            ("service", "K_SERVICE"),
-            ("revision", "K_REVISION"),
-        )
-    ):
+    # The incarnation is the platform's own name for it: K_SERVICE/K_REVISION on
+    # Cloud Run, CONTAINER_APP_NAME/CONTAINER_APP_REVISION on Container Apps.
+    observed = {
+        "hushhId": str(os.getenv("HUSSH_ID") or "").strip(),
+        "service": pod_service_name(),
+        "revision": pod_revision_name(),
+    }
+    if any(payload[key] != value for key, value in observed.items()):
         raise HTTPException(status_code=403, detail="erasure request refused")
     _require_hub_caller(proof, audience=erasure_proof_audience(payload, purpose=purpose))
 
