@@ -72,7 +72,11 @@ import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildDirectMessageRoute,
+  buildPersonProfileRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   CONNECT_CIRCLE_ACTION_PARAM,
   CONNECT_CIRCLE_ID_PARAM,
@@ -3219,7 +3223,16 @@ export default function ConnectPageClient() {
                                             aria-label={`Message ${connection.displayName || connection.userId}`}
                                             onClick={(event) => {
                                               event.stopPropagation();
-                                              toast.info("Coming soon");
+                                              if (connection.publicPersonRef) {
+                                                router.push(
+                                                  buildDirectMessageRoute({
+                                                    personRef:
+                                                      connection.publicPersonRef,
+                                                  }),
+                                                );
+                                              } else {
+                                                toast.info("Messaging is unavailable for this connection");
+                                              }
                                             }}
                                           >
                                             <span className="inline-flex h-8 items-center rounded-full border border-current px-3 hover:bg-[color:var(--app-accent-tint)]">

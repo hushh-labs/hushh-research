@@ -2528,7 +2528,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(trailing).toContainElement(message);
 
     fireEvent.click(message);
-    expect(mocks.toastInfo).toHaveBeenCalledWith("Coming soon");
+    expect(mocks.toastInfo).toHaveBeenCalledWith("Messaging is unavailable for this connection");
     expect(mocks.removeConnection).not.toHaveBeenCalled();
     expect(mocks.routerPush).not.toHaveBeenCalled();
 
@@ -2555,6 +2555,24 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(confirm.className).toContain("h-11");
     expect(cancel.className).toContain("h-11");
     expect(confirm.parentElement).toBe(cancel.parentElement);
+  });
+
+  it("navigates to direct message conversation when tapping Message on a connection with publicPersonRef", async () => {
+    mocks.listConnections.mockResolvedValue([
+      {
+        connectionId: "c-1",
+        userId: "u-rashid",
+        displayName: "Abdul Rashid",
+        publicPersonRef: "p-rashid-123",
+      },
+    ]);
+    render(<ConnectPageClient />);
+
+    const message = await screen.findByRole("button", {
+      name: "Message Abdul Rashid",
+    });
+    fireEvent.click(message);
+    expect(mocks.routerPush).toHaveBeenCalledWith("/one/messages?person=p-rashid-123");
   });
 
   it("caps My connections on every viewport, phones included", async () => {

@@ -10,6 +10,8 @@ export const INVITE_TO_ONE_PATH = "/?invite=one";
 
 /** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
 export const KAI_MARKET_PATH = "/one/kai";
+/** Canonical inbox for private, connection-gated 1:1 messages. */
+export const DIRECT_MESSAGES_PATH = "/one/messages";
 /** Browser-only Firebase handoff; never part of signed-in app navigation. */
 export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
 
@@ -67,6 +69,24 @@ export function buildPersonProfileRoute(
   return withQuery(`/people/${encodeURIComponent(normalized)}`, {
     from: normalizeInternalRouteHref(entries?.from),
   });
+}
+
+/**
+ * Opens a private 1:1 conversation without exposing an internal user id in
+ * the URL. A person reference starts a draft conversation; a conversation id
+ * reopens an existing thread from the authenticated inbox.
+ */
+export function buildDirectMessageRoute(entries?: {
+  personRef?: string | null;
+  conversationId?: string | null;
+}): string {
+  const conversationId = String(entries?.conversationId ?? "").trim();
+  if (conversationId) {
+    return withQuery(DIRECT_MESSAGES_PATH, { conversation: conversationId });
+  }
+
+  const personRef = String(entries?.personRef ?? "").trim();
+  return withQuery(DIRECT_MESSAGES_PATH, { person: personRef });
 }
 
 export function resolvePersonRefFromProfilePathname(
