@@ -26,7 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response
 
 from api.middleware import require_consent_scope
-from api.routes.one.pod_identity_auth import verify_pod_identity
+from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_prompt_repo import resolve_prompt_repo
@@ -64,7 +64,8 @@ async def _pod_identity_agent_id(request: Request, authorization: Optional[str])
     things that can drift apart. This wrapper stays so the route's own auth ladder
     still reads top to bottom in one file.
     """
-    return await verify_pod_identity(request, authorization)
+    verified = await verify_pod_request(request, authorization)
+    return verified.hushh_id if verified is not None else None
 
 
 async def _authenticate_prompt_caller(

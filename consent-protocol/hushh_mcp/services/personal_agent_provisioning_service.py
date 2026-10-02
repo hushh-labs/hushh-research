@@ -101,6 +101,11 @@ from hushh_mcp.services.pod_release import (
 from hushh_mcp.services.pod_release import (
     is_immutable_image_reference as is_immutable_image_reference,
 )
+from hushh_mcp.services.pod_request_identity_store import (
+    bind_pod_signing_key,
+    bind_published_signing_key,
+    signing_key_columns,
+)
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
@@ -423,6 +428,8 @@ class _Registry(Protocol):
         liveness_mode: Optional[str] = ...,
         deployment_target: Optional[str] = ...,
         model_credential_mode: Optional[str] = ...,
+        pod_signing_pubkey: Optional[str] = ...,
+        pod_signing_key_id: Optional[str] = ...,
     ) -> None: ...
 
     async def get(self, user_id: str) -> Optional[dict]: ...
@@ -1125,6 +1132,8 @@ class PersonalAgentProvisioningService:
         pod_key_wrapping_alg: str = WRAPPING_ALG,
         ledger: Any = None,
         allow_rotation: bool = False,
+        pod_signing_public_key_b64: Optional[str] = None,
+        pod_signing_key_id: Optional[str] = None,
     ) -> dict[str, Any]:
         """Second half of a deferred-key provision: the pod hands over its public key.
 
@@ -1161,7 +1170,8 @@ class PersonalAgentProvisioningService:
         refresh), so rotation only updates the recorded key material. The invariant
         that survives either way: nothing durable may be wrapped to a key that can
         rotate underneath it -- ``pod_storage`` enforces that with a durability
-        check, not this method.
+        check, not this method. A pulled signing key follows the pod key under the
+        same rules (``pod_request_identity_store.bind_pod_signing_key``).
         """
         if not personal_agent_enabled():
             raise PersonalAgentDisabledError(
@@ -1171,6 +1181,7 @@ class PersonalAgentProvisioningService:
             raise ValueError("user_id is required")
 
         pod_key = parse_pod_public_key(pod_public_key_b64, pod_key_id, pod_key_wrapping_alg)
+        signing = signing_key_columns(pod_signing_public_key_b64, pod_signing_key_id)
 
         existing = await self._registry.get(user_id)
         if existing is None:
@@ -1189,6 +1200,13 @@ class PersonalAgentProvisioningService:
             if compare_digest(recorded_key, pod_key.public_key_b64) and (
                 provision_attempt is None or provision_attempt.get("phase") == "provisioned"
             ):
+                await bind_pod_signing_key(
+                    existing,
+                    user_id=user_id,
+                    pod_pubkey=pod_key.public_key_b64,
+                    signing=signing,
+                    rotate=allow_rotation,
+                )
                 return {
                     "hushhId": existing.get("hushh_id"),
                     "status": existing.get("status"),
@@ -1211,6 +1229,7 @@ class PersonalAgentProvisioningService:
                     pod_key_id=pod_key.key_id,
                     pod_key_wrapping_alg=pod_key.wrapping_alg,
                     status="provisioned",
+                    **signing,
                 )
                 logger.info("personal_agent.pod_key_rotated hushh_id=%s", hushh_id or "<none>")
                 return {"hushhId": hushh_id, "status": "provisioned", "rotated": True}
@@ -1253,6 +1272,7 @@ class PersonalAgentProvisioningService:
                 pod_key_id=pod_key.key_id,
                 pod_key_wrapping_alg=pod_key.wrapping_alg,
                 status=status,
+                **signing,
             )
 
         try:
@@ -1276,6 +1296,10 @@ class PersonalAgentProvisioningService:
             raise
 
         await record_provisioning_feed_event_safe(user_id=user_id, event_type=FEED_EVENT_READY)
+        if provision_attempt is not None:
+            await bind_published_signing_key(
+                existing, user_id=user_id, pod_pubkey=pod_key.public_key_b64, signing=signing
+            )
         logger.info("personal_agent.pod_key_attached hushh_id=%s", hushh_id or "<none>")
         return {
             "hushhId": hushh_id,

@@ -25,6 +25,36 @@ from hushh_mcp.services.action_directive_ledger import (
     IssuedActionDirective,
 )
 from hushh_mcp.services.pod_hub_client import VerifiedOwnerPod
+from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+_REGISTRY_FENCE_SQL = (
+    "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata "
+    "FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
+)
+# Only a SIGNED principal reads the signing column. It exists wherever dev-only
+# migration 947 is applied, which is the only place a signed principal can exist.
+_SIGNED_REGISTRY_FENCE_SQL = (
+    "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata,"
+    "pod_signing_key_id FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
+)
+
+
+def _principal_holds_row(principal: object, review: "PodMcpTerms", row: dict) -> bool:
+    """The authenticated pod is still the one this row records, under the row lock.
+
+    A signed principal is compared by key id; the transitional Google principal by
+    the runtime service account bound to the row.
+    """
+    if not isinstance(principal, (VerifiedPod, VerifiedOwnerPod)):
+        return False
+    if principal.hushh_id != review.hushhId:
+        return False
+    key_id = getattr(principal, "key_id", None)
+    if key_id:
+        return row.get("hushh_id") == principal.hushh_id and row.get("pod_signing_key_id") == key_id
+    metadata = row.get("backend_metadata") or {}
+    account = principal.service_account
+    return bool(account) and account == metadata.get("runtime_service_account")
 
 
 class PodMcpTerms(BaseModel):
@@ -130,7 +160,7 @@ async def mutate_review(
     operation: Literal["issue", "confirm", "consume"],
     payload: PodMcpMutation,
     *,
-    principal: VerifiedOwnerPod | None = None,
+    principal: VerifiedPod | VerifiedOwnerPod | None = None,
     db=None,
 ) -> dict:
     """Registry fence and ledger compare-and-set share one committed transaction.
@@ -145,29 +175,25 @@ async def mutate_review(
     from hushh_mcp.services.pod_binding_service import hub_environment
 
     database = db if db is not None else get_db()
+    fence_sql = (
+        _SIGNED_REGISTRY_FENCE_SQL
+        if operation != "confirm" and getattr(principal, "key_id", None)
+        else _REGISTRY_FENCE_SQL
+    )
 
     def commit():
         with database.engine.begin() as conn:
             conn.execute(text("SET LOCAL statement_timeout = '5s'"))
             conn.execute(text("SET LOCAL lock_timeout = '2s'"))
             row = (
-                conn.execute(
-                    text(
-                        "SELECT hushh_id,status,deployment_target,pod_key_id,pod_pubkey,backend_metadata "
-                        "FROM personal_agent_registry WHERE user_id=:owner FOR UPDATE"
-                    ),
-                    {"owner": payload.review.ownerId},
-                )
+                conn.execute(text(fence_sql), {"owner": payload.review.ownerId})
                 .mappings()
                 .one_or_none()
             )
             review = payload.review
             metadata = (row or {}).get("backend_metadata") or {}
-            if operation != "confirm" and (
-                not isinstance(principal, VerifiedOwnerPod)
-                or principal.hushh_id != review.hushhId
-                or not principal.service_account
-                or principal.service_account != metadata.get("runtime_service_account")
+            if operation != "confirm" and not _principal_holds_row(
+                principal, review, dict(row or {})
             ):
                 raise ActionDirectiveAuthorityError("Private connector runtime identity changed.")
             uid = metadata.get("serviceUid")

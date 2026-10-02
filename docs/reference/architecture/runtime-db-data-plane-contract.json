@@ -1375,12 +1375,27 @@
         "personal_agent_registry",
         "personal_agent_deletion_tombstones"
       ],
-      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-917 and PERSONAL_AGENT_ENABLED",
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED",
       "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
       "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
-      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities.",
+      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities. Dev-only migration947 adds the pod's public request-signing key and key id (recorded only from a hub-initiated pull, bound to pod_pubkey) and the one-way identity_mode latch; they are removed with the row by the same deletion path.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
+    },
+    {
+      "id": "pod_request_replay_guard",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "dev_only",
+      "exact_tables": [
+        "pod_request_nonces"
+      ],
+      "primary_access_path": "Dev-only migration947. The hub's signed pod-request verifier (hushh_mcp/services/pod_request_verifier.py via pod_request_identity_store.py) consumes one (kid, nonce) per verified request with INSERT .. ON CONFLICT DO NOTHING; a conflicting insert is a replay and is refused. Reached only where pod_hub_identity_auth_enabled is on.",
+      "retention_policy": "Rows live only for the signature acceptance window plus a skew margin (about 120 seconds after the signing time); expired rows are pruned opportunistically by the verifier at most once a minute per process.",
+      "deletion_behavior": "No owner column and no per-account rows: account deletion needs no action. A row names only a public-key-derived kid and a random nonce, cannot be joined to a person once the registry row is deleted, and self-expires within about two minutes.",
+      "trust_boundary": "Stores a public-key-derived key id, a random 16-byte nonce and an expiry timestamp. No user identifiers, personal information, tokens, request bodies or signatures; a row grants no access and only prevents replay.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
     },
     {
       "id": "agent_prompt_registry",

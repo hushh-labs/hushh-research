@@ -804,3 +804,6 @@ tests/test_pod_platform_incarnation.py
 tests/test_pod_workload_identity.py
 # Azure lane identity (2026-10-02): cloud-neutral pod-to-hub request signing.
 tests/test_pod_request_signing.py
+tests/test_pod_request_verifier.py
+tests/test_pod_signing_key_recording.py
+tests/test_pod_request_signing_postgres.py

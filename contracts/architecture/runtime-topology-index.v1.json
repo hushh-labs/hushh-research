@@ -1436,7 +1436,7 @@
       "id": "personal_agent_registry",
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-917 and PERSONAL_AGENT_ENABLED"
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED"
     },
     {
       "data_class": "personal_projection",
@@ -1487,6 +1487,16 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pod_request_nonces"
+      ],
+      "id": "pod_request_replay_guard",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Dev-only migration947. The hub's signed pod-request verifier (hushh_mcp/services/pod_request_verifier.py via pod_request_identity_store.py) consumes one (kid, nonce) per verified request with INSERT .. ON CONFLICT DO NOTHING; a conflicting insert is a replay and is refused. Reached only where pod_hub_identity_auth_enabled is on."
     },
     {
       "data_class": "personal_metadata",
@@ -6057,7 +6067,7 @@
     "action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
     "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
     "cache_manifest": "0889819bf4d42919ea84318ccb92b53f978dd8db392f09ae06cea0b349ea6407",
-    "data_plane": "f6f88bafa2c4261e89389edb0337a8dd3f69c7fb8d0bd5fbd01d06d0fd3d6165",
+    "data_plane": "777867da17982e0237c15422dfd847aaece3b8c70c9c7bc074d9018a1c683a91",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "036a954ef4db4c2418e16856f3426528c6331adeb84e8481c07f449c39dc5891",
     "route_index": "f6d63684462a85922b88fb696c003a5a1bbc0169bc622b0ad241008fcf69466e",
@@ -6076,6 +6086,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 147,
     "semantic_routes": 14,
-    "table_families": 88
+    "table_families": 89
   }
 }

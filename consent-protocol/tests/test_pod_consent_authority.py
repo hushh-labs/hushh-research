@@ -24,6 +24,7 @@ from api.routes.one import pod_consent, pod_turn
 from api.routes.one.pod_consent import PodConsentVerifyRequest, verify_consent_for_pod
 from hushh_mcp.services import pod_consent_client
 from hushh_mcp.services.pod_consent_client import ConsentVerdict, verify_consent
+from hushh_mcp.services.pod_request_signing import VerifiedPod
 
 
 class _Request:
@@ -52,9 +53,9 @@ def hub_enabled(monkeypatch):
     monkeypatch.setattr(pod_consent, "personal_agent_enabled", lambda: True)
 
     async def _is_pod(_request, _auth):
-        return "hushh-abc"
+        return VerifiedPod("hushh-abc")
 
-    monkeypatch.setattr(pod_consent, "verify_pod_identity", _is_pod)
+    monkeypatch.setattr(pod_consent, "verify_pod_request", _is_pod)
 
 
 # -- hub side: the authority ---------------------------------------------------
@@ -110,7 +111,7 @@ async def test_a_non_pod_caller_is_401(monkeypatch, hub_enabled):
     async def _not_a_pod(_request, _auth):
         return None
 
-    monkeypatch.setattr(pod_consent, "verify_pod_identity", _not_a_pod)
+    monkeypatch.setattr(pod_consent, "verify_pod_request", _not_a_pod)
 
     with pytest.raises(HTTPException) as exc:
         await verify_consent_for_pod(_Request(), None, PodConsentVerifyRequest(token="tok"))

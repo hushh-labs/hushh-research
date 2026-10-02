@@ -28,6 +28,13 @@ from typing import Any, Optional
 
 from starlette.concurrency import run_in_threadpool
 
+from hushh_mcp.runtime_settings import pod_hub_identity_auth_enabled
+from hushh_mcp.services.pod_request_signing import (
+    SIGNING_ALG,
+    is_signing_public_key,
+    signing_key_id,
+)
+
 logger = logging.getLogger(__name__)
 
 _PUBLIC_KEY_PATH = "/pod/public-key"
@@ -111,11 +118,45 @@ async def fetch_pod_public_key(row: dict, *, session: Any = None) -> Optional[di
         logger.info("pod_key_collector.incomplete_payload")
         return None
 
+    # Whatever answers the recorded address must also SAY it is this row's agent.
+    # A different HusshID there means a misrouted address; recording its key
+    # against this row would hand this person's authority to someone else's pod.
+    reported = str(body.get("hushhId") or "").strip()
+    expected = str(row.get("hushh_id") or "").strip()
+    if reported and expected and reported != expected:
+        logger.warning("pod_key_collector.hushh_id_mismatch")
+        return None
+
     payload = {"podPublicKey": public_key, "podKeyId": key_id}
     wrapping = str(body.get("podKeyWrappingAlg") or "").strip()
     if wrapping:
         payload["podKeyWrappingAlg"] = wrapping
+    payload.update(_signing_fields(body, row=row, reported=reported, expected=expected))
     return payload
+
+
+def _signing_fields(body: dict, *, row: dict, reported: str, expected: str) -> dict[str, str]:
+    """The pod's request-signing key, only when it is safe to record.
+
+    Recorded only where the dev-only hub identity flag is on, only when the row was
+    read from a schema that has the columns (dev-only migration 947, so a flag set
+    before its migration cannot turn into a failed key write that strands the pod
+    in ``connecting``), only when the pod named this row's HusshID, and only when
+    the key id is the one derived from the key, so a pod cannot pick its own kid.
+    """
+    if not expected or reported != expected or "pod_signing_key_id" not in row:
+        return {}
+    if not pod_hub_identity_auth_enabled():
+        return {}
+    key = str(body.get("podSigningKey") or "").strip()
+    kid = str(body.get("podSigningKeyId") or "").strip()
+    if not key and not kid:
+        return {}
+    alg = str(body.get("podSigningAlg") or "").strip()
+    if alg != SIGNING_ALG or not is_signing_public_key(key) or signing_key_id(key) != kid:
+        logger.warning("pod_key_collector.signing_key_refused")
+        return {}
+    return {"podSigningKey": key, "podSigningKeyId": kid}
 
 
 async def collect_pod_key_if_pending(
@@ -170,6 +211,14 @@ async def collect_pod_key_if_pending(
             **(
                 {"pod_key_wrapping_alg": payload["podKeyWrappingAlg"]}
                 if "podKeyWrappingAlg" in payload
+                else {}
+            ),
+            **(
+                {
+                    "pod_signing_public_key_b64": payload["podSigningKey"],
+                    "pod_signing_key_id": payload["podSigningKeyId"],
+                }
+                if "podSigningKey" in payload
                 else {}
             ),
         )

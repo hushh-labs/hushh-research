@@ -86,6 +86,24 @@ working for its remaining lifetime (60 to 90 minutes).
   scheme replaces Google ID tokens for GCP agents, so the hub keeps one verifier
   for every cloud. No Entra token verifier is built.
 
+**Wire contract, as implemented** (`consent-protocol/hushh_mcp/services/pod_request_signing.py`,
+pinned by a golden vector in `consent-protocol/tests/test_pod_request_signing.py`):
+
+- Headers: `X-Hushh-Pod-Signature: ed25519.<kid>.<b64url(sig)>`,
+  `X-Hushh-Pod-Timestamp` (ms), `X-Hushh-Pod-Nonce` (16 random bytes, b64url), and
+  the existing `X-Hushh-Pod-Id`. `kid` is `pods_` + 32 hex of SHA-256 over the
+  base64 public key; the pod publishes `podSigningKey`, `podSigningKeyId` and
+  `podSigningAlg` on `GET /pod/public-key`.
+- Signed bytes: canonical JSON of purpose `hushh/pod-hub-request/v1`, audience,
+  HusshID, kid, method, path, sorted query, SHA-256 of the exact body, timestamp
+  and nonce. Accepted window: 60 s back, 30 s ahead. Each (kid, nonce) is
+  single-use (`pod_request_nonces`, dev-only migration 947).
+- An unknown kid only triggers the hub's own key pull, at most once per agent per
+  30 s and under a per-process cap. The first valid signature latches the agent's
+  registry entry (`identity_mode = signed`); afterwards a Google-only request from
+  it is refused. Until then a GCP agent keeps sending its Google ID token beside
+  the signature. Everything is behind the dev-only `POD_HUB_IDENTITY_AUTH_ENABLED`.
+
 ## Agent environment contract (rendered by the hub, read by the agent)
 
 Topology only. Behaviour lives in the sealed `pod_config_v1` record, never in new

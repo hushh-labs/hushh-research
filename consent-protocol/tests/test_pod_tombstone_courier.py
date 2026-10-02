@@ -25,6 +25,7 @@ from hushh_mcp.services.pod_authority_store import (
     claim_incarnation,
 )
 from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+from hushh_mcp.services.pod_request_signing import VerifiedPod
 
 OWNER = "ha1_owner"
 DEK = b"C" * 32
@@ -251,9 +252,9 @@ def hub(monkeypatch):
     monkeypatch.setattr(pod_heartbeat, "personal_agent_enabled", lambda: True)
 
     async def _verify(_request, _authorization):
-        return OWNER
+        return VerifiedPod(OWNER)
 
-    monkeypatch.setattr(pod_heartbeat, "verify_pod_identity", _verify)
+    monkeypatch.setattr(pod_heartbeat, "verify_pod_request", _verify)
 
 
 async def test_the_beat_hands_over_pending_intents_and_clears_applied_ones(hub):

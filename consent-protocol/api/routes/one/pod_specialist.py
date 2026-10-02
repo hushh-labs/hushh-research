@@ -12,7 +12,8 @@ for every rejection, a 503 rather than a lie when the authority is unreachable).
 What it adds is a THREE-way binding that has to hold before a single field is
 read:
 
-  1. the caller is a pod (``verify_pod_identity``);
+  1. the caller is a pod (``verify_pod_request``: the pod's own signature, or
+     transitionally its Google identity);
   2. it carries a live, unrevoked scope for THIS read
      (``validate_token_with_db`` against the DB revoked set); and
   3. the scope's owner is the very person this pod IS -- the owner's HusshID
@@ -23,10 +24,11 @@ read:
 Which of the three actually STOPS a cross-person read depends on the pod tier,
 and it is leg 2, not leg 3:
 
-* In the **attested/BYOC** tier a pod proves WHICH pod it is with a per-pod
+* In the **attested/BYOC** tier, and for any pod whose request is SIGNED with
+  the key the hub pulled from it, a pod proves WHICH pod it is with a per-pod
   identity, so leg 3 is an independent cryptographic guard.
-* In the **managed (logical)** tier every pod runs as the SAME service account,
-  so ``verify_pod_identity`` proves "a hussh pod is calling", never which one,
+* In the **managed (logical)** tier's unsigned path every pod runs as the SAME
+  service account, so the Google token proves "a hussh pod is calling", never which one,
   and the ``HUSSH_ID`` a managed pod asserts is self-declared -- leg 3 is
   caller-forgeable there. What still blocks A-on-B is **leg 2**: the consent
   token is signed with the HUB's ``APP_SIGNING_KEY`` (a DIFFERENT key from any
@@ -56,7 +58,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Body, Header, HTTPException, Path, Request
 from pydantic import BaseModel, ConfigDict, Field
 
-from api.routes.one.pod_identity_auth import verify_pod_identity
+from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
 from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
@@ -210,9 +212,10 @@ async def broker_specialist_read(
             raise HTTPException(422, detail="command options require the Location command read")
         required_scope = "cap.location.command.read"
 
-    asserted = await verify_pod_identity(request, authorization)
-    if not asserted:
+    verified = await verify_pod_request(request, authorization)
+    if verified is None:
         raise HTTPException(status_code=401, detail="pod identity required")
+    asserted = verified.hushh_id
 
     check = validator
     if check is None:

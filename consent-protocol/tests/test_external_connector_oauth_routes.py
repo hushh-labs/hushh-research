@@ -931,7 +931,7 @@ def test_pod_mcp_machine_body_is_bounded_before_auth_and_errors_never_echo(opera
 
     authenticate = AsyncMock()
     mutate = AsyncMock()
-    monkeypatch.setattr(pod_mcp_approval, "verify_pod_identity", authenticate)
+    monkeypatch.setattr(pod_mcp_approval, "verify_pod_request", authenticate)
     monkeypatch.setattr(pod_mcp_approval, "mutate_review", mutate)
     app = FastAPI()
     app.include_router(pod_mcp_approval.router)
