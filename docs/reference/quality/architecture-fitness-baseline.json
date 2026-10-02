@@ -149,7 +149,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": "PersonalAgentRegistryRepo",
-      "value": 1885
+      "value": 1887
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -977,7 +977,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/pod_session_authority.py",
       "symbol": "PodSessionAuthority",
-      "value": 355
+      "value": 357
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -1985,7 +1985,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": "_compose_one_runtime_instruction",
-      "value": 374
+      "value": 384
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -5612,7 +5612,7 @@
       "limit": 80,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": "_one_roster_tools",
-      "value": 122
+      "value": 135
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -6575,7 +6575,7 @@
       "limit": 80,
       "path": "consent-protocol/tests/test_pod_memory_routes.py",
       "symbol": "local_authority",
-      "value": 111
+      "value": 112
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -8276,7 +8276,7 @@
       "limit": 80,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": "issue_puppy_inference_grant",
-      "value": 96
+      "value": 100
     },
     {
       "detail": "function exceeds the advisory gene budget",
@@ -12047,7 +12047,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/one_adk/agent_tree.py",
       "symbol": null,
-      "value": 2680
+      "value": 2704
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12272,7 +12272,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/personal_agent_registry_repo.py",
       "symbol": null,
-      "value": 2104
+      "value": 2110
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12299,7 +12299,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/account.py",
       "symbol": null,
-      "value": 2069
+      "value": 2073
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -12461,7 +12461,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/test_pod_memory_routes.py",
       "symbol": null,
-      "value": 1869
+      "value": 1870
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15017,7 +15017,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_session_authority.py",
       "symbol": null,
-      "value": 827
+      "value": 830
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15422,7 +15422,7 @@
       "limit": 500,
       "path": "consent-protocol/api/routes/one/puppy_relay.py",
       "symbol": null,
-      "value": 765
+      "value": 766
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15782,7 +15782,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_specialist_runtime.py",
       "symbol": null,
-      "value": 722
+      "value": 728
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18536,7 +18536,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/pod_binding_service.py",
       "symbol": null,
-      "value": 507
+      "value": 508
     },
     {
       "detail": "module exceeds the advisory operon budget",

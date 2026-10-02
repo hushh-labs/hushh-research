@@ -44,11 +44,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from hushh_mcp.consent.token_signing import CONSENT_TOKENS, known_kids, verify_payload
-from hushh_mcp.services.compute_backend import (
-    BACKEND_GCP,
-    OWNER_CLOUD_TARGETS,
-    is_owner_cloud_target,
-)
+from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
 from hushh_mcp.services.pod_authority_store import (
     IncarnationLease,
     PodAuthorityError,
@@ -227,7 +223,7 @@ class PodBindingV1:
             values[name] = value
         deployment_target = raw.get("deployment_target")
         if deployment_target is not None:
-            if deployment_target not in {BACKEND_GCP, *OWNER_CLOUD_TARGETS}:
+            if not is_known_pod_target(deployment_target):
                 raise PodSessionRefused(
                     "malformed", "binding deployment target is unsupported", status=400
                 )

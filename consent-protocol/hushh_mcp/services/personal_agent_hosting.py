@@ -4,11 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from hushh_mcp.services.compute_backend import (
-    BACKEND_GCP,
-    OWNER_CLOUD_TARGETS,
-    is_owner_cloud_target,
-)
+from hushh_mcp.services.compute_backend import is_known_pod_target, is_owner_cloud_target
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +26,7 @@ def resolve_hosting_mode(
         return "unknown"
 
     deployment_target = str((row or {}).get("deployment_target") or "").strip()
-    if deployment_target and deployment_target not in {BACKEND_GCP, *OWNER_CLOUD_TARGETS}:
+    if deployment_target and not is_known_pod_target(deployment_target):
         return "unknown"
 
     status = str((row or {}).get("status") or "").strip()

@@ -458,9 +458,7 @@ class PodEmailReadPort:
 
         if user_id != self._owner or gmail is not self:
             raise PermissionError("Email owner mismatch")
-        # A pod read cannot prove which Google account served earlier ids, and a pod
-        # never mints a positional offer, so a request bound to an account fails
-        # closed rather than reading whatever now holds that position.
+        # A pod cannot prove which account served earlier ids: fail closed.
         if expect_account:
             raise GmailMetadataError("connection_changed")
 

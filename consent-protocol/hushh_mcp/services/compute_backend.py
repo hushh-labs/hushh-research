@@ -45,6 +45,11 @@ def is_owner_cloud_target(target: object) -> bool:
     return str(target or "").strip() in OWNER_CLOUD_TARGETS
 
 
+def is_known_pod_target(target: object) -> bool:
+    """True for any placement a pod may run on: the hosted tier or an owner cloud."""
+    return str(target or "").strip() in (BACKEND_GCP, *OWNER_CLOUD_TARGETS)
+
+
 def owner_cloud_sql_in(param_prefix: str = "owner_cloud_target") -> tuple[str, dict[str, str]]:
     """Return ``(":p_0, :p_1", {"p_0": ..., "p_1": ...})`` for a SQL ``IN (...)``.
 

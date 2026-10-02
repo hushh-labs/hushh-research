@@ -340,8 +340,7 @@ def test_the_client_never_sends_a_consent_token():
     body = re.search(r"static async runPodTurn\(.*?\n  \}\n", api_service, re.S)
     assert body, "runPodTurn not found"
     assert "X-Consent-Token" not in body.group(0)
-    # The vault owner token travels to the HUB for Puppy activation (45f93a2b9), never
-    # to the pod: pin the property on the payload the pod receives, not the function.
+    # The vault owner token goes to the hub (45f93a2b9), never in the pod payload.
     payload = re.search(r"const body = JSON\.stringify\(\{.*?\}\);", body.group(0), re.S)
     assert payload, "runPodTurn no longer builds the pod payload in one place"
     assert "vaultOwnerToken" not in payload.group(0)
