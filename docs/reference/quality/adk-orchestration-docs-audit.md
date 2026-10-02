@@ -125,6 +125,13 @@ retained. The deployed `.3` offer has no admitted predecessor. The `.4`
 qualification still requires exact-SHA hosted CI and governed publication;
 no owner installation is implied.
 
+Publication review also caught a cross-version workflow gap: regenerated model
+metadata changed the graph revision while the serving image retained `83966cd4fefe54f6`.
+Its exact source ancestor is now declared in the existing evolution contract;
+the generator verifies unchanged workflow semantics before retaining that revision.
+Publish backend and frontend together, preserving the reused pod image. The earlier
+qualification CI was intentionally cancelled before deployment to include this fix.
+
 ## Next gate and board alignment
 
 1. Verify and publish the `.4` qualification through the existing backend lane,
