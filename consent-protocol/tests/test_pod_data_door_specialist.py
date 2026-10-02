@@ -148,41 +148,6 @@ def test_the_summary_survives_a_degraded_projection():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "agent_id,door",
-    [("agent_location", "location"), ("agent_email", "email")],
-)
-async def test_root_specialist_turn_reaches_only_its_scoped_door(
-    monkeypatch, agent_id, door, invocation_authority
-):
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from hushh_mcp.one_adk import agent_tree
-    from hushh_mcp.services import pod_hub_client
-
-    broker = _Broker({})
-    monkeypatch.setattr(pod_hub_client, "PodHubClient", lambda: broker)
-    monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
-    dispatch = AsyncMock(side_effect=AssertionError("read must use scoped broker"))
-    monkeypatch.setattr(agent_tree, "dispatch", dispatch)
-    context = SimpleNamespace(
-        state={
-            agent_tree.STATE_USER_ID: "synthetic-owner",
-            agent_tree.STATE_CONSENT_TOKEN: "synthetic-pkm-read",
-            agent_tree.STATE_DATA_DOOR_GRANTS: {
-                door: "synthetic-scoped-read",
-                "invoke": "synthetic-invoke",
-            },
-        }
-    )
-    result = await agent_tree._specialist_turn(agent_id, "Summarize my information", context)
-    assert result.get("source") == "data_door", result
-    assert broker.calls == [(door, "synthetic-scoped-read")]
-    dispatch.assert_not_called()
-
-
-@pytest.mark.asyncio
 async def test_cancelled_specialist_read_does_not_block_monitor_or_deliver_projection():
     import asyncio
     import threading
@@ -264,5 +229,7 @@ async def test_email_read_refusal_never_upgrades_to_a2a_dispatch(monkeypatch, in
             }
         ),
     )
-    assert result["reason"] == "scoped_read_unavailable"
+    # The root-turn door hop was removed (0d514ebe2); the refusal now comes from task
+    # authority, and the invariant that matters is unchanged: nothing is dispatched.
+    assert result["reason"] == "task_authority_unavailable"
     dispatch.assert_not_called()

@@ -196,7 +196,9 @@ def test_review_session_uid_hint_cannot_select_or_mismatch_identity(
     )
 
     assert response.status_code == 403
-    assert response.json()["detail"] == "Reviewer identity mismatch"
+    # One uniform refusal for every mismatch (37191627d): no detail distinguishes
+    # a wrong uid from a wrong passphrase.
+    assert response.json()["detail"] == "Review session credential required"
 
 
 # -- the turn flag has to reach the POD ---------------------------------------------

@@ -610,6 +610,9 @@ async def local_authority(tmp_path, monkeypatch):
             "hushh_id": OWNER,
             "user_id": LOCAL_USER,
             "environment": "dev",
+            # Device bindings carry puppy.inference by default, which a non-owner-cloud
+            # placement refuses (a158b1561); the doors under test sit behind that gate.
+            "deployment_target": "user_gcp",
             "pod_key_id": "podk_memory",
             "pod_public_key": base64.b64encode(b"K" * 32).decode(),
             "url": "https://pod.example",

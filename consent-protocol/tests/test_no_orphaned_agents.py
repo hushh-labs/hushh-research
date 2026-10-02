@@ -37,15 +37,8 @@ _AGENT_TREE = Path(__file__).resolve().parents[1] / "hushh_mcp" / "one_adk" / "a
 # Registered, but reachable from NO One roster tool. Each entry needs a reason and
 # an owner decision, not a shrug -- an agent nobody can call is either a capability
 # that was never finished or a registration that should be removed.
-_KNOWN_UNREACHABLE_FROM_ONE: dict[str, str] = {
-    "agent_personal_information": (
-        "Reachable only via its own route POST /api/one/information/chat, and "
-        "explicitly rejected by Agent Chat. Registered for a dispatch path that no "
-        "roster tool takes. RESOLVED (founder, 2026-08-11): the agent architecture is "
-        "preserved as-is and we build forward from it, so this registration stays and "
-        "the missing roster tool is work to be done -- not a registration to remove."
-    ),
-}
+# Emptied 2026-10-02: agent_personal_information gained a roster tool (5d82d11bd).
+_KNOWN_UNREACHABLE_FROM_ONE: dict[str, str] = {}
 
 
 def _specialist_ids_reached_by_roster_tools() -> set[str]:

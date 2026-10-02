@@ -786,3 +786,12 @@ tests/test_pod_memory_is_actually_used.py
 tests/test_pod_live_authority.py
 tests/test_pod_data_door_email.py
 tests/test_email_chat_service.py
+
+# Restored after updating to the deliberate product changes they predated (2026-10-02).
+tests/test_pod_memory_routes.py
+tests/test_pod_turn_relay.py
+tests/test_one_grounding_honesty.py
+tests/test_pod_data_door_specialist.py
+tests/test_pod_fleet_wiring.py
+tests/test_pod_no_trace_reset.py
+tests/test_no_orphaned_agents.py

@@ -68,12 +68,18 @@ class _Mappings:
     def all(self) -> list:
         return []
 
+    def __iter__(self):
+        return iter(())
+
 
 class _Result:
     def __init__(self, value: Any) -> None:
         self._value = value
 
     def scalar(self) -> Any:
+        return self._value
+
+    def scalar_one(self) -> Any:
         return self._value
 
     def mappings(self) -> _Mappings:
