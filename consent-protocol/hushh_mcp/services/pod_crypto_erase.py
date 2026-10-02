@@ -17,9 +17,14 @@ ORDER, AND WHY
    exists (``pod_key_vault_custody``), so the next request cannot quietly start a
    second history that claims to be the erased agent.
 2. The **wrapped data key goes first**. From that moment every sealed object is
-   ciphertext nobody can open. Then the identity key, the incarnation fence, memory
-   bookkeeping, the session projection, the chained records, and the head last.
-3. **Deletes are idempotent**: an object already gone counts as absent. A refused
+   ciphertext nobody can open. Then the identity key, the incarnation fence, the
+   session projection and the chained records.
+3. **The fences stay closed.** A live process still holds the data key in memory,
+   and Hussh cannot stop the container, so the two objects that refuse its writes are
+   never deleted. The log head stays the sealed erasure fence (ciphertext under the
+   destroyed key), and memory bookkeeping becomes a closed stub that names no owner.
+   The last step checks that no head a live process could extend exists.
+4. **Deletes are idempotent**: an object already gone counts as absent. A refused
    delete raises, so the hub never revokes on an unconfirmed erase.
 
 NOT ENUMERATED: orphan records from lost append races (never chained) and Files
@@ -42,6 +47,12 @@ from hushh_mcp.services.pod_object_version import ABSENT
 ERASURE_TOMBSTONE_OBJECT = "erasure/crypto-erase.json"
 _TOMBSTONE_KIND = "pod_crypto_erase_v1"
 _MAX_TOMBSTONE_BYTES = 8 * 1024 * 1024
+#: Memory bookkeeping after erasure: still "erasure" (every reader refuses it, and
+#: its shape matches no lifecycle phase), and no owner identifier in plaintext.
+ERASED_MEMORY_RECORD = b'{"erasure":{"phase":"crypto_erased","version":1}}'
+#: Written only if the head is missing: its sequence is not an integer, which is
+#: exactly what makes every log reader refuse it, as it does the sealed fence.
+_ERASED_HEAD = b'{"seq":"erased","state":"erased","version":2}'
 
 
 class PodCryptoEraseRefused(RuntimeError):
@@ -49,19 +60,16 @@ class PodCryptoEraseRefused(RuntimeError):
 
 
 def owned_objects(wrapped_key_object: str) -> tuple[str, ...]:
-    """The fixed objects a pod writes under its prefix, the wrapped key first."""
+    """The fixed objects a pod deletes under its prefix, the wrapped key first.
+
+    Not the log head or memory bookkeeping: those hold the erasure fences
+    (``crypto_erase`` closes them instead of deleting them).
+    """
     from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION  # noqa: PLC0415
     from hushh_mcp.services.pod_authority_store import INCARNATION_OBJECT  # noqa: PLC0415
     from hushh_mcp.services.pod_identity_store import IDENTITY_KEY_OBJECT  # noqa: PLC0415
-    from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY  # noqa: PLC0415
 
-    return (
-        wrapped_key_object,
-        IDENTITY_KEY_OBJECT,
-        INCARNATION_OBJECT,
-        MEMORY_BANK_RECORD_KEY,
-        SESSION_PROJECTION,
-    )
+    return (wrapped_key_object, IDENTITY_KEY_OBJECT, INCARNATION_OBJECT, SESSION_PROJECTION)
 
 
 def _owner_digest(owner_id: str) -> str:
@@ -129,6 +137,43 @@ async def _claim_tombstone(
     return winner
 
 
+def _extendable(head: bytes) -> bool:
+    """Whether a live process holding the key could append on this head.
+
+    An open head has an integer sequence; the sealed fence and the erased marker do
+    not, so ``PodCommitLog`` refuses them (fenced or tampered). No key is needed.
+    """
+    try:
+        parsed = json.loads(head)
+    except ValueError:
+        return False
+    return isinstance(parsed, dict) and type(parsed.get("seq")) is int
+
+
+async def _replace(store: ObjectStore, key: str, data: bytes) -> None:
+    """Compare-and-swap ``key`` to ``data`` (records are create-only, so no blind put)."""
+    for _ in range(4):
+        current, generation = await store.get_with_generation(key)
+        if current == data:
+            return
+        await store.put_if_generation(key, data, generation)
+    if await store.get(key) != data:
+        raise PodCryptoEraseRefused("memory bookkeeping kept moving during erasure")
+
+
+async def _close_fences(store: ObjectStore) -> None:
+    """Keep memory admission and the log closed for any process still running."""
+    from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY  # noqa: PLC0415
+
+    await _replace(store, MEMORY_BANK_RECORD_KEY, ERASED_MEMORY_RECORD)
+    head = await store.get(PodCommitLog.HEAD)
+    if head is None:
+        await store.put_if_generation(PodCommitLog.HEAD, _ERASED_HEAD, ABSENT)
+        head = await store.get(PodCommitLog.HEAD)
+    if head is None or _extendable(head):
+        raise PodCryptoEraseRefused("the log head is open; the erasure is not complete")
+
+
 async def crypto_erase(
     *,
     store: ObjectStore,
@@ -149,14 +194,16 @@ async def crypto_erase(
             store, owner_id=owner_id, attempt_id=attempt_id, open_fenced_log=open_fenced_log
         )
     records = bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
-    targets = (*owned_objects(wrapped_key_object), *records, PodCommitLog.HEAD)
+    targets = (*owned_objects(wrapped_key_object), *records)
     deleted = 0
     for key in targets:
         deleted += int(await store.delete(key))
+    await _close_fences(store)
     return {"deleted": deleted, "alreadyAbsent": len(targets) - deleted, "records": len(records)}
 
 
 __all__ = [
+    "ERASED_MEMORY_RECORD",
     "ERASURE_TOMBSTONE_OBJECT",
     "PodCryptoEraseRefused",
     "bound_record_keys",

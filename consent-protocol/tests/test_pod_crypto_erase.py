@@ -9,6 +9,7 @@ case where deleting would act on the wrong attempt or on an unfenced agent.
 from __future__ import annotations
 
 import base64
+import json
 
 import pytest
 from fastapi import HTTPException
@@ -18,13 +19,16 @@ from hushh_mcp.services.pod_commit_log import (
     LocalObjectStore,
     PodCommitLog,
     PodLogFenced,
+    PodLogTampered,
 )
 from hushh_mcp.services.pod_crypto_erase import (
+    ERASED_MEMORY_RECORD,
     ERASURE_TOMBSTONE_OBJECT,
     PodCryptoEraseRefused,
     crypto_erase,
 )
 from hushh_mcp.services.pod_identity_store import IDENTITY_KEY_OBJECT
+from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY
 from hushh_mcp.services.pod_object_version import ABSENT
 from tests.pod_azure_fakes import FakeBlobService, FakeGcsService
 from tests.test_pod_object_store_contract import _azure
@@ -87,14 +91,19 @@ async def test_the_key_goes_first_and_every_chained_object_follows(store):
         store=recorded, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
         open_fenced_log=_fencer(log),
     )  # fmt: skip
-    assert recorded.deleted[0] == WRAPPED and recorded.deleted[-1] == PodCommitLog.HEAD
+    assert recorded.deleted[0] == WRAPPED
     records = [key for key in recorded.deleted if key.startswith("records/")]
     assert len(records) == 3 and counts["records"] == 3
-    assert counts["deleted"] == 6  # key, identity, three records, head
+    assert counts["deleted"] == 5  # key, identity, three records
     assert counts["deleted"] + counts["alreadyAbsent"] == len(recorded.deleted)
     for key in recorded.deleted:
         assert await store.get(key) is None
     assert await store.get(ERASURE_TOMBSTONE_OBJECT) is not None  # the durable marker
+    # The fences are closed, never deleted: neither object is in the delete order.
+    assert PodCommitLog.HEAD not in recorded.deleted
+    assert MEMORY_BANK_RECORD_KEY not in recorded.deleted
+    assert await store.get(MEMORY_BANK_RECORD_KEY) == ERASED_MEMORY_RECORD
+    assert OWNER.encode() not in ERASED_MEMORY_RECORD
 
 
 async def test_a_retry_after_a_crash_finishes_from_the_tombstone_without_the_key(store):
@@ -110,12 +119,86 @@ async def test_a_retry_after_a_crash_finishes_from_the_tombstone_without_the_key
         store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
         open_fenced_log=_never,
     )  # fmt: skip
-    assert finished["records"] == 3 and await store.get(PodCommitLog.HEAD) is None
+    assert finished["records"] == 3
+    with pytest.raises(PodLogFenced):  # the head is still the sealed fence
+        await log.append("memory", {"n": "after-erase"})
     again = await crypto_erase(
         store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
         open_fenced_log=_never,
     )  # fmt: skip
     assert again["deleted"] == 0 and again["records"] == 3
+
+
+async def test_a_live_process_cannot_write_after_the_erase(store):
+    """Hussh cannot stop the container: the process that still holds the key in memory
+    must find the log and memory admission closed, before and after a retry."""
+    log = await _agent(store)
+    counts = await crypto_erase(
+        store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+        open_fenced_log=_fencer(log),
+    )  # fmt: skip
+    for _ in range(2):  # the erase, then a retry from the tombstone
+        with pytest.raises(PodLogFenced):
+            await log.append("memory", {"n": "after-erase"})
+        with pytest.raises(PodLogFenced):
+            await log.replay()
+        assert await store.get(MEMORY_BANK_RECORD_KEY) == ERASED_MEMORY_RECORD
+        assert await _surviving_records(store) == []
+        again = await crypto_erase(
+            store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+            open_fenced_log=_never,
+        )  # fmt: skip
+        assert again == {**counts, "deleted": 0, "alreadyAbsent": 4 + counts["records"]}
+
+
+async def _surviving_records(store) -> list[str]:
+    listed = json.loads(await store.get(ERASURE_TOMBSTONE_OBJECT))["records"]
+    return [key for key in listed if await store.get(key) is not None]
+
+
+async def test_closed_memory_bookkeeping_is_refused_by_every_memory_reader(tmp_path):
+    from hushh_mcp.services import pod_memory_bank
+
+    cfg = pod_memory_bank.MemoryBankConfig(
+        project="p", location="us-central1", display_name=f"one-pod-memory-{OWNER}", engine_id=None
+    )
+    with pytest.raises(pod_memory_bank.MemoryBankUnavailable):
+        pod_memory_bank._decode_record(ERASED_MEMORY_RECORD, cfg)
+    store = LocalObjectStore(str(tmp_path))
+    log = await _agent(store)
+    await crypto_erase(
+        store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+        open_fenced_log=_fencer(log),
+    )  # fmt: skip
+    with pytest.raises(pod_memory_bank.MemoryBankUnavailable):
+        await pod_memory_bank.fence_memory_bank_admission(
+            store=store, log=log, owner_id=OWNER, attempt_id=ATTEMPT
+        )
+
+
+async def test_a_missing_head_is_closed_and_an_open_head_refuses_the_retry(tmp_path):
+    store = LocalObjectStore(str(tmp_path))
+    log = await _agent(store)
+    await crypto_erase(
+        store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+        open_fenced_log=_fencer(log),
+    )  # fmt: skip
+    # Someone removed the head: the retry closes it rather than leave it absent.
+    await store.delete(PodCommitLog.HEAD)
+    await crypto_erase(
+        store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+        open_fenced_log=_never,
+    )  # fmt: skip
+    with pytest.raises(PodLogTampered):
+        await log.append("memory", {"n": "after-erase"})
+    # A head a live process could extend is never reported as erased.
+    await store.delete(PodCommitLog.HEAD)
+    await log.append("memory", {"n": "restarted"})
+    with pytest.raises(PodCryptoEraseRefused):
+        await crypto_erase(
+            store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
+            open_fenced_log=_never,
+        )  # fmt: skip
 
 
 async def test_a_log_fenced_for_another_attempt_erases_nothing(tmp_path):
@@ -216,7 +299,10 @@ async def test_the_route_fences_erases_and_answers_a_retry_identically(azure_pod
         "records": 3,
     }
     assert {key: first[key] for key in _payload()} == _payload()
-    assert await store.get(WRAPPED) is None and await store.get(PodCommitLog.HEAD) is None
+    assert await store.get(WRAPPED) is None
+    assert await store.get(MEMORY_BANK_RECORD_KEY) == ERASED_MEMORY_RECORD
+    with pytest.raises(PodLogFenced):  # the fence the route closed is still closed
+        await PodCommitLog(store, KEY, owner_id=OWNER).append("memory", {"n": "late"})
     retry = await pod_migration.crypto_erase_pod(body, "Bearer proof")
     assert retry["erased"] is True and retry["deleted"] == 0
     with pytest.raises(HTTPException) as wrong_revision:
