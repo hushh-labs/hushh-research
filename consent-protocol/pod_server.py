@@ -406,6 +406,11 @@ async def pod_model_diagnostic(model: str, location: str = "") -> dict:
     location = (location or "").strip()
     if not _model_name_ok(model) or (location and not _model_name_ok(location)):
         raise HTTPException(status_code=400, detail="invalid model or location")
+    from hushh_mcp.runtime_providers import azure_openai  # noqa: PLC0415
+
+    if azure_openai.azure_openai_configured():
+        # An Azure pod: ``model`` names a deployment on the RENDERED resource only.
+        return await asyncio.to_thread(azure_openai.probe_azure_openai_deployment, model)
     return await asyncio.to_thread(probe_model_reachability, model, location=location)
 
 

@@ -813,3 +813,4 @@ tests/test_pod_signing_key_rotation_postgres.py
 # deployment reachability probe.
 tests/test_azure_openai_transport.py
 tests/test_azure_openai_owner_mode.py
+tests/test_azure_openai_model_diagnostic.py
