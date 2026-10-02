@@ -31,6 +31,7 @@ from .marketplace_catalog import router as marketplace_catalog_router
 from .marketplace_requests import router as marketplace_requests_router
 from .models import router as models_router
 from .opportunity_signals import router as opportunity_signals_router
+from .packet_orders import router as packet_orders_router
 from .people import public_router as public_people_router
 from .people import router as people_router
 from .pkm_packets import router as pkm_packets_router
@@ -71,6 +72,7 @@ router.include_router(marketplace_catalog_router)
 router.include_router(marketplace_requests_router)
 router.include_router(pkm_packets_router)
 router.include_router(directory_claims_router)
+router.include_router(packet_orders_router)
 router.include_router(opportunity_signals_router)
 router.include_router(places_router)
 router.include_router(public_people_router)

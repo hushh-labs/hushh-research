@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 265,
+  "expected_migration_version": 266,
   "migration_version_policy": "exact",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -1999,6 +1999,26 @@
       "upgraded_at",
       "created_at",
       "updated_at"
+    ],
+    "pkm_packet_orders": [
+      "id",
+      "buyer_user_id",
+      "owner_user_id",
+      "packet_id",
+      "listing_id",
+      "packet_title",
+      "amount_cents",
+      "platform_fee_cents",
+      "currency",
+      "status",
+      "stripe_checkout_session_id",
+      "stripe_payment_intent_id",
+      "stripe_refund_id",
+      "access_request_id",
+      "created_at",
+      "updated_at",
+      "paid_at",
+      "refunded_at"
     ],
     "pkm_packets": [
       "id",

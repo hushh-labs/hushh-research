@@ -670,6 +670,21 @@
       "expected_row_growth": "low_per_user"
     },
     {
+      "id": "pkm_packet_orders",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pkm_packet_orders"
+      ],
+      "primary_access_path": "hussh.ai White Pages buy flow: a signed-in buyer pays hussh for one packet through Stripe Checkout; the signed Stripe webhook marks the order paid and files an owner-approved marketplace access request; denied, expired or orphaned requests are refunded by the packet-order reconcile.",
+      "retention_policy": "Retained while payment or refund is unsettled and for bounded financial and consent-audit review afterwards; snapshots the packet title and price paid.",
+      "deletion_behavior": "On account deletion, rows with no unsettled payment are deleted; paid, undelivered orders move to refund_pending, are refunded in full by the reconcile, and the row is then deleted.",
+      "trust_boundary": "Stores buyer and owner references, the public listing id, packet id and title, amounts, status and Stripe object ids. No card data (Stripe-hosted Checkout) and no PKM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
       "id": "information_marketplace_delivery",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",

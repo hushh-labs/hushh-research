@@ -10,11 +10,12 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.services.marketplace_request_service import MarketplaceRequestService
+from hushh_mcp.services.pkm_packet_order_service import PkmPacketOrderService
 
 logger = logging.getLogger(__name__)
 
@@ -227,8 +228,18 @@ async def revoke_marketplace_request(
     return result
 
 
+async def _refund_denied_packet_orders() -> None:
+    """A denied request for a paid packet is refunded; best effort, the
+    scheduled reconcile (scripts/ops/reconcile_packet_orders.py) catches misses."""
+    try:
+        await PkmPacketOrderService().reconcile()
+    except Exception:
+        logger.warning("marketplace.packet_refund_after_deny_failed")
+
+
 @router.post("/requests/{request_id}/deny")
 async def deny_marketplace_request(
+    background_tasks: BackgroundTasks,
     request_id: str = Path(..., min_length=1, max_length=128),
     token_data: dict = Depends(require_vault_owner_token),
 ) -> dict[str, Any]:
@@ -237,4 +248,5 @@ async def deny_marketplace_request(
     )
     if not result.get("ok"):
         raise HTTPException(status_code=404, detail="Request not found or not pending")
+    background_tasks.add_task(_refund_denied_packet_orders)
     return result

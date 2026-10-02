@@ -236,7 +236,8 @@
     "262_drive_request_payments.sql",
     "263_drive_request_no_match.sql",
     "264_pkm_packets.sql",
-    "265_directory_listing_claims.sql"
+    "265_directory_listing_claims.sql",
+    "266_pkm_packet_orders.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -492,6 +493,7 @@
     "262_drive_request_payments.sql": "rollback/262_drive_request_payments.rollback.sql",
     "263_drive_request_no_match.sql": "rollback/263_drive_request_no_match.rollback.sql",
     "264_pkm_packets.sql": "rollback/264_pkm_packets.rollback.sql",
-    "265_directory_listing_claims.sql": "rollback/265_directory_listing_claims.rollback.sql"
+    "265_directory_listing_claims.sql": "rollback/265_directory_listing_claims.rollback.sql",
+    "266_pkm_packet_orders.sql": "rollback/266_pkm_packet_orders.rollback.sql"
   }
 }
