@@ -836,3 +836,4 @@ tests/test_azure_upgrade_admission.py
 tests/test_pod_crypto_erase.py
 tests/test_owner_access_erasure.py
 tests/test_owner_access_erasure_migration.py
+tests/test_azure_upgrade_recovery.py

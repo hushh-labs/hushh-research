@@ -12,7 +12,8 @@ AUTHORITY, PER OPERATION (byoc-azure.md trust matrix)
 * ``restart`` (heal) uses the observer's ``revisions/restart/action``.
 * ``upgrade`` needs a just-in-time person token (approve + sign-in), supplied with
   ``jit_person_authority``; without one it refuses, and ``live`` is False, so the
-  orchestrator turns the call away before it claims an upgrade lease.
+  orchestrator turns the call away before it claims an upgrade lease. A lease left
+  by a crashed update resolves through ``observe_upgrade``, on reads alone.
 * ``deprovision`` refuses: Hussh holds no delete authority in the subscription.
   ``erase_owner_access`` revokes access instead and returns a receipt.
 
@@ -361,6 +362,14 @@ class UserAzureBackend:
 
         token = current_jit_token()
         return await asyncio.to_thread(upgrade_agent, self, spec, self._person_factory(token))
+
+    async def observe_upgrade(
+        self, spec: PodSpec, receipt: dict[str, Any]
+    ) -> Optional[BackendHandle]:
+        """Resolve a crashed update's lease on the observer's reads (no person token)."""
+        from hushh_mcp.services.azure_agent_upgrade import observe_upgrade  # noqa: PLC0415
+
+        return await asyncio.to_thread(observe_upgrade, self, spec, receipt, self._observer())
 
     async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
         """The serving incarnation an erasure order must match (``azure_agent_erasure``)."""
