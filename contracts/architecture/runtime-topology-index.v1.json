@@ -1436,7 +1436,7 @@
       "id": "personal_agent_registry",
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt, the owner-access erasure receipt for a user_azure agent (the pod's crypto-erase counts, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), validated against the reserved snapshot; account deletion still refuses while those resources remain"
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement. Dev-only migration949 retains, once per reserved erasure attempt and before any access is revoked, the pod's crypto-erase confirmation for a user_azure agent with its setup nonce (the agentCryptoErase checkpoint a cut-short revocation resumes from), then the owner-access erasure receipt (that confirmation, the role assignments revoked, the person's remaining resource ids, the vault purge date and the resource group to delete), both validated against the reserved snapshot; account deletion still refuses while those resources remain"
     },
     {
       "data_class": "personal_projection",
@@ -6092,7 +6092,7 @@
     "action_gateway": "3a39beaae71b30f4217756d824b0975af64727847d29d305ad50a7e85773cf47",
     "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
     "cache_manifest": "f50ab6ab4eadb6f1c80a5e7e38a8d3390c4e6c675c078d32fbd9993f1137f629",
-    "data_plane": "b12d7ebf26df68416bccb6dcd09536c4fd4e7d36ddcb97389d5840b584639527",
+    "data_plane": "74149584cdea66529a330e9384122aca1bdfbb143d9aa7ac8db544a469a73c8c",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "036a954ef4db4c2418e16856f3426528c6331adeb84e8481c07f449c39dc5891",
     "route_index": "37b7c1a286fa79fcf52802b1595ba6df58cddb9259a397f7d443b066d372c6a6",

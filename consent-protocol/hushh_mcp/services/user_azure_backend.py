@@ -15,7 +15,8 @@ AUTHORITY, PER OPERATION (byoc-azure.md trust matrix)
   orchestrator turns the call away before it claims an upgrade lease. A lease left
   by a crashed update resolves through ``observe_upgrade``, on reads alone.
 * ``deprovision`` refuses: Hussh holds no delete authority in the subscription.
-  ``erase_owner_access`` revokes access instead and returns a receipt.
+  ``erase_owner_access`` revokes access instead and returns a receipt; a revocation
+  cut short resumes through ``resume_owner_access_revocation``.
 
 GONE IS A CONFIRMED ABSENCE, never a refused read: ``azure_agent_observation``
 types what ARM lets Hussh read, and the registry-facing status for a confirmed
@@ -30,6 +31,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any, Awaitable, Callable, Iterator, Optional
 
+from hushh_mcp.services import azure_agent_erasure
 from hushh_mcp.services.azure_agent_observation import (
     AGENT_UNREADABLE,
     GONE_ACCESS_REMOVED,
@@ -373,18 +375,22 @@ class UserAzureBackend:
 
     async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
         """The serving incarnation an erasure order must match (``azure_agent_erasure``)."""
-        from hushh_mcp.services.azure_agent_erasure import erasure_target  # noqa: PLC0415
-
-        return await asyncio.to_thread(erasure_target, self, spec)
+        return await asyncio.to_thread(azure_agent_erasure.erasure_target, self, spec)
 
     async def erase_owner_access(
-        self, spec: PodSpec, *, crypto_erase: Callable[[], Awaitable[dict]]
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
     ) -> dict[str, Any]:
         """Fence, agent crypto-erase, revoke the agent, revoke Hussh last; a receipt."""
-        from hushh_mcp.services.azure_agent_erasure import erase_through_backend  # noqa: PLC0415
-
-        return await erase_through_backend(
+        return await azure_agent_erasure.erase_through_backend(
             self, spec, observer=self._observer(), crypto_erase=crypto_erase
+        )
+
+    async def resume_owner_access_revocation(
+        self, spec: PodSpec, *, agent_erased: dict[str, Any], resume: dict[str, str]
+    ) -> dict[str, Any]:
+        """Finish revoking from the retained checkpoint, without reading the agent."""
+        return await azure_agent_erasure.resume_revocation(
+            self, spec, observer=self._observer(), agent_erased=agent_erased, resume=resume
         )
 
     async def deprovision(self, external_agent_id: str) -> None:

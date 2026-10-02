@@ -1,8 +1,8 @@
--- Refuse to discard a retained owner-access erasure receipt during a rollback.
+-- Refuse to discard a retained owner-access erasure checkpoint or receipt during a rollback.
 BEGIN;
 DO $$ BEGIN
  IF EXISTS (SELECT 1 FROM public.personal_agent_registry
-   WHERE backend_metadata->'erasure' ? 'ownerAccessErasure')
+   WHERE backend_metadata->'erasure' ?| ARRAY['agentCryptoErase','ownerAccessErasure'])
  THEN RAISE EXCEPTION 'owner-access erasure receipts must be reconciled before rollback'; END IF;
 END; $$;
 CREATE OR REPLACE FUNCTION public.guard_personal_agent_erasure_registry()
@@ -193,6 +193,8 @@ END;
 $$;
 
 DROP FUNCTION IF EXISTS public.retain_erasure_owner_access(text, text, jsonb, jsonb);
+DROP FUNCTION IF EXISTS public.retain_erasure_owner_access_checkpoint(text, text, jsonb, jsonb);
 DROP FUNCTION IF EXISTS public.verify_erasure_owner_access_preflight(text, text, jsonb);
 DROP FUNCTION IF EXISTS public.valid_erasure_owner_access(jsonb, jsonb);
+DROP FUNCTION IF EXISTS public.valid_erasure_owner_access_checkpoint(jsonb, jsonb);
 COMMIT;

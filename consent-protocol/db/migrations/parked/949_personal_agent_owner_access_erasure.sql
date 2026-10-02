@@ -12,10 +12,62 @@
 -- other erasure receipt. It completes nothing: the account guard still refuses
 -- while the person's resources remain.
 --
--- The registry guard is 943's verbatim plus one transition before its final
+-- The pod's confirmation is retained first, as the agentCryptoErase checkpoint,
+-- before any access is revoked. Revocation can stop part way (one transient ARM
+-- error), and once the pod's storage grant is gone the pod can never confirm again,
+-- so a retry resumes revocation from the checkpoint. The receipt must carry exactly
+-- the checkpointed confirmation.
+--
+-- The registry guard is 943's verbatim plus two transitions before its final
 -- refusal (940 records what rewriting it by hand once lost).
 
 BEGIN;
+
+CREATE OR REPLACE FUNCTION public.valid_erasure_owner_access_checkpoint(
+  reservation jsonb, checkpoint jsonb
+) RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path = public AS $$
+DECLARE
+  snapshot jsonb := reservation->'registrySnapshot';
+  agent jsonb := checkpoint->'agentErased';
+  resume jsonb := checkpoint->'resume';
+BEGIN
+  -- Types first, each on its own: a jsonb operator on the wrong type raises.
+  IF jsonb_typeof(checkpoint) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(agent) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(resume) IS DISTINCT FROM 'object'
+     OR jsonb_typeof(snapshot) IS DISTINCT FROM 'object' THEN RETURN false; END IF;
+  IF checkpoint - ARRAY['agentErased','resume'] <> '{}'::jsonb
+     OR pg_column_size(checkpoint) > 8192
+     OR reservation->>'phase' IS DISTINCT FROM 'reserved'
+     OR reservation->>'version' IS DISTINCT FROM '1'
+     OR snapshot->>'user_id' IS DISTINCT FROM reservation->>'ownerId'
+     OR snapshot->>'status' IS DISTINCT FROM 'provisioned'
+     OR snapshot->>'deployment_target' IS DISTINCT FROM 'user_azure'
+     OR snapshot->'backend_metadata' ? 'upgradeLease'
+  THEN RETURN false; END IF;
+  -- What revocation needs without reading the agent: the setup nonce, nothing else.
+  IF resume - ARRAY['setupNonce'] <> '{}'::jsonb
+     OR jsonb_typeof(resume->'setupNonce') IS DISTINCT FROM 'string'
+     OR resume->>'setupNonce' !~ '^[0-9a-f]{16}$' THEN RETURN false; END IF;
+  -- The pod's own confirmation, bound to this attempt and the recorded incarnation.
+  IF agent - ARRAY['status','erased','hushhId','attemptId','service','serviceUid','revision',
+       'deleted','alreadyAbsent','records'] <> '{}'::jsonb
+     OR agent->'erased' IS DISTINCT FROM 'true'::jsonb
+     OR agent->>'status' IS DISTINCT FROM 'erased'
+     OR agent->>'attemptId' IS DISTINCT FROM reservation->>'attemptId'
+     OR agent->>'hushhId' IS DISTINCT FROM reservation->>'hushhId'
+     OR agent->>'serviceUid' IS DISTINCT FROM snapshot->'backend_metadata'->>'serviceUid'
+     OR jsonb_typeof(agent->'service') IS DISTINCT FROM 'string'
+     OR jsonb_typeof(agent->'revision') IS DISTINCT FROM 'string'
+     OR jsonb_typeof(agent->'deleted') IS DISTINCT FROM 'number'
+     OR jsonb_typeof(agent->'alreadyAbsent') IS DISTINCT FROM 'number'
+     OR jsonb_typeof(agent->'records') IS DISTINCT FROM 'number'
+     OR coalesce(agent->>'deleted','') !~ '^[0-9]{1,9}$'
+     OR coalesce(agent->>'alreadyAbsent','') !~ '^[0-9]{1,9}$'
+     OR coalesce(agent->>'records','') !~ '^[0-9]{1,9}$' THEN RETURN false; END IF;
+  RETURN true;
+END;
+$$;
 
 CREATE OR REPLACE FUNCTION public.valid_erasure_owner_access(reservation jsonb, receipt jsonb)
 RETURNS boolean LANGUAGE plpgsql IMMUTABLE SET search_path = public AS $$
@@ -47,15 +99,10 @@ BEGIN
      OR receipt->>'subscriptionId' IS DISTINCT FROM snapshot->>'user_cloud_subscription_id'
      OR receipt->>'resourceGroup' IS DISTINCT FROM snapshot->>'user_cloud_resource_group'
   THEN RETURN false; END IF;
-  -- The pod's own confirmation, bound to this attempt and the recorded incarnation.
-  IF agent->'erased' IS DISTINCT FROM 'true'::jsonb
-     OR agent->>'status' IS DISTINCT FROM 'erased'
-     OR agent->>'attemptId' IS DISTINCT FROM reservation->>'attemptId'
-     OR agent->>'hushhId' IS DISTINCT FROM reservation->>'hushhId'
-     OR agent->>'serviceUid' IS DISTINCT FROM snapshot->'backend_metadata'->>'serviceUid'
-     OR coalesce(agent->>'deleted','') !~ '^[0-9]{1,9}$'
-     OR coalesce(agent->>'alreadyAbsent','') !~ '^[0-9]{1,9}$'
-     OR coalesce(agent->>'records','') !~ '^[0-9]{1,9}$' THEN RETURN false; END IF;
+  -- The pod's own confirmation, exactly as checkpointed before anything was revoked.
+  IF public.valid_erasure_owner_access_checkpoint(reservation, reservation->'agentCryptoErase')
+       IS NOT TRUE
+     OR agent IS DISTINCT FROM reservation->'agentCryptoErase'->'agentErased' THEN RETURN false; END IF;
   -- Every named resource lies inside the person's own resource group.
   IF jsonb_typeof(receipt->'agentAccessRevoked') IS DISTINCT FROM 'array'
      OR jsonb_typeof(receipt->'husshAccessRevoked') IS DISTINCT FROM 'array'
@@ -94,7 +141,7 @@ $$;
 -- Asked BEFORE anything irreversible: the agent's crypto-erase and Hussh's own
 -- revocation cannot be repeated, so a receipt that could not be retained afterwards
 -- would be lost for good. True only for this exact reserved owner Azure attempt,
--- with the registry guard installed and no receipt retained yet.
+-- with the registry guard installed and neither checkpoint nor receipt retained.
 CREATE OR REPLACE FUNCTION public.verify_erasure_owner_access_preflight(
   owner_id text, attempt_id text, expected jsonb
 ) RETURNS boolean LANGUAGE plpgsql STABLE SET search_path = public AS $$
@@ -108,12 +155,40 @@ BEGIN
      AND reservation->>'attemptId' IS NOT DISTINCT FROM attempt_id
      AND reservation->>'phase' IS NOT DISTINCT FROM 'reserved'
      AND reservation->'registrySnapshot'->>'deployment_target' IS NOT DISTINCT FROM 'user_azure'
+     AND NOT (reservation ? 'agentCryptoErase')
      AND NOT (reservation ? 'ownerAccessErasure')
      AND EXISTS (SELECT 1 FROM pg_trigger
        WHERE tgrelid='public.personal_agent_registry'::regclass
          AND tgname='zz_personal_agent_erasure_registry' AND tgenabled IN ('O','A')
          AND tgtype=27 AND tgnargs=0 AND tgqual IS NULL
          AND tgfoid='public.guard_personal_agent_erasure_registry()'::regprocedure);
+END;
+$$;
+
+-- Retained right after the pod confirms and before any revocation; once only.
+CREATE OR REPLACE FUNCTION public.retain_erasure_owner_access_checkpoint(
+  owner_id text, attempt_id text, expected jsonb, checkpoint jsonb
+) RETURNS boolean LANGUAGE plpgsql SET search_path = public AS $$
+DECLARE current_row public.personal_agent_registry%ROWTYPE; reservation jsonb;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,171));
+  PERFORM pg_advisory_xact_lock(hashtextextended(owner_id,198));
+  SELECT * INTO current_row FROM public.personal_agent_registry WHERE user_id=owner_id FOR UPDATE;
+  IF NOT FOUND OR current_row.status IS DISTINCT FROM 'suspended' THEN RETURN false; END IF;
+  reservation := current_row.backend_metadata->'erasure';
+  IF reservation->>'ownerId' IS DISTINCT FROM owner_id
+     OR reservation->>'attemptId' IS DISTINCT FROM attempt_id
+     OR NOT public.valid_erasure_owner_access_checkpoint(reservation,checkpoint) THEN RETURN false; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger
+      WHERE tgrelid='public.personal_agent_registry'::regclass
+        AND tgname='zz_personal_agent_erasure_registry' AND tgenabled IN ('O','A')
+        AND tgtype=27 AND tgnargs=0 AND tgqual IS NULL
+        AND tgfoid='public.guard_personal_agent_erasure_registry()'::regprocedure) THEN RETURN false; END IF;
+  IF reservation ? 'agentCryptoErase' THEN RETURN reservation->'agentCryptoErase'=checkpoint; END IF;
+  IF reservation ? 'ownerAccessErasure' OR reservation IS DISTINCT FROM expected THEN RETURN false; END IF;
+  UPDATE public.personal_agent_registry SET backend_metadata=jsonb_set(
+    backend_metadata,'{erasure,agentCryptoErase}',checkpoint,true) WHERE user_id=owner_id;
+  RETURN true;
 END;
 $$;
 
@@ -323,6 +398,14 @@ BEGIN
        AND NEW.backend_metadata-'erasure'=OLD.backend_metadata-'erasure'
        AND public.valid_erasure_bootstrap_append(OLD.backend_metadata->'erasure',NEW.backend_metadata->'erasure') IS TRUE
        AND public.project_grant_release_is_exclusive(OLD.user_id,OLD.backend_metadata->'erasure'->'grantRelease'->>'project') IS TRUE THEN RETURN NEW; END IF;
+    -- Owner-access erasure (949): the pod's confirmation, once, before any revocation.
+    IF TG_OP='UPDATE' AND to_jsonb(NEW)-'backend_metadata'=to_jsonb(OLD)-'backend_metadata'
+       AND NEW.backend_metadata-'erasure'=OLD.backend_metadata-'erasure'
+       AND NOT (OLD.backend_metadata->'erasure' ? 'agentCryptoErase')
+       AND NOT (OLD.backend_metadata->'erasure' ? 'ownerAccessErasure')
+       AND (NEW.backend_metadata->'erasure')-'agentCryptoErase'=OLD.backend_metadata->'erasure'
+       AND public.valid_erasure_owner_access_checkpoint(OLD.backend_metadata->'erasure',
+           NEW.backend_metadata->'erasure'->'agentCryptoErase') IS TRUE THEN RETURN NEW; END IF;
     -- Owner-access erasure (949): one receipt, once, validated against the snapshot.
     IF TG_OP='UPDATE' AND to_jsonb(NEW)-'backend_metadata'=to_jsonb(OLD)-'backend_metadata'
        AND NEW.backend_metadata-'erasure'=OLD.backend_metadata-'erasure'

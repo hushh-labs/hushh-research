@@ -394,6 +394,23 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("verified") is True)
 
+    async def retain_erasure_owner_access_checkpoint(
+        self, *, user_id: str, reservation: dict, checkpoint: dict
+    ) -> bool:
+        """Retain the pod's crypto-erase confirmation once, before any access is revoked."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_owner_access_checkpoint(:owner, :attempt, "
+            "CAST(:expected AS jsonb), CAST(:checkpoint AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "checkpoint": json.dumps(checkpoint),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def retain_erasure_owner_access(
         self, *, user_id: str, reservation: dict, receipt: dict
     ) -> bool:

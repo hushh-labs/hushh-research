@@ -1,4 +1,4 @@
-"""Parked migration 949: the owner-access erasure receipt, retained once and validated.
+"""Parked migration 949: the pod's checkpoint, then the receipt, each retained once.
 
 Static shape always; behaviour against a disposable PostgreSQL when one is installed.
 The receipt under test is the one ``azure_agent_erasure.receipt_for`` really builds,
@@ -36,7 +36,7 @@ def test_949_is_manifested_after_948_with_a_rollback():
     assert ROLLBACK.is_file()
 
 
-def test_the_guard_is_943s_verbatim_plus_one_transition():
+def test_the_guard_is_943s_verbatim_plus_two_transitions():
     """Rewriting the guard by hand once dropped earlier transitions (see 940)."""
 
     def guard(path: Path) -> str:
@@ -49,7 +49,8 @@ def test_the_guard_is_943s_verbatim_plus_one_transition():
     previous = guard(PARKED / "943_personal_agent_files_upgrade_evidence.sql")
     composed = guard(MIGRATION)
     assert guard(ROLLBACK) == previous
-    assert composed.count("ownerAccessErasure") == 3
+    assert composed.count("ownerAccessErasure") == 4
+    assert composed.count("agentCryptoErase") == 3
     removed = [line for line in previous.splitlines() if line not in composed.splitlines()]
     assert removed == []
 
@@ -58,6 +59,19 @@ def _resource_group() -> str:
     from hushh_mcp.services.azure_setup_plan import resource_group_name
 
     return resource_group_name(HUSHH_ID)
+
+
+def _pod_receipt(**pod: object) -> dict:
+    return {
+        "status": "erased", "erased": True, "hushhId": HUSHH_ID, "attemptId": "attempt-1",
+        "service": "ca-hussh-one-pod", "serviceUid": "incarnation-1",
+        "revision": "ca-hussh-one-pod--r1", "deleted": 6, "alreadyAbsent": 3, "records": 3,
+        **pod,
+    }  # fmt: skip
+
+
+def _checkpoint(**pod: object) -> dict:
+    return {"agentErased": _pod_receipt(**pod), "resume": {"setupNonce": "0123456789abcdef"}}
 
 
 def _receipt(**pod: object) -> dict:
@@ -69,15 +83,9 @@ def _receipt(**pod: object) -> dict:
         resource_group=_resource_group(), nonce="0123456789abcdef",
     )  # fmt: skip
     group = f"/subscriptions/{SUB}/resourceGroups/{_resource_group()}"
-    pod_receipt = {
-        "status": "erased", "erased": True, "hushhId": HUSHH_ID, "attemptId": "attempt-1",
-        "service": "ca-hussh-one-pod", "serviceUid": "incarnation-1",
-        "revision": "ca-hussh-one-pod--r1", "deleted": 6, "alreadyAbsent": 3, "records": 3,
-        **pod,
-    }  # fmt: skip
     revoked = f"{group}/providers/Microsoft.Authorization/roleAssignments/abc"
     return receipt_for(
-        inputs, pod_receipt=pod_receipt, pod_revoked=[revoked], hussh_revoked=[revoked]
+        inputs, pod_receipt=_pod_receipt(**pod), pod_revoked=[revoked], hussh_revoked=[revoked]
     )
 
 
@@ -134,6 +142,20 @@ def _retain(pg, reservation: dict, receipt: dict) -> bool:
     )[0][0]
 
 
+def _retain_checkpoint(pg, reservation: dict, checkpoint: dict) -> bool:
+    return pg.execute(
+        "SELECT retain_erasure_owner_access_checkpoint(%s,%s,%s::jsonb,%s::jsonb)",
+        (OWNER, reservation["attemptId"], json.dumps(reservation), json.dumps(checkpoint)),
+    )[0][0]
+
+
+def _checkpointed(pg) -> dict:
+    """A reservation whose pod confirmation is retained: what revocation starts from."""
+    reservation = _reserve(pg)
+    assert _retain_checkpoint(pg, reservation, _checkpoint()) is True
+    return {**reservation, "agentCryptoErase": _checkpoint()}
+
+
 def _preflight(pg, reservation: dict) -> bool:
     return pg.execute(
         "SELECT verify_erasure_owner_access_preflight(%s,%s,%s::jsonb)",
@@ -142,23 +164,53 @@ def _preflight(pg, reservation: dict) -> bool:
 
 
 @_needs_pg
-def test_the_receipt_is_retained_once_and_bound_to_the_attempt(pg):
-    reservation, receipt = _reserve(pg), _receipt()
+def test_the_checkpoint_precedes_the_receipt_and_each_is_retained_once(pg):
+    reservation, checkpoint, receipt = _reserve(pg), _checkpoint(), _receipt()
     assert _preflight(pg, reservation) is True
     assert _preflight(pg, {**reservation, "attemptId": "attempt-2"}) is False
-    assert _retain(pg, {**reservation, "attemptId": "attempt-2"}, receipt) is False
-    assert _retain(pg, reservation, receipt) is True
+    # No receipt before the pod's confirmation is checkpointed.
+    assert _retain(pg, reservation, receipt) is False
+    assert _retain_checkpoint(pg, {**reservation, "attemptId": "attempt-2"}, checkpoint) is False
+    assert _retain_checkpoint(pg, reservation, checkpoint) is True
     assert _preflight(pg, reservation) is False  # never a second irreversible erase
-    assert _retain(pg, reservation, receipt) is True  # an identical retry is acknowledged
+    assert _retain_checkpoint(pg, reservation, checkpoint) is True  # an identical retry
+    assert _retain_checkpoint(pg, reservation, _checkpoint(deleted=0, alreadyAbsent=9)) is False
+    assert _retain(pg, reservation, receipt) is False  # expected must carry the checkpoint
+    checkpointed = {**reservation, "agentCryptoErase": checkpoint}
+    assert _preflight(pg, checkpointed) is False
+    assert _retain(pg, checkpointed, receipt) is True
+    assert _retain(pg, checkpointed, receipt) is True  # an identical retry is acknowledged
     assert (
-        _retain(pg, reservation, {**receipt, "nextStep": f"Delete {_resource_group()} now"})
+        _retain(pg, checkpointed, {**receipt, "nextStep": f"Delete {_resource_group()} now"})
         is False
     )
     status, erasure = pg.execute(
         "SELECT status, backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id=%s",
         (OWNER,),
     )[0]
-    assert status == "suspended" and erasure == {**reservation, "ownerAccessErasure": receipt}
+    assert status == "suspended" and erasure == {**checkpointed, "ownerAccessErasure": receipt}
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda c: {**c, "resume": {"setupNonce": "not-a-nonce"}},
+        lambda c: {**c, "resume": {"setupNonce": "0123456789abcdef", "extra": "x"}},
+        lambda c: {**c, "extra": "field"},
+        lambda c: {k: v for k, v in c.items() if k != "resume"},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "erased": False}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "attemptId": "attempt-2"}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "serviceUid": "replaced"}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "content": "private"}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "deleted": -1}},
+        lambda c: {**c, "agentErased": {**c["agentErased"], "records": "3"}},
+    ],
+)
+@_needs_pg
+def test_a_checkpoint_that_does_not_describe_this_agent_is_refused(pg, mutation):
+    reservation = _reserve(pg)
+    assert _retain_checkpoint(pg, reservation, mutation(_checkpoint())) is False
+    assert _preflight(pg, reservation) is True  # nothing was retained
 
 
 @pytest.mark.parametrize(
@@ -179,26 +231,45 @@ def test_the_receipt_is_retained_once_and_bound_to_the_attempt(pg):
 )
 @_needs_pg
 def test_a_receipt_that_does_not_describe_this_agent_is_refused(pg, mutation):
-    reservation = _reserve(pg)
-    assert _retain(pg, reservation, mutation(_receipt())) is False
+    assert _retain(pg, _checkpointed(pg), mutation(_receipt())) is False
 
 
 @_needs_pg
 def test_only_an_owner_azure_reservation_takes_the_receipt(pg):
     reservation = _reserve(pg, target="user_gcp")
     assert _preflight(pg, reservation) is False
+    assert _retain_checkpoint(pg, reservation, _checkpoint()) is False
     assert _retain(pg, reservation, _receipt()) is False
+
+
+def _direct_write(pg, field: str, value: dict) -> None:
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,"
+        "ARRAY['erasure',%s],%s::jsonb,true) WHERE user_id=%s",
+        (field, json.dumps(value), OWNER),
+    )
 
 
 @_needs_pg
 def test_the_guard_refuses_a_direct_write_of_an_invalid_receipt(pg):
     _reserve(pg)
+    for field, value in (
+        ("ownerAccessErasure", {"version": 1}),
+        ("ownerAccessErasure", _receipt()),  # valid, but nothing was checkpointed
+        ("agentCryptoErase", {**_checkpoint(), "resume": {}}),
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            _direct_write(pg, field, value)
+
+
+@_needs_pg
+def test_the_checkpoint_is_written_once_and_never_after_the_receipt(pg):
+    checkpointed = _checkpointed(pg)
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
-        pg.execute(
-            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,"
-            "'{erasure,ownerAccessErasure}','{\"version\":1}'::jsonb,true) WHERE user_id=%s",
-            (OWNER,),
-        )
+        _direct_write(pg, "agentCryptoErase", _checkpoint(deleted=0, alreadyAbsent=9))
+    assert _retain(pg, checkpointed, _receipt()) is True
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        _direct_write(pg, "agentCryptoErase", _checkpoint(deleted=0, alreadyAbsent=9))
 
 
 @_needs_pg
@@ -209,7 +280,10 @@ def test_the_rollback_round_trips_and_refuses_to_drop_a_retained_receipt(pg):
         is None
     )
     pg.apply_file(MIGRATION)
-    reservation = _reserve(pg)
-    assert _retain(pg, reservation, _receipt()) is True
+    checkpointed = _checkpointed(pg)  # a retained checkpoint alone already refuses
+    with pytest.raises(psycopg2.errors.RaiseException, match="reconciled before rollback"):
+        pg.apply_file(ROLLBACK)
+    pg.execute("ROLLBACK")  # the refused rollback file left its transaction aborted
+    assert _retain(pg, checkpointed, _receipt()) is True
     with pytest.raises(psycopg2.errors.RaiseException, match="reconciled before rollback"):
         pg.apply_file(ROLLBACK)

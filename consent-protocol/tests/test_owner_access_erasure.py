@@ -15,6 +15,7 @@ import pytest
 
 from hushh_mcp.services import account_service, pod_migration_transport
 from hushh_mcp.services import azure_agent_setup as setup
+from hushh_mcp.services.azure_arm_client import ArmError
 from hushh_mcp.services.azure_setup_plan import (
     HUSSH_PRINCIPAL,
     Scopes,
@@ -65,7 +66,11 @@ def arm(monkeypatch) -> FakeArm:
 
 
 class _Registry:
-    """The registry surface erasure uses, holding one reserved owner row."""
+    """The registry surface erasure uses, holding one reserved owner row.
+
+    Mirrors migration 949: the checkpoint is retained once, before the receipt, and
+    the receipt only on a reservation that already carries the checkpoint.
+    """
 
     def __init__(self, snapshot: dict) -> None:
         self.reservation = {
@@ -79,26 +84,47 @@ class _Registry:
         self.row = {**snapshot, "status": "suspended"}
         self.row["backend_metadata"] = {**snapshot["backend_metadata"], "erasure": self.reservation}
         self.retained: list[dict] = []
+        self.checkpoints: list[dict] = []
         self.receipt_storage_ready = True
+        self.checkpoint_refusals = 0
+
+    @property
+    def erasure(self) -> dict:
+        return self.row["backend_metadata"]["erasure"]
 
     async def verify_erasure_owner_access_preflight(self, *, user_id, reservation) -> bool:
-        erasure = self.row["backend_metadata"]["erasure"]
-        return self.receipt_storage_ready and reservation == erasure == self.reservation
+        return (
+            self.receipt_storage_ready
+            and reservation == self.erasure == self.reservation
+            and not {"agentCryptoErase", "ownerAccessErasure"} & set(self.erasure)
+        )
 
     async def reserve_erasure(self, *, user_id: str) -> dict:
-        return copy.deepcopy(self.row["backend_metadata"]["erasure"])
+        return copy.deepcopy(self.erasure)
 
     async def get(self, user_id: str) -> dict:
         return copy.deepcopy(self.row)
 
+    async def retain_erasure_owner_access_checkpoint(self, *, user_id, reservation, checkpoint):
+        if self.checkpoint_refusals:
+            self.checkpoint_refusals -= 1
+            return False
+        if "agentCryptoErase" in self.erasure:
+            return self.erasure["agentCryptoErase"] == checkpoint
+        if reservation != self.erasure:
+            return False
+        self.checkpoints.append(copy.deepcopy(checkpoint))
+        self.row["backend_metadata"]["erasure"] = {**self.erasure, "agentCryptoErase": checkpoint}
+        return True
+
     async def retain_erasure_owner_access(self, *, user_id, reservation, receipt) -> bool:
-        if reservation != self.reservation:
+        checkpoint = self.erasure.get("agentCryptoErase")
+        if reservation != self.erasure or checkpoint is None:
+            return False
+        if receipt["agentErased"] != checkpoint["agentErased"]:
             return False
         self.retained.append(receipt)
-        self.row["backend_metadata"]["erasure"] = {
-            **self.reservation,
-            "ownerAccessErasure": receipt,
-        }
+        self.row["backend_metadata"]["erasure"] = {**self.erasure, "ownerAccessErasure": receipt}
         return True
 
 
@@ -180,6 +206,8 @@ async def test_erasure_reaches_the_backend_through_the_capability_and_retains_th
         role_assignment_path(scopes.group, removal_role_id(inputs), HUSSH_PRINCIPAL),
     ]
     (receipt,) = registry.retained
+    (checkpoint,) = registry.checkpoints
+    assert checkpoint == {"agentErased": receipt["agentErased"], "resume": {"setupNonce": nonce}}
     assert receipt["agentErased"]["erased"] is True and receipt["resourceGroup"] == _group()
     assert f"/subscriptions/{_SUB}/resourceGroups/{_group()}" in receipt["remainingResources"]
     assert receipt["keyVault"]["earliestPurgeIfDeletedToday"]
@@ -215,6 +243,7 @@ async def test_an_unconfirmed_crypto_erase_revokes_and_retains_nothing(arm, rema
     with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
         await _service(registry).deprovision(user_id=OWNER)
     assert len(pod_calls) == 1 and arm.writes() == [] and registry.retained == []
+    assert registry.checkpoints == []
 
 
 async def test_a_replaced_agent_is_never_erased(arm, remaining, monkeypatch):
@@ -225,6 +254,107 @@ async def test_a_replaced_agent_is_never_erased(arm, remaining, monkeypatch):
     with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
         await _service(registry).deprovision(user_id=OWNER)
     assert pod_calls == [] and arm.writes() == [] and registry.retained == []
+
+
+# -- a revocation cut short resumes from the checkpoint, never from the pod -------------
+
+
+def _hussh_grants(snapshot: dict) -> list[str]:
+    inputs = UserAzureBackend(
+        tenant_id=_TENANT, subscription_id=_SUB, resource_group=_group(), location="eastus2"
+    ).plan_inputs(_HUSHH_ID, snapshot["backend_metadata"]["setupNonce"])
+    scopes = Scopes(inputs, resource_names(inputs))
+    return [
+        role_assignment_path(scopes.app, observer_role_id(inputs), HUSSH_PRINCIPAL),
+        role_assignment_path(scopes.environment, observer_role_id(inputs), HUSSH_PRINCIPAL),
+        role_assignment_path(scopes.group, removal_role_id(inputs), HUSSH_PRINCIPAL),
+    ]
+
+
+def _pod_losing_storage(arm: FakeArm, calls: list):
+    """The pod confirms once; after its container grant goes it can never answer again."""
+    answer = _pod(arm, calls)
+
+    def crypto_erase_for_erasure(*, pod_url: str, payload: dict) -> dict:
+        if any("/containers/" in path for method, path in arm.writes() if method == "DELETE"):
+            calls.append({"refused": True})
+            raise pod_migration_transport.PodMigrationTransportError("POD_REFUSED_409", "refused")
+        return answer(pod_url=pod_url, payload=payload)
+
+    return crypto_erase_for_erasure
+
+
+_ARM_500 = ArmError("server", status=500, code="InternalServerError", message="", op="erasure")
+
+
+@pytest.mark.parametrize(
+    "fails_on",
+    [
+        "/registries/",  # an agent grant, after its storage grant went
+        "/managedEnvironments/",  # a Hussh observer grant, after the agent read went
+    ],
+)
+async def test_a_transient_arm_error_mid_revocation_resumes_without_the_pod(
+    arm, remaining, monkeypatch, fails_on
+):
+    snapshot, pod_calls = _snapshot(arm), []
+    registry = _Registry(snapshot)
+    monkeypatch.setattr(
+        pod_migration_transport, "crypto_erase_for_erasure", _pod_losing_storage(arm, pod_calls)
+    )
+    arm.fail("DELETE", fails_on, _ARM_500)
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    assert registry.retained == [] and len(registry.checkpoints) == 1
+    if fails_on == "/managedEnvironments/":
+        # Hussh's agent observer grant is already gone: the agent cannot be read now.
+        arm.forbidden.add(UserAzureBackend(
+            tenant_id=_TENANT, subscription_id=_SUB, resource_group=_group(), location="eastus2"
+        ).app_id)  # fmt: skip
+    before = len(arm.calls)
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    retry = arm.calls[before:]
+    assert [call for call in pod_calls if call.get("refused")] == [] and len(pod_calls) == 1
+    assert [method for method, _path, _body in retry if method != "DELETE"] == []  # no reads
+    deletes = [path for method, path, _body in retry if method == "DELETE"]
+    assert deletes[-3:] == _hussh_grants(snapshot)  # Hussh's own access, last
+    (receipt,) = registry.retained
+    assert receipt["agentErased"] == registry.checkpoints[0]["agentErased"]
+    assert len(receipt["agentAccessRevoked"]) == 5
+    assert receipt["husshAccessRevoked"] == _hussh_grants(snapshot)
+    assert remaining == [OWNER, OWNER, OWNER]  # still refused: the resource group remains
+
+
+async def test_no_revocation_starts_until_the_pods_confirmation_is_retained(
+    arm, remaining, monkeypatch
+):
+    registry, pod_calls = _Registry(_snapshot(arm)), []
+    registry.checkpoint_refusals = 1  # the database refuses the checkpoint once
+    monkeypatch.setattr(pod_migration_transport, "crypto_erase_for_erasure", _pod(arm, pod_calls))
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    assert len(pod_calls) == 1 and arm.writes() == [] and registry.checkpoints == []
+    # The pod still holds its access, so asking again is safe: it finishes from its
+    # tombstone, and only then does revocation start.
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    assert len(pod_calls) == 2 and len(registry.checkpoints) == 1 and len(registry.retained) == 1
+    assert pod_calls[1]["writes_before"] == 0
+
+
+async def test_a_checkpoint_that_names_another_agent_revokes_nothing(arm, remaining, monkeypatch):
+    registry, pod_calls = _Registry(_snapshot(arm)), []
+    monkeypatch.setattr(pod_migration_transport, "crypto_erase_for_erasure", _pod(arm, pod_calls))
+    arm.fail("DELETE", "/registries/", _ARM_500)
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    checkpoint = registry.erasure["agentCryptoErase"]
+    checkpoint["agentErased"]["serviceUid"] = "another-incarnation"
+    writes = len(arm.writes())
+    with pytest.raises(account_service.PersonalAgentDeprovisioningRequiredError):
+        await _service(registry).deprovision(user_id=OWNER)
+    assert len(arm.writes()) == writes and registry.retained == [] and len(pod_calls) == 1
 
 
 def test_only_a_backend_with_the_capability_takes_this_path(arm):

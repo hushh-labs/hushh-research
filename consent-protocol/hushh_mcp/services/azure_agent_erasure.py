@@ -12,6 +12,12 @@ Order, and why:
 4. **Revoke Hussh's own access, LAST**: the observer assignments, then the removal
    assignment itself.
 
+Between 2 and 3 the hub checkpoints the agent's confirmation with the setup nonce
+(``crypto_erase`` returns only after that). A revocation cut short by a transient ARM
+error resumes from the checkpoint (``resume_revocation``): the agent is never asked
+again, and nothing is read from the agent, because Hussh's observer grants may already
+be gone while the removal grant, revoked last, still is not.
+
 Nothing is deleted from the person's subscription: Hussh has no delete authority
 there, by design. The receipt names what remains, the resource group to delete, and
 the earliest date the purge-protected vault can be purged.
@@ -19,7 +25,9 @@ the earliest date the purge-protected vault can be purged.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
@@ -48,6 +56,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 RECEIPT_VERSION = 1
+#: ``azure_agent_setup`` mints the setup nonce as 8 random bytes in hex.
+_SETUP_NONCE = re.compile(r"^[0-9a-f]{16}$")
 
 
 class AzureErasureRefused(RuntimeError):
@@ -91,13 +101,16 @@ def _remaining(scopes: Scopes) -> list[str]:
     ]
 
 
-def _delete_all(arm: ArmClient, paths: list[str]) -> list[str]:
+def _revoke_all(arm: ArmClient, paths: list[str]) -> list[str]:
+    """Delete each assignment; afterwards none exists (removed now, or already gone).
+
+    A refused delete raises, so the returned list is exactly what is confirmed
+    revoked, and a resumed revocation reports what an uninterrupted one would.
+    """
     api = API_VERSIONS["authorization"]
-    removed = []
     for path in paths:
-        if arm.delete(path, api_version=api, op="erasure"):
-            removed.append(path)
-    return removed
+        arm.delete(path, api_version=api, op="erasure")
+    return list(paths)
 
 
 def receipt_for(
@@ -159,7 +172,7 @@ async def erase_through_backend(
     spec: PodSpec,
     *,
     observer: ArmClient,
-    crypto_erase: Callable[[], Awaitable[dict]],
+    crypto_erase: Callable[[dict[str, str]], Awaitable[dict]],
 ) -> dict[str, Any]:
     """Bind the four steps to the agent ARM reads back as THIS person's, then run them."""
     observation = await backend.observe()
@@ -184,26 +197,11 @@ async def erase_through_backend(
     )
 
 
-async def erase_owner_access(
-    *,
-    inputs: PlanInputs,
-    observer: ArmClient,
-    verify_fence: Callable[[], Awaitable[None]],
-    crypto_erase: Callable[[], Awaitable[dict]],
-) -> dict[str, Any]:
-    """Run the four steps in order; any refusal stops before Hussh revokes itself."""
-    import asyncio  # noqa: PLC0415
-
-    await verify_fence()
-    pod_receipt = await crypto_erase()
-    if not isinstance(pod_receipt, dict) or pod_receipt.get("erased") is not True:
-        raise AzureErasureRefused(
-            "the agent did not confirm its crypto-erase; nothing was revoked",
-            code="AGENT_ERASE_UNCONFIRMED",
-        )
+def revoke_access(inputs: PlanInputs, observer: ArmClient, agent_erased: dict) -> dict[str, Any]:
+    """Revoke the agent's grants, then Hussh's own, last. Idempotent; reads nothing."""
     scopes = Scopes(inputs, resource_names(inputs))
-    pod_revoked = await asyncio.to_thread(_delete_all, observer, _pod_grants(scopes))
-    hussh_revoked = await asyncio.to_thread(_delete_all, observer, _hussh_grants(inputs, scopes))
+    pod_revoked = _revoke_all(observer, _pod_grants(scopes))
+    hussh_revoked = _revoke_all(observer, _hussh_grants(inputs, scopes))
     logger.info(
         "azure_erasure.revoked agent=%d hussh=%d group=%s",
         len(pod_revoked),
@@ -211,8 +209,63 @@ async def erase_owner_access(
         inputs.resource_group,
     )
     return receipt_for(
-        inputs, pod_receipt=pod_receipt, pod_revoked=pod_revoked, hussh_revoked=hussh_revoked
+        inputs, pod_receipt=agent_erased, pod_revoked=pod_revoked, hussh_revoked=hussh_revoked
     )
+
+
+async def erase_owner_access(
+    *,
+    inputs: PlanInputs,
+    observer: ArmClient,
+    verify_fence: Callable[[], Awaitable[None]],
+    crypto_erase: Callable[[dict[str, str]], Awaitable[dict]],
+) -> dict[str, Any]:
+    """Run the four steps in order; any refusal stops before Hussh revokes itself."""
+    await verify_fence()
+    pod_receipt = await crypto_erase({"setupNonce": inputs.nonce})
+    if not isinstance(pod_receipt, dict) or pod_receipt.get("erased") is not True:
+        raise AzureErasureRefused(
+            "the agent did not confirm its crypto-erase; nothing was revoked",
+            code="AGENT_ERASE_UNCONFIRMED",
+        )
+    return await asyncio.to_thread(revoke_access, inputs, observer, pod_receipt)
+
+
+def _checkpoint_names(spec: PodSpec, agent_erased: Any, resume: Any) -> bool:
+    nonce = resume.get("setupNonce") if isinstance(resume, dict) else None
+    return (
+        isinstance(resume, dict)
+        and set(resume) == {"setupNonce"}
+        and isinstance(nonce, str)
+        and _SETUP_NONCE.match(nonce) is not None
+        and isinstance(agent_erased, dict)
+        and agent_erased.get("erased") is True
+        and agent_erased.get("hushhId") == spec.hushh_id
+        and bool(spec.expected_service_uid)
+        and agent_erased.get("serviceUid") == spec.expected_service_uid
+    )
+
+
+async def resume_revocation(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    *,
+    observer: ArmClient,
+    agent_erased: dict[str, Any],
+    resume: dict[str, str],
+) -> dict[str, Any]:
+    """Finish a revocation cut short, from the checkpoint the hub retained.
+
+    Steps 1 and 2 are done and must not repeat: the agent erased itself and its
+    confirmation is durable. Only revocation remains, under the removal grant alone.
+    """
+    if not _checkpoint_names(spec, agent_erased, resume):
+        raise AzureErasureRefused(
+            "the retained erasure checkpoint does not name this agent; nothing was revoked",
+            code="CHECKPOINT_MISMATCH",
+        )
+    inputs = backend.plan_inputs(spec.hushh_id, resume["setupNonce"])
+    return await asyncio.to_thread(revoke_access, inputs, observer, agent_erased)
 
 
 __all__ = [
@@ -222,4 +275,6 @@ __all__ = [
     "erase_through_backend",
     "erasure_target",
     "receipt_for",
+    "resume_revocation",
+    "revoke_access",
 ]

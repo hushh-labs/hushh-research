@@ -346,15 +346,19 @@ class RestartableBackend(Protocol):
 
 @runtime_checkable
 class OwnerAccessErasableBackend(Protocol):
-    """Erase where the hub holds no delete authority: the pod crypto-erases (``crypto_erase``,
-    the hub's proof call), access is revoked, the hub's own last; returns the receipt."""
+    """Erase without delete authority. ``crypto_erase(resume)`` returns only once the pod's
+    confirmation is checkpointed with ``resume``; revocation (the hub's last) resumes from it."""
 
     backend_id: str
 
     async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]: ...
 
     async def erase_owner_access(
-        self, spec: PodSpec, *, crypto_erase: Callable[[], Awaitable[dict]]
+        self, spec: PodSpec, *, crypto_erase: Callable[[dict[str, str]], Awaitable[dict]]
+    ) -> dict[str, Any]: ...
+
+    async def resume_owner_access_revocation(
+        self, spec: PodSpec, *, agent_erased: dict[str, Any], resume: dict[str, str]
     ) -> dict[str, Any]: ...
 
 

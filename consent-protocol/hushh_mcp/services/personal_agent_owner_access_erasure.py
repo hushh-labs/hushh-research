@@ -7,6 +7,11 @@ hub's proof call), the backend revokes the pod's access and then the hub's own,
 last, and the receipt naming what the person still holds is retained on the
 registry row under the reserved attempt, like every other erasure receipt.
 
+The pod's confirmation is retained as a CHECKPOINT on the row before anything is
+revoked. Revocation can be cut short (one transient provider error is enough), and
+once the pod's storage grant is gone the pod can no longer confirm anything, so a
+retry resumes revocation from the checkpoint and never asks the pod again.
+
 This completes nothing by itself. The existing account-erasure guard still decides,
 so while the person's resources remain the account stays refused (fail-closed), now
 with a receipt that says exactly what is left and how to delete it.
@@ -32,6 +37,7 @@ from hushh_mcp.services.user_cloud_service import spec_coordinates_from_row
 logger = logging.getLogger(__name__)
 
 RECEIPT_FIELD = "ownerAccessErasure"
+CHECKPOINT_FIELD = "agentCryptoErase"
 
 
 def _snapshot_spec(row: dict[str, Any]) -> PodSpec:
@@ -93,6 +99,30 @@ def _require_reserved(
     return metadata
 
 
+async def _confirm_saved(
+    service: Any, *, user_id: str, reservation: dict[str, Any], field: str, value: dict
+) -> None:
+    observed = await service._registry.get(user_id)
+    saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+    if saved.get("attemptId") != reservation["attemptId"] or saved.get(field) != value:
+        raise RuntimeError("owner-access erasure readback unconfirmed")
+
+
+async def _retain_checkpoint(
+    service: Any, *, user_id: str, reservation: dict[str, Any], checkpoint: dict[str, Any]
+) -> dict[str, Any]:
+    """Retain the pod's confirmation before any revocation; the reservation it leaves."""
+    retain = getattr(service._registry, "retain_erasure_owner_access_checkpoint", None)
+    if retain is None or not await retain(
+        user_id=user_id, reservation=reservation, checkpoint=checkpoint
+    ):
+        raise RuntimeError("owner-access erasure checkpoint retention unconfirmed")
+    await _confirm_saved(
+        service, user_id=user_id, reservation=reservation, field=CHECKPOINT_FIELD, value=checkpoint
+    )
+    return {**reservation, CHECKPOINT_FIELD: checkpoint}
+
+
 async def _erase(
     service: Any,
     *,
@@ -101,7 +131,8 @@ async def _erase(
     row: dict[str, Any],
     backend: OwnerAccessErasableBackend,
     spec: PodSpec,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """The first pass: fence, pod crypto-erase, checkpoint, revoke. (reservation, receipt)."""
     from hushh_mcp.services.pod_migration_transport import crypto_erase_for_erasure
 
     metadata = row["backend_metadata"]
@@ -124,13 +155,42 @@ async def _erase(
         "serviceUid": target["serviceUid"],
         "revision": target["revision"],
     }
+    checkpointed: dict[str, Any] = {}
 
-    async def crypto_erase() -> dict:
-        return await asyncio.to_thread(
+    async def crypto_erase(resume: dict[str, str]) -> dict:
+        confirmation = await asyncio.to_thread(
             crypto_erase_for_erasure, pod_url=target["podUrl"], payload=payload
         )
+        if not isinstance(confirmation, dict) or confirmation.get("erased") is not True:
+            raise RuntimeError("the agent did not confirm its crypto-erase")
+        checkpoint = {"agentErased": confirmation, "resume": dict(resume)}
+        checkpointed.update(
+            await _retain_checkpoint(
+                service, user_id=user_id, reservation=reservation, checkpoint=checkpoint
+            )
+        )
+        return confirmation
 
-    return await backend.erase_owner_access(spec, crypto_erase=crypto_erase)
+    receipt = await backend.erase_owner_access(spec, crypto_erase=crypto_erase)
+    if CHECKPOINT_FIELD not in checkpointed:
+        raise RuntimeError("the backend revoked without the agent's retained confirmation")
+    return checkpointed, receipt
+
+
+async def _resume(
+    *, reservation: dict[str, Any], backend: OwnerAccessErasableBackend, spec: PodSpec
+) -> dict[str, Any]:
+    """A retry after the checkpoint: finish revoking; the pod is never asked again."""
+    checkpoint = reservation[CHECKPOINT_FIELD]
+    if (
+        not isinstance(checkpoint, dict)
+        or not isinstance(checkpoint.get("agentErased"), dict)
+        or not isinstance(checkpoint.get("resume"), dict)
+    ):
+        raise RuntimeError("owner-access erasure checkpoint malformed")
+    return await backend.resume_owner_access_revocation(
+        spec, agent_erased=checkpoint["agentErased"], resume=checkpoint["resume"]
+    )
 
 
 async def _retain(
@@ -141,10 +201,31 @@ async def _retain(
         user_id=user_id, reservation=reservation, receipt=receipt
     ):
         raise RuntimeError("owner-access erasure receipt retention unconfirmed")
-    observed = await service._registry.get(user_id)
-    saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
-    if saved.get("attemptId") != reservation["attemptId"] or saved.get(RECEIPT_FIELD) != receipt:
-        raise RuntimeError("owner-access erasure receipt readback unconfirmed")
+    await _confirm_saved(
+        service, user_id=user_id, reservation=reservation, field=RECEIPT_FIELD, value=receipt
+    )
+
+
+async def _revoked(
+    service: Any,
+    *,
+    user_id: str,
+    reservation: dict[str, Any],
+    row: dict[str, Any],
+    backend: OwnerAccessErasableBackend,
+    spec: PodSpec,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Revocation finished, from the first pass or from the checkpoint. (reservation, receipt)."""
+    if reservation.get(CHECKPOINT_FIELD) is not None:
+        return reservation, await _resume(reservation=reservation, backend=backend, spec=spec)
+    # Nothing irreversible starts until the checkpoint and the receipt are provably
+    # retainable: a pod whose access is revoked can never confirm again.
+    preflight = getattr(service._registry, "verify_erasure_owner_access_preflight", None)
+    if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
+        raise RuntimeError("owner-access erasure receipt storage unavailable")
+    return await _erase(
+        service, user_id=user_id, reservation=reservation, row=row, backend=backend, spec=spec
+    )
 
 
 async def erase_reserved_owner_access(
@@ -152,9 +233,10 @@ async def erase_reserved_owner_access(
 ) -> bool:
     """False when the reserved backend lacks the capability; True once the guard passes.
 
-    Idempotent per attempt: a receipt already retained is never re-requested, so a
-    retry goes straight to the account guard, which still refuses while anything
-    remains. Any refusal raises and the caller keeps the account fail-closed.
+    Idempotent per attempt: a receipt already retained is never re-requested, and a
+    retained checkpoint resumes revocation without the pod, so a retry always reaches
+    the account guard, which still refuses while anything remains. Any refusal raises
+    and the caller keeps the account fail-closed.
     """
     row = reservation.get("registrySnapshot") if isinstance(reservation, dict) else None
     resolved = owner_access_backend(service, row)
@@ -163,12 +245,7 @@ async def erase_reserved_owner_access(
     backend, spec = resolved
     _require_reserved(reservation, user_id=user_id, row=row, backend=backend)
     if reservation.get(RECEIPT_FIELD) is None:
-        # The erase and the hub's own revocation cannot be repeated; prove the receipt
-        # can be retained before either, or a lost receipt is the only outcome.
-        preflight = getattr(service._registry, "verify_erasure_owner_access_preflight", None)
-        if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
-            raise RuntimeError("owner-access erasure receipt storage unavailable")
-        receipt = await _erase(
+        reservation, receipt = await _revoked(
             service, user_id=user_id, reservation=reservation, row=row, backend=backend, spec=spec
         )
         await _retain(service, user_id=user_id, reservation=reservation, receipt=receipt)
@@ -184,4 +261,9 @@ async def erase_reserved_owner_access(
     return True
 
 
-__all__ = ["RECEIPT_FIELD", "erase_reserved_owner_access", "owner_access_backend"]
+__all__ = [
+    "CHECKPOINT_FIELD",
+    "RECEIPT_FIELD",
+    "erase_reserved_owner_access",
+    "owner_access_backend",
+]
