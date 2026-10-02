@@ -419,16 +419,21 @@ class PkmPacketOrderService:
         )
         request_ids = [str(r["access_request_id"]) for r in paid if r.get("access_request_id")]
         statuses: dict[str, str] = {}
+        delivered: set[str] = set()
         if request_ids:
             for row in await self._rows(
                 self.db.table("marketplace_access_requests")
-                .select("id,status")
+                .select("id,status,latest_envelope_id")
                 .in_("id", request_ids)
             ):
                 statuses[str(row["id"])] = str(row.get("status"))
+                if row.get("latest_envelope_id"):
+                    delivered.add(str(row["id"]))
         marked = 0
         for order in paid:
             request_id = _str(order.get("access_request_id"))
+            if (order.get("owner_earning_status") or "none") != "none" or request_id in delivered:
+                continue  # delivered: the buyer has the data, so no refund
             if request_id is None:
                 # Paid but no request filed. Give the webhook an hour, then refund
                 # rather than hold a buyer's money for a request that never came.

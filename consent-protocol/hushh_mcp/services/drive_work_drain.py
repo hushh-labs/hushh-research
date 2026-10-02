@@ -170,7 +170,17 @@ _WORKER_ALLOWED_OUTCOMES = {
         }
     ),
     "packet_orders": frozenset(
-        {"marked", "refunded", "cancelled", "disabled", "unavailable", "deadline", "deferred"}
+        {
+            "marked",
+            "refunded",
+            "cancelled",
+            "due",
+            "transferred",
+            "disabled",
+            "unavailable",
+            "deadline",
+            "deferred",
+        }
     ),
 }
 

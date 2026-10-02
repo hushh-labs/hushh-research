@@ -1432,6 +1432,16 @@
       "primary_access_path": "PKM metadata, scope discovery, manifest repair, and replay/audit services"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "pkm_owner_payout_accounts"
+      ],
+      "id": "pkm_owner_payout_accounts",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One marketplace Owner tab payouts: a packet owner onboards to a Stripe Connect Express account; the work drain marks delivered orders' earnings due and transfers them (amount minus platform fee) once Stripe enables payouts."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "pkm_packet_orders"
@@ -5858,7 +5868,7 @@
     "action_gateway": "752336e5b4776d367a7f8832b21ab05d7802c3de66297337be69e30de9b93ac9",
     "agent_registry": "03ddee8e63e5295b8b71efd73595abd299fd1aacccc839071293e183a6952563",
     "cache_manifest": "49ee704f091bfd20121dcdeee4ee92e1efef0c993dd85e01d580214cb9845a4f",
-    "data_plane": "fbf519c6595fd344a47595f072471544e040c2176896cf8b526227704968baf0",
+    "data_plane": "00ac2008fecf64b4f433f67ee5d6631f8dbc9aacbb4f2148ee83dc628cd507d8",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "eae6780e733d951427b8deb0a7fe8ff09af84fe76637e313f11afcae03e8cd55",
     "route_index": "6548ee3a2bf02511c34faaac9d21a21932e71567fa36b40b18f1bc01be3ac8d7",
@@ -5877,6 +5887,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 142,
     "semantic_routes": 14,
-    "table_families": 85
+    "table_families": 86
   }
 }

@@ -210,18 +210,23 @@ class AccountService:
                 """
                 WITH settle AS (
                   UPDATE pkm_packet_orders SET status = 'refund_pending', updated_at = NOW()
-                  WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id) AND status = 'paid'
+                  WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id)
+                    AND status = 'paid' AND owner_earning_status = 'none'
                   RETURNING id
                 )
                 DELETE FROM pkm_packet_orders
                 WHERE (buyer_user_id = :user_id OR owner_user_id = :user_id)
-                  AND status NOT IN ('paid', 'refund_pending')
+                  AND status <> 'refund_pending'
+                  AND NOT (status = 'paid' AND owner_earning_status = 'none')
                 """
             ),
             "directory_listing_claims": text(
                 "DELETE FROM directory_listing_claims WHERE user_id = :user_id"
             ),
             "pkm_credit_ledger": text("DELETE FROM pkm_credit_ledger WHERE user_id = :user_id"),
+            "pkm_owner_payout_accounts": text(
+                "DELETE FROM pkm_owner_payout_accounts WHERE user_id = :user_id"
+            ),
             # The Stripe subscription id moves to an identity-free table so the
             # work drain cancels it at Stripe: a deleted person is never billed.
             "pkm_credit_subscriptions": text(
@@ -1405,6 +1410,7 @@ class AccountService:
                 "directory_listing_claims",
                 "pkm_credit_ledger",
                 "pkm_credit_subscriptions",
+                "pkm_owner_payout_accounts",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1759,6 +1765,7 @@ class AccountService:
             "directory_listing_claims": False,
             "pkm_credit_ledger": False,
             "pkm_credit_subscriptions": False,
+            "pkm_owner_payout_accounts": False,
             "marketplace_opportunity_signals": False,
             "one_kyc_workflows": False,
             "one_referral_risk_reviews": False,
@@ -1880,6 +1887,7 @@ class AccountService:
                         "directory_listing_claims",
                         "pkm_credit_ledger",
                         "pkm_credit_subscriptions",
+                        "pkm_owner_payout_accounts",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",
