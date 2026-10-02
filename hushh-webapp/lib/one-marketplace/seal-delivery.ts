@@ -23,6 +23,11 @@ import {
   encryptSliceForRecipient,
   type MarketplaceEncryptedEnvelope,
 } from "@/lib/one-marketplace/encryption";
+import {
+  buildPacketDeliveryPayload,
+  PacketPartNoDataError,
+  packetIdFromRequest,
+} from "@/lib/one-marketplace/packet-delivery";
 import { OneMarketplaceService } from "@/lib/one-marketplace/service";
 import { consentScopeForPermission } from "@/lib/personal-knowledge-model/slice-publishing";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -113,6 +118,50 @@ export async function sealSliceForRequest(
   });
   if (!recipientKey?.keyId || !recipientKey.publicKeyJwk) {
     throw new RecipientKeyUnavailableError();
+  }
+
+  // A bought packet: seal every detail it lists into one envelope.
+  const packetId = packetIdFromRequest(params.domain, params.scopeHandle);
+  if (packetId) {
+    const payload = await buildPacketDeliveryPayload(packetId, {
+      getPacket: async (id) => {
+        const { packets } = await OneMarketplaceService.listPackets({
+          vaultOwnerToken: params.vaultOwnerToken,
+        });
+        return packets.find((packet) => packet.id === id) ?? null;
+      },
+      resolveScope: (domain, scopeHandle) =>
+        resolveExportScope({
+          userId: params.userId,
+          domain,
+          scopeHandle,
+          vaultOwnerToken: params.vaultOwnerToken,
+        }),
+      buildExport: async (scope) => {
+        try {
+          const built = await buildConsentExportForScope({
+            userId: params.userId,
+            scope,
+            vaultKey: params.vaultKey,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+          return built.payload;
+        } catch (error) {
+          if (error instanceof ConsentExportNoDataError) throw new PacketPartNoDataError();
+          throw error;
+        }
+      },
+    });
+    return encryptSliceForRecipient({
+      payload,
+      recipientPublicKeyJwk: recipientKey.publicKeyJwk,
+      recipientKeyId: recipientKey.keyId,
+      metadata: {
+        request_id: params.requestId,
+        scope: params.scopeHandle,
+        slice_name: params.sliceName || payload.title,
+      },
+    });
   }
 
   const scope = await resolveExportScope({
