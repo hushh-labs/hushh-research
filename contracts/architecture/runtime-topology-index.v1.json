@@ -1425,7 +1425,7 @@
       "id": "personal_agent_provisioning",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup (Google Cloud and Connect Azure; an Azure job's project_id holds its resource group ARM id), provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
       "data_class": "personal_metadata",
@@ -1436,7 +1436,7 @@
       "id": "personal_agent_registry",
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED"
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-947 and PERSONAL_AGENT_ENABLED. Dev-only migration948 adds owner Azure coordinates (tenant, subscription, resource group; location in user_cloud_region), written only by the Connect Azure setup job's job-locked publication, and retires the anypoint placement"
     },
     {
       "data_class": "personal_projection",
@@ -5093,6 +5093,31 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/setup/cloud/azure/return/page.tsx",
+      "pathname": "/one/setup/cloud/azure/return",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_cloud"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.cloud.azure.return"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
           "crm_registry_metadata",
           "crm_schema_metadata"
         ]
@@ -6064,15 +6089,15 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "b016ff18b84fdc63f4f1695c28e245532b7a3f78c49d3ca6f1aac215bf983548",
+    "action_gateway": "3a39beaae71b30f4217756d824b0975af64727847d29d305ad50a7e85773cf47",
     "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
-    "cache_manifest": "0889819bf4d42919ea84318ccb92b53f978dd8db392f09ae06cea0b349ea6407",
-    "data_plane": "777867da17982e0237c15422dfd847aaece3b8c70c9c7bc074d9018a1c683a91",
+    "cache_manifest": "f50ab6ab4eadb6f1c80a5e7e38a8d3390c4e6c675c078d32fbd9993f1137f629",
+    "data_plane": "13344ac75ce5bf639b18bff3532596f9dcd95ccdf47525d53ea9a32a43072fa4",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "036a954ef4db4c2418e16856f3426528c6331adeb84e8481c07f449c39dc5891",
-    "route_index": "f6d63684462a85922b88fb696c003a5a1bbc0169bc622b0ad241008fcf69466e",
-    "route_layout": "2f33039867ce52fddb816bb0e5376465d12b556638324e092c2800e29600f886",
-    "surface_map": "86fd9b7ab7473f9e7fd184c40a5acae6505825ae50fabce0a5778cddc3f0630c",
+    "route_index": "37b7c1a286fa79fcf52802b1595ba6df58cddb9259a397f7d443b066d372c6a6",
+    "route_layout": "44f457a034584200fc9bb2eeee6c27de70aa08acbc84f083eb13eee8af5932ac",
+    "surface_map": "1e2fce41174a340e9bd928efa80a1d51ef49e0b7a599bacdf74e8e828a75618d",
     "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -6084,7 +6109,7 @@
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
-    "physical_routes": 147,
+    "physical_routes": 148,
     "semantic_routes": 14,
     "table_families": 89
   }
