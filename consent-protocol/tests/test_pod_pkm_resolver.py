@@ -159,14 +159,31 @@ async def test_the_rebuild_cost_is_measured_not_estimated(tmp_path, monkeypatch)
     """Cold-start time grows with history, and the only honest way to know when
     that stops being acceptable is to measure it every time."""
     monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
-    log = await _log_with(tmp_path, [_commit("owner-a", d) for d in ("a", "b", "c")])
+    log = await _log_with(
+        tmp_path,
+        [
+            *[_commit("owner-a", d) for d in ("a", "b", "c")],
+            _commit("owner-b", "foreign"),
+            ("memory", {"hushh_id": "owner-a"}),
+        ],
+    )
+    reads = 0
+    original_get = log._store.get
+
+    async def counted_get(key):
+        nonlocal reads
+        reads += 1
+        return await original_get(key)
+
+    monkeypatch.setattr(log._store, "get", counted_get)
 
     await resolve_pod_pkm_store("owner-a", log=log)
     stats = rebuild_stats()
 
     assert stats is not None
     assert stats.owner_user_id == "owner-a"
-    assert stats.records_replayed == 3
+    assert stats.records_replayed == 5
+    assert reads == 5  # Statistics must not read the entire recovery log again.
     assert stats.duration_ms >= 0
     assert stats.sqlite_path.endswith("pkm.sqlite3")
 

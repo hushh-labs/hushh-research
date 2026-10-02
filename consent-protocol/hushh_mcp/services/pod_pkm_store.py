@@ -61,9 +61,21 @@ class PodPkmStore:
 
     engine_id = "sqlite+log"
 
-    def __init__(self, engine: SqlitePkmWriteEngine, log: PodCommitLog) -> None:
+    def __init__(
+        self,
+        engine: SqlitePkmWriteEngine,
+        log: PodCommitLog,
+        *,
+        replayed_record_count: int = -1,
+    ) -> None:
         self._engine = engine
         self._log = log
+        self._replayed_record_count = replayed_record_count
+
+    @property
+    def replayed_record_count(self) -> int:
+        """Verified records at rebuild, or -1 for a store constructed without replay."""
+        return self._replayed_record_count
 
     async def require_open(self) -> None:
         """Admission for consumers of this store's derived SQLite index."""
@@ -158,4 +170,4 @@ class PodPkmStore:
                 "pod_pkm_store.rebuild_skipped_foreign_records count=%d", skipped_foreign
             )
         await log.require_open()
-        return cls(engine, log)
+        return cls(engine, log, replayed_record_count=len(records))

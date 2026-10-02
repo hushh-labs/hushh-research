@@ -1,21 +1,17 @@
 {
-  "version": "2026.10-dev.4",
+  "version": "2026.10-dev.5",
   "channel": "dev",
-  "summary": "Bounded Files organization and explicit Puppy stopping.",
+  "summary": "Less recovery work before private chat and Puppy.",
   "notes": {
     "improvements": [
-      "Files organization instructions use bounded exploration and the declared completion contract."
+      "Encrypted PKM recovery reports its verified record count without scanning the entire log twice."
     ],
     "fixes": [
-      "Puppy Cancel stops the exact admitted turn even when an HTTP edge retains its stream.",
-      "Cancellation during cold admission and failed device-stop delivery have bounded, visible outcomes."
+      "Removes duplicate recovery work observed before a Puppy turn timed out."
     ],
     "security": [
-      "Stops remain bound to the owner, pod incarnation, originating app, trusted device and request.",
-      "No cloud inference fallback or new device grants are introduced."
+      "Owner filtering, encrypted chain verification and erasure checks remain required before index publication."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:d02509f1bd6373605790f06fc775be1ffccc5eaf10da1b7eec576cb24b69d23f"
-  ]
+  "supportedUpgradeDigests": []
 }

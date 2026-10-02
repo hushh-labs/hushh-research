@@ -206,13 +206,11 @@ async def _initialize_pod_pkm_store(owner: str, *, log: Any) -> Optional[Any]:
         return None
 
     duration_ms = int((time.monotonic() - started) * 1000)
-    try:
-        replayed = len(await commit_log.replay())
-    except Exception:  # noqa: BLE001 - stats must never break the path they measure
-        replayed = -1
+    replayed = store.replayed_record_count
 
-    # Rebuild and its optional stats replay can suspend while another process
-    # fences this log. Do not publish stale readiness after observing closure.
+    # Rebuild can suspend while another process fences this log. Do not publish
+    # stale readiness after observing closure. Statistics reuse the verified
+    # rebuild count rather than scanning the encrypted log a second time.
     await store.require_open()
     _STORE = store
     _STATS = RebuildStats(
