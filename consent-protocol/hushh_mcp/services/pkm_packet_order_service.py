@@ -20,6 +20,7 @@ import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import quote, urlsplit
+from uuid import uuid4
 
 import stripe
 
@@ -160,10 +161,11 @@ class PkmPacketOrderService:
 
     # --- buyer ------------------------------------------------------------
 
-    async def create_checkout(
+    async def _purchasable(
         self, *, buyer_user_id: str, listing_id: Any, packet_id: Any
-    ) -> dict[str, Any]:
-        key, _, origin = _stripe_config()
+    ) -> tuple[str, str, str, dict[str, Any]]:
+        """(listing, packet_ref, owner, packet) for a for-sale packet on a verified
+        listing the buyer does not own; otherwise PacketOrderError."""
         listing = normalize_listing_id(listing_id)
         packet_ref = str(packet_id or "").strip()
         if not packet_ref or len(packet_ref) > 64:
@@ -184,7 +186,15 @@ class PkmPacketOrderService:
         )
         if not packets or packets[0].get("price_cents") is None:
             raise PacketOrderError("PACKET_UNAVAILABLE", "This packet is not for sale.")
-        packet = packets[0]
+        return listing, packet_ref, owner, packets[0]
+
+    async def create_checkout(
+        self, *, buyer_user_id: str, listing_id: Any, packet_id: Any
+    ) -> dict[str, Any]:
+        key, _, origin = _stripe_config()
+        listing, packet_ref, owner, packet = await self._purchasable(
+            buyer_user_id=buyer_user_id, listing_id=listing_id, packet_id=packet_id
+        )
 
         open_rows = await self._rows(
             self.db.table(TABLE)
@@ -263,6 +273,75 @@ class PkmPacketOrderService:
         logger.info("pkm_packet_order.checkout_created order=%s", order_id)
         return {"orderId": order_id, "checkoutUrl": session["url"]}
 
+    async def buy_with_credits(
+        self, *, buyer_user_id: str, listing_id: Any, packet_id: Any
+    ) -> dict[str, Any]:
+        """Spend credits first under a fresh order id, then record the order as
+        paid. If recording fails the credits are given back. Never touches an
+        open card checkout for the same packet."""
+        from hushh_mcp.services.pkm_credit_service import PkmCreditService
+
+        listing, packet_ref, owner, packet = await self._purchasable(
+            buyer_user_id=buyer_user_id, listing_id=listing_id, packet_id=packet_id
+        )
+        cost = packet.get("credit_cost")
+        if not cost:
+            raise PacketOrderError("NO_CREDIT_PRICE", "This packet can't be bought with credits.")
+        credits = PkmCreditService()
+        credits._db = self.db
+        order_id = str(uuid4())
+        if not await credits.spend(user_id=buyer_user_id, cost=int(cost), ref=order_id):
+            raise PacketOrderError(
+                "NOT_ENOUGH_CREDITS", "You don't have enough credits for this packet."
+            )
+        amount = int(packet["price_cents"])
+        try:
+            inserted = await self._rows(
+                self.db.table(TABLE).insert(
+                    {
+                        "id": order_id,
+                        "buyer_user_id": buyer_user_id,
+                        "owner_user_id": owner,
+                        "packet_id": packet_ref,
+                        "listing_id": listing,
+                        "packet_title": packet["title"],
+                        "amount_cents": amount,
+                        "platform_fee_cents": platform_fee_cents(amount),
+                        "status": "paid",
+                        "paid_at": _now().isoformat(),
+                        "payment_method": "credits",
+                        "credits_spent": int(cost),
+                    }
+                )
+            )
+            if not inserted:
+                raise RuntimeError("order not recorded")
+            await self._file_request(inserted[0])
+        except Exception:
+            await credits.refund(user_id=buyer_user_id, credits=int(cost), ref=order_id)
+            logger.exception("pkm_packet_order.credits_order_failed")
+            raise PacketOrderError(
+                "PAYMENT_UNAVAILABLE", "Couldn't complete the purchase. Your credits were returned."
+            ) from None
+        logger.info("pkm_packet_order.paid_with_credits order=%s", order_id)
+        return {"orderId": order_id, "status": "paid"}
+
+    async def _file_request(self, order: dict[str, Any]) -> None:
+        request = await self._requests.create_request(
+            owner_user_id=str(order["owner_user_id"]),
+            buyer_user_id=str(order["buyer_user_id"]),
+            buyer_label="Paid packet buyer",
+            slice_label=str(order["packet_title"]),
+            domain="pkm_packet",
+            scope_handle=f"packet:{order['packet_id']}",
+            price_cents=int(order["amount_cents"]),
+        )
+        await self._rows(
+            self.db.table(TABLE)
+            .update({"access_request_id": request.get("id"), "updated_at": _now().isoformat()})
+            .eq("id", str(order["id"]))
+        )
+
     async def get_order(self, *, buyer_user_id: str, order_id: str) -> dict[str, Any] | None:
         rows = await self._rows(
             self.db.table(TABLE)
@@ -284,6 +363,13 @@ class PkmPacketOrderService:
         except (ValueError, stripe.error.SignatureVerificationError):
             raise PacketOrderError("INVALID_SIGNATURE", "Invalid payment signature.") from None
         session = event.get("data", {}).get("object", {}) or {}
+        from hushh_mcp.services.pkm_credit_service import PkmCreditService, credits_metadata
+
+        if credits_metadata(session):
+            credit_service = PkmCreditService(stripe_api=self.stripe_api)
+            credit_service._db = self.db
+            await credit_service.handle_event(event)
+            return
         metadata = session.get("metadata") or {}
         if (
             metadata.get("payment_kind") != PAYMENT_KIND
@@ -320,20 +406,7 @@ class PkmPacketOrderService:
         )
         if not won:
             return  # already settled by an earlier delivery of this event
-        request = await self._requests.create_request(
-            owner_user_id=str(order["owner_user_id"]),
-            buyer_user_id=str(order["buyer_user_id"]),
-            buyer_label="Paid packet buyer",
-            slice_label=str(order["packet_title"]),
-            domain="pkm_packet",
-            scope_handle=f"packet:{order['packet_id']}",
-            price_cents=int(order["amount_cents"]),
-        )
-        await self._rows(
-            self.db.table(TABLE)
-            .update({"access_request_id": request.get("id"), "updated_at": _now().isoformat()})
-            .eq("id", order_id)
-        )
+        await self._file_request(order)
         logger.info("pkm_packet_order.paid order=%s", order_id)
 
     # --- refunds -------------------------------------------------------------
@@ -382,6 +455,23 @@ class PkmPacketOrderService:
         refunded = 0
         for order in pending:
             order_id = str(order["id"])
+            if order.get("payment_method") == "credits":
+                # Paid in credits, refunded in credits (once, by ledger uniqueness).
+                from hushh_mcp.services.pkm_credit_service import PkmCreditService
+
+                credit_service = PkmCreditService()
+                credit_service._db = self.db
+                await credit_service.refund(
+                    user_id=str(order["buyer_user_id"]),
+                    credits=int(order["credits_spent"]),
+                    ref=order_id,
+                )
+                refunded += await self._transition(
+                    order_id,
+                    "refund_pending",
+                    {"status": "refunded", "refunded_at": _now().isoformat()},
+                )
+                continue
             intent = order.get("stripe_payment_intent_id")
             if not intent:
                 logger.warning("pkm_packet_order.refund_without_intent order=%s", order_id)
@@ -428,12 +518,18 @@ class PkmPacketOrderService:
 
 
 def webhook_payment_kind(payload: bytes) -> str | None:
-    """Peek at an (as yet unverified) event's payment_kind to route it. The
-    chosen handler still verifies the signature before acting on anything."""
+    """Peek at an (as yet unverified) event's payment_kind to route it. Looks at
+    Checkout sessions and at invoices/subscriptions (both API shapes). The chosen
+    handler still verifies the signature before acting on anything."""
     try:
-        event = json.loads(payload)
-        return (
-            ((event.get("data") or {}).get("object") or {}).get("metadata", {}).get("payment_kind")
-        )
+        obj = (json.loads(payload).get("data") or {}).get("object") or {}
+        for meta in (
+            obj.get("metadata"),
+            ((obj.get("parent") or {}).get("subscription_details") or {}).get("metadata"),
+            (obj.get("subscription_details") or {}).get("metadata"),
+        ):
+            if isinstance(meta, dict) and meta.get("payment_kind"):
+                return str(meta["payment_kind"])
+        return None
     except (ValueError, AttributeError):
         return None

@@ -549,3 +549,4 @@ tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
 tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
+tests/test_pkm_credits.py

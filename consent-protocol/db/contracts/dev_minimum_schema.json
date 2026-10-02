@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 266,
+  "expected_migration_version": 267,
   "migration_version_policy": "minimum",
   "required_functions": [
     "project_calendar_mail_feed",
@@ -33,7 +33,9 @@
     "refresh_account_deletion_guards_after_identity_ddl",
     "commit_pkm_domain_mutation_v5",
     "clear_location_presence_rating_visit",
-    "preserve_active_location_rating_visit"
+    "preserve_active_location_rating_visit",
+    "pkm_grant_credits",
+    "pkm_spend_credits"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -1341,6 +1343,29 @@
       "created_at",
       "updated_at"
     ],
+    "pkm_credit_ledger": [
+      "id",
+      "user_id",
+      "delta",
+      "reason",
+      "ref",
+      "created_at"
+    ],
+    "pkm_credit_subscription_cancellations": [
+      "stripe_subscription_id",
+      "created_at"
+    ],
+    "pkm_credit_subscriptions": [
+      "user_id",
+      "plan",
+      "stripe_customer_id",
+      "stripe_subscription_id",
+      "status",
+      "cancel_at_period_end",
+      "current_period_end",
+      "created_at",
+      "updated_at"
+    ],
     "pkm_default_available_projections": [
       "id",
       "user_id",
@@ -1453,7 +1478,9 @@
       "created_at",
       "updated_at",
       "paid_at",
-      "refunded_at"
+      "refunded_at",
+      "payment_method",
+      "credits_spent"
     ],
     "pkm_packets": [
       "id",

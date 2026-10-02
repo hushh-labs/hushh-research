@@ -221,6 +221,21 @@ class AccountService:
             "directory_listing_claims": text(
                 "DELETE FROM directory_listing_claims WHERE user_id = :user_id"
             ),
+            "pkm_credit_ledger": text("DELETE FROM pkm_credit_ledger WHERE user_id = :user_id"),
+            # The Stripe subscription id moves to an identity-free table so the
+            # work drain cancels it at Stripe: a deleted person is never billed.
+            "pkm_credit_subscriptions": text(
+                """
+                WITH moved AS (
+                  DELETE FROM pkm_credit_subscriptions WHERE user_id = :user_id
+                  RETURNING stripe_subscription_id, status
+                )
+                INSERT INTO pkm_credit_subscription_cancellations (stripe_subscription_id)
+                SELECT stripe_subscription_id FROM moved
+                WHERE stripe_subscription_id IS NOT NULL AND status <> 'canceled'
+                ON CONFLICT DO NOTHING
+                """
+            ),
             "marketplace_opportunity_signals": text(
                 "DELETE FROM marketplace_opportunity_signals WHERE user_id = :user_id"
             ),
@@ -1388,6 +1403,8 @@ class AccountService:
                 "pkm_packets",
                 "pkm_packet_orders",
                 "directory_listing_claims",
+                "pkm_credit_ledger",
+                "pkm_credit_subscriptions",
                 "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
@@ -1740,6 +1757,8 @@ class AccountService:
             "pkm_packets": False,
             "pkm_packet_orders": False,
             "directory_listing_claims": False,
+            "pkm_credit_ledger": False,
+            "pkm_credit_subscriptions": False,
             "marketplace_opportunity_signals": False,
             "one_kyc_workflows": False,
             "one_referral_risk_reviews": False,
@@ -1859,6 +1878,8 @@ class AccountService:
                         "pkm_packets",
                         "pkm_packet_orders",
                         "directory_listing_claims",
+                        "pkm_credit_ledger",
+                        "pkm_credit_subscriptions",
                         "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",

@@ -11,6 +11,7 @@ from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
 from .command_proposals import router as command_proposals_router
 from .connections import router as connections_router
+from .credits import router as credits_router
 from .directory_claims import router as directory_claims_router
 from .drive_actions import router as drive_actions_router
 from .email import router as email_router
@@ -73,6 +74,7 @@ router.include_router(marketplace_requests_router)
 router.include_router(pkm_packets_router)
 router.include_router(directory_claims_router)
 router.include_router(packet_orders_router)
+router.include_router(credits_router)
 router.include_router(opportunity_signals_router)
 router.include_router(places_router)
 router.include_router(public_people_router)

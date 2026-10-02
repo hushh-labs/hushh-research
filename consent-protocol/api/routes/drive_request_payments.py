@@ -81,7 +81,7 @@ async def stripe_drive_request_webhook(
         raise HTTPException(status_code=413, detail="Payment event is too large.")
     # One Stripe endpoint, two kinds of payment. Route on the (unverified)
     # payment_kind; each handler verifies the signature before acting.
-    if webhook_payment_kind(payload) == PKM_PACKET_PAYMENT_KIND:
+    if webhook_payment_kind(payload) in {PKM_PACKET_PAYMENT_KIND, "pkm_credits"}:
         try:
             await PkmPacketOrderService().process_webhook(
                 payload=payload, signature=stripe_signature

@@ -176,6 +176,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["details"]["marketplace_recipient_keys"] is True
     assert result["details"]["pkm_packets"] is True
     assert result["details"]["pkm_packet_orders"] is True
+    assert result["details"]["pkm_credit_ledger"] is True
+    assert result["details"]["pkm_credit_subscriptions"] is True
     assert result["details"]["directory_listing_claims"] is True
     assert result["details"]["marketplace_opportunity_signals"] is True
     assert result["details"]["one_referral_relationships"] is True
@@ -223,6 +225,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_recipient_keys",
         "DELETE FROM pkm_packets",
         "DELETE FROM pkm_packet_orders",
+        "DELETE FROM pkm_credit_ledger",
+        "DELETE FROM pkm_credit_subscriptions",
         "DELETE FROM directory_listing_claims",
         "DELETE FROM marketplace_opportunity_signals",
         "DELETE FROM one_referral_risk_reviews",
@@ -852,6 +856,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM marketplace_recipient_keys",
         "DELETE FROM pkm_packets",
         "DELETE FROM pkm_packet_orders",
+        "DELETE FROM pkm_credit_ledger",
+        "DELETE FROM pkm_credit_subscriptions",
         "DELETE FROM directory_listing_claims",
         "DELETE FROM marketplace_opportunity_signals",
         "DELETE FROM trusted_device_challenges",

@@ -1375,6 +1375,27 @@
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_credit_subscription_cancellations"
+      ],
+      "id": "pkm_credit_subscription_cancellations",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Account deletion moves a deleted subscriber's Stripe subscription id here; the scheduled work drain cancels it at Stripe and deletes the row."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "pkm_credit_subscriptions",
+        "pkm_credit_ledger"
+      ],
+      "id": "pkm_credits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hussh.ai credits plans: a buyer subscribes monthly through Stripe Checkout; the signed webhook grants the plan's credits once per paid invoice (pkm_grant_credits, expiring the unused balance) and records plan status; buying a packet with credits spends from the ledger (pkm_spend_credits under a per-user advisory lock); refunds of credit-paid orders return credits."
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "pkm_default_available_projections"
@@ -5837,7 +5858,7 @@
     "action_gateway": "752336e5b4776d367a7f8832b21ab05d7802c3de66297337be69e30de9b93ac9",
     "agent_registry": "03ddee8e63e5295b8b71efd73595abd299fd1aacccc839071293e183a6952563",
     "cache_manifest": "49ee704f091bfd20121dcdeee4ee92e1efef0c993dd85e01d580214cb9845a4f",
-    "data_plane": "35f841e2fb7ea3082629ba2bbf24635fdc5048653914af7ca99ac3582016cb13",
+    "data_plane": "fbf519c6595fd344a47595f072471544e040c2176896cf8b526227704968baf0",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "eae6780e733d951427b8deb0a7fe8ff09af84fe76637e313f11afcae03e8cd55",
     "route_index": "6548ee3a2bf02511c34faaac9d21a21932e71567fa36b40b18f1bc01be3ac8d7",
@@ -5856,6 +5877,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 142,
     "semantic_routes": 14,
-    "table_families": 83
+    "table_families": 85
   }
 }
