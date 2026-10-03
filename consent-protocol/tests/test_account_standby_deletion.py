@@ -34,7 +34,7 @@ def _conn(*, registry: dict | None, standby: bool, erasure_complete: bool = True
             result.mappings.return_value.first.return_value = (
                 {"registry": registry} if registry else None
             )
-        elif f"FROM {STANDBY}" in sql and sql.startswith("SELECT"):
+        elif "FROM personal_agent_standby_placements" in sql and sql.startswith("SELECT"):
             result.first.return_value = (True,) if standby else None
         elif "to_regprocedure" in sql:
             result.scalar.return_value = True
@@ -78,7 +78,7 @@ def test_a_finished_primary_erasure_without_a_standby_still_finalizes(monkeypatc
     service._delete_personal_agent_state(conn, params={"user_id": "u"}, results=results)
     executed = _statements(conn)
     assert any("finalize_personal_agent_erasure" in sql for sql in executed)
-    assert any(sql.startswith(f"DELETE FROM {STANDBY}") for sql in executed)
+    assert any(sql.startswith("DELETE FROM personal_agent_standby_placements") for sql in executed)
     assert results[STANDBY] is True
 
 
