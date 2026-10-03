@@ -31,6 +31,8 @@ write (no object yet) accepts any epoch >= 0, because no epoch has been recorded
 
 from __future__ import annotations
 
+import asyncio
+import concurrent.futures
 import contextlib
 import contextvars
 import json
@@ -60,6 +62,8 @@ _NONCE_LEN = 12
 #: replaces the cached copy immediately; the window only bounds a second, briefly
 #: overlapping instance. The hub's epoch fence (E4) is the cross-process fence.
 _CACHE_TTL_SECONDS = 30.0
+#: Upper bound on a role read made for signing from a running loop's thread.
+_SIGNING_READ_TIMEOUT = 15.0
 _STORAGE_ENVS = (
     "POD_STORAGE_BACKEND",
     "POD_STORAGE_LOCAL_ROOT",
@@ -311,6 +315,42 @@ async def require_serving_role() -> PodRole:
     return role
 
 
+def _read_role_blocking() -> PodRole:
+    """``read_pod_role`` from synchronous code, on a loop of its own."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(read_pod_role())
+    # Called synchronously on a running loop's thread: read on a worker thread rather
+    # than nest loops. The caller is already blocking (a synchronous hub request).
+    pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(asyncio.run, read_pod_role()).result(timeout=_SIGNING_READ_TIMEOUT)
+    finally:
+        pool.shutdown(wait=False)
+
+
+def signing_epoch() -> Optional[int]:
+    """The role epoch this pod's signed hub requests carry (E4), or None.
+
+    None (no ``X-Hushh-Pod-Epoch`` header, today's request byte for byte) for a pod
+    with no role object: no durable storage, or a confirmed-absent object. Once the hub
+    has written a role (``/pod/sync/set-role``), every signed request carries its epoch.
+    ``read_pod_role`` returns the :data:`PRIMARY_AT_ZERO` singleton exactly when no
+    object exists; a sealed role is always a fresh instance, even primary at epoch 0.
+
+    An unreadable role also returns None. That fails closed at the hub: for a person
+    with a standby or a moved epoch, a request without the header is refused.
+    """
+    try:
+        if not durable_storage_configured():
+            return None
+        role = cached_role() or _read_role_blocking()
+    except Exception:  # noqa: BLE001 - see above: a missing header fails closed
+        return None
+    return None if role is PRIMARY_AT_ZERO else role.epoch
+
+
 @contextlib.contextmanager
 def sync_import_scope() -> Iterator[None]:
     """Marks appends made by a verified sync import, the one write a standby accepts."""
@@ -348,6 +388,7 @@ __all__ = [
     "reset_role_cache",
     "role_seal_key",
     "seal_role",
+    "signing_epoch",
     "store_role",
     "sync_import_scope",
     "validate_role",

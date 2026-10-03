@@ -87,6 +87,7 @@ def _signature_headers(
         return {}
     try:
         from hushh_mcp.services.pod_request_signing import sign_pod_request  # noqa: PLC0415
+        from hushh_mcp.services.pod_role import signing_epoch  # noqa: PLC0415
         from hushh_mcp.services.pod_self_registration import pod_signing_key  # noqa: PLC0415
 
         return sign_pod_request(
@@ -97,6 +98,7 @@ def _signature_headers(
             path=urlsplit(url).path,
             query_pairs=query_pairs,
             body=body,
+            epoch=signing_epoch(),
         )
     except Exception as exc:  # noqa: BLE001 - an unsignable request keeps the token path
         logger.warning("pod_hub_client.signing_unavailable %s", type(exc).__name__)

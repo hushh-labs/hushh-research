@@ -369,6 +369,7 @@ class PersonalAgentReconcileWorker:
         fetch_orphan_candidates: Optional[Callable[[], Awaitable[list[OrphanCandidate]]]] = None,
         owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
         erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
+        sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
         orphan_confirm_after: timedelta = DEFAULT_ORPHAN_CONFIRM_AFTER,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
@@ -381,6 +382,7 @@ class PersonalAgentReconcileWorker:
         self._fetch_orphan_candidates = fetch_orphan_candidates
         self._owner_exists = owner_exists
         self._erase_orphan = erase_orphan
+        self._sync_standbys = sync_standbys
         self._orphan_confirm_after = orphan_confirm_after
         self._clock = clock
         #: user_id -> the instant this worker first saw the owner absent. Worker
@@ -410,6 +412,7 @@ class PersonalAgentReconcileWorker:
         reaped, reap_failed = await self._reap_idle()
         upgraded, upgrade_failed = await self._upgrade_stale()
         orphans_erased, orphan_failed, orphans_pending = await self._erase_orphans()
+        await self._sweep_standbys()
 
         report = ReconcileReport(
             retried_count=retried,
@@ -491,6 +494,16 @@ class PersonalAgentReconcileWorker:
                 failed += 1
                 logger.exception("[%s] personal_agent.reap_failed", _LABEL)
         return reaped, failed
+
+    async def _sweep_standbys(self) -> None:
+        """Bring due standbys level (STANDBY-SYNC.md). The callable owns the interval,
+        batch, ordering and its own report; a failure skips one pass, never the others."""
+        if self._sync_standbys is None:
+            return
+        try:
+            await self._sync_standbys()
+        except Exception:
+            logger.exception("[%s] standby sync sweep failed; skipping this pass", _LABEL)
 
     # ---------------------------------------------------------------------------
     # Background loop
@@ -697,6 +710,7 @@ def start_personal_agent_reconcile_loop(
     fetch_orphan_candidates: Optional[Callable[[], Awaitable[list[OrphanCandidate]]]] = None,
     owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
     erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
+    sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
 ) -> asyncio.Task | None:
     """
     Schedule the reconcile worker as a background asyncio Task.
@@ -723,6 +737,7 @@ def start_personal_agent_reconcile_loop(
         fetch_orphan_candidates=fetch_orphan_candidates,
         owner_exists=owner_exists,
         erase_orphan=erase_orphan,
+        sync_standbys=sync_standbys,
     )
     return asyncio.create_task(
         _reconcile_loop(worker, interval_seconds),

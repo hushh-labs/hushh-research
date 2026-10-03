@@ -1068,6 +1068,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
         from hushh_mcp.services.personal_agent_registry_repo import (
             PersonalAgentRegistryRepo,
         )
+        from hushh_mcp.services.pod_standby_sync import sweep_due_standbys
 
         registry = PersonalAgentRegistryRepo()
         # Long enough that a healthy provision (wait_ready caps at 150s) is never
@@ -1403,6 +1404,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
             fetch_orphan_candidates=fetch_orphan_candidates,
             owner_exists=owner_exists,
             erase_orphan=erase_orphan,
+            sync_standbys=sweep_due_standbys,
         )
         if task is None:
             logger.info("startup.personal_agent_reconcile_off flag=disabled")
