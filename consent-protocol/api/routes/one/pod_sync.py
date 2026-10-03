@@ -218,7 +218,7 @@ async def _apply(log: Any, contents: Any, start_seq: int) -> str:
     """Append the records after ``start_seq``, each against the expected head."""
     from hushh_mcp.services.pod_commit_log import PodLogConflict  # noqa: PLC0415
 
-    head_sha = contents.chain[start_seq]
+    head_sha: str = contents.chain[start_seq]
     with sync_import_scope():
         for record in contents.records[start_seq - contents.base_seq :]:
             try:
@@ -231,7 +231,7 @@ async def _apply(log: Any, contents: Any, start_seq: int) -> str:
                 ) from None
             if written.get("sha") != contents.chain[record["seq"]]:
                 raise HTTPException(status_code=500, detail="the rebuilt chain diverged")
-            head_sha = written["sha"]
+            head_sha = contents.chain[record["seq"]]
     return head_sha
 
 

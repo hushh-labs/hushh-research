@@ -26,7 +26,8 @@ async def sync_standby_now(
     """Bring the caller's OWN standby agent level now; the typed outcome (STANDBY-SYNC.md)."""
     from hushh_mcp.services.pod_standby_sync import sync_standby_on_demand
 
-    return (await sync_standby_on_demand(firebase_uid)).to_dict()
+    outcome: dict[str, Any] = (await sync_standby_on_demand(firebase_uid)).to_dict()
+    return outcome
 
 
 __all__ = ["router"]
