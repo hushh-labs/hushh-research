@@ -63,7 +63,9 @@ SWEEP_RETRY_COOLDOWN_SECONDS = 1800
 #: The owner's "sync now" may not be repeated faster than this.
 ON_DEMAND_COOLDOWN_SECONDS = 60
 
-#: Export 409: the standby's head is not in the primary's chain (a fork).
+#: Export 409: the standby's head is not in the primary's chain (a fork). The pod also
+#: answers 409 when it cannot read its own log; refused bodies are never read, so that
+#: rare case is recorded as diverged too, and the next pass re-decides from fresh heads.
 _EXPORT_REFUSALS = {"POD_REFUSED_409": "refused_fork"}
 #: Import 400: the standby refused the range (origin, decryption or continuity);
 #: import 409: the standby's log moved under the import (safe to retry).
