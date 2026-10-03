@@ -860,3 +860,11 @@ tests/test_personal_agent_standby_store_postgres.py
 tests/test_personal_agent_standby_swap_postgres.py
 tests/test_pod_placement_fence.py
 tests/test_account_standby_deletion.py
+
+# Standby sync sync-service (2026-10-03): the hub ferry (sync_once, sweep, on-demand route),
+# end to end through two pods' real sync routes, the real store's lease on PostgreSQL,
+# and the pod's signed role epoch (E4).
+tests/test_pod_standby_sync.py
+tests/test_pod_standby_sync_pods.py
+tests/test_pod_standby_sync_postgres.py
+tests/test_pod_standby_sync_wiring.py
