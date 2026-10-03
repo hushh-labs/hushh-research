@@ -172,6 +172,8 @@ WITH old_r AS (
 ), old_s AS (
   SELECT s.* FROM personal_agent_standby_placements AS s
   JOIN old_r ON old_r.user_id = s.user_id
+  WHERE s.pod_key_id = :pod_key_id
+    AND s.last_sync_at IS NOT NULL
   FOR UPDATE OF s
 ), promoted AS (
   UPDATE personal_agent_registry AS r SET

@@ -1446,7 +1446,7 @@
       "id": "personal_agent_standby_placement",
       "lifecycle_status": "dev_only",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
+      "primary_access_path": "Dev-only migration950. hushh_mcp/services/personal_agent_standby_store.py (statements in personal_agent_standby_sql.py): add_standby for a provisioned, signing primary (latching identity_mode), read_standby for the hub signed-request verifier's key and epoch fence, claim_sync_lease / list_standbys_due / record_sync_result for the standby sync, swap_primary_and_standby for a switch (one statement, fenced on placement_epoch and the observed standby pod_key_id, promoting only a standby with a completed sync), remove_standby keeping coordinates only under the registry's backend_metadata.detachedPlacements. Design: docs/future/personal-agent/STANDBY-SYNC.md."
     },
     {
       "data_class": "personal_projection",
@@ -6102,7 +6102,7 @@
     "action_gateway": "3a39beaae71b30f4217756d824b0975af64727847d29d305ad50a7e85773cf47",
     "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
     "cache_manifest": "f50ab6ab4eadb6f1c80a5e7e38a8d3390c4e6c675c078d32fbd9993f1137f629",
-    "data_plane": "e01baf080ab0e56bc16b299feec156c482fe73ee66c188a3480b953717168a8d",
+    "data_plane": "28a42f032f2ae7feb94dfef024b52d8b5e279409d9150b027a7f031f0c65334c",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
     "one_specialist_tools": "036a954ef4db4c2418e16856f3426528c6331adeb84e8481c07f449c39dc5891",
     "route_index": "37b7c1a286fa79fcf52802b1595ba6df58cddb9259a397f7d443b066d372c6a6",

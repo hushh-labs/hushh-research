@@ -163,17 +163,33 @@ def placement(**overrides) -> dict:
     return placement
 
 
-def seed_standby(pg: TempPostgres, *, owner: str = OWNER, hushh_id: str = HUSHH_ID) -> None:
-    """Insert a standby directly, for rows ``add_standby`` would (rightly) refuse."""
+DIRECT_KEY_ID = "podk_direct"
+
+
+def seed_standby(
+    pg: TempPostgres, *, owner: str = OWNER, hushh_id: str = HUSHH_ID, synced: bool = True
+) -> None:
+    """Insert a standby directly, for rows ``add_standby`` would (rightly) refuse.
+
+    ``synced`` gives it one completed sync (sequence 7, ``HEAD_A``), which a switch needs.
+    """
     public, kid = STANDBY_SIGNING
+    seq, head = (7, HEAD_A) if synced else (0, None)
     pg.execute(
         "INSERT INTO personal_agent_standby_placements(user_id,hushh_id,deployment_target,"
         "external_agent_id,user_cloud_region,user_cloud_tenant_id,user_cloud_subscription_id,"
         "user_cloud_resource_group,url,pod_pubkey,pod_key_id,pod_signing_pubkey,"
-        "pod_signing_key_id) VALUES (%s,%s,'user_azure','ca-direct','eastus2',%s,%s,%s,"
-        "'https://direct.example','c3Q=','podk_direct',%s,%s)",
-        (owner, hushh_id, TENANT, SUBSCRIPTION, f"rg-{owner}", public, kid),
-    )
+        "pod_signing_key_id,synced_seq,synced_head_sha,last_sync_at,last_sync_status) "
+        "VALUES (%s,%s,'user_azure','ca-direct','eastus2',%s,%s,%s,'https://direct.example',"
+        "'c3Q=',%s,%s,%s,%s,%s,CASE WHEN %s THEN now() END,%s)",
+        (owner, hushh_id, TENANT, SUBSCRIPTION, f"rg-{owner}", DIRECT_KEY_ID, public, kid,
+         seq, head, synced, "synced" if synced else "pending"),
+    )  # fmt: skip
+
+
+def direct_observed(epoch: int = 0) -> dict:
+    """The observation a caller holds of a standby inserted by :func:`seed_standby`."""
+    return {"placement_epoch": epoch, "pod_key_id": DIRECT_KEY_ID}
 
 
 def registry_row(pg: TempPostgres, owner: str = OWNER) -> dict:

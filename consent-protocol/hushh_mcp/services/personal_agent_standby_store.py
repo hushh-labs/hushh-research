@@ -9,7 +9,9 @@ Every write is ONE statement, fenced on what the caller observed:
 - ``placement_epoch`` (the registry's, bumped by one on every promotion) fences every
   sync and the switch, so work planned against one placement can never land on the
   other after a switch;
-- the standby's ``pod_key_id`` names WHICH standby a sync is for;
+- the standby's ``pod_key_id`` names WHICH standby a sync, a removal or the switch is
+  for: removing and adding a standby does not move the epoch, so the epoch alone
+  cannot tell a replaced standby from the one the caller observed;
 - the sync lease is single-flight, but advisory: it may be reclaimed after
   :data:`SYNC_LEASE_TTL_SECONDS` because the pod-side compare-and-swap on the log
   head is the real fence (E8).
@@ -276,8 +278,16 @@ class PersonalAgentStandbyStore:
         }
         return await self._one(sql.RECORD_SQL, params)
 
-    async def swap_primary_and_standby(self, user_id: str, observed_epoch: int) -> Optional[dict]:
+    async def swap_primary_and_standby(
+        self, user_id: str, observed: Mapping[str, Any]
+    ) -> Optional[dict]:
         """Promote the standby (E9). ``{user_id, placement_epoch}``, or None when fenced out.
+
+        Fenced like every other write here on what the caller observed: the registry's
+        ``placement_epoch`` AND the standby's ``pod_key_id``, so a switch planned against
+        one standby can never promote a different standby added since. A standby that
+        has never completed a sync (``last_sync_at`` unset) is never promoted: it holds
+        no proven prefix of the person's log, and serving from it would fork the chain.
 
         One statement, so one transaction: the whole placement (target, backend, host,
         model mode, keys, versions, placement metadata) moves in both directions, the
@@ -287,8 +297,8 @@ class PersonalAgentStandbyStore:
         ``needs_reinit`` primary is accepted (failover promotes past a dead primary).
         """
         params = {
+            **_observed(observed),
             "user_id": str(user_id or "").strip(),
-            "epoch": _epoch(observed_epoch),
             "known_targets": _known_targets(),
         }
         return await self._one(sql.SWAP_SQL, params)
