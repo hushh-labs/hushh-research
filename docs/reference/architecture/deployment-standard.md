@@ -169,10 +169,12 @@ identity, credentials, storage and model access scoped to their owning project.
 
 ## Adding a provider
 
-GCP is the only implemented deployment provider. AWS and Azure are outside the
-current scope. The typed compute and substrate seams remain, but a future adapter
-must prove identity, encrypted recovery, lifecycle and capability parity before it
-can be selected. A portable image alone does not establish provider support.
+GCP and owner-cloud Azure (`user_azure`, `docs/reference/architecture/byoc-azure.md`)
+are the implemented deployment providers; AWS is outside the current scope. A provider
+adapter must prove identity, encrypted recovery, lifecycle and capability parity
+before it can be selected, and Azure is held to those four gates with live evidence
+before it is offered beyond dev. A portable image alone does not establish provider
+support.
 
 ## The three per-person axes
 

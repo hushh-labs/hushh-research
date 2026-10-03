@@ -34,6 +34,7 @@ These documents preserve earlier decisions, measurements and limitations. Their 
 | Documents | Retained value |
 | --- | --- |
 | [Architecture](./ARCHITECTURE.md), [BYOC design](./BYOC-USER-GCP.md) | Earlier backend portability, custody and attestation proposals; generalized deployment remains subject to fresh verification. |
+| [Standby sync](./STANDBY-SYNC.md) | Approved design (2026-10-02): one active agent plus a synced standby in a second cloud, one-tap switch; not built. |
 | [Control-plane split](./CONTROL-PLANE-SPLIT.md), [pod–hub information path](./POD-HUB-DATA-PATH.md) | Transitional hub-mediated design and its trust limitations; “hub is the only door” is not the target architecture. |
 | [Autoprovision](./POD-AUTOPROVISION.md) | Earlier provisioning fixes and quota observations; not authorization to provision on app launch. |
 | [Security review](./SECURITY-REVIEW.md) | Bounded Phase-0 findings, not a current security certification. |

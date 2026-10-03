@@ -20,7 +20,8 @@ Requirements: [private-agent north star](../../reference/architecture/private-ag
 - [Owner-pod direct runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md)
 - [Dated execution evidence](./EXECUTION-LOG.md)
 
-GCP is the only implemented cloud deployment provider. Managed Shared runtime,
-owner-project BYOC and disabled Hussh Pods remain distinct hosting states. AWS and
-Azure implementation is outside the current scope. The Salesforce/Agentforce CRM
+GCP and owner-cloud Azure are the implemented cloud deployment providers
+(`docs/reference/architecture/byoc-azure.md`). Managed Shared runtime, owner-project
+BYOC, owner-cloud Azure and disabled Hussh Pods remain distinct hosting states. AWS
+implementation is outside the current scope. The Salesforce/Agentforce CRM
 connector remains independent of pod hosting.

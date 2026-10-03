@@ -112,14 +112,21 @@ never "hussh cannot read that pod."
 > is **control plane ≠ custodian**, which is a cryptographic property and is stated as
 > testable conditions below.
 
-The current hosting choices are Shared and owner-project GCP (BYOC). Hussh Pods
+The current hosting choices are Shared, owner-project GCP (BYOC) and the person's own
+Azure subscription (owner-cloud Azure, founder decision 2026-10-02). Hussh Pods
 remains disabled. Existing assigned pods and pending provisioning must be preserved;
 a missing assignment means Shared only when setup is not pending. Shared is a managed
 runtime, not a dedicated private pod.
 
-BYOC uses keyless, short-lived service-account impersonation. Migration between
-hosting modes remains a recovery and owner-approval requirement, not a proven
-one-click capability. GCP is the only current deployment provider.
+BYOC uses keyless, short-lived service-account impersonation on GCP, and on Azure the
+person's own one-time sign-in plus a federated, secretless Hussh identity that can
+only observe and restart. Migration between hosting modes remains a recovery and
+owner-approval requirement, not a proven one-click capability. GCP and owner-cloud
+Azure are the deployment providers; Azure becomes selectable only as each admission
+gate in `deployment-standard.md` gains live evidence
+(`docs/reference/architecture/byoc-azure.md`). One person runs one active agent: a
+second cloud holds a synced standby, never a second writer
+(`docs/future/personal-agent/STANDBY-SYNC.md`).
 
 ### The hosted production tier — the conditions, each testable
 
@@ -275,7 +282,7 @@ revision-bound judge receipt for completion assertions, not this summary table.
 | **Identity** | the pod proves which person's agent it is, in any project | Per-person service-account and X25519 identity wiring exist. Current live identity after replacement is a separate assertion. |
 | **Capability** | the full agent ecosystem runs inside the pod | In-process agents/tools and transitional scoped hub-read doors exist. Registry or import presence alone does not prove consented specialist execution inside a deployed pod. |
 | **Persistence** | memory survives restarts and compounds | Sealed-log hydration and memory-provider integration exist; earlier simulation reported recall across two restarts. Current compute-replacement, restore and provider-memory proof remain separate. |
-| **Portability** | same image and contracts across managed and owner-project GCP | Supported migration, key custody and complete cleanup need evidence per placement. Other cloud providers are not implemented. |
+| **Portability** | same image and contracts across managed, owner-project GCP and owner-cloud Azure | The same image boots on Azure (measured 2026-10-02); supported migration, key custody and complete cleanup need evidence per placement. AWS is not implemented. |
 | **Economics** | cost per person far below value per person | Scale-to-zero configuration and liveness policy reduce avoidable work. They do not measure billed cost or establish a cost target. |
 
 Persistence is a named requirement because the target is a persistent private agent.
