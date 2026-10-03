@@ -23,6 +23,7 @@ class _NoopLimiter:
 rate_limit_module.limiter = _NoopLimiter()
 sys.modules.setdefault("api.middlewares.rate_limit", rate_limit_module)
 
+from api.middleware import require_firebase_auth  # noqa: E402
 from api.routes import crd_scraper  # noqa: E402
 from hushh_mcp.services.crd_scrape_proxy_service import (  # noqa: E402
     CrdScrapeProviderResponse,
@@ -94,6 +95,8 @@ class FailingCrdScrapeProxyService(FakeCrdScrapeProxyService):
 def _build_app(service) -> FastAPI:
     app = FastAPI()
     app.include_router(crd_scraper.router)
+    app.include_router(crd_scraper.status_router)
+    app.dependency_overrides[require_firebase_auth] = lambda: "firebase-uid"
     app.dependency_overrides[crd_scraper.get_crd_scrape_proxy_service] = lambda: service
     return app
 

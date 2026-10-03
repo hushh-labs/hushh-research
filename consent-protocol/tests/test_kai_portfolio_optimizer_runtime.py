@@ -19,8 +19,9 @@ def test_optimizer_gene_loads_from_kai_manifest() -> None:
 async def test_optimizer_runtime_uses_one_bounded_single_turn(monkeypatch) -> None:
     calls: dict[str, object] = {}
 
-    monkeypatch.setattr(runtime, "build_managed_runtime_client", lambda _provider: object())
-    monkeypatch.setattr(runtime, "Gemini", lambda **kwargs: kwargs)
+    # The real model builder is exercised under the deployed multi-location
+    # configuration in test_adk_gene_client_wiring.py; this test pins the turn.
+    monkeypatch.setattr(runtime, "build_managed_regional_gemini_adk_model", lambda model: model)
 
     def _build_agent(gene, *, output_schema, model):
         calls["gene"] = gene.id

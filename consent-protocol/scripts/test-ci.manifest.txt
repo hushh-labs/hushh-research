@@ -151,6 +151,10 @@ tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
 tests/test_portfolio_import_gene_runtime.py
+tests/test_adk_gene_client_wiring.py
+tests/test_kai_tool_adapters.py
+tests/test_kai_synthesis_deadline.py
+tests/test_ria_crd_scrape_mount.py
 tests/test_stream_path_query_bounds_cwe400.py
 tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py

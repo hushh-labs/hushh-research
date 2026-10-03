@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
+from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import limiter
 from hushh_mcp.services.crd_scrape_proxy_service import (
     CrdScrapeProviderResponse,
@@ -18,6 +19,10 @@ from hushh_mcp.services.crd_scrape_proxy_service import (
 )
 
 router = APIRouter(prefix="/api/ria", tags=["RIA", "CRD Scraper"])
+# The only part of this module that server.py mounts. RIA onboarding polls the
+# scrape job its license verification started; ``router`` above stays
+# unmounted because its create endpoints start upstream work without auth.
+status_router = APIRouter(prefix="/api/ria", tags=["RIA", "CRD Scraper"])
 
 logger = logging.getLogger(__name__)
 
@@ -60,13 +65,15 @@ async def create_crd_scrape_job(
     return JSONResponse(status_code=result.status_code, content=result.payload)
 
 
-@router.get("/crd-scrape-jobs/{job_id}")
+@status_router.get("/crd-scrape-jobs/{job_id}")
 @limiter.limit("60/minute")
 async def get_crd_scrape_job(
     job_id: _JobId,
     request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
     service: CrdScrapeProxyService = Depends(get_crd_scrape_proxy_service),
 ) -> JSONResponse:
+    del firebase_uid  # signed-in callers only; the job id comes from their verification
     result = await _call_provider(
         service.get_job(
             job_id=job_id,
