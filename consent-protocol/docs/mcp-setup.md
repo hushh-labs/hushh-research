@@ -240,7 +240,9 @@ The transport is already compatible:
 Authentication is the remaining host-compatibility boundary. Hussh supports
 the existing developer token in `Authorization: Bearer <token>` and OAuth
 authorization code with S256 PKCE. Claude custom connectors should use
-the OAuth discovery document at `/.well-known/oauth-authorization-server`;
+the protected resource metadata at `/.well-known/oauth-protected-resource/mcp`
+or follow the `/mcp/` Bearer challenge, then discover the authorization server
+at `/.well-known/oauth-authorization-server`;
 create the confidential client and register its exact callback URI in
 `/developers` first. MuleSoft and generic remote hosts may continue injecting
 the bearer header. Do not work around either path with stdio, `?token=`, or an
