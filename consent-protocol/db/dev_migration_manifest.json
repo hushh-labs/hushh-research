@@ -64,6 +64,7 @@
     "947_pod_request_signing.sql",
     "948_personal_agent_user_azure.sql",
     "949_personal_agent_owner_access_erasure.sql",
-    "950_personal_agent_standby_placements.sql"
+    "950_personal_agent_standby_placements.sql",
+    "951_byoc_setup_job_azure_admission.sql"
   ]
 }

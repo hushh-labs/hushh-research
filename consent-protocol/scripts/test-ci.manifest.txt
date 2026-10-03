@@ -868,3 +868,6 @@ tests/test_pod_standby_sync.py
 tests/test_pod_standby_sync_pods.py
 tests/test_pod_standby_sync_postgres.py
 tests/test_pod_standby_sync_wiring.py
+
+# Azure setup-job admission under the full dev chain (2026-10-03)
+tests/test_byoc_setup_job_azure_admission_postgres.py
