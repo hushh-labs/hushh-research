@@ -212,6 +212,11 @@ class CommitLogPodStorage:
         )
 
 
+def pod_storage_backend() -> str:
+    """The configured backend selector, normalized; ``""`` when unset."""
+    return (os.getenv(_BACKEND_ENV) or "").strip().lower()
+
+
 def resolve_pod_storage() -> PodStorage:
     """Resolve the configured pod-storage backend. Default is the inert Null one.
 
@@ -219,12 +224,12 @@ def resolve_pod_storage() -> PodStorage:
     fails LOUD, because where a user's holdings persist is never answered by a
     silent default. Unknown values fail loud for the same reason.
     """
-    selected = (os.getenv(_BACKEND_ENV) or "").strip().lower()
+    selected = pod_storage_backend()
     if selected in ("", BACKEND_NULL):
         return NullPodStorage()
     if selected == BACKEND_COMMIT_LOG:
         from hushh_mcp.services.byoc_key_custody import resolve_pod_log_key
-        from hushh_mcp.services.pod_commit_log import PodCommitLog
+        from hushh_mcp.services.pod_role_log import RoleAwareCommitLog
 
         store = _object_store()
         # The TIER-AGNOSTIC resolver, deliberately. `log_key_from_env()` here was
@@ -235,8 +240,9 @@ def resolve_pod_storage() -> PodStorage:
         # (observed live: a CMEK bucket a BYOC pod never wrote to).
         # `resolve_pod_log_key` reads the env key for managed pods and unwraps
         # from the user's KMS for BYOC pods -- one call, both custody models.
+        # Role-aware: a standby's log refuses every append but a sync import (E1).
         return CommitLogPodStorage(
-            PodCommitLog(
+            RoleAwareCommitLog(
                 store,
                 resolve_pod_log_key(),
                 owner_id=(os.getenv("HUSSH_ID") or "").strip() or None,

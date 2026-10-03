@@ -45,6 +45,7 @@ from api.middlewares.observability import (  # noqa: E402
     observability_middleware,
 )
 from api.middlewares.pod_ingress import PodIngressPolicy  # noqa: E402
+from api.middlewares.pod_role_guard import PodRoleGuard  # noqa: E402
 from api.middlewares.rate_limit import limiter  # noqa: E402
 from api.routes import health  # noqa: E402
 from api.routes.one.a2a import router as a2a_router  # noqa: E402
@@ -59,6 +60,7 @@ from api.routes.one.pod_memory import router as pod_memory_router  # noqa: E402
 from api.routes.one.pod_migration import router as pod_migration_router  # noqa: E402
 from api.routes.one.pod_puppy_relay import router as pod_puppy_relay_router  # noqa: E402
 from api.routes.one.pod_session import router as pod_session_router  # noqa: E402
+from api.routes.one.pod_sync import router as pod_sync_router  # noqa: E402
 from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
@@ -135,6 +137,9 @@ _POD_ROUTERS = (
     # behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the same scheduler
     # identity the tick uses.
     pod_migration_router,
+    # Standby sync: head, range export/import and the role. Same switch and hub proof
+    # as migration, with body-bound audiences. See api/routes/one/pod_sync.py.
+    pod_sync_router,
     # The app surface: owner-local sessions, status and configuration. The pod
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
@@ -175,6 +180,9 @@ app.state.runtime_topology = "private_pod"
 # order of registration, so observability stays outermost and a walled request still
 # emits its `request.summary` line; CORS sits between so a browser preflight is
 # answered before the wall sees it.
+# Inside the wall (registered first, so it runs after it): a standby refuses turns
+# and writes except sync import, and an unconfirmable role refuses (E3).
+app.add_middleware(PodRoleGuard)
 app.add_middleware(PodIngressPolicy)
 
 
