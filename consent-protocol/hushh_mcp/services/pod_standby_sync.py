@@ -174,13 +174,14 @@ class StandbySyncService:
             skipped=sum(1 for r in results if r.status == STATUS_SKIPPED),
             failed=sum(1 for r in results if r.status not in (STATUS_SYNCED, STATUS_SKIPPED)),
         )
-        logger.info(
-            "pod_standby_sync.sweep attempted=%d synced=%d failed=%d skipped=%d",
-            report.attempted,
-            report.synced,
-            report.failed,
-            report.skipped,
-        )
+        if report.attempted:
+            logger.info(
+                "pod_standby_sync.sweep attempted=%d synced=%d failed=%d skipped=%d",
+                report.attempted,
+                report.synced,
+                report.failed,
+                report.skipped,
+            )
         return report
 
     # -- one claimed attempt ---------------------------------------------------------

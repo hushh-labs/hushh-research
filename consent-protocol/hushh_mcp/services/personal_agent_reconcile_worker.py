@@ -496,8 +496,7 @@ class PersonalAgentReconcileWorker:
         return reaped, failed
 
     async def _sweep_standbys(self) -> None:
-        """Bring due standbys level (STANDBY-SYNC.md). The callable owns the interval,
-        batch, ordering and its own report; a failure skips one pass, never the others."""
+        """Standby sync (STANDBY-SYNC.md); the callable owns interval, batch and order."""
         if self._sync_standbys is None:
             return
         try:
