@@ -25,6 +25,12 @@ every cloud and is owner-bound by construction. The Google ID token above remain
 the transitional path, accepted only for a row that has never signed: the first
 valid signature latches the row, and from then on a Google-only request from it is
 refused. A present-but-invalid signature is refused outright, never downgraded.
+
+Two placements (STANDBY-SYNC.md E4): routes are turn or write paths by default and
+accept only the primary's key; a sync route passes ``sync_path=True`` to admit the
+standby's key as well. A person with a standby or ``placement_epoch > 0`` is latched
+to signed requests (adding a standby and every switch latch the row), so the Google
+path never speaks for either placement.
 """
 
 from __future__ import annotations
@@ -42,6 +48,7 @@ from hushh_mcp.runtime_settings import (
     pod_hub_identity_auth_enabled,
 )
 from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER, VerifiedOwnerPod
+from hushh_mcp.services.pod_placement_fence import row_epoch
 from hushh_mcp.services.pod_request_signing import SIGNATURE_HEADER, VerifiedPod
 from hushh_mcp.services.pod_request_verifier import (
     SignedOutcome,
@@ -61,16 +68,26 @@ async def verify_pod_request(
     registry: Any = None,
     store: Any = None,
     refresh: Any = None,
+    standbys: Any = None,
+    sync_path: bool = False,
 ) -> Optional[VerifiedPod]:
     """The verified pod behind this request, or None. Never raises.
 
     ``owner_bound`` demands evidence that distinguishes this pod from every other
     one: a valid signature, or (transitionally) a BYOC service account bound to the
-    row. The managed fleet account never satisfies it.
+    row. The managed fleet account never satisfies it. ``sync_path`` admits the
+    standby placement's key; only standby-sync routes may pass it.
     """
     if not pod_hub_identity_auth_enabled():
         return None
-    signed = await _verify_signature(request, registry=registry, store=store, refresh=refresh)
+    signed = await _verify_signature(
+        request,
+        registry=registry,
+        store=store,
+        refresh=refresh,
+        standbys=standbys,
+        sync_path=sync_path,
+    )
     if signed.outcome is SignedOutcome.VERIFIED:
         return signed.pod
     if signed.outcome is SignedOutcome.INVALID:
@@ -90,7 +107,13 @@ async def verify_pod_request(
 
 
 async def _verify_signature(
-    request: Request, *, registry: Any, store: Any, refresh: Any
+    request: Request,
+    *,
+    registry: Any,
+    store: Any,
+    refresh: Any,
+    standbys: Any = None,
+    sync_path: bool = False,
 ) -> SignedVerification:
     """Run the signed path, or report UNSIGNED without touching body or registry."""
     if not str(request.headers.get(SIGNATURE_HEADER) or "").strip():
@@ -112,6 +135,8 @@ async def _verify_signature(
         registry=registry or _registry(),
         store=store or _identity_store(),
         refresh=refresh or _refresh_pod_key,
+        standbys=standbys or _standby_store(),
+        sync_path=sync_path,
     )
 
 
@@ -123,7 +148,10 @@ async def _latched_to_signed(hushh_id: str, row: Optional[dict], registry: Any) 
         except Exception as exc:  # noqa: BLE001 - cannot rule the latch out: refuse
             logger.warning("pod_hub_auth.latch_read_failed %s", type(exc).__name__)
             return True
-    return str((row or {}).get("identity_mode") or "") == "signed"
+    if str((row or {}).get("identity_mode") or "") == "signed":
+        return True
+    epoch = row_epoch(row)
+    return epoch is None or epoch > 0  # a switched (or unreadable) epoch is latched
 
 
 def _registry() -> Any:
@@ -140,6 +168,14 @@ def _identity_store() -> Any:
     )
 
     return PodRequestIdentityStore()
+
+
+def _standby_store() -> Any:
+    from hushh_mcp.services.personal_agent_standby_store import (  # noqa: PLC0415
+        PersonalAgentStandbyStore,
+    )
+
+    return PersonalAgentStandbyStore()
 
 
 async def _refresh_pod_key(row: dict) -> Any:

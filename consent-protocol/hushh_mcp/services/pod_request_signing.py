@@ -20,6 +20,9 @@ sorted keys, compact separators, UTF-8) of exactly these fields::
     body_sha256  hex SHA-256 of the exact raw body bytes (empty body included)
     ts_ms        the signing time, milliseconds since the epoch
     nonce        16 random bytes, base64url without padding
+    epoch        ONLY when ``X-Hushh-Pod-Epoch`` is sent: the placement epoch the pod
+                 was told (an integer). Absent, the payload is byte-identical to the
+                 scheme before epochs existed, so the golden vector is unchanged.
 
 Changing any one of them -- the body, the path, the query, the audience or the
 asserted HusshID -- invalidates the signature, which is what the golden vector in
@@ -60,6 +63,9 @@ KEY_ID_PREFIX = "pods_"
 SIGNATURE_HEADER = "X-Hushh-Pod-Signature"
 TIMESTAMP_HEADER = "X-Hushh-Pod-Timestamp"
 NONCE_HEADER = "X-Hushh-Pod-Nonce"
+#: The placement epoch the pod holds (STANDBY-SYNC.md E4). Signed when present; the
+#: hub demands it once a person has a standby or an epoch above 0.
+EPOCH_HEADER = "X-Hushh-Pod-Epoch"
 
 #: Acceptance window, relative to the hub's clock: ts in [now - 60 s, now + 30 s].
 MAX_AGE_MS = 60_000
@@ -72,6 +78,7 @@ _NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{22}$")
 _TIMESTAMP_RE = re.compile(r"^[0-9]{1,15}$")
 _SIGNATURE_RE = re.compile(r"^[A-Za-z0-9_-]{86}$")
 _PUBLIC_KEY_RE = re.compile(r"^[A-Za-z0-9+/]{43}=$")
+_EPOCH_RE = re.compile(r"^(0|[1-9][0-9]{0,17})$")
 _UNRESERVED = "-._~"
 
 
@@ -88,6 +95,8 @@ class VerifiedPod:
     hushh_id: str
     key_id: Optional[str] = None
     service_account: Optional[str] = None
+    #: True only when the STANDBY placement's key signed (accepted on sync paths only).
+    standby: bool = False
 
     @property
     def signed(self) -> bool:
@@ -107,6 +116,7 @@ class SignedRequestHeaders:
     signature: bytes
     ts_ms: int
     nonce: str
+    epoch: Optional[int] = None
 
 
 class PodRequestSignatureMalformed(ValueError):
@@ -186,9 +196,10 @@ def request_signing_payload(
     body: bytes,
     ts_ms: int,
     nonce: str,
+    epoch: Optional[int] = None,
 ) -> bytes:
-    """The exact bytes that are signed and verified."""
-    fields = {
+    """The exact bytes that are signed and verified. ``epoch`` is bound only when sent."""
+    fields: dict[str, Any] = {
         "purpose": PURPOSE,
         "aud": normalize_audience(aud),
         "hushh_id": hushh_id,
@@ -200,6 +211,8 @@ def request_signing_payload(
         "ts_ms": int(ts_ms),
         "nonce": nonce,
     }
+    if epoch is not None:
+        fields["epoch"] = int(epoch)
     return canonical_json(fields).encode("utf-8")
 
 
@@ -218,8 +231,14 @@ def sign_pod_request(
     body: bytes,
     ts_ms: Optional[int] = None,
     nonce: Optional[str] = None,
+    epoch: int | None = None,
 ) -> dict[str, str]:
-    """The three signature headers for one request. ``hushh_id`` rides separately."""
+    """The signature headers for one request. ``hushh_id`` rides separately.
+
+    With ``epoch``, a fourth header carries it and the signature covers it.
+    """
+    if epoch is not None and (type(epoch) is not int or not _EPOCH_RE.match(str(epoch))):
+        raise ValueError("a placement epoch is a non-negative integer")
     kid = signing_key_id(public_key_b64(private_key))
     stamp = int(ts_ms if ts_ms is not None else time.time() * 1000)
     fresh = nonce or new_nonce()
@@ -233,12 +252,16 @@ def sign_pod_request(
         body=body,
         ts_ms=stamp,
         nonce=fresh,
+        epoch=epoch,
     )
-    return {
+    headers = {
         SIGNATURE_HEADER: f"{_TAG}{kid}.{_b64url(private_key.sign(payload))}",
         TIMESTAMP_HEADER: str(stamp),
         NONCE_HEADER: fresh,
     }
+    if epoch is not None:
+        headers[EPOCH_HEADER] = str(epoch)
+    return headers
 
 
 def parse_signature_headers(headers: Mapping[str, str]) -> Optional[SignedRequestHeaders]:
@@ -256,15 +279,21 @@ def parse_signature_headers(headers: Mapping[str, str]) -> Optional[SignedReques
     kid, _, encoded = raw[len(_TAG) :].partition(".")
     stamp = str(headers.get(TIMESTAMP_HEADER) or "").strip()
     nonce = str(headers.get(NONCE_HEADER) or "").strip()
+    epoch = headers.get(EPOCH_HEADER)
     if not (
         _KEY_ID_RE.match(kid)
         and _SIGNATURE_RE.match(encoded)
         and _TIMESTAMP_RE.match(stamp)
         and _NONCE_RE.match(nonce)
+        and (epoch is None or _EPOCH_RE.match(str(epoch).strip()))
     ):
         raise PodRequestSignatureMalformed("malformed signature headers")
     return SignedRequestHeaders(
-        kid=kid, signature=_b64url_decode(encoded), ts_ms=int(stamp), nonce=nonce
+        kid=kid,
+        signature=_b64url_decode(encoded),
+        ts_ms=int(stamp),
+        nonce=nonce,
+        epoch=None if epoch is None else int(str(epoch).strip()),
     )
 
 
@@ -302,6 +331,7 @@ def verify_request_signature(
         body=body,
         ts_ms=signed.ts_ms,
         nonce=signed.nonce,
+        epoch=signed.epoch,
     )
     try:
         Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key)).verify(

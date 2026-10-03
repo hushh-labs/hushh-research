@@ -21,6 +21,13 @@ The order of checks is the security argument, so it is spelled out:
    junk can never fill the replay table. A reused nonce is a replay: refused.
 6. **The latch.** The first valid signature latches the row to ``signed``.
 
+**Two placements (``pod_placement_fence``, STANDBY-SYNC.md E4).** Once the person has
+a standby or ``placement_epoch > 0``, step 3 runs fenced: the request must carry a
+current ``X-Hushh-Pod-Epoch`` (signed), turn and write paths accept only the primary's
+key, the standby's key is accepted only when the caller passes ``sync_path=True``, and
+a key that stays unknown after the pull is ``INVALID`` rather than ``KEY_UNRESOLVED``.
+Without migration 950 (no ``placement_epoch`` on the row) nothing here changes.
+
 Every failure is a quiet ``INVALID`` (or ``KEY_UNRESOLVED``) with a log line that
 names the reason and never the key, the signature or the body.
 """
@@ -37,6 +44,13 @@ from enum import Enum
 from typing import Any, Optional
 
 from hushh_mcp.services.pod_hub_client import POD_IDENTITY_HEADER
+from hushh_mcp.services.pod_placement_fence import (
+    PlacementFence,
+    choose_key,
+    epoch_refusal,
+    read_placement_fence,
+    row_epoch,
+)
 from hushh_mcp.services.pod_request_signing import (
     MAX_AGE_MS,
     PodRequestSignatureMalformed,
@@ -205,6 +219,95 @@ async def _latch(store: Any, row: dict, kid: str) -> None:
         logger.warning("pod_request_auth.latch_failed %s", type(exc).__name__)
 
 
+@dataclass(frozen=True)
+class _Deps:
+    registry: Any
+    store: Any
+    refresh: Refresh
+    cap: PullCap
+    now_ms: int
+
+
+async def _finish(
+    request: SignedRequest,
+    signed: SignedRequestHeaders,
+    *,
+    aud: str,
+    hushh_id: str,
+    row: dict,
+    public_key: str,
+    store: Any,
+    standby: bool = False,
+) -> SignedVerification:
+    """Steps 4 to 6 under the chosen key: signature, nonce, latch."""
+    verified = verify_request_signature(
+        public_key,
+        signed,
+        aud=aud,
+        hushh_id=hushh_id,
+        method=request.method,
+        path=request.path,
+        query_pairs=request.query_pairs,
+        body=request.body,
+    )
+    if not verified:
+        return _refuse("bad_signature", row)
+    if not await _consume_nonce(store, signed):
+        return _refuse("replayed_nonce", row)
+    if not standby:  # the latch belongs to the primary's key on the registry row
+        await _latch(store, row, signed.kid)
+    pod = VerifiedPod(hushh_id=hushh_id, key_id=signed.kid, standby=standby)
+    return SignedVerification(SignedOutcome.VERIFIED, pod=pod, row=row)
+
+
+async def _verify_fenced(
+    request: SignedRequest,
+    signed: SignedRequestHeaders,
+    *,
+    aud: str,
+    hushh_id: str,
+    row: dict,
+    fence: PlacementFence,
+    deps: _Deps,
+    sync_path: bool,
+) -> SignedVerification:
+    """Step 3 for a person with two placements. Every failure is INVALID (E4)."""
+    refusal = epoch_refusal(fence, signed.epoch)
+    if refusal:
+        return _refuse(refusal, row)
+    choice = choose_key(fence, row, signed.kid, sync_path=sync_path)
+    if choice.refusal:
+        return _refuse(choice.refusal, row)
+    if choice.needs_pull:
+        pulled = await _pull_then_reread(
+            row,
+            registry=deps.registry,
+            store=deps.store,
+            refresh=deps.refresh,
+            cap=deps.cap,
+            now_ms=deps.now_ms,
+        )
+        if pulled is None or _recorded_key(pulled)[0] != signed.kid:
+            return _refuse("key_unresolved", pulled or row)
+        pulled_epoch = row_epoch(pulled)
+        if pulled_epoch is None or (signed.epoch or 0) < pulled_epoch:
+            return _refuse("epoch_stale", pulled)
+        row = pulled
+        choice = choose_key(fence, row, signed.kid, sync_path=sync_path)
+        if choice.refusal or choice.needs_pull:
+            return _refuse(choice.refusal or "key_unresolved", row)
+    return await _finish(
+        request,
+        signed,
+        aud=aud,
+        hushh_id=hushh_id,
+        row=row,
+        public_key=choice.public_key or _recorded_key(row)[1],
+        store=deps.store,
+        standby=choice.standby,
+    )
+
+
 async def verify_signed_request(
     request: SignedRequest,
     *,
@@ -214,8 +317,15 @@ async def verify_signed_request(
     refresh: Refresh,
     now_ms: Optional[int] = None,
     cap: Optional[PullCap] = None,
+    standbys: Any = None,
+    sync_path: bool = False,
 ) -> SignedVerification:
-    """Decide one request. Never raises."""
+    """Decide one request. Never raises.
+
+    ``standbys`` reads the person's standby (``read_standby(user_id)``); it is
+    consulted only when the row carries ``placement_epoch`` (migration 950).
+    ``sync_path`` admits the standby's key; leave it False on turn and write paths.
+    """
     try:
         signed = parse_signature_headers(request.headers)
     except PodRequestSignatureMalformed:
@@ -235,6 +345,21 @@ async def verify_signed_request(
         # existed (for a GCP orphan pod: verified, then the route's 404).
         logger.info("pod_request_auth.unknown_pod")
         return SignedVerification(SignedOutcome.KEY_UNRESOLVED)
+    fence = await read_placement_fence(row, standbys)
+    if fence is None:
+        return _refuse("placement_unreadable", row)
+    if fence.fenced:
+        deps = _Deps(registry, store, refresh, cap or _DEFAULT_CAP, now)
+        return await _verify_fenced(
+            request,
+            signed,
+            aud=aud,
+            hushh_id=hushh_id,
+            row=row,
+            fence=fence,
+            deps=deps,
+            sync_path=sync_path,
+        )
     if _recorded_key(row)[0] != signed.kid:
         pulled = await _pull_then_reread(
             row,
@@ -248,21 +373,12 @@ async def verify_signed_request(
             logger.info("pod_request_auth.key_unresolved")
             return SignedVerification(SignedOutcome.KEY_UNRESOLVED, row=pulled or row)
         row = pulled
-    verified = verify_request_signature(
-        _recorded_key(row)[1],
+    return await _finish(
+        request,
         signed,
         aud=aud,
         hushh_id=hushh_id,
-        method=request.method,
-        path=request.path,
-        query_pairs=request.query_pairs,
-        body=request.body,
-    )
-    if not verified:
-        return _refuse("bad_signature", row)
-    if not await _consume_nonce(store, signed):
-        return _refuse("replayed_nonce", row)
-    await _latch(store, row, signed.kid)
-    return SignedVerification(
-        SignedOutcome.VERIFIED, pod=VerifiedPod(hushh_id=hushh_id, key_id=signed.kid), row=row
+        row=row,
+        public_key=_recorded_key(row)[1],
+        store=store,
     )
