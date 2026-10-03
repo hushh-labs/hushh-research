@@ -148,7 +148,7 @@ async def test_a_live_process_cannot_write_after_the_erase(store):
             store=store, owner_id=OWNER, attempt_id=ATTEMPT, wrapped_key_object=WRAPPED,
             open_fenced_log=_never,
         )  # fmt: skip
-        assert again == {**counts, "deleted": 0, "alreadyAbsent": 4 + counts["records"]}
+        assert again == {**counts, "deleted": 0, "alreadyAbsent": 5 + counts["records"]}
 
 
 async def _surviving_records(store) -> list[str]:

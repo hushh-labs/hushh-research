@@ -68,8 +68,10 @@ def owned_objects(wrapped_key_object: str) -> tuple[str, ...]:
     from hushh_mcp.one_adk.pod_adk_checkpoint import KEY as SESSION_PROJECTION  # noqa: PLC0415
     from hushh_mcp.services.pod_authority_store import INCARNATION_OBJECT  # noqa: PLC0415
     from hushh_mcp.services.pod_identity_store import IDENTITY_KEY_OBJECT  # noqa: PLC0415
+    from hushh_mcp.services.pod_role import ROLE_OBJECT  # noqa: PLC0415
 
-    return (wrapped_key_object, IDENTITY_KEY_OBJECT, INCARNATION_OBJECT, SESSION_PROJECTION)
+    owned = (wrapped_key_object, IDENTITY_KEY_OBJECT, INCARNATION_OBJECT, SESSION_PROJECTION)
+    return (*owned, ROLE_OBJECT)  # a standby erases exactly like a primary (E10)
 
 
 def _owner_digest(owner_id: str) -> str:

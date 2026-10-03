@@ -412,3 +412,12 @@ def test_the_shared_proof_module_has_no_decryption_path():
     forbidden = {"cryptography", "open_bundle", "open_range_bundle", "pod_migration_bundle"}
     assert not {n for n in imported if any(f in n for f in forbidden)}
     assert not (called & {"decrypt", "open_bundle", "open_range_bundle", "unseal"})
+
+
+def test_crypto_erase_deletes_the_role_object_after_the_key():
+    """Account deletion erases a standby exactly like a primary (E10)."""
+    from hushh_mcp.services.pod_crypto_erase import owned_objects
+
+    owned = owned_objects("keys/log-key.wrapped")
+    assert owned[0] == "keys/log-key.wrapped"
+    assert ROLE_OBJECT in owned
