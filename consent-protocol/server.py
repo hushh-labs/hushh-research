@@ -1065,9 +1065,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
             StalledAgent,
             start_personal_agent_reconcile_loop,
         )
-        from hushh_mcp.services.personal_agent_registry_repo import (
-            PersonalAgentRegistryRepo,
-        )
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
         from hushh_mcp.services.pod_standby_sync import sweep_due_standbys
 
         registry = PersonalAgentRegistryRepo()

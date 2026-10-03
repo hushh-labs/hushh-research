@@ -65,10 +65,7 @@ from api.routes.one.pod_turn import router as pod_turn_router  # noqa: E402
 from db.connection import DatabaseUnavailableError  # noqa: E402
 from db.db_client import DatabaseExecutionError  # noqa: E402
 from hushh_mcp.runtime_providers.azure_openai import model_probe  # noqa: E402
-from hushh_mcp.runtime_settings import (  # noqa: E402
-    pod_heartbeat_interval_seconds,
-    pod_mode,
-)
+from hushh_mcp.runtime_settings import pod_heartbeat_interval_seconds, pod_mode  # noqa: E402
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS  # noqa: E402
 from hushh_mcp.services.pod_hub_client import (  # noqa: E402
     PodHubClient,
@@ -180,7 +177,6 @@ app.state.runtime_topology = "private_pod"
 # answered before the wall sees it.
 app.add_middleware(PodRoleGuard)  # inside the wall: a standby refuses turns and writes (E3)
 app.add_middleware(PodIngressPolicy)
-
 
 app.add_middleware(ChatKeyMiddleware)
 for _chat_error in CHAT_KEY_ERRORS:

@@ -29,10 +29,9 @@ Four sweeps, one pass:
     deprovisioned in the account sense. Re-provisioning on the owner's next
     activity is the intended outcome: the owner pays one cold start instead of
     weeks of idle warm floor. This is why reaping calls the compute backend
-    directly rather than
-    ``PersonalAgentProvisioningService.deprovision`` -- that path revokes the
-    standing read, tombstones the HusshID and deletes the row, which is account
-    teardown, a completely different act.
+    directly rather than ``PersonalAgentProvisioningService.deprovision`` -- that
+    path revokes the standing read, tombstones the HusshID and deletes the row,
+    which is account teardown, a completely different act.
 
   upgrade
     Pods whose recorded build is behind the hub's image are moved onto it, a
@@ -84,7 +83,6 @@ without a live database or a live cloud backend.
 
 Injection contracts live in ``start_personal_agent_reconcile_loop`` below;
 ``server.py::startup_personal_agent_reconcile`` owns the production adapters.
-
 """
 
 from __future__ import annotations
@@ -332,9 +330,8 @@ class PersonalAgentReconcileWorker:
         The image-upgrade sweep. ``fetch_stale`` returns the whole pods whose
         recorded build is not the hub's current image; ``upgrade`` moves ONE pod
         onto it in place. Both default to None, which disables the sweep
-        structurally; it is further gated by
-        ``PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED`` and bounded per pass by
-        ``PERSONAL_AGENT_UPGRADE_BATCH``, because it restarts people's pods.
+        structurally; it is further gated by ``PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED`` and
+        bounded per pass by ``PERSONAL_AGENT_UPGRADE_BATCH``, because it restarts people's pods.
         Signatures::
 
             async def fetch_stale() -> list[StalePod]: ...
@@ -369,7 +366,6 @@ class PersonalAgentReconcileWorker:
         fetch_orphan_candidates: Optional[Callable[[], Awaitable[list[OrphanCandidate]]]] = None,
         owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
         erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
-        sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
         orphan_confirm_after: timedelta = DEFAULT_ORPHAN_CONFIRM_AFTER,
         clock: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     ) -> None:
@@ -382,7 +378,6 @@ class PersonalAgentReconcileWorker:
         self._fetch_orphan_candidates = fetch_orphan_candidates
         self._owner_exists = owner_exists
         self._erase_orphan = erase_orphan
-        self._sync_standbys = sync_standbys
         self._orphan_confirm_after = orphan_confirm_after
         self._clock = clock
         #: user_id -> the instant this worker first saw the owner absent. Worker
@@ -412,7 +407,6 @@ class PersonalAgentReconcileWorker:
         reaped, reap_failed = await self._reap_idle()
         upgraded, upgrade_failed = await self._upgrade_stale()
         orphans_erased, orphan_failed, orphans_pending = await self._erase_orphans()
-        await self._sweep_standbys()
 
         report = ReconcileReport(
             retried_count=retried,
@@ -494,15 +488,6 @@ class PersonalAgentReconcileWorker:
                 failed += 1
                 logger.exception("[%s] personal_agent.reap_failed", _LABEL)
         return reaped, failed
-
-    async def _sweep_standbys(self) -> None:
-        """Standby sync (STANDBY-SYNC.md); the callable owns interval, batch and order."""
-        if self._sync_standbys is None:
-            return
-        try:
-            await self._sync_standbys()
-        except Exception:
-            logger.exception("[%s] standby sync sweep failed; skipping this pass", _LABEL)
 
     # ---------------------------------------------------------------------------
     # Background loop
@@ -683,12 +668,15 @@ class PersonalAgentReconcileWorker:
 async def _reconcile_loop(
     worker: PersonalAgentReconcileWorker,
     interval_seconds: float,
+    sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
 ) -> None:
-    """Run the fleet-hygiene sweep until cancelled."""
+    """Run the fleet-hygiene sweep, then any standby sync sweep, until cancelled."""
     logger.info("[%s] Reconcile loop started (interval=%ss)", _LABEL, interval_seconds)
     while True:
         try:
-            await worker.scan_and_reconcile()
+            report = await worker.scan_and_reconcile()
+            if sync_standbys is not None and not report.skipped:
+                await sync_standbys()
         except asyncio.CancelledError:
             logger.info("[%s] Reconcile loop cancelled", _LABEL)
             return
@@ -718,9 +706,8 @@ def start_personal_agent_reconcile_loop(
     off, which is the default. That is the ship-dark guarantee at the outer edge:
     with the flags unset, nothing is scheduled, no callable is ever invoked, and
     no timer runs. The same check repeats inside every pass, so a flag flipped off
-    later also stops a loop that is already running.
-
-    Returns the Task so callers can cancel it on shutdown.
+    later also stops a loop that is already running. Returns the Task so callers
+    can cancel it on shutdown.
     """
     if not (personal_agent_enabled() and personal_agent_reconcile_enabled()):
         logger.info("[%s] not scheduled: reconcile sweep is disabled", _LABEL)
@@ -736,9 +723,8 @@ def start_personal_agent_reconcile_loop(
         fetch_orphan_candidates=fetch_orphan_candidates,
         owner_exists=owner_exists,
         erase_orphan=erase_orphan,
-        sync_standbys=sync_standbys,
     )
     return asyncio.create_task(
-        _reconcile_loop(worker, interval_seconds),
+        _reconcile_loop(worker, interval_seconds, sync_standbys),
         name="personal-agent-reconcile-worker",
     )

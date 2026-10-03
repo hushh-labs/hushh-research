@@ -1,16 +1,19 @@
 """Where standby sync is wired: the owner's route, the reconcile sweep, the pod's epoch.
 
 - ``POST /api/one/runtime/standby/sync`` syncs the CALLER's own standby and nobody else's.
-- The reconcile worker runs the injected sweep once per pass and survives its failure.
+- The reconcile loop runs the injected sweep after each unskipped pass and survives its
+  failure; the reconcile worker class itself never runs it.
 - A pod's signed hub requests carry ``X-Hushh-Pod-Epoch`` once it has a role object, and
   are byte-for-byte today's requests while it has none (E4).
 """
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
 import os
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -21,7 +24,8 @@ os.environ.setdefault("APP_SIGNING_KEY", "test_secret_key_for_ci_only_32chars_mi
 os.environ.setdefault("VAULT_DATA_KEY", "0" * 64)
 
 from api.middleware import require_firebase_auth  # noqa: E402
-from api.routes.one import runtime  # noqa: E402
+from api.routes.one import router as one_router  # noqa: E402
+from api.routes.one import runtime_standby  # noqa: E402
 from hushh_mcp.services import (  # noqa: E402
     personal_agent_reconcile_worker as worker_module,
 )
@@ -43,7 +47,7 @@ ROUTE = "/api/one/runtime/standby/sync"
 
 def _client(uid: str | None) -> TestClient:
     app = FastAPI()
-    app.include_router(runtime.router)
+    app.include_router(runtime_standby.router)
     if uid is not None:
         app.dependency_overrides[require_firebase_auth] = lambda: uid
     return TestClient(app)
@@ -65,6 +69,10 @@ def test_the_route_refuses_a_caller_without_a_firebase_identity(synced):
     response = _client(None).post(ROUTE)
     assert response.status_code == 401
     assert synced == []
+
+
+def test_the_hub_one_router_mounts_the_route():
+    assert any(getattr(r, "path", None) == ROUTE for r in one_router.routes)
 
 
 def test_the_route_syncs_only_the_callers_own_standby(synced):
@@ -92,13 +100,12 @@ async def _noop(_: object) -> None:
     return None
 
 
-def _worker(sync_standbys=None):
+def _worker():
     return worker_module.PersonalAgentReconcileWorker(
         fetch_stalled=_none,
         retry=_noop,
         fetch_idle=lambda _since: _none(),
         reap=_noop,
-        sync_standbys=sync_standbys,
     )
 
 
@@ -108,24 +115,41 @@ def switches_on(monkeypatch):
     monkeypatch.setattr(worker_module, "personal_agent_reconcile_enabled", lambda: True)
 
 
-async def test_each_pass_runs_the_standby_sweep_once(switches_on):
+async def _run_passes(monkeypatch, passes: int, sync_standbys=None) -> None:
+    """Drive the real reconcile loop for ``passes`` passes; the loop's own sleep ends it."""
+    slept: list[float] = []
+
+    async def sleep(seconds: float) -> None:
+        slept.append(seconds)
+        if len(slept) >= passes:
+            raise asyncio.CancelledError
+
+    fake = SimpleNamespace(CancelledError=asyncio.CancelledError, sleep=sleep)
+    monkeypatch.setattr(worker_module, "asyncio", fake)
+    with pytest.raises(asyncio.CancelledError):
+        await worker_module._reconcile_loop(_worker(), 0, sync_standbys)
+    assert len(slept) == passes
+
+
+async def test_each_pass_runs_the_standby_sweep_once(switches_on, monkeypatch):
     passes: list[int] = []
 
     async def sweep() -> None:
         passes.append(1)
 
-    worker = _worker(sweep)
-    await worker.scan_and_reconcile()
-    await worker.scan_and_reconcile()
+    await _run_passes(monkeypatch, 2, sweep)
     assert passes == [1, 1]
 
 
-async def test_a_failing_standby_sweep_never_stops_the_pass(switches_on):
+async def test_a_failing_standby_sweep_never_stops_the_loop(switches_on, monkeypatch):
+    calls: list[int] = []
+
     async def sweep() -> None:
+        calls.append(1)
         raise RuntimeError("store down")
 
-    report = await _worker(sweep).scan_and_reconcile()
-    assert report.skipped is False
+    await _run_passes(monkeypatch, 3, sweep)
+    assert calls == [1, 1, 1]
 
 
 async def test_the_sweep_is_off_with_the_reconcile_switch(monkeypatch):
@@ -135,12 +159,48 @@ async def test_the_sweep_is_off_with_the_reconcile_switch(monkeypatch):
     async def sweep() -> None:
         passes.append(1)
 
-    assert (await _worker(sweep).scan_and_reconcile()).skipped is True
+    await _run_passes(monkeypatch, 2, sweep)
     assert passes == []
 
 
-async def test_no_injected_sweep_is_today_exactly(switches_on):
+async def test_no_injected_sweep_is_today_exactly(switches_on, monkeypatch):
+    await _run_passes(monkeypatch, 2)
     assert (await _worker().scan_and_reconcile()).skipped is False
+
+
+def test_the_worker_class_never_runs_the_standby_sweep():
+    """The sweep rides the loop, so a direct scan (and its report) is exactly today's."""
+    params = worker_module.PersonalAgentReconcileWorker.__init__.__code__.co_varnames
+    assert "sync_standbys" not in params
+
+
+def test_the_loop_is_handed_the_sweep_from_the_start_function(monkeypatch):
+    seen: dict = {}
+    monkeypatch.setattr(worker_module, "personal_agent_enabled", lambda: True)
+    monkeypatch.setattr(worker_module, "personal_agent_reconcile_enabled", lambda: True)
+
+    def loop(worker, interval_seconds, sync_standbys):
+        seen.update(interval=interval_seconds, sweep=sync_standbys)
+        return "loop"
+
+    monkeypatch.setattr(worker_module, "_reconcile_loop", loop)
+    monkeypatch.setattr(
+        worker_module, "asyncio", SimpleNamespace(create_task=lambda coro, name: (coro, name))
+    )
+
+    async def sweep() -> None:
+        return None
+
+    task = worker_module.start_personal_agent_reconcile_loop(
+        fetch_stalled=_none,
+        retry=_noop,
+        fetch_idle=lambda _since: _none(),
+        reap=_noop,
+        interval_seconds=7,
+        sync_standbys=sweep,
+    )
+    assert task == ("loop", "personal-agent-reconcile-worker")
+    assert seen == {"interval": 7, "sweep": sweep}
 
 
 def test_the_server_wires_the_standby_sweep_into_the_reconcile_loop():

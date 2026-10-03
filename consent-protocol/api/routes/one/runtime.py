@@ -1372,14 +1372,3 @@ async def byoc_authorization_instructions(
         # Proven, never asserted -- the same rule the save route follows.
         authorized=bool(cloud and cloud.authorized),
     )
-
-
-@router.post("/standby/sync")
-@limiter.limit(RateLimits.CONSENT_REQUEST)
-async def sync_standby_now(
-    request: Request, firebase_uid: str = Depends(require_firebase_auth)
-) -> dict[str, Any]:
-    """Bring the caller's OWN standby agent level now; the typed outcome (STANDBY-SYNC.md)."""
-    from hushh_mcp.services.pod_standby_sync import sync_standby_on_demand
-
-    return (await sync_standby_on_demand(firebase_uid)).to_dict()
