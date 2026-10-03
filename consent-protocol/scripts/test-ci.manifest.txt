@@ -857,5 +857,6 @@ tests/test_pod_sync_routes.py
 # Standby sync hub-standby (2026-10-03): migration 950, the standby store under the
 # real registry guards, the key-and-epoch fence (E4), deletion refusal (E10).
 tests/test_personal_agent_standby_store_postgres.py
+tests/test_personal_agent_standby_swap_postgres.py
 tests/test_pod_placement_fence.py
 tests/test_account_standby_deletion.py
