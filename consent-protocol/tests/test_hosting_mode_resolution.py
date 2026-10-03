@@ -125,3 +125,39 @@ async def test_shared_selection_fails_closed_when_placement_is_unknown(monkeypat
 
     assert failure.value.status_code == 503
     assert failure.value.detail["code"] == "HOSTING_STATUS_UNAVAILABLE"
+
+
+def _detached_row(project: str) -> dict:
+    return {
+        "status": "unprovisioned",
+        "deployment_target": None,
+        "backend_metadata": {"detachedPlacements": [{"user_cloud_project": project}]},
+    }
+
+
+def test_an_attached_job_for_a_detached_placement_is_history():
+    """After a detach the old setup job must not trap the person in 'unknown'."""
+    mode = resolve_hosting_mode(
+        row=_detached_row("owner-project"),
+        registry_read_ok=True,
+        setup_job={"stage": "attached", "project_id": "owner-project"},
+        setup_job_read_ok=True,
+    )
+    assert mode == "shared"
+
+
+@pytest.mark.parametrize(
+    "setup_job",
+    [
+        {"stage": "attached", "project_id": "another-project"},
+        {"stage": "applying_iam", "project_id": "owner-project"},
+    ],
+)
+def test_a_job_that_is_not_the_detached_placement_still_counts(setup_job):
+    mode = resolve_hosting_mode(
+        row=_detached_row("owner-project"),
+        registry_read_ok=True,
+        setup_job=setup_job,
+        setup_job_read_ok=True,
+    )
+    assert mode in {"unknown", "pending"}

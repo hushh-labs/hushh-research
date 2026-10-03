@@ -42,7 +42,7 @@ def resolve_hosting_mode(
     if row is not None and status not in {"", "unprovisioned", "reaped"}:
         return "unknown"
 
-    if setup_job is not None:
+    if setup_job is not None and not _superseded_by_detach(row, setup_job):
         stage = str(setup_job.get("stage") or "").strip()
         # A failed job still records a chosen project and offers a retry. It is
         # not evidence that the person chose Shared.
@@ -50,6 +50,24 @@ def resolve_hosting_mode(
             return "unknown"
         return "pending"
     return "shared"
+
+
+def _superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
+    """An attached setup job for a placement the owner has since detached is history.
+
+    Detaching (``personal_agent_placement_detach``) releases the slot and records the
+    old placement under ``detachedPlacements``. The setup job that attached it is not a
+    current choice any more; reading it as one leaves the person with no home and no
+    way to pick a new one.
+    """
+    if str(setup_job.get("stage") or "").strip() != "attached":
+        return False
+    metadata = (row or {}).get("backend_metadata")
+    detached = metadata.get("detachedPlacements") if isinstance(metadata, dict) else None
+    if not isinstance(detached, list) or not detached or not isinstance(detached[-1], dict):
+        return False
+    project = str(setup_job.get("project_id") or "").strip()
+    return bool(project) and project == str(detached[-1].get("user_cloud_project") or "").strip()
 
 
 async def resolve_observed_hosting_mode(
