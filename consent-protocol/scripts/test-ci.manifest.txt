@@ -9,6 +9,8 @@ tests/services/test_external_connector_google_oauth.py
 tests/services/test_external_mcp_connector_descriptor.py
 tests/test_configure_external_mcp_connector.py
 tests/services/test_external_connector_curated_oauth.py
+tests/services/test_external_connector_oauth_dispatch.py
+tests/services/test_curated_connector_manifest.py
 tests/test_uat_connector_rollout_contract.py
 tests/services/test_external_connector_registry_ownership.py
 tests/test_drive_uat_registry_provisioning.py
@@ -551,6 +553,8 @@ tests/test_feed_metadata_allowlist.py
 tests/test_scope_sensitivity.py
 tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
+tests/test_curated_connector_deploy_wiring.py
+tests/test_provision_curated_connector.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py

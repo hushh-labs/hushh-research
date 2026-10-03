@@ -8,6 +8,16 @@ write it into `external_mcp_connectors`. No code change needed per
 connector -- Chat's governed `RegisteredMcpToolset` and the
 `/one/profile/connectors` page both read this registry, not a hardcoded list.
 
+Curated OAuth connectors (HubSpot, Notion, ...) are described by one reviewed
+manifest under config/curated_connectors/ -- pass it with --env:
+    python3 scripts/ops/configure_external_mcp_connector.py check config/curated_connectors/notion.json --env uat
+    python3 scripts/ops/configure_external_mcp_connector.py apply config/curated_connectors/notion.json --env uat --activate --operator you@hushh.ai
+
+A registration-only public-client spec under config/curated_connector_registrations/
+is deliberately not a descriptor and cannot be applied. It exists only for the
+separate provisioning command to register a client before authenticated tools/list
+can produce the reviewed runtime manifest.
+
 Usage:
     python3 scripts/ops/configure_external_mcp_connector.py check connector.json
     python3 scripts/ops/configure_external_mcp_connector.py probe connector.json
@@ -29,6 +39,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from db.db_client import get_db  # noqa: E402
+from hushh_mcp.services.curated_connector_manifest import (  # noqa: E402
+    MANIFEST_VERSION,
+    CuratedConnectorManifestError,
+    get_manifest,
+    get_registration_spec,
+    parse_manifest,
+)
 from hushh_mcp.services.external_mcp_client import (  # noqa: E402
     ExternalMcpAuthError,
     ExternalMcpError,
@@ -38,7 +55,53 @@ from hushh_mcp.services.external_mcp_connector_descriptor import (  # noqa: E402
     ExternalMcpConnectorDescriptorError,
     ValidatedExternalMcpConnectorDescriptor,
     load_and_validate_descriptor,
+    validate_descriptor,
 )
+
+
+def load_descriptor(path: str, *, environment: str) -> ValidatedExternalMcpConnectorDescriptor:
+    """Load a descriptor, or compose one from a curated-connector manifest.
+
+    Pass a `config/curated_connectors/<id>.json` manifest with `--env` and the
+    descriptor for that environment is derived from it, so there is exactly one
+    reviewed source. A legacy descriptor file still works for non-curated rows."""
+    try:
+        raw = json.loads(Path(path).expanduser().read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ExternalMcpConnectorDescriptorError(
+            "Descriptor must be a readable JSON object."
+        ) from error
+    if isinstance(raw, dict) and raw.get("version") == MANIFEST_VERSION:
+        try:
+            return validate_descriptor(parse_manifest(raw).to_descriptor(environment))
+        except CuratedConnectorManifestError as error:
+            raise ExternalMcpConnectorDescriptorError(str(error)) from error
+    return load_and_validate_descriptor(path)
+
+
+def _require_matches_manifest(descriptor: ValidatedExternalMcpConnectorDescriptor) -> None:
+    """A row for a manifest-backed provider must equal what the manifest produces
+    for one of its environments, field for field (pins, tool allowlist, redirect
+    addresses, admission mode), so the registry can never be ahead of reviewed code.
+    Any legacy descriptor for such a provider is refused rather than compared."""
+    raw = descriptor.raw
+    connector_id = str(raw.get("connectorId"))
+    manifest = get_manifest(connector_id)
+    if manifest is None:
+        if get_registration_spec(connector_id) is not None:
+            raise ExternalMcpConnectorDescriptorError(
+                f"{connector_id} has a registration-only spec and cannot be applied. "
+                "Capture authenticated tools/list and add its runtime manifest first."
+            )
+        return
+    if not any(
+        raw == manifest.to_descriptor(environment) for environment in manifest.redirect_uris
+    ):
+        raise ExternalMcpConnectorDescriptorError(
+            f"{manifest.connector_id} is a manifest-backed connector; apply it from "
+            f"config/curated_connectors/{manifest.connector_id}.json (with --env) so the row "
+            "matches the manifest exactly."
+        )
 
 
 def _redacted_summary(descriptor: ValidatedExternalMcpConnectorDescriptor) -> dict[str, Any]:
@@ -77,6 +140,7 @@ async def _probe(descriptor: ValidatedExternalMcpConnectorDescriptor) -> dict[st
 
 
 def _apply(descriptor: ValidatedExternalMcpConnectorDescriptor, *, operator: str) -> dict[str, Any]:
+    _require_matches_manifest(descriptor)
     raw = descriptor.raw
     db = get_db()
     scopes_csv = " ".join(raw.get("oauthScopes") or [])
@@ -168,7 +232,12 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     for command in ("check", "probe", "apply"):
         sub = subparsers.add_parser(command)
-        sub.add_argument("descriptor")
+        sub.add_argument("descriptor", help="descriptor JSON, or a curated-connector manifest")
+        sub.add_argument(
+            "--env",
+            default="uat",
+            help="environment block to read from a curated-connector manifest (default: uat)",
+        )
         if command == "apply":
             sub.add_argument("--activate", action="store_true", required=True)
             sub.add_argument("--operator", required=True)
@@ -181,7 +250,7 @@ def main() -> int:
         if args.command == "deactivate":
             print(json.dumps(_deactivate(args.connector_id, operator=args.operator)))
             return 0
-        descriptor = load_and_validate_descriptor(args.descriptor)
+        descriptor = load_descriptor(args.descriptor, environment=args.env)
         if args.command == "check":
             print(json.dumps({**_redacted_summary(descriptor), "status": "valid"}, sort_keys=True))
             return 0

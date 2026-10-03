@@ -838,6 +838,36 @@ jobs:
             fi
           done
 
+      - name: Resolve curated connector secrets
+        id: curated-secrets
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          CURATED_CONNECTORS_ENABLED: ${{ vars.CURATED_MCP_CONNECTORS_UAT }}
+          SECRETS_PROJECT: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          names=""
+          if [ "${CURATED_CONNECTORS_ENABLED}" = "true" ]; then
+            names="$("${{ env.PROTOCOL_PYTHON }}" scripts/ci/curated_connector_secrets.py)"
+            # Every other secret is skipped silently when missing; a connector
+            # whose secret is absent would ship a green deploy that cannot connect.
+            # Check for an enabled latest version (a bare secret with no value
+            # would pass a plain existence check) and keep gcloud's own error.
+            for secret in ${names//+/ }; do
+              if ! state="$(gcloud secrets versions describe latest --secret="${secret}" \
+                  --project="${SECRETS_PROJECT}" --format='value(state)' 2>&1)"; then
+                echo "::error::Curated connector secret ${secret} is required by a manifest in consent-protocol/config/curated_connectors but could not be read in ${SECRETS_PROJECT}: ${state}. Provision it (scripts/ops/provision_curated_connector.py) or turn CURATED_MCP_CONNECTORS_UAT off." >&2
+                exit 1
+              fi
+              if [ "${state}" != "ENABLED" ]; then
+                echo "::error::Curated connector secret ${secret} has no enabled latest version in ${SECRETS_PROJECT} (state: ${state})." >&2
+                exit 1
+              fi
+            done
+          fi
+          echo "names=${names}" >> "$GITHUB_OUTPUT"
+
       - name: Deploy backend using Cloud Build
         id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -850,14 +880,14 @@ jobs:
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
+          # Curated connector OAuth client secrets are derived from the checked-in
+          # manifests by the "Resolve curated connector secrets" step; empty (the
+          # rollout is off) keeps them all absent.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_CURATED_CONNECTOR_SECRETS=${{ steps.curated-secrets.outputs.names }}"
           # Keep credentials bound after the rollout switch turns off so existing
           # paid-required requests can finish Checkout and webhook settlement.
           # Set the UAT variable only after test-mode secret versions are ready.
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_UAT_ENABLED || 'false' }}##_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY##_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
-          # HubSpot's OAuth app secrets are bound only while the curated-connector
-          # rollout is on, so a UAT deploy never references a secret that has not
-          # been provisioned yet.
-          SUBSTITUTIONS="${SUBSTITUTIONS}##_HUBSPOT_OAUTH_CLIENT_ID_SECRET=${{ vars.CURATED_MCP_CONNECTORS_UAT == 'true' && 'HUBSPOT_OAUTH_CLIENT_ID' || '' }}##_HUBSPOT_OAUTH_CLIENT_SECRET_SECRET=${{ vars.CURATED_MCP_CONNECTORS_UAT == 'true' && 'HUBSPOT_OAUTH_CLIENT_SECRET' || '' }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"

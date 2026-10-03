@@ -76,13 +76,19 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
         raise ExternalMcpConnectorDescriptorError(
             "Descriptor must be a readable JSON object."
         ) from error
+    return validate_descriptor(raw)
+
+
+def validate_descriptor(raw: Any) -> ValidatedExternalMcpConnectorDescriptor:
     if not isinstance(raw, dict) or raw.get("version") != "external-mcp-connector.v1":
         raise ExternalMcpConnectorDescriptorError(
             "Descriptor version must be external-mcp-connector.v1."
         )
 
     connector_id = _text(raw.get("connectorId"))
-    if not _CONNECTOR_ID_PATTERN.match(connector_id):
+    # The id is written to the registry as given, so it must already be exact:
+    # a padded id would pass the pattern yet slip past any per-id guard.
+    if raw.get("connectorId") != connector_id or not _CONNECTOR_ID_PATTERN.match(connector_id):
         raise ExternalMcpConnectorDescriptorError(
             "connectorId must be lowercase snake_case, e.g. 'notion'."
         )
@@ -118,7 +124,19 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
                 "oauthScopes must be a list of scope strings (may be empty)."
             )
         _safe_env_name(raw.get("oauthClientIdEnv"), "oauthClientIdEnv")
-        _safe_env_name(raw.get("oauthClientSecretEnv"), "oauthClientSecretEnv")
+        token_auth = _text(raw.get("tokenEndpointAuth")) or "client_secret_post"
+        if token_auth not in {"client_secret_post", "none"}:
+            raise ExternalMcpConnectorDescriptorError(
+                "tokenEndpointAuth must be client_secret_post or none."
+            )
+        if token_auth == "none":  # noqa: S105 - an auth method name, not a credential
+            # A public client (PKCE, no secret) must not name a secret variable.
+            if _text(raw.get("oauthClientSecretEnv")):
+                raise ExternalMcpConnectorDescriptorError(
+                    "A public client (tokenEndpointAuth none) must not set oauthClientSecretEnv."
+                )
+        else:
+            _safe_env_name(raw.get("oauthClientSecretEnv"), "oauthClientSecretEnv")
 
     if "registeredRedirectUris" in raw:
         uris = raw.get("registeredRedirectUris")

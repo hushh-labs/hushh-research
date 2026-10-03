@@ -1,13 +1,11 @@
-"""Generic OAuth PKCE start/complete for an oauth-style external connector.
+"""Generic OAuth PKCE start/complete for legacy, non-curated connectors.
 
-Generalizes `google_connection_service.py`'s start()/complete() shape (signed
-state, PKCE verifier encrypted at rest, short-lived attempt row) across
-whichever connector the registry names, instead of one Google-specific
-implementation. The connector's own `oauth_authorize_url` / `oauth_token_url`
-/ `oauth_scopes` / `oauth_client_id_env` / `oauth_client_secret_env` come
-from `external_mcp_connectors` (`external_connector_registry_service.py`),
-never hardcoded here -- a new OAuth-style connector needs a registry row and
-two env vars, not a code change.
+This still supplies the shared signed-state/PKCE primitives and any remaining
+non-curated legacy exchange. An operator-owned registry row never takes this
+path: it is always handed to the curated adapter, which requires a reviewed
+manifest before it can read an environment variable or post an OAuth code.
+That dispatch boundary keeps mutable registry policy from selecting an endpoint
+or credential variable for a shared provider.
 """
 
 from __future__ import annotations
@@ -47,6 +45,18 @@ def _now() -> datetime:
 
 def _clean(value: object | None) -> str:
     return str(value or "").strip()
+
+
+def _is_operator_owned(connector: object | None) -> bool:
+    """Whether this is a shared registry row, never a private owner record.
+
+    Operator rows must always pass through the curated adapter. In particular,
+    adapter selection cannot depend on the row's mutable `chat` policy: an
+    out-of-band policy edit must fail closed in the curated configuration check,
+    never reopen the legacy exchange path with row-selected endpoints or env
+    variable names.
+    """
+    return connector is not None and getattr(connector, "owner_user_id", "not-a-row") is None
 
 
 class ExternalConnectorOAuthService:
@@ -130,12 +140,8 @@ class ExternalConnectorOAuthService:
             return await self.drive().start(
                 user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
             )
-        from hushh_mcp.services.external_connector_curated_oauth import (
-            is_curated_oauth_connector,
-        )
-
-        curated_connector = await self._registry.get_connector(connector_id)
-        if is_curated_oauth_connector(curated_connector):
+        operator_connector = await self._registry.get_connector(connector_id)
+        if _is_operator_owned(operator_connector):
             return await self.curated().start(
                 connector_id=connector_id, user_id=user_id, redirect_uri=redirect_uri, flow=flow
             )
@@ -208,12 +214,8 @@ class ExternalConnectorOAuthService:
                 state=state, code=code, expected_user_id=expected_user_id
             )
         if row:
-            from hushh_mcp.services.external_connector_curated_oauth import (
-                is_curated_oauth_connector,
-            )
-
-            curated_connector = await self._registry.get_connector(row["connector_id"])
-            if is_curated_oauth_connector(curated_connector):
+            operator_connector = await self._registry.get_connector(row["connector_id"])
+            if _is_operator_owned(operator_connector):
                 return await self.curated().complete(
                     state=state, code=code, expected_user_id=expected_user_id
                 )

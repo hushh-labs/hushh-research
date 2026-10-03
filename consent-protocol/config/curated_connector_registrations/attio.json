@@ -1,0 +1,22 @@
+{
+  "version": "curated-connector-registration.v1",
+  "connectorId": "attio",
+  "displayName": "Attio",
+  "description": "Connect Attio after setup is complete.",
+  "mcpEndpoint": "https://mcp.attio.com/mcp",
+  "oauth": {
+    "authorizeUrl": "https://app.attio.com/oidc/authorize",
+    "tokenUrl": "https://app.attio.com/oidc/token",
+    "registrationUrl": "https://app.attio.com/oauth/register",
+    "scopes": ["mcp", "offline_access", "openid"],
+    "tokenEndpointAuth": "none",
+    "clientIdEnv": "ATTIO_OAUTH_CLIENT_ID"
+  },
+  "environments": {
+    "uat": {
+      "registeredRedirectUris": [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
+    }
+  }
+}

@@ -886,14 +886,23 @@ def test_status_requires_vault_owner(route_client):
 
 
 def _hubspot_definition(**overrides):
+    connector_id = str(overrides.get("connector_id", "hubspot"))
+    manifest = routes.get_manifest(connector_id)
     base = dict(
-        connector_id="hubspot",
+        connector_id=connector_id,
         display_name="HubSpot",
         description="CRM",
         auth_style="oauth",
         owner_user_id=None,
         transport_kind="mcp",
         capability_policy={"chat": "reviewed"},
+        mcp_endpoint=manifest.mcp_endpoint if manifest else "https://mcp.example/mcp",
+        oauth_authorize_url=manifest.authorize_url if manifest else "https://mcp.example/authorize",
+        oauth_token_url=manifest.token_url if manifest else "https://mcp.example/token",
+        oauth_scopes=manifest.scopes if manifest else (),
+        oauth_client_id_env=manifest.client_id_env if manifest else "HUBSPOT_OAUTH_CLIENT_ID",
+        oauth_client_secret_env=manifest.client_secret_env if manifest else None,
+        registered_redirect_uris=(manifest.redirect_uris["uat"] if manifest else ()),
     )
     base.update(overrides)
     return SimpleNamespace(**base)
@@ -930,6 +939,137 @@ def test_curated_catalog_availability_comes_from_the_curated_adapter(
     curated.connection_available.assert_awaited_once_with("hubspot", user_id="verified-owner")
 
 
+def test_reviewed_catalog_cards_are_projected_without_registry_rows(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    response = client.get("/api/connectors")
+
+    assert response.status_code == 200
+    cards = response.json()["connectors"]
+    assert [(card["connectorId"], card["catalogState"]) for card in cards] == [
+        ("hubspot", "setup_pending"),
+        ("notion", "setup_pending"),
+        ("attio", "discovery_pending"),
+    ]
+    assert all(card["catalogCard"] is True for card in cards)
+    assert all(card["curatedOAuth"] is False and card["available"] is False for card in cards)
+    assert all(
+        {"mcpEndpoint", "oauthAuthorizeUrl", "oauthTokenUrl", "clientIdEnv"}.isdisjoint(card)
+        for card in cards
+    )
+
+
+def test_catalog_requires_an_exact_manifest_pinned_row_before_connect_is_available(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    curated = SimpleNamespace(connection_available=AsyncMock(return_value=True))
+    _wire_curated_service(monkeypatch, curated)
+    drifted_notion = _hubspot_definition(
+        connector_id="notion",
+        display_name="Operator-controlled Notion",
+        mcp_endpoint="https://unreviewed.example/mcp",
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[drifted_notion])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    response = client.get("/api/connectors")
+
+    notion = next(item for item in response.json()["connectors"] if item["connectorId"] == "notion")
+    assert notion["displayName"] == "Notion"
+    assert notion["catalogCard"] is True
+    assert notion["catalogState"] == "setup_pending"
+    assert notion["available"] is False
+    # A stale stored grant can still be disconnected, but this combined gate
+    # prevents the panel from offering Start OAuth for the drifted row.
+    assert not (notion["curatedOAuth"] and notion["available"])
+
+
+def test_registration_only_attio_card_ignores_a_similarly_named_registry_row(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    attio_row = _hubspot_definition(connector_id="attio", display_name="Operator-controlled Attio")
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[attio_row])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+
+    response = client.get("/api/connectors")
+
+    attio = next(item for item in response.json()["connectors"] if item["connectorId"] == "attio")
+    assert attio["displayName"] == "Attio"
+    assert attio["catalogCard"] is True
+    assert attio["catalogState"] == "discovery_pending"
+    assert attio["curatedOAuth"] is False
+    assert attio["available"] is False
+
+
+@pytest.mark.parametrize(
+    "definition,expected",
+    [
+        (_hubspot_definition(), True),
+        (_hubspot_definition(connector_id="notion", display_name="Notion"), True),
+        # A registration-only Attio contract is never enough to surface a
+        # provider: it has no authenticated tool policy or runtime manifest.
+        (_hubspot_definition(connector_id="attio", display_name="Attio"), False),
+        # A reviewed-looking row with no manifest never reads as a curated provider,
+        # so the frontend would not offer a Connect button that could only fail.
+        (_hubspot_definition(connector_id="no_manifest_crm"), False),
+        (_hubspot_definition(owner_user_id="someone"), False),
+        (_hubspot_definition(capability_policy={"chat": "unreviewed"}), False),
+        (_hubspot_definition(auth_style="api_key"), False),
+    ],
+)
+def test_the_catalog_marks_manifest_backed_oauth_providers_for_the_frontend(
+    route_client, monkeypatch, definition, expected
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    _wire_curated_service(
+        monkeypatch, SimpleNamespace(connection_available=AsyncMock(return_value=True))
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[definition])),
+    )
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_credentials_service",
+        lambda: SimpleNamespace(list_statuses=AsyncMock(return_value=[])),
+    )
+    body = client.get("/api/connectors").json()
+    assert body["connectors"][0]["curatedOAuth"] is expected
+
+
 def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_client, monkeypatch):
     client, app, _ = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
@@ -957,23 +1097,27 @@ def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_clie
     response = client.get("/api/connectors")
 
     assert response.status_code == 200
-    assert response.json()["connectors"] == [
-        {
-            "connectorId": "hubspot",
-            "displayName": "HubSpot",
-            "description": "CRM",
-            "authStyle": "oauth",
-            "registrationKind": "curated",
-            "status": "connected",
-            "accountLabel": "owner@example.invalid",
-            "connectedAt": None,
-            "validationState": "unverified",
-            "profile": None,
-            "revocationOutcome": "not_attempted",
-            "lastErrorCode": None,
-            "available": False,
-        }
-    ]
+    hubspot = next(
+        item for item in response.json()["connectors"] if item["connectorId"] == "hubspot"
+    )
+    assert hubspot == {
+        "connectorId": "hubspot",
+        "displayName": "HubSpot",
+        "description": "Connect HubSpot so Kai can read and act on your CRM contacts, deals, and companies.",
+        "authStyle": "oauth",
+        "registrationKind": "curated",
+        "status": "connected",
+        "accountLabel": "owner@example.invalid",
+        "connectedAt": None,
+        "validationState": "unverified",
+        "profile": None,
+        "revocationOutcome": "not_attempted",
+        "lastErrorCode": None,
+        "available": False,
+        "curatedOAuth": True,
+        "catalogCard": True,
+        "catalogState": "unavailable",
+    }
     registry.list_curated_connectors.assert_awaited_once_with(include_inactive=True)
 
 
