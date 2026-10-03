@@ -112,6 +112,17 @@ pinned by a golden vector in `consent-protocol/tests/test_pod_request_signing.py
   ID token beside the signature. Everything is behind the dev-only
   `POD_HUB_IDENTITY_AUTH_ENABLED`. An Azure agent has no metadata server and
   signs alone, so it can reach only a hub where that flag is on.
+- **Two placements (dev-only migration 950, `docs/future/personal-agent/STANDBY-SYNC.md`
+  E4).** An optional `X-Hushh-Pod-Epoch` header carries the placement epoch the
+  agent was told; it is signed only when sent, so the golden vector is unchanged
+  without it. Once a person has a standby agent or `placement_epoch > 0`
+  (`personal_agent_registry`, bumped by one on every promotion), the hub refuses a
+  signed request whose epoch is missing or below the registry's, accepts only the
+  primary's `pod_signing_key_id` on turn and write routes, and accepts the
+  standby's key only on routes that pass `sync_path=True`. Every such refusal is
+  the verifier's ordinary `INVALID`, never a fall-through to the Google path; adding
+  a standby and every switch latch `identity_mode = signed`. A row without the 950
+  column is decided exactly as before (`hushh_mcp/services/pod_placement_fence.py`).
 
 ## The setup binding
 
