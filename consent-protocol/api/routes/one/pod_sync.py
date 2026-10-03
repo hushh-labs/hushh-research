@@ -180,12 +180,12 @@ async def sync_export(
         seal_range_bundle,
     )
 
-    own = pod_keypair()
-    if body.standby_key_id == own.key_id or body.standby_public_key == own.public_key_b64:
-        raise HTTPException(status_code=400, detail="the standby is this pod")
     log = _sync_log()
     if (await _role(log)).is_standby:
         raise _refuse_role("primary")
+    own = pod_keypair()
+    if body.standby_key_id == own.key_id or body.standby_public_key == own.public_key_b64:
+        raise HTTPException(status_code=400, detail="the standby is this pod")
     records = await pod_migration._verified_replay(log)
     after = _range_after(records, body.base_seq, body.base_head_sha)
     head_seq, head_sha = (len(records), records[-1]["sha"]) if records else (0, "")

@@ -9,8 +9,10 @@ nothing and a standby's status must stay observable.
 
 What a standby still accepts, by name:
 
-* ``/pod/sync/head``, ``/pod/sync/import``, ``/pod/sync/set-role`` -- the sync
-  protocol and the promotion it ends in. Each carries its own hub proof.
+* ``/pod/sync/*`` (head, export, import, set-role) -- the sync protocol and the
+  promotion it ends in. Each carries its own hub proof and classifies the role
+  itself from a fresh read: export refuses a standby and import refuses a primary
+  with ``POD_ROLE_MISMATCH``. Export reads the log and never appends.
 * ``/pod/migration/erasure/*`` -- account deletion erases a standby exactly like a
   primary (E10). The fence replaces the head; it is not an append.
 
@@ -21,6 +23,12 @@ fork the standby's chain. A standby is upgraded by redeploying it.
 On a pod without durable storage, or without a role object (every pod today), the
 role is primary at epoch 0 and every request passes exactly as before. A role that
 cannot be confirmed refuses (E3); it never reads as primary.
+
+A refusal uses the same envelope as the routes' own ``HTTPException`` details, so a
+caller classifies every role refusal by one field, ``detail.code``::
+
+    409 {"detail": {"code": "POD_ROLE_STANDBY", "message": "..."}}
+    503 {"detail": {"code": "POD_ROLE_UNREADABLE", "message": "..."}}
 """
 
 from __future__ import annotations
@@ -37,7 +45,7 @@ SAFE_METHODS: frozenset[str] = frozenset({"GET", "HEAD", "OPTIONS"})
 
 #: The only non-safe paths a standby serves.
 STANDBY_ALLOWED_EXACT: frozenset[str] = frozenset(
-    {"/pod/sync/head", "/pod/sync/import", "/pod/sync/set-role"}
+    {"/pod/sync/head", "/pod/sync/export", "/pod/sync/import", "/pod/sync/set-role"}
 )
 STANDBY_ALLOWED_PREFIXES: tuple[str, ...] = ("/pod/migration/erasure/",)
 
@@ -86,7 +94,8 @@ class PodRoleGuard:
             await send({"type": "websocket.close", "code": 1008, "reason": refusal.code})
             return
         status = 409 if refusal.code == CODE_STANDBY else 503
-        body = json.dumps({"detail": str(refusal), "code": refusal.code}).encode("utf-8")
+        detail = {"code": refusal.code, "message": str(refusal)}
+        body = json.dumps({"detail": detail}).encode("utf-8")
         await send(
             {
                 "type": "http.response.start",

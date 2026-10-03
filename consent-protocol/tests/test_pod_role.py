@@ -323,7 +323,7 @@ async def test_a_standby_refuses_a_turn_and_a_memory_write(durable):
     for path in ("/api/one/pod/turn", "/api/one/pod/memory/revoke"):
         response = client.post(path, json={})
         assert response.status_code == 409, path
-        assert response.json()["code"] == CODE_STANDBY
+        assert response.json()["detail"]["code"] == CODE_STANDBY
     with pytest.raises(WebSocketDisconnect) as closed:
         with client.websocket_connect("/api/one/pod/live") as ws:
             ws.receive_json()
@@ -344,7 +344,7 @@ async def test_an_unreadable_role_refuses_turns_with_its_own_code(durable):
     pod_role.reset_role_cache()
     response = TestClient(_guarded_app()).post("/api/one/pod/turn", json={})
     assert response.status_code == 503
-    assert response.json()["code"] == CODE_UNREADABLE
+    assert response.json()["detail"]["code"] == CODE_UNREADABLE
 
 
 async def test_regression_no_role_object_serves_everything_as_before(durable):
@@ -367,7 +367,47 @@ async def test_the_real_pod_app_mounts_the_guard_on_its_turn_route(durable):
     await _make_standby(durable)
     response = TestClient(pod_server.app).post("/api/one/pod/turn", json={})
     assert response.status_code == 409
-    assert response.json()["code"] == CODE_STANDBY
+    assert response.json()["detail"]["code"] == CODE_STANDBY
+
+
+def _open_sync_surface(monkeypatch) -> None:
+    """Pass the machine wall and the hub proof; everything else is the real pod app."""
+    import api.middlewares.pod_ingress as ingress
+    from api.routes.one import pod_migration
+
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    monkeypatch.setattr(ingress, "verify_hub_identity", lambda scope: None)
+    monkeypatch.setattr(pod_migration, "_require_hub_caller", lambda proof, *, audience=None: None)
+
+
+async def test_one_refusal_envelope_through_the_real_pod_app(durable, monkeypatch):
+    """The hub classifies every role refusal by ``detail.code``, guard or route alike."""
+    import pod_server
+
+    _open_sync_surface(monkeypatch)
+    await _make_standby(durable)
+    client = TestClient(pod_server.app)
+    export = client.post(
+        "/pod/sync/export",
+        json={
+            "base_seq": 0,
+            "base_head_sha": "",
+            "standby_public_key": "A" * 44,
+            "standby_key_id": "podk_other",
+        },
+    )
+    assert export.status_code == 409
+    assert export.json() == {
+        "detail": {"code": "POD_ROLE_MISMATCH", "message": "this route runs on a primary only"}
+    }
+    turn = client.post("/api/one/pod/turn", json={})
+    assert turn.status_code == 409
+    assert turn.json() == {
+        "detail": {
+            "code": CODE_STANDBY,
+            "message": "this agent is a standby and does not answer or write",
+        }
+    }
 
 
 # --------------------------------------------------------------------------- #
