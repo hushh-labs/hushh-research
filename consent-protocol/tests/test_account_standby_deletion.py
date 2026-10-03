@@ -4,6 +4,10 @@ The real Postgres proof of the plain refusal lives in
 ``tests/test_personal_agent_standby_store_postgres.py``. These drive the decision
 branches a disposable database cannot reach cheaply: a FINISHED primary erasure does
 not cover a standby in another cloud, and a schema without 950 never consults it.
+
+Nothing deletes a standby row here: the guard refuses while one exists, and its
+``ON DELETE RESTRICT`` references to the registry row would roll the erasure back if
+one ever survived the guard (proven on Postgres in the swap suite).
 """
 
 from __future__ import annotations
@@ -12,12 +16,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from hushh_mcp.services import account_service as account_module
 from hushh_mcp.services.account_service import (
     AccountService,
     PersonalAgentDeprovisioningRequiredError,
 )
 
 STANDBY = "personal_agent_standby_placements"
+FINALIZE = "SELECT public.finalize_personal_agent_erasure("
 
 
 def _conn(*, registry: dict | None, standby: bool, erasure_complete: bool = True) -> MagicMock:
@@ -67,7 +73,7 @@ def test_a_finished_primary_erasure_does_not_cover_a_standby(monkeypatch):
     with pytest.raises(PersonalAgentDeprovisioningRequiredError):
         service._delete_personal_agent_state(conn, params={"user_id": "u"}, results={})
     executed = _statements(conn)
-    assert not any("finalize_personal_agent_erasure" in sql for sql in executed)
+    assert not any(sql.startswith(FINALIZE) for sql in executed)
     assert not any(sql.startswith("DELETE") for sql in executed)
 
 
@@ -77,9 +83,9 @@ def test_a_finished_primary_erasure_without_a_standby_still_finalizes(monkeypatc
     results: dict[str, bool] = {}
     service._delete_personal_agent_state(conn, params={"user_id": "u"}, results=results)
     executed = _statements(conn)
-    assert any("finalize_personal_agent_erasure" in sql for sql in executed)
-    assert any(sql.startswith("DELETE FROM personal_agent_standby_placements") for sql in executed)
-    assert results[STANDBY] is True
+    assert any(sql.startswith(FINALIZE) for sql in executed)
+    assert not any(sql.startswith("DELETE") and STANDBY in sql for sql in executed)
+    assert STANDBY not in results
 
 
 def test_an_unprovisioned_primary_with_a_standby_is_refused(monkeypatch):
@@ -97,3 +103,9 @@ def test_without_950_the_standby_is_never_consulted(monkeypatch):
     service._delete_personal_agent_state(conn, params={"user_id": "u"}, results=results)
     assert not any(STANDBY in sql for sql in _statements(conn))
     assert STANDBY not in results
+
+
+def test_the_standby_is_not_an_account_erasure_table():
+    """The guard and the RESTRICT references cover it; GCP deletion results are unchanged."""
+    assert STANDBY not in account_module.TRANSACTIONAL_ACCOUNT_ERASURE_TABLES
+    assert STANDBY not in AccountService()._delete_by_user_queries

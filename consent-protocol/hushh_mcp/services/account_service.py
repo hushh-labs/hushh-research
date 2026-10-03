@@ -19,6 +19,7 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     snapshot_provider_credentials_in_transaction,
 )
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.personal_agent_standby_guard import standby_present
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,6 @@ TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
         "one_location_visibility_exclusions",
         "kai_location_referrals",
         "pod_lifecycle_events",
-        "personal_agent_standby_placements",
     }
 )
 
@@ -97,9 +97,6 @@ class AccountService:
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
             "pod_migration_jobs": text("DELETE FROM pod_migration_jobs WHERE user_id = :user_id"),
-            "personal_agent_standby_placements": text(
-                "DELETE FROM personal_agent_standby_placements WHERE user_id = :user_id"
-            ),
             "webauthn_credentials": text(
                 "DELETE FROM webauthn_credentials WHERE user_id = :user_id"
             ),
@@ -948,13 +945,8 @@ class AccountService:
             lifecycle_row = (
                 conn.execute(
                     text(
-                        """
-                        SELECT TRUE AS present
-                        FROM pod_lifecycle_events
-                        WHERE user_id = :user_id
-                        LIMIT 1
-                        FOR UPDATE
-                        """
+                        "SELECT TRUE AS present FROM pod_lifecycle_events "
+                        "WHERE user_id = :user_id LIMIT 1 FOR UPDATE"
                     ),
                     params,
                 )
@@ -975,11 +967,6 @@ class AccountService:
         status = str(registry.get("status") or "").strip().lower()
         erasure = (registry.get("backend_metadata") or {}).get("erasure")
         if isinstance(erasure, dict) and erasure:
-            # A finished primary erasure does not cover a standby in another cloud.
-            if self._personal_agent_standby_present(conn, params):
-                raise PersonalAgentDeprovisioningRequiredError(
-                    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
-                )
             # Parked private migrations must never become a prerequisite for the
             # shared runtime's ordinary unprovisioned-account deletion path.
             available = conn.execute(
@@ -989,7 +976,7 @@ class AccountService:
                     "to_regprocedure('public.finalize_personal_agent_erasure(text)') IS NOT NULL"
                 )
             ).scalar()
-            if available is True:
+            if available is True and not standby_present(conn, params, self._table_exists):
                 statement = (
                     "SELECT public.finalize_personal_agent_erasure(:user_id)"
                     if finalize_erasure
@@ -1050,30 +1037,11 @@ class AccountService:
             or migration_row is not None
             or has_pending_deprovision
             or not demonstrably_unprovisioned
-            or self._personal_agent_standby_present(conn, params)
+            or standby_present(conn, params, self._table_exists)
         ):
             raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
 
         return table_presence
-
-    def _personal_agent_standby_present(self, conn, params: dict[str, Any]) -> bool:
-        """A synced standby is an external resource exactly like the primary (E10).
-
-        Read under the same owner locks as the primary's evidence, and only where the
-        dev-only 950 schema exists, so the shared deletion path never requires it.
-        """
-        if not self._table_exists(conn, "personal_agent_standby_placements"):
-            return False
-        return (
-            conn.execute(
-                text(
-                    "SELECT TRUE FROM personal_agent_standby_placements "
-                    "WHERE user_id = :user_id LIMIT 1 FOR UPDATE"
-                ),
-                params,
-            ).first()
-            is not None
-        )
 
     def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
         """Observe absence under existing database locks; perform no cleanup.
@@ -1096,11 +1064,6 @@ class AccountService:
             conn, params=params, finalize_erasure=True
         )
         results["personal_agent_external_resources_absent"] = True
-        # Empty by construction (the guard above refused a standby under these locks);
-        # deleting it in the same transaction keeps the erasure inventory executable.
-        if self._table_exists(conn, "personal_agent_standby_placements"):
-            conn.execute(self._delete_by_user_queries["personal_agent_standby_placements"], params)
-            results["personal_agent_standby_placements"] = True
         for table_name, present in table_presence.items():
             if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)

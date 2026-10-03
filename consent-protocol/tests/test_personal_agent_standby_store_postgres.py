@@ -235,7 +235,12 @@ def test_due_standbys_come_least_recently_attempted_first(pg, store):
 
 @pytest.mark.parametrize(
     "module",
-    ["personal_agent_standby_store", "personal_agent_standby_sql", "pod_placement_fence"],
+    [
+        "personal_agent_standby_store",
+        "personal_agent_standby_sql",
+        "personal_agent_standby_guard",
+        "pod_placement_fence",
+    ],
 )
 def test_the_standby_modules_have_no_decryption_path(module):
     """Structural, as for the migration transport: no decrypt import, no decrypt call."""
