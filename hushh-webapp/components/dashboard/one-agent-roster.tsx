@@ -451,19 +451,97 @@ function metricLabelClassName(tone: AgentMetricTone): string {
   return "text-[#8E8E93]";
 }
 
+interface AgentCardTheme {
+  cardBg: string;
+  cardBorder: string;
+  badgeBg: string;
+  badgeFg: string;
+  circleBtnBg: string;
+  circleBtnFg: string;
+}
+
+const AGENT_CARD_THEME_BY_ID: Record<string, AgentCardTheme> = {
+  gmail: {
+    cardBg: "bg-[#FFF5F6] dark:bg-[#200B10]",
+    cardBorder: "border-[#FFE5E8] dark:border-[#4C121E]",
+    badgeBg: "bg-[#FFE8EC] dark:bg-[#381018]",
+    badgeFg: "text-[#E11D48] dark:text-[#FB7185]",
+    circleBtnBg: "bg-[#FFE8EC] dark:bg-[#381018]",
+    circleBtnFg: "text-[#E11D48] dark:text-[#FB7185]",
+  },
+  calendar: {
+    cardBg: "bg-[#F0F8FF] dark:bg-[#07192E]",
+    cardBorder: "border-[#E0F0FE] dark:border-[#0C2D52]",
+    badgeBg: "bg-[#E2F1FE] dark:bg-[#0E3560]",
+    badgeFg: "text-[#0284C7] dark:text-[#38BDF8]",
+    circleBtnBg: "bg-[#E2F1FE] dark:bg-[#0E3560]",
+    circleBtnFg: "text-[#0284C7] dark:text-[#38BDF8]",
+  },
+  location: {
+    cardBg: "bg-[#F2F9FF] dark:bg-[#071B30]",
+    cardBorder: "border-[#E2F0FE] dark:border-[#0E3258]",
+    badgeBg: "bg-[#E2F1FE] dark:bg-[#0E3560]",
+    badgeFg: "text-[#0284C7] dark:text-[#38BDF8]",
+    circleBtnBg: "bg-[#E2F1FE] dark:bg-[#0E3560]",
+    circleBtnFg: "text-[#0284C7] dark:text-[#38BDF8]",
+  },
+  finance: {
+    cardBg: "bg-[#F0FDF4] dark:bg-[#061F12]",
+    cardBorder: "border-[#DCFCE7] dark:border-[#0F3D24]",
+    badgeBg: "bg-[#DCFCE7] dark:bg-[#0F3D24]",
+    badgeFg: "text-[#16A34A] dark:text-[#4ADE80]",
+    circleBtnBg: "bg-[#DCFCE7] dark:bg-[#0F3D24]",
+    circleBtnFg: "text-[#16A34A] dark:text-[#4ADE80]",
+  },
+  ria: {
+    cardBg: "bg-[#FAF5FF] dark:bg-[#1C0B2E]",
+    cardBorder: "border-[#F3E8FF] dark:border-[#38145C]",
+    badgeBg: "bg-[#F3E8FF] dark:bg-[#38145C]",
+    badgeFg: "text-[#9333EA] dark:text-[#C084FC]",
+    circleBtnBg: "bg-[#F3E8FF] dark:bg-[#38145C]",
+    circleBtnFg: "text-[#9333EA] dark:text-[#C084FC]",
+  },
+  wallet: {
+    cardBg: "bg-[#FFFBEB] dark:bg-[#261604]",
+    cardBorder: "border-[#FEF3C7] dark:border-[#4B2C08]",
+    badgeBg: "bg-[#FEF3C7] dark:bg-[#4B2C08]",
+    badgeFg: "text-[#D97706] dark:text-[#FBBF24]",
+    circleBtnBg: "bg-[#FEF3C7] dark:bg-[#4B2C08]",
+    circleBtnFg: "text-[#D97706] dark:text-[#FBBF24]",
+  },
+  pkm: {
+    cardBg: "bg-[#F4F6FF] dark:bg-[#0F132C]",
+    cardBorder: "border-[#E5EBFF] dark:border-[#1E2556]",
+    badgeBg: "bg-[#E6ECFE] dark:bg-[#1E2556]",
+    badgeFg: "text-[#4F46E5] dark:text-[#818CF8]",
+    circleBtnBg: "bg-[#E6ECFE] dark:bg-[#1E2556]",
+    circleBtnFg: "text-[#4F46E5] dark:text-[#818CF8]",
+  },
+  consent: {
+    cardBg: "bg-[#FFF7ED] dark:bg-[#281106]",
+    cardBorder: "border-[#FFEDD5] dark:border-[#4E220C]",
+    badgeBg: "bg-[#FFEDD5] dark:bg-[#4E220C]",
+    badgeFg: "text-[#EA580C] dark:text-[#FB923C]",
+    circleBtnBg: "bg-[#FFEDD5] dark:bg-[#4E220C]",
+    circleBtnFg: "text-[#EA580C] dark:text-[#FB923C]",
+  },
+};
+
+const DEFAULT_AGENT_CARD_THEME: AgentCardTheme = {
+  cardBg: "bg-muted/40 dark:bg-muted/20",
+  cardBorder: "border-border/60 dark:border-white/10",
+  badgeBg: "bg-muted dark:bg-white/10",
+  badgeFg: "text-muted-foreground dark:text-muted-foreground",
+  circleBtnBg: "bg-muted dark:bg-white/10",
+  circleBtnFg: "text-foreground dark:text-foreground",
+};
+
 function AgentMetric({
   mode,
-  compact = false,
   align = "right",
 }: {
   mode: OneAgentMode;
-  compact?: boolean;
-  /**
-   * `left`/`right` are the list-view alignments. `grid` is the dashboard card:
-   * one centered line — value + label together at a smaller size — that never
-   * wraps or clips (labels shrink to fit; see the 11px label class below).
-   */
-  align?: "right" | "left" | "grid";
+  align?: "right" | "left" | "grid" | "pill";
 }) {
   const isTopWinner =
     mode.id === "finance" && mode.primaryMetric.label.endsWith("%");
@@ -471,31 +549,32 @@ function AgentMetric({
   const valueTone = isTopWinner ? "default" : tone;
   const labelTone = isTopWinner ? "positive" : tone;
   const isGrid = align === "grid";
+  const isPill = align === "pill";
 
   return (
     <span
       data-testid={isTopWinner ? "one-finance-top-winner-kpi" : undefined}
       className={cn(
-        "inline-flex w-full min-w-0 items-baseline gap-1",
-        isGrid
-          ? "justify-center whitespace-nowrap text-center"
-          : align === "left"
-            ? "justify-start text-left"
-            : "text-right",
-        !isGrid &&
-          (compact
-            ? "max-w-full flex-wrap justify-center"
+        "inline-flex min-w-0 items-baseline gap-1",
+        isPill
+          ? "items-center whitespace-nowrap"
+          : isGrid
+            ? "justify-start whitespace-nowrap text-left"
             : align === "left"
-              ? "flex-wrap"
-              : "justify-end whitespace-nowrap"),
+              ? "justify-start text-left"
+              : "justify-end whitespace-nowrap text-right",
       )}
     >
       <span
         data-ui-role="body-strong"
         className={cn(
           "shrink-0 tabular-nums font-semibold tracking-normal",
-          isGrid ? "text-[11px] leading-4" : "text-[15px] leading-5",
-          metricValueClassName(valueTone),
+          isPill
+            ? "text-xs font-bold"
+            : isGrid
+              ? "text-[12px] leading-4 font-bold text-foreground/90 sm:text-[13px]"
+              : "text-[15px] leading-5",
+          !isPill && !isGrid && metricValueClassName(valueTone),
         )}
       >
         {mode.primaryMetric.value}
@@ -503,13 +582,13 @@ function AgentMetric({
       <span
         data-ui-role="trailing-value"
         className={cn(
-          "min-w-0 font-normal tracking-normal",
-          isGrid ? "truncate text-[11px] leading-4" : "text-[15px] leading-5",
-          !isGrid &&
-            (compact
-              ? "whitespace-normal text-center [overflow-wrap:anywhere]"
-              : "truncate"),
-          metricLabelClassName(labelTone),
+          "min-w-0 tracking-normal",
+          isPill
+            ? "text-xs font-medium"
+            : isGrid
+              ? "truncate text-[12px] leading-4 font-normal text-muted-foreground sm:text-[13px]"
+              : "text-[15px] leading-5",
+          !isPill && !isGrid && metricLabelClassName(labelTone),
         )}
       >
         {mode.primaryMetric.label}
@@ -525,6 +604,8 @@ function AgentGridItem({
   mode: OneAgentMode;
   className?: string;
 }) {
+  const theme = AGENT_CARD_THEME_BY_ID[mode.id] ?? DEFAULT_AGENT_CARD_THEME;
+
   return (
     <Link
       href={mode.href}
@@ -532,55 +613,14 @@ function AgentGridItem({
       data-testid={`one-agent-tile-${mode.id}`}
       title={mode.description}
       className={cn(
-        "group relative flex min-h-[96px] min-w-0 w-full flex-col items-center justify-start gap-[7px] overflow-hidden rounded-[14px] px-1.5 py-2 text-center",
-        "transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
+        "group relative flex min-h-[136px] w-full flex-col justify-between overflow-hidden rounded-[20px] border p-3.5 text-left shadow-[0_2px_8px_rgba(0,0,0,0.02)] sm:min-h-[148px] sm:p-4",
+        "transition-all duration-200 ease-out hover:scale-[1.015] hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/60 focus-visible:ring-inset motion-reduce:transition-none",
+        theme.cardBg,
+        theme.cardBorder,
         className,
       )}
     >
-      <AgentSectionIcon
-        id={mode.id}
-        icon={mode.icon}
-        tone={mode.tone}
-        paletteIndex={mode.paletteIndex}
-        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
-        // own comment. Icons stay full color regardless of setup state.
-        isActive
-        size="roster-lg"
-        treatment="profile"
-        glyphContrast="default"
-        className="relative z-10"
-        profileStyle={dashboardAgentIconStyle(mode)}
-      />
-      <span className="relative z-10 flex w-full min-w-0 flex-col items-center gap-[2px] text-center">
-        <span
-          className="block w-full truncate text-center text-[14px] font-semibold leading-[18px] tracking-normal text-[#1D1D1F] dark:text-[#F5F5F7]"
-          data-ui-role="body-strong"
-        >
-          {mode.title}
-        </span>
-        <AgentMetric mode={mode} align="grid" />
-      </span>
-      <MaterialRipple variant="blue" effect="fade" className="z-0" />
-    </Link>
-  );
-}
-
-function AgentListRow({ mode }: { mode: OneAgentMode }) {
-  return (
-    <Link
-      href={mode.href}
-      aria-label={`Open ${mode.title}`}
-      title={mode.description}
-      data-testid={`one-agent-list-row-${mode.id}`}
-      className={cn(
-        "group/agent-row relative grid min-h-[58px] w-full grid-cols-[40px_minmax(0,1fr)_minmax(84px,auto)_14px] items-center gap-x-3 overflow-hidden px-3.5 text-left outline-none",
-        "transition-colors duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)]",
-        "hover:bg-[rgba(120,120,128,.08)] active:bg-[rgba(120,120,128,.12)]",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-      )}
-    >
-      <span className="relative z-10 flex items-center justify-center">
+      <div className="relative z-10 flex items-start justify-between">
         <AgentSectionIcon
           id={mode.id}
           icon={mode.icon}
@@ -592,30 +632,89 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           glyphContrast="default"
           profileStyle={dashboardAgentIconStyle(mode)}
         />
-      </span>
-      <span className="relative z-10 flex min-w-0 flex-col justify-center">
+      </div>
+
+      <div className="relative z-10 flex items-end justify-between gap-2 pt-3">
+        <div className="flex min-w-0 flex-col">
+          <span
+            className="block truncate text-[14px] font-semibold leading-tight text-[#1D1D1F] dark:text-[#F5F5F7] sm:text-[15px]"
+            data-ui-role="body-strong"
+          >
+            {mode.title}
+          </span>
+          <div className="mt-1 flex items-center">
+            <AgentMetric mode={mode} align="grid" />
+          </div>
+        </div>
+
+        <div
+          className={cn(
+            "flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-transform duration-200 group-hover:translate-x-0.5",
+            theme.circleBtnBg,
+            theme.circleBtnFg,
+          )}
+          aria-hidden="true"
+        >
+          <CaretRightIcon className="h-3.5 w-3.5 stroke-[2.5]" />
+        </div>
+      </div>
+
+      <MaterialRipple variant="blue" effect="fade" className="z-0" />
+    </Link>
+  );
+}
+
+function AgentListRow({ mode }: { mode: OneAgentMode }) {
+  const theme = AGENT_CARD_THEME_BY_ID[mode.id] ?? DEFAULT_AGENT_CARD_THEME;
+
+  return (
+    <Link
+      href={mode.href}
+      aria-label={`Open ${mode.title}`}
+      title={mode.description}
+      data-testid={`one-agent-list-row-${mode.id}`}
+      className={cn(
+        "group/agent-row relative flex min-h-[58px] w-full items-center justify-between gap-3 px-4 py-3 text-left outline-none transition-colors duration-150",
+        "hover:bg-[rgba(120,120,128,.06)] active:bg-[rgba(120,120,128,.1)]",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+      )}
+    >
+      <div className="relative z-10 flex min-w-0 items-center gap-3.5">
+        <AgentSectionIcon
+          id={mode.id}
+          icon={mode.icon}
+          tone={mode.tone}
+          paletteIndex={mode.paletteIndex}
+          isActive
+          size="roster"
+          treatment="profile"
+          glyphContrast="default"
+          profileStyle={dashboardAgentIconStyle(mode)}
+        />
         <span
           data-ui-role="row-label"
-          className="ui-text-row-label min-w-0 truncate"
+          className="text-[15px] font-medium text-[#1D1D1F] dark:text-[#F5F5F7]"
         >
           {mode.title}
         </span>
-        {/*
-          List view is the compact scan: one label per row. The description
-          stays available as the row's title attribute and in grid view.
-        */}
-      </span>
-      <span className="relative z-10 flex min-w-0 max-w-[132px] justify-end">
-        <AgentMetric mode={mode} />
-      </span>
-      <CaretRightIcon
-        aria-hidden
-        className="relative z-10 h-4 w-4 text-[#C7C7CC]"
-      />
-      <span
-        aria-hidden
-        className="pointer-events-none absolute bottom-0 left-16 right-4 h-px bg-[rgba(60,60,67,.12)] group-last/agent-list:hidden"
-      />
+      </div>
+
+      <div className="relative z-10 flex items-center gap-2">
+        <div
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold tracking-normal transition-colors",
+            theme.badgeBg,
+            theme.badgeFg,
+          )}
+        >
+          <AgentMetric mode={mode} align="pill" />
+        </div>
+        <CaretRightIcon
+          aria-hidden
+          className="h-3.5 w-3.5 text-[#C7C7CC] transition-transform duration-150 group-hover/agent-row:translate-x-0.5 dark:text-[#636366]"
+        />
+      </div>
+
       <MaterialRipple variant="blue" effect="fade" className="z-0" />
     </Link>
   );
@@ -774,11 +873,11 @@ export function OneAgentRoster({
         {view === "grid" ? (
           <div
             data-testid="one-agents-grid"
-            className="overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 p-3.5 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)] sm:p-[18px]"
+            className="w-full"
           >
             <div
               data-agent-roster-layout="grouped-icon-grid"
-              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-x-2 gap-y-5 min-[430px]:grid-cols-[repeat(3,minmax(96px,1fr))] sm:gap-x-3 sm:gap-y-6"
+              className="grid w-full grid-cols-[repeat(3,minmax(84px,1fr))] justify-center gap-3 sm:gap-4"
             >
               {visibleModes.map((mode) => (
                 <AgentGridItem key={mode.id} mode={mode} />
@@ -788,7 +887,7 @@ export function OneAgentRoster({
         ) : (
           <div
             data-testid="one-agents-list"
-            className="group/agent-list overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.10)] bg-white/95 shadow-[0_16px_42px_-28px_rgba(0,0,0,.12)] dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)]"
+            className="group/agent-list overflow-hidden rounded-[20px] border border-[rgba(60,60,67,.08)] bg-white/95 shadow-[0_16px_42px_-28px_rgba(0,0,0,.08)] divide-y divide-[rgba(60,60,67,.06)] dark:border-white/[0.08] dark:bg-[#0A0A0C] dark:shadow-[0_12px_40px_-20px_rgba(0,0,0,0.85)] dark:divide-white/[0.06] sm:rounded-[24px]"
           >
             {visibleModes.map((mode) => (
               <AgentListRow key={mode.id} mode={mode} />
