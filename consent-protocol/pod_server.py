@@ -137,9 +137,7 @@ _POD_ROUTERS = (
     # behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the same scheduler
     # identity the tick uses.
     pod_migration_router,
-    # Standby sync: head, range export/import and the role. Same switch and hub proof
-    # as migration, with body-bound audiences. See api/routes/one/pod_sync.py.
-    pod_sync_router,
+    pod_sync_router,  # standby sync (pod_sync.py): migration's switch, body-bound hub proofs
     # The app surface: owner-local sessions, status and configuration. The pod
     # admits its owner's app and devices itself from a hub-signed binding, so a
     # turn no longer needs the hub in the path. See api/routes/one/pod_session.py.
@@ -180,9 +178,7 @@ app.state.runtime_topology = "private_pod"
 # order of registration, so observability stays outermost and a walled request still
 # emits its `request.summary` line; CORS sits between so a browser preflight is
 # answered before the wall sees it.
-# Inside the wall (registered first, so it runs after it): a standby refuses turns
-# and writes except sync import, and an unconfirmable role refuses (E3).
-app.add_middleware(PodRoleGuard)
+app.add_middleware(PodRoleGuard)  # inside the wall: a standby refuses turns and writes (E3)
 app.add_middleware(PodIngressPolicy)
 
 

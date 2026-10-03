@@ -846,3 +846,10 @@ tests/test_azure_image_source.py
 
 # Placement detach (2026-10-02): keep the host and data, free the slot.
 tests/test_personal_agent_placement_detach_postgres.py
+
+# Standby sync pod-sync (2026-10-03): range bundle (sealed to the standby, signed by the
+# primary), the sealed pod_role_v1 object (fail closed, forward-only epoch), the
+# standby refusal gate, and the head/export/import/set-role pod routes.
+tests/test_pod_sync_bundle.py
+tests/test_pod_role.py
+tests/test_pod_sync_routes.py
