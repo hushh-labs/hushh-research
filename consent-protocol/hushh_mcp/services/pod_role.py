@@ -218,7 +218,6 @@ async def store_role(store: Any, seal_key: bytes, new: PodRole, *, hushh_id: str
     )
     if written is None:
         raise PodRoleConflict("the role object changed during the write")
-    remember_role(new)
     return new
 
 

@@ -63,7 +63,10 @@ class RoleAwareCommitLog(PodCommitLog):
 
     async def write_role(self, new: PodRole) -> PodRole:
         """Compare-and-swap the role object, strictly forward in epoch."""
-        return await store_role(self._store, self._role_key, new, hushh_id=self._hushh_id())
+        written = await store_role(self._store, self._role_key, new, hushh_id=self._hushh_id())
+        # This process's view moves with its own write; nothing else updates the cache.
+        remember_role(written)
+        return written
 
     async def append(
         self, kind: str, payload: Any, *, expected_seq: int | None = None
