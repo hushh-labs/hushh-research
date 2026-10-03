@@ -325,12 +325,9 @@ for (const width of [390, 768, 1440])
       });
     await expect.poll(async () => (await readScrim()).opacity).toBe("1");
     const scrimStyle = await readScrim();
-    expect(scrimStyle.filter).toContain("blur(");
-    expect(scrimStyle.background).not.toBe("rgba(0, 0, 0, 0)");
-    expect(scrimStyle.background).toBe(scrimStyle.canonicalBackground);
-    expect(scrimStyle.filter).toBe(scrimStyle.canonicalFilter);
+    expect(scrimStyle.filter).toBe("none");
     expect(scrimStyle.visibility).toBe("visible");
-    expect(scrimStyle.pointer).toBe("auto");
+    expect(scrimStyle.pointer).toBe("none");
 
     // The scrim is the whole viewport, top to bottom.
     expect(await scrim.boundingBox()).toEqual({ x: 0, y: 0, width, height });

@@ -143,6 +143,29 @@ export function AgentConnectionsDrawer({
     window.addEventListener("keydown", escape);
     return () => window.removeEventListener("keydown", escape);
   }, [historyOpen, onOpenChange]);
+  useEffect(() => {
+    if (!historyOpen || modalActive.current) return;
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (drawer.current?.contains(target)) return;
+      if (
+        triggerRef.current?.contains(target) ||
+        fallbackFocusRef?.current?.contains(target)
+      )
+        return;
+      if (
+        target instanceof Element &&
+        target.closest(
+          '[data-slot="dialog-content"], [data-slot="sheet-content"], [data-slot="alert-dialog-content"], [data-slot="dropdown-menu-content"], [role="menu"]'
+        )
+      )
+        return;
+      onOpenChange(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [historyOpen, onOpenChange, triggerRef, fallbackFocusRef]);
   const keyDown = (event: KeyboardEvent) => {
     if (externalModalOpen || event.defaultPrevented) return;
     if (event.key === "Escape") {
@@ -210,46 +233,28 @@ export function AgentConnectionsDrawer({
             aria-hidden="true"
             data-agent-history-scrim
             className={cn(
-              // A modal side drawer (founder direction, 2026-09-28): the scrim covers
-              // the whole viewport, the chat header and the bottom bar included, so
-              // everything behind recedes uniformly. It is portalled to <body> with
-              // the panel below: inside the workspace it shared that subtree's
-              // stacking context, and the fixed bottom bar (a separate one) could
-              // never be out-z'd from there. At the body it takes the same sheet
-              // tier as SheetOverlay, above chrome and the header.
-              "fixed inset-0",
-              // The shared modal scrim, token for token with SheetOverlay, so the chat
-              // recedes exactly as it does behind a sheet or dialog (the coarse-pointer
-              // and native Android downgrades in globals.css apply here too). Only
-              // opacity animates; the blur radius is fixed. Closed, it is invisible, so
-              // no backdrop filter stays composited while the drawer is shut.
-              "z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
+              "fixed inset-0 pointer-events-none bg-transparent",
+              "z-(--z-sheet-overlay)",
               "transition-[opacity,visibility] motion-reduce:transition-none",
               historyOpen
-                ? "pointer-events-auto visible opacity-100 duration-140 ease-[cubic-bezier(0.16,1,0.3,1)]"
-                : "pointer-events-none invisible opacity-0 duration-100 ease-[cubic-bezier(0.4,0,1,1)]",
+                ? "visible opacity-100 duration-140 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                : "invisible opacity-0 duration-100 ease-[cubic-bezier(0.4,0,1,1)]",
             )}
-            onClick={() => {
-              if (!externalModalOpen) onOpenChange(false);
-            }}
           />
           <div
             ref={drawer}
             role="dialog"
             data-agent-history-drawer
-            aria-modal={externalModalOpen ? undefined : true}
+            aria-modal={false}
             aria-label="Agent chat history"
             aria-hidden={!historyOpen || externalModalOpen}
             inert={!historyOpen || externalModalOpen}
             onKeyDown={keyDown}
             className={cn(
               // Full height, flush to the leading edge, on the sheet tier: the panel
-              // runs over the chat header and the bottom bar, and its surface pads
-              // the safe areas itself (so the notch is surface, not a gap). Phones
-              // get a nearly full-width panel that leaves a strip of scrim to tap
-              // closed; from md up it keeps the drawer's 336px. Closed, it also
-              // clears its own shadow. Motion uses the shared sheet tier.
-              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) transform transition-transform motion-reduce:transition-none",
+              // runs over the left side of the workspace with a clear border and shadow.
+              // Both chat history and current conversation remain clear, readable, and independently scrollable.
+              "pointer-events-none fixed inset-y-0 left-0 z-(--z-sheet) transform transition-transform motion-reduce:transition-none shadow-2xl border-r border-[color:var(--one-chat-divider)]",
               "w-[min(88vw,360px)] md:w-[336px]",
               historyOpen
                 ? "translate-x-0 duration-(--motion-sheet-enter-duration) ease-(--motion-sheet-enter-ease)"
@@ -259,7 +264,7 @@ export function AgentConnectionsDrawer({
             <div
               hidden={mode !== "chats"}
               inert={mode !== "chats"}
-              className="pointer-events-auto h-full min-h-0"
+              className="pointer-events-auto h-full min-h-0 bg-[color:var(--one-chat-sidebar)]"
             >
               {chats}
             </div>
