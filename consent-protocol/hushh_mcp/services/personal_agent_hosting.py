@@ -42,7 +42,7 @@ def resolve_hosting_mode(
     if row is not None and status not in {"", "unprovisioned", "reaped"}:
         return "unknown"
 
-    if setup_job is not None and not _superseded_by_detach(row, setup_job):
+    if setup_job is not None and not setup_job_superseded_by_detach(row, setup_job):
         stage = str(setup_job.get("stage") or "").strip()
         # A failed job still records a chosen project and offers a retry. It is
         # not evidence that the person chose Shared.
@@ -52,7 +52,7 @@ def resolve_hosting_mode(
     return "shared"
 
 
-def _superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
+def setup_job_superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
     """An attached setup job for a placement the owner has since detached is history.
 
     Detaching (``personal_agent_placement_detach``) releases the slot and records the
@@ -68,6 +68,23 @@ def _superseded_by_detach(row: dict | None, setup_job: dict) -> bool:
         return False
     project = str(setup_job.get("project_id") or "").strip()
     return bool(project) and project == str(detached[-1].get("user_cloud_project") or "").strip()
+
+
+async def setup_job_is_detached_history(user_id: str, setup_job: dict) -> bool:
+    """Read the registry and apply ``setup_job_superseded_by_detach`` to a setup job.
+
+    Every surface reads a ``recorded`` job as "your agent lives in this project", so
+    returning it after a detach names a home the person no longer has. An unreadable
+    registry keeps the job as it is: this only ever hides history, never a live job.
+    """
+    from hushh_mcp.services import personal_agent_registry_repo as registry
+
+    try:
+        row = await registry.PersonalAgentRegistryRepo().get(user_id)
+    except Exception:
+        logger.warning("setup_job_detach_check.registry_unreadable user=%s", user_id)
+        return False
+    return setup_job_superseded_by_detach(row, setup_job)
 
 
 async def resolve_observed_hosting_mode(

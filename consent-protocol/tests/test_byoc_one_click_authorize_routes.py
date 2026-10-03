@@ -124,7 +124,18 @@ def _fake_job_repo(monkeypatch):
         return None
 
     monkeypatch.setattr(runtime_route, "_require_unassigned_byoc", unassigned)
+    _use_registry_row(monkeypatch, None)
     yield
+
+
+def _use_registry_row(monkeypatch, row):
+    from hushh_mcp.services import personal_agent_registry_repo
+
+    class Repo:
+        async def get(self, _user_id):
+            return row
+
+    monkeypatch.setattr(personal_agent_registry_repo, "PersonalAgentRegistryRepo", Repo)
 
 
 async def test_active_owner_pod_refuses_first_time_cloud_setup(monkeypatch):
@@ -392,3 +403,37 @@ async def test_status_route_serves_none_then_the_live_record(monkeypatch):
     assert status.jobId and status.jobId == _FakeJobRepo.store["u1"]["job_id"]
     assert [entry["stage"] for entry in status.stages][-1] == "proving"
     assert status.stale is False
+
+
+async def test_status_route_hides_a_job_whose_placement_was_detached(monkeypatch):
+    """After a detach the old job is history: every surface reads "recorded" as the
+    person's current home, so it must read "none" and let them choose again."""
+    _FakeJobRepo.store["u1"] = {
+        "user_id": "u1", "job_id": "j1", "project_id": "old-project",
+        "status": "recorded", "stage": "attached", "stages": [],
+    }  # fmt: skip
+    detached = {"backend_metadata": {"detachedPlacements": [{"user_cloud_project": "old-project"}]}}
+    _use_registry_row(monkeypatch, detached)
+    status = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
+    assert (status.status, status.projectId, status.jobId) == ("none", "", "")
+
+    # Negative control: a job for a different project than the one detached still counts.
+    _FakeJobRepo.store["u1"]["project_id"] = "new-project"
+    status = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
+    assert (status.status, status.projectId) == ("recorded", "new-project")
+
+
+async def test_status_route_keeps_the_job_when_the_registry_is_unreadable(monkeypatch):
+    from hushh_mcp.services import personal_agent_registry_repo
+
+    class Broken:
+        async def get(self, _user_id):
+            raise RuntimeError("db down")
+
+    monkeypatch.setattr(personal_agent_registry_repo, "PersonalAgentRegistryRepo", Broken)
+    _FakeJobRepo.store["u1"] = {
+        "user_id": "u1", "job_id": "j1", "project_id": "p", "status": "recorded",
+        "stage": "attached", "stages": [],
+    }  # fmt: skip
+    status = await runtime_route.byoc_setup_status(request=None, firebase_uid="u1")
+    assert status.status == "recorded"

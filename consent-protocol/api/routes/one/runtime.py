@@ -1253,14 +1253,14 @@ async def byoc_setup_status(
 ) -> ByocSetupStatusResponse:
     """The current truth of the person's cloud setup, for any surface to render.
 
-    `stale` means the record stopped advancing while `running`: the instance
-    restarted mid-job. The chain is idempotent, so the honest next move is a
-    fresh attempt, and the UI says so instead of spinning forever.
+    `stale`: a `running` record stopped advancing (the instance restarted mid-job); the chain is
+    idempotent, so the UI offers a fresh attempt. A job for a detached placement reads `none`.
     """
     from hushh_mcp.services import byoc_setup_job_service as jobs
+    from hushh_mcp.services.personal_agent_hosting import setup_job_is_detached_history
 
     row = await jobs.ByocSetupJobRepo().get(firebase_uid)
-    if not row:
+    if not row or await setup_job_is_detached_history(firebase_uid, row):
         return ByocSetupStatusResponse(status="none", stage="", stages=[], projectId="")
     return ByocSetupStatusResponse(
         status=str(row.get("status") or ""),
