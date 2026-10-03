@@ -13,7 +13,8 @@
     "webauthn_challenges",
     "consent_audit_receipts",
     "pod_lifecycle_events",
-    "pod_request_nonces"
+    "pod_request_nonces",
+    "personal_agent_standby_placements"
   ],
   "ordered_migrations": [
     "900_personal_agent_registry.sql",
@@ -62,6 +63,7 @@
     "946_personal_agent_files_provision_admission.sql",
     "947_pod_request_signing.sql",
     "948_personal_agent_user_azure.sql",
-    "949_personal_agent_owner_access_erasure.sql"
+    "949_personal_agent_owner_access_erasure.sql",
+    "950_personal_agent_standby_placements.sql"
   ]
 }
