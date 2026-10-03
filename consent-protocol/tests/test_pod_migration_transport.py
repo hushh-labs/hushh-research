@@ -198,7 +198,17 @@ def test_an_unreachable_pod_is_a_typed_refusal_not_a_crash(minted):
 # --------------------------------------------------------------------------- #
 
 
-def test_this_module_has_no_decryption_path():
+#: Every hub module that ferries a pod's sealed log: the move, and standby sync.
+HUB_FERRY_MODULES = (
+    "hushh_mcp/services/pod_migration_transport.py",
+    "hushh_mcp/services/pod_sync_transport.py",
+    "hushh_mcp/services/pod_standby_sync.py",
+    "hushh_mcp/services/pod_standby_sync_checks.py",
+)
+
+
+@pytest.mark.parametrize("module", HUB_FERRY_MODULES)
+def test_this_module_has_no_decryption_path(module):
     """A structural assertion, not a behavioural one.
 
     The hub's verification is a hash comparison, which needs no key. If this
@@ -209,7 +219,8 @@ def test_this_module_has_no_decryption_path():
     import ast
     from pathlib import Path
 
-    tree = ast.parse(Path(transport.__file__).read_text(encoding="utf-8"))
+    source = Path(transport.__file__).resolve().parents[2] / module
+    tree = ast.parse(source.read_text(encoding="utf-8"))
 
     # Parsed rather than grepped, deliberately. A text search matches this
     # module's own prose explaining why it cannot decrypt, which would make the
@@ -229,14 +240,29 @@ def test_this_module_has_no_decryption_path():
             if name:
                 called.add(name)
 
-    forbidden_imports = {"cryptography", "open_bundle", "pod_migration_bundle"}
+    forbidden_imports = {
+        "cryptography",
+        "open_bundle",
+        "pod_migration_bundle",
+        "open_range_bundle",
+        "pod_sync_bundle",
+        "open_role",
+        "byoc_key_custody",
+    }
     leaked = {n for n in imported if any(f in n for f in forbidden_imports)}
     assert not leaked, (
         f"the hub's migration transport imports {sorted(leaked)} -- it must carry "
         "the bundle without any means of opening it"
     )
 
-    forbidden_calls = {"decrypt", "open_bundle", "unseal", "resolve_pod_log_key"}
+    forbidden_calls = {
+        "decrypt",
+        "open_bundle",
+        "open_range_bundle",
+        "open_role",
+        "unseal",
+        "resolve_pod_log_key",
+    }
     assert not (called & forbidden_calls), (
         f"the hub's migration transport calls {sorted(called & forbidden_calls)}"
     )
