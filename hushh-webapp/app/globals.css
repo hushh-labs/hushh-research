@@ -214,6 +214,7 @@ textarea {
 
        chrome (persistent bars, 100..160)
          < sheet / drawer (711, 712)
+         < boot surface (790)
          < dialog / alert dialog (800, 801)
          < takeover (Location onboarding, 9000..9101)
          < system (network banner, 9999)
@@ -229,6 +230,11 @@ textarea {
   --z-chrome: 118;
   --z-sheet-overlay: 711;
   --z-sheet: 712;
+  /* The one boot surface (components/app-ui/boot-surface.tsx): above
+     chrome and sheets (the vault hard gate paints at the sheet tier, so the
+     surface fades out over it), below dialogs, the system banner and the
+     transient tier. */
+  --z-boot: 790;
   --z-dialog-overlay: 800;
   --z-dialog: 801;
   --z-takeover: 9000;
@@ -7630,4 +7636,340 @@ body[data-persona-surface="ria"] {
 
 .agent-connections-dialog:has([data-connection-compact]) [data-connections-panel] {
   max-height: min(42rem, calc(100dvh - 2rem));
+}
+
+/* ==========================================================================
+   Boot surface: one surface for the whole cold-start sequence.
+   Component: components/app-ui/boot-surface.tsx. Timing contract:
+   lib/boot/boot-sequence.ts (show after 200 ms, at least 400 ms once shown,
+   150 ms exit). Transform and opacity only; flat Morphy surface, no blur.
+
+   Mark geometry continues the iOS launch screen. Splash.imageset draws the
+   shushing face centred, its ink 403/2732 of the square image, and the
+   storyboard aspect-fills the screen, so on a phone the ink is 14.751% of
+   the screen height. Apple Color Emoji's ink is 0.96 of the font size and
+   sits 0.0267 of it above the line box centre (measured in WebKit and
+   Chromium), so the glyph is sized from the ink box and nudged down by that
+   amount to put the ink, not the line box, on the centre.
+   ========================================================================== */
+/* --boot-spring is a critically damped spring (damping ratio 1, so it
+   cannot overshoot or bounce): x(t) = 1 - (1 + 10t)e^(-10t), sampled. */
+.boot-surface,
+.boot-scene[data-boot-contained] {
+  --boot-bg: var(--background);
+  --boot-fg: var(--app-label);
+  --boot-muted: var(--app-secondary-label);
+  --boot-ring: color-mix(in srgb, var(--app-accent) 42%, transparent);
+  --boot-mark-size: 96px;
+  --boot-copy-gap: 32px;
+  --boot-gutter: 16px;
+  --boot-spring: linear(0, 0.0902, 0.2642, 0.4422, 0.594, 0.7127, 0.8009, 0.8641, 0.9084, 0.9389, 0.9596, 0.9734, 0.9826, 0.9887, 0.9927, 0.9953, 0.997, 0.9981, 0.9988, 0.9992, 1);
+  --boot-ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --boot-heartbeat: 2400ms;
+}
+
+.boot-surface {
+  position: fixed;
+  inset: 0;
+  background: var(--boot-bg);
+  color: var(--boot-fg);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  contain: strict;
+  /* The exit: input passes through at once (pointer-events above), and the
+     fade runs for --boot-exit-duration, which the component sets from the
+     machine: 150 ms, or longer when the surface has not yet been on screen
+     for its minimum visible time. */
+  transition:
+    opacity var(--boot-exit-duration, var(--motion-duration-xl)) var(--boot-ease-out),
+    visibility 0s linear var(--boot-exit-duration, var(--motion-duration-xl));
+}
+
+@supports not (transition-timing-function: linear(0, 1)) {
+  .boot-surface,
+  .boot-scene[data-boot-contained] {
+    --boot-spring: var(--boot-ease-out);
+  }
+}
+
+/* Native shells: the launch surface is the splash's own colours and mark
+   size, following the system appearance the splash was drawn in. */
+html.native-ios .boot-surface,
+html.native-android .boot-surface {
+  --boot-mark-size: calc(100lvh * 403 / 2732);
+}
+
+html.native-ios .boot-surface[data-boot-origin="launch"],
+html.native-android .boot-surface[data-boot-origin="launch"] {
+  --boot-bg: #ffffff;
+  --boot-fg: #1d1d1f;
+  --boot-muted: #6e6e73;
+}
+
+@media (prefers-color-scheme: dark) {
+  html.native-ios .boot-surface[data-boot-origin="launch"] {
+    --boot-bg: #111111;
+    --boot-fg: #f5f5f7;
+    --boot-muted: rgba(235, 235, 245, 0.72);
+  }
+
+  html.native-android .boot-surface[data-boot-origin="launch"] {
+    --boot-bg: #151515;
+    --boot-fg: #f5f5f7;
+    --boot-muted: rgba(235, 235, 245, 0.72);
+  }
+}
+
+.boot-surface[data-boot-phase="launch"],
+.boot-surface[data-boot-phase="visible"] {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    opacity var(--motion-duration-xl) var(--boot-ease-out),
+    visibility 0s linear 0s;
+}
+
+/* Web cold document: reveal 200 ms after navigation start, in CSS, before
+   any script has run. A document that settles sooner never shows it. */
+.boot-surface[data-boot-phase="launch"] {
+  animation: boot-surface-reveal var(--motion-duration-xl) var(--boot-ease-out) 200ms backwards;
+}
+
+/* Native: the splash is already on screen, so the surface is too. */
+html.native-ios .boot-surface[data-boot-phase="launch"],
+html.native-android .boot-surface[data-boot-phase="launch"] {
+  animation: none;
+}
+
+.boot-scene {
+  position: absolute;
+  inset: 0;
+}
+
+.boot-scene[data-boot-contained] {
+  position: relative;
+  inset: auto;
+  width: 100%;
+  min-height: 100dvh;
+  background: var(--boot-bg);
+  color: var(--boot-fg);
+  animation: boot-surface-reveal var(--motion-duration-xl) var(--boot-ease-out) 200ms backwards;
+}
+
+.boot-mark {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--boot-mark-size);
+  height: var(--boot-mark-size);
+  transform: scale(0.96);
+  transition: transform var(--motion-duration-xl) var(--boot-spring);
+}
+
+.boot-surface[data-boot-phase="launch"] .boot-mark,
+.boot-surface[data-boot-phase="visible"] .boot-mark,
+.boot-scene[data-boot-contained] .boot-mark {
+  transform: none;
+}
+
+/* The exit opens into the app: the mark lifts as the surface dissolves. */
+.boot-surface[data-boot-phase="exiting"] .boot-mark {
+  transform: scale(1.06);
+  transition: transform var(--boot-exit-duration, var(--motion-duration-xl)) var(--boot-ease-out);
+}
+
+.boot-mark-glyph {
+  position: absolute;
+  inset: -50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-app-emoji), sans-serif;
+  font-size: calc(var(--boot-mark-size) / 0.96);
+  line-height: 1;
+  translate: 0 calc(var(--boot-mark-size) / 0.96 * 0.0267);
+  user-select: none;
+}
+
+.boot-mark-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--boot-ring);
+  opacity: 0;
+}
+
+/* One heartbeat: two rings leave the mark half a beat apart while the
+   glyph breathes with them. Runs only while the surface is shown. */
+.boot-surface[data-boot-phase="launch"] .boot-mark-ring,
+.boot-surface[data-boot-phase="visible"] .boot-mark-ring,
+.boot-surface[data-boot-phase="exiting"] .boot-mark-ring,
+.boot-scene[data-boot-contained] .boot-mark-ring {
+  animation: boot-ring var(--boot-heartbeat) var(--boot-ease-out) infinite;
+}
+
+.boot-surface .boot-mark-ring-late,
+.boot-scene[data-boot-contained] .boot-mark-ring-late {
+  animation-delay: calc(var(--boot-heartbeat) / 2);
+}
+
+.boot-surface[data-boot-phase="launch"] .boot-mark-glyph,
+.boot-surface[data-boot-phase="visible"] .boot-mark-glyph,
+.boot-surface[data-boot-phase="exiting"] .boot-mark-glyph,
+.boot-scene[data-boot-contained] .boot-mark-glyph {
+  animation: boot-breathe var(--boot-heartbeat) ease-in-out infinite;
+}
+
+.boot-copy {
+  position: absolute;
+  top: calc(50% + var(--boot-mark-size) / 2 + var(--boot-copy-gap));
+  left: max(var(--boot-gutter), env(safe-area-inset-left, 0px));
+  right: max(var(--boot-gutter), env(safe-area-inset-right, 0px));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.boot-title {
+  margin: 0;
+  max-width: 100%;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--boot-fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The line row spans the copy width, so a shorter or longer line changes
+   nothing about the row's box: a stage change is a crossfade, not a shift. */
+.boot-lines {
+  display: grid;
+  align-self: stretch;
+  margin-top: 8px;
+  height: 24px;
+}
+
+.boot-line {
+  grid-area: 1 / 1;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 15px;
+  line-height: 24px;
+  font-weight: 400;
+  color: var(--boot-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  animation: boot-line-in var(--motion-duration-xl) var(--boot-spring) both;
+}
+
+.boot-line[data-boot-line="leaving"] {
+  animation: boot-line-out var(--motion-duration-sm) var(--boot-ease-out) both;
+}
+
+.boot-line-emoji {
+  font-family: var(--font-app-emoji), sans-serif;
+  flex: none;
+}
+
+.boot-stuck {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-top: 24px;
+  animation: boot-line-in var(--motion-duration-xl) var(--boot-spring) both;
+}
+
+.boot-stuck-text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 24px;
+  color: var(--boot-muted);
+}
+
+@keyframes boot-surface-reveal {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes boot-ring {
+  0% {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+  18% {
+    opacity: 0.6;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.5);
+  }
+}
+
+@keyframes boot-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.03);
+  }
+}
+
+@keyframes boot-line-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+@keyframes boot-line-out {
+  to {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+/* Reduced motion: a calm, static surface. Opacity changes stay (they carry
+   the state); every movement, scale and loop goes. */
+@media (prefers-reduced-motion: reduce) {
+  .boot-surface .boot-mark,
+  .boot-scene .boot-mark {
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .boot-surface .boot-mark-ring,
+  .boot-scene .boot-mark-ring,
+  .boot-surface .boot-mark-glyph,
+  .boot-scene .boot-mark-glyph {
+    animation: none !important;
+  }
+
+  .boot-line,
+  .boot-stuck {
+    animation-name: boot-surface-reveal;
+  }
+
+  .boot-line[data-boot-line="leaving"] {
+    animation-name: boot-line-fade-out;
+  }
+}
+
+@keyframes boot-line-fade-out {
+  to {
+    opacity: 0;
+  }
 }

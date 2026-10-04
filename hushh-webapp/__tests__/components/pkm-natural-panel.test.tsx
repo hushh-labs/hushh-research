@@ -378,6 +378,10 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     expect(await screen.findByRole("heading", { name: "Risk Profile" })).toBeTruthy();
     expect(screen.getByText("balanced")).toBeTruthy();
+    // Finance owns financial.profile: read-only here, opened in Finance.
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Forget Memory" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open in Finance" })).toBeTruthy();
     // Domain-level provenance must not be dressed up as this memory's own.
     expect(screen.queryByText("Learned from")).toBeNull();
     expect(screen.queryByText("Last updated")).toBeNull();
@@ -399,11 +403,14 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(meta2).not.toHaveTextContent("Shared");
   });
 
+  // Edit and forget run on a memory Memory owns. Finance owns every financial
+  // branch except agent_memory (contracts/pkm/reserved-branches.v1.json), so
+  // these use the Preferences seat choice, outside every reserved branch.
   it("edits a memory through the existing write coordinator on the exact path", async () => {
     let writtenDomain: Record<string, unknown> | null = null;
     vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
       const plan = await params.build({
-        currentDomainData: { profile: { risk_profile: "balanced" }, accounts: { primary_bank: "Chase" } },
+        currentDomainData: { travel: { seat_choice: "aisle seat" }, dining: { cuisine: "Thai" } },
         currentManifest: null,
         currentEncryptedDomain: null,
         baseFullBlob: {},
@@ -412,50 +419,50 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       });
       writtenDomain = plan.domainData;
       expect(plan.operation).toBe("update");
-      expect(plan.scopePath).toBe("profile");
-      return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
+      expect(plan.scopePath).toBe("travel");
+      return { saveState: "saved", success: true, fullBlob: { preferences: plan.domainData } };
     });
 
     await openMainScreen("recent");
-    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
-    await screen.findByRole("heading", { name: "Risk Profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Seat Choice" }));
+    await screen.findByRole("heading", { name: "Seat Choice" });
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled(),
     );
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
-    const input = await screen.findByRole("textbox", { name: "New value for Risk Profile" });
-    fireEvent.change(input, { target: { value: "growth" } });
+    const input = await screen.findByRole("textbox", { name: "New value for Seat Choice" });
+    fireEvent.change(input, { target: { value: "window seat" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
     expect(writtenDomain).toEqual({
-      profile: { risk_profile: "growth" },
-      accounts: { primary_bank: "Chase" },
+      travel: { seat_choice: "window seat" },
+      dining: { cuisine: "Thai" },
     });
     expect(clearAgentPkmContext).toHaveBeenCalledWith("reviewer");
     // Returns to the list after a successful edit.
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Risk Profile" })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "Seat Choice" })).toBeNull(),
     );
   });
 
   it("keeps a confirmed memory write successful when only metadata refresh fails", async () => {
     vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
       const plan = await params.build({
-        currentDomainData: FULL_BLOB.financial,
+        currentDomainData: FULL_BLOB.preferences,
         currentManifest: null,
         currentEncryptedDomain: null,
         baseFullBlob: FULL_BLOB,
         attempt: 1,
         upgradedInSession: false,
       });
-      return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
+      return { saveState: "saved", success: true, fullBlob: { preferences: plan.domainData } };
     });
 
     await openMainScreen("recent");
-    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
-    await screen.findByRole("heading", { name: "Risk Profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Seat Choice" }));
+    await screen.findByRole("heading", { name: "Seat Choice" });
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled(),
     );
@@ -465,8 +472,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     fireEvent.change(
-      await screen.findByRole("textbox", { name: "New value for Risk Profile" }),
-      { target: { value: "growth" } },
+      await screen.findByRole("textbox", { name: "New value for Seat Choice" }),
+      { target: { value: "window seat" } },
     );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -482,13 +489,13 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       expect.objectContaining({ action: "detail_edited", result: "error" }),
     );
     expect((await screen.findAllByText(/latest summary could not refresh/i)).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Risk Profile" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Seat Choice" })).toBeTruthy();
   });
 
   it("requires confirmation before forgetting and deletes the exact path", async () => {
     vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
       const plan = await params.build({
-        currentDomainData: { profile: { risk_profile: "balanced" }, accounts: { primary_bank: "Chase" } },
+        currentDomainData: { travel: { seat_choice: "aisle seat" }, dining: { cuisine: "Thai" } },
         currentManifest: null,
         currentEncryptedDomain: null,
         baseFullBlob: {},
@@ -496,13 +503,13 @@ describe("PkmNaturalPanel — Memory redesign", () => {
         upgradedInSession: false,
       });
       expect(plan.operation).toBe("delete");
-      expect(plan.domainData).toEqual({ profile: {}, accounts: { primary_bank: "Chase" } });
-      return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
+      expect(plan.domainData).toEqual({ travel: {}, dining: { cuisine: "Thai" } });
+      return { saveState: "saved", success: true, fullBlob: { preferences: plan.domainData } };
     });
 
     await openMainScreen("recent");
-    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
-    await screen.findByRole("heading", { name: "Risk Profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Seat Choice" }));
+    await screen.findByRole("heading", { name: "Seat Choice" });
     await waitFor(() =>
       expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled(),
     );
@@ -515,7 +522,7 @@ describe("PkmNaturalPanel — Memory redesign", () => {
 
     await waitFor(() => expect(PkmWriteCoordinator.saveMergedDomain).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.queryByRole("heading", { name: "Risk Profile" })).toBeNull(),
+      expect(screen.queryByRole("heading", { name: "Seat Choice" })).toBeNull(),
     );
   });
 
@@ -525,8 +532,8 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
 
     await openMainScreen("recent");
-    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
-    await screen.findByRole("heading", { name: "Risk Profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Seat Choice" }));
+    await screen.findByRole("heading", { name: "Seat Choice" });
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "Edit" })).toBeDisabled(),
@@ -1143,5 +1150,51 @@ describe("PkmNaturalPanel — Memory redesign", () => {
       expect(updateScopeExposure).not.toHaveBeenCalled();
       expect(push).not.toHaveBeenCalled();
     });
+  });
+
+  it("opens an identity item on Mail's KYC tab from Open in Mail", async () => {
+    const metadata = baseMetadata();
+    metadata.domains.push({
+      key: "identity",
+      displayName: "Identity",
+      icon: "user",
+      color: "neutral",
+      attributeCount: 0,
+      summary: {},
+      availableScopes: [],
+      lastUpdated: NOW,
+      readableUpdatedAt: NOW,
+      readableSourceLabel: "Mail KYC",
+    } as (typeof metadata.domains)[number]);
+    vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue(metadata as never);
+    const blob = { ...FULL_BLOB, identity: { identity_profile: { legal_name: "Ada Lovelace" } } };
+    vi.spyOn(PkmDomainResourceService, "getManyStaleFirst").mockImplementation(async (params) => {
+      const snapshots = Object.fromEntries(
+        params.domains
+          .filter((domain) => domain in blob)
+          .map((domain) => [domain, { data: blob[domain as keyof typeof blob] }]),
+      );
+      for (const [domain, snapshot] of Object.entries(snapshots)) {
+        params.onProgress?.({ domain, snapshot: snapshot as never, failed: false });
+      }
+      return { snapshots: snapshots as never, failedDomains: [] };
+    });
+
+    await openMainScreen();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search Memory" }), {
+      target: { value: "Lovelace" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Open memory: Legal Name" }));
+    expect(await screen.findByRole("heading", { name: "Legal Name" })).toBeTruthy();
+    // Mail's KYC tab owns it: read-only here, opened there.
+    expect(screen.queryByText("Edit")).toBeNull();
+    expect(screen.getByTestId("memory-detail-reserved-note")).toHaveTextContent(
+      "Mail manages this. Edit or remove it there.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Open in Mail" }));
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith("/one/gmail?workspace=kyc");
+    // The link names the tab only, never the fact.
+    expect(JSON.stringify(push.mock.calls)).not.toMatch(/Lovelace|Ada|legal/i);
   });
 });

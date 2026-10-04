@@ -32,6 +32,7 @@ import {
 } from "@/lib/services/vault-service";
 import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import type { BootStage } from "@/lib/boot/boot-sequence";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
@@ -108,6 +109,17 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       </SessionPrivacyGate> : null}
     </>
   );
+  // A waiting session is held on the one boot surface. The top-layer privacy
+  // gate is only needed while a vault key is in memory: that is the only time
+  // a retained route (or a portal it opened) can hold decrypted information.
+  // On a cold start nothing is decrypted, and the gate's opaque top-layer
+  // dialog would otherwise paint over the boot surface as a second screen.
+  const sessionHold = (stage: BootStage, label: string) =>
+    isVaultUnlocked
+      ? renderSessionGate(
+          <HushhLoader stage={stage} presentation="contained" label={label} />,
+        )
+      : <HushhLoader stage={stage} label={label} />;
   useSessionChromeSuppression(
     authLoading || sessionVerificationRequired || vaultCheckFailed,
   );
@@ -364,7 +376,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // Auth validation is the outer security boundary. A cached in-memory vault
   // must never bypass it while a foreground/deletion check is in progress.
   if (authLoading) {
-    return renderSessionGate(<HushhLoader label="Checking session..." />);
+    return sessionHold("session", "Checking session...");
   }
 
   // An ordinary network/backend outage cannot prove that a remotely deleted
@@ -382,7 +394,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
   if (isVaultUnlocked) {
     if (ownerTokenStatus === "renewing") {
-      return renderSessionGate(<HushhLoader label="Reconnecting securely..." />);
+      return sessionHold("reconnect", "Reconnecting securely...");
     }
     if (ownerTokenStatus !== "valid") {
       return renderSessionGate(<SessionVerificationRecovery
@@ -403,9 +415,11 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       holdRouteForNativeTest ||
       (isNativePlatform && !nativeAuthGraceElapsed)
     ) {
-      return <HushhLoader label="Restoring reviewer session..." />;
+      return <HushhLoader stage="session" label="Restoring reviewer session..." />;
     }
-    return <HushhLoader label="Redirecting to login..." />;
+    return (
+      <HushhLoader stage="redirect" label="Redirecting to login..." holdThroughNavigation />
+    );
   }
 
   if (vaultCheckFailed) {
@@ -422,7 +436,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }
 
   if (hasVault === null) {
-    return <HushhLoader label="Checking vault..." />;
+    return <HushhLoader stage="vault" label="Checking vault..." />;
   }
 
   if (hasVault === false) {
@@ -434,7 +448,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     if (bootstrapState === "vault_error" || bootstrapState === "auth_error") {
       // Fall through to passphrase-only unlock dialog below.
     } else {
-      return <HushhLoader label="Unlocking vault..." />;
+      return <HushhLoader stage="vault" label="Unlocking vault..." />;
     }
   }
 

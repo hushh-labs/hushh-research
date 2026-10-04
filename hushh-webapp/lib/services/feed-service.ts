@@ -58,7 +58,8 @@ export type FeedEventType =
   | "mail_delivery_unconfirmed"
   | "connection_accepted"
   | "connection_rejected"
-  | "connection_revoked";
+  | "connection_revoked"
+  | "direct_message_received";
 
 export type FeedItem = {
   id: string;

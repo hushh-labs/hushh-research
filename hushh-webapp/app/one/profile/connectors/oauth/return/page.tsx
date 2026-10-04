@@ -4,8 +4,7 @@ import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
 
-import { ROUTES } from "@/lib/navigation/routes";
-import { buildProfileConnectorsPaneHref } from "@/lib/navigation/profile-pane";
+import { buildConnectorSignInReturnHref } from "@/lib/navigation/profile-pane";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import { useVault } from "@/lib/vault/vault-context";
 import { useAuth } from "@/hooks/use-auth";
@@ -181,11 +180,12 @@ function CustomConnectorOAuthReturnContent({ details, phase, onPhase }: { phase:
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, ownerTokenStatus } = useVault();
   const router = useRouter();
-  // A sign-in started from Profile returns to Connectors inside the Profile
-  // pane; one started from chat returns to the chat's Connectors sheet.
-  const returnHref = details.returnTo === "connector_settings"
-    ? buildProfileConnectorsPaneHref() : `${ROUTES.HOME}?panel=connectors`;
-  const returnLabel = details.returnTo === "connector_settings" ? "Connectors" : "Chat";
+  // Every sign-in returns to Connectors in the Profile pane: over One when it
+  // started in Profile, over the chat when it started there.
+  const returnHref = buildConnectorSignInReturnHref(
+    details.returnTo === "connector_settings" ? "connector_settings" : "chat",
+  );
+  const returnLabel = "Connectors";
   const started = useRef(false);
   const mounted = useRef(true);
   const [message, setMessage] = useState("Finishing connection…");
@@ -284,11 +284,12 @@ function ConnectorOAuthReturnContent({ details }: {
 
     const { code, state, cancelled } = details;
 
-    // Connectors live in the chat sidebar's "MCP connections" panel now, not
-    // a dedicated route -- landing on `?panel=connectors` is what reopens it.
-    const returnHref = details.returnTo === "connector_settings"
-      ? ROUTES.PROFILE_CONNECTORS
-      : `${ROUTES.HOME}?panel=connectors`;
+    // Connectors is a Profile section, not a page: the return opens it in the
+    // Profile pane. The pane address is used directly so the native bundle,
+    // which has no server to redirect /one/profile/connectors, lands there too.
+    const returnHref = buildConnectorSignInReturnHref(
+      details.returnTo === "connector_settings" ? "connector_settings" : "chat",
+    );
 
     if (cancelled) {
       setMessage("That connection was not completed.");

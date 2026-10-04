@@ -5,11 +5,11 @@ Each skip site set `*_used_fallback = False` and nothing else, which is the same
 thing a SUCCESSFUL model call writes. So `fallback_rate`, the one promotion gate
 the live eval has, read healthy precisely when the intelligence was absent.
 
-That mattered more than it sounds. `_should_skip_structure_agent` routes around
-the structure agent for financial_core, for anything requiring confirmation, and
-for save_class in {ephemeral, ambiguous} -- and "ambiguous" is exactly where a
-model earns its place. A metric blind to that cannot be used to decide whether
-the model is worth calling at all.
+That mattered more than it sounds. `_should_skip_structure_agent` used to route
+around the structure agent for anything requiring confirmation and for save_class
+in {ephemeral, ambiguous}, so a sensitive fact that needed the owner's OK was filed
+by a fallback that clipped it to 240 characters. It now skips only what the intent
+agent said is not memory: `no_op`, and a live `command`.
 
 These assertions are about observability, not about whether skipping is correct.
 Whether each skip should exist is a separate decision, and it cannot be made
@@ -52,3 +52,34 @@ def test_a_clean_run_reports_neither():
     result = flags()
     assert result["fallback_used"] is False
     assert result["stage_skipped"] is False
+
+
+def test_only_a_no_op_or_a_command_skips_the_structure_agent():
+    skip = PKMAgentLabService._should_skip_structure_agent  # noqa: SLF001
+    assert skip(intent_frame={"intent_class": "command", "mutation_intent": "no_op"})
+    assert skip(intent_frame={"intent_class": "note", "mutation_intent": "no_op"})
+    # The loss point: a durable statement that needs the owner's confirmation
+    # (pay, a visa, a new domain) used to skip the structure agent entirely.
+    assert not skip(
+        intent_frame={
+            "save_class": "durable",
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "requires_confirmation": True,
+        }
+    )
+
+
+def test_the_fallback_entity_keeps_the_whole_statement():
+    # Negative control, the old record: summary[:240] and observations[:500].
+    statement = "Compensation: " + " ".join(
+        f"component {index} is synthetic" for index in range(40)
+    )
+    assert len(statement) > 500
+    record = PKMAgentLabService._build_entity_record(  # noqa: SLF001
+        message=statement,
+        intent_frame={"intent_class": "profile_fact"},
+        merge_decision={"target_domain": "professional"},
+    )
+    assert record["summary"] == statement
+    assert record["observations"] == [statement]

@@ -10,24 +10,25 @@
  * `prepareNaturalLanguagePkm`: structured writers must not send decrypted
  * domain data back through a model.
  *
- * The values land in `identity.communication_preferences`, which the per-turn
- * memory packet renders as "Identity > Communication Preferences > ...", and
- * One's authored instruction ("How to speak") treats as a style preference.
+ * The values land in `identity.communication_preferences`, in the closed shape
+ * Settings edits (`lib/agent/owner-style-settings.ts`). Chat turns send that
+ * branch as One's standing style settings, never inside the memory packet.
  */
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   CHAT_ONBOARDING_TONE_LABEL,
   type ChatOnboardingTone,
 } from "@/lib/agent/chat-onboarding/chat-onboarding-script";
+import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 
 export const CHAT_ONBOARDING_PKM_DOMAIN = "identity" as const;
 export const COMMUNICATION_PREFERENCES_BRANCH = "communication_preferences" as const;
 
-/** Phrased as a style preference, because the packet shows the value verbatim. */
-export const REPLY_STYLE_TEXT: Record<ChatOnboardingTone, string> = {
-  short_direct: "Short and direct replies",
-  detailed: "Detailed replies",
-  casual: "Casual, conversational replies",
+/** Each onboarding choice as the Settings enums it means. */
+export const ONBOARDING_TONE_STYLE: Record<ChatOnboardingTone, Pick<OwnerStyleSettings, "tone" | "length">> = {
+  short_direct: { tone: "direct", length: "short" },
+  detailed: { length: "detailed" },
+  casual: { tone: "casual" },
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -51,7 +52,7 @@ export function mergeCommunicationPreferences(
     [COMMUNICATION_PREFERENCES_BRANCH]: {
       ...asRecord(current[COMMUNICATION_PREFERENCES_BRANCH]),
       ...(answers.name ? { preferred_name: answers.name } : {}),
-      ...(answers.tone ? { reply_style: REPLY_STYLE_TEXT[answers.tone] } : {}),
+      ...(answers.tone ? ONBOARDING_TONE_STYLE[answers.tone] : {}),
       updated_at: savedAt,
     },
   };

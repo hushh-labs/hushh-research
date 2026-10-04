@@ -25,6 +25,7 @@ import {
   GmailWorkspaceNavigation,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
+import { MailKycConnectEntry } from "@/components/gmail/mail-kyc-connect-entry";
 import { MailOverview, MailConnectedAccount } from "@/components/gmail/mail-overview";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
@@ -1379,15 +1380,24 @@ export default function GmailReceiptsPage({
             : gmail.status?.last_sync_at || gmail.syncRun?.status === "completed"
               ? "Your latest receipts are ready."
               : "Organize your purchases in one place.";
-  const primaryActionLabel = receiptStorageReadOnly
-    ? "Receipt sync moving to device"
-    : isConnected
-    ? syncing
-      ? "Syncing receipts…"
-      : "Sync receipts"
-    : connectorState === "needs_reauthentication" || gmail.status?.revoked
+  const primaryActionLabel = !isConnected
+    ? connectorState === "needs_reauthentication" || gmail.status?.revoked
       ? "Reconnect Mail"
-      : "Connect Mail";
+      : "Connect Mail"
+    : receiptStorageReadOnly
+      ? "Receipt sync moving to device"
+      : syncing
+        ? "Syncing receipts…"
+        : "Sync receipts";
+  // A link straight to the KYC tab (/one/gmail?workspace=kyc) lands on KYC's own
+  // connect entry rather than the general Mail status card. A status error keeps
+  // the card, because it carries the retry.
+  const kycConnectEntryActive =
+    journeyVariant === "workspace" &&
+    workspace === "kyc" &&
+    !isConnected &&
+    !loadingStatus &&
+    !gmail.statusError;
   const connectGmailHelper = Capacitor.isNativePlatform()
     ? "A secure Google account sheet opens next. Approve Mail access and return here automatically."
     : null;
@@ -1422,11 +1432,12 @@ export default function GmailReceiptsPage({
             },
           ]
         : [];
-      const title =
-        isConnected && workspace === "kyc" ? "KYC" : "Mail overview";
+      const title = workspace === "kyc" ? "KYC" : "Mail overview";
       const purpose =
-        isConnected && workspace === "kyc"
-          ? "This workspace helps you import KYC details, monitor new requests, and review every reply before sending."
+        workspace === "kyc"
+          ? isConnected
+            ? "This workspace helps you import KYC details, monitor new requests, and review every reply before sending."
+            : "Connect Gmail here to find KYC requests and manage the identity details used in replies."
           : "This workspace lets you choose receipts, KYC monitoring, or One Chat mail help.";
       const activeControl =
         controls.find((control) => control.id === activeVoiceControlId) ||
@@ -1439,10 +1450,7 @@ export default function GmailReceiptsPage({
           purpose,
           sections: [
             {
-              id:
-                isConnected && workspace === "kyc"
-                  ? "kyc_requests"
-                  : "gmail_overview",
+              id: workspace === "kyc" ? "kyc_requests" : "gmail_overview",
               title,
               purpose,
             },
@@ -1996,7 +2004,8 @@ export default function GmailReceiptsPage({
             />
           ) : null}
 
-          {journeyVariant === "onboarding" || !isConnected ? (
+          {journeyVariant === "onboarding" ||
+          (!isConnected && !kycConnectEntryActive) ? (
             <SurfaceInset
               className={`space-y-4 border px-4 py-4 text-sm sm:px-5 sm:py-5 ${statusToneClassName}`}
             >
@@ -2159,6 +2168,13 @@ export default function GmailReceiptsPage({
               receiptDetail={overviewReceiptDetail}
               receiptUpdated={resolveGmailLastUpdatedLabel(gmail.status, gmail.syncRun)}
               onOpenChat={handleOpenOneChat}
+            />
+          ) : null}
+
+          {kycConnectEntryActive ? (
+            <MailKycConnectEntry
+              busy={gmailActionBusy !== null}
+              onConnect={() => void handleConnectGmail()}
             />
           ) : null}
 

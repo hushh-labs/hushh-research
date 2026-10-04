@@ -571,6 +571,12 @@ describe("ConnectCirclesTab", () => {
     const onStateChange = vi.fn();
     const view = render(<ConnectCirclesTab currentUserId="first-owner" onStateChange={onStateChange} />);
     await screen.findByText("Private family");
+    // The relay runs in a passive effect that can flush after the DOM shows the
+    // list, so wait for the first owner's settled report before clearing, or
+    // that legitimate report lands after the clear and reads as a leak.
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({ ownerId: "first-owner", loading: false, count: 1 }),
+    ));
     onStateChange.mockClear();
     mocks.vaultOwnerToken = "second-token";
     mocks.listCircles.mockRejectedValueOnce(new Error("offline"));
@@ -675,11 +681,21 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
   });
 
-  it("dismisses custom creation without creating a circle", async () => {
+  it("dismisses custom creation in one close action without validating an empty name", async () => {
     const onOpenChange = vi.fn();
     render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    const nameInput = within(dialog).getByRole("textbox", { name: "Circle name" });
+    const closeButton = within(dialog).getByRole("button", { name: "Close" });
+
+    fireEvent.focus(nameInput);
+    fireEvent.blur(nameInput, { relatedTarget: closeButton });
+
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(nameInput).not.toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.click(closeButton);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledTimes(1));
     expect(onOpenChange).toHaveBeenCalledWith(false);
     expect(mocks.createNamedCircle).not.toHaveBeenCalled();
   });

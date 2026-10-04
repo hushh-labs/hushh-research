@@ -179,6 +179,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Mail";
+  if (panel === "legal") return "Legal";
   if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
@@ -334,6 +335,25 @@ function resolveTopShellBreadcrumbInner(
   pathname = normalizeBreadcrumbPathname(pathname);
   const resolvedConnectedSystemLabel =
     String(connectedSystemLabel || "").trim() || "CRM";
+
+  // Terms and Privacy are public pages inside the app shell. Sign-in is the
+  // only in-app screen that links to them (Profile reads them in place), so
+  // Back returns to sign-in; a signed-in person who lands here by address is
+  // forwarded home by sign-in itself. "Legal" names the same section Profile
+  // shows, and has no address of its own.
+  if (pathname === ROUTES.TERMS || pathname === ROUTES.PRIVACY) {
+    return {
+      backHref: ROUTES.LOGIN,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Legal" },
+        {
+          label: pathname === ROUTES.TERMS ? "Terms of Use" : "Privacy Policy",
+        },
+      ],
+    };
+  }
 
   if (pathname === ROUTES.CONNECT_SETTINGS) {
     return {

@@ -82,6 +82,72 @@ describe("explicit memory save", () => {
     expect(timedOut.skipped).toEqual([]);
   });
 
+  it("saves sensitive details without a tap and holds only a raw identifier value", () => {
+    // Founder decision: salary, equity, a visa and a housing deposit are saved
+    // on an explicit save, labelled sensitive. A government id never reaches a
+    // card: the device guard kept it in Secrets and left a placeholder.
+    const placeholder = "\u27e6secret:sec_0000000000000001 Passport ending 4567\u27e7";
+    const partition = partitionExplicitSaveCards([
+      card("salary", { candidate_payload: { compensation: { base_salary: "USD 185,000 (synthetic)", equity: "0.4%" } } }),
+      card("visa", { candidate_payload: { immigration: { visa: "H-1B", approved_on: "2023-10-01", passport_country: "India" } } }),
+      card("deposit", { candidate_payload: { housing: { security_deposit: "USD 4,800" } } }),
+      card("masked", { candidate_payload: { identity: { passport_number: placeholder } } }),
+      // An entity's own id under a token-named entity is bookkeeping, not a number.
+      card("token-note", { candidate_payload: { infrastructure: { entities: { deploy_token: {
+        entity_id: "mem_3fa2b9c01d2e", summary: `Our deploy token is ${placeholder}, rotated every 90 days` } } } } }),
+      // Negative controls: a raw number under an identifier key, an SSN-shaped
+      // value anywhere, and a date of birth still wait for the owner's tap.
+      card("raw-passport", { candidate_payload: { identity: { passport_number: "Z9876543" } } }),
+      card("ssn", { candidate_payload: { notes: { line: "my number is 123-45-6789" } } }),
+      card("dob", { candidate_payload: { identity: { date_of_birth: "1990-04-12" } } }),
+    ]);
+    expect(partition.save.map((item) => item.card_id)).toEqual(["salary", "visa", "deposit", "masked", "token-note"]);
+    expect(partition.needsOwner.map((item) => item.card_id)).toEqual(["raw-passport", "ssn", "dob"]);
+  });
+
+  it("saves a fact re-routed to its app's agent_memory sibling and offers the app's screen", () => {
+    // The server moved "my home is ..." out of location.saved_places into
+    // location.agent_memory. The hint names "reserved", but it is not a refusal:
+    // a substring check here once dropped every re-routed card unsaved.
+    const offer = {
+      domain: "location",
+      branch: "saved_places",
+      subject: "Home",
+      owner_feature: "location",
+      agent_memory_sibling: "location.agent_memory",
+      offer_action: { route_pattern: "/one/location", action_id: "route.one_location", label: "Add as Home in Location" },
+      registry_version: 1,
+    };
+    const partition = partitionExplicitSaveCards([
+      card("home", {
+        target_domain: "location",
+        validation_hints: ["reserved_target_rerouted_to_sibling"],
+        candidate_payload: { agent_memory: { entities: { home: { summary: "My home is 12 Example Street" } } } },
+        reserved_offer: offer,
+      }),
+      // Negative control: a refusal hint still keeps the card out.
+      card("blocked", { validation_hints: ["reserved_branch_blocked"], reserved_offer: offer }),
+    ]);
+    expect(partition.save.map((item) => item.card_id)).toEqual(["home"]);
+    expect(partition.excluded.map((item) => item.card_id)).toEqual(["blocked"]);
+    const receipt = buildPkmSaveReceipt({
+      coverage: [],
+      partition,
+      saveResult: { attempted: 1, saved: 1, failed: 0, domains: ["location"], results: [acked("saved")] },
+    });
+    expect(receipt.saved).toBe(1);
+    expect(receipt.offers).toEqual([
+      {
+        id: "home",
+        ownerFeature: "location",
+        label: "Add as Home in Location",
+        routePattern: "/one/location",
+        actionId: "route.one_location",
+        prefill: { kind: "location_saved_place", category: "home", label: "" },
+      },
+    ]);
+  });
+
   it("counts only acknowledged commits; a success without a revision is a failure", () => {
     const partition = partitionExplicitSaveCards([card("a"), card("b"), card("c"), card("d")]);
     const receipt = buildPkmSaveReceipt({

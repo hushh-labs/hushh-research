@@ -102,11 +102,9 @@ def checkpoint_fixture():
         "segments": [{"source_text": "synthetic"}],
         "has_more_candidates": False,
     }
-    records["agent_financial_guard"]["value"] = {"routing_decision": "non_financial_or_ephemeral"}
     records["agent_memory_intent"]["value"] = deepcopy(intent)
     records["agent_memory_merge"]["value"] = deepcopy(merge)
     response = {
-        "routing_decision": "non_financial_or_ephemeral",
         "intent_frame": intent,
         "merge_decision": merge,
         "preview_cards": [{}],
@@ -205,9 +203,6 @@ def test_merge_timeout_retains_only_validated_pre_merge_decisions():
     assert checkpoint == records
     assert "agent_memory_merge" not in checkpoint
 
-    response["routing_decision"] = "financial_core"
-    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
-    response["routing_decision"] = "non_financial_or_ephemeral"
     response["error"] = "memory_merge_agent_fallback; memory_intent_agent_fallback"
     assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
     response["error"] = "memory_merge_agent_fallback; pkm_structure_agent_fallback"
@@ -233,46 +228,9 @@ def test_intent_timeout_retains_only_validated_pre_intent_decisions():
     trace[0]["status"] = "invalid_response"
     assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
     trace[0]["status"] = "timeout"
-    response["routing_decision"] = "financial_core"
-    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
-    response["routing_decision"] = "non_financial_or_ephemeral"
-    response["error"] += "; financial_guard_agent_fallback"
-    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
-
-
-def test_guard_timeout_retains_only_exact_validated_segmentation():
-    records, response, _ = checkpoint_fixture()
-    records = {"agent_memory_segmentation": records["agent_memory_segmentation"]}
-    response.update(
-        used_fallback=True, error="financial_guard_agent_fallback; memory_intent_agent_fallback"
-    )
-    trace = [{"agent_id": "agent_financial_guard", "status": "timeout"}]
-    continuation = PreviewContinuation(
-        run=AsyncMock(), resolve_model=lambda *_: "test", records=records
-    )
-    checkpoint = continuation.checkpoint(message="synthetic", response=response, trace=trace)
-    assert checkpoint == records
-    assert set(checkpoint) == {"agent_memory_segmentation"}
-    assert continuation.checkpoint(message="changed", response=response, trace=trace) is None
-    assert continuation.checkpoint(message="synthetic", response=response, trace=[]) is None
-    for status in ("invalid_response", "success", "error"):
-        assert (
-            continuation.checkpoint(
-                message="synthetic",
-                response=response,
-                trace=[
-                    {
-                        "agent_id": "agent_financial_guard",
-                        "status": status,
-                    }
-                ],
-            )
-            is None
-        )
     for change in (
         {"used_fallback": False},
-        {"error": "memory_intent_agent_fallback"},
-        {"error": "financial_guard_agent_fallback; memory_segmentation_agent_fallback"},
+        {"error": response["error"] + "; memory_segmentation_agent_fallback"},
         {"preview_cards": [{}, {}]},
     ):
         assert (
@@ -281,6 +239,9 @@ def test_guard_timeout_retains_only_exact_validated_segmentation():
             )
             is None
         )
+    # The retained prefix is a copy: changing it never reaches the live records.
+    checkpoint = continuation.checkpoint(message="synthetic", response=response, trace=trace)
+    assert set(checkpoint) == {"agent_memory_segmentation"}
     checkpoint["agent_memory_segmentation"]["value"]["segments"].clear()
     assert len(continuation.records["agent_memory_segmentation"]["value"]["segments"]) == 1
 
@@ -329,7 +290,7 @@ def test_checkpoint_rejects_fallback_meaning_and_incomplete_prefix(defect):
         (change, "intent_merge")
         for change in [None, "owner", "credential", "message", "state", "expired", "retry_timeout"]
     ]
-    + [(None, "guard"), (None, "mixed")],
+    + [(None, "mixed")],
 )
 async def test_multiple_candidates_keep_independent_retry_prefixes(
     monkeypatch, changed, failure_mode
@@ -350,9 +311,15 @@ async def test_multiple_candidates_keep_independent_retry_prefixes(
             calls[(agent, "batch")] += 1
             return {
                 "segments": [
-                    {"source_text": text, "confidence": 0.95, "reason": "Distinct fact"}
+                    {
+                        "source_text": text,
+                        "context_quotes": [],
+                        "confidence": 0.95,
+                        "reason": "Distinct fact",
+                    }
                     for text in sources
                 ],
+                "not_memory": [],
                 "has_more_candidates": False,
                 "source_agent": "memory_segmentation_agent",
                 "contract_version": 1,
@@ -370,9 +337,7 @@ async def test_multiple_candidates_keep_independent_retry_prefixes(
                 or (index == 0 and agent == "agent_memory_intent")
             )
         )
-        if failure_mode == "guard":
-            failure = first
-        elif failure_mode == "mixed" and index == 0:
+        if failure_mode == "mixed" and index == 0:
             failure = False
         if failure:
             kwargs["execution_trace"].append(
@@ -382,14 +347,6 @@ async def test_multiple_candidates_keep_independent_retry_prefixes(
                 }
             )
             return None
-        if agent == "agent_financial_guard":
-            return {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.95,
-                "reason": "Work detail",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            }
         records, _, _ = checkpoint_fixture()
         if agent == "agent_memory_intent":
             value = records[agent]["value"]
@@ -462,16 +419,10 @@ async def test_multiple_candidates_keep_independent_retry_prefixes(
     reusable = changed in {None, "retry_timeout"}
     assert second["used_fallback"] is (changed == "retry_timeout")
     assert calls[("agent_memory_segmentation", "batch")] == (1 if reusable else 2)
-    for index, source in enumerate(sources):
-        guard_reused = (
-            reusable and failure_mode != "guard" and not (failure_mode == "mixed" and index == 0)
-        )
-        assert calls[("agent_financial_guard", source)] == (1 if guard_reused else 2)
+    for source in sources:
         assert calls[("agent_memory_merge", source)] == 2
     assert calls[("agent_memory_intent", sources[0])] == 2
-    assert calls[("agent_memory_intent", sources[1])] == (
-        1 if reusable and failure_mode != "guard" else 2
-    )
+    assert calls[("agent_memory_intent", sources[1])] == (1 if reusable else 2)
     for index, card in enumerate(second["preview_cards"]):
         assert card["source_text"] == sources[index]
         assert sources[index] in str(card["resulting_domain_patch"])
@@ -495,7 +446,6 @@ async def test_multiple_candidates_keep_independent_retry_prefixes(
         "success",
         "merge_timeout",
         "intent_timeout",
-        "guard_timeout",
         "expired",
         "unbound",
     ],
@@ -524,17 +474,16 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     responses = {
         "agent_memory_segmentation": {
             "segments": [
-                {"source_text": message, "confidence": 0.95, "reason": "One synthetic fact"}
+                {
+                    "source_text": message,
+                    "context_quotes": [],
+                    "confidence": 0.95,
+                    "reason": "One synthetic fact",
+                }
             ],
+            "not_memory": [],
             "has_more_candidates": False,
             "source_agent": "memory_segmentation_agent",
-            "contract_version": 1,
-        },
-        "agent_financial_guard": {
-            "routing_decision": "non_financial_or_ephemeral",
-            "confidence": 0.95,
-            "reason": "Work detail",
-            "source_agent": "financial_guard_agent",
             "contract_version": 1,
         },
         "agent_memory_intent": intent,
@@ -545,20 +494,6 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     async def run(**kwargs):
         agent = kwargs["manifest"].id
         calls.append(agent)
-        if (
-            changed == "guard_timeout"
-            and agent != "agent_memory_segmentation"
-            and calls.count(agent) == 1
-        ):
-            kwargs["execution_trace"].append(
-                {
-                    "agent_id": agent,
-                    "status": "timeout" if agent == "agent_financial_guard" else "budget_exhausted",
-                    "attempts": 1 if agent == "agent_financial_guard" else 0,
-                    "latency_ms": 1,
-                }
-            )
-            return None
         if (
             changed == "intent_timeout"
             and agent == "agent_memory_intent"
@@ -583,17 +518,15 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
             )
             return None
         if (
-            changed in {"success", "merge_timeout", "intent_timeout", "guard_timeout"}
+            changed in {"success", "merge_timeout", "intent_timeout"}
             and agent == "agent_pkm_structure"
             and (
                 changed == "success"
-                and len(calls) == 6
+                and len(calls) == 5
                 or changed == "merge_timeout"
-                and len(calls) == 7
+                and len(calls) == 6
                 or changed == "intent_timeout"
-                and len(calls) == 8
-                or changed == "guard_timeout"
-                and len(calls) == 9
+                and len(calls) == 7
             )
         ):
             return {
@@ -644,15 +577,13 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         request["continuation_scope"] = None
     first = await service.generate_structure_preview(**request)
     assert first["error"] == (
-        "financial_guard_agent_fallback; memory_intent_agent_fallback; memory_merge_agent_fallback; pkm_structure_agent_fallback"
-        if changed == "guard_timeout"
-        else "memory_merge_agent_fallback; pkm_structure_agent_fallback"
+        "memory_merge_agent_fallback; pkm_structure_agent_fallback"
         if changed == "merge_timeout"
         else "memory_intent_agent_fallback; memory_merge_agent_fallback; pkm_structure_agent_fallback"
         if changed == "intent_timeout"
         else "pkm_structure_agent_fallback"
     )
-    assert len(calls) == 5
+    assert len(calls) == 4
     assert len(module._PREVIEW_CACHE) == (0 if changed == "unbound" else 1)
     expiry = next(iter(module._PREVIEW_CACHE.values()))[0] if module._PREVIEW_CACHE else None
     if changed == "owner":
@@ -670,52 +601,40 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         module._PREVIEW_CACHE[key] = (0, module._PREVIEW_CACHE[key][1])
     second = await service.generate_structure_preview(**request)
     assert len(calls) == (
-        9
-        if changed == "guard_timeout"
-        else 8
+        7
         if changed == "intent_timeout"
-        else 7
-        if changed == "merge_timeout"
         else 6
+        if changed == "merge_timeout"
+        else 5
         if changed in {None, "success"}
-        else 10
+        else 8
     )
     assert "__validated_preparation_prefix" not in second
     if changed is None:
         assert next(iter(module._PREVIEW_CACHE.values()))[0] == expiry
         assert calls[-1] == "agent_pkm_structure"
         outcomes = second["performance"]["agent_execution"]
-        assert [row["status"] for row in outcomes] == ["reused"] * 4 + ["timeout"]
+        assert [row["status"] for row in outcomes] == ["reused"] * 3 + ["timeout"]
     if changed == "success":
         assert second["used_fallback"] is False
         assert second["error"] is None
-        assert second["candidate_payload"]["profile"]["synthetic"]["project"] == "Cedar Lantern"
+        # professional.profile is KYC's (reserved-branches.v1.json): the retried
+        # fact is kept, in professional.agent_memory.
+        assert second["candidate_payload"]["agent_memory"]["synthetic"]["project"] == (
+            "Cedar Lantern"
+        )
         assert "__validated_preparation_prefix" not in next(iter(module._PREVIEW_CACHE.values()))[1]
     if changed == "merge_timeout":
         assert calls[-2:] == ["agent_memory_merge", "agent_pkm_structure"]
-        assert [row["status"] for row in second["performance"]["agent_execution"][:3]] == [
-            "reused",
-            "reused",
-            "reused",
-        ]
-        assert second["used_fallback"] is False
-        assert second["error"] is None
-    if changed == "intent_timeout":
-        assert calls[-3:] == ["agent_memory_intent", "agent_memory_merge", "agent_pkm_structure"]
         assert [row["status"] for row in second["performance"]["agent_execution"][:2]] == [
             "reused",
             "reused",
         ]
         assert second["used_fallback"] is False
         assert second["error"] is None
-    if changed == "guard_timeout":
+    if changed == "intent_timeout":
         assert calls.count("agent_memory_segmentation") == 1
-        assert calls[-4:] == [
-            "agent_financial_guard",
-            "agent_memory_intent",
-            "agent_memory_merge",
-            "agent_pkm_structure",
-        ]
+        assert calls[-3:] == ["agent_memory_intent", "agent_memory_merge", "agent_pkm_structure"]
         assert second["performance"]["agent_execution"][0]["status"] == "reused"
         assert second["used_fallback"] is False
         assert second["error"] is None

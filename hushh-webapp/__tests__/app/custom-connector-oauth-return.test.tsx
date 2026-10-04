@@ -37,8 +37,11 @@ it("exchanges once in StrictMode, strips callback URL and saves only through vau
   expect(document.body.textContent).not.toContain("synthetic-code");
   expect(document.body.textContent).not.toContain("privateSyntheticResult");
   expect(mocks.replace).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Return to Chat" }));
+  // A sign-in started in chat returns to Connectors in the Profile pane over
+  // the chat, never to a dedicated Connectors screen.
+  fireEvent.click(screen.getByRole("button", { name: "Return to Connectors" }));
   expect(mocks.replace).toHaveBeenCalledTimes(1);
+  expect(mocks.replace).toHaveBeenCalledWith("/?profile_pane=1&profile_panel=connectors");
 });
 
 it("does not exchange under a different signed-in owner", async () => {
@@ -86,7 +89,7 @@ it("does not replay completion after lock during refresh and preserves the saved
   expect(screen.getByText("Unlock vault")).toBeTruthy();
   mocks.locked = false; mocks.current = true;
   view.rerender(<Page />);
-  await screen.findByText("Sign-in saved in your vault. Refresh tools in Chat.");
+  await screen.findByText("Sign-in saved in your vault. Refresh tools in Connectors.");
   settle();
   expect(mocks.complete).toHaveBeenCalledOnce();
   expect(mocks.save).toHaveBeenCalledOnce();

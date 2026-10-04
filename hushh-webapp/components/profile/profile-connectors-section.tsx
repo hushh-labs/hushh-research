@@ -6,7 +6,10 @@ import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import type { ProfileStackEntry } from "@/components/profile/profile-stack-navigator";
 import { useAuth } from "@/hooks/use-auth";
 import type { ProfileDetail } from "@/lib/navigation/profile-routes";
-import { saveCustomConnectorSettingsHandoff } from "@/lib/agent/drive-oauth-chat-recovery";
+import {
+  activeChatConnectorRecoveryHost,
+  saveCustomConnectorSettingsHandoff,
+} from "@/lib/agent/drive-oauth-chat-recovery";
 import {
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
@@ -34,15 +37,20 @@ export function ProfileConnectorsSection({
   onConnectorChange: (connectorId: string | null) => void;
 }) {
   const { user } = useAuth();
-  // A custom connector's sign-in leaves the app for the provider and comes back
-  // to /one/profile/connectors/oauth/return. Record only the correlation
-  // needed to finish there and to return here; no draft, token or code.
-  const prepareCustomConnectorReturn = useCallback(
+  // A sign-in that leaves the app must not lose what is underneath the pane.
+  // Over a chat, the chat saves its unsent draft and the return reopens this
+  // section over it. With no chat underneath, a built-in connector (Drive) has
+  // nothing to save and goes ahead; a custom connector records only the
+  // correlation needed to finish at /one/profile/connectors/oauth/return and
+  // come back here (no draft, token or code).
+  const prepareSignInReturn = useCallback(
     async (input: RecoveryInput) => {
+      const chat = activeChatConnectorRecoveryHost();
+      if (chat) return chat.prepare(input);
+      if (!input.customConnector) return "ready" as const;
       const owner = snapshotValidatedAuthSessionOwner();
       if (
         input.reason !== "web_full_page" ||
-        !input.customConnector ||
         !user ||
         owner?.userId !== user.uid ||
         !isValidatedAuthSessionOwnerCurrent(owner)
@@ -62,6 +70,9 @@ export function ProfileConnectorsSection({
     },
     [user],
   );
+  const clearSignInReturn = useCallback(async () => {
+    await activeChatConnectorRecoveryHost()?.clear();
+  }, []);
   // Leaving Profile (for example "Connect a bank") is ordinary navigation;
   // the pane's own header owns Back, so the panel has nothing to go back to.
   const stayInProfile = useCallback(() => undefined, []);
@@ -73,7 +84,8 @@ export function ProfileConnectorsSection({
       activeConnector={connectorId}
       onActiveConnectorChange={onConnectorChange}
       onBack={stayInProfile}
-      onPrepareRecovery={prepareCustomConnectorReturn}
+      onPrepareRecovery={prepareSignInReturn}
+      onClearRecovery={clearSignInReturn}
     />
   );
 }

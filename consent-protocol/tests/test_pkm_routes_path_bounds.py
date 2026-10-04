@@ -163,7 +163,10 @@ def test_delete_domain_data_valid_params_pass_path_guard(client: TestClient) -> 
         svc = MagicMock()
         svc.delete_domain_data = AsyncMock(return_value=True)
         mock_svc_factory.return_value = svc
-        resp = client.delete(f"/api/pkm/domain-data/{_USER_ID}/{_VALID_DOMAIN}")
+        # A domain without a reserved branch: the reserved-branch registry also
+        # answers 422 (unattributed writer) for financial, which would hide
+        # whether the path guard passed.
+        resp = client.delete(f"/api/pkm/domain-data/{_USER_ID}/food")
     assert resp.status_code != 422
 
 

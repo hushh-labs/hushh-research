@@ -782,6 +782,14 @@ and realtime payloads contain no message content. Stable `403` failures are
 `DIRECT_MESSAGE_CONNECTION_REQUIRED`, `DIRECT_MESSAGE_BLOCKED`, and
 `DIRECT_MESSAGE_SENDER_FORBIDDEN`; malformed/self/empty requests are `422`.
 
+Each newly received Direct Message also creates one recipient-only Feed row.
+That row contains only the opaque source message id; it never stores a body,
+envelope, sender id, or preview. During the authenticated recipient's Feed
+read, the service verifies the recipient relationship again, decrypts the
+source in memory, and returns a whitespace-normalized preview capped at 256
+characters. The source message's delete path removes that derived Feed row,
+and push/SSE payloads remain metadata-only.
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
@@ -952,6 +960,7 @@ RIA relationship bundle note:
 | POST   | `/api/pkm/delete-domain`                                                 | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision                          |
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
+| POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
 | POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. `memory_profile` is optional: `general` remains the compatibility default and `kyc_identity_v1` performs one constrained KYC fact-extraction pass. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |

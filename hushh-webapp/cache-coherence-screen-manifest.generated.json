@@ -16,9 +16,9 @@
     "surface_map_count": 143,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 46,
-      "vault-backed": 55,
-      "hidden flow": 21,
+      "redirect/alias": 47,
+      "vault-backed": 56,
+      "hidden flow": 19,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
       "realtime/SSE": 1,
@@ -1084,7 +1084,7 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": true
       },
@@ -3418,29 +3418,26 @@
     {
       "route": "/one/profile/connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
+      "reviewer_fixture": "/one/profile/connectors",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3456,9 +3453,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/profile/connectors/oauth/return",
@@ -5481,8 +5476,8 @@
     {
       "route": "/privacy",
       "page_file": "app/privacy/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -6338,8 +6333,8 @@
     {
       "route": "/terms",
       "page_file": "app/terms/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -6426,5 +6421,5 @@
       ]
     }
   ],
-  "content_sha256": "6ac2246d12bb124c975bc78012d66b3241f8587546ffa80d0ef03267c93312fd"
+  "content_sha256": "e065c2531e252283399834e4de8749d0fa7f54b2cdac54f0cc1b51f0324684dc"
 }

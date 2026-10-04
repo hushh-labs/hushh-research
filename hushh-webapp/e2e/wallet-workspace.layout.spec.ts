@@ -39,6 +39,7 @@ const BOUNDARY_MODULES = [
   "@/hooks/use-auth",
   "@/lib/vault/vault-context",
   "@/lib/services/wallet-service",
+  "@/lib/pkm/secrets-vault-service",
   "@/lib/observability/client",
   "@/components/app-ui/native-test-beacon",
   "@/components/vault/vault-unlock-dialog",

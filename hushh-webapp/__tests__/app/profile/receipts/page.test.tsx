@@ -1352,10 +1352,83 @@ describe("ProfileReceiptsPage", () => {
       await screen.findByRole("button", { name: /connect mail/i }),
     ).toBeVisible();
 
+    // The KYC tab's own connect entry, which starts the same connection.
     fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
     expect(
-      screen.getByRole("button", { name: /connect mail/i }),
+      screen.getByRole("button", { name: /connect gmail to manage identity/i }),
     ).toBeVisible();
+  });
+
+  const disconnectedKycView = () =>
+    makeGmailView({
+      status: {
+        configured: true,
+        connected: false,
+        status: "disconnected",
+        scope_csv: null,
+        last_sync_status: null,
+        auto_sync_enabled: false,
+        revoked: false,
+        latest_run: null,
+        google_email: null,
+      },
+      presentation: {
+        state: "disconnected",
+        badgeLabel: "Not connected",
+        description: "Gmail not connected.",
+        latestSyncText: "Connect once to sync receipts.",
+        latestSyncBadge: null,
+        isConnected: false,
+      },
+    });
+
+  it("lands a KYC deep link on the KYC tab when Gmail is connected", async () => {
+    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText("KYC requests")).toBeVisible();
+    expect(screen.queryByTestId("mail-kyc-connect")).toBeNull();
+  });
+
+  it("lands a KYC deep link on the KYC connect entry when Gmail is not connected", async () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(disconnectedKycView());
+    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+
+    expect(screen.getByRole("tab", { name: "KYC" })).toHaveAttribute("aria-selected", "true");
+    const entry = screen.getByTestId("mail-kyc-connect-row");
+    expect(entry).toHaveTextContent("Connect Gmail to manage identity");
+    expect(screen.getByTestId("mail-kyc-connect-note")).toHaveTextContent(/KYC requests arrive by email/);
+    // Not the general Mail status card, and exactly one way to connect.
+    expect(screen.queryByRole("heading", { name: /mail not connected/i })).toBeNull();
+    expect(screen.queryByText("KYC requests")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /connect (g)?mail/i })).toHaveLength(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /connect gmail to manage identity/i }));
+    await waitFor(() =>
+      expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: "user-123", purpose: "read" }),
+      ),
+    );
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+  });
+
+  it("offers the same KYC connect entry when Gmail's permission was revoked", () => {
+    const view = disconnectedKycView();
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({ ...view, status: { ...view.status, revoked: true } }),
+    );
+    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    expect(screen.getByTestId("mail-kyc-connect-row")).toHaveTextContent(
+      "Connect Gmail to manage identity",
+    );
+  });
+
+  it("keeps the status card and its retry on the KYC tab when Gmail status fails", () => {
+    mocks.useGmailConnectorStatus.mockReturnValue(
+      makeGmailView({ ...disconnectedKycView(), statusError: "Mail status is unavailable." }),
+    );
+    render(<ProfileReceiptsPage forceWorkspace="kyc" />);
+    expect(screen.queryByTestId("mail-kyc-connect")).toBeNull();
+    expect(screen.getByRole("button", { name: /retry mail status/i })).toBeVisible();
   });
 
   it("hides Disconnect for a disconnected remembered account and restores it after reconnect", async () => {

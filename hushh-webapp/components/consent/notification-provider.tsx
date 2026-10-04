@@ -1744,6 +1744,8 @@ export function ConsentNotificationProvider({
       if (msgType === "direct_message" && user?.uid) {
         // The push is only a metadata doorbell. The inbox/chat owner performs
         // an authenticated reread, so no message body crosses the FCM boundary.
+        // The same committed message now has a recipient-only Feed projection;
+        // refresh it without changing the push's visible notification behavior.
         dispatchDirectMessagesUpdated({
           userId: user.uid,
           conversationId:
@@ -1753,6 +1755,7 @@ export function ConsentNotificationProvider({
             String(data.message_id || data.messageId || "").trim() || null,
           source: "fcm",
         });
+        dispatchFeedStateChanged("arrived");
         return;
       }
 

@@ -162,7 +162,6 @@ every specialist or a latency benchmark.
 | KYC | Route, redraft, full-redraft, extract/draft stages; not a registered local dispatch handler |
 | Portfolio Import | Extract, relevance, comprehensive stages |
 | Memory Segmentation / Intent / Merge / PKM Structure | Separate semantic preparation stages, not four top-level conversational routers |
-| Financial Guard | Bounded guard definition, not another conversational head |
 
 The five local dispatch registrations and five external scope-admitted identifiers
 are intentionally different sets. Registry presence, a parent field, an AgentTool,

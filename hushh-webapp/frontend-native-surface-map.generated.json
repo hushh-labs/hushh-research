@@ -1842,7 +1842,7 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
@@ -3026,6 +3026,7 @@
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.sync_now",
+        "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
       "api_dependencies": [],
@@ -5216,14 +5217,10 @@
       "page_file": "app/one/profile/connectors/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/profile/connectors/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect into the Connectors section of the Profile pane (/one?profile_pane=1&profile_panel=connectors); Connectors is never a page of its own.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -5252,15 +5249,8 @@
       },
       "native": {
         "route": "/one/profile/connectors",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/connectors",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
+        "classification": "excluded-compatibility-redirect",
+        "reason": "Compatibility redirect into Connectors in the Profile pane on /one. Connectors is a Profile section, so the pane carries the parity obligation, not this address."
       },
       "shell": {
         "app_page_shell": false,
@@ -5281,7 +5271,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to Connectors in the Profile pane.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -8349,10 +8339,16 @@
       "page_file": "app/privacy/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Public Privacy Policy page (Google OAuth consent screen and app store privacy URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/legal/legal-document-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "LegalReader"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -9508,10 +9504,16 @@
       "page_file": "app/terms/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Public Terms of Use page (Google OAuth consent screen and app store terms URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/legal/legal-document-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "LegalReader"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -9610,5 +9612,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "a7839b2ea1ef8308b84a4e646f4f2d8c54bbf7ebb2e70f9e30ac3b2082176b1f"
+  "content_sha256": "a79ecf9a19892b7d15712b9686fbafc9bd42e253de3f3f5b4f9c8ffff7ed46b4"
 }

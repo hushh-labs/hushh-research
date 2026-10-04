@@ -688,7 +688,6 @@ export function CreateCircleFlow({
           onFocus={() => setNameFocused(true)}
           onBlur={() => {
             setNameFocused(false);
-            if (nameMissing) setNameRequirementActive(true);
           }}
           onChange={(event) => {
             const next = event.target.value;

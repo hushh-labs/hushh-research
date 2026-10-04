@@ -10,6 +10,8 @@ import type {
   DomainSummary,
   PersonalKnowledgeModelMetadata,
 } from "@/lib/services/personal-knowledge-model-service";
+import { RESERVED_MEMORY_SCREEN_POLICY, reservedOwnerFor } from "@/lib/pkm/reserved-branches";
+import { reservedOwnerAppName } from "@/lib/pkm/reserved-offer";
 
 export type PkmPathSegment = string | number;
 
@@ -28,8 +30,36 @@ export type PkmMemoryCard = {
   confidence: number;
   kind: "profile" | "preference" | "financial" | "shopping" | "professional" | "memory";
   editable: boolean;
+  /**
+   * Set when an app feature owns this item's branch and the contract's
+   * memory_screen_policy is read_only_reserved: Memory shows it read-only with
+   * "Open in <app>", and the owning screen edits or removes it.
+   */
+  reservedOwner?: PkmMemoryReservedOwner | null;
   searchText: string;
 };
+
+export type PkmMemoryReservedOwner = {
+  ownerFeature: string;
+  appName: string;
+  /** The owning screen; null when the app has no screen to open (internal records). */
+  routePattern: string | null;
+};
+
+/** Who owns this Memory item's branch, under the contract's Memory policy. */
+export function pkmMemoryReservedOwner(
+  domain: string,
+  pathSegments: readonly PkmPathSegment[],
+): PkmMemoryReservedOwner | null {
+  if (RESERVED_MEMORY_SCREEN_POLICY !== "read_only_reserved") return null;
+  const entry = reservedOwnerFor(domain, pathSegments);
+  if (!entry) return null;
+  return {
+    ownerFeature: entry.ownerFeature,
+    appName: reservedOwnerAppName(entry.ownerFeature),
+    routePattern: entry.offerAction?.routePattern ?? null,
+  };
+}
 
 export type PkmDomainInsight = {
   domain: string;
@@ -333,6 +363,7 @@ function flattenCards(params: {
       pathSegments,
       value: primitive,
     });
+    const reservedOwner = pkmMemoryReservedOwner(params.domain, pathSegments);
     cards.push({
       id: `${params.domain}:${stableId(`${path}:${primitive}`)}`,
       domain: params.domain,
@@ -347,7 +378,8 @@ function flattenCards(params: {
       updatedAt: params.updatedAt,
       confidence: kind === "memory" ? 0.72 : 0.88,
       kind,
-      editable: !isSourceManagedMemoryPath(params.domain, pathSegments),
+      editable: !isSourceManagedMemoryPath(params.domain, pathSegments) && !reservedOwner,
+      reservedOwner,
       searchText: `${params.domain} ${params.domainTitle} ${path} ${title} ${primitive}`.toLowerCase(),
     });
     return cards;

@@ -618,6 +618,8 @@ parent: string | null         # One is null; specialists name their parent
 description: string           # What this agent does
 model: string | object        # Model identifier or AgentModelConfig
 system_instruction: string    # System prompt
+prompt_reference: string|null # Shared .md instruction (relative, inside hushh_mcp/agents)
+                              # composed ahead of system_instruction at load time
 runtime: object               # kind, factory, ADK mode, transports
 authorities: object           # invocation, data, and action authority
 required_scopes: string[]     # Internal/runtime entry scopes

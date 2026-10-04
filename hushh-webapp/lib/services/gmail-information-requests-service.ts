@@ -1,3 +1,4 @@
+import type { KycReplyAuthorizationV1 } from "@/lib/personal-knowledge-model/mutation-plan";
 import { apiJson } from "@/lib/services/api-client";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
@@ -354,6 +355,26 @@ export class GmailInformationRequestsService {
         gmailThreadId: response.preview.gmail_thread_id,
       },
     }));
+  }
+
+  /**
+   * The capability that lets the owner's typed reply to this open request write
+   * identity information (`agent_chat_kyc_owner_confirmed` in
+   * contracts/pkm/reserved-branches.v1.json). Minted per reply, short-lived,
+   * and refused once the request is answered or ignored.
+   */
+  static issuePkmReplyAuthorization(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<KycReplyAuthorizationV1> {
+    return apiJson<KycReplyAuthorizationV1>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/pkm-reply-authorization`,
+      {
+        method: "POST",
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
+      },
+    );
   }
 
   static ignore(input: {

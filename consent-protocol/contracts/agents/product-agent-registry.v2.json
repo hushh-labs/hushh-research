@@ -1428,117 +1428,6 @@
       "action_ids": [],
       "authorities": {
         "actions": [],
-        "data": [],
-        "invocation": []
-      },
-      "availability": {
-        "enable_flag": null,
-        "environments": [
-          "development",
-          "uat",
-          "production"
-        ],
-        "loopback_only": false
-      },
-      "capabilities": {},
-      "credential_policy": {
-        "allowed": [
-          "hushh_managed_vertex"
-        ],
-        "default": "hushh_managed_vertex"
-      },
-      "description": "Protects Kai's mature financial domain by deciding whether freeform requests belong in governed financial memory.",
-      "evaluations": [],
-      "failure_states": [],
-      "icon": null,
-      "id": "agent_financial_guard",
-      "inputs": [
-        {
-          "description": null,
-          "name": "user_id",
-          "type": "string"
-        },
-        {
-          "description": null,
-          "name": "message",
-          "type": "string"
-        }
-      ],
-      "legacy_ids": [],
-      "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
-      "manifest_version": 2,
-      "model": {
-        "credential_ref": null,
-        "mode": "hushh_managed_vertex",
-        "name": "gemini-default",
-        "provider": "gemini",
-        "thinking_level": "low"
-      },
-      "name": "Financial Guard Agent",
-      "native_requirements": [],
-      "one_exposure": null,
-      "optional_scopes": [],
-      "outputs": [
-        {
-          "description": null,
-          "name": "decision",
-          "type": "object"
-        }
-      ],
-      "owner": "backend",
-      "parent": "agent_one",
-      "performance": {
-        "latency_p95_ms": 30000,
-        "max_output_tokens": 4096
-      },
-      "pkm": {
-        "behavior": "none",
-        "mutation_contract": null
-      },
-      "privacy": {
-        "context_allowlist": [],
-        "plaintext_telemetry": false
-      },
-      "prompt_reference": null,
-      "required_scopes": [
-        "attr.financial.*"
-      ],
-      "rollout": {
-        "kill_switch": null,
-        "rollback": "Disable the agent and restore the prior manifest.",
-        "strategy": "off"
-      },
-      "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
-        "kind": "adk",
-        "transport": [
-          "in_process"
-        ]
-      },
-      "side_effects": [],
-      "status": "experimental",
-      "subagents": [],
-      "surfaces": {
-        "a2a": false,
-        "android": false,
-        "chat": false,
-        "ios": false,
-        "mcp": false,
-        "not_applicable_reason": null,
-        "voice": false,
-        "web": false
-      },
-      "system_instruction_sha256": "ce6442e5716f92360c059e6261761d21b3ffba210fb0d475493dc1fc65e38a92",
-      "telemetry_namespace": "agent.unclassified",
-      "tools": [],
-      "ui_type": "chat",
-      "version": "1.0.0"
-    },
-    {
-      "action_ids": [],
-      "authorities": {
-        "actions": [],
         "data": [
           "consented_financial_projection"
         ],
@@ -3028,7 +2917,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Determines whether a user message should become PKM, what kind of memory it represents, and whether confirmation is required before save.",
+      "description": "Determines whether a statement is memory or a live command, what kind of memory it represents, and whether confirmation is required before save.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -3130,7 +3019,7 @@
         "context_allowlist": [],
         "plaintext_telemetry": false
       },
-      "prompt_reference": null,
+      "prompt_reference": "../pkm_memory_kernel.v3.md",
       "required_scopes": [],
       "rollout": {
         "kill_switch": null,
@@ -3158,7 +3047,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "fdef36c87ae0c05479264102e3d144ad90aad67e3e5e3e38e59d33022aa45636",
+      "system_instruction_sha256": "2faad1f2d87b77c06ae48e7757e01308c75dfadeb78b226622dc406db1e8a42f",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3289,7 +3178,7 @@
         "context_allowlist": [],
         "plaintext_telemetry": false
       },
-      "prompt_reference": null,
+      "prompt_reference": "../pkm_memory_kernel.v3.md",
       "required_scopes": [],
       "rollout": {
         "kill_switch": null,
@@ -3317,7 +3206,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "6d1a1cb99a905803d7fd3bc3cdd11c03ab0abb927c1db1bc7b89e58a686d30a6",
+      "system_instruction_sha256": "6a2cc3bca7057216c7b7adf5b4e53aa9605d97d6386da20f687757e5c3299a39",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3346,7 +3235,7 @@
         ],
         "default": "hushh_managed_vertex"
       },
-      "description": "Splits one natural-language prompt into up to eight PKM memory candidates before downstream intent and structure planning.",
+      "description": "Splits one natural-language prompt into PKM memory candidates, eight per batch, and accounts for every line it does not select.",
       "evaluations": [],
       "failure_states": [],
       "icon": null,
@@ -3397,6 +3286,11 @@
           "description": null,
           "name": "has_more_candidates",
           "type": "boolean"
+        },
+        {
+          "description": null,
+          "name": "not_memory",
+          "type": "array"
         }
       ],
       "owner": "backend",
@@ -3413,7 +3307,7 @@
         "context_allowlist": [],
         "plaintext_telemetry": false
       },
-      "prompt_reference": null,
+      "prompt_reference": "../pkm_memory_kernel.v3.md",
       "required_scopes": [],
       "rollout": {
         "kill_switch": null,
@@ -3441,7 +3335,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "1e84e78267b1f347080b262d340d9eb6dea687eb5d7b5890585340d053daac2a",
+      "system_instruction_sha256": "187b1d9386a4e3640c5e95ace73eb25c2ff3dd3a3943aed66d0a134693004b93",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3834,7 +3728,8 @@
       "privacy": {
         "context_allowlist": [
           "hussh:voice_context",
-          "hussh:pkm_context"
+          "hussh:pkm_context",
+          "temp:hussh:owner_style"
         ],
         "plaintext_telemetry": false
       },
@@ -4070,7 +3965,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "9243a1a9afd33725174d2be4323b93375806866e7b19f67ebc4bc6fb83ffe1da",
+      "system_instruction_sha256": "df85aef793c99a9a9324844afd1d372dcf9ea1dfb93f0a34e75b5ed7a5707e74",
       "telemetry_namespace": "agent.one",
       "tools": [
         {
@@ -4131,6 +4026,12 @@
           "description": "Prepare a reviewed move of one Drive file to the trash; nothing is trashed until the owner confirms the exact card.",
           "name": "propose_drive_file_trash",
           "py_func": "hushh_mcp.one_adk.drive_write_tools.propose_drive_file_trash",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Offer the owner a change to how One writes to them (name, tone, length, language, em dashes). Saves nothing; returns an offer card that opens Settings prefilled, where the owner commits with the Settings writer.",
+          "name": "propose_style_settings",
+          "py_func": "hushh_mcp.one_adk.owner_style.propose_style_settings",
           "required_scope": "vault.owner"
         },
         {
@@ -4478,7 +4379,7 @@
         "context_allowlist": [],
         "plaintext_telemetry": false
       },
-      "prompt_reference": null,
+      "prompt_reference": "../pkm_memory_kernel.v3.md",
       "required_scopes": [],
       "rollout": {
         "kill_switch": null,
@@ -4506,7 +4407,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "1d8ba91564f0239bf23de304e7f2ef478cff6fd0f7bff9a7f52152fdc9385a6a",
+      "system_instruction_sha256": "13f8a174789a23f6f821871b5525b5ee714555d4fab5323e742ee948b0c4cf50",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

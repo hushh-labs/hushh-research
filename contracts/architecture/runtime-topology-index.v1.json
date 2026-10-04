@@ -201,39 +201,6 @@
       }
     },
     {
-      "id": "agent_financial_guard",
-      "parent": "agent_one",
-      "rollout": {
-        "kill_switch": null,
-        "rollback": "Disable the agent and restore the prior manifest.",
-        "strategy": "off"
-      },
-      "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
-        "kind": "adk",
-        "transport": [
-          "in_process"
-        ]
-      },
-      "status": "experimental",
-      "surfaces": {
-        "a2a": false,
-        "android": false,
-        "chat": false,
-        "ios": false,
-        "mcp": false,
-        "not_applicable_reason": null,
-        "voice": false,
-        "web": false
-      },
-      "wiring": {
-        "a2a_scope": null,
-        "in_process_dispatch": false,
-        "one_specialist_tool": null
-      }
-    },
-    {
       "id": "agent_kai",
       "parent": "agent_one",
       "rollout": {
@@ -1658,7 +1625,6 @@
     {
       "agent_ids": [
         "agent_kai",
-        "agent_financial_guard",
         "agent_portfolio_import"
       ],
       "evidence_lanes": [
@@ -2950,6 +2916,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.one_gmail_kyc",
           "route.profile_receipts"
         ],
         "delegate_agent_ids": [],
@@ -4042,18 +4009,18 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": null,
       "page_file": "app/one/profile/connectors/page.tsx",
       "pathname": "/one/profile/connectors",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5291,7 +5258,7 @@
       "native_surface_id": null,
       "page_file": "app/privacy/page.tsx",
       "pathname": "/privacy",
-      "route_mode": "hidden",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5780,7 +5747,7 @@
       "native_surface_id": null,
       "page_file": "app/terms/page.tsx",
       "pathname": "/terms",
-      "route_mode": "hidden",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5846,22 +5813,22 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "d992c638cb0261c31022bc583622de2f08615e0835e51f3257ab7e1035cc1002",
-    "agent_registry": "7bc13af0d6b65f15b620d92bda07c6c505d61ff33e9f04c17444f9e6cee75458",
-    "cache_manifest": "4c65bf69059165aa93b06f367e084d11ab75cc73b390b9aafe88c59ba9f40402",
+    "action_gateway": "f0027e74756f9371f7d34a1da3591b4bebc3078c85652a32a010d9ec3d100e9d",
+    "agent_registry": "fdfe011ded0aae80be955a957639dea09d29d7564470ea7b4f60d596214bd430",
+    "cache_manifest": "4e63b52c642d2775eae2c7f941217feef83fafad6e85179a662a1aecae51b516",
     "data_plane": "1df49f95104f4d30fc5ed6de778ff88e0180f690a8d3a736e2df0cb567be8c5a",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "033bd4a2311c0966c19342cae1c45336e68f3e56b7a8d6ebfc749c585507dd72",
-    "route_layout": "c56c24d3530c54b46e391411cc32c87ce54b53225b0bd916a6f4fe562f12bc89",
-    "surface_map": "59044fd8cfa3acdfa342ca52afcce8d07e954e90fb3fea3c1b33bfb1e8c248c7",
-    "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
+    "route_index": "1e3d9ef1c45d29d3d390512fb8d49d5b2dca76ca62be61a074dd2fa76f756243",
+    "route_layout": "f4dcd0844e411e9c675e2c7025a63db6e1786747fa1a86f4e93322cf683bb65c",
+    "surface_map": "9051e0574dbfbf63f8254f57bac89d2abfa9e54e2fbd987d22036050001ec140",
+    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 224,
-    "agents": 20,
+    "actions": 225,
+    "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,

@@ -40,6 +40,8 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
   "trusted-devices": "Trusted devices",
   "gmail-connection": "Connection",
   "gmail-actions": "Actions",
+  terms: "Terms of Use",
+  privacy: "Privacy Policy",
 };
 
 /** Rows in the Profile home's "Your settings" group, for the shell. */
@@ -186,7 +188,9 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                   ? "Security & privacy"
                   : location.panel === "referrals"
                     ? "Invite friends"
-                    : "Help & feedback"
+                    : location.panel === "legal"
+                      ? "Legal"
+                      : "Help & feedback"
       : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.

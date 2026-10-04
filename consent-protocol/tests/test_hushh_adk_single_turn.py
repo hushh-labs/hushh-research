@@ -14,7 +14,6 @@ from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 
 PKM_CHAIN_MANIFESTS = (
-    "financial_guard",
     "memory_segmentation",
     "memory_intent",
     "memory_merge",

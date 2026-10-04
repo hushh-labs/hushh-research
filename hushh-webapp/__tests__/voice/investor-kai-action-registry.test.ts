@@ -124,6 +124,7 @@ describe("investor-kai-action-registry", () => {
 
     expect(gmailActions).toEqual([
       "route.profile_receipts",
+      "route.one_gmail_kyc",
       "profile.gmail.connect",
       "profile.gmail.sync_now",
       "profile.gmail.disconnect",

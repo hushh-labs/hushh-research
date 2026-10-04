@@ -1,4 +1,5 @@
 import type {
+  LegalDocumentDetail,
   ProfileDetail,
   ProfilePanel,
 } from "@/lib/navigation/profile-routes";
@@ -85,6 +86,35 @@ export function buildProfileConnectorsPaneHref(
     null,
     profileConnectorsLocation(connectorId),
   );
+}
+
+/**
+ * Where a connector sign-in lands once the provider sends the person back.
+ * Both land on Connectors in the Profile pane, never on a page of its own: a
+ * sign-in started in Profile reopens the pane over One, and one started in
+ * chat reopens it over the chat (`/`), which restores its saved draft
+ * underneath.
+ */
+export function buildConnectorSignInReturnHref(
+  startedFrom: "connector_settings" | "chat",
+): string {
+  return profilePaneHref(
+    startedFrom === "connector_settings" ? "/one" : "/",
+    null,
+    profileConnectorsLocation(),
+  );
+}
+
+/**
+ * A legal document read in place in Profile's Legal section. Profile never
+ * leaves the pane for the public /terms or /privacy page: those addresses are
+ * for people who are signed out, the store listings and Google's consent
+ * screen.
+ */
+export function profileLegalLocation(
+  document: LegalDocumentDetail,
+): ProfilePaneLocation {
+  return { panel: "legal", detail: document };
 }
 
 export function profilePaneLocationKey(location: ProfilePaneLocation): string {

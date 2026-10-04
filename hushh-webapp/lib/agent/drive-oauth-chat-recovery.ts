@@ -289,3 +289,37 @@ export async function clearDriveChatRecovery(ownerUserId: string): Promise<void>
   }
   await SecureResourceCacheService.invalidateResource(ownerUserId, RESOURCE_KEY);
 }
+
+/**
+ * The open chat's draft saver, while a chat is mounted.
+ *
+ * Connectors lives in the Profile pane, which opens over the chat. A sign-in
+ * that leaves the app (a full-page Google sign-in, a native browser) would
+ * otherwise drop the chat's unsent draft underneath, so the chat registers how
+ * to save and clear it, and Connectors uses that when it is there. With no
+ * chat underneath there is no draft, and nothing to save.
+ */
+export type ChatConnectorRecoveryHost = {
+  prepare: (input: {
+    attemptId: string;
+    reason: DriveChatRecoveryReason;
+    customConnector?: CustomConnectorRecoveryReference;
+  }) => Promise<"ready" | "busy" | "unavailable">;
+  clear: () => Promise<void>;
+};
+
+let chatConnectorRecoveryHost: ChatConnectorRecoveryHost | null = null;
+
+/** Register the mounted chat's draft saver; the returned release unregisters it. */
+export function registerChatConnectorRecoveryHost(
+  host: ChatConnectorRecoveryHost,
+): () => void {
+  chatConnectorRecoveryHost = host;
+  return () => {
+    if (chatConnectorRecoveryHost === host) chatConnectorRecoveryHost = null;
+  };
+}
+
+export function activeChatConnectorRecoveryHost(): ChatConnectorRecoveryHost | null {
+  return chatConnectorRecoveryHost;
+}

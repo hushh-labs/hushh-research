@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 import type { AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
 import { AgentMemorySaveCard } from "@/components/agent/agent-memory-save-card";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,48 @@ import {
   isAgentPkmCaptureRunning,
   type AgentPkmCaptureStatus,
 } from "@/lib/agent/agent-pkm-capture-runtime";
+import { useAuth } from "@/hooks/use-auth";
+import { stageReservedOfferPrefill, type ReservedOfferItem } from "@/lib/pkm/reserved-offer";
+
+/**
+ * A receipt that offers to finish facts on the app screens that own them. The
+ * prefill is staged in memory for that screen, then the app navigates on the
+ * client: the route carries no detail of the fact.
+ */
+function MemorySaveCardWithOffers({
+  receipt,
+  onConfirmNeedsOwner,
+  onRetry,
+  pendingCards,
+}: {
+  receipt: NonNullable<AgentPkmCaptureStatus["receipt"]>;
+  onConfirmNeedsOwner?: () => Promise<void>;
+  onRetry?: () => Promise<void>;
+  pendingCards?: readonly AgentPkmPreviewCard[];
+}) {
+  const router = useRouter();
+  const { user } = useAuth();
+  const ownerUserId = user?.uid ?? null;
+  const openOffer = useCallback((offer: ReservedOfferItem) => {
+    if (ownerUserId && offer.prefill) {
+      stageReservedOfferPrefill({ ownerUserId, ownerFeature: offer.ownerFeature, prefill: offer.prefill });
+    }
+    router.push(offer.routePattern);
+  }, [ownerUserId, router]);
+  return (
+    <AgentMemorySaveCard
+      receipt={receipt}
+      memoryHref={ROUTES.PKM_RECENT}
+      renderLink={({ href, className, children }) => (
+        <Link href={href} className={className}>{children}</Link>
+      )}
+      onConfirmNeedsOwner={onConfirmNeedsOwner}
+      onOpenOffer={openOffer}
+      onRetry={onRetry}
+      pendingCards={pendingCards}
+    />
+  );
+}
 
 /**
  * One quiet, session-only receipt next to the answer; never a second message.
@@ -19,16 +63,29 @@ import {
 export function AgentMemoryCaptureStatus({
   status,
   onConfirmNeedsOwner,
+  onRetry,
   onUnlock,
   pendingCards,
 }: {
   status: AgentPkmCaptureStatus;
   onConfirmNeedsOwner?: () => Promise<void>;
+  /** Continue the save job behind this receipt (lines not yet saved). */
+  onRetry?: () => Promise<void>;
   onUnlock?: () => void;
   pendingCards?: readonly AgentPkmPreviewCard[];
 }) {
   if (status.phase === "skipped" && !status.receipt) return null;
   const running = isAgentPkmCaptureRunning(status);
+  if (status.receipt && !running && status.phase !== "canceled" && status.receipt.offers?.length) {
+    return (
+      <MemorySaveCardWithOffers
+        receipt={status.receipt}
+        onConfirmNeedsOwner={onConfirmNeedsOwner}
+        onRetry={onRetry}
+        pendingCards={pendingCards}
+      />
+    );
+  }
   if (status.receipt && !running && status.phase !== "canceled") {
     return (
       <AgentMemorySaveCard
@@ -38,6 +95,7 @@ export function AgentMemoryCaptureStatus({
           <Link href={href} className={className}>{children}</Link>
         )}
         onConfirmNeedsOwner={onConfirmNeedsOwner}
+        onRetry={onRetry}
         pendingCards={pendingCards}
       />
     );

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import subprocess
 import sys
@@ -9,6 +10,7 @@ import pytest
 
 from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from scripts import eval_pkm_structure_agent as eval_script
+from scripts import pkm_eval_integrity as integrity
 
 CONSENT_PROTOCOL_ROOT = Path(__file__).resolve().parents[2]
 
@@ -61,6 +63,34 @@ def test_release_chain_is_small_but_covers_all_storage_decisions_and_domains():
         "social",
         "travel",
     }.issubset(expected_domains)
+
+
+def test_context_transfer_phase_expects_work_context_kept_and_commands_dropped():
+    personas, chain_state = eval_script.build_phase_personas(
+        phase="context_transfer", max_prompts_per_persona=120
+    )
+    prompts = personas[0]["prompts"]
+
+    assert chain_state is False
+    assert len(prompts) == eval_script.PHASE_PROMPT_LIMIT["context_transfer"]
+    categories = {prompt.category for prompt in prompts}
+    assert {
+        "context_work",
+        "context_technical_id",
+        "context_people",
+        "context_sensitive",
+        "context_command",
+    }.issubset(categories)
+    # Everything the owner stated is durable; only the live command is not.
+    for prompt in prompts:
+        if prompt.category == "context_command":
+            assert (prompt.expected_save_class, prompt.expected_intent_class) == (
+                "ephemeral",
+                "command",
+            )
+        else:
+            assert prompt.expected_save_class == "durable", prompt.case_id
+            assert "general" not in prompt.expected_domains
 
 
 def test_release_fail_fast_only_stops_zero_tolerance_failures():
@@ -429,3 +459,241 @@ async def test_fail_fast_saves_partial_report_and_fails_gate(monkeypatch, tmp_pa
     assert run["personas"][0]["results"][0]["failure_class"] == "PermissionError"
     assert report["quality_gate"]["status"] == "fail"
     assert "must not enter report" not in report_path.read_text()
+
+
+# --------------------------------------------------------------------------
+# Honest harness: controls, unsure, variance, ledger, document coverage
+# --------------------------------------------------------------------------
+
+
+class _AnswersExactly:
+    """A perfect agent: every case answered with its expected labels."""
+
+    def __init__(self, cases):
+        self._by_message = {case.message: case for case in cases}
+
+    async def generate_structure_preview(self, **kwargs):
+        return eval_script._planted_result(self._by_message[kwargs["message"]])
+
+
+async def _release_run(**overrides):
+    personas, chain_state = eval_script.build_phase_personas(
+        phase="release_chain_24", max_prompts_per_persona=24
+    )
+    return await eval_script._run_synthetic_mode(
+        service=_AnswersExactly(personas[0]["prompts"]),
+        personas=personas,
+        mode_name="candidate_production",
+        model_override="test-model",
+        strict_small_model=False,
+        chain_state=chain_state,
+        per_prompt_timeout_seconds=1.0,
+        reps=3,
+        control_seed=20261002,
+        **overrides,
+    )
+
+
+async def test_planted_controls_void_a_scorer_that_stops_reading_the_domain(monkeypatch):
+    clean = await _release_run()
+    assert clean["void"] is False
+    assert clean["personas"][0]["controls"]["negative_caught"] == 12
+    assert clean["rep_statistics"]["domain_ok_rate"]["mean"] == 1.0
+
+    # The retired rule: any confirm_first card graded domain-correct. The
+    # production path files every durable write as confirm_first, so this
+    # scorer read 1.0 by construction. The planted control must void it.
+    real_score = eval_script._score_case
+
+    def lenient(case, answer):
+        result = real_score(case, answer)
+        if answer.result.get("write_mode") == "confirm_first":
+            result.domain_ok = not result.finance_contamination
+        return result
+
+    monkeypatch.setattr(eval_script, "_score_case", lenient)
+    lenient_run = await _release_run()
+    assert lenient_run["void"] is True
+    assert any("wrong_domain_confirm_first" in r for r in lenient_run["void_reasons"])
+    # A void run publishes no accuracy at all.
+    assert lenient_run["summary"]["domain_ok_rate"] is None
+    assert lenient_run["rep_statistics"] == {}
+    gate = eval_script._build_quality_gate(
+        synthetic_reports=[lenient_run],
+        shadow_reports=[],
+        thresholds={**eval_script.DEFAULT_GATE_THRESHOLDS, "max_rate_spread": 0.1},
+    )
+    assert gate["status"] == "fail"
+    assert any(":void:" in failure for failure in gate["failures"])
+
+
+_FAILED_STAGE = (
+    "pkm.agent_contract_failed agent=%s model=%s error_type=%s provider_status=%s error_code=%s"
+)
+
+
+class _RefusedOnce(_AnswersExactly):
+    """A perfect agent whose provider refuses one stage call, as quota exhaustion does."""
+
+    async def generate_structure_preview(self, **kwargs):
+        if not getattr(self, "_refused", False):
+            self._refused = True
+            logging.getLogger(pkm_agent_lab_module.__name__).warning(
+                _FAILED_STAGE, "agent_memory_merge", "m", "ClientError", 429, "quota_exhausted"
+            )
+        return await super().generate_structure_preview(**kwargs)
+
+
+async def test_a_provider_refusal_voids_the_run_and_a_bad_request_does_not():
+    # The counter reads the service's own failure line; it must still exist.
+    source = Path(pkm_agent_lab_module.__file__).read_text(encoding="utf-8")
+    assert '"pkm.agent_contract_failed agent=%s model=%s error_type=%s "' in source
+    assert '"provider_status=%s error_code=%s"' in source
+
+    service_logger = logging.getLogger(pkm_agent_lab_module.__name__)
+    with integrity.count_provider_refusals() as refusals:
+        service_logger.warning(_FAILED_STAGE, "a", "m", "ClientError", 429, "quota_exhausted")
+        service_logger.warning(_FAILED_STAGE, "a", "m", "ServerError", 503, "unavailable")
+        # A malformed request is the subject's failure, not the provider's.
+        service_logger.warning(_FAILED_STAGE, "a", "m", "ClientError", 400, "bad_request")
+    assert refusals.count == 2
+    assert integrity.provider_void_reasons(0) == []
+
+    personas, chain_state = eval_script.build_phase_personas(
+        phase="release_chain_24", max_prompts_per_persona=24
+    )
+    refused = await eval_script._run_synthetic_mode(
+        service=_RefusedOnce(personas[0]["prompts"]),
+        personas=personas,
+        mode_name="candidate_production",
+        model_override="test-model",
+        strict_small_model=False,
+        chain_state=chain_state,
+        per_prompt_timeout_seconds=1.0,
+        reps=3,
+        control_seed=20261002,
+    )
+    assert refused["void"] is True
+    assert refused["provider_refused_calls"] == 1
+    assert any("provider refused 1 stage call" in r for r in refused["void_reasons"])
+    assert refused["summary"]["intent_ok_rate"] is None
+
+
+def test_unsure_counts_against_accuracy_even_when_the_fallback_guessed_right():
+    case = eval_script.PromptCase(
+        case_id="unsure",
+        message="I prefer Thai food.",
+        expected_save_class="durable",
+        expected_intent_class="preference",
+        expected_mutation_intent="create",
+        expected_domains=("food",),
+        expect_confirmation=False,
+        category="preference",
+    )
+    guessed = eval_script._planted_result(case)
+    guessed.update(intent_used_fallback=True, structure_used_fallback=True, used_fallback=True)
+    answer = eval_script._Answer(
+        result=guessed, latency_ms=1.0, timed_out=False, failure_class=None, rep=0
+    )
+    graded = eval_script._score_case(case, answer)
+    assert not graded.intent_ok and not graded.save_class_ok and not graded.mutation_ok
+    assert not graded.domain_ok
+    assert eval_script._durable_domain_coverage_rate([graded]) == 0.0
+
+
+def test_variance_is_a_gate_n_below_three_or_a_wide_spread_fails():
+    from scripts import pkm_eval_integrity as integrity
+
+    steady = integrity.rep_statistics(
+        [{"intent_ok_rate": 0.92}, {"intent_ok_rate": 0.96}, {"intent_ok_rate": 0.92}],
+        ["intent_ok_rate"],
+    )
+    assert steady["intent_ok_rate"]["mean"] == 0.9333
+    assert steady["intent_ok_rate"]["spread"] == 0.04
+    assert integrity.variance_failures(label="x", stats=steady, reps=3, max_spread=0.1) == []
+    assert integrity.variance_failures(label="x", stats=steady, reps=1, max_spread=0.1) == [
+        "x:variance_unmeasured n=1 < 3"
+    ]
+    wide = integrity.rep_statistics(
+        [{"intent_ok_rate": 0.75}, {"intent_ok_rate": 0.96}, {"intent_ok_rate": 0.88}],
+        ["intent_ok_rate"],
+    )
+    assert integrity.variance_failures(label="x", stats=wide, reps=3, max_spread=0.1) == [
+        "x:intent_ok_rate spread 0.2100 > 0.1000"
+    ]
+
+
+def test_ledger_is_append_only_tamper_evident_and_refuses_unlike_profiles(tmp_path):
+    from scripts import pkm_eval_integrity as integrity
+
+    profile = {
+        "agents": {"agent_memory_intent": {"model": "gemini-3.6-flash", "thinking_level": "low"}}
+    }
+    ledger = tmp_path / "ledger.v1.jsonl"
+    rates = {"intent_ok_rate": {"n": 3, "mean": 0.8, "spread": 0.04}}
+    before = integrity.append_ledger(
+        ledger,
+        {
+            "phase": "release_chain_24",
+            "status": "fail",
+            "capability_profile": profile,
+            "rates": rates,
+        },
+    )
+    after = integrity.append_ledger(
+        ledger,
+        {
+            "phase": "release_chain_24",
+            "status": "pass",
+            "capability_profile": profile,
+            "rates": {"intent_ok_rate": {"n": 3, "mean": 0.92, "spread": 0.04}},
+        },
+    )
+    assert integrity.verify_ledger(ledger) == []
+    assert after["prev_sha256"] == before["entry_sha256"]
+    delta = integrity.compare_entries(before, after)["deltas"]["intent_ok_rate"]
+    assert delta["delta_mean"] == 0.12
+
+    other = {
+        "agents": {"agent_memory_intent": {"model": "gemini-3.6-flash", "thinking_level": "high"}}
+    }
+    with pytest.raises(integrity.IncomparableRunsError, match="thinking_level"):
+        integrity.compare_entries(before, {**after, "capability_profile": other})
+    with pytest.raises(integrity.IncomparableRunsError, match="void"):
+        integrity.compare_entries(before, {**after, "status": "void"})
+
+    lines = ledger.read_text().splitlines()
+    lines[0] = lines[0].replace('"mean":0.8', '"mean":0.9')
+    ledger.write_text("\n".join(lines) + "\n")
+    assert any("does not match its content" in error for error in integrity.verify_ledger(ledger))
+
+
+def test_committed_ledger_chain_is_intact():
+    from scripts import pkm_eval_integrity as integrity
+
+    assert integrity.verify_ledger(integrity.DEFAULT_LEDGER_PATH) == []
+
+
+def test_document_lines_are_graded_from_quotes_not_card_counts():
+    from scripts import pkm_eval_document as document_eval
+
+    text = (
+        "# Vendors\n- Stripe for payments\n- Plaid for bank connections\n- Stripe for payments\n"
+        "# Information not known\n- Information not known: team size\n"
+    )
+    vendors, unknown = document_eval.parse_document(text)
+    assert [line.label for line in vendors.lines] == ["memory", "memory", "duplicate"]
+    # Two cards for one line, a do_not_save card for the other, and a
+    # paraphrase that matches no line: one of two memory lines is kept.
+    response = {
+        "preview_cards": [
+            {"source_text": "- Stripe for payments", "write_mode": "confirm_first"},
+            {"source_text": "Stripe for payments", "write_mode": "confirm_first"},
+            {"source_text": "- Plaid for bank connections", "write_mode": "do_not_save"},
+            {"source_text": "We use Plaid (paraphrased)", "write_mode": "confirm_first"},
+        ]
+    }
+    verdicts = document_eval.score_passage(vendors, response)
+    assert [verdict.flag for verdict in verdicts] == ["", "lost", ""]
+    saved = {"preview_cards": [{"source_text": unknown.lines[0].text, "write_mode": "can_save"}]}
+    assert [v.flag for v in document_eval.score_passage(unknown, saved)] == ["disclaimer_saved"]

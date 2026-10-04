@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 267,
+  "expected_migration_version": 268,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -44,6 +44,8 @@
     "guard_direct_message_message_write",
     "touch_direct_message_conversation",
     "notify_direct_message_recipient",
+    "project_direct_message_feed_event",
+    "remove_direct_message_feed_event",
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",

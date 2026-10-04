@@ -238,7 +238,8 @@
     "264_direct_messages.sql",
     "265_circle_chat.sql",
     "266_circle_chat_presentation.sql",
-    "267_gmail_receipt_cache_read_only_cutover.sql"
+    "267_gmail_receipt_cache_read_only_cutover.sql",
+    "268_direct_message_feed_projection.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -495,6 +496,7 @@
     "263_drive_request_no_match.sql": "rollback/263_drive_request_no_match.rollback.sql",
     "265_circle_chat.sql": "rollback/265_circle_chat.rollback.sql",
     "266_circle_chat_presentation.sql": "rollback/266_circle_chat_presentation.rollback.sql",
-    "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql"
+    "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
+    "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql"
   }
 }

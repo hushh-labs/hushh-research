@@ -368,8 +368,17 @@
   },
   {
     "route": "/privacy",
-    "mode": "hidden",
-    "exemptionReason": "Public Privacy Policy page (Google OAuth consent screen and app store privacy URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/legal/legal-document-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "LegalReader"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.privacy.policy",
       "purpose": "Help the person read the Privacy Policy screen through its generated controls.",
@@ -395,8 +404,17 @@
   },
   {
     "route": "/terms",
-    "mode": "hidden",
-    "exemptionReason": "Public Terms of Use page (Google OAuth consent screen and app store terms URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/legal/legal-document-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "LegalReader"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.terms.of.use",
       "purpose": "Help the person read the Terms of Use screen through its generated controls.",
@@ -3514,15 +3532,8 @@
   },
   {
     "route": "/one/profile/connectors",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/one/profile/connectors/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect into the Connectors section of the Profile pane (/one?profile_pane=1&profile_panel=connectors); Connectors is never a page of its own.",
     "voicePlaybook": {
       "playbookId": "route.profile.connectors",
       "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
@@ -3549,7 +3560,7 @@
   {
     "route": "/one/profile/connectors/oauth/return",
     "mode": "redirect",
-    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
+    "exemptionReason": "OAuth callback completes an external connector's authorization and returns to Connectors in the Profile pane.",
     "voicePlaybook": {
       "playbookId": "route.profile.connectors.oauth.return",
       "purpose": "Finish the verified external connector authorization callback without exposing credentials.",

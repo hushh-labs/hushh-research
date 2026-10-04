@@ -198,6 +198,9 @@ claude_desktop_config.generated.json
 *.key
 *credentials*.json
 *secret*.json
+# Exact-path exception: the shared secret-span PATTERN contract (regexes and split
+# synthetic fixtures, never a credential). gitleaks still scans it.
+!contracts/pkm/secret-patterns.v1.json
 
 # Standard Python ignores
 __pycache__/

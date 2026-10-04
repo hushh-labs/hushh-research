@@ -460,7 +460,7 @@ describe("pasted text editor", () => {
     expect(replaceTextAttachmentForResend(sent, 0, "  \n")).toBeNull();
   });
 
-  it("screens a resent paste with the same card-number guard as a fresh one", () => {
+  it("screens a resent paste with the same secret guard as a fresh one", () => {
     const source = readFileSync(
       join(process.cwd(), "components/agent/agent-chat-workspace.tsx"),
       "utf8",
@@ -473,9 +473,11 @@ describe("pasted text editor", () => {
       source.indexOf("const resendTextAttachment = "),
       source.indexOf("const handleSubmit = async"),
     );
-    expect(guard).toContain("redactLikelyPans(item.text)");
-    expect(guard).toContain("detectLikelyPan(submittedText)");
-    expect(guard).toContain("enqueuePrompt(submittedText");
+    // Typed text and every pasted attachment are kept in Secrets and replaced
+    // by placeholders before the turn is queued.
+    expect(guard).toContain("keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)])");
+    expect(guard.indexOf("keepSecretsFromTurn(")).toBeLessThan(guard.indexOf("enqueuePrompt(submittedText"));
+    expect(guard).toContain("createAgentTextAttachment(attachmentTexts[index]");
     expect(resend).toContain("enqueueGuardedTurn({");
     expect(resend).not.toContain("enqueuePrompt(");
     expect(resend).not.toMatch(/setMessages|updateMessage/);

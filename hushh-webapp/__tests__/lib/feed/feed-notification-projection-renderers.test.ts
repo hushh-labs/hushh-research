@@ -31,6 +31,41 @@ describe("notification-backed Feed projection renderers", () => {
     expect(JSON.stringify(presented)).not.toContain("private plaintext");
     expect(presentFeedItem(feedItem("location_circle_message", { circle_id: "invalid" })).href).toBeNull();
   });
+  it("renders a recipient Direct Message preview with only the canonical inbox route", () => {
+    const conversationId = "11111111-2222-4333-8444-555555555555";
+    const presented = presentFeedItem(
+      feedItem(
+        "direct_message_received",
+        {
+          counterpart_label: "Rohan",
+          direct_message_conversation_id: conversationId,
+          message_preview: "hi",
+          request_url: "https://evil.example/steal",
+        },
+        "connections",
+      ),
+    );
+
+    expect(presented.domainLabel).toBe("Messages");
+    expect(presented.label).toBe("Rohan");
+    expect(presented.description).toBe("hi");
+    expect(presented.href).toBe(`/one/messages?conversation=${conversationId}`);
+
+    const fallback = presentFeedItem(
+      feedItem(
+        "direct_message_received",
+        {
+          message: "private body must not be promoted",
+          request_url: "https://evil.example/steal",
+          direct_message_conversation_id: "not-a-uuid",
+        },
+        "connections",
+      ),
+    );
+    expect(fallback.description).toBe("Sent you a message");
+    expect(fallback.href).toBe("/one/messages");
+    expect(JSON.stringify(fallback)).not.toContain("private body");
+  });
   it.each([
     ["location_share_created", "recipient", {}],
     ["location_share_created", "recipient", { duration_mode: "until_stopped" }],

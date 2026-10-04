@@ -14,6 +14,8 @@ FRONTEND_TESTS=(
   "__tests__/services/pkm-historical-rehearsal.test.ts"
   "__tests__/services/financial-v7-reader-compatibility.test.ts"
   "__tests__/services/pkm-domain-resource.test.ts"
+  "__tests__/lib/pkm/reserved-branches.test.ts"
+  "__tests__/api/pkm/proxy-route.test.ts"
 )
 
 BACKEND_TESTS=(
@@ -24,6 +26,8 @@ BACKEND_TESTS=(
   "tests/test_active_pkm_shape_audit.py"
   "tests/test_offline_db.py"
   "tests/services/test_pkm_service_store_domain_data.py"
+  "tests/test_reserved_branches.py"
+  "tests/test_domain_contracts.py"
 )
 
 echo "== PKM Upgrade Gate =="

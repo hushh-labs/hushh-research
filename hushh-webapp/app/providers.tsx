@@ -106,6 +106,7 @@ import { AgentConsentContinuationNotifier } from "@/components/agent/agent-conse
 import { AgentFeedAttentionNotifier } from "@/components/agent/agent-feed-attention-notifier";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
+import { BootRouteCommitted } from "@/components/app-ui/boot-surface";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -636,6 +637,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <SiriOneRequestHandoff />
                   <SiriOneActionHandoff />
                   <SiriOneEntityIndexPublisher />
+                  {/* Proof for the boot surface that the route tree has
+                      committed: after it, an empty set of guard claims means
+                      there is nothing left to wait for. */}
+                  <BootRouteCommitted />
                   <NativeTestRouter />
                   <NativeTestBootstrap />
                   <NativeTestRouteStatus />

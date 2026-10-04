@@ -264,7 +264,6 @@
       ],
       "agent_ids": [
         "agent_kai",
-        "agent_financial_guard",
         "agent_portfolio_import"
       ],
       "table_family_ids": [
