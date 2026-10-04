@@ -189,6 +189,16 @@ update. These measurements identify usability debt, not a latency guarantee.
 The latest candidate probe confirms one global ADK 429; no sustained provider
 429 rate or sustainable capacity envelope is available.
 
+The 2026-10-04 integration of `main` (`81002fb50`), the ADK branch and the Azure
+owner-cloud branch re-recorded the baseline under
+`review.integration_2026_10_04`. Budgets are unchanged. Of 298 new or worsened
+findings, 296 come from code in `main` or the ADK branch, which carry no size
+ratchet. Two Azure-side files were already over budget and grew:
+`scripts/deploy/backend-deploy.sh` (929 to 951 lines, the account-deletion and
+direct-message settings ported from `main`'s Cloud Build step) and
+`byoc-cloud-setup-page.tsx` (782 to 793 lines, the popup sign-in work). The
+ratchet passes against the new baseline.
+
 ### Dev connection-budget correction
 
 Live database readback found 92 idle clients against 100 total slots, with three
