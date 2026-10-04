@@ -9,11 +9,16 @@ requirement, not an optimization afterthought. Every row is resolved through
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import text
 
 from db.db_client import get_db_connection
+from hushh_mcp.operons.referral_scoring.points import (
+    current_streak_progress,
+    is_within_a_flash_window,
+)
 from hushh_mcp.services.one_referral_circle_service import get_team_rankings
 from hushh_mcp.services.one_referral_display_handle_service import (
     ANONYMOUS_PLACEHOLDER,
@@ -169,4 +174,65 @@ def get_milestone_progress(user_id: str, *, settings_milestones: list) -> dict:
         "lifetime_qualified_count": lifetime_count,
         "earned": earned,
         "next_milestone": next_milestone,
+    }
+
+
+def _soonest_ending_active_window(now: datetime, flash_windows: list) -> datetime | None:
+    soonest: datetime | None = None
+    for window in flash_windows or []:
+        if not isinstance(window, dict):
+            continue
+        try:
+            start = datetime.fromisoformat(str(window.get("start")))
+            end = datetime.fromisoformat(str(window.get("end")))
+        except ValueError:
+            continue
+        if start.tzinfo is None or end.tzinfo is None or end <= start:
+            continue
+        if start <= now < end and (soonest is None or end < soonest):
+            soonest = end
+    return soonest
+
+
+def get_engagement_status(user_id: str, *, flash_windows: list, program_timezone: str) -> dict:
+    """Streak progress and active flash-window status for the dashboard banner.
+
+    Display-only: never used to decide an award, which stays the worker's
+    own job. A referrer with a dead streak (a gap since their last qualifying
+    day) sees 0 here even though their already-paid history is untouched.
+    """
+    with get_db_connection() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT DISTINCT (qualified_at AT TIME ZONE :tz)::date AS qualifying_date
+                  FROM one_referral_relationships
+                 WHERE referrer_user_id = :uid
+                   AND status = 'qualified'
+                   AND qualified_at IS NOT NULL
+                """
+            ),
+            {"uid": user_id, "tz": program_timezone},
+        ).fetchall()
+
+    now = datetime.now(timezone.utc)
+    qualifying_dates = [row.qualifying_date for row in rows]
+    try:
+        today = now.astimezone(ZoneInfo(program_timezone)).date()
+    except (ZoneInfoNotFoundError, ValueError):
+        today = now.date()
+
+    return {
+        "streak": {
+            "current_run_days": current_streak_progress(qualifying_dates, today),
+            "run_length_days": 3,
+        },
+        "flash": {
+            "active": is_within_a_flash_window(now, flash_windows),
+            "ends_at": (
+                end.isoformat()
+                if (end := _soonest_ending_active_window(now, flash_windows))
+                else None
+            ),
+        },
     }

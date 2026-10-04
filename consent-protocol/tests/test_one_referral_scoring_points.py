@@ -21,6 +21,7 @@ from hushh_mcp.operons.referral_scoring.points import (
     BASE_QUALIFICATION,
     FLASH_QUALIFICATION,
     compute_streak_awards,
+    current_streak_progress,
     is_within_a_flash_window,
     points_for_qualification,
 )
@@ -182,6 +183,34 @@ def test_processing_order_does_not_affect_the_result():
     shuffled = [forward[2], forward[0], forward[5], forward[1], forward[4], forward[3]]
 
     assert compute_streak_awards(shuffled, None) == compute_streak_awards(forward, None)
+
+
+def test_current_streak_progress_with_no_history_is_zero():
+    assert current_streak_progress([], today=_d("2026-11-05")) == 0
+
+
+def test_current_streak_progress_counts_a_live_run():
+    dates = [_d("2026-11-04"), _d("2026-11-05")]
+
+    assert current_streak_progress(dates, today=_d("2026-11-05")) == 2
+
+
+def test_current_streak_progress_counts_yesterday_as_still_live():
+    dates = [_d("2026-11-04")]
+
+    assert current_streak_progress(dates, today=_d("2026-11-05")) == 1
+
+
+def test_current_streak_progress_is_zero_after_a_gap():
+    dates = [_d("2026-11-01"), _d("2026-11-02")]
+
+    assert current_streak_progress(dates, today=_d("2026-11-05")) == 0
+
+
+def test_current_streak_progress_resets_to_zero_right_after_a_completed_run():
+    dates = [_d("2026-11-01"), _d("2026-11-02"), _d("2026-11-03")]
+
+    assert current_streak_progress(dates, today=_d("2026-11-03")) == 0
 
 
 def test_weekly_award_cutoffs_do_not_reset_the_streak():

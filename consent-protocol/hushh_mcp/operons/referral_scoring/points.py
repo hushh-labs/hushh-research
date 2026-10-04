@@ -105,3 +105,32 @@ def compute_streak_awards(
                 awards.append(day)
             run_length = 0
     return awards
+
+
+def current_streak_progress(qualifying_dates: list, today: date) -> int:
+    """How many consecutive days toward the next streak bonus, right now.
+
+    A display-only read, never used for awarding: the worker's own
+    `compute_streak_awards` is the sole source of truth for that. The streak
+    is considered live only if its most recent qualifying day is today or
+    yesterday; a longer gap displays as 0 even though the historical run
+    that already completed and paid out is untouched. Weekly award cutoffs
+    never enter this calculation -- a streak crossing one keeps counting.
+    """
+    distinct_sorted = sorted(set(qualifying_dates))
+    if not distinct_sorted:
+        return 0
+    if (today - distinct_sorted[-1]) > timedelta(days=1):
+        return 0
+
+    run_length = 0
+    previous_day: date | None = None
+    for day in distinct_sorted:
+        if previous_day is not None and (day - previous_day) == timedelta(days=1):
+            run_length += 1
+        else:
+            run_length = 1
+        previous_day = day
+        if run_length == STREAK_RUN_LENGTH_DAYS:
+            run_length = 0
+    return run_length
