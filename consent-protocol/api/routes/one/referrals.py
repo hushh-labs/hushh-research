@@ -31,6 +31,7 @@ from hushh_mcp.services.one_referral_display_handle_service import (
 )
 from hushh_mcp.services.one_referral_leaderboard_service import (
     get_circle_leaderboard,
+    get_engagement_status,
     get_individual_leaderboard,
     get_milestone_progress,
 )
@@ -222,6 +223,23 @@ async def referral_milestone_progress(firebase_uid: str = Depends(require_fireba
     except ProgramSettingsUnavailable:
         raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
     return get_milestone_progress(firebase_uid, settings_milestones=settings.milestones)
+
+
+@router.get("/engagement")
+async def referral_engagement_status(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's streak progress and whether a flash window is active now.
+
+    Display-only -- an award itself is always decided by the scoring worker,
+    never by this read.
+    """
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        raise HTTPException(status_code=503, detail={"code": "REFERRAL_PROGRAM_SETTINGS_OFF"})
+    program_timezone = str(settings.weekly_schedule.get("timezone") or "").strip() or "UTC"
+    return get_engagement_status(
+        firebase_uid, flash_windows=settings.flash_windows, program_timezone=program_timezone
+    )
 
 
 # Long enough that a quiet stream is not mistaken for a dead one by any proxy in

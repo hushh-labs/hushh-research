@@ -12,7 +12,7 @@ Pins the two contracts that matter most here:
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -192,6 +192,58 @@ def test_get_milestone_progress_reports_earned_and_the_nearest_next_milestone(mo
         "reward": "hushh_backpack",
         "progress": 7,
     }
+
+
+def test_get_engagement_status_reports_live_streak_and_no_active_flash(monkeypatch):
+    conn = MagicMock()
+    conn.execute.return_value = _Result(
+        [
+            SimpleNamespace(qualifying_date=date(2026, 11, 8)),
+            SimpleNamespace(qualifying_date=date(2026, 11, 9)),
+        ]
+    )
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 9, 12, 0, tzinfo=tz or timezone.utc)
+
+    monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        status = leaderboard_service.get_engagement_status(
+            "user_a", flash_windows=[], program_timezone="UTC"
+        )
+
+    assert status["streak"]["current_run_days"] == 2
+    assert status["flash"]["active"] is False
+    assert status["flash"]["ends_at"] is None
+
+
+def test_get_engagement_status_reports_an_active_flash_window(monkeypatch):
+    conn = MagicMock()
+    conn.execute.return_value = _Result([])
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 8, 15, 0, tzinfo=tz or timezone.utc)
+
+    monkeypatch.setattr(leaderboard_service, "datetime", _FrozenDateTime)
+    windows = [
+        {
+            "start": datetime(2026, 11, 8, 12, 0, tzinfo=timezone.utc).isoformat(),
+            "end": datetime(2026, 11, 8, 18, 0, tzinfo=timezone.utc).isoformat(),
+        }
+    ]
+
+    with patch.object(leaderboard_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        status = leaderboard_service.get_engagement_status(
+            "user_a", flash_windows=windows, program_timezone="UTC"
+        )
+
+    assert status["flash"]["active"] is True
+    assert status["flash"]["ends_at"] == "2026-11-08T18:00:00+00:00"
 
 
 def test_get_milestone_progress_has_no_next_milestone_once_everything_is_earned():
