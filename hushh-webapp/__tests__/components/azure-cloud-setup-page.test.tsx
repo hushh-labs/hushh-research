@@ -156,6 +156,21 @@ describe("Connect Azure on the cloud step", () => {
     expect(mocks.assign).not.toHaveBeenCalled();
   });
 
+  it("notices a Microsoft window closed before setup started and says nothing changed", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
+    const popup = { closed: false, location: { assign: vi.fn() }, focus: vi.fn(), close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(popup as unknown as Window);
+    render(<ByocCloudSetupPage />);
+    await openOwnCloud();
+    fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    fireEvent.click(screen.getByTestId("azure-connect"));
+    await waitFor(() => expect(popup.location.assign).toHaveBeenCalledWith(SIGN_IN));
+    popup.closed = true;
+    const notice = await screen.findByTestId("azure-sign-in-notice", {}, { timeout: 3000 });
+    expect(notice).toHaveTextContent("Nothing in your subscription changed");
+    expect(screen.queryByTestId("byoc-cloud-error")).toBeNull();
+  });
+
   it("closes the popup when the hub refuses to start the sign-in", async () => {
     vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
     const popup = { closed: false, location: { assign: vi.fn() }, focus: vi.fn(), close: vi.fn() };

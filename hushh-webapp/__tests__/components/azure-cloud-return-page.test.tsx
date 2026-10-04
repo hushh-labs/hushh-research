@@ -80,11 +80,47 @@ describe("the Microsoft sign-in return", () => {
   it("sends a started setup to the cloud step's live checklist", async () => {
     complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
     render(<AzureCloudReturnPage />);
-    // No tab is listening (the same-tab flow): after the hand-off window, go there here.
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD), {
-      timeout: 3000,
-    });
+    // The person's own tab (the popup was blocked): no other tab to tell, go there now.
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD));
     expect(complete).toHaveBeenCalledWith({ code: "c0de", state: "st4te" });
+  });
+
+  it("in a popup whose Hussh tab does not answer, offers the way back instead of taking over", async () => {
+    complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
+    const opener = { focus: vi.fn() };
+    vi.stubGlobal("opener", opener);
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<AzureCloudReturnPage />);
+      await waitFor(() => expect(complete).toHaveBeenCalled());
+      // Past the popup's whole wait for an answer that never comes.
+      const back = await waitFor(
+        async () => {
+          await vi.advanceTimersByTimeAsync(1000);
+          return screen.getByTestId("azure-return-to-hussh");
+        },
+        { timeout: 15000 },
+      );
+      expect(mocks.replace).not.toHaveBeenCalled();
+      fireEvent.click(back);
+      expect(opener.focus).toHaveBeenCalled();
+      expect(close).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+      close.mockRestore();
+    }
+  });
+
+  it("restarts the sign-in inside the popup, never opening a second window", async () => {
+    mocks.search.value = "error=access_denied";
+    const open = vi.spyOn(window, "open");
+    render(<AzureCloudReturnPage />);
+    fireEvent.click(await screen.findByTestId("azure-return-retry"));
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(SIGN_IN));
+    expect(open).not.toHaveBeenCalled();
+    open.mockRestore();
   });
 
   it("follows an identified account to the Azure sign-in in its own directory", async () => {
@@ -98,6 +134,7 @@ describe("the Microsoft sign-in return", () => {
 
   it("in the popup, hands a started setup to the tab that opened it and closes", async () => {
     complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
+    vi.stubGlobal("opener", { focus: vi.fn() });
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
     const opener = new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
     const heard: unknown[] = [];
@@ -116,6 +153,7 @@ describe("the Microsoft sign-in return", () => {
     } finally {
       opener.close();
       close.mockRestore();
+      vi.unstubAllGlobals();
     }
   });
 
@@ -126,7 +164,7 @@ describe("the Microsoft sign-in return", () => {
         <AzureCloudReturnPage />
       </StrictMode>,
     );
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalled(), { timeout: 3000 });
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
     expect(complete).toHaveBeenCalledOnce();
   });
 

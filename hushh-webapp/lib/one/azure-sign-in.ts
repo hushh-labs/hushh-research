@@ -91,26 +91,64 @@ function signInChannel(): BroadcastChannel | null {
   return typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
 }
 
+/** Re-announce this often until the opening tab answers (a busy tab answers late). */
+const ANNOUNCE_EVERY_MS = 400;
 /**
- * The return page, finished, tells the tab that opened the sign-in. Resolves
- * `true` once that tab acknowledges, so the popup can close; `false` when no
- * tab is listening (the same-tab flow), so the return page carries on itself.
+ * How long a popup waits for its opening tab. One second was too short on a loaded
+ * machine: the tab answered late, the popup concluded nobody was listening and took
+ * over the setup inside itself (founder-hit 2026-10-04, with the Mac at load 25).
  */
-export function announceAzureSetupStarted(timeoutMs = 1000): Promise<boolean> {
+export const ANNOUNCE_WAIT_MS = 8000;
+
+/**
+ * The return page, finished, tells the tab that opened the sign-in, repeating until
+ * that tab acknowledges. Resolves `true` on the acknowledgement, so the popup can
+ * close; `false` when no tab answered within `timeoutMs`.
+ */
+export function announceAzureSetupStarted(timeoutMs = ANNOUNCE_WAIT_MS): Promise<boolean> {
   const channel = signInChannel();
   if (!channel) return Promise.resolve(false);
   return new Promise((resolve) => {
+    const announce = () =>
+      channel.postMessage({ type: "azure-setup-started" } satisfies AzureSignInMessage);
     const done = (acked: boolean) => {
       clearTimeout(timer);
+      clearInterval(repeat);
       channel.close();
       resolve(acked);
     };
     const timer = setTimeout(() => done(false), timeoutMs);
+    const repeat = setInterval(announce, ANNOUNCE_EVERY_MS);
     channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
       if (event.data?.type === "azure-setup-ack") done(true);
     };
-    channel.postMessage({ type: "azure-setup-started" } satisfies AzureSignInMessage);
+    announce();
   });
+}
+
+/**
+ * Whether this page is the Microsoft sign-in popup, still attached to the tab that
+ * opened it. Microsoft's pages set `Cross-Origin-Opener-Policy` in report-only mode
+ * (measured 2026-10-04), so the opener survives the round trip; if a browser ever
+ * severs it, this reads `false` and the return page behaves like a normal tab.
+ */
+export function isSignInPopup(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return Boolean(window.opener) && window.opener !== window;
+  } catch {
+    return false;
+  }
+}
+
+/** Bring the tab that opened the popup forward, best effort, then close the popup. */
+export function returnToOpener(): void {
+  try {
+    (window.opener as Window | null)?.focus();
+  } catch {
+    // A severed or cross-origin opener cannot be focused; closing is still right.
+  }
+  window.close();
 }
 
 /** The opening tab hears the popup finish, acknowledges, and refreshes its own view. */
@@ -124,6 +162,7 @@ export function useAzureSetupStartedSignal(onStarted: () => void): void {
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
       if (event.data?.type !== "azure-setup-started") return;
+      // Acknowledge every repeat (the popup closes on the first it hears) but act once.
       channel.postMessage({ type: "azure-setup-ack" } satisfies AzureSignInMessage);
       latest.current();
     };
@@ -170,31 +209,79 @@ export function azureRetryKind(
     : "setup";
 }
 
-/** Shared UI state for a button that starts the Microsoft sign-in. */
-export function useAzureSignIn() {
+const POPUP_WATCH_MS = 500;
+export const POPUP_CLOSED_NOTICE =
+  "The Microsoft window closed before setup started. Nothing in your subscription changed.";
+
+/**
+ * Shared UI state for a button that starts the Microsoft sign-in.
+ *
+ * `inPlace` keeps the sign-in in this window: the return page passes it, because it
+ * already IS the popup, and opening another from it stacked a second window.
+ */
+export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) {
   const inFlight = useRef(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const watch = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const start = useCallback(async (kind: AzureSignInKind, subscriptionId?: string) => {
-    if (inFlight.current) return;
-    inFlight.current = true;
-    setStarting(true);
+  const stopWatching = useCallback(() => {
+    if (watch.current) clearInterval(watch.current);
+    watch.current = null;
+  }, []);
+  useEffect(() => stopWatching, [stopWatching]);
+
+  // A popup closed before setup started (the person closed it, or Microsoft stopped
+  // them on its own page) leaves this tab waiting forever unless it notices.
+  const watchPopup = useCallback(
+    (popup: Window) => {
+      stopWatching();
+      const channel = signInChannel();
+      let handedOff = false;
+      if (channel) {
+        channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
+          if (event.data?.type === "azure-setup-started") handedOff = true;
+        };
+      }
+      watch.current = setInterval(() => {
+        if (!popup.closed && !handedOff) return;
+        stopWatching();
+        channel?.close();
+        if (!handedOff) setNotice(POPUP_CLOSED_NOTICE);
+      }, POPUP_WATCH_MS);
+    },
+    [stopWatching],
+  );
+
+  const start = useCallback(
+    async (kind: AzureSignInKind, subscriptionId?: string) => {
+      if (inFlight.current) return;
+      inFlight.current = true;
+      setStarting(true);
+      setError(null);
+      setNotice(null);
+      // Setup signs in beside the app; the popup must open before the first await.
+      const popup =
+        kind === "setup" && !inPlace && isAzureSignInAvailable() ? openSignInPopup() : null;
+      try {
+        await startAzureSignIn(kind, subscriptionId, popup);
+        if (popup && !popup.closed) watchPopup(popup);
+      } catch (cause) {
+        popup?.close();
+        setError(azureSignInErrorMessage(cause, kind));
+      } finally {
+        inFlight.current = false;
+        setStarting(false);
+      }
+    },
+    [inPlace, watchPopup],
+  );
+
+  const clearError = useCallback(() => {
     setError(null);
-    // Setup signs in beside the app; the popup must open before the first await.
-    const popup = kind === "setup" && isAzureSignInAvailable() ? openSignInPopup() : null;
-    try {
-      await startAzureSignIn(kind, subscriptionId, popup);
-    } catch (cause) {
-      popup?.close();
-      setError(azureSignInErrorMessage(cause, kind));
-    } finally {
-      inFlight.current = false;
-      setStarting(false);
-    }
+    setNotice(null);
   }, []);
 
-  const clearError = useCallback(() => setError(null), []);
-
-  return { start, starting, error, clearError };
+  return { start, starting, error, notice, clearError };
 }
