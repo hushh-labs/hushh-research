@@ -12,6 +12,8 @@ flowchart TD
   root --> n2
   n3["Profile Management Design Rules"]
   root --> n3
+  n4["iOS Native Controls And Liquid Glass"]
+  root --> n4
 ```
 
 Frontend and native-client implementation references for the webapp package.
@@ -35,6 +37,7 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
 | [one-location-now-and-map.md](./one-location-now-and-map.md) | One Location "now" surface and immersive map behavior |
 | [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
+| [ios-native-surface-adoption.md](./ios-native-surface-adoption.md) | Source-backed native-control inventory, Liquid Glass candidates, fallback boundaries and physical verification limits |
 
 ## Source Tree Indexes
 

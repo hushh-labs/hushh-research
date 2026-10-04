@@ -23,7 +23,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
-import { ChevronRight, X } from "@/components/icons";
+import { CheckCircle2, ChevronRight, X } from "@/components/icons";
 
 import { ConnectorBrandMark } from "@/components/agent/connector-brand-mark";
 import type { ChatOnboardingController } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
@@ -187,11 +187,20 @@ export function ChatOnboardingChips({
 function ConnectActionButton({
   action,
   onConnect,
+  gmailConnected,
 }: {
   action: ChatOnboardingConnectAction;
   onConnect: (action: ChatOnboardingConnectAction, trigger: HTMLButtonElement) => void;
+  gmailConnected: boolean;
 }) {
   const brand = action.kind === "connector" ? action.provider : null;
+  if (brand === "gmail" && gmailConnected) {
+    return <div role="status" className="mt-1 flex min-h-11 items-center gap-2.5 px-1 text-sm text-muted-foreground">
+      <ConnectorBrandMark brand="gmail" size="sm" className="size-4" />
+      <span>Gmail connected</span>
+      <CheckCircle2 className="size-4 text-[color:var(--app-accent-deep)]" aria-hidden="true" />
+    </div>;
+  }
   return (
     <div className="mt-1 px-1">
       <button
@@ -223,6 +232,7 @@ function OnboardingTurnView({
   onShown,
   onChip,
   onConnect,
+  gmailConnected,
 }: {
   turn: ChatOnboardingTurn;
   animate: boolean;
@@ -236,6 +246,7 @@ function OnboardingTurnView({
   onShown: (turnId: string, timeLabel: string, shownAtMs?: number) => void;
   onChip: (chipId: ChatOnboardingChipId) => void;
   onConnect: (action: ChatOnboardingConnectAction, trigger: HTMLButtonElement) => void;
+  gmailConnected: boolean;
 }) {
   const typed = animate && turn.role === "assistant";
   const [phase, setPhase] = useState<"waiting" | "streaming" | "done">(
@@ -282,7 +293,7 @@ function OnboardingTurnView({
         renderAsPlainAssistantMessage: true,
       })}
       {extrasReady && turn.action ? (
-        <ConnectActionButton action={turn.action} onConnect={onConnect} />
+        <ConnectActionButton action={turn.action} onConnect={onConnect} gmailConnected={gmailConnected} />
       ) : null}
       {extrasReady && chipsLive && turn.chips?.length ? (
         <ChatOnboardingChips
@@ -302,11 +313,13 @@ export function ChatOnboardingTurns({
   slot,
   renderBubble,
   onConnect,
+  gmailConnected = false,
 }: {
   controller: ChatOnboardingController;
   slot: ChatOnboardingSlot;
   renderBubble: (message: ChatOnboardingBubbleMessage) => ReactNode;
   onConnect: (action: ChatOnboardingConnectAction, trigger: HTMLButtonElement) => void;
+  gmailConnected?: boolean;
 }) {
   const turns = turnsForSlot(controller.turns, slot);
   // Keyboard continuity: after a chip is chosen, focus moves to the next set.
@@ -337,6 +350,7 @@ export function ChatOnboardingTurns({
           controller.onChip(chipId);
         }}
         onConnect={onConnect}
+        gmailConnected={gmailConnected}
       />
     );
   });

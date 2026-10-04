@@ -116,7 +116,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(bottomShell).toContain("--app-bottom-shell-height");
     expect(bottomShell).not.toContain("xl:hidden");
     expect(navbar).toContain("shellNavigationHidden = false");
-    expect(navbar).toContain("if (shellNavigationHidden || hideNavbar)");
+    // The shell's own hide wins first; native tabs (7c1047002) extended the same guard.
+    expect(navbar).toMatch(/if \(shellNavigationHidden \|\| hideNavbar\b/);
     expect(navbar).toContain("data-ambient-chrome-ignore");
     expect(agentBar).toContain("data-ambient-chrome-ignore");
     const globalStyles = read("app/globals.css");
@@ -146,7 +147,8 @@ describe("Navbar bottom chrome contract", () => {
       "const foundationVoiceOnlyChrome = isFoundationRoute && !isAuthenticated;",
     );
     expect(providers).toMatch(
-      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome;/,
+      // Native tabs pin the web chrome too (7c1047002): the platform bar owns that edge.
+      /const pinnedBottomChrome\s*=\s*isRiaRoute\(pathname\)\s*\|\|\s*foundationVoiceOnlyChrome(?:\s*\|\|\s*nativeNavigationInstalled)?;/,
     );
     expect(providers).toMatch(
       /navigationHidden:\s*hideBottomNavigation,/,

@@ -38,6 +38,8 @@ let documentId: string | undefined;
 function privacyDocumentId(): string {
   return documentId ??= crypto.randomUUID();
 }
+// Share non-secret document metadata without changing the privacy acknowledgement entrypoints.
+export { privacyDocumentId as nativeDocumentId };
 
 const WEB_STATE: NativeSessionPrivacyState = Object.freeze({
   shielded: false,

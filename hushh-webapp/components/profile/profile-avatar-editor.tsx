@@ -11,6 +11,8 @@ import {
 } from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   Sheet,
   SheetContent,
@@ -46,6 +48,7 @@ export function ProfileAvatarEditor() {
   const { user } = useAuth();
   const photo = useEffectiveAvatarUrl();
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [photoOpen, setPhotoOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [previewPhoto, setPreviewPhoto] = useState<string | null>(null);
 
@@ -139,9 +142,9 @@ export function ProfileAvatarEditor() {
         <button
           type="button"
           data-profile-avatar-display="true"
-          onClick={() => setSheetOpen(true)}
+          onClick={() => shownPhoto ? setPhotoOpen(true) : setSheetOpen(true)}
           disabled={busy}
-          aria-label="Profile photo options"
+          aria-label={shownPhoto ? "View profile photo" : "Profile photo options"}
           className="group flex h-full w-full items-center justify-center rounded-full outline-none transition duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
         >
           {shownPhoto ? (
@@ -188,6 +191,20 @@ export function ProfileAvatarEditor() {
           )}
         </button>
       </div>
+
+      <Dialog modal open={photoOpen && Boolean(shownPhoto)} onOpenChange={setPhotoOpen}>
+        <DialogContent className="w-[min(90vw,32rem)] gap-3 p-4 pt-12" srDescription="Full profile photo">
+          <DialogTitle className="sr-only">Profile photo</DialogTitle>
+          {shownPhoto ? (
+            <Image src={shownPhoto} alt={displayName || "Profile"} width={800} height={800}
+              sizes="(max-width: 640px) 90vw, 480px" unoptimized
+              className="max-h-[60dvh] w-full rounded-xl object-contain" />
+          ) : null}
+          <Button variant="ghost" onClick={() => { setPhotoOpen(false); setSheetOpen(true); }}>
+            Photo options
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent side="bottom" showCloseButton={false}>

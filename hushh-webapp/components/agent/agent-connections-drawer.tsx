@@ -12,6 +12,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "@/lib/utils";
+import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -74,6 +75,7 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
+  useNativeNavigationBlocked(historyOpen);
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
   useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);

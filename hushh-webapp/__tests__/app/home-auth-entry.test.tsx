@@ -86,6 +86,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import Home from "@/app/page";
+import { buildWelcomeRoute } from "@/lib/navigation/routes";
 
 describe("authenticated root entry", () => {
   beforeEach(() => {
@@ -107,7 +108,7 @@ describe("authenticated root entry", () => {
     mocks.resolveAfterLogin.mockResolvedValue("/");
   });
 
-  it("opens the guest intro only for a signed-out One invitation and continues to login", async () => {
+  it("preserves a signed-out One invitation through the public intro and login", async () => {
     mocks.user = null;
     mocks.search = "invite=one";
     render(<Home />);
@@ -123,22 +124,32 @@ describe("authenticated root entry", () => {
     "redirect=%2Fone%2Fcalendar",
     "invite=one&redirect=%2Fcircle%2Fjoin%3Fcode%3DCIRCLE1",
   ])(
-    "keeps ordinary, ambiguous, and redirected signed-out entries out of the intro (%s)",
+    "keeps the public intro reachable and preserves the sign-in destination (%s)",
     async (search) => {
       mocks.user = null;
       mocks.search = search;
       render(<Home />);
       const redirect = new URLSearchParams(search).get("redirect");
-      await waitFor(() =>
-        expect(mocks.replace).toHaveBeenCalledWith(
+      screen.getByRole("button", { name: "Welcome" }).click();
+      expect(mocks.push).toHaveBeenCalledWith(
           redirect
             ? `/login?redirect=${encodeURIComponent(redirect)}`
             : "/login",
-        ),
       );
-      expect(screen.queryByText("Welcome")).toBeNull();
+      expect(mocks.replace).not.toHaveBeenCalled();
     },
   );
+
+  it("returns from sign-in Back to the public intro without a redirect loop", () => {
+    mocks.user = null;
+    const backDestination = buildWelcomeRoute("/one/calendar");
+    mocks.search = new URL(backDestination, "https://example.test").search.slice(1);
+    render(<Home />);
+    expect(screen.getByRole("button", { name: "Welcome" })).toBeInTheDocument();
+    expect(mocks.replace).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Welcome" }).click();
+    expect(mocks.push).toHaveBeenCalledWith("/login?redirect=%2Fone%2Fcalendar");
+  });
 
   it("does not flash the guest intro while restoring an invited session", () => {
     mocks.user = null;

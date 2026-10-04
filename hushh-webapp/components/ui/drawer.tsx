@@ -5,6 +5,7 @@ import { XIcon } from "@/components/icons"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 function Drawer({
   ...props
@@ -32,8 +33,10 @@ function DrawerClose({
 
 function DrawerOverlay({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Overlay>) {
+  const overlayRef = useNativeNavigationOverlayRef(ref)
   return (
     <DrawerPrimitive.Overlay
       data-slot="drawer-overlay"
@@ -43,6 +46,7 @@ function DrawerOverlay({
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
@@ -53,6 +57,7 @@ function DrawerContent({
   showCloseButton = false,
   overlayClassName,
   overlayStyle,
+  ref,
   ...props
 }: React.ComponentProps<typeof DrawerPrimitive.Content> & {
   showCloseButton?: boolean
@@ -69,10 +74,12 @@ function DrawerContent({
    */
   overlayStyle?: React.CSSProperties
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <DrawerPortal data-slot="drawer-portal">
       <DrawerOverlay className={overlayClassName} style={overlayStyle} />
       <DrawerPrimitive.Content
+        ref={contentRef}
         data-slot="drawer-content"
         className={cn(
           "group/drawer-content bg-background fixed z-(--z-sheet) flex h-auto flex-col",

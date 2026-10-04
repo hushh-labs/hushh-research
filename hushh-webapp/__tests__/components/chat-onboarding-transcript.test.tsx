@@ -9,6 +9,13 @@ import {
 } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { clearConnectorStatus, primeConnectorStatus, useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+vi.mock("@/lib/services/gmail-receipts-service", () => ({
+  GmailReceiptsService: { getStatus: vi.fn(async () => ({
+    configured: true, connected: false, status: "disconnected", scope_csv: "",
+    auto_sync_enabled: false, revoked: false,
+  })) },
+}));
 
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({
   PkmWriteCoordinator: { saveMergedDomain: vi.fn() },
@@ -25,6 +32,7 @@ const onConnect = vi.fn();
 const bubbleCalls: { id: string; status: string; role: string }[] = [];
 
 function Harness({ messages = [] as { id: string }[] }) {
+  const gmail = useGmailConnectorStatus({ userId: "u1", enabled: false });
   const controller = useChatOnboarding({
     userId: "u1",
     displayName: "Kushal",
@@ -47,6 +55,7 @@ function Harness({ messages = [] as { id: string }[] }) {
           return <AgentBubble message={message} />;
         }}
         onConnect={onConnect}
+        gmailConnected={Boolean(gmail.status?.connected && !gmail.status.revoked && !gmail.status.needs_reauth)}
       />
       <output data-testid="capture">{String(controller.composerPlaceholder)}</output>
       <button type="button" onClick={() => controller.captureComposerText("What's on my calendar?")}>
@@ -77,6 +86,7 @@ function assistantBubbles() {
 }
 
 beforeEach(() => {
+  clearConnectorStatus("u1");
   useChatOnboardingSession.getState().reset(null);
   vi.mocked(PreVaultUserStateService.bootstrapState).mockResolvedValue(
     { oneChatOnboarding: null } as Awaited<ReturnType<typeof PreVaultUserStateService.bootstrapState>>,
@@ -158,6 +168,23 @@ describe("onboarding conversation", () => {
       { kind: "connector", provider: "gmail", label: "Connect Gmail" },
       connect,
     );
+
+    // The shared OAuth result changes the transcript without a reload or
+    // advancing onboarding/Memory merely because the connection succeeded.
+    act(() => primeConnectorStatus({ userId: "u1", source: "oauth_return", status: {
+      configured: true, connected: true, status: "connected", scope_csv: "gmail.readonly",
+      auto_sync_enabled: false, revoked: false,
+    } }));
+    expect(await screen.findByText("Gmail connected")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Connect Gmail" })).toBeNull();
+    expect(PkmWriteCoordinator.saveMergedDomain).not.toHaveBeenCalled();
+
+    act(() => primeConnectorStatus({ userId: "u1", source: "status", status: {
+      configured: true, connected: false, status: "disconnected", scope_csv: "",
+      auto_sync_enabled: false, revoked: true,
+    } }));
+    expect(await screen.findByRole("button", { name: "Connect Gmail" })).toBeInTheDocument();
+    expect(screen.queryByText("Gmail connected")).toBeNull();
 
     fireEvent.click(await screen.findByRole("button", { name: "Short and direct" }));
     await screen.findByRole("button", { name: "Save to memory" });

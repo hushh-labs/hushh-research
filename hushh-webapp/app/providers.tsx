@@ -74,6 +74,7 @@ import { OnboardingJourneyGuard } from "@/components/onboarding/onboarding-journ
 import { KaiCommandBarGlobal } from "@/components/kai/kai-command-bar-global";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { Capacitor } from "@capacitor/core";
+import { useNativeNavigationInstalled } from "@/lib/capacitor/native-navigation";
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
 import {
   resetKaiBottomChromeVisibility,
@@ -398,7 +399,9 @@ function AppShellFrame({ children }: ProvidersProps) {
     effectiveHideCommandBar || foundationVoiceOnlyChrome;
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
-  const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome;
+  const nativeNavigationInstalled = useNativeNavigationInstalled();
+  // Native tabs and the web voice slot stay pinned together; no per-frame bridge traffic.
+  const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome || nativeNavigationInstalled;
   // Stable identity: AppShellFrame re-renders on every pathname and query
   // change, and a fresh model object each time re-rendered the whole bottom
   // chrome (navbar, agent bar, masks) on every tab switch.
@@ -693,7 +696,9 @@ function AppShellFrame({ children }: ProvidersProps) {
                       {!hidesPersistentChrome && !isCanonicalChatRoute ? (
                         <AppTopShell model={topShellModel} />
                       ) : null}
-                      {!hidesPersistentChrome && !effectiveHideCommandBar && !isCanonicalChatRoute ? (
+                      {/* Search is requested from bottom navigation even on
+                          Chat; the closed palette adds no idle shell chrome. */}
+                      {!hidesPersistentChrome && !effectiveHideCommandBar ? (
                         <KaiCommandBarGlobal />
                       ) : null}
                       <Suspense

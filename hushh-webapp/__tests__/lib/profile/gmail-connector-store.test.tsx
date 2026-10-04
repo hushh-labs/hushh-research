@@ -283,6 +283,11 @@ describe("gmail-connector-store", () => {
       expect(GmailReceiptsService.getStatus).toHaveBeenCalled();
       expect(result.current.status?.google_email).toBe("fallback@hushh.ai");
     });
+    expect(GmailReceiptsService.getStatus).toHaveBeenCalledWith({
+      idToken: "id-token",
+      userId: "user-hook",
+      force: true,
+    });
   });
 
   it("backs off automatic status retries after a failure while allowing an explicit retry", async () => {
@@ -329,7 +334,7 @@ describe("gmail-connector-store", () => {
   });
 
   it("uses a fresh persisted-status read when an OAuth popup closes", async () => {
-    vi.mocked(GmailReceiptsService.getStatus).mockResolvedValue({
+    const connected = {
       configured: true,
       connected: true,
       status: "connected",
@@ -342,7 +347,12 @@ describe("gmail-connector-store", () => {
       bootstrap_state: "completed",
       watch_status: "active",
       needs_reauth: false,
-    } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>);
+    } as Awaited<ReturnType<typeof GmailReceiptsService.getStatus>>;
+    // The service's short-lived cache can still hold the pre-OAuth result.
+    // Only forwarding force bypasses it and observes the committed connection.
+    vi.mocked(GmailReceiptsService.getStatus).mockImplementation(async ({ force }) =>
+      force ? connected : { ...connected, connected: false, status: "disconnected" },
+    );
 
     const { result } = renderHook(() =>
       useGmailConnectorStatus({
@@ -353,6 +363,7 @@ describe("gmail-connector-store", () => {
     );
 
     await waitFor(() => expect(GmailReceiptsService.getStatus).toHaveBeenCalled());
+    expect(result.current.status?.connected).toBe(false);
     vi.mocked(GmailReceiptsService.getStatus).mockClear();
 
     await act(async () => {
@@ -362,7 +373,9 @@ describe("gmail-connector-store", () => {
     expect(GmailReceiptsService.getStatus).toHaveBeenCalledWith({
       idToken: "id-token",
       userId: "user-popup-recovery",
+      force: true,
     });
+    expect(result.current.status?.connected).toBe(true);
     expect(GmailReceiptsService.reconcile).not.toHaveBeenCalled();
   });
 

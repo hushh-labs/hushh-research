@@ -3,6 +3,10 @@ import { createRoot } from "react-dom/client";
 
 import { CHAT_USER_BUBBLE_CLASSNAME } from "../../components/agent/chat-message-styles";
 import {
+  AgentFollowUpSuggestions,
+  AgentSuggestionList,
+} from "../../components/agent/agent-follow-up-suggestions";
+import {
   ChatOnboardingDailyTip,
   ChatOnboardingTurns,
 } from "../../components/agent/chat-onboarding/chat-onboarding-transcript";
@@ -60,6 +64,12 @@ function Harness() {
   return (
     <main className="min-h-dvh bg-background px-4 pt-5 text-foreground sm:px-6 lg:px-8">
       <div data-testid="transcript" className="mx-auto flex w-full max-w-4xl flex-col gap-6">
+        <AgentSuggestionList
+          suggestions={["What can One help with?", "Help me prepare for tomorrow with a short plan that I can review and edit before using it"]}
+          label="Start a conversation"
+          testId="agent-prompt-suggestions"
+          onSelect={() => undefined}
+        />
         <ChatOnboardingTurns
           controller={controller}
           slot={{ kind: "top" }}
@@ -84,6 +94,10 @@ function Harness() {
             </div>
           )}
           onConnect={() => undefined}
+        />
+        <AgentFollowUpSuggestions
+          suggestions={["Show my connected apps", "Help me prepare for tomorrow with a short plan that I can review and edit before using it"]}
+          onSelect={() => undefined}
         />
         {tipOpen ? (
           <ChatOnboardingDailyTip

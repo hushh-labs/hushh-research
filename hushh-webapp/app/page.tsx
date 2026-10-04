@@ -59,7 +59,7 @@ function HomeContent() {
     user && isVaultUnlocked && !hasExplicitRedirect,
   );
 
-  // Debug helper uses the same invitation-only entry as a shared link.
+  // Debug helper opens the public introduction with the One invitation context.
   useEffect(() => {
     if (process.env.NODE_ENV === "production") return;
     if (typeof window === "undefined") return;
@@ -73,19 +73,6 @@ function HomeContent() {
       delete (window as any).resetOnboardingMarketing;
     };
   }, [router]);
-
-  useEffect(() => {
-    if (loading || user || sessionVerificationRequired || isOneInvitation)
-      return;
-    replace(loginUrl);
-  }, [
-    isOneInvitation,
-    loading,
-    loginUrl,
-    replace,
-    sessionVerificationRequired,
-    user,
-  ]);
 
   useEffect(() => {
     if (loading || sessionVerificationRequired || !user?.uid) {
@@ -155,12 +142,11 @@ function HomeContent() {
     user?.uid,
   ]);
 
-  if (loading || (!user && !isOneInvitation && !sessionVerificationRequired)) {
+  if (loading) {
     return (
       <HushhLoader
-        stage={loading ? "session" : "redirect"}
+        stage="session"
         label="Preparing welcome…"
-        holdThroughNavigation={!loading}
       />
     );
   }
@@ -212,21 +198,17 @@ function HomeContent() {
     );
   }
 
-  if (isOneInvitation) {
-    return (
+  return (
       <>
         <NativeTestBeacon
           routeId="/"
           marker="native-route-home"
-          authState={user ? "authenticated" : "anonymous"}
+          authState="anonymous"
           dataState="loaded"
         />
         <IntroStep onLogin={() => router.push(loginUrl)} />
       </>
-    );
-  }
-
-  return null;
+  );
 }
 
 export default function Home() {

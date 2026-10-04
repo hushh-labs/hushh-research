@@ -34,7 +34,10 @@ three screens before sign-in controls appear; progress dots revisit only seen
 screens. The final account action opens sign-in with the original invitation
 as its internal redirect target. Already-authenticated recipients skip this
 introduction and use the existing invitation confirmation and prerequisites.
-An ordinary signed-out visit to `/` goes to `/login`, without the guest tour.
+An ordinary signed-out visit to `/` shows the public Claim your One introduction,
+not an automatic login redirect. Its account action opens `/login` with the
+validated destination preserved; login Back returns to this public entry.
+Session-recovery and already-authenticated admission guards remain separate.
 The generic Invite to One share URL carries `invite=one` only as a presentation
 marker; it is not an invite token and grants no connection or Circle authority.
 

@@ -18,6 +18,42 @@ These docs describe the mobile side of the platform's `Separation of Duties`: on
 
 Within the seven-layer platform architecture, mobile is the main Layer 6 and Layer 7 delivery surface.
 
+## iOS Native Bottom Navigation
+
+The iOS 26+ wrapper uses Apple's standard `UITabBar` through
+`HushhNativeNavigation`. This fits the existing UIKit Capacitor host; it does
+not require replacing the app with SwiftUI or creating one WebView per tab.
+Web, Android, older iOS versions and wrappers without this plugin retain the
+shared web navigation. Native installation must acknowledge before DOM tabs
+are replaced by a measured layout reservation.
+
+React's `app-bottom-nav.ts` remains the routing authority for Chat, One,
+Connect, Feed and Search. Native taps carry only an allowlisted tab identity,
+document identity, interaction epoch and ordered tap sequence; Search still opens the existing command
+palette. Credentials, owner information and destination URLs do not cross
+this presentation bridge. Stale state updates and retired documents cannot act;
+each tap is confirmed against native privacy generation and current visibility.
+Presentation-only revisions (selection, theme or badge changes) do not discard
+the final tap. Failed provisional loads do not retire the surviving document.
+
+Native controls are hidden and accessibility-isolated under mounted shared
+overlays, session/vault gates, the keyboard and the native privacy shield.
+The native bar and web voice slot stay pinned together without per-frame
+bridge traffic. The DOM reservation excludes the native home-indicator inset;
+the existing shared bottom shell reserves the reported native inset once, not
+the web fallback's compact inset. Custom persistent Chat history publishes its
+authored open state; default non-modal dialog contents also isolate native tabs.
+
+Verification: `npm run verify:capacitor:plugins`,
+`npx vitest run __tests__/capacitor/native-navigation.test.tsx`,
+`AppTests/NativeSupportTests/testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates`,
+and the opt-in attach-only
+`AppUITests/AppUITests/testLocalSessionNativeTabsKeepTheSessionAndRespectOverlays`.
+The device journey requires an already-installed, unlocked candidate and
+`HUSHH_RUN_LOCAL_SESSION_SMOKE=true`; it supplies no credentials and never
+launches or resets One. A successful build alone does not prove visual Liquid
+Glass rendering, Voice layout, or physical-device continuity.
+
 ## Native Continuity Contract
 
 Native checks have two deliberately separate lanes:

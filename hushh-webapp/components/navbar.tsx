@@ -55,6 +55,9 @@ import {
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
+import { useTheme } from "next-themes";
+import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
+import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 function FilledSquaresFourIcon(props: PhosphorIconProps) {
   return <SquaresFour {...props} weight="fill" />;
@@ -234,6 +237,8 @@ export const Navbar = ({
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
+  const surface = useVoiceSurfaceMetadata();
+  const { resolvedTheme } = useTheme();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -437,25 +442,6 @@ export const Navbar = ({
   }, [bottomNavScope, interactionIntents, navOptions]);
   const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
 
-  if (shellNavigationHidden || hideNavbar) {
-    return null;
-  }
-
-  if (useOnboardingChrome) {
-    return null;
-  }
-
-  if (!isAuthenticated) {
-    // On the signed-out onboarding flow the theme control is infused INSIDE the
-    // agent bar (see agent-bar.tsx), so no separate top/bottom toggle renders
-    // here. Keeping the hero completely clean.
-    return null;
-  }
-
-  if (navOptions.length === 0) {
-    return null;
-  }
-
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
       toast.info("Saving to vault. Please wait until encryption completes.");
@@ -508,6 +494,22 @@ export const Navbar = ({
     }
   };
 
+  const nativeNavigation = useNativeNavigation({
+    enabled: layout === "slot",
+    visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
+      !hideNavbar && !shellNavigationHidden && !chromeSuppressed &&
+      !surface?.interactionLayer?.blocksUnderlyingActions,
+    selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
+      ? activeNav as NativeNavigationTab : "dashboard",
+    feedAttention: (pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0,
+    appearance: resolvedTheme === "dark" ? "dark" : "light",
+    onSelect: navigateTo,
+  });
+
+  if (shellNavigationHidden || hideNavbar || useOnboardingChrome || !isAuthenticated || navOptions.length === 0) {
+    return null;
+  }
+
   return (
     <nav
       data-app-bottom-nav
@@ -553,7 +555,14 @@ export const Navbar = ({
           )}
           ref={pillRef}
         >
-          <div className="w-full min-w-0 pointer-events-auto">
+          {nativeNavigation.ready ? (
+            <div
+              aria-hidden="true"
+              data-native-navigation-reservation
+              className="w-full pointer-events-none"
+              style={{ height: nativeNavigation.height }}
+            />
+          ) : <div className="w-full min-w-0 pointer-events-auto">
             <SegmentedPill
               size="default"
               layout="stacked"
@@ -571,7 +580,7 @@ export const Navbar = ({
                 "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
               )}
             />
-          </div>
+          </div>}
         </div>
       </div>
     </nav>

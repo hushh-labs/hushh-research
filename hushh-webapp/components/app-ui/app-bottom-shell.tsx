@@ -17,6 +17,7 @@ import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import { useNativeNavigationBottomInset } from "@/lib/capacitor/native-navigation";
 
 export type BottomShellModel = {
   navigationHidden: boolean;
@@ -37,6 +38,7 @@ const BOTTOM_SCROLL_TRANSFORM =
 /** Shared persistent bottom chrome: separate voice and navigation bars. */
 export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
+  const nativeBottomInset = useNativeNavigationBottomInset();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
   // A route may hide the idle launcher without interrupting a command already
@@ -97,6 +99,7 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
           controls opt back into pointer events in Navbar. */}
       <div
         ref={shellRef}
+        style={nativeBottomInset === null ? undefined : { paddingBottom: nativeBottomInset }}
         data-app-bottom-shell
         data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"

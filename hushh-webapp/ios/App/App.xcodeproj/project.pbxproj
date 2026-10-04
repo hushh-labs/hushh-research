@@ -14,6 +14,8 @@
 		39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */; };
 		3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */; };
 		5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */; };
+		5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */; };
+		5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */; };
 		5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A20000000000000001 /* HushhStreamPlugin.swift */; };
 		5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */; };
 		5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */; };
@@ -101,6 +103,8 @@
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSessionPrivacyPlugin.swift; path = Plugins/HushhSessionPrivacyPlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeNavigationPlugin.swift; path = Plugins/HushhNativeNavigationPlugin.swift; sourceTree = "<group>"; };
+		5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhNativeChromePlugin.swift; path = Plugins/HushhNativeChromePlugin.swift; sourceTree = "<group>"; };
 		5E5510A20000000000000001 /* HushhStreamPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhStreamPlugin.swift; path = Plugins/HushhStreamPlugin.swift; sourceTree = "<group>"; };
 		5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhOAuthReturnPlugin.swift; path = Plugins/HushhOAuthReturnPlugin.swift; sourceTree = "<group>"; };
 		5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhPlaidLinkPlugin.swift; path = Plugins/HushhPlaidLinkPlugin.swift; sourceTree = "<group>"; };
@@ -267,6 +271,8 @@
 				99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */,
 				2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */,
 				5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */,
+				5E5510A10000000000000003 /* HushhNativeNavigationPlugin.swift */,
+				5E5510A10000000000000005 /* HushhNativeChromePlugin.swift */,
 				5E5510A20000000000000001 /* HushhStreamPlugin.swift */,
 				5E5510A30000000000000001 /* HushhOAuthReturnPlugin.swift */,
 				5E5510A50000000000000001 /* HushhPlaidLinkPlugin.swift */,
@@ -495,6 +501,8 @@
 				A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */,
 				3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */,
 				5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */,
+				5E5510A10000000000000004 /* HushhNativeNavigationPlugin.swift in Sources */,
+				5E5510A10000000000000006 /* HushhNativeChromePlugin.swift in Sources */,
 				5E5510A20000000000000002 /* HushhStreamPlugin.swift in Sources */,
 				5E5510A30000000000000002 /* HushhOAuthReturnPlugin.swift in Sources */,
 				5E5510A50000000000000002 /* HushhPlaidLinkPlugin.swift in Sources */,

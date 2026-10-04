@@ -640,14 +640,13 @@ async function fetchStatusFromNetwork(params: {
 
   const shouldReconcile = params.reconcile ?? Boolean(params.force);
   let request: Promise<GmailConnectionStatus | null>;
-  request = (
-    shouldReconcile
-      ? GmailReceiptsService.reconcile
-      : GmailReceiptsService.getStatus
-  )({
+  const statusParams = {
     idToken: params.idToken,
     userId: normalizedUserId,
-  })
+  };
+  request = (shouldReconcile
+    ? GmailReceiptsService.reconcile(statusParams)
+    : GmailReceiptsService.getStatus({ ...statusParams, force: params.force }))
     .then((status) => {
       if (params.isCurrent && !params.isCurrent()) return null;
       primeConnectorStatus({
@@ -670,6 +669,7 @@ async function fetchStatusFromNetwork(params: {
           const fallbackStatus = await GmailReceiptsService.getStatus({
             idToken: params.idToken,
             userId: normalizedUserId,
+            force: params.force,
           });
           if (params.isCurrent && !params.isCurrent()) return null;
           primeConnectorStatus({

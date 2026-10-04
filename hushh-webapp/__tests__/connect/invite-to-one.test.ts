@@ -25,7 +25,7 @@ afterEach(() => {
 });
 
 describe("buildInviteToOneUrl", () => {
-  it("points at the invitation-only guest entry without connection authority", () => {
+  it("points at the public guest entry with invitation context but no connection authority", () => {
     // Option B, deliberately: no token, no code, no pending connection. What
     // is shared is the app, and the recipient decides for themselves.
     expect(buildInviteToOneUrl()).toBe("https://one.hushh.ai/?invite=one");

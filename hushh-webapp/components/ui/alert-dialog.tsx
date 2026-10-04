@@ -6,6 +6,7 @@ import { AlertDialog as AlertDialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 import type { ColorVariant, ComponentEffect } from "@/lib/morphy-ux/types"
 
 // Map the shadcn Button variant used by AlertDialog actions onto the closest
@@ -51,8 +52,10 @@ function AlertDialogPortal({
 
 function AlertDialogOverlay({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+  const overlayRef = useNativeNavigationOverlayRef(ref)
   return (
     <AlertDialogPrimitive.Overlay
       data-slot="alert-dialog-overlay"
@@ -62,6 +65,7 @@ function AlertDialogOverlay({
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
@@ -71,15 +75,18 @@ function AlertDialogContent({
   overlayClassName,
   size = "default",
   style,
+  ref,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm"
   overlayClassName?: string
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref)
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay className={overlayClassName} />
       <AlertDialogPrimitive.Content
+        ref={contentRef}
         data-slot="alert-dialog-content"
         data-size={size}
         // Inline as well as the class: a caller's className can override the

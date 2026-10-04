@@ -79,6 +79,11 @@ export function useSessionChromeSuppressed(): boolean {
   );
 }
 
+/** The same answer outside React, for event handlers that must not act while hidden. */
+export function isSessionChromeSuppressed(): boolean {
+  return activeSuppressionTokens.size > 0;
+}
+
 /** Test hook: drop any suppression a previous test left behind. */
 export function __resetSessionChromeSuppressionForTests(): void {
   activeSuppressionTokens.clear();

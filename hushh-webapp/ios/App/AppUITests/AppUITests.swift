@@ -24,34 +24,6 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
-    func testPhysicalDeviceAutomationCanNavigateSettingsWithoutResettingOne() throws {
-        guard ProcessInfo.processInfo.environment["HUSHH_UI_AUTOMATION_READINESS_ONLY"] == "true" else {
-            throw XCTSkip("Opt-in physical-device control check, not product acceptance")
-        }
-        let app = XCUIApplication()
-        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
-            throw XCTSkip("One must already be running; this probe must not cold-launch it")
-        }
-        // Probe the OS independently of a protected WebView. Only public
-        // Settings navigation is touched; no preference or credential changes.
-        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
-        settings.activate()
-        let general = settings.staticTexts["General"]
-        for _ in 0..<6 {
-            if general.exists { break }
-            let back = settings.navigationBars.buttons.firstMatch
-            guard back.exists else { break }
-            back.tap()
-        }
-        XCTAssertTrue(general.waitForExistence(timeout: 10), "Public Settings controls are unavailable")
-        general.tap()
-        XCTAssertTrue(settings.navigationBars["General"].waitForExistence(timeout: 10),
-                      "Native tap did not navigate to General")
-        settings.navigationBars.buttons.firstMatch.tap()
-        app.activate()
-        print("NATIVE_UI_CONTROL_READY public_settings_navigation")
-    }
-
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
         // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
         // credentials, or account mutation. It exercises the installed local
@@ -91,6 +63,168 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(close.waitForExistence(timeout: 10), "Chat drawer cannot be closed")
         close.tap()
         XCTAssertTrue(open.waitForExistence(timeout: 10), "Chat page did not resume after closing the drawer")
+    }
+
+    func testLocalSessionNativeTabsKeepTheSessionAndRespectOverlays() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in attach-only native navigation proof")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("One must already be running and unlocked; no cold launch or credential typing")
+        }
+        app.activate()
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        // WebKit exposes nested AX WebView nodes on physical iOS. Count the
+        // existing identified Capacitor host, not its accessibility descendants.
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let webView = hosts.firstMatch
+        if !bar.exists {
+            // Resume the existing presentation, not a cold route or fixture.
+            // Report only control presence: never dump the protected hierarchy.
+            for label in ["Close Profile", "Close chat history", "Close search"] {
+                let dismiss = app.buttons[label].firstMatch
+                if dismiss.exists && dismiss.isHittable { dismiss.tap() }
+            }
+            print("NATIVE_NAVIGATION_ADMISSION vault_unlock_visible=\(webView.buttons["Unlock"].exists) secure_entry_visible=\(app.secureTextFields.firstMatch.exists) google_signin_visible=\(app.buttons["Continue with Google"].exists) privacy_cover_visible=\(app.otherElements["session-privacy-shield"].exists) privacy_retry_visible=\(app.buttons["session-privacy-retry"].exists) native_chat_visible=\(app.buttons["one-native-tab-chat"].exists)")
+        }
+        XCTAssertTrue(bar.waitForExistence(timeout: 30), "The installed candidate did not expose native tabs")
+        func tab(_ name: String) -> XCUIElement { bar.buttons[name] }
+        func tap(_ name: String) {
+            XCTAssertTrue(tab(name).waitForExistence(timeout: 15) && tab(name).isHittable,
+                          "Native tab is missing or isolated")
+            tab(name).tap()
+        }
+        tap("Chat")
+        XCTAssertEqual(hosts.count, 1, "Tabs must use one identified Capacitor WebView")
+        XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
+                       "Every WebView accessibility node must belong to the same Capacitor host")
+        let history = webView.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Open chat history")).firstMatch
+        XCTAssertTrue(history.waitForExistence(timeout: 30), "Chat did not settle without another vault unlock")
+        history.tap()
+        let close = app.buttons["Close chat history"]
+        XCTAssertTrue(close.waitForExistence(timeout: 10))
+        XCTAssertFalse(bar.exists && bar.isHittable, "Native tabs escaped the web overlay")
+        close.tap()
+        tap("One")
+        XCTAssertFalse(webView.buttons["Unlock"].exists, "A tab switch lost the unlocked session")
+        tap("Connect")
+        tap("Feed")
+        tap("Chat")
+        XCTAssertTrue(history.waitForExistence(timeout: 30))
+        XCTAssertEqual(hosts.count, 1)
+        XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
+                       "Tab switching introduced another WebView host")
+        XCTAssertTrue(tab("Chat").isSelected, "Final selection did not match the settled Chat destination")
+        tap("Search")
+        // Search is the existing command palette, never a new native route.
+        let dismiss = app.buttons["Close search"].firstMatch
+        XCTAssertTrue(dismiss.waitForExistence(timeout: 10),
+                      "Native Search did not open the existing command palette")
+        XCTAssertFalse(bar.exists && bar.isHittable, "Native tabs remained accessible under Search")
+        dismiss.tap()
+        XCTAssertTrue(bar.waitForExistence(timeout: 10) && bar.isHittable)
+        print("NATIVE_NAVIGATION_CONTINUITY tabs_overlay_single_webview")
+    }
+
+    func testLocalSessionNativeBackRetiresUnderProfileAndReturnsToOne() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in Back pilot acceptance; requires the current Debug candidate")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("One must already be running and unlocked; no cold launch or credential typing")
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let webView = hosts.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 15), "The existing Capacitor host is unavailable")
+        XCTAssertFalse(webView.buttons["Unlock"].exists, "The candidate requires a normal vault unlock before warm-session proof")
+        XCTAssertFalse(app.buttons["Continue with Google"].exists, "Warm-session proof cannot substitute a new sign-in")
+        let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
+        let one = bar.buttons["One"]
+        XCTAssertTrue(one.waitForExistence(timeout: 15) && one.isHittable,
+                      "The existing session has not admitted native navigation")
+        one.tap()
+        let wallet = webView.links["Open Wallet"].firstMatch
+        XCTAssertTrue(wallet.waitForExistence(timeout: 15), "One must expose the existing Wallet route")
+        for _ in 0..<3 {
+            if wallet.isHittable { break }
+            webView.swipeUp()
+        }
+        XCTAssertTrue(wallet.isHittable)
+        wallet.tap()
+        let back = app.buttons["top-shell-back"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable,
+                      "The candidate did not admit the native Back pilot")
+        XCTAssertEqual(back.frame.width, 44, accuracy: 1)
+        XCTAssertEqual(back.frame.height, 44, accuracy: 1)
+        XCTAssertFalse(webView.buttons["Go back"].exists, "DOM and native Back must not both be accessible")
+        XCTAssertFalse(webView.buttons["Unlock"].exists, "Wallet lost the unlocked session")
+        XCTAssertEqual(hosts.count, 1)
+
+        let profile = app.buttons["Open Profile"].firstMatch
+        XCTAssertTrue(profile.exists && profile.isHittable)
+        profile.tap()
+        let close = app.buttons["Close Profile"].firstMatch
+        XCTAssertTrue(close.waitForExistence(timeout: 10) && close.isHittable)
+        let overlayRetirement = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: back)
+        XCTAssertEqual(XCTWaiter.wait(for: [overlayRetirement], timeout: 10), .completed,
+                       "Native Back remained accessible under the Profile overlay")
+        close.tap()
+        XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable)
+
+        XCUIDevice.shared.press(.home)
+        XCTAssertTrue(app.wait(for: .runningBackground, timeout: 5) || app.state == .runningBackgroundSuspended,
+                      "One did not enter the background")
+        guard [.runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("One stopped while backgrounded; the test must not cold-launch it")
+            return
+        }
+        app.activate()
+        XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable,
+                      "Back did not recover after normal background/resume")
+        XCTAssertFalse(webView.buttons["Unlock"].exists, "Resume lost the unlocked session")
+        back.tap()
+        XCTAssertTrue(wallet.waitForExistence(timeout: 15), "Back did not invoke the existing return-to-One handler")
+        let routeRetirement = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: back)
+        XCTAssertEqual(XCTWaiter.wait(for: [routeRetirement], timeout: 10), .completed,
+                       "Native Back remained accessible after returning to One")
+        XCTAssertEqual(hosts.count, 1, "Back introduced another Capacitor host")
+        XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count)
+        print("NATIVE_BACK_CONTINUITY layout_overlay_resume_existing_handler_single_host")
+    }
+
+    func testLocalSessionProfilePhotoPreviewDoesNotChangePhoto() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in profile preview proof; no credentials or photo mutation")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("One must already be running and unlocked")
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        let webView = hosts.firstMatch
+        let openProfile = app.buttons["Open Profile"].firstMatch
+        XCTAssertTrue(openProfile.waitForExistence(timeout: 15) && openProfile.isHittable)
+        openProfile.tap()
+        let photo = app.buttons["View profile photo"].firstMatch
+        XCTAssertTrue(photo.waitForExistence(timeout: 15) && photo.isHittable,
+                      "The reviewer profile must have an existing photo for this proof")
+        photo.tap()
+        XCTAssertTrue(app.buttons["Photo options"].waitForExistence(timeout: 10),
+                      "Photo preview did not open in place")
+        let close = app.buttons["Close"].firstMatch
+        XCTAssertTrue(close.exists && close.isHittable, "Photo preview lacks a close control")
+        close.tap()
+        XCTAssertTrue(photo.waitForExistence(timeout: 10), "Profile did not resume after closing preview")
+        XCTAssertEqual(hosts.count, 1, "Preview must retain the identified Capacitor WebView")
+        XCTAssertEqual(app.webViews.count, 1 + webView.webViews.count,
+                       "Photo preview introduced another WebView host")
+        XCTAssertFalse(webView.buttons["Unlock"].exists, "Preview lost the unlocked session")
+        app.buttons["Close Profile"].firstMatch.tap()
+        print("PROFILE_PHOTO_PREVIEW_CONTINUITY open_close_without_mutation")
     }
 
     func testLocalSessionMemorySwipeStopsOnAdd() throws {

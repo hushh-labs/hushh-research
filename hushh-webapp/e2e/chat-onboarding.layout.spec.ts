@@ -121,6 +121,32 @@ async function assertContract(page: Page, viewportWidth: number) {
   expect(Math.abs(connect.x - bubble.x)).toBeLessThanOrEqual(6);
   expect(connect.height).toBeGreaterThanOrEqual(44);
 
+  // Welcome and follow-up prompts share quiet, left-aligned text rows, not
+  // bordered pills. Measure the shipped component in both browser engines.
+  for (const testId of ["agent-prompt-suggestions", "agent-follow-up-suggestions"]) {
+    const prompts = page.getByTestId(testId).getByRole("button");
+    await expect(prompts).toHaveCount(2);
+    for (const geometry of await prompts.evaluateAll((nodes) => nodes.map((node) => {
+      const box = node.getBoundingClientRect();
+      const style = getComputedStyle(node);
+      return { x: box.x, right: box.right, height: box.height,
+        textAlign: style.textAlign, border: style.borderTopWidth, fill: style.backgroundColor };
+    }))) {
+      expect(Math.abs(geometry.x - bubble.x)).toBeLessThanOrEqual(6);
+      expect(geometry.right).toBeLessThanOrEqual(viewportWidth);
+      expect(geometry.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.textAlign).toBe("left");
+      expect(geometry.border).toBe("0px");
+      expect(geometry.fill).toBe("rgba(0, 0, 0, 0)");
+    }
+    if (viewportWidth < 600) {
+      expect((await prompts.last().boundingBox())!.height).toBeGreaterThan(44);
+    }
+    await prompts.first().focus();
+    await expect(prompts.first()).toBeFocused();
+    expect(await prompts.first().evaluate((node) => getComputedStyle(node).boxShadow)).not.toBe("none");
+  }
+
   // The tip's dismiss control keeps a full tap target.
   const dismiss = (await page.getByRole("button", { name: "Dismiss tip" }).boundingBox())!;
   expect(dismiss.width).toBeGreaterThanOrEqual(44);

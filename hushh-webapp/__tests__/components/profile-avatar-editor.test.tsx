@@ -45,6 +45,20 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 }));
 
 describe("ProfileAvatarEditor", () => {
+  it("previews the current photo without picking or changing it, and keeps photo options reachable", async () => {
+    avatarState.url = "data:image/jpeg;base64,current";
+    vi.mocked(pickAvatar).mockClear();
+    vi.mocked(AccountIdentityService.uploadAvatar).mockClear();
+    try {
+      render(<ProfileAvatarEditor />);
+      fireEvent.click(screen.getByRole("button", { name: "View profile photo" }));
+      expect(await screen.findByRole("dialog", { name: "Profile photo" })).toBeVisible();
+      expect(pickAvatar).not.toHaveBeenCalled();
+      expect(AccountIdentityService.uploadAvatar).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Photo options" }));
+      expect(await screen.findByRole("button", { name: /remove photo/i })).toBeVisible();
+    } finally { avatarState.url = null; }
+  });
   it("lets the camera badge pick and upload a profile photo directly", async () => {
     const imageDataUrl = "data:image/jpeg;base64,profile-photo";
     vi.mocked(pickAvatar).mockResolvedValue({ kind: "selected", dataUrl: imageDataUrl });
@@ -155,7 +169,8 @@ describe("ProfileAvatarEditor truthful settlement", () => {
       vi.mocked(morphyToast.promise).mockClear();
 
       render(<ProfileAvatarEditor />);
-      fireEvent.click(screen.getByRole("button", { name: "Profile photo options" }));
+      fireEvent.click(screen.getByRole("button", { name: "View profile photo" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Photo options" }));
       fireEvent.click(await screen.findByRole("button", { name: /remove photo/i }));
 
       await waitFor(() => expect(morphyToast.promise).toHaveBeenCalledTimes(1));

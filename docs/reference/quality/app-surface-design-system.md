@@ -435,6 +435,15 @@ Rules:
 
 The signed-in bottom navigation is a shared shell surface, not a route-local tab bar.
 
+The iOS 26+ native wrapper is the presentation exception: Apple's standard
+`UITabBar` replaces the DOM segments only after native acknowledgement. The
+same React action resolver and five-item sequence remain authoritative; web,
+Android and older wrappers retain the segmented control. The native bar and
+web voice slot remain pinned, with measured bottom clearance and one home
+inset. Shared overlay mounts, vault/session gates, keyboard and native privacy
+state must isolate native controls as well as DOM controls. See the
+[native bottom-navigation contract](../mobile/README.md#ios-native-bottom-navigation).
+
 Rules:
 
 1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.

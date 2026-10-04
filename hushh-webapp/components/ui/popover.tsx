@@ -4,6 +4,7 @@ import * as React from "react"
 import { Popover as PopoverPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 const ModalPopoverContext = React.createContext(false)
 
@@ -39,6 +40,7 @@ function PopoverContent({
 }) {
   const modal = React.useContext(ModalPopoverContext)
   const showBackdrop = withBackdrop ?? modal
+  const overlayRef = useNativeNavigationOverlayRef<HTMLDivElement>()
   return (
     <PopoverPrimitive.Portal>
       {/*
@@ -53,6 +55,7 @@ function PopoverContent({
       <>
         {showBackdrop ? (
           <div
+            ref={overlayRef}
             data-slot="popover-scrim"
             aria-hidden
             className="fixed inset-0 z-(--z-transient-scrim) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]"

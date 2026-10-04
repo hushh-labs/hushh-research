@@ -636,7 +636,6 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
-        idempotencyScope: params.idempotencyScopes?.[index],
         beforeEffect: params.beforeEffect,
         mayPublish: params.mayPublish,
         confirmation: automatic
@@ -658,9 +657,11 @@ export async function addToPKM(params: {
                   }
                 : undefined,
         },
-        idempotencyScope: params.idempotencyScope
-          ? `${params.idempotencyScope}:${cardId}`
-          : undefined,
+        // Both callers' shapes: a per-card scope (the save job) wins; otherwise one
+        // operation scope is made unique per card (profile review, location finalize).
+        idempotencyScope:
+          params.idempotencyScopes?.[index] ??
+          (params.idempotencyScope ? `${params.idempotencyScope}:${cardId}` : undefined),
         build: async (context) => {
           outcome = classifyMergeOutcome({
             existing: context?.currentDomainData ?? {},

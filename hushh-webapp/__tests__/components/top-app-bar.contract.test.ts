@@ -124,6 +124,16 @@ describe("Top app bar responsive contract", () => {
     expect(
       providers.match(/<KaiCommandBarGlobal \/>/g),
     ).toHaveLength(1);
+    // Physical iPhone regression: native Search dispatched its event, but
+    // Chat excluded the only receiver. Idle top chrome must stay separate
+    // from mounting the closed, request-driven palette.
+    const paletteHostGuard = providers.match(
+      /\{([^{}]+)\?\s*\(\s*<KaiCommandBarGlobal \/>/,
+    )?.[1];
+    expect(paletteHostGuard).toBeDefined();
+    expect(paletteHostGuard).toContain("!hidesPersistentChrome");
+    expect(paletteHostGuard).toContain("!effectiveHideCommandBar");
+    expect(paletteHostGuard).not.toContain("isCanonicalChatRoute");
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");
@@ -178,7 +188,8 @@ describe("Top app bar responsive contract", () => {
 
     expect(source).toContain("import { navigateTopShellBack }");
     expect(source).toContain("const handleTopShellBack");
-    expect(source).toContain("onClick={handleTopShellBack}");
+    expect(source).toContain("onBack={handleTopShellBack}");
+    expect(read("components/app-ui/native-shell-back.tsx")).toContain("onClick={onBack}");
     expect(back).toContain("resolveTopShellBreadcrumb");
     // An open panel or Location action closes in place; everything else is a
     // step in the trail and retraces.
@@ -206,7 +217,7 @@ describe("Top app bar responsive contract", () => {
     // the content column; its pressed/focus circle therefore extends past the
     // header's left edge. The header must clip only vertically (for the
     // max-height collapse), never horizontally.
-    expect(source).toContain('className="pointer-events-auto -ml-3.5 flex h-11 w-11');
+    expect(read("components/app-ui/native-shell-back.tsx")).toContain('className="pointer-events-auto -ml-3.5 flex h-11 w-11');
     const headerStart = source.indexOf('data-testid="top-app-bar-header"');
     const headerOpen = source.slice(headerStart, source.indexOf(">", source.indexOf("}}", headerStart)));
     expect(headerOpen).toContain('overflowX: "visible"');

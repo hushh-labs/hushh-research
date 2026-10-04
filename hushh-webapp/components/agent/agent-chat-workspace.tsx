@@ -79,7 +79,6 @@ import { useFeedAttentionTurn } from "@/lib/agent/use-feed-attention-turn";
 import {
   Check,
   ChevronDown,
-  ChevronRight,
   Cloud,
   Copy,
   FileText,
@@ -190,7 +189,7 @@ import {
   OneChatTimeSeparator,
 } from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
-import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
+import { AgentFollowUpSuggestions, AgentSuggestionList, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
 import {
   AgentTurnStreamPanel,
@@ -207,6 +206,7 @@ import type { DriveBatchProgress, DriveCompilationUiState } from "@/lib/agent/dr
 import { driveOwnerCompileKey, type DriveOwnerCompileWindow } from "@/lib/agent/connector-read-receipt";
 import { useEntryWelcome } from "@/lib/agent/use-entry-welcome";
 import { useChatOnboarding } from "@/lib/agent/chat-onboarding/use-chat-onboarding";
+import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   ChatOnboardingDailyTip,
   ChatOnboardingTurns,
@@ -1498,41 +1498,15 @@ function formatAgentDisplayName(
 function AgentPromptSuggestions({
   prompts,
   disabled,
-  align = "center",
   onPromptSelect,
 }: {
   prompts: readonly string[];
   disabled: boolean;
-  align?: "center" | "start";
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
-    <div
-      data-testid="agent-chat-suggestions"
-      role="group"
-      aria-label="Suggestions"
-      className={cn(
-        "flex flex-wrap gap-2.5",
-        align === "center" ? "justify-center" : "justify-start",
-      )}
-    >
-      {prompts.map((prompt) => (
-        <button
-          key={prompt}
-          type="button"
-          disabled={disabled}
-          onClick={() => onPromptSelect(prompt)}
-          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 overflow-hidden !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
-        >
-          <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
-          <ChevronRight
-            className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
-            aria-hidden
-          />
-          <MaterialRipple variant="none" effect="glass" disabled={disabled} />
-        </button>
-      ))}
-    </div>
+    <AgentSuggestionList suggestions={prompts} disabled={disabled}
+      label="Suggestions" testId="agent-chat-suggestions" onSelect={onPromptSelect} />
   );
 }
 
@@ -1549,21 +1523,20 @@ function AgentWelcomePanel({
 }) {
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
-      <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-1 text-center sm:px-2">
+      <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
         <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
           One workspace
         </div>
         <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
           Hi {name}
         </h2>
-        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] mx-auto text-center text-balance">
+        <p className="mt-3 mb-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] text-balance">
           Ask One about your calendar, your email, what it remembers, or who can see your information.
         </p>
         <AgentPromptSuggestions
           prompts={prompts}
           disabled={disabled}
           onPromptSelect={onPromptSelect}
-          align="center"
         />
       </div>
     </section>
@@ -3622,6 +3595,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     conversationId,
     onFocusComposer: () => composerTextareaRef.current?.focus(),
     visiblePrompts: welcomePrompts,
+  });
+  const onboardingToken = useCallback(() => user?.getIdToken() ?? Promise.resolve(""), [user]);
+  const onboardingGmail = useGmailConnectorStatus({
+    userId: user?.uid,
+    enabled: isVaultUnlocked && chatOnboarding.turns.some((turn) =>
+      turn.action?.kind === "connector" && turn.action.provider === "gmail"),
+    idTokenProvider: user ? onboardingToken : null,
   });
 
   useEffect(() => {
@@ -7968,6 +7948,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     <ChatOnboardingTurns
       controller={chatOnboarding}
       slot={slot}
+      gmailConnected={Boolean(onboardingGmail.status?.connected &&
+        !onboardingGmail.status.revoked && !onboardingGmail.status.needs_reauth)}
       renderBubble={(message: ChatOnboardingBubbleMessage) => (
         <>
           {timeSeparators.has(message.id) ? (

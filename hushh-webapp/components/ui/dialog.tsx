@@ -7,6 +7,7 @@ import { Dialog as DialogPrimitive } from "radix-ui"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple"
+import { useNativeNavigationOverlayRef } from "@/lib/capacitor/native-navigation"
 
 function Dialog({
   modal = false,
@@ -35,8 +36,10 @@ function DialogClose({
 
 function DialogOverlay({
   className,
+  ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Overlay>) {
+  const overlayRef = useNativeNavigationOverlayRef(ref)
   return (
     <DialogPrimitive.Overlay
       data-slot="dialog-overlay"
@@ -47,6 +50,7 @@ function DialogOverlay({
         className
       )}
       {...props}
+      ref={overlayRef}
     />
   )
 }
@@ -58,6 +62,8 @@ function DialogContent({
   srDescription = "Dialog content",
   overlayClassName,
   overlayStyle,
+  ref,
+  isolateNativeNavigation = true,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
@@ -65,11 +71,15 @@ function DialogContent({
   srDescription?: React.ReactNode
   overlayClassName?: string
   overlayStyle?: React.CSSProperties
+  /** Opt out only for an intentionally interactive non-modal surface. */
+  isolateNativeNavigation?: boolean
 }) {
+  const contentRef = useNativeNavigationOverlayRef(ref, isolateNativeNavigation)
   return (
     <DialogPortal data-slot="dialog-portal">
       <DialogOverlay className={overlayClassName} style={overlayStyle} />
       <DialogPrimitive.Content
+        ref={contentRef}
         data-slot="dialog-content"
         className={cn(
           // Keyboard avoidance for this centered dialog is handled in globals.css

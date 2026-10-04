@@ -98,6 +98,7 @@ struct HushhSessionPrivacyDocumentState {
 final class HushhSessionPrivacyShield: NSObject {
     static let shared = HushhSessionPrivacyShield()
     static let accessibilityIdentifier = "session-privacy-shield"
+    static let presentationDidChange = Notification.Name("HushhSessionPrivacyPresentationDidChange")
     /// The cover is always the silent launch-screen surface (app switcher,
     /// Control Center, system alerts, resume). It never shows a loading state;
     /// only a release that is still refused after `recoveryDelay` exposes the
@@ -189,6 +190,11 @@ final class HushhSessionPrivacyShield: NSObject {
         documents.observe(documentId)
     }
 
+    func acceptsDocument(_ documentId: String) -> Bool {
+        dispatchPrecondition(condition: .onQueue(.main))
+        return documents.accepts(documentId)
+    }
+
     @discardableResult
     func completeSessionValidation(
         generation requestedGeneration: Int,
@@ -219,10 +225,12 @@ final class HushhSessionPrivacyShield: NSObject {
                 completion: { _ in overlay.removeFromSuperview() }
             )
         }
+        NotificationCenter.default.post(name: Self.presentationDidChange, object: self)
         return true
     }
 
     private func publishState(action: String = "state") {
+        NotificationCenter.default.post(name: Self.presentationDidChange, object: self)
         onStateChanged?(snapshot(), action)
     }
 
@@ -265,6 +273,8 @@ final class HushhSessionPrivacyShield: NSObject {
         state.restartSession()
         documents.restart()
         cancelRecovery()
+        // Retire sibling native presentation before a replacement document can configure it.
+        publishState()
         reloadDocument?()
         scheduleRecovery(keepRecoveryPanel: true)
     }
