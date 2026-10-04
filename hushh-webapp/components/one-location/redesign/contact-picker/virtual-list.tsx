@@ -114,6 +114,7 @@ export function VirtualContactList<T>({
       <Shell>
         <div
           data-testid={testId}
+          data-no-auto-fade="true"
           aria-label={ariaLabel}
           role={ariaLabel ? "list" : undefined}
           className={asCards ? scrollClassName : undefined}
@@ -138,6 +139,10 @@ export function VirtualContactList<T>({
         ref={scrollRef}
         data-testid={testId}
         data-virtualized="true"
+        // Windowed rows mount during scrolling. Page-enter's mutation observer
+        // must not tween/clear their transforms: those are the row offsets.
+        // The surrounding group can still enter as one stable surface.
+        data-no-auto-fade="true"
         aria-label={ariaLabel}
         role={ariaLabel ? "list" : undefined}
         className={cn(

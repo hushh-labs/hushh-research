@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from hushh_mcp.services.gmail_receipt_cutover import GmailReceiptStorageCutoverError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
 from hushh_mcp.services.receipt_memory_service import get_receipt_memory_preview_service
 
@@ -136,6 +137,15 @@ def _temporary_unavailable_message(operation: str) -> str:
 
 
 def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
+    if isinstance(exc, GmailReceiptStorageCutoverError):
+        return HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "GMAIL_RECEIPT_STORAGE_MIGRATION",
+                "message": str(exc),
+                "retryable": False,
+            },
+        )
     if _is_dependency_unavailable_error(exc):
         return HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

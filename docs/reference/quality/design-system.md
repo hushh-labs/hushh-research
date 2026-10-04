@@ -314,8 +314,12 @@ specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
 GSAP route/async-mount hook owns automatic semantic mounts; `.motion-step-enter`
 is the matching declarative utility for controlled component and layout swaps.
 Do not create a second route-transition engine or shorten a component-local
-fallback into a separate motion language. High-churn rails and tables opt out
-of automatic enters and may animate a stable inner layout root only.
+fallback into a separate motion language. High-churn rails, tables and virtual
+lists opt out of automatic enters with `data-no-auto-fade="true"` on their
+owning container and may animate a stable layout root only. A
+virtualizer owns each row's positioning transform; page-enter must never tween
+or clear that transform when scrolling mounts a new row. Verify virtual lists
+with the page-enter observer active, including selection and scroll reversal.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
 

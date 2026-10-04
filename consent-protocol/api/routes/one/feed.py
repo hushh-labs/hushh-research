@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
@@ -42,10 +42,14 @@ def _handle_feed_error(exc: Exception) -> HTTPException:
 
 @router.get("/feed")
 def list_feed(
+    response: Response,
     cursor: int | None = Query(default=None, ge=1, le=POSTGRES_BIGINT_MAX),
     limit: int = Query(default=20, ge=1, le=100),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
+    # Some recipient-only Direct Message rows include a transient decrypted
+    # preview. Keep the entire authenticated Feed response out of HTTP caches.
+    response.headers["Cache-Control"] = "private, no-store"
     try:
         return _service().list_feed(firebase_uid, cursor=cursor, limit=limit)
     except Exception as exc:  # noqa: BLE001

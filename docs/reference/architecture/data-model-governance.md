@@ -134,6 +134,20 @@ Provider-derived data becomes durable user memory only after a consented, encryp
 
 ### Gmail cache maintenance
 
+#### Receipt cache privacy cutover
+
+`kai_gmail_receipts` and `kai_receipt_memory_artifacts` are in a
+**read-only cutover**. Existing rows are retained temporarily so people do not
+lose their visible receipt history, but migration 265 and the Gmail service both
+reject new receipt or preview writes. This is deliberately not a table-drop
+migration.
+
+The next stage must ship browser/device-owned Gmail reads with in-memory
+pagination and owner-encrypted PKM save only by explicit action. Only after that
+reader has production evidence may an owner-scoped, batched purge run; dropping
+the legacy tables is a final standalone destructive migration. Gmail search and
+KYC workflows are not allowed to use these receipt tables as an alternate store.
+
 Gmail token refresh binds its result to the observed active connection's encrypted
 refresh-token envelope and token timestamp. A delayed success or failure cannot
 overwrite a disconnect, reconnect or competing refresh; it returns a retryable 409.

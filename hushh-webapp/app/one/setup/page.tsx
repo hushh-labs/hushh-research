@@ -29,7 +29,13 @@ export default function OneSetupPage() {
   }, [loading, router, user]);
 
   if (loading || !user) {
-    return <HushhLoader variant="page" label="Preparing setup…" />;
+    return (
+      <HushhLoader
+        stage={loading ? "session" : "redirect"}
+        label="Preparing setup…"
+        holdThroughNavigation={!loading}
+      />
+    );
   }
 
   return (

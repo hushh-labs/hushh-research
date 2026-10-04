@@ -144,7 +144,20 @@ export default defineConfig({
         // memory-save-card: the explicit-save receipt's pixel-grid contract
         // (insets, tile grid, aligned tabular counts) in the shipped engine.
         /memory-save-card\.layout\.spec\.ts/,
+        // reserved-offer-card: the receipt's "Add as Home in Location" rows and
+        // Memory's read-only "Open in" row, tapped on an iPhone first.
+        /reserved-offer-card\.layout\.spec\.ts/,
+        // mail-kyc-connect: where an identity fact's "Open in Mail" lands
+        // before Gmail is connected, tapped on an iPhone first; own document.
+        /mail-kyc-connect\.layout\.spec\.ts/,
+        // secrets-card: the secure Secrets card (reveal, copy, offers) is met
+        // on an iPhone first; its 4/8 pt grid is asserted in the shipped engine.
+        /secrets-card\.layout\.spec\.ts/,
+        // style-settings: the owner's writing-style rows, 44 px controls and the
+        // 12 px phone step are tapped on an iPhone first; own document.
+        /style-settings\.layout\.spec\.ts/,
         /text-attachment-viewer\.layout\.spec\.ts/,
+        /circle-chat\.layout\.spec\.ts/,
         /one-location-live-share\.layout\.spec\.ts/,
         /profile-sign-out\.spec\.ts/,
         /ai-selection\.layout\.spec\.ts/,
@@ -162,7 +175,13 @@ export default defineConfig({
         /mail-overview\.layout\.spec\.ts/,
         /receipt-pagination\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
+        /profile-legal-connectors\.layout\.spec\.ts/,
+        /legal-pages\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,
+        // boot-surface: the one cold-start surface continues the iOS splash
+        // inside the WKWebView, so its centring, zero-shift chain and splash
+        // ink parity are measured in the engine the app ships in; own document.
+        /boot-surface\.layout\.spec\.ts/,
         /(intro-viewport\.layout|country-picker\.layout|account-session-recovery|agent-surface-model-authority\.layout|one-voice-panel\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|location-cta-layout|google-contact-sync\.layout|location-switch\.layout|active-share-actions\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-people-rows\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout|contact-invitation-sheet\.layout)\.spec\.ts/,
       ],
     },

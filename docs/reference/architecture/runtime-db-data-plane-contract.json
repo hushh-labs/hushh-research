@@ -20,12 +20,15 @@
     "google_calendar_action_proposals",
     "gmail_mailbox_action_proposals",
     "agent_chat_messages",
+    "messages",
     "one_action_directive_ledger",
     "one_capability_runs",
     "one_kyc_workflows",
     "drive_bulk_share_files",
     "drive_bulk_share_effects",
-    "drive_request_payment_webhook_events"
+    "drive_request_payment_webhook_events",
+    "circle_chat_messages",
+    "circle_chat_recipients"
   ],
   "retention_registry": [
     {
@@ -243,6 +246,37 @@
       "expected_row_growth": "high_per_user_chat"
     },
     {
+      "id": "direct_message_relationship_state",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "conversations",
+        "direct_message_blocks"
+      ],
+      "primary_access_path": "Firebase-authenticated Direct Messages service and /api/one/messages routes. Conversation creation and message insertion lock and verify only the canonical active connections pair; they never infer eligibility from Circle membership, trusted_connections, or a connection origin. Read paths remain participant-scoped after a connection ends.",
+      "retention_policy": "Conversation-pair and directed block metadata remain while both accounts exist. Ending a connection does not delete a conversation; it changes the write gate to read-only. A directed block remains until its blocker explicitly removes it or either account is deleted, including through a later reconnection.",
+      "deletion_behavior": "Actor-profile foreign keys cascade conversation and directed block rows on account deletion; message rows cascade from a deleted conversation. AccountService also removes the participant graph explicitly so no relationship history is retained for an erased account.",
+      "trust_boundary": "Only canonical participant IDs, opaque UUIDs and timestamps are plaintext. RLS is default-deny with no client-table policies; authenticated routes/service enforce participant reads, block ownership and response shaping. The database trigger locks the canonical connection row and rejects new writes after revocation or either directed block, while history remains readable through the participant API.",
+      "plaintext_posture": "relationship_metadata_only",
+      "expected_row_growth": "low_per_unique_participant_pair_and_directed_block"
+    },
+    {
+      "id": "direct_message_encrypted_content",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "messages"
+      ],
+      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread-count/read-receipt updates, and transactionally committed recipient doorbells from the Direct Messages service.",
+      "retention_policy": "Retain encrypted message history while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs.",
+      "deletion_behavior": "Delete with the parent conversation or either actor account through foreign-key cascades and AccountService account-erasure cleanup. Never delete history merely because a connection is removed or blocked.",
+      "trust_boundary": "Each text body is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. content_ciphertext contains the GCM tag and AAD binds direct-message-v1, conversation id, message id and sender id; plaintext is never stored. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link—never content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
+      "plaintext_posture": "ciphertext_and_minimal_message_metadata",
+      "expected_row_growth": "high_per_participant_conversation"
+    },
+    {
       "id": "one_person_information_requests",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
@@ -420,19 +454,19 @@
       "id": "kai_gmail_receipts_provider_cache",
       "owner": "backend-runtime-governance",
       "data_class": "provider_cache",
-      "lifecycle_status": "current",
+      "lifecycle_status": "current_read_only_cutover",
       "exact_tables": [
         "kai_gmail_connections",
         "kai_gmail_receipts",
         "kai_gmail_sync_runs",
         "kai_receipt_memory_artifacts"
       ],
-      "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
-      "retention_policy": "Terminal sync-run reads expire after 30 days from completed_at, with updated_at as a conservative fallback only for legacy terminal runs without completed_at. Preview reads expire seven days after created_at; cache updates and PKM-persist acknowledgement do not renew that window. Owner-scoped manual reporting and bounded compaction use scripts/ops/gmail_cache_retention.py; no automatic schedule exists. Physical expired rows can remain until an authorized maintenance run. Durable information requires explicit encrypted PKM write through the consent/vault path.",
-      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps. Full account deletion also releases the grant at Google after commit, best effort: a live mailbox watch is stopped (users.stop) before the refresh token is revoked. Disconnect does not yet stop the watch.",
-      "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
-      "plaintext_posture": "encrypted_oauth_tokens_and_sensitive_derived_receipt_cache",
-      "expected_row_growth": "high_provider_sync"
+      "primary_access_path": "Read-only legacy receipt history during the private on-device Gmail cutover. New receipt sync and preview writes are blocked in the API and database.",
+      "retention_policy": "Legacy receipt rows remain readable for continuity but receive no new writes. Terminal sync-run reads expire after 30 days; preview reads expire after seven days. Owner-scoped compaction remains available. The next cutover stage must replace this server cache with on-device Gmail pagination before an evidence-gated, owner-scoped purge and a separate destructive table-retirement migration.",
+      "deletion_behavior": "Deletes remain permitted for Gmail disconnect and account deletion. No destructive bulk deletion occurs in this migration. The future purge must be owner-scoped, batched, reversible by encrypted PKM preservation evidence, and independently verified before the tables are dropped.",
+      "trust_boundary": "Legacy provider-derived receipt summaries and preview artifacts are read-only. Trigger 265 blocks INSERT and UPDATE on the receipt and artifact tables, while API gates prevent new server-side Gmail receipt reads and summary creation.",
+      "plaintext_posture": "legacy_sensitive_derived_cache_read_only_no_new_writes",
+      "expected_row_growth": "frozen_pending_device_owned_reader"
     },
     {
       "id": "gmail_owner_approved_delivery",
@@ -1426,6 +1460,23 @@
       "trust_boundary": "The source search must be complete under the same live owner Drive generation. Explicit owner approval binds the frozen encrypted file manifest, verified recipient identities, revision and review digest. File metadata and recipient identities are sealed under DRIVE_SHARING_KEY_V1; plaintext contains opaque owner/recipient/workflow references, keyed digests, bounded counts, leases, states and timestamps. The worker rechecks current authority, recipient identity, Trusted membership and live file metadata before each grant. Unknown provider outcomes are reconciled by read and never blindly retried. Google per-file notification emails are suppressed, and recipient links are exposed only after confirmed grants.",
       "plaintext_posture": "encrypted_frozen_file_and_recipient_metadata_with_opaque_effect_and_notification_state",
       "expected_row_growth": "up_to_10000_files_and_100000_file_recipient_effects_per_approved_search"
+    },
+    {
+      "id": "circle_member_chat",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "circle_chat_messages",
+        "circle_chat_recipients",
+        "circle_chat_preferences"
+      ],
+      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases.",
+      "retention_policy": "Messages retained for the lifetime of the ordinary Circle; client images bounded to 5 MB, text to 4000 characters, pages to 50 and rendered windows to 300. No automatic expiry of conversation history. Pushes stop after five attempts.",
+      "deletion_behavior": "Circle soft/hard deletion erases messages, images, envelopes and preferences and removes associated Feed rows. Reset/full account erasure deletes authored messages and recipient-owned envelopes/preferences. Actor-profile cascades provide an additional deletion boundary. Leave/rejoin suppresses old pushes and Feed unread rows; prior-generation envelopes remain inaccessible.",
+      "trust_boundary": "Active ordinary Circle members only, with an envelope matching the current membership joined_at generation. The server relays client ciphertext and recipient public keys; it never receives message or image plaintext.",
+      "plaintext_posture": "ciphertext_and_membership_delivery_metadata",
+      "expected_row_growth": "high_per_message_and_active_member"
     }
   ]
 }

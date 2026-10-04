@@ -1,5 +1,8 @@
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
-import type { SpecialistDirective, DelegateResult } from "@/lib/agent/specialist-directive-runtime";
+import type {
+  SpecialistDirective,
+  DelegateResult,
+} from "@/lib/agent/specialist-directive-runtime";
 
 /** Execute the exact, server-persisted Calendar proposal shown in the chat card. */
 export async function runCalendarDirective(
@@ -26,6 +29,12 @@ export async function runCalendarDirective(
     detail:
       result.action === "cancel"
         ? "The event was cancelled."
-        : `${result.action === "create" ? "Scheduled" : "Rescheduled"} ${result.event.title || "the event"}.`,
+        : result.action === "create"
+          ? result.event.conference_status === "failure"
+            ? `Scheduled ${result.event.title || "the event"}, but Google Meet could not be added. Check Calendar permissions before trying again.`
+            : result.event.conference_url
+              ? `Scheduled ${result.event.title || "the event"} with a Google Meet link. It is ready in the Calendar invite.`
+              : `Scheduled ${result.event.title || "the event"}. Google Meet is being added to the Calendar invite.`
+          : `Rescheduled ${result.event.title || "the event"}.`,
   };
 }

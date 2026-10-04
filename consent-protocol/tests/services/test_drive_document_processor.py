@@ -10,7 +10,7 @@ import zipfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -102,6 +102,43 @@ async def test_private_embedding_child_caps_native_threads_and_drops_parent_envi
         ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"), "1"
     )
     assert "GOOGLE_APPLICATION_CREDENTIALS" not in child_env
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("deadline_owner", ["child", "startup"])
+async def test_private_child_is_reaped_and_input_drained_after_timeout(monkeypatch, deadline_owner):
+    import asyncio
+
+    writer_cancelled = asyncio.Event()
+
+    async def blocked_input():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            writer_cancelled.set()
+
+    async def blocked_output(_limit):
+        await asyncio.Event().wait()
+
+    process = SimpleNamespace(
+        stdin=SimpleNamespace(write=Mock(), drain=blocked_input, close=Mock()),
+        stdout=SimpleNamespace(read=blocked_output),
+        returncode=None,
+        kill=Mock(),
+        wait=AsyncMock(),
+    )
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", AsyncMock(return_value=process))
+    if deadline_owner == "child":
+        with pytest.raises(DriveReadError, match="^processing_timeout$") as error:
+            await _private_process("embedding", "query", b"{}", timeout=0.01, limit=64)
+        assert error.value.retryable
+    else:
+        with pytest.raises(TimeoutError):
+            async with asyncio.timeout(0.01):
+                await _private_process("embedding", "query", b"{}", timeout=100, limit=64)
+    process.kill.assert_called_once()
+    process.wait.assert_awaited_once()
+    assert writer_cancelled.is_set()
 
 
 def test_private_children_do_not_reload_dotenv_credentials(tmp_path):

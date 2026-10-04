@@ -27,6 +27,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { reservedOwnerGlyph } from "@/components/agent/reserved-offer-rows";
 import { Button } from "@/lib/morphy-ux/morphy";
 import { pkmMemoryRowLabels, type PkmMemoryCard } from "@/lib/pkm/pkm-memory-cards";
 
@@ -74,6 +75,7 @@ export function PkmMemoryDetail({
   onSharingOpenChange,
   onSave,
   onForget,
+  onOpenOwner,
 }: {
   card: PkmMemoryCard;
   sharingState: MemorySharingState;
@@ -89,7 +91,10 @@ export function PkmMemoryDetail({
   onSharingOpenChange?: (open: boolean) => void;
   onSave: (nextValue: string) => void;
   onForget: () => void;
+  /** Opens the app screen that owns a reserved item (memory_screen_policy). */
+  onOpenOwner?: (routePattern: string) => void;
 }) {
+  const reservedOwner = card.reservedOwner ?? null;
   const { primary, secondary } = pkmMemoryRowLabels(card);
   const [editOpen, setEditOpen] = useState(false);
   const [forgetOpen, setForgetOpen] = useState(false);
@@ -152,6 +157,28 @@ export function PkmMemoryDetail({
 
       {actionError ? <p className="px-1 text-sm text-destructive">{actionError}</p> : null}
 
+      {reservedOwner ? (
+        <div className="space-y-2" data-testid="memory-detail-reserved">
+          {reservedOwner.routePattern && onOpenOwner ? (
+            // The same compact row as the chat's offer to this app, so the
+            // affordance reads and measures the same wherever it appears.
+            <SettingsGroup separatorInset density="compact" testId="memory-detail-owner">
+              <SettingsRow
+                icon={reservedOwnerGlyph(reservedOwner.ownerFeature)}
+                iconTone="capability"
+                density="compact"
+                title={`Open in ${reservedOwner.appName}`}
+                chevron
+                onClick={() => onOpenOwner(reservedOwner.routePattern!)}
+                testId="memory-detail-open-owner"
+              />
+            </SettingsGroup>
+          ) : null}
+          <p className="px-4 text-[13px] leading-5 text-muted-foreground" data-testid="memory-detail-reserved-note">
+            {reservedOwner.appName} manages this. Edit or remove it there.
+          </p>
+        </div>
+      ) : (
       <SettingsGroup separatorInset testId="memory-detail-actions">
         <SettingsRow
           title="Edit"
@@ -171,6 +198,7 @@ export function PkmMemoryDetail({
           }
         />
       </SettingsGroup>
+      )}
 
       <AlertDialog open={forgetOpen} onOpenChange={(open) => (busy ? undefined : setForgetOpen(open))}>
         <AlertDialogContent size="sm">

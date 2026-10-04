@@ -181,3 +181,123 @@ test("a save that changed nothing says so and shows no zero-count noise", async 
   await expect(card.getByTestId("memory-save-needs-owner")).toHaveCount(0);
   await expect(card.getByTestId("memory-save-details")).toHaveCount(0);
 });
+
+/**
+ * The line-by-line coverage view of a resumable save (lib/pkm/pkm-save-job.ts):
+ * every line says where it was saved, why it was not, or "Not yet saved" with
+ * Retry. Glyphs and text sit in two columns that line up row to row, rows sit
+ * on the 4 pt grid with equal insets, and the same holds with every line's
+ * text widened, because CI's Linux fonts set text wider than a Mac.
+ */
+async function measureCoverage(page: Page) {
+  const list = page.getByTestId("memory-save-coverage-lines");
+  const listBox = await box(list);
+  const rows = list.getByTestId("memory-save-coverage-line");
+  const measured = [];
+  for (const row of await rows.all()) {
+    const rowBox = await box(row);
+    const glyph = await box(row.locator("svg").first());
+    const text = await box(row.locator(":scope > span").nth(1));
+    const padding = await row.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return [parseFloat(style.paddingTop), parseFloat(style.paddingBottom)];
+    });
+    measured.push({ rowBox, glyph, text, padding });
+  }
+  return { listBox, rows: measured };
+}
+
+function assertCoverageGeometry(geometry: Awaited<ReturnType<typeof measureCoverage>>, label: string) {
+  const { listBox, rows } = geometry;
+  expect(rows.length, label).toBe(12);
+  for (const [index, row] of rows.entries()) {
+    const where = `${label} row ${index + 1}`;
+    // Equal insets: 12 px from the list's inner edges on both sides, 8 px above and below.
+    const left = row.rowBox.x - listBox.x;
+    const right = listBox.x + listBox.width - (row.rowBox.x + row.rowBox.width);
+    expect(Math.abs(left - right), where).toBeLessThan(0.5);
+    expect(left, where).toBeCloseTo(12, 0);
+    expect(row.padding, where).toEqual([8, 8]);
+    // Row heights on the 4 pt grid; 20 px glyph, 8 px to its text.
+    expect(onGrid(row.rowBox.height, 4), `${where} height ${row.rowBox.height}`).toBe(true);
+    expect(row.glyph.width, where).toBeCloseTo(20, 0);
+    expect(row.text.x - (row.glyph.x + row.glyph.width), where).toBeCloseTo(8, 0);
+    expect(row.text.x + row.text.width, where).toBeLessThanOrEqual(row.rowBox.x + row.rowBox.width + 0.5);
+  }
+  for (const column of [(row: (typeof rows)[number]) => row.glyph.x, (row: (typeof rows)[number]) => row.text.x]) {
+    const edges = rows.map(column);
+    expect(Math.max(...edges) - Math.min(...edges), `${label} column`).toBeLessThan(0.5);
+  }
+  // Consecutive rows abut: no stray gap or overlap between them.
+  for (let index = 1; index < rows.length; index += 1) {
+    const previous = rows[index - 1]!.rowBox;
+    expect(Math.abs(rows[index]!.rowBox.y - (previous.y + previous.height)), `${label} seam ${index}`).toBeLessThan(0.5);
+  }
+}
+
+for (const theme of ["light", "dark"] as const)
+  for (const [width, height] of [[393, 852], [1440, 900]] as const)
+    test(`memory save coverage lines sit on the grid at ${width}px, ${theme}`, async ({ page }, testInfo) => {
+      await page.setViewportSize({ width, height });
+      const errors: string[] = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      await open(page, theme, "coverage");
+      const card = page.getByTestId("memory-save-card");
+
+      // The gap is stated with a Retry before anything is expanded.
+      const gaps = card.getByTestId("memory-save-gaps");
+      await expect(gaps).toContainText("2 lines are not yet saved.");
+      expect(await gaps.evaluate((element) => {
+        const style = getComputedStyle(element);
+        return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(parseFloat);
+      })).toEqual([12, 12, 12, 12]);
+      const retry = card.getByRole("button", { name: "Retry 2 lines" });
+      expect((await box(retry)).height).toBeGreaterThanOrEqual(44);
+      // Flat Morphy press: the ripple host is mounted inside the control, and nothing scales.
+      await expect(retry.locator(".morphy-ripple-host")).toHaveCount(1);
+      expect(await retry.evaluate((element) => getComputedStyle(element).transform)).toBe("none");
+
+      // Section rhythm still holds with the two new sections.
+      const sections = card.locator(":scope > *");
+      const sectionBoxes = [];
+      for (let index = 0; index < (await sections.count()); index += 1) sectionBoxes.push(await box(sections.nth(index)));
+      for (let index = 1; index < sectionBoxes.length; index += 1) {
+        const gap = sectionBoxes[index]!.y - (sectionBoxes[index - 1]!.y + sectionBoxes[index - 1]!.height);
+        expect(gap, `gap before section ${index}`).toBeCloseTo(12, 0);
+      }
+
+      await card.getByText("Show line by line").click();
+      await expect(card.getByTestId("memory-save-coverage-summary")).toHaveText("9 of 12 lines accounted for");
+      const details = card.getByTestId("memory-save-coverage-detail");
+      await expect(details.nth(2)).toHaveText("Saved in Work context > Stack > Item 1");
+      await expect(details.nth(5)).toHaveText("Already in Memory");
+      await expect(details.nth(7)).toHaveText("Waiting for your OK");
+      await expect(details.nth(8)).toHaveText("Not yet saved");
+      await expect(details.nth(11)).toHaveText("A disclaimer, not a detail");
+      expect((await box(card.getByText("Show line by line"))).height).toBeGreaterThanOrEqual(44);
+
+      const geometry = await measureCoverage(page);
+      assertCoverageGeometry(geometry, `${width}px ${theme}`);
+      const shotDir = process.env.MEMORY_SAVE_CARD_SHOT_DIR;
+      if (shotDir) {
+        fs.mkdirSync(shotDir, { recursive: true });
+        await page.setViewportSize({ width, height: 2000 });
+        await card.screenshot({ path: path.join(shotDir, `memory-save-coverage-${width}-${theme}.png`) });
+        await page.setViewportSize({ width, height });
+      }
+
+      // Widened text: CI renders text wider than a Mac; the geometry must hold.
+      await page.addStyleTag({ content: "[data-testid='memory-save-coverage-line'] span{letter-spacing:0.3px}" });
+      const widened = await measureCoverage(page);
+      assertCoverageGeometry(widened, `${width}px ${theme} widened`);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
+
+      const text = (await card.textContent()) ?? "";
+      expect(text).not.toMatch(/[—–]/);
+      expect(await card.locator("[data-icon*='sparkle' i], [class*='sparkle' i]").count()).toBe(0);
+      expect(errors).toEqual([]);
+      testInfo.annotations.push({ type: "geometry", description: JSON.stringify({
+        width, theme, rowHeights: geometry.rows.map((row) => row.rowBox.height),
+        widenedRowHeights: widened.rows.map((row) => row.rowBox.height),
+      }) });
+    });

@@ -224,8 +224,8 @@ Private data is always consent-gated and scoped.
    A later explicit
    request/accept flow remains a separate user action.
 3. Contact-sync provenance may create only the canonical relationship, its
-   source ledger, cancellation of redundant unscoped pending requests, and the
-   Trusted-list projection. A capability-bearing request stays pending for
+   source ledger and cancellation of redundant unscoped pending requests, not
+   Trusted/Circle membership. A capability-bearing request stays pending for
    explicit scope review. Contact sync never grants location, PKM,
    personal-information, consent-scope, Circle sharing, SMS, envelope, or
    capability access.
@@ -253,6 +253,23 @@ Private data is always consent-gated and scoped.
    clears every member of a legacy ambiguous group and forces its shadow stale
    for source-of-truth refresh; the database check and partial unique index stop
    malformed or duplicate verified bindings from returning.
+
+### Trusted roster admission and disconnect isolation
+
+Trusted is manually curated. Historical automatic connection memberships stay
+stored but do not grant non-owner roster visibility. List, detail, overview and
+paged roster reads admit the owner or an active member whose server-authored
+provenance records `addedVia=direct_add` and `addedBy` equal to the current
+Circle owner. Missing, malformed, unknown or another actor's provenance fails
+closed; ordinary Circle admission is unchanged. Bootstrap never converts old
+rows into owner approval. Reaffirming an existing legacy member remains a
+separate explicit owner operation, not an automatic repair.
+
+Disconnect ends non-owner memberships only in active Circles containing both
+active participants, including shared third-party Circles. Unrelated rosters,
+former memberships and owner rows remain intact. Candidate Circles are resolved
+in one materialized SQL snapshot before either participant is removed; existing
+code/invitation/origin/grant cleanup stays in the disconnect transaction.
 
 ### Storage Boundary
 

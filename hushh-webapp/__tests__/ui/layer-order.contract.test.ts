@@ -51,6 +51,13 @@ const CONSUMERS: ReadonlyArray<{
     forbidden: [/z-\[52[03]\]/],
   },
   {
+    // The one boot surface: above chrome and the vault hard gate (sheet
+    // tier), below dialogs, the system banner and every transient surface.
+    file: "components/app-ui/boot-surface.tsx",
+    tokens: ["z-(--z-boot)"],
+    forbidden: [/z-\[\d+\]/, /\bz-50\b/],
+  },
+  {
     file: "components/ui/dialog.tsx",
     tokens: ["z-(--z-dialog-overlay)", "z-(--z-dialog)"],
     forbidden: [/z-\[80[01]\]/],
@@ -95,6 +102,7 @@ describe("layer ladder", () => {
       "chrome",
       "sheet-overlay",
       "sheet",
+      "boot",
       "dialog-overlay",
       "dialog",
       "takeover",
@@ -109,7 +117,8 @@ describe("layer ladder", () => {
   it("orders chrome < sheet < dialog < takeover < system < transient", () => {
     expect(ladder.chrome).toBeLessThan(ladder["sheet-overlay"]);
     expect(ladder["sheet-overlay"]).toBeLessThan(ladder.sheet);
-    expect(ladder.sheet).toBeLessThan(ladder["dialog-overlay"]);
+    expect(ladder.sheet).toBeLessThan(ladder.boot);
+    expect(ladder.boot).toBeLessThan(ladder["dialog-overlay"]);
     expect(ladder["dialog-overlay"]).toBeLessThan(ladder.dialog);
     expect(ladder.dialog).toBeLessThan(ladder.takeover);
     expect(ladder.takeover).toBeLessThan(ladder.system);

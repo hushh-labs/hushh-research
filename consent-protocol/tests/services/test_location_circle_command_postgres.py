@@ -1,6 +1,7 @@
 """Exercise the existing Circle writers with real command authority and locks."""
 
 import asyncio
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -25,6 +26,134 @@ ACTIONS = [
     "accept_circle_invite",
     "decline_circle_invite",
 ]
+
+
+@pytest.mark.parametrize(
+    "provenance,admitted",
+    [
+        (None, False),
+        ({}, False),
+        ({"addedVia": "connection", "addedBy": "owner"}, False),
+        ({"addedVia": "unknown", "addedBy": "owner"}, False),
+        ({"addedVia": "direct_add", "addedBy": "other"}, False),
+        ([{"addedVia": "direct_add", "addedBy": "owner"}], False),
+        ({"addedVia": "direct_add", "addedBy": "owner"}, True),
+    ],
+)
+def test_trusted_roster_requires_owner_authored_admission(db, monkeypatch, provenance, admitted):
+    service, binding = circle_fixture(db, monkeypatch, "remove_from_circle")
+    circle_id = binding["circleId"]
+    # The real presentation migration also evolves this adjacent chat table.
+    # Roster readers consume its Circle photo column, not chat content.
+    db.execute_raw("CREATE TABLE circle_chat_messages(id UUID PRIMARY KEY)")
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    db.execute_raw((migrations / "266_circle_chat_presentation.sql").read_text())
+    db.execute_raw("""
+        ALTER TABLE actor_identity_cache ADD COLUMN phone_verified BOOLEAN DEFAULT FALSE;
+        ALTER TABLE actor_profiles ADD COLUMN public_person_ref TEXT;
+        CREATE TABLE ria_profiles(user_id TEXT, verification_status TEXT);
+        CREATE TABLE one_location_recipient_keys(user_id TEXT, key_id TEXT, public_key_jwk JSONB,
+          algorithm TEXT, status TEXT, created_at TIMESTAMPTZ);
+        UPDATE one_location_circles SET system_kind='trusted';
+    """)
+    db.execute_raw(
+        """UPDATE one_location_circle_memberships SET metadata=CAST(:metadata AS JSONB)
+           WHERE circle_id=CAST(:circle AS UUID) AND user_id='other'""",
+        {
+            "circle": circle_id,
+            "metadata": json.dumps(provenance),
+        },
+    )
+
+    def read_roster(viewer):
+        assert service.get_circle_overview(user_id=viewer, circle_id=circle_id)["memberCount"] == 2
+        assert len(service.get_circle(user_id=viewer, circle_id=circle_id)["members"]) == 2
+        assert (
+            service.list_circle_members_page(user_id=viewer, circle_id=circle_id)["totalCount"] == 2
+        )
+
+    assert len(service.list_circles(user_id="owner")) == 1
+    read_roster("owner")
+    if admitted:
+        assert len(service.list_circles(user_id="other")) == 1
+        read_roster("other")
+    else:
+        assert service.list_circles(user_id="other") == []
+        for reader in (
+            service.get_circle,
+            service.get_circle_overview,
+            service.list_circle_members_page,
+        ):
+            with pytest.raises(OneLocationCircleError) as error:
+                reader(user_id="other", circle_id=circle_id)
+            assert error.value.code == "LOCATION_CIRCLE_NOT_FOUND"
+    # Ordinary Circle admission is unchanged, even without Trusted provenance.
+    db.execute_raw("UPDATE one_location_circles SET system_kind=NULL")
+    assert len(service.list_circles(user_id="other")) == 1
+    read_roster("other")
+
+
+def test_disconnect_preserves_unrelated_rosters_in_real_sql(db, monkeypatch):
+    sms_schema(db)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    db.execute_raw((migrations / "158_one_location_circle_member_limit_100.sql").read_text())
+    db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES('third')")
+    service = OneLocationCircleService(db=db, hmac_key="synthetic-circle-key")
+    # These tails have separate coverage. Keep the membership update and
+    # code/invitation cleanup real; no transport or grant fixture is required.
+    monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_, **__: None)
+    monkeypatch.setattr(
+        service.__class__, "_reconcile_circle_sourced_grants", lambda *_, **__: None
+    )
+    monkeypatch.setattr(
+        service.__class__, "_cleanup_ineligible_sms_contacts", lambda *_, **__: None
+    )
+    with db.engine.begin() as conn:
+        circles = {}
+        for name, owner, members in (
+            ("shared", "third", ("owner", "other")),
+            ("unrelated_a", "third", ("owner",)),
+            ("unrelated_b", "third", ("other",)),
+            ("owned", "owner", ("other",)),
+            ("former", "third", ("owner", "other")),
+        ):
+            circle_id = service.create_circle_in_transaction(conn, owner_user_id=owner, name=name)
+            circles[name] = circle_id
+            for member in members:
+                conn.execute(
+                    text("""INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+                  VALUES(CAST(:circle AS UUID),:member,'member','active')"""),
+                    {"circle": circle_id, "member": member},
+                )
+        conn.execute(
+            text("""UPDATE one_location_circle_memberships SET status='left'
+          WHERE circle_id=CAST(:circle AS UUID) AND user_id='other'"""),
+            {"circle": circles["former"]},
+        )
+        ended = service.end_memberships_for_disconnected_pair(
+            conn, user_a_id="owner", user_b_id="other"
+        )
+        assert {(row["circleId"], row["userId"]) for row in ended} == {
+            (circles["shared"], "owner"),
+            (circles["shared"], "other"),
+            (circles["owned"], "other"),
+        }
+        statuses = {
+            (str(row.circle_id), row.user_id): row.status
+            for row in conn.execute(
+                text("SELECT circle_id,user_id,status FROM one_location_circle_memberships")
+            )
+        }
+        assert statuses[(circles["unrelated_a"], "owner")] == "active"
+        assert statuses[(circles["unrelated_b"], "other")] == "active"
+        assert statuses[(circles["owned"], "owner")] == "active"
+        assert statuses[(circles["former"], "owner")] == "active"
+        assert (
+            service.end_memberships_for_disconnected_pair(
+                conn, user_a_id="owner", user_b_id="other"
+            )
+            == []
+        )
 
 
 def circle_fixture(db, monkeypatch, action):

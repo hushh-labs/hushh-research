@@ -130,6 +130,33 @@ def test_record_pending_many_locks_all_uids_in_stable_order_before_inserting():
     assert "cleanup_status = 'completed'" in first_insert_sql
 
 
+def test_backend_only_erasure_retains_barrier_without_external_cleanup():
+    conn = MagicMock()
+    conn.execute.return_value.rowcount = 1
+
+    AccountDeletionLifecycleService.record_backend_only_erasure_in_transaction(
+        conn, user_id="user_123"
+    )
+
+    insert = conn.execute.call_args_list[-1]
+    assert conn.execute.call_count == 3
+    assert conn.execute.call_args_list[0].args[1]["lock_namespace"] == 171
+    assert conn.execute.call_args_list[1].args[1]["lock_namespace"] == 198
+    assert insert.args[1] == {"user_id_hash": account_deletion_user_hash("user_123")}
+    sql = str(insert.args[0])
+    assert "NULL, 'completed', NULL" in sql
+    assert "uat_backend_only_erasure" in sql
+    assert "cleanup_status = 'completed'" in sql
+    assert "firebase_uid IS NULL" in sql
+
+    # Never cancel another claim: it may be executing outside this transaction.
+    conn.execute.return_value.rowcount = 0
+    with pytest.raises(RuntimeError, match="conflicting_identity_cleanup"):
+        AccountDeletionLifecycleService.record_backend_only_erasure_in_transaction(
+            conn, user_id="user_123"
+        )
+
+
 def test_phone_session_intent_checks_indexed_presence_under_both_uid_locks(monkeypatch):
     conn = MagicMock()
     state_result = MagicMock()

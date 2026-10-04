@@ -1,8 +1,11 @@
 "use client";
 
+import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
+import type { AgentPkmReservedOffer } from "@/lib/pkm/reserved-offer";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { buildReadablePkmMetadata } from "@/lib/personal-knowledge-model/natural-language";
 import { ApiService } from "@/lib/services/api-service";
+import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import {
   PersonalKnowledgeModelService,
   type PersonalKnowledgeModelMetadata,
@@ -21,6 +24,7 @@ import {
   type AgentPkmContextCoverage,
   type PkmReconciliationCandidate,
 } from "@/lib/agent/agent-pkm-context-store";
+import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 import { humanizeMemorySegment } from "@/lib/pkm/humanize-segment";
 import { toPlainMemoryText, toPlainMemoryValue } from "@/lib/pkm/memory-plain-text";
@@ -46,6 +50,13 @@ export type AgentPkmIntentFrame = {
 export type AgentPkmPreviewCard = {
   card_id: string;
   source_text: string;
+  /**
+   * The segment's exact quote of the text that was sent, before the Markdown
+   * cleanup applied to `source_text`. Coverage maps it back to source offsets.
+   */
+  source_quote?: string;
+  /** Exact supporting quotes the segment relied on (added by later agents; optional). */
+  context_quotes?: string[];
   save_class?: string;
   intent_class?: string;
   mutation_intent?: string;
@@ -88,6 +99,8 @@ export type AgentPkmPreviewCard = {
     affected_grant_ids: string[];
     affected_export_ids: string[];
   };
+  /** Set when this fact belongs to an app-owned branch and was kept in its sibling. */
+  reserved_offer?: AgentPkmReservedOffer | null;
 };
 
 export type AgentPkmPreviewResponse = {
@@ -95,7 +108,6 @@ export type AgentPkmPreviewResponse = {
   agent_name: string;
   model: string;
   used_fallback: boolean;
-  routing_decision?: string;
   error?: string | null;
   intent_frame?: AgentPkmIntentFrame;
   merge_decision?: Record<string, unknown>;
@@ -120,6 +132,8 @@ export type AgentPkmContext = {
   source?: "metadata" | "decrypted_session_pkm";
   mode?: "summary" | "full";
   coverage?: AgentPkmContextCoverage;
+  /** Settings style choices for the separate `communicationPreferences` field. */
+  communicationPreferences?: OwnerStyleSettings;
 };
 
 export type AgentPkmSaveResult = {
@@ -191,6 +205,7 @@ function titleize(value: string | null | undefined): string {
 function withPlainMemoryText(card: AgentPkmPreviewCard): AgentPkmPreviewCard {
   return {
     ...card,
+    source_quote: card.source_quote ?? String(card.source_text || ""),
     source_text: toPlainMemoryText(String(card.source_text || "")),
     ...(card.candidate_payload
       ? { candidate_payload: toPlainMemoryValue(card.candidate_payload) }
@@ -281,7 +296,7 @@ export function isReservedPkmCard(card: AgentPkmPreviewCard): boolean {
     action === "reject_reserved_target" ||
     action === "reserved_target" ||
     action === "reserved" ||
-    hints.some((hint) => hint.includes("reserved"))
+    hints.some(isReservedRefusalHint)
   );
 }
 
@@ -317,6 +332,13 @@ export async function previewAgentPkmMemory(params: {
   signal?: AbortSignal;
   isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
+  // Last line before a memory proposal: the text was guarded on the device and
+  // carries placeholders only. A raw secret here is refused, never sent; the
+  // server's own net (secret_patterns.py) stays behind this one.
+  assertNoUnguardedSecrets([
+    params.message,
+    ...(params.reconciliationCandidates ?? []).map((candidate) => candidate.message),
+  ]);
   const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
     signal: params.signal,
@@ -379,7 +401,8 @@ export async function previewAgentPkmMemory(params: {
   };
 }
 
-function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
+/** The domain `addToPKM` writes a card to; the commit id is derived from it. */
+export function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
   const structureDecision = toRecord(card.structure_decision);
   const manifestDraft = card.manifest_draft && typeof card.manifest_draft === "object"
     ? card.manifest_draft
@@ -459,6 +482,11 @@ export async function addToPKM(params: {
    * and rewriting the same domain for every field.
    */
   batchSimpleDomainExtensions?: boolean;
+  /**
+   * One stable scope per card (same order as `cards`). The commit id is derived
+   * from it, so replaying the same card after an interruption cannot write it twice.
+   */
+  idempotencyScopes?: readonly (string | undefined)[];
 }): Promise<AgentPkmSaveResult> {
   // Writes to a single domain must stay ordered: each write reads and merges
   // the result of the preceding one. Independent domains have no such
@@ -606,6 +634,7 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        idempotencyScope: params.idempotencyScopes?.[index],
         beforeEffect: params.beforeEffect,
         mayPublish: params.mayPublish,
         confirmation: automatic

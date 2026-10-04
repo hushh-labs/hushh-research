@@ -580,6 +580,61 @@ describe("VoiceSessionProvider ownership", () => {
     }
   });
 
+  it("reports a re-listed card the server never saw shown, once painted", async () => {
+    // Regression: a pending_action frame lost to a reconnect left the card
+    // unshown on the server, so "yes" was refused and One asked again.
+    mockVisiblePendingGeometry();
+    mount(true, <PendingPanelProbe />);
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const unshown = pendingActionFrame({ pending_action_id: "card-unshown" });
+    await act(async () => {
+      client.options.onFrame(
+        readyFrame({ pending_actions: [unshown], resumed: true }),
+      );
+    });
+    expect(screen.getByTestId("one-voice-pending-action").getAttribute("data-pending-action-id"))
+      .toBe(unshown.pending_action_id);
+    expect(client.sent).not.toContain("pending_shown:card-unshown");
+    await waitFor(() => expect(client.sent).toContain("pending_shown:card-unshown"));
+    await act(async () => {
+      client.options.onFrame(
+        readyFrame({ pending_actions: [unshown], resumed: true }),
+      );
+    });
+    expect(client.sent.filter((sent) => sent === "pending_shown:card-unshown"))
+      .toHaveLength(1);
+
+    // Negative control: a card the server already knows is shown is not re-sent.
+    const shown = pendingActionFrame({
+      pending_action_id: "card-shown",
+      shown_at: "2026-10-02T10:00:00Z",
+    });
+    await act(async () => {
+      client.options.onFrame(
+        readyFrame({ pending_actions: [shown], resumed: true }),
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(client.sent).not.toContain("pending_shown:card-shown");
+  });
+
+  it("does not acknowledge a restored card when its panel is absent", async () => {
+    mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const unshown = pendingActionFrame({ pending_action_id: "card-not-mounted" });
+    await act(async () => {
+      client.options.onFrame(
+        readyFrame({ pending_actions: [unshown], resumed: true }),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(client.sent).not.toContain("pending_shown:card-not-mounted");
+  });
+
   it("keeps an older restored card from taking over after the next answer ends", async () => {
     const onToolResult = vi.fn();
     const key = Symbol("restored-card-effects");

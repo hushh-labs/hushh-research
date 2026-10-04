@@ -153,6 +153,8 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["payload"]["proposalId"] == "gcal_example"
     assert directive["payload"]["type"] == "calendar.execute_proposal"
+    assert directive["payload"]["googleMeet"] is True
+    assert directive["payload"]["confirmLabel"] == "Schedule meeting"
     assert calendar.proposal_payload is not None
     assert str(calendar.proposal_payload["start_at"]).endswith("+05:30")
 

@@ -233,9 +233,18 @@ class RateLimits:
     CONTACT_DISCOVERY_MATCH = "12/minute"  # noqa: S105
     CONTACT_DISCOVERY_MATCH_DAILY = "60/day"  # noqa: S105
     # Interactive name typing needs headroom; exact email/phone discovery must
-    # still have a bounded per-owner request budget.
+    # still have a bounded per-owner request budget. Browse and nonempty search
+    # have separate daily buckets, with the minute ceiling shared across both.
     ONE_CONNECT_DIRECTORY_READ = "60/minute"  # noqa: S105
+    # Nonempty search is the discovery path, so it keeps the tight budget.
     ONE_CONNECT_DIRECTORY_READ_DAILY = "500/day"  # noqa: S105
+    # Browse pages the same visible list the person already sees and cannot
+    # look anyone up by email or phone, so it is not the enumeration path. It
+    # also has to outlast a client that stays foregrounded and refreshes the
+    # list on a timer: shipped builds read two pages a minute, 2,880 a day,
+    # and with a 500 budget those builds locked every owner out of People by
+    # mid-afternoon (UAT, 2026-10-02). Above that cadence, and still bounded.
+    ONE_CONNECT_DIRECTORY_BROWSE_DAILY = "3000/day"  # noqa: S105
 
     # The owner's own position heartbeat onto their live public link. Unlike
     # every other mutation on this router this one is SUPPOSED to repeat: the

@@ -21,6 +21,7 @@ import {
   Fingerprint,
   Eye,
   EyeOff,
+  UserRound,
   type LucideIcon,
 } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -40,6 +41,7 @@ import { User } from "firebase/auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { useHostname } from "@/lib/hooks/use-hostname";
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -278,16 +280,24 @@ function releaseGeneratedUnlock(owner: symbol): void {
 }
 
 function VaultFlowHeader({
+  user,
   icon,
   title,
   description,
   hint,
 }: {
+  user: User;
   icon: LucideIcon;
   title: string;
   description: string;
   hint?: string | null;
 }) {
+  // Presentation only: the current authenticated owner supplies the identity.
+  // Email/provider presence never authorizes unlock or infers a vault method.
+  const providerId = user.providerData?.[0]?.providerId;
+  const providerLabel = providerId === "google.com"
+    ? "Google account"
+    : providerId === "apple.com" ? "Apple account" : "Signed-in account";
   return (
     <div data-vault-flow-header className="text-center">
       <div
@@ -308,6 +318,19 @@ function VaultFlowHeader({
         {title}
       </div>
       <p className="mt-1 type-subhead text-muted-foreground">{description}</p>
+      <div
+        data-vault-account-identity
+        className="mx-auto mt-3 flex max-w-[21rem] items-center justify-center gap-2 type-footnote text-muted-foreground"
+      >
+        <span role="img" aria-label={providerLabel} className="inline-flex shrink-0 text-foreground">
+          {providerId === "google.com" ? <GoogleIcon size={17} />
+            : providerId === "apple.com" ? <AppleIcon size={17} />
+              : <Icon icon={UserRound} size={17} />}
+        </span>
+        <span className="min-w-0 break-all">
+          {user.email || user.phoneNumber || user.displayName || "Signed-in account"}
+        </span>
+      </div>
       {hint ? (
         <p className="mx-auto mt-3 max-w-[19rem] text-balance rounded-[14px] bg-[color:var(--app-accent-tint)] px-3.5 py-2.5 type-footnote text-muted-foreground">
           {hint}
@@ -1737,6 +1760,7 @@ export function VaultFlow({
           {step === "setup_required" && (
             <div className="mx-auto max-w-[21rem] space-y-4 text-center">
               <VaultFlowHeader
+                user={user}
                 icon={Lock}
                 title="Finish setup first"
                 description="This is the last step."
@@ -1753,6 +1777,7 @@ export function VaultFlow({
               onSubmit={handleCreatePassphraseSubmit}
             >
               <VaultFlowHeader
+                user={user}
                 icon={Lock}
                 /* "Set a lock" — the phrase this product already uses for
                    this exact dialog. one-setup-hub.tsx:607 passes it as the
@@ -1897,6 +1922,7 @@ export function VaultFlow({
           {step === "unlock" && (
             <div className="space-y-2.5">
               <VaultFlowHeader
+                user={user}
                 icon={isGeneratedVaultMode ? Fingerprint : Lock}
                 title="Unlock One"
                 description={
@@ -2036,6 +2062,7 @@ export function VaultFlow({
           {step === "recovery" && !recoveryKey && (
             <div className="space-y-2.5">
               <VaultFlowHeader
+                user={user}
                 icon={Key}
                 title="Enter recovery key"
                 description="Use this if your passphrase is unavailable."
@@ -2082,6 +2109,7 @@ export function VaultFlow({
           {step === "method" && (
             <div className="space-y-4">
               <VaultFlowHeader
+                user={user}
                 icon={
                   recommendedQuickMethod === "generated_default_web_prf" ||
                   recommendedQuickMethod ===
@@ -2224,6 +2252,7 @@ export function VaultFlow({
               className="mx-auto max-w-[21rem] space-y-4"
             >
               <VaultFlowHeader
+                user={user}
                 icon={Key}
                 title="Save your recovery key"
                 description="Keep it somewhere only you can reach."

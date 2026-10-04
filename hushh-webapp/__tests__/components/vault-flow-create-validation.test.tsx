@@ -154,6 +154,34 @@ function vaultState(
 describe("VaultFlow create validation", () => {
   const user = { uid: "user-1" } as Parameters<typeof VaultFlow>[0]["user"];
 
+  it.each([
+    ["google.com", "Google account"],
+    ["apple.com", "Apple account"],
+  ])("identifies the current owner during unlock and recovery (%s)", async (providerId, providerLabel) => {
+    checkVaultMock.mockResolvedValue(true);
+    const onSuccess = vi.fn();
+    const owner = {
+      uid: "owner-one",
+      email: "owner-one@example.test",
+      providerData: [{ providerId }],
+    } as Parameters<typeof VaultFlow>[0]["user"];
+    const view = render(<VaultFlow user={owner} onSuccess={onSuccess} />);
+
+    expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
+    expect(screen.getByText(owner.email!)).toBeTruthy();
+    expect(screen.getByRole("img", { name: providerLabel })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Recovery key" }));
+    expect(await screen.findByLabelText("Recovery Key")).toBeTruthy();
+    expect(screen.getByText(owner.email!)).toBeTruthy();
+
+    view.rerender(<VaultFlow user={{ ...owner, uid: "owner-two", email: "owner-two@example.test" }} onSuccess={onSuccess} />);
+    expect(await screen.findByText("owner-two@example.test")).toBeTruthy();
+    expect(screen.queryByText(owner.email!)).toBeNull();
+    expect(unlockVaultMock).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
+    expect(createVaultMock).not.toHaveBeenCalled();
+  });
+
   it("offers a sign-out escape when the initial account/Vault check fails", async () => {
     checkVaultMock.mockRejectedValue(new Error("offline"));
     const onSignOut = vi.fn().mockResolvedValue(undefined);

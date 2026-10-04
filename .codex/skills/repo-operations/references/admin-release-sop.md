@@ -132,10 +132,17 @@ Production requires an explicit production request and an actor in
    UAT and production both require exact revision provenance and a consolidated
    release-status artifact; environment-specific semantic gates remain explicit
    in their owning workflow and report.
-4. Prefer workflow artifacts as authoritative proof. If local `gcloud` user auth
-   is stale but ADC is valid, an evidence-only helper may receive an ephemeral
-   `CLOUDSDK_AUTH_ACCESS_TOKEN` sourced from ADC in the same process. Never print,
-   persist, or move that token between environments.
+4. Prefer workflow artifacts as authoritative proof. Before requesting a local
+   GCP re-login, check CLI credentials and Application Default Credentials (ADC)
+   independently. Discovering ADC is not proof: refresh it, verify the expected
+   principal and target project, then prove the exact authorized read. Classify
+   authentication failure separately from permission denial; never try unrelated
+   identities, broaden IAM, or change impersonation to make a check pass. If CLI
+   auth is stale but the approved ADC works, an evidence-only helper may receive
+   an ephemeral `CLOUDSDK_AUTH_ACCESS_TOKEN` in the same process. Approved reviewer
+   secret reads must stay in process memory. Never print or persist tokens,
+   credential files, secret payloads or provider error bodies, or move credentials
+   between environments. This fallback does not replace workflow deployment WIF.
 5. A warning-only evaluator does not authorize rollback by itself. Runtime
    health, provenance, schema, or semantic authority failures follow the owning
    workflow's bounded rollback contract. Humans do not repair traffic with an

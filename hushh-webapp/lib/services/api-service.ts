@@ -253,6 +253,11 @@ export function normalizeNativeBackendUrl(raw: string): string {
   if (platform !== "android") {
     return trimmed;
   }
+  // Physical Android uses the same explicit ADB reverse transport as the
+  // native build config. Emulator rewriting would bypass the forwarded port.
+  if (process.env.NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE === "adb_reverse") {
+    return trimmed;
+  }
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
   }

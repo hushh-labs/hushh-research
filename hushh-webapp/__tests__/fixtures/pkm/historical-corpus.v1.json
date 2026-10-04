@@ -64,6 +64,320 @@
         "falsy": [false, 0, "", null],
         "retired_scope_audit_text": "portfolio.read"
       }
+    },
+    {
+      "id": "v4_financial_profile_mixed_agent_entity",
+      "stored_domain_contract_version": 4,
+      "domain": "financial",
+      "$comment": "Finance app fields beside one memory-agent entity, with its map-level and in-entity supersede history. The entity and both histories move to financial.agent_memory; every app field stays in place.",
+      "expected_reserved_migration": {
+        "moved": 2,
+        "deduplicated": 0,
+        "quarantined": 0,
+        "reindexedOccurrences": 0
+      },
+      "data": {
+        "profile": {
+          "risk_tolerance": "balanced",
+          "investment_horizon": "long_term",
+          "source": "kai_profile_setup_sync",
+          "entities": {
+            "mem_1a2b3c4d5e6f": {
+              "entity_id": "mem_1a2b3c4d5e6f",
+              "kind": "preference",
+              "summary": "SENTINEL prefers low-fee index funds",
+              "observations": [
+                "SENTINEL prefers low-fee index funds"
+              ],
+              "status": "active",
+              "superseded": {
+                "summary": [
+                  {
+                    "value": "SENTINEL prefers active funds",
+                    "superseded_at": "2026-07-01T00:00:00Z"
+                  }
+                ]
+              }
+            },
+            "superseded": {
+              "mem_1a2b3c4d5e6f": [
+                {
+                  "value": "SENTINEL earliest fund note",
+                  "superseded_at": "2026-06-01T00:00:00Z"
+                }
+              ]
+            }
+          }
+        },
+        "portfolio": {
+          "holdings": [
+            {
+              "symbol": "SENTINEL_C",
+              "quantity": 3,
+              "enabled": true
+            }
+          ],
+          "cash_balance": 0
+        },
+        "agent_memory": {
+          "entities": {
+            "mem_0000aaaa0000": {
+              "entity_id": "mem_0000aaaa0000",
+              "kind": "note",
+              "summary": "SENTINEL earlier chat fact",
+              "observations": [
+                "SENTINEL earlier chat fact"
+              ],
+              "status": "active"
+            }
+          }
+        },
+        "updated_at": "2026-09-01T00:00:00Z"
+      }
+    },
+    {
+      "id": "v4_location_saved_places_agent_note",
+      "stored_domain_contract_version": 4,
+      "domain": "location",
+      "$comment": "An agent-written note filed inside the Location app's saved places. It moves to location.agent_memory; the saved place and the visit notes stay.",
+      "expected_reserved_migration": {
+        "moved": 1,
+        "deduplicated": 0,
+        "quarantined": 0,
+        "reindexedOccurrences": 0
+      },
+      "data": {
+        "saved_places": {
+          "schema_version": 1,
+          "updated_at": "2026-09-02T00:00:00Z",
+          "locations": [
+            {
+              "id": "home",
+              "category": "home",
+              "label": "Home",
+              "latitude": 0.5,
+              "longitude": 0.25,
+              "address": "SENTINEL ADDRESS 1",
+              "addressBase": "SENTINEL ADDRESS 1"
+            }
+          ],
+          "entities": {
+            "mem_9f8e7d6c5b4a": {
+              "entity_id": "mem_9f8e7d6c5b4a",
+              "kind": "note",
+              "summary": "SENTINEL gate code is on the blue door",
+              "observations": [
+                "SENTINEL gate code is on the blue door"
+              ],
+              "status": "active"
+            }
+          }
+        },
+        "visit_notes": {
+          "schema_version": 1,
+          "visits": [
+            {
+              "placeId": "SENTINEL_PLACE",
+              "label": "SENTINEL CAFE",
+              "rating": 4,
+              "note": null,
+              "visitedAt": null,
+              "ratedAt": "2026-09-03T00:00:00Z"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "v4_identity_profile_agent_fact",
+      "stored_domain_contract_version": 4,
+      "domain": "identity",
+      "$comment": "An agent fact inside the KYC identity profile whose identical copy already sits in identity.agent_memory: equal-value deduplication, nothing duplicated, nothing lost.",
+      "expected_reserved_migration": {
+        "moved": 0,
+        "deduplicated": 1,
+        "quarantined": 0,
+        "reindexedOccurrences": 0
+      },
+      "data": {
+        "identity_profile": {
+          "legal_name": "SENTINEL NAME",
+          "date_of_birth": "1990-01-01",
+          "about_me": "",
+          "updated_at": "2026-09-04T00:00:00Z",
+          "schema_version": 2,
+          "entities": {
+            "mem_abcdefabcdef": {
+              "entity_id": "mem_abcdefabcdef",
+              "kind": "preference",
+              "summary": "SENTINEL prefers to be called Sam",
+              "observations": [
+                "SENTINEL prefers to be called Sam"
+              ],
+              "status": "active"
+            }
+          }
+        },
+        "communication_preferences": {
+          "tone": "direct",
+          "length": "short"
+        },
+        "agent_memory": {
+          "entities": {
+            "mem_abcdefabcdef": {
+              "entity_id": "mem_abcdefabcdef",
+              "kind": "preference",
+              "summary": "SENTINEL prefers to be called Sam",
+              "observations": [
+                "SENTINEL prefers to be called Sam"
+              ],
+              "status": "active"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "v4_professional_profile_mixed",
+      "stored_domain_contract_version": 4,
+      "domain": "professional",
+      "$comment": "Every classification at once: two agent entities move (an id and a whole entity shape), a sibling collision, a feature-stamped agent entity, a partial shape and a list item are quarantined, an app entity and app fields stay, and the app list item after the quarantined one shifts by lineage.",
+      "expected_reserved_migration": {
+        "moved": 2,
+        "deduplicated": 0,
+        "quarantined": 4,
+        "reindexedOccurrences": 2
+      },
+      "data": {
+        "profile": {
+          "employer": "SENTINEL CO",
+          "title": "SENTINEL TITLE",
+          "entities": {
+            "mem_222222222222": {
+              "entity_id": "mem_222222222222",
+              "kind": "note",
+              "summary": "SENTINEL works on the data platform",
+              "observations": [
+                "SENTINEL works on the data platform"
+              ],
+              "status": "active"
+            },
+            "skill_python": {
+              "entity_id": "skill_python",
+              "kind": "skill",
+              "summary": "SENTINEL writes Python daily",
+              "observations": [
+                "SENTINEL writes Python daily"
+              ],
+              "status": "active"
+            },
+            "mem_333333333333": {
+              "entity_id": "mem_333333333333",
+              "kind": "note",
+              "summary": "SENTINEL stamped by KYC",
+              "observations": [
+                "SENTINEL stamped by KYC"
+              ],
+              "status": "active",
+              "source": "kyc_identity_onboarding"
+            },
+            "cert_aws": {
+              "name": "SENTINEL CERT",
+              "observations": [
+                "SENTINEL passed in 2025"
+              ]
+            },
+            "mem_444444444444": {
+              "entity_id": "mem_444444444444",
+              "kind": "note",
+              "summary": "SENTINEL collides with the sibling",
+              "observations": [
+                "SENTINEL collides with the sibling"
+              ],
+              "status": "active"
+            },
+            "team_lead": {
+              "name": "SENTINEL LEAD",
+              "since": "2024"
+            }
+          },
+          "history": [
+            {
+              "company": "SENTINEL OLD CO",
+              "years": 2
+            },
+            {
+              "summary": "SENTINEL agent list item",
+              "observations": [
+                "SENTINEL agent list item"
+              ]
+            },
+            {
+              "company": "SENTINEL OLDER CO",
+              "years": 3
+            }
+          ]
+        },
+        "agent_memory": {
+          "entities": {
+            "mem_444444444444": {
+              "entity_id": "mem_444444444444",
+              "kind": "note",
+              "summary": "SENTINEL a different sibling value",
+              "observations": [
+                "SENTINEL a different sibling value"
+              ],
+              "status": "active"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "v4_ria_advisor_package_untouched",
+      "stored_domain_contract_version": 4,
+      "domain": "ria",
+      "$comment": "RIA app branches with no agent entries: the upgrade must leave every byte where it was.",
+      "expected_reserved_migration": {
+        "moved": 0,
+        "deduplicated": 0,
+        "quarantined": 0,
+        "reindexedOccurrences": 0
+      },
+      "expect_unchanged": true,
+      "data": {
+        "advisor_package": {
+          "picks": [
+            {
+              "symbol": "SENTINEL_R",
+              "weight": 0.5
+            },
+            {
+              "symbol": "SENTINEL_S",
+              "weight": 0.5
+            }
+          ],
+          "thesis": "SENTINEL THESIS",
+          "updated_at": "2026-09-05T00:00:00Z"
+        },
+        "regulator_profile": {
+          "crd": "0000000",
+          "firm": "SENTINEL FIRM"
+        },
+        "agent_memory": {
+          "entities": {
+            "mem_555555555555": {
+              "entity_id": "mem_555555555555",
+              "kind": "note",
+              "summary": "SENTINEL already in the sibling",
+              "observations": [
+                "SENTINEL already in the sibling"
+              ],
+              "status": "active"
+            }
+          }
+        }
+      }
     }
   ]
 }

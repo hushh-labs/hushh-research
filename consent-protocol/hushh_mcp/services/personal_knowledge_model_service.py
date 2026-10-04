@@ -28,11 +28,21 @@ from hushh_mcp.consent.pkm_scope_policy import (
     is_public_pkm_projection_allowed,
     is_source_library_pkm_scope,
 )
+from hushh_mcp.consent.reserved_branches import (
+    REFUSAL_CODE_FORBIDDEN,
+    evaluate_reserved_write,
+    refusal_code,
+    refusal_detail,
+)
+from hushh_mcp.consent.reserved_branches import (
+    enforcement_mode as reserved_enforcement_mode,
+)
 from hushh_mcp.consent.scope_helpers import scope_matches
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     CURRENT_PKM_MODEL_VERSION,
     CURRENT_READABLE_SUMMARY_VERSION,
+    RESERVED_BRANCH_MIGRATION_MARKER,
     RETIRED_DOMAIN_REGISTRY_KEYS,
     canonical_top_level_domain,
     current_domain_contract_version,
@@ -48,6 +58,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
     LocationPkmFinalizeAuthorizationV1,
     PkmMutationPlanV2,
+    derive_pkm_mutation_commit_id,
     validate_location_finalize_authorization_for_write,
     validate_mutation_plan_for_write,
 )
@@ -254,6 +265,7 @@ class PersonalKnowledgeModelService:
         "updated_at",
         "upgraded_at",
         "latest_upgrade_commit_id",
+        RESERVED_BRANCH_MIGRATION_MARKER,
     }
     _FINANCIAL_ENRICHMENT_INT_KEYS = {"investable_positions_count", "cash_positions_count"}
     _FINANCIAL_ENRICHMENT_STR_KEYS = {"risk_profile"}
@@ -585,6 +597,7 @@ class PersonalKnowledgeModelService:
             "path_count",
             "readable_summary_version",
             "top_level_scope_count",
+            RESERVED_BRANCH_MIGRATION_MARKER,
         }
         token_keys = {
             "intent_class",
@@ -740,7 +753,15 @@ class PersonalKnowledgeModelService:
         payload: dict | None,
         structure_decision: dict | None,
         prior_manifest: dict | None = None,
+        upgrade_commit: bool | None = None,
     ) -> DomainManifest:
+        """Normalize a client manifest for storage.
+
+        ``upgrade_commit`` decides who owns the reserved-branch relocation
+        marker: ``True`` (an upgrade-claim commit) takes the client's marker,
+        ``False`` (an ordinary write) keeps the prior manifest's and ignores the
+        client's, ``None`` (re-normalizing a stored manifest) keeps the payload's.
+        """
         source = payload if isinstance(payload, dict) else {}
         decision = self._normalize_structure_decision(domain, structure_decision)
         source_agent = self._clean_text(
@@ -897,6 +918,19 @@ class PersonalKnowledgeModelService:
             summary_projection["latest_upgrade_commit_id"] = latest_upgrade_commit_id
         if upgraded_at_value:
             summary_projection["upgraded_at"] = upgraded_at_value
+        if upgrade_commit is not None:
+            prior_projection = (prior_manifest or {}).get("summary_projection")
+            prior_marker = self._to_non_negative_int(
+                (prior_projection if isinstance(prior_projection, dict) else {}).get(
+                    RESERVED_BRANCH_MIGRATION_MARKER
+                )
+            )
+            claimed_marker = self._to_non_negative_int(
+                summary_projection.pop(RESERVED_BRANCH_MIGRATION_MARKER, None)
+            )
+            marker = (claimed_marker if upgrade_commit else None) or prior_marker
+            if marker:
+                summary_projection[RESERVED_BRANCH_MIGRATION_MARKER] = marker
 
         last_structured_at = datetime.now(UTC)
         last_content_at = datetime.now(UTC)
@@ -2063,6 +2097,31 @@ class PersonalKnowledgeModelService:
             )
             return None
 
+    async def get_manifest_json_paths(self, user_id: str, domain: str) -> frozenset[str] | None:
+        """The stored manifest's path set, or None when there is none to compare.
+
+        One query, for the reserved-branch manifest diff on every store. Errors
+        are raised, not swallowed: an enforcing caller must not read "no stored
+        manifest" when the read failed.
+        """
+        canonical_domain = self._canonicalize_domain_key(domain)
+        if not canonical_domain:
+            return None
+        query = (
+            self.db.table("pkm_manifest_paths")
+            .select("json_path")
+            .eq("user_id", user_id)
+            .eq("domain", canonical_domain)
+        )
+        rows = (await self._execute_query(query)).data or []
+        if not rows:
+            return None
+        return frozenset(
+            str(row.get("json_path") or "").strip().lower()
+            for row in rows
+            if str(row.get("json_path") or "").strip()
+        )
+
     async def get_domain_manifests(
         self,
         user_id: str,
@@ -2808,6 +2867,50 @@ class PersonalKnowledgeModelService:
         )
         payload = self._unwrap_rpc_payload(rpc_result, rpc_name)
         return payload if isinstance(payload, dict) else {"success": False, "conflict": False}
+
+    async def find_mutation_commits(
+        self,
+        *,
+        user_id: str,
+        commits: list[tuple[str, str]],
+    ) -> list[dict[str, Any]]:
+        """Whether each ``(domain, plan_id)`` write already committed for this owner.
+
+        The commit id is derived here from the caller's own user id, exactly as
+        the write path derives it (``derive_pkm_mutation_commit_id``), so an
+        owner can only ever ask about their own writes. The answer is existence
+        and the committed content revision; nothing else about the write.
+        A malformed plan id or domain is simply "not committed".
+        """
+        derived: list[str | None] = []
+        for domain, plan_id in commits:
+            try:
+                derived.append(
+                    derive_pkm_mutation_commit_id(user_id=user_id, domain=domain, plan_id=plan_id)
+                )
+            except ValueError:
+                derived.append(None)
+        wanted = sorted({commit_id for commit_id in derived if commit_id})
+        found: dict[str, int | None] = {}
+        if wanted:
+            result = await self._execute_query(
+                self.db.table("pkm_domain_commits")
+                .select("commit_id,result_content_revision")
+                .eq("user_id", user_id)
+                .eq("commit_kind", "mutation")
+                .in_("commit_id", wanted)
+            )
+            for row in result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                revision = self._to_non_negative_int(row.get("result_content_revision"))
+                found[str(row.get("commit_id"))] = revision
+        return [
+            {"exists": commit_id in found, "data_version": found.get(commit_id)}
+            if commit_id
+            else {"exists": False, "data_version": None}
+            for commit_id in derived
+        ]
 
     async def get_mutation_sharing_impact(
         self,
@@ -3888,6 +3991,55 @@ class PersonalKnowledgeModelService:
 
     # ==================== PKM DATA OPERATIONS (BLOB-BASED) ====================
 
+    @staticmethod
+    def _reserved_branch_refusal(
+        *,
+        domain: str,
+        mutation_plan: PkmMutationPlanV2 | None,
+        structure_decision: Optional[dict],
+        capabilities: frozenset[str],
+    ) -> dict[str, Any] | None:
+        """Defense in depth for the reserved-branch registry, in enforce mode.
+
+        The store route refuses first (api/routes/pkm_routes_shared.py, with the
+        structure-path novelty and the manifest diff, both judged against the
+        stored manifest). This re-check covers any other caller of
+        store_domain_data with the plan's declared scope alone: a structure
+        decision lists every branch of the merged domain, changed or not, so
+        judging it here without the stored manifest refused legitimate saves
+        into an agent_memory sibling. An upgrade-claim write (no mutation plan)
+        is the migration writer and is never refused.
+        """
+        if mutation_plan is None:
+            return None
+        del structure_decision  # judged by the route against the stored manifest
+        try:
+            if reserved_enforcement_mode() != "enforce":
+                return None
+            refusals = evaluate_reserved_write(
+                domain=domain,
+                paths=[mutation_plan.proposed_scope],
+                writer_id=mutation_plan.writer_id,
+                authorization_mode=mutation_plan.confirmation_receipt.authorization_mode,
+                capabilities=capabilities,
+            )
+        except Exception as exc:
+            logger.error("store_domain_data reserved registry unavailable: %s", type(exc).__name__)
+            return {"code": "PKM_RESERVED_REGISTRY_UNAVAILABLE", "registry_version": None}
+        if not refusals:
+            return None
+        code = refusal_code(refusals)
+        logger.warning(
+            "store_domain_data refused a reserved branch domain=%s code=%s", domain, code
+        )
+        detail = refusal_detail(refusals[0], code=code)
+        detail["branches"] = sorted({item.branch for item in refusals})
+        if code == REFUSAL_CODE_FORBIDDEN:
+            detail["message"] = (
+                "This information belongs to an app feature. Save it from that feature's own screen."
+            )
+        return detail
+
     async def store_domain_data(
         self,
         user_id: str,
@@ -3904,6 +4056,7 @@ class PersonalKnowledgeModelService:
         mutation_plan: Optional[dict] = None,
         return_result: bool = False,
         location_finalize_authorization: Optional[dict] = None,
+        reserved_capabilities: frozenset[str] = frozenset(),
     ) -> bool | dict[str, Any]:
         """
         Store encrypted domain data and update index.
@@ -3990,6 +4143,26 @@ class PersonalKnowledgeModelService:
                 result["code"] = "LOCATION_FINALIZE_AUTHORITY_INVALID"
                 return result if return_result else False
 
+        reserved_refusal = self._reserved_branch_refusal(
+            domain=domain,
+            mutation_plan=normalized_mutation_plan,
+            structure_decision=structure_decision,
+            capabilities=frozenset(
+                {
+                    *reserved_capabilities,
+                    *(
+                        ("location_finalize_authorization",)
+                        if normalized_location_authorization is not None
+                        else ()
+                    ),
+                }
+            ),
+        )
+        if reserved_refusal is not None:
+            result["code"] = reserved_refusal["code"]
+            result["reserved_refusal"] = reserved_refusal
+            return result if return_result else False
+
         try:
             if not is_allowed_top_level_domain(domain):
                 logger.info("Registering confirmed custom PKM domain=%s", domain)
@@ -4071,6 +4244,7 @@ class PersonalKnowledgeModelService:
                 manifest,
                 normalized_decision,
                 prior_manifest,
+                upgrade_commit=upgrade_claim is not None,
             )
             self._preserve_scope_registry_posture(normalized_manifest, prior_manifest)
 

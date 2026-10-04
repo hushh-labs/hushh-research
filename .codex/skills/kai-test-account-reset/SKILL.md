@@ -30,7 +30,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. UAT/local test-account resets where the email is explicitly supplied by the user.
+1. UAT-backed test-account erasure where the email is explicitly supplied by the user; this is not same-UID delete/recreate repair.
 2. Dry-run discovery of Firebase UID shadows, actor profile rows, vault/PKM/RIA/consent rows, and email-linked developer/invite rows.
 3. Operator-side cleanup that must remain separate from the user-facing account deletion UI.
 
@@ -60,8 +60,8 @@ Non-owned surfaces:
    ```bash
    python3 .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py --email <email> --execute --confirm-email <email>
    ```
-5. Re-run the dry run to verify there are no DB rows left for the email/UID.
-6. Keep Firebase Auth and browser-local state separate unless the user explicitly asks for those deletions too.
+5. Verify canonical erasure and remaining UID/email-linked rows. Never bulk-delete discovered rows outside the owning retention policy or continue cleanup after a failed transaction.
+6. The helper attests the connected UAT database and exact Firebase-bound owner; it preserves Firebase, external provider grants, and a minimal resurrection-suppression hash. Existing external-cleanup intents fail closed. An erased UID cannot recreate its UAT account; use a different authorized test account. Firebase/browser erasure requires a separately scoped workflow.
 
 ## Handoff Rules
 

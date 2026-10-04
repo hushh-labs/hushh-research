@@ -46,6 +46,7 @@ import type {
   OneLocationMyRecipientKey,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
+import { sealChatMessage, openChatContent, openChatImage, type ChatMessage } from "@/lib/circle-chat/crypto";
 
 // 32-byte vault keys as hex (the format lib/vault/encrypt expects). Same key on
 // every device after unlock; a different user/key must NOT decrypt.
@@ -74,6 +75,49 @@ function wipeIndexedDb(): Promise<void> {
 }
 
 describe("one-location encryption durable recipient key", () => {
+  it("seals circle text and images for exactly the roster, authenticates context, and restores on another device", async () => {
+    const alice = await ensureVaultSyncedRecipientKey({ userId: "chat-alice", vaultKey: VAULT_KEY, remoteBackup: null });
+    const bob = await ensureLocationRecipientKey("chat-bob");
+    const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 0]);
+    const file = new File([png], "private-family.png", { type: "image/png" });
+    const circle = crypto.randomUUID();
+    const sealed = await sealChatMessage({ circleId: circle, userId: "chat-alice", rosterVersion: "v1", text: "private meeting details", file,
+      members: [{ userId: "chat-alice", name: "Alice", ...alice }, { userId: "chat-bob", name: "Bob", ...bob }] });
+    expect(JSON.stringify(sealed)).not.toContain("meeting details");
+    expect(JSON.stringify(sealed)).not.toContain("private-family.png");
+    const message: ChatMessage = { id: crypto.randomUUID(), sequence: 1, senderUserId: "chat-alice", senderName: "Alice", createdAt: new Date().toISOString(),
+      ...sealed, hasImage: true, envelope: sealed.recipients.find((r) => r.userId === "chat-bob")!.envelope };
+    expect(await openChatContent(circle, "chat-bob", message)).toEqual({ text: "private meeting details", image: { type: "image/png", name: "private-family.png" } });
+    const blob = await openChatImage(circle, "chat-bob", message, { ciphertext: sealed.imageCiphertext!, iv: sealed.imageIv! }, "image/png");
+    expect(new Uint8Array(await blob.arrayBuffer())).toEqual(png);
+    await expect(openChatContent(crypto.randomUUID(), "chat-bob", message)).rejects.toThrow();
+    await expect(openChatContent(circle, "outsider", message)).rejects.toThrow();
+    await expect(openChatContent(circle, "chat-bob", { ...message, senderUserId: "forged-author" })).rejects.toThrow();
+    await expect(openChatImage(circle, "chat-bob", message, { ciphertext: sealed.ciphertext, iv: sealed.iv }, "image/png")).rejects.toThrow();
+    // Recover the same recipient key after losing every device-local store.
+    keychainStore.clear(); await wipeIndexedDb();
+    await ensureVaultSyncedRecipientKey({ userId: "chat-alice", vaultKey: VAULT_KEY,
+      remoteBackup: { ...alice, encryptedPrivateKeyJwk: alice.encryptedPrivateKeyJwk } as OneLocationMyRecipientKey, strictRecovery: true });
+    expect((await openChatContent(circle, "chat-alice", { ...message, envelope: sealed.recipients[0]!.envelope })).text).toBe("private meeting details");
+    const rotated = await ensureVaultSyncedRecipientKey({ userId: "rotated-key-holder", vaultKey: VAULT_KEY, remoteBackup: null });
+    await ensureVaultSyncedRecipientKey({ userId: "chat-alice", vaultKey: VAULT_KEY, remoteBackup: { ...rotated, keyAlgorithm: rotated.algorithm } });
+    const historical = { ...alice, keyAlgorithm: alice.algorithm } as OneLocationMyRecipientKey;
+    // A different current key must not discard an accessible historical backup.
+    const old = { ...message, envelope: sealed.recipients[0]!.envelope };
+    expect((await openChatContent(circle, "chat-alice", old, { vaultKey: VAULT_KEY, remoteBackup: historical })).text).toBe("private meeting details");
+  });
+
+  it("refuses to rotate a chat key when remote recovery fails, and rejects active image formats", async () => {
+    const key = await ensureVaultSyncedRecipientKey({ userId: "strict-chat", vaultKey: VAULT_KEY, remoteBackup: null });
+    const backup = { ...key, encryptedPrivateKeyJwk: key.encryptedPrivateKeyJwk } as OneLocationMyRecipientKey;
+    keychainStore.clear(); await wipeIndexedDb();
+    await expect(ensureVaultSyncedRecipientKey({ userId: "strict-chat", vaultKey: OTHER_VAULT_KEY, remoteBackup: backup, strictRecovery: true })).rejects.toThrow();
+    const restored = await ensureVaultSyncedRecipientKey({ userId: "strict-chat", vaultKey: VAULT_KEY, remoteBackup: backup, strictRecovery: true });
+    expect(restored.keyId).toBe(key.keyId);
+    await expect(sealChatMessage({ circleId: crypto.randomUUID(), userId: "strict-chat", rosterVersion: "v", text: "", file: new File(["<svg onload='x()'></svg>"], "fake.png", { type: "image/png" }),
+      members: [{ userId: "strict-chat", name: "Me", ...restored }] })).rejects.toThrow("JPEG, PNG");
+  });
+
   beforeEach(async () => {
     keychainStore.clear();
     await wipeIndexedDb();

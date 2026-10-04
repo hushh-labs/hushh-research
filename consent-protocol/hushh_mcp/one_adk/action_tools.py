@@ -87,6 +87,7 @@ from hushh_mcp.services.agent_task_context import (
     record_failed_action,
     record_unknown_action_attempt,
 )
+from hushh_mcp.services.client_connector_service import get_client_connector_service
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_lifecycle_service import (
@@ -102,7 +103,6 @@ from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjec
 from hushh_mcp.services.information_request_service import (
     InformationRequestService,
 )
-from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -3087,7 +3087,7 @@ async def propose_information_request(
                 },
                 "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
             }
-        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
+        connector = await get_client_connector_service().get(user_id=user_id)
         connector_ready = bool((connector or {}).get("configured"))
         proposal_id = uuid.uuid4().hex
         proposals = dict(tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {})

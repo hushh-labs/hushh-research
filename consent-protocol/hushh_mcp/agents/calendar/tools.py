@@ -363,7 +363,12 @@ async def _propose(
 
     raw_conflicts = plan.get("conflicts")
     conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
-    confirm_label = f"{verb} anyway" if conflicts else verb
+    if conflicts:
+        confirm_label = f"{verb} anyway"
+    elif action == "create":
+        confirm_label = "Schedule meeting"
+    else:
+        confirm_label = verb
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
@@ -374,6 +379,10 @@ async def _propose(
         display_time_zone=_timezone(tool_context),
     )
     event_fields = _directive_event_fields(action=action, plan=plan)
+    # New events always request a unique Google Meet conference after the
+    # owner confirms. A link does not exist yet, so the directive deliberately
+    # communicates the reviewed outcome rather than inventing one.
+    google_meet = action == "create"
     directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
@@ -394,6 +403,7 @@ async def _propose(
             "endAt": event_fields["endAt"],
             "attendees": event_fields["attendees"],
             "location": event_fields["location"],
+            "googleMeet": google_meet,
             **(
                 {
                     "attendeesAdded": event_fields["attendeesAdded"],
@@ -421,7 +431,12 @@ async def _propose(
             "Your requested time overlaps an existing Calendar event. The app is showing "
             "the exact conflict and will only schedule after you explicitly choose to proceed."
             if conflicts
-            else "The app is showing the exact calendar change for owner confirmation."
+            else (
+                "The app is showing the meeting details for owner confirmation. "
+                "A Google Meet link will be added after scheduling."
+                if google_meet
+                else "The app is showing the exact calendar change for owner confirmation."
+            )
         ),
     }
 

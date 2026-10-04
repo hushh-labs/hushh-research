@@ -15,7 +15,8 @@
  *   deep-link, so the app navigates to the canonical Profile route instead.
  *
  * The decision is a pure function (`decideProfileOpen`) so it can be unit
- * tested; `openProfileFromVoice` performs the side effect it names.
+ * tested; the voice `navigate` directive (directives.ts) is the one side-effect
+ * path, and it settles on what actually showed.
  */
 
 import {
@@ -23,9 +24,7 @@ import {
   type ProfileDetail,
   type ProfilePanel,
 } from "@/lib/navigation/profile-routes";
-import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { ROUTES } from "@/lib/navigation/routes";
-import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 export type ProfileOpenPresentation = "route" | "pane";
 
@@ -53,7 +52,8 @@ const PROFILE_DETAIL_TARGETS: Record<
   "preferences/voice": { panel: "preferences", detail: "voice" },
 };
 
-function normalizePathname(pathname: string): string {
+/** The bare pathname: no query or hash, no trailing slash ("/" stays "/"). */
+export function normalizePathname(pathname: string): string {
   const raw =
     String(pathname || "")
       .split("?")[0]
@@ -118,24 +118,4 @@ export function decideProfileOpen(
   }
 
   return { kind: "route", href: buildProfileRoute({ searchParams }) };
-}
-
-/**
- * Open Profile the way a voice `open_screen` asks for it. Returns the decision
- * that was acted on so the caller can settle its UI directive.
- */
-export function openProfileFromVoice(
-  input: OpenProfileFromVoiceInput,
-): ProfileOpenDecision {
-  const decision = decideProfileOpen(input);
-  if (decision.kind === "pane") {
-    requestProfilePaneOpen(decision.source);
-    return decision;
-  }
-  requestInternalAppNavigation({
-    href: decision.href,
-    source: "voice",
-    transitionMode: "contextual",
-  });
-  return decision;
 }

@@ -1918,6 +1918,9 @@ export class AuthService {
         }
         const idToken = tokenResult.token || "";
         const providerId =
+          result.user.providerData?.find(
+            (provider) => provider.providerId && provider.providerId !== "firebase",
+          )?.providerId?.trim() ||
           (result.user as { providerId?: string | null }).providerId?.trim() ||
           auth.currentUser?.providerData?.[0]?.providerId ||
           "native";

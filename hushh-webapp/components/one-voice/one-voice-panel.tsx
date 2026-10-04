@@ -131,6 +131,16 @@ export function selectPanelResult(state: VoiceSessionState): PanelResultSlot {
     !isHandoffResult(last, state)
   ) {
     const item = findTimelineItem(state.toolTimeline, last);
+    if (last.status === "navigation_dispatched") {
+      if (item?.navigationOutcome === "opened" || item?.navigationOutcome === "ignored") return null;
+      if (item?.navigationOutcome === "failed") {
+        return {
+          result: { status: "navigation_failed", spoken_facts: ["I couldn't open that screen. Please try again."] },
+          tool: item.tool,
+          ok: false,
+        };
+      }
+    }
     return {
       result: last,
       tool: item?.tool ?? "",

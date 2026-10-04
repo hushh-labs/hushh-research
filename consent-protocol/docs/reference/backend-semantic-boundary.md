@@ -16,10 +16,13 @@ mistake for good engineering.
 
 1. **Decides instead.** Host code computes an outcome the agent's own output contract
    already declares, without asking the agent. Measured 2026-09-11:
-   `_should_skip_structure_agent` routes around the structure agent for
+   `_should_skip_structure_agent` routed around the structure agent for
    `financial_core`, for anything requiring confirmation, and for `save_class` in
    `{ephemeral, ambiguous}` -- and "ambiguous" is precisely the case where a model
-   earns its place.
+   earns its place. Closed in Phase 4 of the reserved-branch plan: the structure agent
+   is skipped only when the intent agent itself answered `no_op` or `command`, the
+   keyword-routed Financial Guard stage is gone, and a statement needing confirmation is
+   structured instead of clipped by the fallback record.
 
 2. **Discards.** The agent answered, and host code overwrites or re-derives a field it
    returned with a non-empty value. Measured on the backend, and since closed: the
@@ -206,10 +209,14 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Host policy (`hushh-webapp/lib/agent/agent-pkm-explicit-save.ts`) enforces authority only.
   The owner's request is the confirmation for the content they supplied, so a card the
   agents marked `confirm_first` is written with an `owner_confirmed` receipt. It never
-  changes a card's domain, path, payload or merge mode. It holds back, for the owner's
-  direct tap, a card whose payload has an identifier-class key or value
-  (`contracts/consent/field-sensitivity.v1.json`) or whose save would change what the owner
-  already shares, and it never writes a reserved, degraded, secret or `do_not_save` card.
+  changes a card's domain, path, payload or merge mode. Sensitive details (pay, equity,
+  immigration, a housing deposit) are saved, labelled sensitive. It holds back, for the
+  owner's direct tap, a card whose payload still carries a raw identifier: an
+  identifier-shaped value, or an identifier-class key (`contracts/consent/field-sensitivity.v1.json`)
+  with a digit-bearing value, other than the entity's own `entity_id`. A Secrets placeholder
+  (`⟦secret:<id> <label>⟧`) is a reference, never an identifier. It also holds a card whose
+  save would change what the owner already shares, and it never writes a reserved,
+  degraded, secret or `do_not_save` card.
 - Reconciliation context, not a decision: for each section the device offers up to ten
   of the owner's existing entity summaries chosen by local word overlap
   (`AgentPkmContextStore.findReconciliationCandidates`) as `simulated_state.memories`.
@@ -219,12 +226,83 @@ If a feature cannot provide that declaration, it is not agent-only compliant.
 - Display only: `classifyMergeOutcome` (`hushh-webapp/lib/pkm/pkm-supersede-merge.ts`)
   labels each acknowledged write as new, updated, merged or already known from the stored
   state the write merged into. It decides nothing about meaning.
-- The KYC keyword route `isExplicitKycIdentitySaveRequest` predates this contract. It is
-  narrowed to a single short section (at most 1,200 characters) so it can no longer take a
-  whole document away from the semantic agents (production, 2026-09-29).
+- The KYC keyword route `isExplicitKycIdentitySaveRequest` is retired (reserved branches,
+  Phase 1). It once sent a 17,120 character paste to the KYC extractor as one call
+  (production, 2026-09-29). An explicit save now always goes to the semantic agents; the
+  KYC writer runs only for a typed reply to an owner-selected information request, bound
+  to that request by a server-issued capability.
 - Live eval before promotion: the synthetic context-transfer run recorded in
   `personal-knowledge-model.md`; mocked contract tests in
-  `hushh-webapp/__tests__/services/agent-pkm-explicit-save.test.ts`.
+  `hushh-webapp/__tests__/services/agent-pkm-explicit-save.test.ts`; the recorded
+  founder-shaped document in `consent-protocol/tests/services/test_context_transfer_is_kept.py`
+  and its replay through the save job in `hushh-webapp/__tests__/services/pkm-save-job.test.ts`.
+
+### Declared: keeping everything the owner stated (Phase 4)
+
+- Owning agents: `agent_memory_segmentation` selects every stated claim with
+  `context_quotes` and accounts for every other line in `not_memory {quote, reason:
+  duplicate | disclaimer}`; `agent_memory_intent` alone decides memory versus a live
+  `command`; `agent_pkm_structure` chooses a domain for everything or the reserved sibling.
+  The Financial Guard Agent and its keyword fallback were removed.
+- Validator, normalize only: `locate_source_quote` maps each quote onto the owner's exact
+  text, folding Markdown emphasis, heading and code marks, dash and quotation-mark variants
+  and whitespace on both sides; the stored quote is always the ORIGINAL span. A quote that
+  matches nothing is dropped alone and counted (`unmatched_quote_count`,
+  `segment_quote_unmatched`); the device shows its lines as "not yet saved". It no longer
+  discards the whole section.
+- Validator, recorded substitution: a model target named after a protocol namespace a
+  person could mean as a subject (`agent`, `agents`, `mcp`, `system`) is kept in the intent
+  agent's recommended domain, or `professional` when that is unusable, nested under the
+  name the model chose, and recorded as `protocol_domain_name_remapped`. The structure
+  instruction already forbids those names, so the hint's rate measures instruction
+  disagreement. Storage and authority namespaces stay refused.
+- Skip rule: the structure agent is skipped only for an intent `no_op` or `command`,
+  recorded as `structure_skipped`.
+
+### Declared: reserved branches in PKM structure planning
+
+- Owning agent: `agent_pkm_structure`. Its system instruction
+  (`consent-protocol/hushh_mcp/agents/pkm_structure/agent.yaml`) states the rule: an
+  app-owned branch is never a target; the fact goes in that branch's `agent_memory`
+  sibling with `reserved_offer {branch, label}`. Each request carries the table from
+  `contracts/pkm/reserved-branches.v1.json` (`reserved_table_for_prompt`).
+- Structured output: `_STRUCTURE_PREVIEW_SCHEMA` gains the optional `reserved_offer`.
+  Preview cards carry `reserved_offer {domain, branch, owner_feature, agent_memory_sibling,
+  offer_action {route_pattern, action_id, label}, registry_version}`; the chat renders it
+  as an offer to commit the fact on the owning app's screen.
+- Validator: authority, not meaning. After the model answers,
+  `_reroute_reserved_payload` checks every payload path against the registry. A path
+  still inside an app-owned branch is moved to that branch's sibling and recorded as
+  `reserved_target_rerouted_to_sibling` (validation hint and drift flag); it is never
+  silent and never a general domain. A branch with no sibling (KYC internals, runtime
+  credentials, Secrets) or a correction or deletion of an app-owned record is
+  `do_not_save` with `reserved_branch_blocked` or `reserved_target_offered_not_saved`.
+  The validator chooses no domain and no meaning the registry does not name. It replaced
+  `_touches_source_managed_financial_branch`, which saw Finance top-level keys only.
+- The rate of `reserved_target_rerouted_to_sibling` measures how often the instruction
+  and the registry disagree. When it reaches zero, the move is absorbed by the
+  instruction and becomes a pure refusal.
+- Live eval before promotion: none yet. Mocked contract tests in
+  `consent-protocol/tests/services/test_pkm_agent_lab_service.py` (RIA, Wallet, Finance,
+  and an unreserved negative control).
+### Declared: owner standing style settings
+
+- Owning agent: `agent_one` decides whether the owner stated a lasting writing
+  preference and calls `propose_style_settings`
+  (`consent-protocol/hushh_mcp/agents/one/agent.yaml`). No keyword or regex route
+  detects a style request.
+- Structured output: the tool's `proposed` object, closed to `preferred_name`,
+  `tone`, `length`, `language` and `avoid_em_dashes`
+  (`hushh_mcp/one_adk/owner_style.py`). Chat cannot propose `owner_style_note`.
+- Validator: `validate_owner_style` refuses unknown keys, wrong types and oversize
+  values (400 on the chat route, `invalid` from the tool); it never clips or
+  substitutes a value. Sanitizing removes control and format characters only.
+- Authority: none. The tool writes nothing; the owner commits in Settings. The
+  prompt section is rendered from server templates, owner text is a quoted
+  literal, and no tool gate reads the style state
+  (`tests/test_one_owner_style.py` asserts unchanged authorization decisions).
+- Live eval before promotion: none yet. Mocked contract tests only; whether One
+  follows each template turn after turn is unmeasured.
 
 ### Declared: consent scope catalog search (contract C4)
 

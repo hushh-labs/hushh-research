@@ -1508,7 +1508,7 @@
     },
     {
       "circle_args": [],
-      "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'.",
+      "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'. 'Open Priya's profile' is person_profile with the confirmed user_id; 'profile' is your own profile.",
       "firebase_plane": false,
       "gateway_action_id": "route.one_location",
       "name": "open_screen",
@@ -1553,7 +1553,8 @@
               "connections",
               "profile",
               "profile_privacy",
-              "profile_voice_preferences"
+              "profile_voice_preferences",
+              "person_profile"
             ],
             "title": "Screen",
             "type": "string"

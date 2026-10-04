@@ -9,12 +9,24 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 
 import hushh_mcp.services.gmail_receipts_service as gmail_receipts_service_module
+from hushh_mcp.services.gmail_receipt_cutover import GmailReceiptStorageCutoverError
 from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
     ReceiptCandidate,
     _parse_iso,
 )
+
+
+@pytest.fixture(autouse=True)
+def _enable_legacy_sync_path_for_compatibility_tests(monkeypatch):
+    """Keep retained worker-path tests useful while production stays read-only."""
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: True,
+    )
 
 
 def _candidate(**overrides):
@@ -538,6 +550,74 @@ def test_classify_candidate_subject_only_becomes_llm_candidate():
     assert result["needs_llm"] is True
 
 
+@pytest.mark.asyncio
+async def test_receipt_cutover_rejects_sync_before_provider_or_database_access(monkeypatch):
+    service = GmailReceiptsService()
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    monkeypatch.setattr(
+        service,
+        "is_configured",
+        lambda: (_ for _ in ()).throw(AssertionError("must not inspect OAuth")),
+    )
+
+    result = await service.queue_sync(user_id="user_123", trigger_source="manual")
+
+    assert result == {
+        "accepted": False,
+        "reason": "receipt_storage_migration",
+        "message": "Receipt sync is moving to private on-device processing. Existing receipts remain available.",
+        "run": None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_receipt_cutover_rejects_a_direct_legacy_receipt_write(monkeypatch):
+    service = GmailReceiptsService()
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    with pytest.raises(GmailReceiptStorageCutoverError):
+        await service._upsert_receipt(
+            user_id="user_123",
+            candidate=_candidate(),
+            extracted={},
+        )
+
+
+@pytest.mark.asyncio
+async def test_receipt_cutover_cancels_queued_legacy_workers_without_gmail_access(monkeypatch):
+    service = GmailReceiptsService()
+    updates: list[tuple[str, dict[str, object]]] = []
+
+    monkeypatch.setattr(
+        gmail_receipts_service_module,
+        "receipt_storage_writes_enabled",
+        lambda: False,
+    )
+
+    async def record_update(query: str, params: dict[str, object]):
+        updates.append((query, params))
+        return SimpleNamespace(data=[])
+
+    monkeypatch.setattr(service, "_execute_raw_async", record_update)
+
+    await service._run_sync_worker(run_id="run_123", user_id="user_123")
+
+    assert len(updates) == 1
+    assert "SET status = 'canceled'" in updates[0][0]
+    assert updates[0][1]["run_id"] == "run_123"
+
+
 def test_extract_receipt_fields_prefers_llm_values_when_present():
     service = GmailReceiptsService()
     candidate = _candidate()
@@ -894,6 +974,60 @@ async def test_post_connect_profile_refresh_updates_only_the_active_connection(m
         "google_email": "user@example.com",
         "history_id": "12345",
     }
+
+
+@pytest.mark.asyncio
+async def test_profile_refresh_backfills_a_missing_account_name_from_google_userinfo(monkeypatch):
+    service = GmailReceiptsService()
+    captured: list[tuple[str, str]] = []
+
+    async def _ensure_access_token(**_kwargs):
+        return "current-access-token", {"user_id": "user_123"}
+
+    async def _http_get_json(url, *, token):
+        assert token == "current-access-token"
+        if url.endswith("/users/me/profile"):
+            return {"emailAddress": "user@example.com", "historyId": "12345"}
+        assert url.endswith("/userinfo")
+        return {"sub": "google-sub", "email_verified": True, "name": "Akshat Kumar"}
+
+    async def _execute_raw_async(*_args, **_kwargs):
+        return SimpleNamespace(data=[])
+
+    async def _fill_missing_google_display_name(*, user_id, display_name):
+        captured.append((user_id, display_name))
+
+    monkeypatch.setattr(service, "_ensure_access_token", _ensure_access_token)
+    monkeypatch.setattr(service, "_http_get_json", _http_get_json)
+    monkeypatch.setattr(service, "_execute_raw_async", _execute_raw_async)
+    monkeypatch.setattr(
+        service, "_fill_missing_google_display_name", _fill_missing_google_display_name
+    )
+
+    await service.refresh_owner_identity_profile(user_id="user_123")
+
+    assert captured == [("user_123", "Akshat Kumar")]
+
+
+@pytest.mark.asyncio
+async def test_oauth_name_enrichment_uses_only_the_verified_profile_claim(monkeypatch):
+    service = GmailReceiptsService()
+    captured: dict[str, str] = {}
+
+    monkeypatch.setattr(service, "_verified_profile_display_name", lambda _token: "Akshat Kumar")
+
+    async def _fill_missing_google_display_name(*, user_id, display_name):
+        captured["user_id"] = user_id
+        captured["display_name"] = display_name
+
+    monkeypatch.setattr(
+        service, "_fill_missing_google_display_name", _fill_missing_google_display_name
+    )
+
+    provider_token = "signed-token"
+    await service._seed_verified_google_display_name(user_id="user_123", id_token=provider_token)
+
+    assert captured == {"user_id": "user_123", "display_name": "Akshat Kumar"}
 
 
 class _FakeTransaction:

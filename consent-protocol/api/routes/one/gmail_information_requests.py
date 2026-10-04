@@ -18,6 +18,7 @@ from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token, verify_user_id_match
+from hushh_mcp.consent.kyc_reply_authorization import issue_kyc_reply_authorization
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
     get_personal_gmail_information_request_service,
@@ -420,6 +421,41 @@ async def prepare_information_request_reply(
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         raise _as_http_error(exc) from exc
+
+
+@router.post("/{workflow_id}/pkm-reply-authorization")
+async def issue_information_request_pkm_reply_authorization(
+    workflow_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Mint the capability for the owner's typed reply to one open request.
+
+    ``agent_chat_kyc_owner_confirmed`` may write identity information only with
+    this authority (``contracts/pkm/reserved-branches.v1.json``), and only while
+    the request is still open for the same owner.
+    """
+
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        open_request = await _service().is_open_workflow(user_id=user_id, workflow_id=workflow_id)
+    except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes database details
+        raise _as_http_error(exc) from exc
+    if not open_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "code": "PERSONAL_GMAIL_INFORMATION_REQUEST_NOT_FOUND",
+                "message": "Information request was not found or is no longer active.",
+            },
+        )
+    response.headers["Cache-Control"] = "private, no-store"
+    authorization = issue_kyc_reply_authorization(
+        user_id=user_id, information_request_id=workflow_id
+    )
+    payload: dict[str, Any] = authorization.model_dump(mode="json")
+    return payload
 
 
 @router.post("/{workflow_id}/send-reply")

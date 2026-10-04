@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   PROFILE_PANE_DETAIL_QUERY,
+  PROFILE_PANE_OPEN_EVENT,
   PROFILE_PANE_PANEL_QUERY,
   PROFILE_PANE_QUERY,
+  buildConnectorSignInReturnHref,
   buildProfileConnectorsPaneHref,
   buildProfilePaneCloseHref,
   buildProfilePaneHref,
@@ -13,12 +15,16 @@ import {
   clearProfilePaneQuery,
   closeProfilePane,
   getProfilePaneHistoryDepth,
+  legacyProfileRouteRedirectHref,
   popProfilePaneLocation,
+  profileLegalLocation,
   profilePaneParentLocation,
   openProfilePane,
   pushProfilePaneLocation,
   replaceProfilePaneLocation,
+  requestProfilePaneOpen,
   resolveProfilePaneUrlState,
+  type ProfilePaneOpenDetail,
 } from "@/lib/navigation/profile-pane";
 import {
   buildProfileRoute,
@@ -83,13 +89,65 @@ describe("Profile pane navigation state", () => {
       "/one?profile_pane=1&profile_panel=connectors&profile_detail=connector%3Agmail",
     );
 
-    // The legacy route (rendered by the native bundle) means the same place.
+    // The legacy route (redirected into the pane) means the same place.
     expect(
       resolveProfileRouteState("/one/profile/connectors?connector=gmail"),
     ).toEqual({ panel: "connectors", detail: "connector:gmail" });
     expect(
       buildProfileRoute({ panel: "connectors", detail: "connector:gmail" }),
     ).toBe("/one/profile/connectors?connector=gmail");
+  });
+
+  it("lands every connector sign-in on Connectors in the pane, never a page", () => {
+    // Started in Profile: the pane over One.
+    expect(buildConnectorSignInReturnHref("connector_settings")).toBe(
+      "/one?profile_pane=1&profile_panel=connectors",
+    );
+    // Started in chat: the pane over the chat, which restores its draft.
+    expect(buildConnectorSignInReturnHref("chat")).toBe(
+      "/?profile_pane=1&profile_panel=connectors",
+    );
+    for (const startedFrom of ["connector_settings", "chat"] as const) {
+      const href = buildConnectorSignInReturnHref(startedFrom);
+      expect(href).not.toContain("/one/profile/connectors");
+      expect(href).not.toContain("panel=connectors&");
+      expect(new URLSearchParams(href.split("?")[1]).get("panel")).toBeNull();
+    }
+  });
+
+  it("reads Terms and Privacy in place in Profile's Legal section", () => {
+    const terms = resolveProfilePaneUrlState(
+      "profile_pane=1&profile_panel=legal&profile_detail=terms",
+    );
+    expect(terms).toEqual({ open: true, location: profileLegalLocation("terms") });
+    // Back from a document lands on the Legal section, then Profile.
+    expect(profilePaneParentLocation(terms.location)).toEqual({
+      panel: "legal",
+      detail: null,
+    });
+    expect(
+      resolveProfilePaneUrlState(
+        "profile_pane=1&profile_panel=legal&profile_detail=privacy",
+      ).location,
+    ).toEqual({ panel: "legal", detail: "privacy" });
+    // Only the two documents are details of Legal.
+    expect(
+      resolveProfilePaneUrlState(
+        "profile_pane=1&profile_panel=legal&profile_detail=delete-account",
+      ).location,
+    ).toEqual({ panel: "legal", detail: null });
+
+    // A route-level caller (the native bundle's section pages) gets a Profile
+    // address that redirects into the pane, never the public /terms page.
+    const route = buildProfileRoute({ panel: "legal", detail: "privacy" });
+    expect(route).toBe("/one/profile?panel=legal&detail=privacy");
+    expect(resolveProfileRouteState(route)).toEqual({
+      panel: "legal",
+      detail: "privacy",
+    });
+    expect(
+      legacyProfileRouteRedirectHref(new URLSearchParams(route.split("?")[1])),
+    ).toBe("/one?profile_pane=1&profile_panel=legal&profile_detail=privacy");
   });
 
   it("builds pane URLs on the current route and preserves route-owned query parameters", () => {
@@ -220,5 +278,21 @@ describe("Profile pane navigation state", () => {
     expect(currentUrl().searchParams.get("view")).toBe("people");
     expect(currentUrl().searchParams.has(PROFILE_PANE_QUERY)).toBe(false);
     expect(window.history.state).not.toHaveProperty("__hushhProfilePane");
+  });
+
+  it("returns the shell's synchronous answer to an open request, or null with no shell", () => {
+    // Voice settles on this answer; a silent drop must not read as an open.
+    expect(requestProfilePaneOpen("tap")).toBeNull();
+
+    const listener = (event: Event) =>
+      (event as CustomEvent<ProfilePaneOpenDetail>).detail.onResult?.(
+        "unavailable",
+      );
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, listener);
+    try {
+      expect(requestProfilePaneOpen("tap")).toBe("unavailable");
+    } finally {
+      window.removeEventListener(PROFILE_PANE_OPEN_EVENT, listener);
+    }
   });
 });

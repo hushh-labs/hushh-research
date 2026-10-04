@@ -27,8 +27,8 @@ export type AvatarPickResult =
  * the native square-crop editor), or a file picker on web — then center-crop +
  * downscale to a small square JPEG data-URL.
  */
-export async function pickAvatar(): Promise<AvatarPickResult> {
-  const raw = await pickRawImage();
+export async function pickAvatar(promptLabelHeader = "Profile photo"): Promise<AvatarPickResult> {
+  const raw = await pickRawImage(promptLabelHeader);
   if (raw.kind !== "selected") return raw;
   try {
     return { kind: "selected", dataUrl: await normalizeToAvatarDataUrl(raw.dataUrl) };
@@ -55,7 +55,7 @@ export function isCameraCancellation(error: unknown): boolean {
   return /cancel/i.test(message);
 }
 
-async function pickRawImage(): Promise<AvatarPickResult> {
+async function pickRawImage(promptLabelHeader: string): Promise<AvatarPickResult> {
   if (isNative()) {
     try {
       const { Camera, CameraResultType, CameraSource } = await import(
@@ -69,7 +69,7 @@ async function pickRawImage(): Promise<AvatarPickResult> {
         width: 512,
         height: 512,
         correctOrientation: true,
-        promptLabelHeader: "Profile photo",
+        promptLabelHeader,
         promptLabelPhoto: "Choose from Library",
         promptLabelPicture: "Take Photo",
       });

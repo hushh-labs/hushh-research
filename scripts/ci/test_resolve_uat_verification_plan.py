@@ -19,7 +19,10 @@ def load_module():
     return module
 
 
-def plan_for(monkeypatch_files: set[str], *, backend: bool = True, frontend: bool = False):
+def plan_for(
+    monkeypatch_files: set[str], *, backend: bool = True,
+    frontend: bool = False, live: bool = False,
+):
     resolver = load_module()
     resolver._git_diff = lambda _base, _target: set(monkeypatch_files)
     return resolver.resolve_plan(
@@ -28,6 +31,7 @@ def plan_for(monkeypatch_files: set[str], *, backend: bool = True, frontend: boo
         frontend_base_sha="frontend-base",
         deploy_backend=backend,
         deploy_frontend=frontend,
+        run_live_model_checks=live,
     )
 
 
@@ -74,19 +78,44 @@ def test_release_migration_head_assertion_does_not_run_upgrade_gate() -> None:
 
 def test_pkm_upgrade_change_keeps_full_zero_loss_gate() -> None:
     plan = plan_for({"consent-protocol/hushh_mcp/services/pkm_upgrade_service.py"})
-    assert plan.pkm_evaluator_runs == 1
+    assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
 
 
-def test_evaluator_workflow_change_runs_evaluator_without_full_pkm_gate() -> None:
+def test_evaluator_workflow_change_does_not_authorize_live_calls() -> None:
     plan = plan_for({".github/workflows/deploy-uat.yml"})
-    assert plan.pkm_evaluator_runs == 1
+    assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is False
     assert plan.as_dict()["lanes"]["candidate_pkm_evaluator"] == {
-        "required": True,
-        "reason": "pkm_upgrade_or_evaluator_contract_changed",
+        "required": False,
+        "reason": "live_model_checks_not_requested",
     }
-    assert plan.reason == "changed_paths:pkm_evaluator"
+    assert plan.reason == "changed_paths:standard"
+
+
+def test_live_calls_require_explicit_backend_opt_in() -> None:
+    for files in (set(), {".github/workflows/deploy-uat.yml"},
+                  {"consent-protocol/hushh_mcp/services/pkm_upgrade_service.py"}):
+        assert plan_for(files).pkm_evaluator_runs == 0
+        assert plan_for(files, live=True).pkm_evaluator_runs == 1
+        frontend_plan = plan_for(files, backend=False, frontend=True, live=True)
+        assert frontend_plan.pkm_evaluator_runs == 0
+        assert frontend_plan.as_dict()["run_live_model_checks"] is True
+        assert frontend_plan.as_dict()["lanes"]["candidate_pkm_evaluator"]["reason"] == "backend_not_selected"
+
+
+def test_unknown_base_preserves_authority_without_implicit_live_calls() -> None:
+    resolver = load_module()
+    for live in (False, True):
+        plan = resolver.resolve_plan(
+            target_sha="target", backend_base_sha="", frontend_base_sha="",
+            deploy_backend=True, deploy_frontend=True, run_live_model_checks=live,
+        )
+        lanes = plan.as_dict()["lanes"]
+        assert plan.pkm_evaluator_runs == int(live)
+        assert lanes["candidate_pkm_evaluator"]["required"] is live
+        assert lanes["pkm_upgrade"]["required"] is True
+        assert lanes["reviewer_byok"]["required"] is True
 
 
 def test_selector_change_relies_on_always_on_policy_contract_tests() -> None:
@@ -181,7 +210,7 @@ def test_divergent_service_bases_preserve_owned_and_shared_protected_changes() -
         "hushh-webapp/lib/services/pkm-upgrade-reader.ts",
         "hushh-webapp/lib/vault/key.ts",
     )
-    assert plan.pkm_evaluator_runs == 1
+    assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
     assert plan.run_reviewer_byok is True
 
@@ -195,7 +224,7 @@ def test_missing_deployed_sha_fails_closed() -> None:
         deploy_backend=True,
         deploy_frontend=False,
     )
-    assert plan.pkm_evaluator_runs == 1
+    assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
     assert plan.run_reviewer_byok is True
     lanes = plan.as_dict()["lanes"]
@@ -212,10 +241,11 @@ def test_one_missing_service_base_fails_closed_for_all_service_deploy() -> None:
         deploy_backend=True,
         deploy_frontend=True,
     )
-    assert plan.pkm_evaluator_runs == 1
+    assert plan.pkm_evaluator_runs == 0
     assert plan.run_pkm_upgrade_gate is True
     assert plan.run_reviewer_byok is True
     assert plan.reason == "conservative:comparison_base_unproven"
+    assert plan.as_dict()["lanes"]["candidate_pkm_evaluator"]["required"] is False
 
 
 def test_unresolvable_comparison_base_fails_closed() -> None:
@@ -245,7 +275,9 @@ def main() -> int:
         test_ordinary_pkm_agent_change_does_not_run_upgrade_gate,
         test_release_migration_head_assertion_does_not_run_upgrade_gate,
         test_pkm_upgrade_change_keeps_full_zero_loss_gate,
-        test_evaluator_workflow_change_runs_evaluator_without_full_pkm_gate,
+        test_evaluator_workflow_change_does_not_authorize_live_calls,
+        test_live_calls_require_explicit_backend_opt_in,
+        test_unknown_base_preserves_authority_without_implicit_live_calls,
         test_selector_change_relies_on_always_on_policy_contract_tests,
         test_pkm_gate_policy_change_relies_on_always_on_contract_tests,
         test_unknown_path_keeps_expensive_lanes_skipped,

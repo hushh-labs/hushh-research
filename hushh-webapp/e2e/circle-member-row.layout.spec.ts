@@ -192,6 +192,17 @@ function buildProductionMemberActionsStylesheet(): Promise<string> {
   return productionMemberActionsStylesheet;
 }
 
+/** Set NODE_ENV for this worker process; the returned function restores it. */
+function pinNodeEnv(value: "development" | "production"): () => void {
+  const env = process.env as Record<string, string | undefined>;
+  const previous = env.NODE_ENV;
+  env.NODE_ENV = value;
+  return () => {
+    if (previous === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = previous;
+  };
+}
+
 async function startProductionMemberActionsFixture() {
   const webappRoot = process.cwd();
   const fixturePrefix = "circle-member-actions-component-";
@@ -289,53 +300,67 @@ root.render(<App />);`,
     import("vite"),
     import("@vitejs/plugin-react"),
   ]);
-  const server = await createServer({
-    root: dir,
-    configFile: false,
-    logLevel: "error",
-    publicDir: path.join(webappRoot, "public"),
-    plugins: [react()],
-    resolve: {
-      alias: [
-        { find: "@", replacement: webappRoot },
-        { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
-        {
-          find: /^react\/jsx-dev-runtime$/,
-          replacement: path.join(
-            webappRoot,
-            "node_modules/react/jsx-dev-runtime.js",
-          ),
-        },
-        {
-          find: /^react\/jsx-runtime$/,
-          replacement: path.join(webappRoot, "node_modules/react/jsx-runtime.js"),
-        },
-        {
-          find: /^react-dom\/client$/,
-          replacement: path.join(webappRoot, "node_modules/react-dom/client.js"),
-        },
-        {
-          find: /^react-dom$/,
-          replacement: path.join(webappRoot, "node_modules/react-dom/index.js"),
-        },
-        {
-          find: /^react$/,
-          replacement: path.join(webappRoot, "node_modules/react/index.js"),
-        },
-      ],
-      dedupe: ["react", "react-dom"],
-    },
-    server: {
-      host: "127.0.0.1",
-      port: 0,
-      strictPort: false,
-      fs: { allow: [webappRoot, dir] },
-    },
-  });
-  await server.listen();
+  // Vite writes process.env.NODE_ENV once per process when it is unset
+  // ("development" to serve, "production" to build), and every later Vite
+  // call in this Playwright worker inherits it. A build earlier in the worker
+  // made this dev server production (`$RefreshReg$ is not defined`), and this
+  // server made a later spec's build emit jsxDEV against production React.
+  // Serve in development explicitly and hand the worker back unchanged.
+  const restoreNodeEnv = pinNodeEnv("development");
+  let server: Awaited<ReturnType<typeof createServer>>;
+  try {
+    server = await createServer({
+      root: dir,
+      configFile: false,
+      logLevel: "error",
+      publicDir: path.join(webappRoot, "public"),
+      plugins: [react()],
+      resolve: {
+        alias: [
+          { find: "@", replacement: webappRoot },
+          { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
+          {
+            find: /^react\/jsx-dev-runtime$/,
+            replacement: path.join(
+              webappRoot,
+              "node_modules/react/jsx-dev-runtime.js",
+            ),
+          },
+          {
+            find: /^react\/jsx-runtime$/,
+            replacement: path.join(webappRoot, "node_modules/react/jsx-runtime.js"),
+          },
+          {
+            find: /^react-dom\/client$/,
+            replacement: path.join(webappRoot, "node_modules/react-dom/client.js"),
+          },
+          {
+            find: /^react-dom$/,
+            replacement: path.join(webappRoot, "node_modules/react-dom/index.js"),
+          },
+          {
+            find: /^react$/,
+            replacement: path.join(webappRoot, "node_modules/react/index.js"),
+          },
+        ],
+        dedupe: ["react", "react-dom"],
+      },
+      server: {
+        host: "127.0.0.1",
+        port: 0,
+        strictPort: false,
+        fs: { allow: [webappRoot, dir] },
+      },
+    });
+    await server.listen();
+  } catch (error) {
+    restoreNodeEnv();
+    throw error;
+  }
   const address = server.httpServer?.address();
   if (!address || typeof address === "string") {
     await server.close();
+    restoreNodeEnv();
     throw new Error("The production component fixture did not bind a port");
   }
 
@@ -343,7 +368,11 @@ root.render(<App />);`,
     memberName,
     url: `http://127.0.0.1:${address.port}/`,
     async close() {
-      await server.close();
+      try {
+        await server.close();
+      } finally {
+        restoreNodeEnv();
+      }
       const resolvedDir = path.resolve(dir);
       if (
         path.dirname(resolvedDir) === path.resolve(os.tmpdir()) &&

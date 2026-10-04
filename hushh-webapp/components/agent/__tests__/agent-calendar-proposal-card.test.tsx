@@ -14,8 +14,9 @@ describe("AgentCalendarProposalCard", () => {
         attendees={["person@example.com"]}
         location="Room 4"
         sendUpdates
+        googleMeet
         conflicts={[]}
-        confirmLabel="Schedule"
+        confirmLabel="Schedule meeting"
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
       />,
@@ -24,9 +25,13 @@ describe("AgentCalendarProposalCard", () => {
     expect(screen.getByTestId("agent-calendar-proposal-card")).toBeTruthy();
     expect(screen.getByText("Planning")).toBeTruthy();
     expect(screen.getByText("Room 4")).toBeTruthy();
-    expect(screen.getByText(/Attendee: person@example.com/)).toBeTruthy();
-    expect(screen.getByText("Attendees will be notified.")).toBeTruthy();
-    expect(screen.getByText("Schedule")).toBeTruthy();
+    expect(screen.getByText(/Guest: person@example.com/)).toBeTruthy();
+    expect(screen.getByText(/invite will be emailed/)).toBeTruthy();
+    expect(screen.getByText("Google Meet link will be included")).toBeTruthy();
+    expect(
+      screen.getByText(/created and shared in the Calendar invite after scheduling/),
+    ).toBeTruthy();
+    expect(screen.getByText("Schedule meeting")).toBeTruthy();
   });
 
   it("shows the no-notify copy when sendUpdates is false", () => {
@@ -46,10 +51,10 @@ describe("AgentCalendarProposalCard", () => {
       />,
     );
 
-    expect(screen.getByText("Attendees will not be notified.")).toBeTruthy();
+    expect(screen.getByText("Guests will not be notified.")).toBeTruthy();
   });
 
-  it("summarizes more than 3 attendees", () => {
+  it("shows every reviewed attendee without truncating the invitation list", () => {
     render(
       <AgentCalendarProposalCard
         action="create"
@@ -66,7 +71,7 @@ describe("AgentCalendarProposalCard", () => {
       />,
     );
 
-    expect(screen.getByText(/a@x.com, b@x.com, c@x.com \+1 more/)).toBeTruthy();
+    expect(screen.getByText(/a@x.com, b@x.com, c@x.com, d@x.com/)).toBeTruthy();
   });
 
   it("renders a conflicts callout when conflicts are present", () => {
@@ -79,7 +84,9 @@ describe("AgentCalendarProposalCard", () => {
         attendees={[]}
         location={null}
         sendUpdates
-        conflicts={[{ title: "Design review", startAt: "2026-08-11T10:00:00Z" }]}
+        conflicts={[
+          { title: "Design review", startAt: "2026-08-11T10:00:00Z" },
+        ]}
         confirmLabel="Schedule anyway"
         onConfirm={vi.fn()}
         onCancel={vi.fn()}
@@ -110,7 +117,7 @@ describe("AgentCalendarProposalCard", () => {
       />,
     );
 
-    expect(screen.getByText("Cancel on your calendar")).toBeTruthy();
+    expect(screen.getByText("Ready to cancel")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("agent-calendar-proposal-confirm"));
     expect(onConfirm).toHaveBeenCalledTimes(1);
