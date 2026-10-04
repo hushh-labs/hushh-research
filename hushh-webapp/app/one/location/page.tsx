@@ -3689,19 +3689,36 @@ function OneLocationAgentPageContent() {
                         );
                       })
                     ) : (
-                      <EmptyOneState
-                        icon={UsersRound}
-                        title={
-                          recipients.length
-                            ? "No One Network matches"
-                            : "One Network is empty"
-                        }
-                        description={
-                          recipients.length
-                            ? "Try another name, role, or recommendation signal."
-                            : "Approval, professional, ready, and setup signals will appear as your One Network grows."
-                        }
-                      />
+                      <div className="flex flex-col">
+                        <EmptyOneState
+                          icon={UsersRound}
+                          title={
+                            recipients.length
+                              ? "No One Network matches"
+                              : "One Network is empty"
+                          }
+                          description={
+                            recipients.length
+                              ? "Try another name, role, or recommendation signal."
+                              : "Approval, professional, ready, and setup signals will appear as your One Network grows."
+                          }
+                        />
+                        {!recipients.length && (
+                          <div className="px-3 pb-3">
+                            <ActionButton
+                              busy={busy}
+                              busyKey="contactInvite"
+                              onClick={() => void handleShareContactInvite()}
+                              disabled={!vaultOwnerToken || busy === "contactSync"}
+                              variant="outline"
+                              className="h-10 w-full min-w-0 rounded-[12px] border-black/[0.06] bg-[#007aff]/10 text-[13px] font-semibold text-[#007aff] shadow-sm hover:bg-[#007aff]/20 dark:border-[#76b7ff]/20 dark:bg-[#76b7ff]/10 dark:text-[#76b7ff] dark:hover:bg-[#76b7ff]/20"
+                            >
+                              <Send className="mr-2 h-4 w-4" aria-hidden="true" />
+                              Share Invite Link
+                            </ActionButton>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </div>
 
