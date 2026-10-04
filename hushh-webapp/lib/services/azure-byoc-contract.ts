@@ -44,6 +44,8 @@ const SUBSCRIPTION_REASONS: readonly AzureSubscriptionReason[] = [
 export type AzureAuthorizeCompletion =
   | { status: "setup_started"; jobId: string }
   | { status: "upgrade_started"; jobId: string }
+  /** The account was identified; sign in again in its own directory for Azure. */
+  | { status: "continue"; authorizationUrl: string }
   | {
       status: "needs_subscription";
       subscriptions: AzureSubscription[];
@@ -177,6 +179,10 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
     const { jobId } = payload;
     if (typeof jobId !== "string" || !jobId.trim()) throw invalidResponse();
     return { status, jobId };
+  }
+  if (status === "continue") {
+    // The browser navigates here next: the same Microsoft-only check as a begin.
+    return { status, ...parseAzureAuthorizationStart(payload) };
   }
   if (status === "needs_subscription") {
     if (!Array.isArray(payload.subscriptions)) throw invalidResponse();

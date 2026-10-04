@@ -84,9 +84,7 @@ async function openOwnCloud() {
   fireEvent.click(await screen.findByTestId("cloud-tier-own"));
 }
 
-function enterSubscription(value: string) {
-  fireEvent.change(screen.getByTestId("azure-card-subscription-id"), { target: { value } });
-}
+
 
 describe("Connect Azure on the cloud step", () => {
   beforeEach(() => {
@@ -136,24 +134,12 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
-    enterSubscription(` ${SUBSCRIPTION.toUpperCase()} `);
+    // One tap, like Google: no subscription to type. The hub finds the directory.
+    expect(screen.queryByTestId("azure-card-subscription-id")).toBeNull();
     fireEvent.click(screen.getByTestId("azure-connect"));
     await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(SIGN_IN));
-    // Always for a named subscription, so Microsoft signs in to that directory.
-    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION });
+    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({});
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
-  });
-
-  it("keeps Connect Azure off until the subscription id is a real id", async () => {
-    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
-    render(<ByocCloudSetupPage />);
-    await openOwnCloud();
-    fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
-    expect(screen.getByTestId("azure-connect")).toBeDisabled();
-    enterSubscription("not-a-subscription");
-    expect(screen.getByTestId("azure-connect")).toBeDisabled();
-    expect(screen.getByTestId("azure-card-subscription-id")).toHaveAttribute("aria-invalid", "true");
-    expect(screen.getByTestId("azure-card-find-subscription")).toHaveAttribute("target", "_blank");
   });
 
   it("signs in to Microsoft in a popup when the browser allows one", async () => {
@@ -163,7 +149,6 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
-    enterSubscription(SUBSCRIPTION);
     fireEvent.click(screen.getByTestId("azure-connect"));
     // Opened inside the tap (popup blockers need the gesture), filled once the hub answers.
     expect(window.open).toHaveBeenCalledWith("about:blank", "hussh-azure-sign-in", expect.stringContaining("popup"));
@@ -181,7 +166,6 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
-    enterSubscription(SUBSCRIPTION);
     fireEvent.click(screen.getByTestId("azure-connect"));
     await waitFor(() => expect(popup.close).toHaveBeenCalled());
     expect(popup.location.assign).not.toHaveBeenCalled();
@@ -199,7 +183,6 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
-    enterSubscription(SUBSCRIPTION);
     fireEvent.click(screen.getByTestId("azure-connect"));
     expect(await screen.findByTestId("byoc-cloud-error")).toHaveTextContent("Verify your phone number first.");
     expect(screen.getByTestId("byoc-cloud-verify-phone")).toBeTruthy();

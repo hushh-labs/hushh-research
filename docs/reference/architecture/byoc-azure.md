@@ -419,8 +419,24 @@ and nothing here is run by the hub or an agent.
 
 1. Supported account types: any organizational directory and personal Microsoft
    accounts (personal accounts are served through tenant discovery).
-2. API permission: Azure Service Management, delegated `user_impersonation`,
-   and nothing else (no `offline_access`).
+2. API permissions: Azure Service Management, delegated `user_impersonation`, and
+   the sign-in scopes `openid email profile` for the identify-only first leg.
+   Nothing else (no `offline_access`).
+
+**How Connect Azure signs in (2026-10-03).** One tap, like Google. Through
+`common` a personal Microsoft account lands in Microsoft's consumer directory,
+which cannot reach Azure; Microsoft fails that sign-in itself (AADSTS900144,
+founder-hit). So the first leg asks only who the person is (`openid email
+profile`); `azure_home_directory` names their directory (a work account's own
+`tid`, or for a personal account the "Default Directory" Azure created for it,
+whose `<email>.onmicrosoft.com` domain resolves through Microsoft's public OpenID
+configuration: `kushaltrivedi1711@gmail.com` resolved to `8703ed52-…`, measured);
+the second leg is the ARM sign-in at that directory with `login_hint`, which
+Microsoft usually completes without asking again; subscriptions are then listed
+live and the only enabled one is chosen automatically. Typing a subscription id
+is the fallback, offered only when no directory is found. Both legs run in a
+popup; the return page signals the opening tab over a same-origin
+`BroadcastChannel` (a signal only, never a code or token) and closes.
 3. Federated credential (issuer type "Other issuer"): issuer
    `https://accounts.google.com`, subject = the broker's numeric unique id,
    audience `api://AzureADTokenExchange`.

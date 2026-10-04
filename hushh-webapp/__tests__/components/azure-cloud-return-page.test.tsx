@@ -87,6 +87,15 @@ describe("the Microsoft sign-in return", () => {
     expect(complete).toHaveBeenCalledWith({ code: "c0de", state: "st4te" });
   });
 
+  it("follows an identified account to the Azure sign-in in its own directory", async () => {
+    const next = "https://login.microsoftonline.com/8703ed52-8300-4535-980a-6a82a6a6c2eb/oauth2/v2.0/authorize?state=s2";
+    complete.mockResolvedValue({ status: "continue", authorizationUrl: next });
+    render(<AzureCloudReturnPage />);
+    await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(next));
+    expect(screen.getByText("Finding your Azure subscriptions…")).toBeTruthy();
+    expect(mocks.replace).not.toHaveBeenCalled();
+  });
+
   it("in the popup, hands a started setup to the tab that opened it and closes", async () => {
     complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
     const close = vi.spyOn(window, "close").mockImplementation(() => undefined);

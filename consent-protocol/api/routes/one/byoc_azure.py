@@ -69,8 +69,11 @@ class AzureSubscription(BaseModel):
 
 
 class AzureAuthorizeCompleteResponse(BaseModel):
-    status: Literal["setup_started", "needs_subscription", "upgrade_started"]
+    #: ``continue``: the account was identified; sign in again at ``authorizationUrl``
+    #: (its own directory) for Azure. Microsoft usually completes that without asking.
+    status: Literal["setup_started", "needs_subscription", "upgrade_started", "continue"]
     jobId: Optional[str] = None
+    authorizationUrl: Optional[str] = None
     subscriptions: Optional[list[AzureSubscription]] = None
     #: Only with needs_subscription: choose_subscription | no_enabled_subscription |
     #: personal_account (a personal Microsoft account must name its subscription id).
@@ -166,6 +169,7 @@ async def _authorization_url(
     kind: entra.AuthorizationKind,
     subscription_id: str = "",
     tenant_id: str = "",
+    login_hint: str = "",
 ) -> str:
     """``entra.begin`` off the loop, every configuration refusal typed."""
     from hushh_mcp.services.azure_federation import AzureFederationError
@@ -177,6 +181,7 @@ async def _authorization_url(
             kind=kind,
             subscription_id=subscription_id,
             tenant_id=tenant_id,
+            login_hint=login_hint,
         )
     except entra.AzureAuthorizeError as exc:
         raise _pass_through(exc) from exc
@@ -321,8 +326,10 @@ async def complete_azure_authorize(
     row: dict = {}
     try:
         selection = entra.verify_state(body.state, firebase_uid)
-        if selection.kind == "setup":
+        if selection.kind in ("setup", "discover"):
             row = await _require_setup_admission(firebase_uid)
+        if selection.kind == "discover":
+            return await _continue_in_home_directory(firebase_uid, body.state, selection, body.code)
         token = await asyncio.to_thread(entra.redeem, body.state, selection, body.code)
     except entra.AzureAuthorizeError as exc:
         raise _pass_through(exc) from exc
@@ -332,6 +339,25 @@ async def complete_azure_authorize(
     if ask is not None or subscription is None:
         return ask or AzureAuthorizeCompleteResponse(status="needs_subscription", subscriptions=[])
     return await _start_setup(firebase_uid, token, subscription, row)
+
+
+async def _continue_in_home_directory(
+    user_id: str, state: str, selection: entra.AuthorizationState, code: str
+) -> AzureAuthorizeCompleteResponse:
+    """The discover leg: who signed in, then the Azure sign-in in their own directory."""
+    from hushh_mcp.services.azure_home_directory import home_directory
+
+    account = await asyncio.to_thread(entra.redeem_discovery, state, selection, code)
+    tenant = await asyncio.to_thread(home_directory, account.claims)
+    if not tenant:
+        # Not found: the person names a subscription, whose directory ARM reveals.
+        return AzureAuthorizeCompleteResponse(
+            status="needs_subscription", subscriptions=[], reason="personal_account"
+        )
+    url = await _authorization_url(
+        user_id, kind="setup", tenant_id=tenant, login_hint=account.login_hint
+    )
+    return AzureAuthorizeCompleteResponse(status="continue", authorizationUrl=url)
 
 
 async def _upgrade_row(user_id: str) -> tuple[dict, str]:

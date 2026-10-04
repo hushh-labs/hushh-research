@@ -23,6 +23,7 @@ import {
   useAzureSignIn,
 } from "@/lib/one/azure-sign-in";
 import { ApiService } from "@/lib/services/api-service";
+import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import type {
   AzureAuthorizeCompletion,
   AzureSubscription,
@@ -41,6 +42,7 @@ import type {
 
 type ReturnView =
   | { kind: "completing" }
+  | { kind: "continuing"; authorizationUrl: string }
   | { kind: "redirecting" }
   | { kind: "handed_off" }
   | {
@@ -61,6 +63,7 @@ const RETURN_MESSAGES = {
 
 const TITLES: Record<ReturnView["kind"], string> = {
   completing: "Connecting Azure",
+  continuing: "Connecting Azure",
   redirecting: "Connecting Azure",
   handed_off: "Azure is connected",
   needs_subscription: "Choose a subscription",
@@ -83,6 +86,7 @@ function returnLinkProblem(input: {
 }
 
 function viewForCompletion(result: AzureAuthorizeCompletion): ReturnView {
+  if (result.status === "continue") return { kind: "continuing", authorizationUrl: result.authorizationUrl };
   if (result.status === "setup_started") return { kind: "redirecting" };
   if (result.status === "upgrade_started") return { kind: "upgrading", jobId: result.jobId };
   return {
@@ -205,6 +209,12 @@ export function AzureCloudReturnPage() {
   }, [view.kind, router]);
   const shown: ReturnView = handedOff ? { kind: "handed_off" } : view;
 
+  // Identified: the Azure sign-in in the person's own directory, in this same
+  // window (the popup when there is one). Microsoft usually completes it unasked.
+  useEffect(() => {
+    if (view.kind === "continuing") assignWindowLocation(view.authorizationUrl);
+  }, [view]);
+
   const retry = useCallback(async () => {
     const status = await ApiService.getPersonalAgentStatus().catch(() => null);
     await start(azureRetryKind(status));
@@ -220,6 +230,8 @@ export function AzureCloudReturnPage() {
           <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">
             Your agent is being set up. You can close this window and follow along in Hussh.
           </p>
+        ) : view.kind === "continuing" ? (
+          <HushhLoader label="Finding your Azure subscriptions…" variant="inline" />
         ) : view.kind === "completing" || view.kind === "redirecting" ? (
           <HushhLoader label="Finishing Microsoft sign-in…" variant="inline" />
         ) : view.kind === "needs_subscription" ? (

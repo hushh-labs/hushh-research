@@ -202,6 +202,48 @@ def test_a_personal_account_is_asked_for_its_subscription_id(spawned, monkeypatc
     }
 
 
+def _identifies_as(monkeypatch, claims: dict) -> None:
+    monkeypatch.setattr(
+        entra,
+        "redeem_discovery",
+        lambda state, selection, code, **_: entra.DiscoveredAccount(
+            tenant_id=str(claims.get("tid") or ""), claims=claims
+        ),
+    )
+
+
+def test_an_identified_account_continues_to_azure_in_its_own_directory(spawned, monkeypatch):
+    from hushh_mcp.services import azure_home_directory
+
+    claims = {"tid": entra.CONSUMER_TENANT, "preferred_username": "person@gmail.com"}
+    _identifies_as(monkeypatch, claims)
+    monkeypatch.setattr(azure_home_directory, "home_directory", lambda c: _TENANT)
+    state = _state(kind="discover")
+    body = _client().post(_COMPLETE, json={"code": "c", "state": state}).json()
+    assert body["status"] == "continue" and set(body) == {"status", "authorizationUrl"}
+    url = body["authorizationUrl"]
+    assert url.startswith(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/authorize?")
+    query = dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
+    assert query["login_hint"] == "person@gmail.com"
+    assert query["scope"] == "https://management.azure.com/user_impersonation"
+    assert spawned == []  # identifying the account starts nothing
+
+
+def test_an_account_whose_directory_cannot_be_found_is_asked_for_a_subscription(
+    spawned, monkeypatch
+):
+    from hushh_mcp.services import azure_home_directory
+
+    _identifies_as(monkeypatch, {"tid": entra.CONSUMER_TENANT, "email": "x@outlook.com"})
+    monkeypatch.setattr(azure_home_directory, "home_directory", lambda c: None)
+    body = _client().post(_COMPLETE, json={"code": "c", "state": _state(kind="discover")}).json()
+    assert body == {
+        "status": "needs_subscription",
+        "subscriptions": [],
+        "reason": "personal_account",
+    }
+
+
 def test_a_named_subscription_must_be_enabled_for_the_signed_in_person(spawned, monkeypatch):
     _redeems_as(monkeypatch)
     _listing(monkeypatch, (_SUB, "Enabled"))

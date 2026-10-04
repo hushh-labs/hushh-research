@@ -326,9 +326,9 @@ export function ByocCloudSetupPage() {
   }, []);
 
   // Azure's one-click setup: the Microsoft sign-in (in a popup), then the return
-  // route. Always for a named subscription, so it signs in to that directory.
+  // route. A retry names the failed job's subscription, which goes straight to its directory.
   const startAzureSetup = useCallback(
-    (subscriptionId: string | null) => {
+    (subscriptionId?: string | null) => {
       setError(null);
       return startAzureSignIn("setup", subscriptionId ?? undefined);
     },

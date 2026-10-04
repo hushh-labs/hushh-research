@@ -177,12 +177,23 @@ describe("Connect Azure contract parsing", () => {
     });
   });
 
+  it("reads a continue outcome only when it points at a Microsoft sign-in page", () => {
+    const next = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s2";
+    expect(parseAzureAuthorizeCompletion({ status: "continue", authorizationUrl: next })).toEqual({
+      status: "continue",
+      authorizationUrl: next,
+    });
+  });
+
   it.each([
     null,
     { status: "setup_started" },
     { status: "setup_started", jobId: " " },
     { status: "needs_subscription" },
     { status: "done", jobId: "j" },
+    { status: "continue" },
+    { status: "continue", authorizationUrl: "https://evil.example/authorize" },
+    { status: "continue", authorizationUrl: "http://login.microsoftonline.com/x" },
   ])("refuses the completion payload %j", (payload) => {
     expect(() => parseAzureAuthorizeCompletion(payload)).toThrow(AzureByocError);
   });

@@ -56,10 +56,32 @@ def _query(url: str) -> dict[str, str]:
     return dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(url).query))
 
 
-def test_the_consent_url_asks_for_arm_only_with_pkce_and_no_refresh_token():
+def test_a_setup_with_no_directory_first_only_identifies_the_account():
     url = entra.begin("uid-1")
     query = _query(url)
+    # Through `common` a personal account cannot reach Azure at all (AADSTS900144), so
+    # the first leg asks only who the person is, and grants nothing they own.
     assert url.startswith("https://login.microsoftonline.com/common/oauth2/v2.0/authorize?")
+    assert query["scope"] == "openid email profile"
+    assert "management.azure.com" not in url and "offline_access" not in url
+    assert query["prompt"] == "select_account"
+    assert entra.verify_state(query["state"], "uid-1").kind == "discover"
+
+
+def test_the_azure_leg_signs_in_at_the_directory_as_the_identified_account():
+    url = entra.begin("uid-1", tenant_id=_TENANT, login_hint="person@example.com")
+    query = _query(url)
+    assert url.startswith(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/authorize?")
+    assert query["scope"] == "https://management.azure.com/user_impersonation"
+    # The same account, so Microsoft does not ask a second time.
+    assert query["login_hint"] == "person@example.com" and "prompt" not in query
+    assert entra.verify_state(query["state"], "uid-1").kind == "setup"
+
+
+def test_the_consent_url_asks_for_arm_only_with_pkce_and_no_refresh_token():
+    url = entra.begin("uid-1", tenant_id=_TENANT)
+    query = _query(url)
+    assert url.startswith(f"https://login.microsoftonline.com/{_TENANT}/oauth2/v2.0/authorize?")
     assert query["scope"] == "https://management.azure.com/user_impersonation"
     assert "offline_access" not in url
     assert query["code_challenge_method"] == "S256"
@@ -165,3 +187,30 @@ def test_the_return_address_must_be_https_or_localhost(monkeypatch, bad):
     assert exc.value.code == "NOT_CONFIGURED"
     monkeypatch.setenv("HUSSH_AZURE_OAUTH_REDIRECT_URI", "http://localhost:3000/return")
     assert entra.redirect_uri() == "http://localhost:3000/return"
+
+
+def test_the_discover_leg_yields_who_signed_in_and_keeps_no_token(monkeypatch):
+    sent: dict = {}
+
+    def fake_redeem(authority, **kwargs):
+        sent.update(authority=authority, **kwargs)
+        claims = {"tid": entra.CONSUMER_TENANT, "preferred_username": "person@gmail.com"}
+        return {"id_token": _jwt(claims), "access_token": "graph-token-never-kept"}
+
+    monkeypatch.setattr(entra.federation, "redeem_authorization_code", fake_redeem)
+    state = entra.make_state("uid-1", kind="discover", subscription_id="", authority="common")
+    account = entra.redeem_discovery(state, entra.verify_state(state, "uid-1"), "code-1")
+    assert sent["scope"] == "openid email profile" and sent["authority"] == "common"
+    assert account.tenant_id == entra.CONSUMER_TENANT
+    assert account.login_hint == "person@gmail.com"
+    assert "graph-token-never-kept" not in repr(account) and "person@gmail.com" not in repr(account)
+
+
+def test_legs_cannot_be_swapped(monkeypatch):
+    monkeypatch.setattr(entra.federation, "redeem_authorization_code", lambda *a, **k: {})
+    discover = entra.make_state("uid-1", kind="discover", subscription_id="", authority="common")
+    setup = entra.make_state("uid-1", kind="setup", subscription_id="", authority=_TENANT)
+    with pytest.raises(entra.AzureAuthorizeError):
+        entra.redeem(discover, entra.verify_state(discover, "uid-1"), "code-1")
+    with pytest.raises(entra.AzureAuthorizeError):
+        entra.redeem_discovery(setup, entra.verify_state(setup, "uid-1"), "code-1")

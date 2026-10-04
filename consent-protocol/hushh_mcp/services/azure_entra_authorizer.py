@@ -16,12 +16,13 @@ stored and an intercepted code cannot be redeemed without the hub.
 
 TENANT DISCOVERY
 ARM rejects a token issued through ``/common`` to a personal Microsoft account
-(measured 2026-10-02). When the person names a subscription, its directory is read
-from ARM's own unauthenticated 401 challenge (``WWW-Authenticate:
-authorization_uri=.../{tenant}``) and the sign-in goes to that tenant-specific
-authority. Without one, the first leg uses ``/common``; a work account's token then
-carries its own directory, while a personal account is asked for its subscription id
-and the second leg goes tenant-specific.
+(measured 2026-10-02), and Microsoft fails that sign-in itself (AADSTS900144,
+2026-10-03). So with no subscription named, the first leg is a ``discover`` sign-in
+through ``/common`` that asks only who the person is (``openid email profile``); its
+id token names the directory (``azure_home_directory``) and the second leg is the
+ARM sign-in at that tenant, hinted with the same account so Microsoft does not ask
+again. When the person names a subscription, its directory is read from ARM's own
+unauthenticated 401 challenge (``WWW-Authenticate: authorization_uri=.../{tenant}``).
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ from hushh_mcp.services.azure_keyed import keyed_digest
 logger = logging.getLogger(__name__)
 
 ARM_DELEGATED_SCOPE = "https://management.azure.com/user_impersonation"
+#: The discover leg's scope: who the person is, nothing they own. No offline_access.
+DISCOVERY_SCOPE = "openid email profile"
 #: The tenant Entra issues personal Microsoft account tokens from. ARM refuses it.
 CONSUMER_TENANT = "9188040d-6c67-4c5b-b112-36a304b66dad"
 STATE_TTL_SECONDS = 600
@@ -54,8 +57,8 @@ _CHALLENGE_TENANT = re.compile(
     r"authorization_uri=\"https://login\.(?:windows\.net|microsoftonline\.com)/([0-9a-fA-F-]{36})\""
 )
 
-AuthorizationKind = Literal["setup", "upgrade"]
-_KINDS: tuple[str, ...] = ("setup", "upgrade")
+AuthorizationKind = Literal["setup", "upgrade", "discover"]
+_KINDS: tuple[str, ...] = ("setup", "upgrade", "discover")
 
 
 class AzureAuthorizeError(Exception):
@@ -185,30 +188,68 @@ def begin(
     kind: AuthorizationKind = "setup",
     subscription_id: str = "",
     tenant_id: str = "",
+    login_hint: str = "",
     session: Any = None,
 ) -> str:
-    """The Microsoft consent URL for one online-only ARM grant."""
+    """The Microsoft consent URL for one online-only grant.
+
+    A setup with neither a subscription nor a directory becomes the ``discover``
+    leg; a setup with a directory is the ARM leg, hinted with the account the
+    discover leg already signed in, so Microsoft does not ask again.
+    """
     subscription = str(subscription_id or "").strip().lower()
     authority = str(tenant_id or "").strip().lower()
     if subscription and not authority:
         authority = discover_tenant_for_subscription(subscription, session=session)
+    if kind == "setup" and not subscription and not authority:
+        kind = "discover"
     authority = federation.require_authority(authority or _FIRST_LEG_AUTHORITY)
     state = make_state(user_id, kind=kind, subscription_id=subscription, authority=authority)
-    query = urllib.parse.urlencode(
-        {
-            "client_id": federation.app_client_id(),
-            "response_type": "code",
-            "redirect_uri": redirect_uri(),
-            "response_mode": "query",
-            # The ONLY scope. No offline_access: no refresh token can be issued.
-            "scope": ARM_DELEGATED_SCOPE,
-            "state": state,
-            "code_challenge": code_challenge(code_verifier(state)),
-            "code_challenge_method": "S256",
-            "prompt": "select_account",
-        }
-    )
+    params = {
+        "client_id": federation.app_client_id(),
+        "response_type": "code",
+        "redirect_uri": redirect_uri(),
+        "response_mode": "query",
+        # One scope per leg. No offline_access: no refresh token can be issued.
+        "scope": DISCOVERY_SCOPE if kind == "discover" else ARM_DELEGATED_SCOPE,
+        "state": state,
+        "code_challenge": code_challenge(code_verifier(state)),
+        "code_challenge_method": "S256",
+    }
+    hint = str(login_hint or "").strip()
+    if hint and kind != "discover":
+        params["login_hint"] = hint
+    else:
+        params["prompt"] = "select_account"
+    query = urllib.parse.urlencode(params)
     return f"{federation.ENTRA_AUTHORITY}/{authority}/oauth2/v2.0/authorize?{query}"
+
+
+def _token_body(
+    state: str,
+    selection: AuthorizationState,
+    code: str,
+    scope: str,
+    *,
+    session: Any,
+    sleep: Callable[[float], None],
+    assertion: Optional[Callable[[], str]],
+) -> dict:
+    try:
+        return federation.redeem_authorization_code(
+            selection.authority,
+            code=code,
+            redirect_uri=redirect_uri(),
+            code_verifier=code_verifier(state),
+            scope=scope,
+            session=session,
+            sleep=sleep,
+            assertion=assertion,
+        )
+    except federation.AzureFederationError as exc:
+        raise AzureAuthorizeError(
+            "Microsoft did not accept the sign-in; try again", status_code=502, code=exc.code
+        ) from exc
 
 
 def redeem(
@@ -221,21 +262,17 @@ def redeem(
     assertion: Optional[Callable[[], str]] = None,
 ) -> DelegatedToken:
     """Burn the single-use code for the person's in-memory ARM token."""
-    try:
-        body = federation.redeem_authorization_code(
-            selection.authority,
-            code=code,
-            redirect_uri=redirect_uri(),
-            code_verifier=code_verifier(state),
-            scope=ARM_DELEGATED_SCOPE,
-            session=session,
-            sleep=sleep,
-            assertion=assertion,
-        )
-    except federation.AzureFederationError as exc:
-        raise AzureAuthorizeError(
-            "Microsoft did not accept the sign-in; try again", status_code=502, code=exc.code
-        ) from exc
+    if selection.kind == "discover":
+        raise AzureAuthorizeError("This sign-in only identifies the account", code="BAD_STATE")
+    body = _token_body(
+        state,
+        selection,
+        code,
+        ARM_DELEGATED_SCOPE,
+        session=session,
+        sleep=sleep,
+        assertion=assertion,
+    )
     token = str(body.get("access_token") or "")
     if not token:
         raise AzureAuthorizeError("Microsoft returned no usable token", status_code=502)
@@ -248,6 +285,48 @@ def redeem(
     )
 
 
+def redeem_discovery(
+    state: str,
+    selection: AuthorizationState,
+    code: str,
+    *,
+    session: Any = None,
+    sleep: Callable[[float], None] = time.sleep,
+    assertion: Optional[Callable[[], str]] = None,
+) -> "DiscoveredAccount":
+    """Burn the discover leg's code for who signed in. No access token is kept."""
+    if selection.kind != "discover":
+        raise AzureAuthorizeError("Unexpected sign-in leg", code="BAD_STATE")
+    body = _token_body(
+        state, selection, code, DISCOVERY_SCOPE, session=session, sleep=sleep, assertion=assertion
+    )
+    return _discovered(body)
+
+
+@dataclass(frozen=True)
+class DiscoveredAccount:
+    """Who signed in on the discover leg. Identity claims only; no bearer is kept."""
+
+    tenant_id: str
+    claims: dict
+
+    @property
+    def login_hint(self) -> str:
+        return str(self.claims.get("preferred_username") or self.claims.get("email") or "")
+
+    def __repr__(self) -> str:  # claims carry an email address; keep it out of logs
+        return f"DiscoveredAccount(tenant_id={self.tenant_id!r})"
+
+
+def _discovered(body: dict) -> DiscoveredAccount:
+    """The id token's claims, read from Entra's own token response over TLS."""
+    id_token = str(body.get("id_token") or "")
+    if not id_token:
+        raise AzureAuthorizeError("Microsoft returned no account details", status_code=502)
+    claims = federation.token_claims(id_token)
+    return DiscoveredAccount(tenant_id=str(claims.get("tid") or "").lower(), claims=claims)
+
+
 def is_personal_account(token: DelegatedToken) -> bool:
     """A personal-account token cannot reach ARM; ask for the subscription id instead."""
     return token.tenant_id == CONSUMER_TENANT
@@ -256,9 +335,11 @@ def is_personal_account(token: DelegatedToken) -> bool:
 __all__ = [
     "ARM_DELEGATED_SCOPE",
     "CONSUMER_TENANT",
+    "DISCOVERY_SCOPE",
     "AuthorizationState",
     "AzureAuthorizeError",
     "DelegatedToken",
+    "DiscoveredAccount",
     "begin",
     "code_challenge",
     "code_verifier",
@@ -267,6 +348,7 @@ __all__ = [
     "is_personal_account",
     "make_state",
     "redeem",
+    "redeem_discovery",
     "redirect_uri",
     "verify_state",
 ]
