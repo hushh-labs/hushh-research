@@ -14,6 +14,14 @@ type AccountCatchAllRoute = {
     request: NextRequest,
     props: { params: Promise<{ path: string[] }> }
   ) => Promise<Response>;
+  PATCH: (
+    request: NextRequest,
+    props: { params: Promise<{ path: string[] }> }
+  ) => Promise<Response>;
+  PUT: (
+    request: NextRequest,
+    props: { params: Promise<{ path: string[] }> }
+  ) => Promise<Response>;
 };
 
 let route: AccountCatchAllRoute;
@@ -130,5 +138,42 @@ describe("/api/account/[...path] proxy", () => {
     expect(String(forwardedUrl)).toBe(
       "http://backend.test/api/account/email-aliases?view=all&sort=desc&limit=10"
     );
+  });
+
+  it("forwards display-name PATCH requests through the account proxy", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ success: true, display_name: "Irfan", shadow_sync: "synced" })
+    );
+    const body = { display_name: "Irfan" };
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/identity/display-name",
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: "Bearer firebase-token",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      }
+    );
+
+    const response = await route.PATCH(request, {
+      params: Promise.resolve({ path: ["identity", "display-name"] }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      success: true,
+      display_name: "Irfan",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://backend.test/api/account/identity/display-name",
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify(body),
+      })
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(headers.get("Authorization")).toBe("Bearer firebase-token");
   });
 });
