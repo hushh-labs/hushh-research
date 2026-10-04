@@ -137,11 +137,11 @@ export function HostingChoiceCards({
               data-maintenance={option.unavailable ? "true" : undefined}
               className={cn(
                 "group flex min-h-[88px] w-full items-center gap-4 rounded-2xl border p-4 text-left",
-                "transition-[border-color,background-color,box-shadow,transform] duration-150",
+                "transition-[border-color,background-color,box-shadow] duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 option.unavailable
                   ? "cursor-not-allowed border-[color:var(--app-card-border-standard)] bg-transparent"
-                  : "enabled:active:scale-[0.99]",
+                  : null,
                 checked
                   ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] shadow-[0_0_0_1px_var(--app-accent)]"
                   : option.unavailable
