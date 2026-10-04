@@ -74,7 +74,7 @@ def _ft_controls(cases) -> dict:
 def _nav_controls(rows) -> dict:
     _, es = _harness()
     by_id = {case["id"]: case for case in es.load_cases()}
-    regraded = always_fail = canned = 0
+    regraded = always_fail = canned = canned_strict = 0
     for x in rows:
         case = by_id[x["id"]]
         ok = x["failure"] is None and not es.shape_errors(case, x["text"], x["directive"])
@@ -84,10 +84,14 @@ def _nav_controls(rows) -> dict:
             impossible, x["text"], x["directive"]
         )
         canned += not es.shape_errors(case, "I could not retrieve that right now.", None)
+        canned_strict += "no_tool" in case["expected"] and not es.shape_errors(
+            case, "I could not retrieve that right now.", None
+        )
     return {
         "regraded_attempt_goal_hits": regraded,
         "always_fail_attempt_goal_hits": always_fail,
         "canned_non_answer_attempt_goal_hits": canned,
+        "canned_non_answer_attempt_strict_goal_hits": canned_strict,
         "attempts": len(rows),
     }
 
@@ -237,6 +241,7 @@ def first_tool(run_dir: Path, model: str) -> dict:
         "label": run_dir.name,
         "model": model,
         "reasoning": probe.get("reasoning_setting"),
+        "transport": probe.get("transport", "responses"),
         "credential": probe.get("credential"),
         "in_azure": probe.get("in_azure"),
         "roster_tools": len(probe.get("azure_roster", [])),
@@ -305,12 +310,22 @@ def nav(run_dir: Path, model: str) -> dict:
         "label": run_dir.name,
         "model": model,
         "reasoning": meta.get("reasoning_setting"),
+        "transport": meta.get("transport", "responses"),
         "credential": meta.get("credential"),
         "in_azure": meta.get("in_azure"),
         "cases": report["cases"],
         "runs": report["runs"],
         "first_tool_rate": round(report["first_tool_rate"], 3),
         "goal_completion_rate": round(report["shape_rate"], 3),
+        "strict_goal_rate": round(
+            sum(
+                all(x["first_tool_hit"] and x["shape_hit"] for x in rows if x["id"] == cid)
+                for cid in {x["id"] for x in rows}
+            )
+            / len({x["id"] for x in rows}),
+            3,
+        ),
+        "attempt_strict_goal_hits": sum(x["first_tool_hit"] and x["shape_hit"] for x in rows),
         "attempts": len(rows),
         "attempt_first_tool_hits": sum(x["first_tool_hit"] for x in rows),
         "attempt_goal_hits": sum(x["shape_hit"] for x in rows),
@@ -357,6 +372,62 @@ def structured(run_dir: Path, model: str) -> dict:
     }
 
 
+def _effort(block: dict) -> str:
+    sent = "/".join(sorted(block.get("sent_effort", {})))
+    reported = "/".join(sorted(block.get("reported_effort", {})))
+    return f"{sent} -> {reported}"
+
+
+def _throttle(block: dict) -> str:
+    statuses = block.get("attempt_statuses", {})
+    return f"{statuses.get('429', statuses.get(429, 0))} / {block.get('calls_with_retry', 0)}"
+
+
+def table(summary: dict) -> str:
+    """Markdown tables straight from summary.json, so no number is copied by hand."""
+    lines = [
+        "| model | effort sent -> reported | cases right | reps right | invalid args |"
+        " wall p50/p95 ms | model call p50/p95 ms | headers p50 ms | in / cached / out /"
+        " reasoning tokens per call | $ per 1k calls | 429s / retried calls |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in summary["first_tool"]:
+        lines.append(
+            f"| {r['model']} ({r['transport']}) | {_effort(r)} | {r['case_hits']}/{r['cases']} |"
+            f" {r['rep_hits']}/{r['reps']} | {len(r['args_invalid'])}/{r['args_checked']} |"
+            f" {r['wall_ms_p50']}/{r['wall_ms_p95']} | {r['call_ms_p50']}/{r['call_ms_p95']} |"
+            f" {r['headers_ms_p50']} | {r.get('input_mean')} / {r.get('cached_mean')} /"
+            f" {r.get('output_mean')} / {r.get('reasoning_mean')} | {r.get('usd_per_1000_calls')} |"
+            f" {_throttle(r)} |"
+        )
+    lines += [
+        "",
+        "| model | effort sent -> reported | first tool right | goal completion |"
+        " strict goal | turn p50/p95 ms | model call p50/p95 ms | calls per turn | in / out / reasoning"
+        " tokens per turn | $ per 1k turns | exceptions | 429s / retried calls |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r in summary["nav"]:
+        t = r.get("tokens_per_turn") or {}
+        lines.append(
+            f"| {r['model']} ({r['transport']}) | {_effort(r)} | {r['first_tool_rate']:.0%}"
+            f" ({r['attempt_first_tool_hits']}/{r['attempts']}) |"
+            f" {r['goal_completion_rate']:.0%} ({r['attempt_goal_hits']}/{r['attempts']}) |"
+            f" {r['strict_goal_rate']:.0%} ({r['attempt_strict_goal_hits']}/{r['attempts']}) |"
+            f" {r['turn_ms_p50']}/{r['turn_ms_p95']} | {r['call_ms_p50']}/{r['call_ms_p95']} |"
+            f" {r['model_calls_per_turn']} | {t.get('input')} / {t.get('output')} /"
+            f" {t.get('reasoning')} | {r.get('usd_per_1000_turns')} | {r['exceptions']} |"
+            f" {_throttle(r)} |"
+        )
+    for r in summary["structured"]:
+        lines.append(
+            f"\nstructured {r['model']} {_effort(r)}: valid {r['valid']}/{r['n']},"
+            f" refs right {r['refs_match']}/{r['n']}, p50/p95 {r['ms_p50']}/{r['ms_p95']} ms,"
+            f" $ per 1k calls {r.get('usd_per_1000_calls')}"
+        )
+    return "\n".join(lines)
+
+
 def main() -> None:
     root = Path(sys.argv[1])
     out: dict = {"first_tool": [], "nav": [], "structured": [], "preflight": [], "status": []}
@@ -378,7 +449,8 @@ def main() -> None:
     if len(sys.argv) > 2:
         out["laptop_baseline"] = json.loads(Path(sys.argv[2]).read_text())
     (root / "summary.json").write_text(json.dumps(out, indent=1, default=str))
-    print(json.dumps(out, indent=1, default=str))
+    (root / "table.md").write_text(table(out) + "\n")
+    print(table(out))
 
 
 if __name__ == "__main__":

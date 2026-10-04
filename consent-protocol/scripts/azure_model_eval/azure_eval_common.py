@@ -41,6 +41,11 @@ _REASONING_CHOICES = {"production", "default", "none", "minimal", "low", "medium
 if REASONING not in _REASONING_CHOICES:
     raise SystemExit(f"EVAL_REASONING must be one of {sorted(_REASONING_CHOICES)}")
 CREDENTIAL = "az_cli" if os.environ.get("EVAL_CREDENTIAL") == "az_cli" else "managed_identity"
+#: ``responses`` (production since cecc31de3) or ``chat``: the pre-cecc31de3 Chat
+#: Completions transport, reinstated only to separate transport from location.
+TRANSPORT = (os.environ.get("EVAL_TRANSPORT") or "responses").strip().lower()
+if TRANSPORT not in {"responses", "chat"}:
+    raise SystemExit("EVAL_TRANSPORT must be responses or chat")
 CODE_SHA = os.environ.get("EVAL_CODE_SHA", "")
 
 _lock = threading.Lock()
@@ -229,6 +234,127 @@ def _install_attempt_log() -> None:
     httpx.AsyncClient.send = send
 
 
+def _chat_usage(rec: CallRecord, usage: Any) -> None:
+    if usage is None:
+        return
+    rec.input_tokens = getattr(usage, "prompt_tokens", None)
+    rec.output_tokens = getattr(usage, "completion_tokens", None)
+    details = getattr(usage, "prompt_tokens_details", None)
+    rec.cached_tokens = getattr(details, "cached_tokens", None) if details else None
+    details = getattr(usage, "completion_tokens_details", None)
+    rec.reasoning_tokens = getattr(details, "reasoning_tokens", None) if details else None
+
+
+class _ChatStreamWrap:
+    def __init__(self, inner: Any, rec: CallRecord):
+        self._inner = inner
+        self._rec = rec
+
+    def __aiter__(self):
+        return self._gen()
+
+    async def _gen(self):
+        try:
+            async for chunk in self._inner:
+                if self._rec.first_event_ms is None:
+                    self._rec.first_event_ms = _ms(self._rec)
+                choices = getattr(chunk, "choices", None) or []
+                delta = getattr(choices[0], "delta", None) if choices else None
+                if (
+                    self._rec.first_output_ms is None
+                    and delta is not None
+                    and (getattr(delta, "content", None) or getattr(delta, "tool_calls", None))
+                ):
+                    self._rec.first_output_ms = _ms(self._rec)
+                if choices and getattr(choices[0], "finish_reason", None):
+                    self._rec.status = str(choices[0].finish_reason)
+                _chat_usage(self._rec, getattr(chunk, "usage", None))
+                yield chunk
+        finally:
+            self._rec.elapsed_ms = _ms(self._rec)
+
+
+def _install_chat() -> None:
+    """The pre-cecc31de3 builder, verbatim in effect, plus Chat Completions capture."""
+    from openai.resources.chat import completions as cc
+
+    from hushh_mcp.runtime_providers import azure_openai
+    from hushh_mcp.runtime_providers.openai_transport import OpenAITransport
+
+    def chat_transport(
+        *,
+        runtime_provider,
+        runtime_mode,
+        credential=None,
+        topology=None,
+        token_provider=None,
+        http_client=None,
+    ):
+        azure_openai.require_owner_azure_pair(
+            runtime_provider=runtime_provider, runtime_mode=runtime_mode, credential=credential
+        )
+        resolved = topology if topology is not None else azure_openai.azure_openai_topology()
+        return OpenAITransport(
+            base_url=resolved.base_url,
+            provider=azure_openai.AZURE_OPENAI_PROVIDER,
+            token_provider=token_provider or azure_openai.workload_token_provider(),
+            http_client=http_client,
+            send_sampling_controls=False,
+        )
+
+    azure_openai.build_owner_azure_transport = chat_transport
+    if getattr(cc.AsyncCompletions.create, "_hussh_wrapped", False):
+        return
+    original = cc.AsyncCompletions.create
+
+    async def create(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        transport_effort = kwargs.get("reasoning_effort")
+        if REASONING == "default":
+            kwargs.pop("reasoning_effort", None)
+        elif REASONING != "production":
+            kwargs["reasoning_effort"] = REASONING
+        stream = bool(kwargs.get("stream"))
+        if stream:
+            kwargs["stream_options"] = {"include_usage": True}  # usage reporting only
+        rec = CallRecord(
+            model=str(kwargs.get("model")),
+            stream=stream,
+            started=time.perf_counter(),
+            n_tools=len(kwargs.get("tools") or []),
+            transport_effort=transport_effort,
+            sent_effort=kwargs.get("reasoning_effort"),
+        )
+        USAGE.calls.append(rec)
+        token = _CURRENT.set(rec)
+        try:
+            result = await original(self, *args, **kwargs)
+        except Exception as exc:
+            rec.elapsed_ms = _ms(rec)
+            rec.error_status = getattr(exc, "status_code", None)
+            body = getattr(exc, "body", None)
+            if isinstance(body, dict):
+                rec.error_code = str(body.get("code") or "")[:80]
+                rec.error_message = str(body.get("message") or "")[:400]
+            else:
+                rec.error_message = type(exc).__name__
+            raise
+        finally:
+            _CURRENT.reset(token)
+        rec.headers_ms = _ms(rec)
+        if stream:
+            return _ChatStreamWrap(result, rec)
+        rec.elapsed_ms = rec.headers_ms
+        _chat_usage(rec, getattr(result, "usage", None))
+        choices = getattr(result, "choices", None) or []
+        if choices:
+            rec.status = str(getattr(choices[0], "finish_reason", None))
+        rec.response_model = getattr(result, "model", None)
+        return result
+
+    create._hussh_wrapped = True  # type: ignore[attr-defined]
+    cc.AsyncCompletions.create = create
+
+
 def install() -> None:
     """Select the credential, then wrap the SDK's Responses create() for measurement."""
     from openai.resources import responses as rr
@@ -246,6 +372,9 @@ def install() -> None:
         if missing:
             raise SystemExit(f"not an Azure workload (missing {missing}); refusing to run")
     _install_attempt_log()
+    if TRANSPORT == "chat":
+        _install_chat()
+        return
     if getattr(rr.AsyncResponses.create, "_hussh_wrapped", False):
         return
     original = rr.AsyncResponses.create
@@ -305,6 +434,7 @@ def run_meta(deployment: str) -> dict:
     return {
         "deployment": deployment,
         "reasoning_setting": REASONING,
+        "transport": TRANSPORT,
         "hussh_pod_mode_env": os.environ.get("HUSSH_POD_MODE"),
         "credential": CREDENTIAL,
         "code_sha": CODE_SHA,

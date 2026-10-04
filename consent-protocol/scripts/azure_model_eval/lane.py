@@ -7,7 +7,8 @@ real path): a preflight record, each run's driver log every minute, every file a
 produces as soon as it ends, and a lane status record.
 
 env: EVAL_PLAN = {"lane": str, "runs": [{"kind": "ft"|"nav"|"so", "deployment": str,
-     "reasoning": str, "reps": int, "label": str, "gap"?: float, "pod_mode"?: bool}]}
+     "reasoning": str, "reps": int, "label": str, "gap"?: float, "pod_mode"?: bool,
+     "transport"?: "responses"|"chat"}]}
      EVAL_RESULTS_ACCOUNT, EVAL_RESULTS_CONTAINER, EVAL_RESULTS_PREFIX
 """
 
@@ -145,6 +146,8 @@ def run_one(run: dict, status: dict) -> None:
     }
     if "gap" in run:
         env["EVAL_CALL_GAP_SECONDS"] = str(run["gap"])
+    if "transport" in run:
+        env["EVAL_TRANSPORT"] = run["transport"]
     if "pod_mode" in run:
         # The harness fixtures patch hub-side services and its cases expect the
         # hub-shaped roster; pod mode (baked into Dockerfile.pod) swaps both out.
