@@ -1322,13 +1322,15 @@
         "one_referral_codes",
         "one_referral_events",
         "one_referral_policies",
+        "one_referral_program_settings",
         "one_referral_relationships",
+        "one_referral_reward_rounds",
         "one_referral_risk_reviews"
       ],
       "id": "one_referral_program",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 269 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots a later PR's scoring and fulfillment work reads and writes."
     },
     {
       "data_class": "workflow_state",
@@ -5760,7 +5762,7 @@
     "action_gateway": "f0027e74756f9371f7d34a1da3591b4bebc3078c85652a32a010d9ec3d100e9d",
     "agent_registry": "b52c72496965b3420b141b1dcf0737594848d3c5b37a834879bf00925b7a35a2",
     "cache_manifest": "32efb8adce1c0678895672859f85ac0a03bd3088ab1836bcb19b7910cbca0437",
-    "data_plane": "1df49f95104f4d30fc5ed6de778ff88e0180f690a8d3a736e2df0cb567be8c5a",
+    "data_plane": "9b11060904daebab565591562499b5434730366c59f120eb41a0b484bc76d4cc",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "8913a9262a8b6d35634f7a34f42971c3dae1669f61de10e9bd5875e4b2289e04",
