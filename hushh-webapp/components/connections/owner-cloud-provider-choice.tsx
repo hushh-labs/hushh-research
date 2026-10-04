@@ -104,11 +104,13 @@ function ProviderCards({
             data-testid={`owner-cloud-provider-${option}`}
             className={cn(
               "flex min-h-32 flex-col items-center justify-center gap-3 rounded-2xl border p-4",
-              "text-center transition-[border-color,background-color,box-shadow] duration-150",
+              "text-center transition-[border-color,background-color,box-shadow,transform] duration-150",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              "active:scale-[0.99]",
+              // The same surfaces as the hosting choice above, so the two steps read as one.
               checked
                 ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] shadow-[0_0_0_1px_var(--app-accent)]"
-                : "border-[var(--app-border)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]",
+                : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] hover:border-[color:var(--app-accent-border)]",
             )}
           >
             <span className="flex h-8 items-center">{mark}</span>
