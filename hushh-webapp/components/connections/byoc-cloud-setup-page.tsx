@@ -408,14 +408,7 @@ export function ByocCloudSetupPage() {
   // Azure is named only on a build where it can actually be chosen.
   const azureSelectable = isAzureHomeSelectable();
   const hostingOptions: HostingChoiceOption[] = [
-    {
-      value: "shared",
-      icon: SharedHostingRowIcon,
-      title: "Hussh Shared",
-      description: "Start right away. Your private information stays locked to you.",
-      supporting: "Not a dedicated agent. You can move to your own cloud later.",
-      testId: "cloud-tier-shared-option",
-    },
+    // Your own cloud leads: it is the private agent Hussh is built around.
     {
       value: "own",
       icon: OwnCloudRowIcon,
@@ -431,6 +424,14 @@ export function ByocCloudSetupPage() {
       ),
       supportingDecorative: true,
       testId: "cloud-tier-own",
+    },
+    {
+      value: "shared",
+      icon: SharedHostingRowIcon,
+      title: "Hussh Shared",
+      description: "Start right away. Your private information stays locked to you.",
+      supporting: "Not a dedicated agent. You can move to your own cloud later.",
+      testId: "cloud-tier-shared-option",
     },
     {
       value: "hosted",
