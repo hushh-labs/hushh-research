@@ -53,6 +53,20 @@ ArmErrorKind = Literal[
     "timeout",
 ]
 
+#: Refusals Azure gives while something it just created is still settling. Each one
+#: clears within a minute or two; failing the person's setup on it was a bug
+#: (``VaultRegisteringDns`` on the key, right after the vault was created, measured
+#: 2026-10-04 on the first live Connect Azure).
+TRANSIENT_CODES = frozenset(
+    {
+        "VaultRegisteringDns",  # a new Key Vault's name is not resolvable yet
+        "AnotherOperationInProgress",  # the same resource is mid-update
+    }
+)
+# ``PrincipalNotFound`` is not here: the applier already retries role assignments on
+# its own schedule while a new identity replicates, and two loops would compound.
+_TRANSIENT_WAIT_SECONDS = 10.0
+
 _TERMINAL_OK = {"succeeded"}
 _TERMINAL_BAD = {"failed", "canceled", "cancelled"}
 _DEFAULT_POLL_SECONDS = 5.0
@@ -141,6 +155,7 @@ class ArmClient:
         clock: Callable[[], float] = time.monotonic,
         lro_timeout_seconds: float = 900.0,
         throttle_retries: int = 4,
+        transient_retries: int = 12,
     ) -> None:
         self._token = token
         self._session = session
@@ -148,6 +163,7 @@ class ArmClient:
         self._clock = clock
         self._lro_timeout = lro_timeout_seconds
         self._throttle_retries = throttle_retries
+        self._transient_retries = transient_retries
 
     def _bearer(self) -> str:
         token = self._token() if callable(self._token) else self._token
@@ -164,20 +180,36 @@ class ArmClient:
 
     def _send(self, method: str, url: str, body: Optional[dict], op: str) -> ArmResponse:
         headers = {"Authorization": f"Bearer {self._bearer()}", "Accept": "application/json"}
-        for attempt in range(self._throttle_retries + 1):
-            raw = self._http().request(method, url, headers=headers, json=body, timeout=60)
-            status = int(raw.status_code)
-            lowered = {str(k).lower(): str(v) for k, v in (raw.headers or {}).items()}
-            try:
-                parsed = raw.json() if getattr(raw, "content", b"") else {}
-            except ValueError:
-                parsed = {}
-            parsed = parsed if isinstance(parsed, dict) else {"value": parsed}
-            if status in (429, 503) and attempt < self._throttle_retries:
-                self._sleep(_retry_after(lowered, _DEFAULT_POLL_SECONDS * (attempt + 1)))
+        throttled = settling = 0
+        while True:
+            response = self._send_once(method, url, headers, body)
+            if response.status in (429, 503) and throttled < self._throttle_retries:
+                throttled += 1
+                self._sleep(_retry_after(response.headers, _DEFAULT_POLL_SECONDS * throttled))
                 continue
-            return ArmResponse(status=status, body=parsed, headers=lowered)
-        raise AssertionError("unreachable")  # pragma: no cover
+            code, _ = _error_detail(response.body)
+            if (
+                response.status in (400, 404, 409)
+                and code in TRANSIENT_CODES
+                and settling < self._transient_retries
+            ):
+                settling += 1
+                logger.info("azure_arm.settling op=%s code=%s attempt=%s", op, code, settling)
+                self._sleep(_TRANSIENT_WAIT_SECONDS)
+                continue
+            return response
+
+    def _send_once(
+        self, method: str, url: str, headers: dict[str, str], body: Optional[dict]
+    ) -> ArmResponse:
+        raw = self._http().request(method, url, headers=headers, json=body, timeout=60)
+        lowered = {str(k).lower(): str(v) for k, v in (raw.headers or {}).items()}
+        try:
+            parsed = raw.json() if getattr(raw, "content", b"") else {}
+        except ValueError:
+            parsed = {}
+        parsed = parsed if isinstance(parsed, dict) else {"value": parsed}
+        return ArmResponse(status=int(raw.status_code), body=parsed, headers=lowered)
 
     @staticmethod
     def _raise_for(response: ArmResponse, op: str) -> None:
