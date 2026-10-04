@@ -372,6 +372,59 @@ def structured(run_dir: Path, model: str) -> dict:
     }
 
 
+def _sign_test(a_only: int, b_only: int) -> float:
+    """Exact two-sided sign test on discordant cases (McNemar, exact)."""
+    from math import comb
+
+    n = a_only + b_only
+    if n == 0:
+        return 1.0
+    k = min(a_only, b_only)
+    return round(min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2**n), 4)
+
+
+def _case_hits(root: Path) -> dict[str, dict[str, bool]]:
+    """Per-case pass/fail for every run: first-tool from the harness report, Nav strict."""
+    runs: dict[str, dict[str, bool]] = {}
+    for path in root.glob("*/*/one_first_tool_eval_*_production.json"):
+        report = json.loads(path.read_text())
+        runs[path.parent.name] = {
+            c["id"]: bool(c["hit"]) for c in report["cases"] if c["status"] == "completed"
+        }
+    for path in root.glob("*/*/nav_report.json"):
+        rows = json.loads(path.read_text())["results"]
+        ids = {x["id"] for x in rows}
+        runs[path.parent.name] = {
+            cid: all(x["first_tool_hit"] and x["shape_hit"] for x in rows if x["id"] == cid)
+            for cid in ids
+        }
+    return runs
+
+
+def paired(root: Path) -> list[dict]:
+    runs = _case_hits(root)
+    out = []
+    names = sorted(runs)
+    for i, a in enumerate(names):
+        for b in names[i + 1 :]:
+            if a.split("-")[0] != b.split("-")[0]:
+                continue  # only the same harness
+            shared = sorted(set(runs[a]) & set(runs[b]))
+            a_only = sum(runs[a][c] and not runs[b][c] for c in shared)
+            b_only = sum(runs[b][c] and not runs[a][c] for c in shared)
+            out.append(
+                {
+                    "a": a,
+                    "b": b,
+                    "cases": len(shared),
+                    "a_only": a_only,
+                    "b_only": b_only,
+                    "p_sign_test": _sign_test(a_only, b_only),
+                }
+            )
+    return out
+
+
 def _effort(block: dict) -> str:
     sent = "/".join(sorted(block.get("sent_effort", {})))
     reported = "/".join(sorted(block.get("reported_effort", {})))
@@ -446,6 +499,7 @@ def main() -> None:
             elif (run_dir / "structured.json").exists():
                 meta = json.loads((run_dir / "structured.json").read_text())
                 out["structured"].append(structured(run_dir, meta["deployment"]))
+    out["paired"] = paired(root)
     if len(sys.argv) > 2:
         out["laptop_baseline"] = json.loads(Path(sys.argv[2]).read_text())
     (root / "summary.json").write_text(json.dumps(out, indent=1, default=str))
