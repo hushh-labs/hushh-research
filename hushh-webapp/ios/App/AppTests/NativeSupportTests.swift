@@ -26,6 +26,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
     }
 
+    func testNativeControlAppearanceRejectsMalformedProjectionAndDecodesCSSAlphaLast() {
+        let theme = HushhNativeControlAppearance(appearance: "dark", accentHex: "#123", foregroundHex: "#44556680")
+        XCTAssertEqual(theme?.style, .dark)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(theme!.foreground.getRed(&r, green: &g, blue: &b, alpha: &a))
+        XCTAssertEqual(r, 68.0 / 255, accuracy: 0.001)
+        XCTAssertEqual(a, 128.0 / 255, accuracy: 0.001)
+        XCTAssertTrue(theme!.accent.getRed(&r, green: &g, blue: &b, alpha: &a))
+        XCTAssertEqual(b, 51.0 / 255, accuracy: 0.001)
+        for bad in ["#123junk", "#123456\n", "#１２３", "red", "var(--app-accent)", "#12", "#123456789", "#gggggg"] {
+            XCTAssertNil(HushhNativeControlAppearance(appearance: "dark", accentHex: bad, foregroundHex: "#445566"))
+            XCTAssertNil(HushhNativeControlAppearance(appearance: "light", accentHex: "#123456", foregroundHex: bad))
+        }
+        XCTAssertNil(HushhNativeControlAppearance(appearance: "system", accentHex: "#123456", foregroundHex: "#445566"))
+        XCTAssertNil(HushhNativeControlAppearance(appearance: "light", accentHex: nil, foregroundHex: "#445566"))
+    }
+
     func testNativeChromeLeaseRejectsStaleOwnerDocumentAndDuplicateChoices() {
         var state = HushhNativeChromeState()
         let first = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 1)

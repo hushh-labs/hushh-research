@@ -65,7 +65,8 @@ function Harness() {
     <main className="min-h-dvh bg-background px-4 pt-5 text-foreground sm:px-6 lg:px-8">
       <div data-testid="transcript" className="mx-auto flex w-full max-w-4xl flex-col gap-6">
         <AgentSuggestionList
-          suggestions={["What can One help with?", "Help me prepare for tomorrow with a short plan that I can review and edit before using it"]}
+          suggestions={["What's on my calendar this week?", "Which emails need a reply?", "Who has access to my information?"]}
+          layout="starter-grid"
           label="Start a conversation"
           testId="agent-prompt-suggestions"
           onSelect={() => undefined}

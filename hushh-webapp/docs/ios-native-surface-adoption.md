@@ -67,6 +67,16 @@ retire this pilot synchronously. Delayed recovery can retire only its own revisi
 not a replacement. Duplicate choices cannot replay; a new intentional tap remains
 available if the owning navigation operation is cancelled.
 
+Presentation contract version 2 projects the existing app light/dark class and
+resolved accent/foreground CSS tokens into both the UIKit tabs and SwiftUI Back.
+There is no separate native theme preference or palette. Back uses the text/icon
+accent token, including the darker gold foreground, and a controller-local
+appearance override; the application window is not restyled. A theme change
+retires/reprepares Back and invalidates its old choices. The final action check
+also reads committed CSS, closing the interval before React publishes a changed
+projection. Theme-only tab updates do not invalidate intentional tab selections.
+Wrappers lacking version 2 retain DOM controls rather than ignore appearance.
+
 This family owns **no popup**. SwiftUI Menu/pickers and UIKit action sheets remain
 unimplemented: removing a hosting view does not prove that a presented popup is
 covered or dismissed. Their popup retirement and interaction-layer ownership must
@@ -83,7 +93,7 @@ than acquire separate native implementations.
 | Component family and source owner | Current presentation | Native fit / recommendation |
 | --- | --- | --- |
 | Bottom navigation — [Navbar](../components/navbar.tsx), [native plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift) | UIKit on supported iOS; DOM fallback | Implemented. Keep standard appearance and React selection authority. |
-| Top bar, back, Profile — [TopAppBar](../components/app-ui/top-app-bar.tsx), [ShellActionSurface](../components/app-ui/shell-action-surface.tsx) | SwiftUI Back Debug pilot; otherwise DOM | Back implemented but physically unverified. Close/More/utility buttons follow only after Back acceptance. Retain Profile photos and rich labels. No whole native bar. |
+| Top bar, back, Profile — [TopAppBar](../components/app-ui/top-app-bar.tsx), [ShellActionSurface](../components/app-ui/shell-action-surface.tsx) | SwiftUI Back Debug pilot; otherwise DOM | Back interaction verified on iPhone; visual/accessibility promotion remains incomplete. Close/More/utility buttons follow only after full Back acceptance. Retain Profile photos and rich labels. No whole native bar. |
 | Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Next: SwiftUI Menu for an admitted stationary native trigger; controlled UIKit action sheet for a DOM trigger. Neither is admitted yet. Preserve selection and focus return. |
 | Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Next: native menu/action-sheet adapter for serializable item IDs and labels. Arbitrary React labels stay DOM. Preserve disabled/busy state and separate destructive confirmation. |
 | Agent/voice controls — [AgentBar](../components/agent/agent-bar.tsx), [OneVoiceControl](../components/one-voice/one-voice-control.tsx) | DOM controls over existing runtime providers | Conditional: launcher/cancel chrome only. Keep tap/hold, slide-to-cancel, recording, readiness and task state with existing owners; retain transcript/waveform content. |
@@ -160,17 +170,23 @@ never convert selecting a row into an unreviewed provider write or information s
 
 The 2026-10-04 Back implementation has focused lease/bridge regressions, plugin
 contract checks, frontend typecheck, design/performance checks and a signed native
-compile. Physical Back, VoiceOver/focus transfer, Dynamic Type, reduced motion/
-transparency, rotation, frame pacing and persistent WebView/document identity
-remain acceptance gates. CoreDevice reached the running iPhone over Wi-Fi, but
+compile. VoiceOver/focus transfer, Dynamic Type, reduced motion/transparency,
+rotation, frame pacing and persistent WebView/document identity remain acceptance
+gates. CoreDevice reached the running iPhone over Wi-Fi, but
 the initial attach-only XCUI attempt timed out enabling automation. That admission
 blocker is now resolved: a warm native tabs/Search/overlay test executed and passed
 on the previous installed app on 2026-10-04. The old-app Back negative control
 reached Wallet and failed specifically at native Back admission, as expected.
-The new production-targeted Debug candidate is installed; its attach-only Back
-check stops at the vault-unlock precondition after binary replacement. It has not
-passed physical Back acceptance. Installation is separate cold preparation, not
-continuity proof. No sign-out, account reset or reviewer bootstrap was used.
+The production-targeted Debug candidate was installed and unlocked through the
+normal secure-entry flow. Attach-only checks then passed native tabs/Search,
+the 44-point Back target and edge tap, Profile-overlay retirement, background/
+resume and the existing return handler, plus photo-preview open/close without
+mutation. The app process survived this sequence. Installation remains separate
+cold preparation, not continuity proof. No sign-out, account reset or reviewer
+bootstrap was used. WebKit's accessibility subtree includes the native Back
+itself; duplicate exclusion checks its explicit identifier rather than mistaking
+its shared label for a second DOM control. Photo proof returns a resumed nested
+Profile setting to home through the existing Back controls.
 iPad is not admitted.
 This is not release-readiness proof.
 The subsequent families are deliberately not enabled or described as delivered.

@@ -64,6 +64,7 @@ describe("the accent, resolved to a literal", () => {
     window.localStorage.clear();
     document.documentElement.removeAttribute("data-accent");
     document.documentElement.style.removeProperty("--app-accent");
+    document.documentElement.style.removeProperty("--app-accent-deep");
   });
 
   it("never returns something a native bridge cannot parse", () => {
@@ -74,7 +75,9 @@ describe("the accent, resolved to a literal", () => {
 
   it("prefers the computed token over its own fallback", () => {
     document.documentElement.style.setProperty("--app-accent", "#123456");
+    document.documentElement.style.setProperty("--app-accent-deep", "#654321");
     expect(resolvedAccentHex()).toBe("#123456");
+    expect(resolvedAccentHex("--app-accent-deep")).toBe("#654321");
   });
 
   it("refuses a token that is not a literal colour", () => {

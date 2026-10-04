@@ -121,15 +121,15 @@ function channelsToHex([r, g, b]: readonly [number, number, number]): string {
     .join("")}`;
 }
 
-/** `--app-accent` as a literal `#rrggbb`, for a consumer outside the cascade. */
-export function resolvedAccentHex(): string {
+/** A canonical accent token as a literal hex, for a consumer outside the cascade. */
+export function resolvedAccentHex(token: "--app-accent" | "--app-accent-deep" = "--app-accent"): string {
   const fallback = () => channelsToHex(ACCENT_FALLBACK_CHANNELS[readAccent()]);
   if (typeof window === "undefined" || typeof document === "undefined") {
     return channelsToHex(ACCENT_FALLBACK_CHANNELS[DEFAULT_ACCENT]);
   }
   try {
     const resolved = getComputedStyle(document.documentElement)
-      .getPropertyValue("--app-accent")
+      .getPropertyValue(token)
       .trim();
     // Only a literal colour is useful downstream. A token that resolves to
     // another var(), or to nothing during first paint, must not reach a

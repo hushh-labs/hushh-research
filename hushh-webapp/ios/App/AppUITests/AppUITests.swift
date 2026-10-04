@@ -49,8 +49,20 @@ final class AppUITests: XCTestCase {
         if !open.exists && !webView.buttons["Unlock"].exists {
             perfTapNav(app, label: "Chat")
         }
-        // The owner may unlock manually while automation waits; no passphrase
-        // is read from a file, argument, or test log.
+        // The existing XCUI vault helper types into a secure field. Its secret
+        // arrives through the documented TEST_RUNNER_ process environment,
+        // never a launch argument, source file, or test diagnostic.
+        if !open.waitForExistence(timeout: 10), webView.buttons["Unlock"].exists {
+            let environment = ProcessInfo.processInfo.environment
+            let hasReviewerSecret = !(environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"]
+                ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "").isEmpty
+            guard hasReviewerSecret else {
+                throw XCTSkip("Live-session vault is locked and no process-only reviewer credential was supplied")
+            }
+            let submitted = attemptVaultPassphraseUnlock(app: app)
+            print("LOCAL_SESSION_UNLOCK submitted=\(submitted) lock_visible=\(webView.buttons["Unlock"].exists) secure_entry_visible=\(app.secureTextFields.firstMatch.exists)")
+            if !open.exists { perfTapNav(app, label: "Chat") }
+        }
         if !open.waitForExistence(timeout: 120) {
             let vaultLockVisible = webView.buttons["Unlock"].exists
             XCTFail("Signed-in Chat did not load from the local build. Vault lock visible: \(vaultLockVisible)")
@@ -139,6 +151,10 @@ final class AppUITests: XCTestCase {
         let hosts = app.webViews.matching(identifier: "native-webview")
         let webView = hosts.firstMatch
         XCTAssertTrue(webView.waitForExistence(timeout: 15), "The existing Capacitor host is unavailable")
+        for label in ["Close Profile", "Close chat history", "Close search"] {
+            let close = app.buttons[label].firstMatch
+            if close.exists && close.isHittable { close.tap() }
+        }
         XCTAssertFalse(webView.buttons["Unlock"].exists, "The candidate requires a normal vault unlock before warm-session proof")
         XCTAssertFalse(app.buttons["Continue with Google"].exists, "Warm-session proof cannot substitute a new sign-in")
         let bar = app.descendants(matching: .any).matching(identifier: "one-native-navigation").firstMatch
@@ -159,7 +175,14 @@ final class AppUITests: XCTestCase {
                       "The candidate did not admit the native Back pilot")
         XCTAssertEqual(back.frame.width, 44, accuracy: 1)
         XCTAssertEqual(back.frame.height, 44, accuracy: 1)
-        XCTAssertFalse(webView.buttons["Go back"].exists, "DOM and native Back must not both be accessible")
+        // Physical WebKit's AX subtree includes the sibling hosting view. The
+        // same native button may therefore match the WebView label query;
+        // exclude only its explicit identifier, never an unnamed DOM duplicate.
+        XCTAssertEqual(app.buttons.matching(identifier: "top-shell-back").count, 1)
+        let domBack = webView.buttons.matching(NSPredicate(
+            format: "label == %@ AND identifier != %@", "Go back", "top-shell-back"
+        )).firstMatch
+        XCTAssertFalse(domBack.exists, "DOM and native Back must not both be accessible")
         XCTAssertFalse(webView.buttons["Unlock"].exists, "Wallet lost the unlocked session")
         XCTAssertEqual(hosts.count, 1)
 
@@ -185,7 +208,8 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable,
                       "Back did not recover after normal background/resume")
         XCTAssertFalse(webView.buttons["Unlock"].exists, "Resume lost the unlocked session")
-        back.tap()
+        // Exercise the edge of the admitted 44pt target, not only its glyph.
+        back.coordinate(withNormalizedOffset: CGVector(dx: 0.05, dy: 0.5)).tap()
         XCTAssertTrue(wallet.waitForExistence(timeout: 15), "Back did not invoke the existing return-to-One handler")
         let routeRetirement = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: back)
         XCTAssertEqual(XCTWaiter.wait(for: [routeRetirement], timeout: 10), .completed,
@@ -206,10 +230,22 @@ final class AppUITests: XCTestCase {
         app.activate()
         let hosts = app.webViews.matching(identifier: "native-webview")
         let webView = hosts.firstMatch
+        let previousProfile = app.buttons["Close Profile"].firstMatch
+        if previousProfile.exists && previousProfile.isHittable { previousProfile.tap() }
         let openProfile = app.buttons["Open Profile"].firstMatch
         XCTAssertTrue(openProfile.waitForExistence(timeout: 15) && openProfile.isHittable)
         openProfile.tap()
+        // The pane can resume a nested setting from the same session. Reach
+        // its home through its actual Back controls, not a cold route/reset.
+        for _ in 0..<3 {
+            let backInProfile = app.buttons["Back in Profile"].firstMatch
+            if !backInProfile.waitForExistence(timeout: 1) || !backInProfile.isHittable { break }
+            backInProfile.tap()
+        }
         let photo = app.buttons["View profile photo"].firstMatch
+        if !photo.waitForExistence(timeout: 15) {
+            XCTContext.runActivity(named: "PROFILE_PHOTO_ADMISSION fallback_visible=\(app.buttons["Profile photo options"].exists) root_visible=\(app.staticTexts["Your settings"].exists) nested_back_visible=\(app.buttons["Back in Profile"].exists)") { _ in }
+        }
         XCTAssertTrue(photo.waitForExistence(timeout: 15) && photo.isHittable,
                       "The reviewer profile must have an existing photo for this proof")
         photo.tap()
@@ -876,22 +912,26 @@ final class AppUITests: XCTestCase {
             return false
         }
 
-        let passphrase = reviewerVaultPassphrase()
-        let vaultKeyField = app.secureTextFields["Enter vault key"]
-        let passphraseField = app.secureTextFields["Enter your passphrase"]
-        let hasPassphraseField =
-            vaultKeyField.waitForExistence(timeout: 0.25)
-            || passphraseField.waitForExistence(timeout: 0.25)
-            || app.secureTextFields.count > 0
-        guard hasPassphraseField else {
-            return false
-        }
-
-        for methodButton in [app.buttons["Vault Key"], app.buttons["Use passphrase instead"]] {
+        // Select the authored fallback before requiring its field. A device-
+        // first vault may have no text entry until this choice is made.
+        for methodButton in [app.buttons["Passphrase"], app.buttons["Use passphrase instead"], app.buttons["Vault Key"]] {
             if methodButton.waitForExistence(timeout: 0.25), methodButton.isHittable {
                 methodButton.tap()
                 break
             }
+        }
+
+        let passphrase = reviewerVaultPassphrase()
+        let currentPassphraseField = app.secureTextFields["Vault passphrase"]
+        let vaultKeyField = app.secureTextFields["Enter vault key"]
+        let passphraseField = app.secureTextFields["Enter your passphrase"]
+        let hasPassphraseField =
+            currentPassphraseField.waitForExistence(timeout: 0.25)
+            || vaultKeyField.waitForExistence(timeout: 0.25)
+            || passphraseField.waitForExistence(timeout: 0.25)
+            || app.secureTextFields.count > 0
+        guard hasPassphraseField else {
+            return false
         }
 
         let unlockButtons = [app.buttons["Unlock"], app.buttons["Unlock with passphrase"]]
@@ -919,7 +959,23 @@ final class AppUITests: XCTestCase {
                     identifier.contains("vault-key") ||
                     identifier.contains("unlock-passphrase")
                 guard looksLikePassphrase || count == 1 else { continue }
-                replaceText(in: field, with: passphrase)
+                // WKWebView can drop early keystrokes while bringing up the
+                // software keyboard. Wait for it, clear the secure field using
+                // iOS deletion (not a Mac Command-A), then verify length only.
+                field.tap()
+                guard app.keyboards.firstMatch.waitForExistence(timeout: 5) else { return false }
+                let existing = field.value as? String ?? ""
+                if existing != field.placeholderValue && !existing.isEmpty {
+                    field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+                }
+                field.typeText(passphrase)
+                let completeEntry = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    (field.value as? String)?.count == passphrase.count
+                }, object: field)
+                guard XCTWaiter.wait(for: [completeEntry], timeout: 3) == .completed else {
+                    XCTFail("Vault secure entry was incomplete; unlock was not submitted")
+                    return false
+                }
                 for unlockButton in unlockButtons {
                     if unlockButton.waitForExistence(timeout: 2), unlockButton.isHittable {
                         vaultUnlockSubmitted = true
@@ -2990,6 +3046,12 @@ final class AppUITests: XCTestCase {
     }
 
     private func perfTapNav(_ app: XCUIApplication, label: String) {
+        let nativeTab = app.descendants(matching: .any)
+            .matching(identifier: "one-native-navigation").firstMatch.buttons[label]
+        if nativeTab.exists && nativeTab.isHittable {
+            nativeTab.tap()
+            return
+        }
         let candidates = app.webViews.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", label))
         let count = candidates.count

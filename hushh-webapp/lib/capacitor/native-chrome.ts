@@ -2,6 +2,7 @@
 
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
+import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
@@ -11,7 +12,7 @@ export type ChromeIdentity = {
   controlId: "top-shell-back";
   revision: number;
 };
-export type ChromeProjection = ChromeIdentity & {
+export type ChromeProjection = ChromeIdentity & NativeControlAppearance & {
   kind: "back";
   label: string;
   enabled: boolean;

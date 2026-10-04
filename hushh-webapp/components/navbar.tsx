@@ -55,7 +55,7 @@ import {
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
 import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
-import { useTheme } from "next-themes";
+import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab } from "@/lib/capacitor/native-navigation";
 import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -238,7 +238,7 @@ export const Navbar = ({
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const surface = useVoiceSurfaceMetadata();
-  const { resolvedTheme } = useTheme();
+  const nativeAppearance = useNativeControlAppearance();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -495,14 +495,16 @@ export const Navbar = ({
   };
 
   const nativeNavigation = useNativeNavigation({
-    enabled: layout === "slot",
+    enabled: layout === "slot" && nativeAppearance !== null,
     visible: isAuthenticated && isVaultUnlocked && !useOnboardingChrome &&
       !hideNavbar && !shellNavigationHidden && !chromeSuppressed &&
       !surface?.interactionLayer?.blocksUnderlyingActions,
     selected: NATIVE_NAVIGATION_TABS.includes(activeNav as NativeNavigationTab)
       ? activeNav as NativeNavigationTab : "dashboard",
     feedAttention: (pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0,
-    appearance: resolvedTheme === "dark" ? "dark" : "light",
+    appearance: nativeAppearance?.appearance ?? "light",
+    accentHex: nativeAppearance?.accentHex ?? "",
+    foregroundHex: nativeAppearance?.foregroundHex ?? "",
     onSelect: navigateTo,
   });
 

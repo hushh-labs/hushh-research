@@ -1505,7 +1505,7 @@ function AgentPromptSuggestions({
   onPromptSelect: (prompt: string) => void;
 }) {
   return (
-    <AgentSuggestionList suggestions={prompts} disabled={disabled}
+    <AgentSuggestionList suggestions={prompts} disabled={disabled} layout="starter-grid"
       label="Suggestions" testId="agent-chat-suggestions" onSelect={onPromptSelect} />
   );
 }
@@ -1524,14 +1524,11 @@ function AgentWelcomePanel({
   return (
     <section className="flex min-h-[clamp(18rem,45vh,32rem)] flex-col justify-center py-6 sm:py-10">
       <div className="mx-auto flex w-full max-w-2xl flex-col items-start px-1 text-left sm:px-2">
-        <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-black/10 bg-black/[0.035] px-3 py-1.5 text-xs font-medium text-[rgba(0,0,0,0.56)] dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-400">
-          One workspace
-        </div>
-        <h2 className="text-[34px] font-medium leading-[1.08] tracking-normal text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold max-sm:tracking-[-0.5px] sm:text-[38px]">
+        <h2 className="text-[36px] font-medium leading-[1.12] tracking-[-0.75px] text-foreground max-sm:font-[family-name:var(--font-app-display)] max-sm:font-semibold sm:text-[44px]">
           Hi {name}
         </h2>
-        <p className="mt-3 mb-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px] text-balance">
-          Ask One about your calendar, your email, what it remembers, or who can see your information.
+        <p className="mt-3 max-w-xl text-[16px] leading-7 text-muted-foreground max-sm:font-[family-name:var(--font-app-body)] sm:text-[17px]">
+          What would you like to do today?
         </p>
         <AgentPromptSuggestions
           prompts={prompts}

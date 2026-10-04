@@ -81,9 +81,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             if #available(iOS 26.0, *) {
-                call.resolve(["contractVersion": 1, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": true, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])
             } else {
-                call.resolve(["contractVersion": 1, "supported": false, "contentHeight": 0, "bottomInset": 0])
+                call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "supported": false, "contentHeight": 0, "bottomInset": 0])
             }
         }
     }
@@ -96,7 +96,9 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             }
             guard let document = call.getString("documentId"), let revision = call.getInt("revision"),
                   let visible = call.getBool("visible"), let selected = call.getString("selected"),
-                  let epoch = call.getInt("interactionEpoch") else {
+                  let epoch = call.getInt("interactionEpoch"),
+                  let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
+                    accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")) else {
                 call.reject("NATIVE_NAVIGATION_INVALID_STATE"); return
             }
             let shield = HushhSessionPrivacyShield.shared
@@ -108,7 +110,8 @@ final class HushhNativeNavigationPlugin: CAPPlugin, CAPBridgedPlugin, UITabBarDe
             }
             self.installIfNeeded()
             self.tabBar?.items?.first(where: { $0.tag == 3 })?.badgeValue = call.getBool("feedAttention") == true ? " " : nil
-            self.tabBar?.overrideUserInterfaceStyle = call.getString("appearance") == "dark" ? .dark : .light
+            self.tabBar?.overrideUserInterfaceStyle = theme.style
+            self.tabBar?.tintColor = theme.accent
             self.updatePresentation()
             self.layoutTabBar()
             call.resolve(["supported": self.tabBar != nil, "contentHeight": self.contentHeight, "bottomInset": self.bottomInset])

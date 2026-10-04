@@ -9,6 +9,7 @@ import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/c
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { isSessionChromeSuppressed, useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
+import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 
 /** Opt-in stationary shell Back. The existing callback retains all routing and
  * action authority; changing the route or owner expires the native lease. */
@@ -21,6 +22,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const overlay = useNativeShellOverlayBlocked();
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
+  const theme = useNativeControlAppearance();
   const layerBlocked = surface?.interactionLayer?.blocksUnderlyingActions === true;
   const [supported, setSupported] = useState(false);
   const [hidden, setHidden] = useState(hasOutstandingNativeChrome);
@@ -29,15 +31,15 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const lease = useRef<NativeChromeLease | null>(null);
   const ownerIdentity = useMemo(() => ({ owner, epoch: crypto.randomUUID() }), [owner]);
   const epoch = ownerIdentity.epoch;
-  const allowed = eligible && !!owner && !overlay && !layerBlocked && !suppressed;
-  const current = useRef({ allowed, context, epoch });
+  const allowed = eligible && !!owner && !!theme && !overlay && !layerBlocked && !suppressed;
+  const current = useRef({ allowed, context, epoch, theme });
   useLayoutEffect(() => {
-    if (current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch) {
+    if (current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch || current.current.theme !== theme) {
       lease.current?.invalidate();
     }
     callback.current = onBack;
-    current.current = { allowed, context, epoch };
-  }, [allowed, context, epoch, onBack]);
+    current.current = { allowed, context, epoch, theme };
+  }, [allowed, context, epoch, onBack, theme]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
@@ -51,11 +53,12 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     void (async () => {
       try {
         const capability = await nativeChrome.getCapabilities();
-        if (cancelled || capability.contractVersion !== 1 || !capability.families.includes("back")) return;
+        if (cancelled || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || !capability.families.includes("back")) return;
         await retain(nativeChrome.addListener("choiceRequested", (event) => {
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.context === active.context &&
             current.current.allowed && current.current.epoch === active.projection.ownerEpoch &&
+            isCurrentNativeControlAppearance(active.projection) &&
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
         }));
@@ -91,13 +94,13 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (cancelled) return;
         setPrepared(null);
         setHidden(false);
-        if (!allowed || document.visibilityState === "hidden" || !slot.current) {
+        if (!allowed || !theme || document.visibilityState === "hidden" || !slot.current) {
           if (wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
         const frame = slot.current.getBoundingClientRect();
         if (frame.width !== 44 || frame.height !== 44) return;
-        const next = new NativeChromeLease({ kind: "back", label, enabled: true,
+        const next = new NativeChromeLease({ kind: "back", label, enabled: true, ...theme,
           frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
           viewport: { width: window.innerWidth, height: window.innerHeight } }, activeEpoch, context);
         owned = next;
@@ -116,7 +119,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       owned?.invalidate();
       void retireNativeChrome(activeEpoch, owned?.projection).catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
     };
-  }, [supported, allowed, epoch, context, label, measurement]);
+  }, [supported, allowed, epoch, context, label, measurement, theme]);
 
   // Layout effect runs after the DOM button is hidden/inert, not before React commits it.
   useLayoutEffect(() => {

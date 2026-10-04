@@ -21,7 +21,8 @@ vi.mock("@capacitor/core", () => ({
     },
   }),
 }));
-const options = { enabled: true, visible: true, selected: "chat" as const, feedAttention: false, appearance: "light" as const };
+const options = { enabled: true, visible: true, selected: "chat" as const, feedAttention: false,
+  appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344" };
 function Overlay() { return <div ref={useNativeNavigationOverlayRef<HTMLDivElement>()} />; }
 function PersistentHistory({ open }: { open: boolean }) { useNativeNavigationBlocked(open); return <div />; }
 function lastState() { return bridge.setState.mock.calls.at(-1)![0]; }
@@ -33,7 +34,7 @@ describe("native navigation presentation boundary", () => {
   beforeEach(() => {
     bridge.platform = "ios";
     bridge.callbacks.clear();
-    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 1, supported: true, contentHeight: 49, bottomInset: 34 });
+    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.setState.mockReset().mockResolvedValue({ supported: true, contentHeight: 49, bottomInset: 34 });
     bridge.confirmSelection.mockReset().mockResolvedValue({ valid: true });
     bridge.sequence = 0;
@@ -58,18 +59,27 @@ describe("native navigation presentation boundary", () => {
     expect(bridge.setState).not.toHaveBeenCalled();
     view.unmount();
   });
+  it("retains the web bar when a wrapper cannot acknowledge the themed contract", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 1, supported: true, contentHeight: 49, bottomInset: 34 });
+    const view = renderHook(() => useNativeNavigation({ ...options, onSelect: vi.fn() }));
+    await waitFor(() => expect(bridge.getCapabilities).toHaveBeenCalled());
+    expect(view.result.current.ready).toBe(false);
+    expect(bridge.setState).not.toHaveBeenCalled();
+    view.unmount();
+  });
 
   it("accepts only current allowed taps and isolates mounted overlays and hidden vault chrome", async () => {
     const onSelect = vi.fn();
-    const view = renderHook(({ visible, feedAttention }) => useNativeNavigation({ ...options, visible, feedAttention, onSelect }), {
-      initialProps: { visible: true, feedAttention: false },
+    const view = renderHook(({ visible, feedAttention, appearance, accentHex }) => useNativeNavigation({ ...options, visible, feedAttention, appearance, accentHex, onSelect }), {
+      initialProps: { visible: true, feedAttention: false, appearance: "light" as "light" | "dark", accentHex: "#112233" },
     });
     await waitFor(() => expect(view.result.current.ready).toBe(true));
     const original = lastState();
     select(original);
     await waitFor(() => expect(onSelect).toHaveBeenCalledExactlyOnceWith("dashboard"));
-    view.rerender({ visible: true, feedAttention: true });
+    view.rerender({ visible: true, feedAttention: true, appearance: "dark", accentHex: "#445566" });
     await waitFor(() => expect(lastState().revision).toBeGreaterThan(original.revision));
+    expect(lastState()).toMatchObject({ appearance: "dark", accentHex: "#445566", interactionEpoch: original.interactionEpoch });
     select(original, "feed"); // A badge/theme revision must not drop the final native tap.
     await waitFor(() => expect(onSelect).toHaveBeenLastCalledWith("feed"));
     onSelect.mockClear();
@@ -88,7 +98,7 @@ describe("native navigation presentation boundary", () => {
     await waitFor(() => expect(onSelect).toHaveBeenCalledExactlyOnceWith("dashboard"));
     onSelect.mockClear();
     const visibleState = lastState();
-    view.rerender({ visible: false, feedAttention: true });
+    view.rerender({ visible: false, feedAttention: true, appearance: "dark", accentHex: "#445566" });
     select(visibleState);
     expect(onSelect).not.toHaveBeenCalled();
     await waitFor(() => expect(lastState().visible).toBe(false));

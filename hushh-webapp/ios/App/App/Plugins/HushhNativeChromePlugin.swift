@@ -2,6 +2,37 @@ import Capacitor
 import SwiftUI
 import UIKit
 
+/// Strict public presentation metadata, shared by UIKit and SwiftUI controls.
+/// Colors come from React's canonical CSS tokens, not another native palette.
+struct HushhNativeControlAppearance {
+    static let contractVersion = 2
+    let style: UIUserInterfaceStyle
+    let accent: UIColor
+    let foreground: UIColor
+
+    init?(appearance: String?, accentHex: String?, foregroundHex: String?) {
+        guard appearance == "light" || appearance == "dark",
+              let accent = Self.color(accentHex), let foreground = Self.color(foregroundHex) else { return nil }
+        style = appearance == "dark" ? .dark : .light
+        self.accent = accent
+        self.foreground = foreground
+    }
+
+    static func color(_ literal: String?) -> UIColor? {
+        guard let literal, literal.first == "#", [4, 7, 9].contains(literal.utf8.count) else { return nil }
+        let digits = literal.dropFirst()
+        guard digits.utf8.allSatisfy({ (48...57).contains($0) || (65...70).contains($0) || (97...102).contains($0) }) else { return nil }
+        let expanded = digits.count == 3 ? digits.map { "\($0)\($0)" }.joined() : String(digits)
+        guard let value = UInt32(expanded, radix: 16) else { return nil }
+        let hasAlpha = expanded.count == 8
+        let rgb = hasAlpha ? value >> 8 : value
+        return UIColor(red: CGFloat((rgb >> 16) & 255) / 255,
+                       green: CGFloat((rgb >> 8) & 255) / 255,
+                       blue: CGFloat(rgb & 255) / 255,
+                       alpha: hasAlpha ? CGFloat(value & 255) / 255 : 1)
+    }
+}
+
 /// A presentation lease, not a navigation or information authority. Revision
 /// tombstones reject late preparation even after an uncertain JS response.
 struct HushhNativeChromeState {
@@ -61,15 +92,20 @@ struct HushhNativeChromeState {
 @available(iOS 26.0, *)
 private struct NativeBackButton: View {
     let label: String
+    let theme: HushhNativeControlAppearance
     let action: () -> Void
     let layout: (CGSize) -> Void
     var body: some View {
         Button(action: action) {
             Image(systemName: "chevron.backward")
                 .font(.body.weight(.semibold))
-                .frame(width: 28, height: 28)
+                // Fill the proposed label size while retaining the 44pt host.
+                // The accessible control and edge hit area still require device proof.
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .foregroundStyle(Color(uiColor: theme.foreground))
         }
         .buttonStyle(.glass)
+        .tint(Color(uiColor: theme.accent))
         .buttonBorderShape(.circle)
         .accessibilityLabel(label)
         .accessibilityIdentifier("top-shell-back")
@@ -136,7 +172,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
-            call.resolve(["contractVersion": 1, "families": self?.backAdmitted == true ? ["back"] : []])
+            call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion, "families": self?.backAdmitted == true ? ["back"] : []])
         }
     }
 
@@ -147,6 +183,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                   let parent = self.bridge?.viewController, let identity = self.identity(call),
                   call.getString("kind") == "back", call.getBool("enabled") == true,
                   let label = call.getString("label"), !label.isEmpty, label.count <= 80,
+                  let theme = HushhNativeControlAppearance(appearance: call.getString("appearance"),
+                    accentHex: call.getString("accentHex"), foregroundHex: call.getString("foregroundHex")),
                   let frame = self.frame(call), let bounds = self.viewport(call),
                   self.backAdmitted, self.canPresent, self.state.prepare(identity) else {
                 call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return
@@ -162,13 +200,14 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             self.viewport = parent.view.bounds.size
             var swiftUILayout = false
             let controller = ChromeHostingController(rootView: AnyView(NativeBackButton(
-                label: label, action: { [weak self] in self?.requestChoice() },
+                label: label, theme: theme, action: { [weak self] in self?.requestChoice() },
                 layout: { [weak self] size in
                     swiftUILayout = size == frame.size
                     self?.hosting?.view.setNeedsLayout()
                 }
             )))
             self.hosting = controller
+            controller.overrideUserInterfaceStyle = theme.style
             controller.view.backgroundColor = .clear
             controller.view.isHidden = true
             controller.view.isUserInteractionEnabled = false

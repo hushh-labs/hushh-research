@@ -3,19 +3,19 @@
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type Ref } from "react";
 import { nativeDocumentId, subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
+import { NATIVE_CONTROL_CONTRACT_VERSION, type NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 
 export const NATIVE_NAVIGATION_TABS = ["chat", "dashboard", "connect", "feed", "search"] as const;
 export type NativeNavigationTab = typeof NATIVE_NAVIGATION_TABS[number];
 type Geometry = { supported: boolean; contentHeight: number; bottomInset: number };
 type Selection = { documentId: string; interactionEpoch: number; privacyGeneration: number; sequence: number; tab: NativeNavigationTab };
-type NavigationState = {
+type NavigationState = NativeControlAppearance & {
   documentId: string;
   revision: number;
   interactionEpoch: number;
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
-  appearance: "light" | "dark";
 };
 
 export interface HushhNativeNavigationPlugin {
@@ -98,12 +98,11 @@ export function useNativeNavigationOverlayRef<T extends HTMLElement>(forwardedRe
   }, [enabled, forwardedRef, release]);
 }
 
-export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, onSelect }: {
+export function useNativeNavigation({ enabled, visible, selected, feedAttention, appearance, accentHex, foregroundHex, onSelect }: NativeControlAppearance & {
   enabled: boolean;
   visible: boolean;
   selected: NativeNavigationTab;
   feedAttention: boolean;
-  appearance: "light" | "dark";
   onSelect: (tab: NativeNavigationTab) => void;
 }) {
   const [supported, setSupported] = useState(false);
@@ -129,7 +128,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     void (async () => {
       try {
         const capability = await nativeNavigation.getCapabilities();
-        if (!capability.supported || capability.contractVersion !== 1 || cancelled) return;
+        if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
         await retain(nativeNavigation.addListener("selectionRequested", (event) => {
@@ -177,7 +176,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     if (!current.current || current.current.visible !== nextVisible) interactionEpoch += 1;
     const state: NavigationState = {
       documentId, revision: ++revision, interactionEpoch, visible: nextVisible,
-      selected, feedAttention, appearance,
+      selected, feedAttention, appearance, accentHex, foregroundHex,
     };
     current.current = state;
     let cancelled = false;
@@ -194,7 +193,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
       console.warn("NATIVE_NAVIGATION_STATE_UNAVAILABLE");
     });
     return () => { cancelled = true; };
-  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance]);
+  }, [supported, visible, overlayBlocked, selected, feedAttention, appearance, accentHex, foregroundHex]);
 
   return { ready, height };
 }

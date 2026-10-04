@@ -3,6 +3,9 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { NativeChromeLease, hasOutstandingNativeChrome, retireNativeChrome, type ChromeAcknowledgement, type ChromeProjection } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { writeAccent } from "@/lib/theme/accent";
+
+vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }));
 
 const bridge = vi.hoisted(() => ({ platform: "ios", callbacks: new Map<string, (event: unknown) => void>(),
   prepare: vi.fn(), activate: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn() }));
@@ -16,6 +19,7 @@ vi.mock("@/lib/capacitor/session-privacy", () => ({ nativeDocumentId: () => "doc
   subscribeNativeSessionPrivacy: async () => ({ remove: async () => undefined }) }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({ useVoiceSurfaceMetadata: () => null, getVoiceSurfaceMetadata: () => null }));
 const projection = { kind: "back" as const, label: "Go back", enabled: true,
+  appearance: "light" as const, accentHex: "#112233", foregroundHex: "#223344",
   frame: { x: 2, y: 60, width: 44, height: 44 }, viewport: { width: 390, height: 844 } };
 function deferred<T>() { let resolve!: (value: T) => void; let reject!: (reason: Error) => void;
   const promise = new Promise<T>((accept, fail) => { resolve = accept; reject = fail; }); return { promise, resolve, reject }; }
@@ -23,9 +27,14 @@ function choice(lease: NativeChromeLease, sequence = 1) { return { ...lease.proj
 
 describe("native chrome presentation lease", () => {
   beforeEach(async () => {
+    window.localStorage.clear();
+    document.documentElement.classList.remove("dark");
+    document.documentElement.removeAttribute("data-accent");
+    document.documentElement.style.removeProperty("--app-accent");
+    document.documentElement.style.removeProperty("--app-accent-deep");
     bridge.platform = "ios";
     bridge.callbacks.clear();
-    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 1, families: ["back"] });
+    bridge.getCapabilities.mockReset().mockResolvedValue({ contractVersion: 2, families: ["back"] });
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.activate.mockReset().mockImplementation(async (value) => ({ ...value, phase: "active" }));
     bridge.retire.mockReset().mockImplementation(async (value) => ({ ...value, phase: "retired" }));
@@ -156,9 +165,40 @@ describe("native chrome presentation lease", () => {
     expect(view.queryByRole("button", { name: "Go back" })).toBeNull();
     expect(view.getByRole("button", { hidden: true })).toBeDisabled();
   });
-  it.each(["web", "android", "older-ios"])("retains the existing control on %s", async (platform) => {
-    bridge.platform = platform === "older-ios" ? "ios" : platform;
-    if (platform === "older-ios") bridge.getCapabilities.mockResolvedValue({ contractVersion: 1, families: [] });
+  it("applies committed theme tokens and rejects an old-theme choice during replacement", async () => {
+    measureSlot();
+    const onBack = vi.fn();
+    const view = render(<Harness onBack={onBack} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(1));
+    const old = bridge.activate.mock.calls.at(-1)![0];
+    const approval = deferred<{ valid: boolean }>();
+    bridge.confirmChoice.mockReturnValueOnce(approval.promise);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, privacyGeneration: 0 }));
+    await act(async () => {
+      document.documentElement.style.setProperty("--app-accent", "#112233");
+      document.documentElement.style.setProperty("--app-accent-deep", "#445566");
+      document.documentElement.classList.add("dark");
+      // Resolve before React commits the observer's replacement projection.
+      // A class-only change must fence the old control immediately too.
+      approval.resolve({ valid: true });
+      await approval.promise;
+    });
+    expect(onBack).not.toHaveBeenCalled();
+    await waitFor(() => expect(bridge.prepare.mock.calls.at(-1)![0]).toMatchObject({
+      appearance: "dark", accentHex: "#112233", foregroundHex: "#445566",
+    }));
+    await waitFor(() => expect(bridge.activate.mock.calls.at(-1)![0].revision).toBeGreaterThan(old.revision));
+    expect(view.queryByRole("button", { name: "Go back" })).toBeNull();
+    act(() => {
+      document.documentElement.style.setProperty("--app-accent", "#667788");
+      writeAccent("gold");
+    });
+    await waitFor(() => expect(bridge.prepare.mock.calls.at(-1)![0].accentHex).toBe("#667788"));
+  });
+  it.each(["web", "android", "older-ios", "older-wrapper"])("retains the existing control on %s", async (platform) => {
+    bridge.platform = platform.startsWith("older-") ? "ios" : platform;
+    if (platform === "older-ios") bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: [] });
+    if (platform === "older-wrapper") bridge.getCapabilities.mockResolvedValue({ contractVersion: 1, families: ["back"] });
     const view = render(<Harness />);
     await act(async () => { await Promise.resolve(); });
     expect(view.getByRole("button", { name: "Go back" })).not.toBeDisabled();

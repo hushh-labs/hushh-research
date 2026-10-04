@@ -339,6 +339,10 @@ Rules:
     second generic section title or restate the header's purpose. Breadcrumbs
     provide location, the PageHeader provides the single route title, and list
     rows provide the information.
+11. New-chat starters use equal-width, equal-height tracks within the greeting's
+    reading column: three desktop tracks and one phone track. Keep text left
+    aligned, surfaces borderless, and press feedback flat. Response follow-ups
+    remain compact text rows. Both fill the composer for review; neither sends.
 
 ## Agent Chat Stream Surface Contract
 
