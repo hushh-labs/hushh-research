@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Briefcase } from "lucide-react";
+import { Briefcase } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
