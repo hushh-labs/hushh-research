@@ -322,6 +322,31 @@ describe("PersonProfilePage native profile route", () => {
     expect(shareButton.querySelector(".inline-flex.items-center.gap-2")).not.toBeNull();
   });
 
+  it("opens a direct message draft only for an accepted connection", async () => {
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+
+    render(
+      <PersonProfilePage
+        personRef="actual-public-ref"
+        initialProfile={{
+          personRef: "actual-public-ref",
+          displayName: "Actual Person",
+          photoUrl: null,
+          verifiedRole: null,
+        }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Message" }));
+    expect(mocks.push).toHaveBeenCalledWith(
+      "/one/messages?person=actual-public-ref",
+    );
+  });
+
   it("opens the catalogue nested, one row per area rather than every scope at once", async () => {
     // Replaces an assertion about a hand-rolled grid row. The page no longer
     // owns a row: it renders the same nested list the Memory route uses, so a
@@ -386,7 +411,7 @@ describe("PersonProfilePage native profile route", () => {
     expect(reviewButton).toBeDisabled();
     const actions = document.querySelectorAll('[aria-label="Relationship actions"] button');
     expect(Array.from(actions, (button) => button.getAttribute("aria-label") || button.textContent?.trim())).toEqual([
-      "Request", "Share profile", "Manage access",
+      "Request", "Share profile", "Message", "Manage access",
     ]);
     expect(reviewButton.parentElement).not.toHaveClass("sticky");
     expect(reviewButton.parentElement).not.toHaveClass("bottom-4");

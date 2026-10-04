@@ -4701,10 +4701,16 @@ class OneLocationAgentService:
         otherwise make every half-registered account searchable, while people
         someone already knows stay reachable exactly as before.
 
-        Explicit opt-outs are unchanged: a person who set
+        Explicit opt-outs still hide a person who set
         ``marketplace_public_profiles.is_discoverable = FALSE`` or the
-        contact-sync opt-out is hidden unless the viewer holds a trusted edge
-        to them. Vault, relationship and auth eligibility are all applied
+        contact-sync opt-out from strangers. They never hide someone the viewer
+        is already connected to: an active ``connections`` edge (or a trusted
+        edge) lifts the opt-out, because "My connections" already lists that
+        person by name and photo and a search that cannot find them says
+        "no one matches" about someone on the same screen. The trusted edge
+        alone was not a safe proxy: Circle and contact-sync connections never
+        mirrored one, so on UAT roughly half of all connection pairs had none.
+        Vault, relationship and auth eligibility are all applied
         before the logical page is cut, so ineligible rows cannot create empty
         pages or misleading ``hasMore`` values. ``candidate_user_id`` lookups
         use this same statement, so they answer the same way.
@@ -4909,6 +4915,17 @@ class OneLocationAgentService:
                     WHERE tc.status = 'active'
                       AND tc.owner_user_id = :owner_user_id
                       AND tc.trusted_user_id = profile.user_id
+                  )
+                  OR EXISTS (
+                    -- An opt-out hides a person from strangers, not from the
+                    -- people who are already connected to them.
+                    SELECT 1
+                    FROM connections known
+                    WHERE known.status = 'active'
+                      AND (
+                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
+                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
+                      )
                   )
                   OR (
                     marketplace.is_discoverable IS DISTINCT FROM FALSE

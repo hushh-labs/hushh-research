@@ -70,6 +70,16 @@ def _filler_words() -> frozenset[str]:
 
 
 @lru_cache(maxsize=1)
+def _identifier_domains() -> frozenset[str]:
+    return frozenset(str(domain).lower() for domain in _contract().get("identifier_domains", []))
+
+
+def domain_is_identifier_class(domain: str | None) -> bool:
+    """Whether every field of ``domain`` is identifier-class (``secrets``)."""
+    return str(domain or "").strip().lower() in _identifier_domains()
+
+
+@lru_cache(maxsize=1)
 def _value_patterns() -> tuple[tuple[re.Pattern[str], bool], ...]:
     return tuple(
         (re.compile(str(entry["pattern"])), bool(entry.get("luhn")))
@@ -153,9 +163,19 @@ def value_is_identifier_shaped(value: Any) -> bool:
     return False
 
 
-def field_sensitivity(key_path: str | Sequence[str], value: Any = None) -> FieldSensitivity:
-    """``"sensitive"`` or ``"standard"`` for one field of a shared item."""
-    if field_key_is_sensitive(key_path) or value_is_identifier_shaped(value):
+def field_sensitivity(
+    key_path: str | Sequence[str], value: Any = None, *, domain: str | None = None
+) -> FieldSensitivity:
+    """``"sensitive"`` or ``"standard"`` for one field of a shared item.
+
+    ``domain`` is the item's top-level PKM domain when the caller knows it; a
+    field of an identifier-class domain is sensitive whatever it holds.
+    """
+    if (
+        domain_is_identifier_class(domain)
+        or field_key_is_sensitive(key_path)
+        or value_is_identifier_shaped(value)
+    ):
         return "sensitive"
     return "standard"
 
@@ -167,6 +187,7 @@ def sensitive_field_names(names: Iterable[str]) -> list[str]:
 
 __all__ = [
     "FieldSensitivity",
+    "domain_is_identifier_class",
     "field_key_is_sensitive",
     "field_sensitivity",
     "sensitive_field_names",

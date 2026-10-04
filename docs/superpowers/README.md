@@ -55,7 +55,6 @@ Historical only. Verify anything here against current code before acting on it.
 - [plans/2026-07-06-location-unify-trusted-connections.md](./plans/2026-07-06-location-unify-trusted-connections.md) — Location and Trusted Connections unification (1001 lines)
 - [plans/2026-07-10-connections-agent-one-tool-loop-parity.md](./plans/2026-07-10-connections-agent-one-tool-loop-parity.md) — Connections Agent One tool-loop parity (1160 lines)
 - [plans/2026-07-11-onepoint-rebrand-apple-blue.md](./plans/2026-07-11-onepoint-rebrand-apple-blue.md) — Location rebrand and Apple Blue theme (266 lines)
-- [plans/2026-07-13-kyc-agent-llm-redesign.md](./plans/2026-07-13-kyc-agent-llm-redesign.md) — KYC agent LLM redesign (1356 lines)
 - [plans/2026-07-13-pickup-watch-helper.md](./plans/2026-07-13-pickup-watch-helper.md) — Pick Me Up, watch your helper approach (215 lines)
 
 ### Specs
@@ -65,7 +64,6 @@ Historical only. Verify anything here against current code before acting on it.
 - [specs/2026-07-07-one-location-drive-to-design.md](./specs/2026-07-07-one-location-drive-to-design.md) — Drive To, live route and ETA sharing
 - [specs/2026-07-10-connections-agent-one-subagent-findings.md](./specs/2026-07-10-connections-agent-one-subagent-findings.md) — Connections as a first-class Agent One subagent
 - [specs/2026-07-11-onepoint-rebrand-apple-blue-design.md](./specs/2026-07-11-onepoint-rebrand-apple-blue-design.md) — Location rebrand and Apple Blue design
-- [specs/2026-07-13-kyc-agent-llm-redesign-design.md](./specs/2026-07-13-kyc-agent-llm-redesign-design.md) — KYC agent LLM redesign design
 - [specs/2026-07-13-pickup-watch-helper-design.md](./specs/2026-07-13-pickup-watch-helper-design.md) — Pick Me Up mutual live share and ETA design
 
 ## Related References

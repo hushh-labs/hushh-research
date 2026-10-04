@@ -191,8 +191,14 @@ for (const dark of [false, true]) {
       expect(createBounds!.x + createBounds!.width).toBeLessThanOrEqual(width);
       await createDialog.getByRole("button", { name: "Close", exact: true }).click();
       await expect(createDialog).toHaveCount(0);
-      await expect(page.getByRole("button", { name: /Message .*coming soon/ })).toHaveCount(6);
-      await expect(page.getByRole("button", { name: /Message .*coming soon/ }).first()).toBeDisabled();
+      const messageButtons = page.getByRole("button", { name: /^Message / });
+      await expect(messageButtons).toHaveCount(6);
+      await expect(messageButtons.first()).toBeEnabled();
+      await messageButtons.first().click();
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-last-navigation",
+        "/one/messages?person=person_0",
+      );
       const geometry = await cards.evaluateAll((nodes) => nodes.map((node) => {
         const r = node.getBoundingClientRect();
         return { left: r.left, top: r.top, right: r.right, width: r.width };

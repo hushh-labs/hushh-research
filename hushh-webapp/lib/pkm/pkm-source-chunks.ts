@@ -45,6 +45,16 @@ function headingLevel(line: string): number | null {
   return STANDALONE_LABEL.test(line) ? 6 : null;
 }
 
+/** A heading or standalone label line: it attributes the lines below it. */
+export function isPkmSourceHeadingLine(line: string): boolean {
+  return headingLevel(line) !== null;
+}
+
+/** Whole-line spans (each including its newline) over `[start, end)`. */
+export function pkmSourceLineSpans(source: string, start = 0, end = source.length): PkmSourceSpan[] {
+  return lineSpans(source, start, end);
+}
+
 function lineSpans(source: string, start: number, end: number): PkmSourceSpan[] {
   const spans: PkmSourceSpan[] = [];
   let cursor = start;
@@ -315,6 +325,31 @@ export function planPkmSourceSelection(
   return planPkmSourceChunks(source.slice(range.start, range.end)).map((chunk) => ({
     blocks: chunk.blocks.map(shift),
   }));
+}
+
+/**
+ * A chunk over one run of whole lines inside `parent`, for re-preparing lines a
+ * committed step left unaccounted. The body is exactly those lines, so nothing
+ * the parent already saved is sent again; the heading chain in force at the run
+ * (the parent's context, then the parent's own heading lines above the run)
+ * travels as context, so a bullet keeps the heading that attributes it. Null
+ * when the run does not overlap the parent.
+ */
+export function pkmSourceRunChunk(
+  source: string,
+  parent: PkmSourceChunk,
+  run: PkmSourceSpan,
+): PkmSourceChunk | null {
+  const range = sourceChunkRange(parent);
+  const start = Math.max(run.start, range.start);
+  const end = Math.min(run.end, range.end);
+  if (start >= end) return null;
+  const context = headingChain(source, [...(parent.context ?? []), ...lineSpans(source, range.start, start)])
+    .filter((span) => span.end <= start);
+  return {
+    blocks: [{ start, end, protectedContext: true }],
+    ...(context.length ? { context } : {}),
+  };
 }
 
 export function splitPkmSourceChunk(

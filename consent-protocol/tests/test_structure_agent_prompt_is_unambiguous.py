@@ -16,16 +16,20 @@ from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
 def build_prompt() -> str:
+    """Everything the model reads: the composed instruction, then the prompt."""
     service = PKMAgentLabService()
-    return service._build_structure_prompt(  # noqa: SLF001 - the prompt IS the contract
-        message="I gravitate toward Cantonese menus when I go out.",
-        current_domains=["food"],
-        registry_choices=[{"domain_key": "food"}],
-        simulated_state={},
-        financial_guard={"routing_decision": "none"},
-        intent_frame={"save_class": "durable", "requires_confirmation": False},
-        merge_decision={"target_domain": "food"},
-        strict_small_model=False,
+    return (
+        service.structure_manifest.system_instruction
+        + "\n"
+        + service._build_structure_prompt(  # noqa: SLF001 - the prompt IS the contract
+            message="I gravitate toward Cantonese menus when I go out.",
+            current_domains=["food"],
+            registry_choices=[{"domain_key": "food"}],
+            simulated_state={},
+            intent_frame={"save_class": "durable", "requires_confirmation": False},
+            merge_decision={"target_domain": "food"},
+            strict_small_model=False,
+        )
     )
 
 

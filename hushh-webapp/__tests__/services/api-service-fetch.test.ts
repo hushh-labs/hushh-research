@@ -1358,6 +1358,32 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
+  it.each([
+    ["adb_reverse", "localhost", "localhost"],
+    ["adb_reverse", "127.0.0.1", "127.0.0.1"],
+    ["", "localhost", "10.0.2.2"],
+    ["", "127.0.0.1", "10.0.2.2"],
+    ["adb_reverse", "api.example.test", "api.example.test"],
+  ])("routes Android backend requests using %s (%s → %s)", async (mode, host, expectedHost) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("android");
+    vi.stubEnv("BACKEND_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", `http://${host}:8000`);
+    vi.stubEnv("NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE", mode);
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { active: true },
+    });
+
+    const response = await ApiService.getAccountSessionStatus("synthetic-token");
+
+    expect(response.status).toBe(200);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({ url: `http://${expectedHost}:8000/api/account/session-status` }),
+    );
+  });
+
   it("uses IPv4 loopback for local iOS simulator backend requests", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");

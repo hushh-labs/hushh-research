@@ -58,7 +58,22 @@ def connector_postgres_url():
             or url.port not in {None, 5432}
         ):
             pytest.fail("Connector tests refuse a non-isolated PostgreSQL target")
-        yield url
+        # Schemas do not isolate database-wide advisory locks or public guard
+        # tables. Parallel modules use the same synthetic owners, so each needs
+        # its own database while retaining the strict test-server admission.
+        database = "connector_test_" + uuid.uuid4().hex
+        admin = create_engine(url, isolation_level="AUTOCOMMIT")
+        created = False
+        try:
+            with admin.connect() as connection:
+                connection.exec_driver_sql(f'CREATE DATABASE "{database}"')
+            created = True
+            yield url.set(database=database)
+        finally:
+            if created:
+                with admin.connect() as connection:
+                    connection.exec_driver_sql(f'DROP DATABASE "{database}" WITH (FORCE)')
+            admin.dispose()
         return
     pg_config = shutil.which("pg_config")
     if not pg_config or os.geteuid() == 0:

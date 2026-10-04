@@ -19,6 +19,7 @@ import {
   Link2,
   Loader2,
   LogOut,
+  MessageCircle,
   Pencil,
   Share2,
   Trash2,
@@ -44,6 +45,7 @@ import {
   hrefForLocationAction,
   hrefForLocationView,
 } from "@/lib/location/screen-ids";
+import { buildDirectMessageRoute } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   CARD_SURFACE,
@@ -738,6 +740,21 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
                             : ""}
                         </p>
                       </div>
+                      {!self &&
+                      member.relationship === "connected" &&
+                      member.publicPersonRef ? (
+                        <Button asChild size="sm" variant="outline">
+                          <Link
+                            href={buildDirectMessageRoute({
+                              personRef: member.publicPersonRef,
+                            })}
+                            aria-label={`Message ${member.displayName}`}
+                          >
+                            <MessageCircle className="h-4 w-4" aria-hidden />
+                            Message
+                          </Link>
+                        </Button>
+                      ) : null}
                       {canManage && !self && member.role !== "owner" ? (
                         <Button
                           size="icon-lg"

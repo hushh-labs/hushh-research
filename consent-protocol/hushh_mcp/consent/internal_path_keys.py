@@ -82,6 +82,15 @@ def _internal_branches() -> frozenset[str]:
     return frozenset(str(b).strip().lower() for b in _contract()["internal_branches"])
 
 
+def bookkeeping_top_level_keys() -> frozenset[str]:
+    """Top-level keys every save rewrites (``updated_at``, ``domain_intent``, ...).
+
+    The reserved-branch diff ignores them on both sides; the device reads the
+    same two lists in ``hushh-webapp/lib/pkm/reserved-branches.ts``.
+    """
+    return _internal_keys() | _internal_branches()
+
+
 def _normalize(segment: str) -> str:
     return str(segment or "").strip().lower()
 

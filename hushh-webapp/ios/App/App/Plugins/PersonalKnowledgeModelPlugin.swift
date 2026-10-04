@@ -361,6 +361,9 @@ public class PersonalKnowledgeModelPlugin: CAPPlugin, CAPBridgedPlugin {
         if let authority = call.getObject("locationFinalizeAuthorization") {
             body["location_finalize_authorization"] = authority
         }
+        if let kycReplyAuthority = call.getObject("kycReplyAuthorization") {
+            body["kyc_reply_authorization"] = kycReplyAuthority
+        }
         if let mutationPlan = call.getObject("mutationPlan") {
             body["mutation_plan"] = mutationPlan
         }

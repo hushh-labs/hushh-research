@@ -469,6 +469,7 @@ export async function ensureVaultSyncedRecipientKey(params: {
   userId: string;
   vaultKey: string;
   remoteBackup?: OneLocationMyRecipientKey | null;
+  strictRecovery?: boolean;
 }): Promise<VaultSyncedRecipientKey> {
   const { userId, vaultKey } = params;
   const remote = params.remoteBackup;
@@ -498,13 +499,17 @@ export async function ensureVaultSyncedRecipientKey(params: {
         encryptedPrivateKeyJwk: remote.encryptedPrivateKeyJwk,
         needsRegister: false,
       };
-    } catch {
+    } catch (error) {
+      if (params.strictRecovery) throw error;
       // Blob undecryptable (shouldn't happen for the same user) → fall through.
     }
   }
 
   // 2. This device already has a key → keep it and backfill the server blob.
   const local = await readStoredKey(userId).catch(() => null);
+  if (params.strictRecovery && remote?.keyId && local?.keyId !== remote.keyId) {
+    throw new Error("Open the device you used previously to sync your secure chat key.");
+  }
   if (local?.privateKeyJwk) {
     const encryptedPrivateKeyJwk = await encryptPrivateKeyForVault(
       local.privateKeyJwk,
@@ -623,4 +628,56 @@ export async function decryptLocationEnvelopeWithKey(params: {
     fromBase64Url(params.envelope.ciphertext),
   );
   return JSON.parse(new TextDecoder().decode(plaintext)) as PlainLocationPoint;
+}
+
+/** Generic key-wrap seam for client-encrypted circle payloads. Context is authenticated. */
+export type RecipientPayloadEnvelope = {
+  algorithm: "ECDH-P256-AES256-GCM";
+  recipientKeyId: string;
+  ciphertext: string;
+  iv: string;
+  senderEphemeralPublicKeyJwk: JsonWebKey;
+};
+
+export async function sealRecipientPayload(params: {
+  bytes: Uint8Array<ArrayBuffer>;
+  context: string;
+  recipientPublicKeyJwk: JsonWebKey;
+  recipientKeyId: string;
+}): Promise<RecipientPayloadEnvelope> {
+  const crypto = requireCrypto();
+  const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveKey"]);
+  const key = await deriveAesKey(pair.privateKey, await importPublicKey(params.recipientPublicKeyJwk), "encrypt");
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: new TextEncoder().encode(params.context) }, key, params.bytes,
+  );
+  return { algorithm: ALGORITHM, recipientKeyId: params.recipientKeyId,
+    ciphertext: toBase64Url(ciphertext), iv: toBase64Url(exactArrayBuffer(iv)),
+    senderEphemeralPublicKeyJwk: await crypto.subtle.exportKey("jwk", pair.publicKey) };
+}
+
+export class RecipientPayloadKeyUnavailableError extends Error {}
+
+export async function openRecipientPayload(params: {
+  userId: string;
+  context: string;
+  envelope: RecipientPayloadEnvelope;
+  recovery?: { vaultKey: string; remoteBackup: OneLocationMyRecipientKey };
+}): Promise<ArrayBuffer> {
+  const stored = await readStoredKey(params.userId);
+  let privateKey: CryptoKey;
+  if (!stored || stored.keyId !== params.envelope.recipientKeyId) {
+    const recovery = params.recovery;
+    if (!recovery?.remoteBackup.encryptedPrivateKeyJwk || recovery.remoteBackup.keyId !== params.envelope.recipientKeyId) {
+      throw new RecipientPayloadKeyUnavailableError("This message cannot be opened with your current key.");
+    }
+    privateKey = await importPrivateKey(await decryptPrivateKeyFromVault(recovery.remoteBackup.encryptedPrivateKeyJwk, recovery.vaultKey));
+  } else {
+    privateKey = stored.privateKey;
+  }
+  const key = await deriveAesKey(privateKey,
+    await importPublicKey(params.envelope.senderEphemeralPublicKeyJwk), "decrypt");
+  return requireCrypto().subtle.decrypt({ name: "AES-GCM", iv: fromBase64Url(params.envelope.iv),
+    additionalData: new TextEncoder().encode(params.context) }, key, fromBase64Url(params.envelope.ciphertext));
 }

@@ -29,6 +29,7 @@ import { createAgentTextAttachment } from "@/lib/agent/large-text-attachment";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { getAgentChatHistory, streamAgentChat } from "@/lib/services/agent-chat-client";
 import { ApiService } from "@/lib/services/api-service";
+import { planSecretCaptures, splitSecretPlaceholders, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
 
 const TEST_VAULT_KEY = "0f".repeat(32);
 const PASTE = Array.from({ length: 40 }, (_, index) => `row ${index}: naïve café ✓`).join("\n");
@@ -118,5 +119,70 @@ describe("history keeps a pasted attachment as a chip", () => {
     expect(user.metadata?.attachments).toEqual([createAgentTextAttachment(PASTE)]);
     expect(user.metadata?.attachments?.[0]).toMatchObject({ lineCount: 40, mimeType: "text/plain" });
     expect(assistant.metadata?.attachments).toBeUndefined();
+  });
+});
+
+describe("a secret never reaches the chat request or the history it is sealed into", () => {
+  // Synthetic values, assembled from parts so no credential-shaped literal sits in the repository.
+  const apiKey = ["s", "k-proj-", "fakefake0000fakefake9f2a"].join("");
+  const password = "Fake-pass-42";
+  const card = "4111 1111 1111 1111";
+  const passport = "X1234567";
+  const typed = `my openai key ${apiKey} and the bank password is ${password}!`;
+  const paste = `card ${card}\npassport number ${passport}`;
+  const values = [apiKey, password, card, card.replace(/ /g, ""), passport];
+
+  function wireText(content: string | SentPart[]): string {
+    if (typeof content === "string") return content;
+    return content
+      .map((part) => (part.type === "text" ? part.text ?? "" : decodeBase64Utf8(part.source?.value ?? "")))
+      .join("\n");
+  }
+
+  it("sends placeholders only for an API key, a password, a card and a passport", async () => {
+    const plan = planSecretCaptures([typed, paste]);
+    expect(plan.captures.map((capture) => capture.patternId)).toEqual([
+      "model_provider_key", "password_phrase", "card_number", "passport_number",
+    ]);
+    const [sentTyped, sentPaste] = plan.render();
+    const wire = wireText(await sentUserContent(sentTyped!, [createAgentTextAttachment(sentPaste!)]));
+
+    for (const value of values) expect(wire).not.toContain(value);
+    expect(wire.match(/⟦secret:sec_[0-9a-f]{16} /g)).toHaveLength(4);
+  });
+
+  it("refuses a raw secret before any request is built (negative control)", async () => {
+    publishValidatedAuthSessionOwner("user-1");
+    runAgent.mockClear();
+    for (const [message, attachments] of [[typed, []], ["Summarize this", [createAgentTextAttachment(paste)]]] as const) {
+      await expect(streamAgentChat({
+        vaultKey: TEST_VAULT_KEY, userId: "user-1", vaultOwnerToken: "owner-token", message, attachments: [...attachments],
+      })).rejects.toBeInstanceOf(UnguardedSecretError);
+    }
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it("restores a history that holds placeholders only", async () => {
+    // The backend seals into history the user content it received
+    // (api/routes/one/agent_chat.py), so the stored turn is the sent turn.
+    const [sentTyped, sentPaste] = planSecretCaptures([typed, paste]).render();
+    const parts = (await sentUserContent(sentTyped!, [createAgentTextAttachment(sentPaste!)])) as SentPart[];
+    const storedText = parts.find((part) => part.type === "text")?.text ?? "";
+    const storedPaste = decodeBase64Utf8(parts.find((part) => part.type === "document")!.source!.value);
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: [{
+        id: "u1", role: "user", content: storedText,
+        metadata: { attachments: [{ name: "Pasted text", mimeType: "text/plain", text: storedPaste }] },
+      }],
+    })));
+
+    const [restored] = await getAgentChatHistory({ vaultKey: TEST_VAULT_KEY, conversationId: "c1", vaultOwnerToken: "owner-token" });
+    const history = JSON.stringify(restored);
+    for (const value of values) expect(history).not.toContain(value);
+    const chips = [String(restored.content), String(restored.metadata?.attachments?.[0]?.text ?? "")]
+      .flatMap((text) => splitSecretPlaceholders(text).filter((part) => part.kind === "secret"));
+    expect(chips.map((chip) => (chip.kind === "secret" ? chip.label : ""))).toEqual([
+      "openai API key ending 9f2a", "bank password", "Visa card ending 1111", "Passport ending 4567",
+    ]);
   });
 });

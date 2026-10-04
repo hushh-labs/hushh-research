@@ -505,6 +505,11 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Root cause:** B58 reused the `Splash` asset, which was never updated during the rebrand. All six 2732 px PNGs had a ~70 px legacy mark.
 - **Fix:** regenerated `Assets.xcassets/Splash.imageset/*` with the Apple Color Emoji 🤫, ink-centered at ~390 px (~120 pt on a 3x iPhone with aspect-fill). The light variant uses `#FFFFFF` and the dark variant keeps `#111111`. Android `res/drawable*/splash.png` (all 26 densities and orientations) got the same mark at ~37.5% of the short edge (~120 dp), with each file's size and background preserved. The launch storyboard, privacy cover code and Android theme are unchanged.
 
+### B61 — Launch screen and app-switcher 🤫 mark was too large (iOS + Android splash)
+- **Symptom:** after B60 the 🤫 mark filled about a third of the app-switcher card (~120 pt) and read as oversized next to the rest of the app.
+- **Root cause:** B60 sized the mark at ~390 px on the 2732 px canvas (~37.5% of the short edge on Android) to replace the tiny legacy "S"; that overshot.
+- **Fix:** halved the mark about its own center in all six `Assets.xcassets/Splash.imageset/*` PNGs (ink 385x403 -> 194x202 px, ~60 pt on a 3x iPhone) and in all 26 Android `res/drawable*/splash.png` files (~18.75% of the short edge, ~60 dp). Canvas size, color mode and background (`#FFFFFF` light, `#111111` iOS dark, `#151515` Android night) are unchanged, and the existing artwork was resampled rather than re-rendered. Storyboard, privacy cover and Android theme are untouched.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

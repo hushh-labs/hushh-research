@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryError,
     create_reviewed_gmail_draft,
@@ -29,6 +30,27 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/one", tags=["One Gmail Delivery"])
+
+
+async def _owner_display_name(user_id: str) -> str:
+    """Best-effort account label for a draft; absence must never block compose."""
+
+    try:
+        identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+        try:
+            return str(
+                ActorIdentityService.validate_display_name(str(identity.get("display_name") or ""))
+            )
+        except ValueError:
+            from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
+
+            await get_gmail_receipts_service().refresh_owner_identity_profile(user_id=user_id)
+            refreshed = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+            return str(
+                ActorIdentityService.validate_display_name(str(refreshed.get("display_name") or ""))
+            )
+    except Exception:  # noqa: BLE001 - drafting remains available if the cache is unavailable
+        return ""
 
 
 class EmailDraftRequest(BaseModel):
@@ -174,6 +196,7 @@ async def gmail_email_draft(
                 instruction=payload.instruction,
                 user_id=user_id,
                 consent_token=str(token_data.get("token") or ""),
+                owner_display_name=await _owner_display_name(user_id),
             ),
         )
     except Exception as exc:

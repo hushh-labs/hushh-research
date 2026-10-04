@@ -575,6 +575,7 @@ class PersonalKnowledgeModelPlugin : Plugin() {
             call.getObject("structureDecision")?.let { put("structure_decision", it) }
             call.getObject("mutationPlan")?.let { put("mutation_plan", it) }
             call.getObject("locationFinalizeAuthorization")?.let { put("location_finalize_authorization", it) }
+            call.getObject("kycReplyAuthorization")?.let { put("kyc_reply_authorization", it) }
             call.getObject("manifest")?.let { put("manifest", it) }
             call.getInt("expectedDataVersion")?.let { put("expected_data_version", it) }
             call.getObject("upgradeContext")?.let { claim ->

@@ -48,6 +48,15 @@ import { toPlainMemoryText } from "@/lib/pkm/memory-plain-text";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
+import { planSecretCaptures, UnguardedSecretError } from "@/lib/pkm/secret-span-guard";
+
+// Synthetic secrets, assembled from parts so no credential-shaped literal sits in the repository.
+const FAKE_API_KEY = ["s", "k-proj-", "fakefake0000fakefake9f2a"].join("");
+const FAKE_PASSWORD = "Fake-pass-42";
+const FAKE_CARD = "4111 1111 1111 1111";
+const FAKE_PASSPORT = "X1234567";
+const SECRET_PASSAGE = `openai key ${FAKE_API_KEY}, bank password is ${FAKE_PASSWORD}!\ncard ${FAKE_CARD}\npassport number ${FAKE_PASSPORT}`;
+const FAKE_VALUES = [FAKE_API_KEY, FAKE_PASSWORD, FAKE_CARD, FAKE_CARD.replace(/ /g, ""), FAKE_PASSPORT];
 
 it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
   publishValidatedAuthSessionOwner("owner-a");
@@ -406,6 +415,67 @@ describe("agent PKM memory helpers", () => {
     expect(body.simulated_state).toEqual({ memories: candidates });
   });
 
+  it("sends a memory proposal holding placeholders only, and refuses a raw secret (negative control)", async () => {
+    apiFetchMock.mockResolvedValue({ ok: true, json: async () => ({ agent_id: "a", agent_name: "A", model: "m", used_fallback: false, preview_cards: [] }) });
+    const [guarded] = planSecretCaptures([SECRET_PASSAGE]).render();
+    await previewAgentPkmMemory({ userId: "user_1", vaultOwnerToken: "t", message: guarded!, currentDomains: ["identity"] });
+    const body = apiFetchMock.mock.calls.at(-1)![1].body as string;
+    for (const value of FAKE_VALUES) expect(body).not.toContain(value);
+    expect(body.match(/⟦secret:sec_[0-9a-f]{16} /g)).toHaveLength(4);
+
+    apiFetchMock.mockClear();
+    await expect(previewAgentPkmMemory({
+      userId: "user_1", vaultOwnerToken: "t", message: SECRET_PASSAGE, currentDomains: ["identity"],
+    })).rejects.toBeInstanceOf(UnguardedSecretError);
+    expect(apiFetchMock).not.toHaveBeenCalled();
+  });
+
+  it("names Secrets, cards and identity documents to One by label only", async () => {
+    pkmBlob = {
+      ...pkmBlob,
+      secrets: { items: { sec_00000000000000a1: { label: "openai API key ending 9f2a", kind: "credential", value: FAKE_API_KEY } } },
+      wallet: {
+        summary: { card_1: { nickname: "Travel", brand: "visa", last4: "1111", expiry_month: 4, expiry_year: 2030, issuing_region: "US" } },
+        secrets: { card_1: { pan: FAKE_CARD, cvv: "123" } },
+      },
+      identity: {
+        full_name: "Synthetic Person",
+        identity_documents: {
+          doc_1: { document_type: "passport", label: "Passport ending 4567", number: FAKE_PASSPORT },
+          entities: {
+            mem_1: { summary: `passport number ${FAKE_PASSPORT} renewed in 2026` },
+            mem_2: { label: "Passport renewal", summary: `passport ${FAKE_PASSPORT} renewed this year` },
+          },
+        },
+      },
+      notes: { legacy: { owner_note: `bank password is ${FAKE_PASSWORD}!` } },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [...METADATA.domains, ...["secrets", "wallet", "identity", "notes"].map((key) => ({ ...METADATA.domains[0], key, displayName: key }))],
+    });
+
+    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "what do you know" });
+
+    expect(context.text).toContain("- Secret exists: openai API key ending 9f2a");
+    expect(context.text).toContain("- Secret exists: Travel, Visa card ending 1111");
+    expect(context.text).toContain("- Secret exists: Passport ending 4567");
+    expect(context.text).toContain("- Secret exists: Identity Documents entry");
+    expect(context.text).toContain("Synthetic Person");
+    expect(context.text).toContain("[hidden secret]");
+    for (const value of [...FAKE_VALUES, "123", "2030"]) expect(context.text).not.toContain(value);
+    expect(context.text).not.toMatch(/Expiry|Issuing Region|Document Type/);
+
+    const candidates = AgentPkmContextStore.findReconciliationCandidates({
+      userId: "user_1", text: "my passport renewal happened this year",
+    });
+    expect(candidates).toEqual([{
+      domain: "identity", entity_id: "mem_2", entity_scope: "identity_documents",
+      message: "Secret exists: Passport renewal", active: true,
+    }]);
+    expect(JSON.stringify(candidates)).not.toContain(FAKE_PASSPORT);
+  });
+
   it("returns the full agent-safe packet regardless of prompt wording", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -690,6 +760,81 @@ describe("agent PKM memory helpers", () => {
     expect(context.text).not.toContain("runtime_secrets");
     expect(context.text).not.toContain("gemini_api_key");
     expect(context.text).not.toContain("must-not-reach-agent-context");
+  });
+
+  it("sends communication preferences as standing style, never inside the memory packet", async () => {
+    pkmBlob = {
+      preferences: { writing: { default_style: "concise summaries" } },
+      identity: {
+        identity_profile: { city: "Synthetic City" },
+        communication_preferences: {
+          preferred_name: "Kay",
+          tone: "executive",
+          reply_style: "Short and direct replies",
+          owner_style_note: "Write Hussh with two s's.",
+          unknown_key: "dropped",
+          updated_at: "2026-10-01T00:00:00.000Z",
+        },
+      },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [...METADATA.domains, { ...METADATA.domains[0], key: "identity", displayName: "Identity" }],
+    });
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      message: "hello",
+    });
+
+    // Other identity facts stay in the packet; the reserved style branch does not.
+    expect(context.text).toContain("Synthetic City");
+    expect(context.text).not.toMatch(/Communication Preferences/i);
+    for (const value of ["Kay", "two s's", "Short and direct"]) expect(context.text).not.toContain(value);
+    // Closed to the request schema: legacy sentence read as enums, unknown keys dropped.
+    expect(context.communicationPreferences).toEqual({
+      preferred_name: "Kay",
+      tone: "executive",
+      length: "short",
+      owner_style_note: "Write Hussh with two s's.",
+    });
+    expect(
+      AgentPkmContextStore.findLocalDuplicate({ userId: "user_1", candidate: "Kay" }),
+    ).toBeNull();
+  });
+
+  it("keeps style out of the packet and Secrets label-only in the same identity domain", async () => {
+    // Cross-lane: the style channel (communication_preferences) and label-only
+    // Secrets (identity_documents, secrets.*) share the identity domain. A style
+    // note holding a secret must not reach One through the style channel either.
+    pkmBlob = {
+      secrets: { items: { sec_00000000000000a1: { label: "openai API key ending 9f2a", kind: "credential", value: FAKE_API_KEY } } },
+      identity: {
+        identity_profile: { city: "Synthetic City" },
+        identity_documents: { doc_1: { document_type: "passport", label: "Passport ending 4567", number: FAKE_PASSPORT } },
+        communication_preferences: {
+          preferred_name: "Kay",
+          tone: "executive",
+          owner_style_note: `Sign off with my key ${FAKE_API_KEY}`,
+        },
+      },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [...METADATA.domains, ...["secrets", "identity"].map((key) => ({ ...METADATA.domains[0], key, displayName: key }))],
+    });
+
+    const context = await loadAgentPkmContext({ userId: "user_1", vaultKey: "k", vaultOwnerToken: "t", message: "hello" });
+
+    expect(context.text).toContain("Synthetic City");
+    expect(context.text).toContain("- Secret exists: Passport ending 4567");
+    expect(context.text).toContain("- Secret exists: openai API key ending 9f2a");
+    expect(context.text).not.toMatch(/Communication Preferences|Kay|Sign off/i);
+    expect(context.communicationPreferences).toEqual({ preferred_name: "Kay", tone: "executive" });
+    const wire = JSON.stringify([context.text, context.communicationPreferences]);
+    for (const value of FAKE_VALUES) expect(wire).not.toContain(value);
   });
 
   it("keeps a bounded local inventory and reports safety omissions", async () => {

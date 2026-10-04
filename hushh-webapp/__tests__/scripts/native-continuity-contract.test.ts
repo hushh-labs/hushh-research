@@ -207,10 +207,10 @@ describe("native cold-audit and continuity contract", () => {
 
   it("ignores partial native status writes so they cannot keep a route watchdog alive", () => {
     const complete = parseNativeRouteAuditStatus(
-      "route=/one/kyc;ready=0;marker=native-route-one-kyc;auth=authenticated;data=loaded;doc=complete;found=1;routeok=0;bootstrap=vault_unlocked",
+      "route=/one/setup/email;ready=0;marker=native-route-one-setup-email;auth=authenticated;data=loaded;doc=complete;found=1;routeok=0;bootstrap=vault_unlocked",
     );
     const partialAuthenticated = parseNativeRouteAuditStatus(
-      "route=/one/kyc;ready=0;marker=native-route-one-kyc",
+      "route=/one/setup/email;ready=0;marker=native-route-one-setup-email",
     );
     const completeAnonymous = parseNativeRouteAuditStatus(
       "route=/;ready=1;marker=native-route-home;auth=anonymous;data=loaded;doc=complete;found=1;routeok=1",
@@ -424,10 +424,13 @@ describe("native cold-audit and continuity contract", () => {
     });
   });
 
-  it("audits resolved KYC setup through its canonical KYC handoff", () => {
+  it("audits email setup on its own native route while keeping its Mail handoff", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
       routes: Array<{ route: string; expectedMarker?: string; expectedRoute?: string }>;
     };
+    const emailSetup = source(
+      "app/one/setup/email/email-onboarding-setup-client.tsx",
+    );
     const coordinator = source(
       "components/onboarding/setup/setup-capability-coordinator.tsx",
     );
@@ -438,9 +441,10 @@ describe("native cold-audit and continuity contract", () => {
 
     expect(coordinator).toContain("resolveCapabilityHandoffTarget(capabilityId)");
     expect(routes).toContain("email: ROUTES.ONE_KYC");
+    expect(emailSetup).toContain('marker: "native-route-one-setup-email"');
     expect(route).toMatchObject({
-      expectedMarker: "native-route-one-kyc",
-      expectedRoute: "/one/kyc",
+      expectedMarker: "native-route-one-setup-email",
+      expectedRoute: "/one/setup/email",
     });
   });
 

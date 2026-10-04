@@ -44,6 +44,7 @@ describe("observability route map", () => {
   it("maps canonical app routes to stable route IDs", () => {
     expect(resolveRouteId("/")).toBe("chat");
     expect(resolveRouteId("/one")).toBe("one_dashboard");
+    expect(resolveRouteId("/one/messages")).toBe("one_messages");
     expect(resolveRouteId("/welcome")).toBe("one_dashboard");
     expect(resolveRouteId("/one/gmail")).toBe("gmail");
     expect(resolveRouteId("/one/email")).toBe("email_agent");

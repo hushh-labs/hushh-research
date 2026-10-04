@@ -1046,6 +1046,15 @@ async def startup_feed_attention_push_worker() -> None:
         )
 
 
+@app.on_event("startup")
+async def startup_circle_chat_push_worker() -> None:
+    from hushh_mcp.services.circle_chat_notifications import run_circle_chat_push_worker
+
+    _track_startup_background_task(
+        asyncio.create_task(run_circle_chat_push_worker(), name="circle-chat-push")
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
 

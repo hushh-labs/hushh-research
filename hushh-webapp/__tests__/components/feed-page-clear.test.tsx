@@ -88,6 +88,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 
 vi.mock("@/lib/services/cache-service", () => ({
   CACHE_KEYS: { FEED_LIST: (userId: string) => `feed:${userId}` },
+  CACHE_TTL: { MEDIUM: 5 * 60 * 1000 },
 }));
 
 vi.mock("@/lib/services/feed-service", () => ({
@@ -100,6 +101,14 @@ vi.mock("@/lib/feed/feed-events", () => ({
 
 vi.mock("@/lib/feed/use-feed-live-refresh", () => ({
   useFeedLiveRefresh: vi.fn(),
+}));
+
+vi.mock("@/lib/feed/use-feed-briefing", () => ({
+  useFeedBriefing: () => ({
+    upcomingEvents: [],
+    pendingKyc: null,
+    needsReplyCount: 0,
+  }),
 }));
 
 vi.mock("@/lib/feed/use-feed-actionables", () => ({

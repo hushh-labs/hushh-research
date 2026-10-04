@@ -2002,7 +2002,7 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
-def test_disconnecting_takes_each_person_out_of_all_circles(
+def test_disconnecting_takes_each_person_out_of_shared_circles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The membership was the second arm of an OR, not a leftover row.
@@ -2047,9 +2047,13 @@ def test_disconnecting_takes_each_person_out_of_all_circles(
     update = conn.sql[0]
     assert "UPDATE one_location_circle_memberships" in update
     assert "status = 'removed'" in update
-    # Memberships owned by either person or by a third party are all removed.
+    # Both people must belong: an unrelated third-party roster stays intact.
     assert "membership.user_id IN (:user_a, :user_b)" in update
     assert "circle.owner_user_id" not in update
+    assert "WITH shared_circles AS MATERIALIZED" in update
+    assert "first_member.user_id = :user_a" in update
+    assert "second_member.user_id = :user_b" in update
+    assert "membership.circle_id IN (SELECT circle_id FROM shared_circles)" in update
     # Never the owner's own row -- falling out with a member does not evict
     # you from the Circle you own.
     assert "membership.role = 'member'" in update
@@ -2064,19 +2068,6 @@ def test_disconnecting_takes_each_person_out_of_all_circles(
     ]
     assert sum("UPDATE one_location_circle_invite_codes" in sql for sql in conn.sql) == 3
     assert sum("SET status = 'revoked', revoked_at = NOW()" in sql for sql in conn.sql) >= 3
-
-
-def test_disconnecting_removes_a_pair_from_a_third_persons_circle() -> None:
-    """A removed connection cannot remain authorized through any roster."""
-
-    import inspect
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    source = inspect.getsource(OneLocationCircleService.end_memberships_for_disconnected_pair)
-
-    assert "membership.user_id IN (:user_a, :user_b)" in source
-    assert "circle.owner_user_id" not in source
 
 
 def test_disconnecting_from_yourself_is_not_an_eviction() -> None:

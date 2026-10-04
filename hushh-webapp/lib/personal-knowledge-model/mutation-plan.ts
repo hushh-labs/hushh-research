@@ -1,14 +1,29 @@
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { CURRENT_PKM_CONTRACT_VERSION } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import { PKM_CLIENT_VERSION } from "@/lib/vault/write-protocol-version";
 import { v5 as uuidv5 } from "uuid";
 
 export type PkmMutationOperation = "create" | "update" | "move" | "merge" | "delete";
+
+/**
+ * The server-issued capability that binds the KYC reply writer
+ * (`agent_chat_kyc_owner_confirmed`) to one open information request. Opaque to
+ * the client: minted by the information-request route, verified at store time.
+ */
+export type KycReplyAuthorizationV1 = {
+  schema_version: "one.kyc_reply_authorization.v1";
+  information_request_id: string;
+  token: string;
+  expires_at: string;
+};
 
 export type PkmUserConfirmation = {
   confirmedByUser: true;
   authorizationMode?: never;
   surface: "chat" | "voice" | "web" | "ios" | "android" | "import";
   source: string;
+  /** Required by the reserved registry for the KYC reply writer only. */
+  kycReplyAuthorization?: KycReplyAuthorizationV1;
   confirmedAt?: string;
   sharingImpactAcknowledged?: boolean;
   sharingImpact?: {
@@ -133,6 +148,8 @@ export type PkmMutationPlanV2 = {
   writer_id: string;
   structure_agent_id: string;
   source_revision: number;
+  /** The vault-write protocol level of this client; the server's registry gate. */
+  client_version?: string;
   confirmation_receipt: {
     version: 2;
     receipt_id: string;
@@ -158,6 +175,7 @@ export type PkmMutationPlanV2 = {
 };
 
 const MACHINE_PROVENANCE_ID = /^[a-z][a-z0-9_.:-]{0,127}$/;
+const PLAN_CLIENT_VERSION = PKM_CLIENT_VERSION;
 
 function normalizedWriterId(value: string): string {
   const candidate = String(value || "").trim().toLowerCase();
@@ -231,6 +249,15 @@ function registryHandle(
   })?.scope_handle;
 }
 
+/**
+ * The plan id a write carries when it has an idempotency scope. The server
+ * derives the commit id from (owner, domain, plan id), so the same scope always
+ * names the same commit, and a device can later ask whether it landed.
+ */
+export function pkmPlanIdForIdempotencyScope(scope: string): string {
+  return `pkm_plan_${uuidv5(scope, "76f0e762-c176-5947-a680-7011af78b71f").replaceAll("-", "")}`;
+}
+
 export async function buildConfirmedPkmMutationPlanV2(params: {
   userId: string;
   domain: string;
@@ -291,7 +318,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     throw new Error("The requested workflow can only save its private Location draft.");
   }
   const planId = params.idempotencyScope
-    ? `pkm_plan_${uuidv5(params.idempotencyScope, "76f0e762-c176-5947-a680-7011af78b71f").replaceAll("-", "")}`
+    ? pkmPlanIdForIdempotencyScope(params.idempotencyScope)
     : opaqueId("plan");
   const sharingImpact = ownerConfirmation?.sharingImpact;
   const confirmedAt = automatic || connectedSourceSync
@@ -348,6 +375,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     writer_id: normalizedWriterId(params.confirmation.source),
     structure_agent_id: "pkm_structure_agent",
     source_revision: Math.max(0, params.sourceRevision || 0),
+    // A non-semver override would make the server refuse the plan's shape, so
+    // only a well-formed level is sent; omitting it reads as an older client.
+    ...(PLAN_CLIENT_VERSION ? { client_version: PLAN_CLIENT_VERSION } : {}),
     confirmation_receipt: {
       version: 2,
       receipt_id: opaqueId("receipt"),

@@ -113,6 +113,30 @@ describe("executeAgentGatewayAction", () => {
     });
   });
 
+  it("refuses a route template it cannot fill instead of pushing it literally", async () => {
+    // route.person_profile targets /people/[personRef]; typed search can pick
+    // it, and a literal push opened a broken page (or the owner's own).
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.person_profile",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "failed",
+      actionId: "route.person_profile",
+      reason: "route_needs_entity",
+    });
+  });
+
   it("keeps global route actions blocked behind an active blocking layer", async () => {
     const router = { push: vi.fn() };
 

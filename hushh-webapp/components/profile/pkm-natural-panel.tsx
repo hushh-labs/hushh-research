@@ -1431,6 +1431,7 @@ export function PkmNaturalPanel({
             void persistMemoryCardChange({ card: selectedCard, action: "edited", nextValue })
           }
           onForget={() => void persistMemoryCardChange({ card: selectedCard, action: "deleted" })}
+          onOpenOwner={(routePattern) => router.push(routePattern)}
         />
       </>
     );

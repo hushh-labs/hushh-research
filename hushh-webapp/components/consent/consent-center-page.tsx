@@ -3718,7 +3718,7 @@ export function ConsentCenterPage() {
                     heightMode="active"
                   >
                     <div>
-                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2">
+                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2 px-3">
                       <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
                       <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>
                     </div> : null}

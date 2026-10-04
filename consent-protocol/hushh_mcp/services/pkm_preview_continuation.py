@@ -13,7 +13,6 @@ from hushh_mcp.hushh_adk.single_turn import _decode
 PREFIX_AGENTS = frozenset(
     {
         "agent_memory_segmentation",
-        "agent_financial_guard",
         "agent_memory_intent",
         "agent_memory_merge",
     }
@@ -94,18 +93,9 @@ class PreviewContinuation:
         self, *, message: str, response: dict, trace: list[dict], segment_source: str | None = None
     ) -> dict | None:
         recorded = set(self.records)
-        guard_pending = recorded == {"agent_memory_segmentation"}
-        intent_pending = recorded == {
-            "agent_memory_segmentation",
-            "agent_financial_guard",
-        }
+        intent_pending = recorded == {"agent_memory_segmentation"}
         merge_pending = recorded == PREFIX_AGENTS - {"agent_memory_merge"}
-        if (
-            not guard_pending
-            and not intent_pending
-            and not merge_pending
-            and recorded != PREFIX_AGENTS
-        ):
+        if not intent_pending and not merge_pending and recorded != PREFIX_AGENTS:
             return None
         segmentation = self.records["agent_memory_segmentation"]["value"]
         segments = segmentation.get("segments")
@@ -130,45 +120,16 @@ class PreviewContinuation:
             # Only the exact, unique model-authored span owns this prefix.
             # The caller supplies a separate record set and trace per span.
             return None
-        if guard_pending:
-            # A failed guard has no routing authority to preserve. Retain only
-            # the exact model-authored source span; guard and all later stages
-            # must run again against the unchanged owner/request context.
-            errors = str(response.get("error") or "").split("; ")
-            if (
-                response.get("used_fallback") is not True
-                or "financial_guard_agent_fallback" not in errors
-                or "memory_segmentation_agent_fallback" in errors
-                or len(response.get("preview_cards") or []) != 1
-                or not any(
-                    row.get("agent_id") == "agent_financial_guard"
-                    and row.get("status") in {"timeout", "budget_exhausted"}
-                    for row in trace
-                )
-            ):
-                return None
-            return deepcopy(self.records)
-        guard = self.records["agent_financial_guard"]["value"]
-        if not guard.get("routing_decision") or guard["routing_decision"] != response.get(
-            "routing_decision"
-        ):
-            return None
         if intent_pending:
             # A timed-out intent has no validated meaning to retain. Reuse only
-            # the exact segmentation and guard; ask intent and every later
-            # agent again with a fresh preview budget on the next bound retry.
+            # the exact segmentation; ask intent and every later agent again
+            # with a fresh preview budget on the next bound retry.
             errors = str(response.get("error") or "").split("; ")
             if (
                 response.get("used_fallback") is not True
                 or response.get("intent_used_fallback") is not True
                 or "memory_intent_agent_fallback" not in errors
-                or any(
-                    error in errors
-                    for error in (
-                        "memory_segmentation_agent_fallback",
-                        "financial_guard_agent_fallback",
-                    )
-                )
+                or "memory_segmentation_agent_fallback" in errors
                 or len(response.get("preview_cards") or []) != 1
                 or not any(
                     row.get("agent_id") == "agent_memory_intent"
@@ -193,7 +154,7 @@ class PreviewContinuation:
             if intent.get(field) != response.get("intent_frame", {}).get(field):
                 return None
         if merge_pending:
-            # Only a timed-out merge may retain the three validated earlier
+            # Only a timed-out merge may retain the two validated earlier
             # decisions. The fallback merge and any structure built from it are
             # discarded; both agents must run on the next exact-bound attempt.
             if (

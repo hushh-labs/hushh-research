@@ -81,6 +81,7 @@ import {
   VOICE_UNAVAILABLE_MESSAGE,
   canAutoReconnect,
   hasOpenPendingAction,
+  isStaleNavigation,
   localCloseReason,
 } from "@/lib/one-voice/session-reducer";
 import {
@@ -453,6 +454,24 @@ type DirectiveContext = {
   screenTimeoutMs: number;
 };
 
+function isStaleDirective(frame: UiDirectiveFrame): boolean {
+  if (frame.kind === "navigate" && typeof frame.payload?.call_id === "string") {
+    return isStaleNavigation(useVoiceSessionStore.getState().state, frame.payload.call_id, frame.turn_id);
+  }
+  return isStaleOrigin(frame.turn_id);
+}
+
+function reportDirectiveOutcome(session: LiveSession, frame: UiDirectiveFrame, status: "opened" | "failed" | "ignored"): void {
+  if (session.tornDown) return;
+  const outcome = isStaleDirective(frame) ? "ignored" : status;
+  if (frame.kind === "navigate" && typeof frame.payload?.call_id === "string") {
+    useVoiceSessionStore.getState().dispatch({
+      type: "navigation_settled", callId: frame.payload.call_id, turnId: frame.turn_id, status: outcome,
+    });
+  }
+  session.client.uiSettled(frame.directive_id, outcome);
+}
+
 /**
  * Route one `ui_directive`. Screens first: a screen that does not own the
  * kind settles "ignored" and the generic executor takes over; a registered
@@ -472,27 +491,29 @@ function runDirective(
   const { executeDirective, isScreenOwnedDirective } = directives;
   const store = useVoiceSessionStore.getState();
   let settled = false;
+  let genericStarted = false;
   let claimTimer: ReturnType<typeof setTimeout> | null = null;
-  const finish = (status: "opened" | "failed" | "ignored") => {
-    if (settled) return;
-    settled = true;
+  const clearClaimTimer = () => {
     if (claimTimer !== null) {
       clearTimeout(claimTimer);
       session.directiveTimers.delete(claimTimer);
       claimTimer = null;
     }
-    if (!session.tornDown)
-      session.client.uiSettled(
-        frame.directive_id,
-        isStaleOrigin(frame.turn_id) ? "ignored" : status,
-      );
+  };
+  const finish = (status: "opened" | "failed" | "ignored") => {
+    if (settled) return;
+    settled = true;
+    clearClaimTimer();
+    reportDirectiveOutcome(session, frame, status);
   };
   const runGeneric = () => {
-    if (settled) return;
-    if (isStaleOrigin(frame.turn_id)) {
+    if (settled || genericStarted) return;
+    if (isStaleDirective(frame)) {
       finish("ignored");
       return;
     }
+    genericStarted = true;
+    clearClaimTimer();
     void executeDirective(frame.kind, frame.payload || {}, {
       pathname: context.pathname,
     }).then(
@@ -502,7 +523,7 @@ function runDirective(
   };
   const screenOwned = isScreenOwnedDirective(frame.kind);
   const settle = (status: "opened" | "failed" | "ignored") => {
-    if (isStaleOrigin(frame.turn_id)) {
+    if (isStaleDirective(frame)) {
       finish("ignored");
       return;
     }
@@ -523,6 +544,7 @@ function runDirective(
     else runGeneric();
     return;
   }
+  if (settled || genericStarted) return;
   const waitMs = screenOwned ? context.screenTimeoutMs : context.claimMs;
   claimTimer = setTimeout(() => {
     if (claimTimer !== null) session.directiveTimers.delete(claimTimer);
@@ -802,8 +824,8 @@ export function VoiceSessionProvider({
       void loadDirectives().then(
         (directives) => {
           if (sessionRef.current !== session || session.tornDown) return;
-          if (isStaleOrigin(frame.turn_id)) {
-            session.client.uiSettled(frame.directive_id, "ignored");
+          if (isStaleDirective(frame)) {
+            reportDirectiveOutcome(session, frame, "ignored");
             return;
           }
           runDirective(session, frame, directives, {
@@ -814,11 +836,7 @@ export function VoiceSessionProvider({
           });
         },
         () => {
-          if (!session.tornDown)
-            session.client.uiSettled(
-              frame.directive_id,
-              isStaleOrigin(frame.turn_id) ? "ignored" : "failed",
-            );
+          reportDirectiveOutcome(session, frame, "failed");
         },
       );
     },
@@ -909,7 +927,7 @@ export function VoiceSessionProvider({
         dispatchServerFrame(frame, now());
         return;
       }
-      const staleOrigin = isStaleOrigin(origin);
+      const staleOrigin = frame.type === "ui_directive" ? isStaleDirective(frame) : isStaleOrigin(origin);
       if (staleOrigin) {
         if (frame.type === "tool.result") {
           // An exact pending card may still settle, but an older result must
@@ -918,7 +936,7 @@ export function VoiceSessionProvider({
           return;
         }
         if (frame.type === "ui_directive") {
-          session.client.uiSettled(frame.directive_id, "ignored");
+          reportDirectiveOutcome(session, frame, "ignored");
           return;
         }
         if (frame.type === "client_step.request") {
@@ -942,14 +960,45 @@ export function VoiceSessionProvider({
       }
       dispatchServerFrame(frame, now());
       const store = useVoiceSessionStore.getState();
+      const schedulePendingShown = (id: string) => {
+        if (session.pendingShownTimer !== null) clearTimeout(session.pendingShownTimer);
+        session.pendingShownTimer = null;
+        const generation = ++session.pendingShownGeneration;
+        let attempts = 0;
+        const checkCard = () => {
+          if (sessionRef.current !== session || session.tornDown ||
+              generation !== session.pendingShownGeneration ||
+              session.shownPendingActionIds.has(id)) return;
+          const pending = useVoiceSessionStore.getState().state.pendingAction;
+          if (pending?.pending_action_id !== id || pending.resolvedStatus !== null) return;
+          if (pendingCardIsVisible(id) && session.client.pendingShown(id)) {
+            session.shownPendingActionIds.add(id);
+            return;
+          }
+          if (++attempts >= PENDING_CARD_MOUNT_RETRIES) return;
+          session.pendingShownTimer = setTimeout(() => {
+            session.pendingShownTimer = null;
+            (depsRef.current?.afterPaint ?? defaultAfterPaint)(checkCard);
+          }, PENDING_CARD_MOUNT_RETRY_MS);
+        };
+        (depsRef.current?.afterPaint ?? defaultAfterPaint)(checkCard);
+      };
       switch (frame.type) {
-        case "session.ready":
+        case "session.ready": {
           sendAppContext();
+          // The reducer renders the first re-listed card. If the server never
+          // heard it was shown (its pending_action frame was lost to a
+          // reconnect), report it once painted so a later "yes" can confirm
+          // it instead of being refused as an unseen card.
+          const first = frame.pending_actions?.[0];
+          if (first && first.status === "pending" && !first.shown_at)
+            schedulePendingShown(first.pending_action_id);
           // The relay being ready says nothing about whether getUserMedia has
           // completed. Keep the visible status honest until capture is live.
           if (session.paused || !session.captureReady)
             dispatch({ type: "paused" });
           return;
+        }
         case "transcript.input":
           if (
             store.state.activeInputTurnId === frame.turn_id &&
@@ -1019,28 +1068,7 @@ export function VoiceSessionProvider({
           session.confirmingPendingId = null;
           return;
         case "pending_action": {
-          const id = frame.pending_action_id;
-          if (session.pendingShownTimer !== null) clearTimeout(session.pendingShownTimer);
-          session.pendingShownTimer = null;
-          const generation = ++session.pendingShownGeneration;
-          let attempts = 0;
-          const checkCard = () => {
-            if (sessionRef.current !== session || session.tornDown ||
-                generation !== session.pendingShownGeneration ||
-                session.shownPendingActionIds.has(id)) return;
-            const pending = useVoiceSessionStore.getState().state.pendingAction;
-            if (pending?.pending_action_id !== id || pending.resolvedStatus !== null) return;
-            if (pendingCardIsVisible(id) && session.client.pendingShown(id)) {
-              session.shownPendingActionIds.add(id);
-              return;
-            }
-            if (++attempts >= PENDING_CARD_MOUNT_RETRIES) return;
-            session.pendingShownTimer = setTimeout(() => {
-              session.pendingShownTimer = null;
-              (depsRef.current?.afterPaint ?? defaultAfterPaint)(checkCard);
-            }, PENDING_CARD_MOUNT_RETRY_MS);
-          };
-          (depsRef.current?.afterPaint ?? defaultAfterPaint)(checkCard);
+          schedulePendingShown(frame.pending_action_id);
           return;
         }
         case "tool.result":

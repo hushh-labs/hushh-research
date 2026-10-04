@@ -28,6 +28,7 @@ import {
 } from "react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { hasReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 import { toast } from "sonner";
 
 import {
@@ -1355,6 +1356,17 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     },
     [pathname, router, searchParams],
   );
+
+  // A chat offer ("Add as Home in Location") staged a saved-place prefill in
+  // memory (lib/pkm/reserved-offer.ts). Saved places live in Settings, so open
+  // it once; SavedLocationsSection takes the prefill there.
+  const offerPrefillOpenedRef = useRef(false);
+  useEffect(() => {
+    if (offerPrefillOpenedRef.current || !vm.userId || flow === "settings") return;
+    if (!hasReservedOfferPrefill({ ownerUserId: vm.userId, ownerFeature: "location" })) return;
+    offerPrefillOpenedRef.current = true;
+    openFlow("settings", undefined, "replace");
+  }, [flow, openFlow, vm.userId]);
 
   const openCircleDetail = useCallback(
     (

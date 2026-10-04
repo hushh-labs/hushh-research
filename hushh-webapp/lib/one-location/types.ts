@@ -364,6 +364,7 @@ export type OneLocationCircleViewerCapabilities = {
 export type OneLocationCircleSummary = {
   id: string;
   name: string;
+  photoUrl?: string | null;
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
   memberCount: number;

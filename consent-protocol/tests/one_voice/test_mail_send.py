@@ -156,6 +156,23 @@ async def test_pending_row_and_model_receipt_do_not_expose_full_draft(mail_harne
 
 
 @pytest.mark.asyncio
+async def test_identical_dictation_is_a_new_proposal_never_a_reused_card(mail_harness):
+    """Sealed drafts are excluded from the duplicate-proposal guard: two
+    dictations to one recipient compare equal on public args alone."""
+    ctx, _connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    first = await _pending_draft(ctx, executor)
+    outcome = await executor.call(
+        ctx,
+        "send_mail",
+        {"recipient": {"user_id": AYESHA}, "subject": "Demo tomorrow", "message": MESSAGE},
+    )
+    assert outcome.result.status == "confirmation_required"
+    assert outcome.pending is not None and outcome.pending.id != first.id
+    assert [row.id for row in outcome.superseded] == [first.id]
+
+
+@pytest.mark.asyncio
 async def test_tampered_pending_recipient_cannot_open_the_sealed_draft(mail_harness):
     ctx, _connections, executor = mail_harness
     await _confirm_ayesha(ctx, executor)

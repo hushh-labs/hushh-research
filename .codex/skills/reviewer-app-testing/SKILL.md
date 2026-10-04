@@ -63,7 +63,7 @@ Non-owned surfaces:
 8. Close the context, then prove cold-session authentication and re-unlock separately.
 9. For Agent Chat changes, run `verify-reviewer-agent-chat.mjs` with explicit
    `REVIEWER_ALLOW_SHARED_MUTATIONS=true`; it must complete a real prompt turn and prove
-   consumer-safe errors, self-avatar rendering, idle-status removal, and overflow safety.
+   consumer-safe errors, profile-only avatars, idle-status removal, and overflow safety.
 10. Trusted Devices: `verify-reviewer-trusted-devices.mjs` (read-only). Always compose `createReviewerSessionHarness`; never hand-roll one (see the preflight reference).
 11. Wallet, consent lifecycle from chat, large Memory imports: `verify-reviewer-wallet.mjs`, `verify-reviewer-consent-chat.mjs`,
     `verify-reviewer-memory-import.mjs` (mutation-authorized; the preflight reference states what each proves).

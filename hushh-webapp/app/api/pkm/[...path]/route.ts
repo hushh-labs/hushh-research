@@ -147,6 +147,11 @@ async function proxyPkmRequest(
   const pathStr = path.join("/");
   const query = request.nextUrl.search;
   const authHeader = request.headers.get("Authorization") || "";
+  // The client's PKM level decides whether the upgrade routes offer it the
+  // reserved-branch relocation, so it is forwarded (semver only) and is part of
+  // the hot-cache key: an old build and a current one never share a status.
+  const rawClientVersion = request.headers.get("x-hushh-client-version") || "";
+  const clientVersion = /^\d{1,6}\.\d{1,6}\.\d{1,6}$/.test(rawClientVersion) ? rawClientVersion : "";
   const bypassHotCache = request.headers
     .get("Cache-Control")
     ?.toLowerCase()
@@ -156,7 +161,7 @@ async function proxyPkmRequest(
     !bypassHotCache &&
     authHeader &&
     (pathStr.startsWith("metadata/") || pathStr.startsWith("upgrade/status/"))
-      ? `${pathStr}${query}:${authHeader}`
+      ? `${pathStr}${query}:${clientVersion}:${authHeader}`
       : null;
   const hotCacheVersion = hotCacheKey ? discoveryCacheVersion : null;
   let load: Promise<PkmProxyResult> | null = null;
@@ -173,6 +178,7 @@ async function proxyPkmRequest(
         ? { "X-PKM-Ingestion-Id": ingestionId }
         : {}),
       ...(chunkIndex && /^\d{1,4}$/.test(chunkIndex) ? { "X-PKM-Chunk-Index": chunkIndex } : {}),
+      ...(clientVersion ? { "x-hushh-client-version": clientVersion } : {}),
       ...(method === "POST" || method === "PUT"
         ? { "Content-Type": "application/json" }
         : {}),

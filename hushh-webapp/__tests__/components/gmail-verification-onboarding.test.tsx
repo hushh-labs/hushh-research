@@ -76,8 +76,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save profile" });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Paste details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     expect(onDetailsChange).toHaveBeenCalledWith("");
@@ -146,8 +146,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save profile" });
-    fireEvent.click(screen.getByRole("button", { name: "Save profile" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Paste details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     await waitFor(() => {
@@ -156,5 +156,47 @@ describe("GmailVerificationOnboarding", () => {
       );
     });
     expect(screen.queryByText("Saved")).not.toBeInTheDocument();
+  });
+
+  it("shows the intro card first and keeps the paste form behind it", async () => {
+    render(
+      <GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
+        onRequestVaultUnlock={vi.fn()} deferred={false} onDeferredChange={vi.fn()}
+        details="" onDetailsChange={vi.fn()}>
+        <div>KYC workspace</div>
+      </GmailVerificationOnboarding>,
+    );
+
+    expect(await screen.findByText("Build your KYC profile")).toBeInTheDocument();
+    expect(screen.queryByText("KYC Automation")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "KYC details" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste details" }));
+    expect(await screen.findByRole("textbox", { name: "KYC details" })).toBeVisible();
+    expect(screen.getByText("Encrypted with 256-bit AES · Stored in your private vault")).toBeVisible();
+  });
+
+  it("keeps Skip for now as the way into the KYC workspace and closing keeps the draft", async () => {
+    const onDeferredChange = vi.fn();
+    const onDetailsChange = vi.fn();
+    render(
+      <GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
+        onRequestVaultUnlock={vi.fn()} deferred={false} onDeferredChange={onDeferredChange}
+        details="Full name: Example Person" onDetailsChange={onDetailsChange}>
+        <div>KYC workspace</div>
+      </GmailVerificationOnboarding>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Paste details" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("textbox", { name: "KYC details" })).not.toBeInTheDocument());
+    expect(onDeferredChange).not.toHaveBeenCalled();
+    expect(onDetailsChange).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Paste details" }));
+    expect(await screen.findByRole("textbox", { name: "KYC details" })).toHaveValue("Full name: Example Person");
+    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    expect(onDeferredChange).toHaveBeenCalledWith(true);
+    expect(mocks.saveProfile).not.toHaveBeenCalled();
   });
 });

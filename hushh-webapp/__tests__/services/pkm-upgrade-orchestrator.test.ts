@@ -192,6 +192,7 @@ import {
   PkmUpgradeOrchestrator,
 } from "@/lib/services/pkm-upgrade-orchestrator";
 import { PkmUpgradeRouteUnavailableError } from "@/lib/services/pkm-upgrade-service";
+import { runDomainUpgrade } from "@/lib/personal-knowledge-model/upgrade-registry";
 import { PkmDomainManifestError } from "@/lib/services/personal-knowledge-model-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 
@@ -476,6 +477,37 @@ describe("PkmUpgradeOrchestrator", () => {
       await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
       expect(completeRunMock).toHaveBeenCalledTimes(1);
+      // No relocation ran (a domain without a reserved branch): no marker.
+      const stored = pkmStoreMergedDomainMock.mock.calls[0]?.[0] as { manifest: { summary_projection: Record<string, unknown> } };
+      expect(stored.manifest.summary_projection.reserved_branch_migration_version).toBeUndefined();
+    });
+
+    it("stamps the reserved-branch marker on the upgrade commit when the relocation ran", async () => {
+      const base = vi.mocked(runDomainUpgrade).getMockImplementation()!;
+      vi.mocked(runDomainUpgrade).mockImplementationOnce((params) => ({
+        ...base(params),
+        reservedMigration: {
+          schemaVersion: "pkm_reserved_branch_migration.v1",
+          domain: "food",
+          moved: 1,
+          deduplicated: 0,
+          quarantined: 0,
+          keptOccurrences: 0,
+          movedOccurrences: 5,
+          deduplicatedOccurrences: 0,
+          quarantinedOccurrences: 0,
+          reindexedOccurrences: 0,
+          items: [],
+        },
+      }));
+
+      await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
+      const stored = pkmStoreMergedDomainMock.mock.calls[0]?.[0] as {
+        manifest: { summary_projection: Record<string, unknown> };
+        upgradeContext: unknown;
+      };
+      expect(stored.upgradeContext).toBeTruthy();
+      expect(stored.manifest.summary_projection.reserved_branch_migration_version).toBe(1);
     });
 
     it("records structured manifest failure metadata into the task center", async () => {

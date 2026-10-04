@@ -203,6 +203,22 @@ describe("CircleMemberActionsMenu on a phone", () => {
       screen.queryByRole("menuitem", { name: /Share location/i }),
     ).toBeNull();
   });
+
+  it("keeps a Message action available when it is the only member action", async () => {
+    renderMenu({
+      canShare: false,
+      canRemove: false,
+      messageHref: "/one/messages?person=person-public-ref",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: triggerName }));
+
+    const message = await screen.findByRole("menuitem", { name: "Message" });
+    expect(message).toHaveAttribute(
+      "href",
+      "/one/messages?person=person-public-ref",
+    );
+  });
 });
 
 describe("CircleMemberActionsMenu on a pointer device", () => {

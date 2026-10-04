@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Dry-run and execute a guarded Kai/UAT test-account reset by email.
 
-This tool intentionally does not delete Firebase Auth users or browser-local
-state. It cleans backend database state for a supplied email/user id so local
-and UAT onboarding flows can be retested.
+This tool erases UAT backend state without deleting Firebase identities or
+revoking shared provider grants. A minimal resurrection-suppression hash is
+retained; the erased UID cannot be reused to recreate its UAT account.
 """
 
 from __future__ import annotations
@@ -16,14 +16,12 @@ import sys
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[4]
 CONSENT_ROOT = REPO_ROOT / "consent-protocol"
 if str(CONSENT_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_ROOT))
 
 from dotenv import load_dotenv  # noqa: E402
-
 
 EMAIL_LINK_TABLES: dict[str, tuple[str, ...]] = {
     "actor_identity_cache": ("email",),
@@ -210,89 +208,10 @@ async def _count_linked_rows(
             else:
                 raise ValueError(f"Unsupported linked row count kind: {kind}")
         except Exception as exc:  # noqa: BLE001
-            results.append({"table": table, "columns": existing, "rows": None, "error": str(exc).splitlines()[0]})
+            results.append({"table": table, "columns": existing, "rows": None, "error": type(exc).__name__})
             continue
         if int(row_count or 0) > 0:
             results.append({"table": table, "columns": existing, "rows": int(row_count)})
-    return results
-
-
-async def _delete_linked_rows(
-    conn: Any,
-    linked_columns: dict[str, tuple[str, ...]],
-    values: list[str],
-    *,
-    kind: str,
-) -> list[dict[str, Any]]:
-    if not values:
-        return []
-    results: list[dict[str, Any]] = []
-    for table, columns in linked_columns.items():
-        if not columns or not await _table_exists(conn, table):
-            continue
-        existing = await _existing_columns(conn, table, columns)
-        if not existing:
-            continue
-        if kind == "email":
-            where = " OR ".join(f"lower({_quote_ident(column)}::text) = lower($1)" for column in existing)
-            command = f"DELETE FROM {_quote_ident(table)} WHERE {where}"
-            args: tuple[Any, ...] = (values[0],)
-        elif kind == "user_id":
-            where = " OR ".join(f"{_quote_ident(column)} = ANY($1::text[])" for column in existing)
-            command = f"DELETE FROM {_quote_ident(table)} WHERE {where}"
-            args = (values,)
-        else:
-            raise ValueError(f"Unsupported linked row delete kind: {kind}")
-        try:
-            status = await conn.execute(command, *args)
-        except Exception as exc:  # noqa: BLE001
-            results.append({"table": table, "by": kind, "columns": existing, "error": str(exc).splitlines()[0]})
-            continue
-        if status != "DELETE 0":
-            results.append({"table": table, "by": kind, "columns": existing, "status": status})
-    return results
-
-
-async def _delete_by_email(conn: Any, email: str) -> list[dict[str, Any]]:
-    results: list[dict[str, Any]] = []
-    for table, columns in EMAIL_LINK_TABLES.items():
-        if not await _table_exists(conn, table):
-            continue
-        existing = await _existing_columns(conn, table, columns)
-        if not existing:
-            continue
-        where = " OR ".join(f"lower({_quote_ident(column)}) = lower($1)" for column in existing)
-        command = f"DELETE FROM {_quote_ident(table)} WHERE {where}"
-        status = await conn.execute(command, email)
-        results.append({"table": table, "by": "email", "status": status})
-    return results
-
-
-async def _delete_residual_user_rows(conn: Any, user_ids: list[str]) -> list[dict[str, Any]]:
-    if not user_ids:
-        return []
-    results: list[dict[str, Any]] = []
-    # Several tables cascade from vault_keys/actor_profiles. This residual sweep
-    # is intentionally best-effort and runs after AccountService deletion.
-    for _ in range(3):
-        changed = False
-        for table, columns in RESIDUAL_USER_TABLES.items():
-            if not await _table_exists(conn, table):
-                continue
-            existing = await _existing_columns(conn, table, columns)
-            if not existing:
-                continue
-            where = " OR ".join(f"{_quote_ident(column)} = ANY($1::text[])" for column in existing)
-            try:
-                status = await conn.execute(f"DELETE FROM {_quote_ident(table)} WHERE {where}", user_ids)
-            except Exception as exc:  # noqa: BLE001
-                results.append({"table": table, "by": "user_id", "error": str(exc).splitlines()[0]})
-                continue
-            if status != "DELETE 0":
-                changed = True
-                results.append({"table": table, "by": "user_id", "status": status})
-        if not changed:
-            break
     return results
 
 
@@ -302,14 +221,17 @@ async def _run_account_service_delete(user_ids: list[str]) -> list[dict[str, Any
     service = AccountService()
     results: list[dict[str, Any]] = []
     for user_id in user_ids:
-        result = await service.delete_account(user_id, target="both")
+        result = await service.erase_uat_backend_account(user_id)
+        if not result.get("success"):
+            # Never continue with partial best-effort cleanup after rollback,
+            # a lifecycle fence, or undeprovisioned external resources.
+            raise RuntimeError("canonical_backend_erasure_failed")
         results.append(
             {
                 "user_id_preview": _preview(user_id),
                 "success": bool(result.get("success")),
                 "deleted_target": result.get("deleted_target"),
                 "account_deleted": result.get("account_deleted"),
-                "error": result.get("error"),
                 "details": result.get("details"),
             }
         )
@@ -354,10 +276,8 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
         }
         if not args.execute:
             payload["planned_operations"] = [
-                "AccountService.delete_account(target='both') for each matched user_id",
-                "Best-effort residual cleanup for known user_id columns",
-                "Bounded cleanup for app-owned user_id and firebase_uid columns",
-                "Email-linked cleanup for actor_identity_cache, developer apps/applications, and RIA invites",
+                "AccountService.erase_uat_backend_account for each matched user_id (Firebase and provider grants preserved)",
+                "Verify remaining UID/email-linked rows; retain separately governed audit evidence",
             ]
             payload["execute_command"] = (
                 f"{sys.executable} .codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py "
@@ -366,6 +286,19 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
             return payload
         if args.confirm_email != args.email:
             raise SystemExit("--execute requires --confirm-email with the exact email value.")
+        if user_ids:
+            # Email-linked contact metadata cannot authorize shadow-UID or
+            # another developer-app owner's deletion.
+            from firebase_admin import auth
+
+            from api.utils.firebase_admin import ensure_firebase_auth_admin, get_firebase_auth_app
+
+            configured, _ = ensure_firebase_auth_admin()
+            if not configured:
+                raise RuntimeError("firebase_owner_binding_unavailable")
+            owner = auth.get_user_by_email(args.email, app=get_firebase_auth_app())
+            if user_ids != [owner.uid]:
+                raise RuntimeError("backend_erasure_owner_binding_ambiguous")
     finally:
         await conn.close()
 
@@ -373,22 +306,14 @@ async def run(args: argparse.Namespace) -> dict[str, Any]:
     conn = await _connect()
     try:
         await conn.execute("SET statement_timeout = '5000ms'")
-        residual_results = await _delete_residual_user_rows(conn, user_ids)
-        email_results = await _delete_by_email(conn, args.email)
+        # Canonical erasure owns deletion and retention. Catalog discovery is
+        # verification-only, never permission for a post-commit bulk sweep.
+        residual_results = []
+        email_results = []
         dynamic_user_columns = await _discover_dynamic_link_columns(conn, kind="user_id")
         dynamic_email_columns = await _discover_dynamic_link_columns(conn, kind="email")
-        dynamic_user_results = await _delete_linked_rows(
-            conn,
-            dynamic_user_columns,
-            user_ids,
-            kind="user_id",
-        )
-        dynamic_email_results = await _delete_linked_rows(
-            conn,
-            dynamic_email_columns,
-            [args.email],
-            kind="email",
-        )
+        dynamic_user_results = []
+        dynamic_email_results = []
         remaining_user_id_row_counts = await _count_linked_rows(
             conn,
             dynamic_user_columns,

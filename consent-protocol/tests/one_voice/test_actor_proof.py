@@ -274,3 +274,140 @@ def test_a_lookup_supersedes_every_open_card_even_when_the_lookup_itself_fails(m
     assert outcome.result.status == "rejected" and outcome.result.reason_code == "execution_failed"
     assert [row.id for row in outcome.superseded] == [pending.id]
     assert asyncio.run(store.get(user_id=USER, pending_action_id=pending.id)).status == "cancelled"
+
+
+# -- duplicate voice-tier proposals -------------------------------------------
+#
+# A model that re-proposes the action it is waiting on (instead of confirming
+# it) used to mint a new row, cancelling the card the person was answering, so
+# every "yes" met a fresh question. The executor now refuses the duplicate and
+# hands back the open id. It never confirms on the model's behalf.
+
+AISHA = "user-aisha"
+TAP = ToolSpec(
+    name="tap_thing",
+    gateway_action_id="location.create_circle",
+    policy=ToolPolicy.confirm_tap,
+    input_model=_SendInput,
+    output_model=_SendResult,
+    description="Tap.",
+    handler=_send,
+    person_args=("person",),
+    summarize=lambda ctx, a: "do the tap thing",
+)
+
+
+def _dup_harness(monkeypatch):
+    by_name = {SEND.name: SEND, PLAIN.name: PLAIN, TAP.name: TAP}
+    monkeypatch.setattr(registry, "get_tool", lambda name: by_name.get(str(name or "")))
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store, actor_proof=_proof({"good": "ok"}))
+    ctx = _ctx("good")
+    ctx.entities.remember_person(
+        ConfirmedPerson(user_id=AISHA, display_name="Aisha", confirmed_at=now_iso())
+    )
+    return store, executor, ctx
+
+
+def _open_rows(store: MemoryPendingStore, ctx: ToolContext):
+    return asyncio.run(store.list_open(user_id=USER, conversation_id=ctx.conversation_id))
+
+
+def test_identical_voice_proposal_returns_the_open_card_instead_of_a_new_one(monkeypatch):
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert first.result.status == "confirmation_required"
+
+    again = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert again.result.status == "confirmation_waiting"
+    assert again.result.pending_action_id == first.pending.id
+    assert again.result.card_shown is False
+    assert again.pending is not None and again.pending.id == first.pending.id
+    assert again.superseded == [] and again.receipt_token is None
+    assert [row.id for row in _open_rows(store, ctx)] == [first.pending.id]
+
+    asyncio.run(store.mark_shown(user_id=USER, pending_action_id=first.pending.id))
+    shown = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert shown.result.status == "confirmation_waiting"
+    assert shown.result.card_shown is True
+    # Nothing was confirmed: the row still waits for the person's answer.
+    assert [(r.id, r.status) for r in _open_rows(store, ctx)] == [(first.pending.id, "pending")]
+
+
+def test_different_arguments_still_replace_the_open_card(monkeypatch):
+    """Negative control: a changed target is a new proposal and supersedes."""
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    other = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": AISHA}}))
+    assert other.result.status == "confirmation_required"
+    assert other.pending.id != first.pending.id
+    assert [row.id for row in other.superseded] == [first.pending.id]
+    assert [row.id for row in _open_rows(store, ctx)] == [other.pending.id]
+
+
+def test_tap_tier_duplicate_still_creates_a_new_card_and_receipt(monkeypatch):
+    """A tap card's receipt is handed out once, so the guard never reuses it."""
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, TAP.name, {"person": {"user_id": PRIYA}}))
+    again = asyncio.run(executor.call(ctx, TAP.name, {"person": {"user_id": PRIYA}}))
+    assert again.result.status == "confirmation_required"
+    assert again.pending.id != first.pending.id and again.receipt_token
+    assert [row.id for row in _open_rows(store, ctx)] == [again.pending.id]
+
+
+def test_card_not_shown_names_the_id_to_confirm_later(monkeypatch):
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    refused = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": first.pending.id})
+    )
+    assert refused.result.status == "card_not_shown"
+    public = refused.result.public()
+    assert public["pending_action_id"] == first.pending.id
+    assert public["card_shown"] is False
+    assert _open_rows(store, ctx)[0].status == "pending"
+
+
+# -- re-proposal right after the model's own cancel ----------------------------
+#
+# UAT 2026-10-02: "Yes, go ahead for 1 hour" was read as a correction, so the
+# model cancelled the card and proposed the identical action again, and the
+# person heard the same question twice. The new card says it repeats the one
+# just cancelled. The host still confirms nothing.
+
+
+def test_unchanged_reproposal_after_the_models_cancel_does_not_ask_again(monkeypatch):
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    cancelled = asyncio.run(
+        executor.call(ctx, "cancel_pending_action", {"pending_action_id": first.pending.id})
+    )
+    assert cancelled.result.status == "cancelled"
+
+    again = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    assert again.result.status == "confirmation_required"
+    assert again.result.public()["repeats_cancelled"] is True
+    assert "Should I go ahead" not in again.result.spoken_facts[0]
+    assert [(r.id, r.status) for r in _open_rows(store, ctx)] == [(again.pending.id, "pending")]
+
+
+def test_changed_or_late_reproposal_after_a_cancel_asks_as_usual(monkeypatch):
+    """Negative controls: a different target, or the same one past the window."""
+    from hushh_mcp.one_voice.tools import executor as executor_module
+
+    store, executor, ctx = _dup_harness(monkeypatch)
+    first = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": PRIYA}}))
+    asyncio.run(
+        executor.call(ctx, "cancel_pending_action", {"pending_action_id": first.pending.id})
+    )
+    other = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": AISHA}}))
+    assert "repeats_cancelled" not in other.result.public()
+    assert other.result.spoken_facts == ["I can do the plain thing. Should I go ahead?"]
+
+    asyncio.run(
+        executor.call(ctx, "cancel_pending_action", {"pending_action_id": other.pending.id})
+    )
+    later = executor_module.time.monotonic() + executor_module.RECENT_CANCEL_SECONDS + 1
+    monkeypatch.setattr(executor_module.time, "monotonic", lambda: later)
+    late = asyncio.run(executor.call(ctx, PLAIN.name, {"person": {"user_id": AISHA}}))
+    assert "repeats_cancelled" not in late.result.public()

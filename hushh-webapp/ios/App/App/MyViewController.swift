@@ -84,6 +84,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
+    private var launchCover: UIView?
+    private var launchCoverObservation: NSKeyValueObservation?
+    private static let launchCoverSafetyTimeout: TimeInterval = 4
+    private static let launchCoverFadeDuration: TimeInterval = 0.12
 
     override open func router() -> Router {
         HushhNativeRouter()
@@ -97,6 +101,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        if let webView = self.webView {
+            installLaunchCover(over: webView)
+        }
 
         // A fresh process starts unshielded. After an inactive transition this
         // host keeps the native cover above the WebView until the resumed
@@ -130,6 +138,52 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         }
     }
     
+    /// Cold-launch continuity. iOS dismisses LaunchScreen.storyboard when this
+    /// controller's first frame commits, but the WKWebView has not painted its
+    /// document yet; for that gap it shows `ios.backgroundColor` (#0e0e10), a
+    /// dark frame in light mode and a missing mark in both. A copy of the launch
+    /// screen stays over it until the first document finishes loading. That
+    /// document opens on its boot surface, which draws the same mark at the same
+    /// place and size (components/app-ui/boot-surface.tsx; the WebKit layout
+    /// spec holds its ink to the splash's within 1.5 pt), so lifting the cover
+    /// changes nothing on screen. The fade matches the privacy shield's release.
+    private func installLaunchCover(over webView: WKWebView) {
+        let cover = UIImageView(image: UIImage(named: "Splash"))
+        cover.frame = view.bounds
+        cover.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        cover.contentMode = .scaleAspectFill
+        cover.clipsToBounds = true
+        cover.backgroundColor = .systemBackground
+        cover.isUserInteractionEnabled = false
+        cover.isAccessibilityElement = false
+        view.addSubview(cover)
+        launchCover = cover
+
+        launchCoverObservation = webView.observe(\.isLoading, options: [.new]) { [weak self] webView, _ in
+            guard !webView.isLoading else { return }
+            DispatchQueue.main.async { self?.removeLaunchCover() }
+        }
+        // A document that never finishes (offline, a failed load) must not
+        // leave the cover up: its own boot surface owns the way out.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.launchCoverSafetyTimeout) { [weak self] in
+            self?.removeLaunchCover()
+        }
+    }
+
+    private func removeLaunchCover() {
+        launchCoverObservation?.invalidate()
+        launchCoverObservation = nil
+        guard let cover = launchCover else { return }
+        launchCover = nil
+        UIView.animate(
+            withDuration: Self.launchCoverFadeDuration,
+            delay: 0,
+            options: [.beginFromCurrentState, .curveEaseOut],
+            animations: { cover.alpha = 0 },
+            completion: { _ in cover.removeFromSuperview() }
+        )
+    }
+
     override open func capacitorDidLoad() {
         super.capacitorDidLoad()
         

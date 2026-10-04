@@ -13,8 +13,9 @@
  *
  * Here the owner's own request is the confirmation for the content they
  * supplied (`owner_confirmed`, as the chat KYC path already records).
- * Identifier-class values and details that would change existing shares still
- * need a separate tap. Reserved, secret, degraded, and other refused details
+ * Sensitive details (pay, equity, immigration, deposits) are saved, labelled
+ * sensitive. A raw identifier value and details that would change existing
+ * shares still need a separate tap. Reserved, secret, degraded, and other refused details
  * are never saved, even after a tap.
  *
  * Nothing here says "saved" until the server acknowledged a committed revision.
@@ -39,6 +40,8 @@ import {
   type PkmNaturalLanguageDuplicateMatch,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
+import { isReservedRefusalHint } from "@/lib/pkm/reserved-branches";
+import { SECRET_PLACEHOLDER } from "@/lib/pkm/secret-patterns";
 
 /** Long documents need more than the 120 s review budget; still bounded. */
 export const EXPLICIT_SAVE_PREPARATION_BUDGET_MS = 300_000;
@@ -56,8 +59,10 @@ function isSecretRejected(card: AgentPkmPreviewCard): boolean {
 function isReservedTargetRejected(card: AgentPkmPreviewCard): boolean {
   const decision = card.structure_decision as { action?: unknown } | undefined;
   const action = String(decision?.action || "").toLowerCase();
+  // A re-route into the branch's agent_memory sibling is not a refusal: that
+  // card is kept, and carries an offer to the owning screen.
   return action === "reject_reserved_target" || action === "reserved_target" || action === "reserved" ||
-    (card.validation_hints || []).some((hint) => String(hint).toLowerCase().includes("reserved"));
+    (card.validation_hints || []).some(isReservedRefusalHint);
 }
 
 /**
@@ -72,6 +77,24 @@ function isRestatementOfKnownDetail(card: AgentPkmPreviewCard): boolean {
   return mode === "no_op" && Boolean(String(decision.target_entity_path || decision.target_entity_id || "").trim());
 }
 
+/** A run of letters and digits that could be a number on a document. */
+const IDENTIFIER_LIKE_TOKEN = /[A-Za-z0-9-]*\d[A-Za-z0-9-]*/g;
+/** The memory entity's own bookkeeping key: its value names the entity, not the person. */
+const ENTITY_BOOKKEEPING_KEYS: ReadonlySet<string> = new Set(["entity_id", "id"]);
+
+/**
+ * Whether a card still holds a raw identifier, which waits for the owner's tap.
+ *
+ * A sensitive TOPIC (salary, equity, a visa, a housing deposit) is not an
+ * identifier: those details are saved on an explicit save, labelled sensitive.
+ * Government id and card numbers never reach a card at all; the device guard
+ * moved them into Secrets and left `⟦secret:<id> <label>⟧`, which names the
+ * value without holding it. So a card is held only when a value is
+ * identifier-shaped (SSN, EIN, card, IBAN, a credential), or when an
+ * identifier-class key (passport, account number, date of birth) carries a
+ * raw value with digits in it. The key alone (`passport_country: India`) and a
+ * placeholder under it (`passport_number: ⟦secret:...⟧`) are not held.
+ */
 function hasIdentifierField(value: unknown, path: string[] = []): boolean {
   if (Array.isArray(value)) return value.some((item) => hasIdentifierField(item, path));
   if (value && typeof value === "object") {
@@ -79,8 +102,12 @@ function hasIdentifierField(value: unknown, path: string[] = []): boolean {
       hasIdentifierField(nested, [...path, key]),
     );
   }
-  if (value === null || value === undefined || value === "") return false;
-  return (path.length > 0 && fieldKeyIsSensitive(path)) || valueIsIdentifierShaped(value);
+  if (value === null || value === undefined || value === "" || typeof value === "boolean") return false;
+  const raw = String(value).replace(SECRET_PLACEHOLDER.tokens(), " ");
+  if (valueIsIdentifierShaped(raw)) return true;
+  if (path.length === 0 || ENTITY_BOOKKEEPING_KEYS.has(path[path.length - 1]!.toLowerCase())) return false;
+  if (!fieldKeyIsSensitive(path)) return false;
+  return [...raw.matchAll(IDENTIFIER_LIKE_TOKEN)].some((match) => match[0].replace(/-/g, "").length >= 5);
 }
 
 export function partitionExplicitSaveCards(

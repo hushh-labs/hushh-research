@@ -25,8 +25,9 @@ describe("field-level sensitivity contract (C7)", () => {
     expect(contract.cases.some((entry) => !entry.sensitive)).toBe(true);
   });
 
-  it.each(contract.cases)("$key ($value) is sensitive: $sensitive", ({ key, value, sensitive }) => {
-    expect(fieldSensitivity(key, value)).toBe(sensitive ? "sensitive" : "standard");
+  it.each(contract.cases)("$key ($value) is sensitive: $sensitive", (testCase) => {
+    const domain = "domain" in testCase ? testCase.domain : null;
+    expect(fieldSensitivity(testCase.key, testCase.value, domain)).toBe(testCase.sensitive ? "sensitive" : "standard");
   });
 
   it("names a withheld field the way the server does", () => {

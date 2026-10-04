@@ -23,6 +23,11 @@ import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography"
 import { Button as StockButton } from "@/components/ui/button";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  CalendarAgentIcon,
+  GmailAgentIcon,
+  KycAgentIcon,
+} from "@/components/icons/agents";
 import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
 import { ConnectionsService } from "@/lib/services/connections-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
@@ -41,8 +46,14 @@ import {
   SettingsGroup,
   SettingsPresentationProvider,
 } from "@/components/app-ui/settings-ui";
-import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
+import {
+  useFeedActionables,
+  type FeedActionable,
+} from "@/lib/feed/use-feed-actionables";
+import { useFeedBriefing } from "@/lib/feed/use-feed-briefing";
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
+import { ROUTES } from "@/lib/navigation/routes";
+import { openExternalUrl } from "@/lib/utils/browser-navigation";
 import { listKaiActionsForSurface } from "@/lib/voice/kai-action-gateway";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
@@ -86,6 +97,42 @@ function groupItemsByDay(
     else groups.push({ label, items: [item] });
   }
   return groups;
+}
+
+function eventInstant(value: { dateTime?: string; date?: string } | null): number {
+  const raw = value?.dateTime ?? value?.date;
+  if (!raw) return 0;
+  const instant = new Date(raw).getTime();
+  return Number.isFinite(instant) ? instant : 0;
+}
+
+function upcomingEventDescription(event: {
+  start: { dateTime?: string; date?: string } | null;
+}): string {
+  if (!event.start?.dateTime) return event.start?.date ? "All day" : "Upcoming";
+  const date = new Date(event.start.dateTime);
+  if (!Number.isFinite(date.getTime())) return "Upcoming";
+  const now = new Date();
+  const isToday = date.toDateString() === now.toDateString();
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+  const day = isToday
+    ? "Today"
+    : date.toDateString() === tomorrow.toDateString()
+      ? "Tomorrow"
+      : date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  return `${day} · ${date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+
+function canJoinGoogleMeet(event: {
+  start: { dateTime?: string; date?: string } | null;
+  end: { dateTime?: string; date?: string } | null;
+  conferenceUrl?: string;
+}): boolean {
+  const start = eventInstant(event.start);
+  const end = eventInstant(event.end);
+  const now = Date.now();
+  return Boolean(event.conferenceUrl && start && end && now >= start - 15 * 60_000 && now <= end);
 }
 
 /**
@@ -290,6 +337,95 @@ function FeedPageSession({
     clearSmsEmergencies,
     consentUnlockPrompt,
   } = useFeedActionables();
+  const { upcomingEvents, pendingKyc, needsReplyCount } = useFeedBriefing();
+
+  const briefingActionables = useMemo<FeedActionable[]>(() => {
+    const items: FeedActionable[] = [];
+    const kycSortAt = eventInstant({
+      dateTime: pendingKyc?.receivedAt ?? pendingKyc?.createdAt ?? undefined,
+    });
+    if (pendingKyc) {
+      items.push({
+        id: `kyc-request:${pendingKyc.workflowId}`,
+        icon: KycAgentIcon,
+        iconTone: "capability",
+        title: "Information request ready to review",
+        description:
+          pendingKyc.count > 1
+            ? `${pendingKyc.count} requests are waiting. Nothing is shared until you choose.`
+            : "Nothing is shared until you choose what to send.",
+        onSelect: () => router.push(`${ROUTES.GMAIL}?workspace=kyc`),
+        chevron: true,
+        actions: [
+          {
+            key: "review",
+            label: "Review",
+            tone: "primary",
+            run: () => router.push(`${ROUTES.GMAIL}?workspace=kyc`),
+          },
+        ],
+        sortAt: kycSortAt,
+        displayTimestamp: kycSortAt || null,
+      });
+    }
+
+    if (needsReplyCount > 0) {
+      items.push({
+        id: "gmail-needs-reply",
+        icon: GmailAgentIcon,
+        iconTone: "capability",
+        title:
+          needsReplyCount === 1
+            ? "A message needs your reply"
+            : `${needsReplyCount} messages need your reply`,
+        description: "Open Mail to review your inbox threads.",
+        onSelect: () => router.push(ROUTES.GMAIL),
+        chevron: true,
+        actions: [
+          {
+            key: "open-mail",
+            label: "Open Mail",
+            tone: "primary",
+            run: () => router.push(ROUTES.GMAIL),
+          },
+        ],
+        sortAt: 0,
+        displayTimestamp: null,
+      });
+    }
+
+    return items.sort((a, b) => b.sortAt - a.sortAt);
+  }, [needsReplyCount, pendingKyc, router]);
+
+  const upcomingActionables = useMemo<FeedActionable[]>(() => {
+    return [...upcomingEvents]
+      .sort((a, b) => eventInstant(a.start) - eventInstant(b.start))
+      .slice(0, 3)
+      .map((event, index) => {
+        const joinable = canJoinGoogleMeet(event);
+        return {
+          id: `calendar:${event.title}:${event.start?.dateTime ?? event.start?.date ?? index}`,
+          icon: CalendarAgentIcon,
+          iconTone: "capability",
+          title: event.title || "Calendar event",
+          description: upcomingEventDescription(event),
+          onSelect: () => router.push(ROUTES.CALENDAR),
+          chevron: true,
+          actions: joinable
+            ? [
+                {
+                  key: "join-meet",
+                  label: "Join Meet",
+                  tone: "primary",
+                  run: () => openExternalUrl(event.conferenceUrl!),
+                },
+              ]
+            : [],
+          sortAt: eventInstant(event.start) || Number.MAX_SAFE_INTEGER,
+          displayTimestamp: null,
+        };
+      });
+  }, [router, upcomingEvents]);
 
   // Counts only -- never who, and never what any item says. The Feed is a list
   // of other people's names and activity; the only thing voice needs from it is
@@ -577,15 +713,19 @@ function FeedPageSession({
   // A live SOS share gets its own "Live" section, pinned above "Needs you",
   // so a safety alert is never mistaken for a routine pending item. Revoked or
   // expired SOS rows fall straight into the regular "Needs you" list.
-  const liveActionables = actionables.filter(
+  const allActionables = [...actionables, ...briefingActionables].sort(
+    (a, b) => b.sortAt - a.sortAt,
+  );
+  const liveActionables = allActionables.filter(
     (item) => item.emphasis === "emergency",
   );
-  const regularActionables = actionables.filter(
+  const regularActionables = allActionables.filter(
     (item) => item.emphasis !== "emergency",
   );
   const hasLiveActionables = liveActionables.length > 0;
   const hasRegularActionables = regularActionables.length > 0;
   const hasActionables = hasLiveActionables || hasRegularActionables;
+  const hasUpcomingEvents = upcomingActionables.length > 0;
   const hasProgress = inProgress.length > 0 || progressOverflow.length > 0;
   // Once cleared this session, the loaded history rows are hidden even though
   // `items` still holds them (no backend delete yet), so the empty state shows.
@@ -594,9 +734,9 @@ function FeedPageSession({
     !clearWatermarkHydrated || loading || actionablesLoading || progressLoading;
   const hasRefreshError = Boolean(resourceError || actionablesError || progressError);
   const showEmpty =
-    !contentLoading && !hasActionables && !hasProgress && !hasHistory && !hasRefreshError;
+    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && !hasRefreshError;
   const showColdError =
-    !contentLoading && !hasActionables && !hasProgress && !hasHistory && hasRefreshError;
+    !contentLoading && !hasActionables && !hasUpcomingEvents && !hasProgress && !hasHistory && hasRefreshError;
   const showStaleWarning = hasRefreshError && (hasActionables || hasProgress || hasHistory);
   // The Clear affordance only makes sense when there is dismissable history
   // showing. Actionables ("Needs you") are otherwise deliberately NOT
@@ -608,7 +748,7 @@ function FeedPageSession({
     ? "loading"
     : showColdError
       ? "error"
-      : hasActionables || hasProgress || hasHistory
+      : hasActionables || hasUpcomingEvents || hasProgress || hasHistory
         ? "loaded"
         : "empty-valid";
 
@@ -660,6 +800,17 @@ function FeedPageSession({
               </div>
             </section>
           ) : null}
+
+            {hasUpcomingEvents ? (
+              <section aria-label="Coming up">
+                <SectionLabel>Coming up</SectionLabel>
+                <SettingsGroup separatorInset testId="feed-upcoming-events-group">
+                  {upcomingActionables.map((item) => (
+                    <FeedActionableRow key={item.id} item={item} />
+                  ))}
+                </SettingsGroup>
+              </section>
+            ) : null}
 
             {hasProgress ? (
               <section aria-label="In progress" aria-live="polite">

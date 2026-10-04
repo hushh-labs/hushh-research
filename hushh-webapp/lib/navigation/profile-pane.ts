@@ -1,4 +1,5 @@
 import type {
+  LegalDocumentDetail,
   ProfileDetail,
   ProfilePanel,
 } from "@/lib/navigation/profile-routes";
@@ -85,6 +86,35 @@ export function buildProfileConnectorsPaneHref(
     null,
     profileConnectorsLocation(connectorId),
   );
+}
+
+/**
+ * Where a connector sign-in lands once the provider sends the person back.
+ * Both land on Connectors in the Profile pane, never on a page of its own: a
+ * sign-in started in Profile reopens the pane over One, and one started in
+ * chat reopens it over the chat (`/`), which restores its saved draft
+ * underneath.
+ */
+export function buildConnectorSignInReturnHref(
+  startedFrom: "connector_settings" | "chat",
+): string {
+  return profilePaneHref(
+    startedFrom === "connector_settings" ? "/one" : "/",
+    null,
+    profileConnectorsLocation(),
+  );
+}
+
+/**
+ * A legal document read in place in Profile's Legal section. Profile never
+ * leaves the pane for the public /terms or /privacy page: those addresses are
+ * for people who are signed out, the store listings and Google's consent
+ * screen.
+ */
+export function profileLegalLocation(
+  document: LegalDocumentDetail,
+): ProfilePaneLocation {
+  return { panel: "legal", detail: document };
 }
 
 export function profilePaneLocationKey(location: ProfilePaneLocation): string {
@@ -419,22 +449,43 @@ export function clearProfilePaneQuery(
 
 export type ProfilePaneOpenSource = "tap" | "native_swipe";
 
+/**
+ * Fired by the pane body once it has actually mounted for an open. A request
+ * answered "opening" is only a request; this is the evidence it is showing.
+ */
+export const PROFILE_PANE_SHOWN_EVENT = "hushh:profile-pane-shown";
+
+/** The shell's synchronous answer to an open request. */
+export type ProfilePaneOpenResult = "opening" | "already_open" | "unavailable";
+
 export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
+  /** Called synchronously by the shell listener with what it did. */
+  onResult?: (result: ProfilePaneOpenResult) => void;
 };
 
 /**
  * Ask the app shell to present Profile as a transient pane. The shell owns the
  * pane lifecycle so the top bar, native edge gesture, and future entry points
  * share one surface without adding another navigation stack.
+ *
+ * Returns the shell's answer, or null when no shell listener is mounted.
+ * dispatchEvent is synchronous, so the listener has answered by return.
  */
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
-): void {
-  if (typeof window === "undefined") return;
+): ProfilePaneOpenResult | null {
+  if (typeof window === "undefined") return null;
+  let result: ProfilePaneOpenResult | null = null;
   window.dispatchEvent(
     new CustomEvent<ProfilePaneOpenDetail>(PROFILE_PANE_OPEN_EVENT, {
-      detail: { source },
+      detail: {
+        source,
+        onResult: (value) => {
+          result = value;
+        },
+      },
     }),
   );
+  return result;
 }

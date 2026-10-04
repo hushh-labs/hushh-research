@@ -54,6 +54,17 @@ def test_added_app_result_preserves_old_clients_and_authored_tail():
     assert not _workflow_change_is_additive(before, before, "workflows:workflow.setup.location")
 
 
+def test_knowledge_package_digest_refresh_does_not_change_workflow_semantics():
+    before, _ = graphs()
+    after = deepcopy(before)
+    before["workflows"][0]["knowledge_package"] = {"source_digest": "before"}
+    before["workflows"][0]["plan"] = {"knowledge_package_digest": "before"}
+    after["workflows"][0]["knowledge_package"] = {"source_digest": "after"}
+    after["workflows"][0]["plan"] = {"knowledge_package_digest": "after"}
+
+    assert _workflow_change_is_additive(before, after, "workflows:workflow.setup.location")
+
+
 def test_merged_workflow_history_preserves_both_compatible_branches():
     before, after = graphs()
     before["revision"] = "shipped"

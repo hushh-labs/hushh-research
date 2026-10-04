@@ -13,6 +13,11 @@ export type RedactedCalendarEvent = {
   start: CalendarEventTime;
   end: CalendarEventTime;
   status: string | null;
+  /**
+   * A verified Google Meet URL. This remains in React memory with the event
+   * list; it is not written to a cache, analytics payload, or Feed history.
+   */
+  conferenceUrl?: string;
 };
 
 export type UseCalendarUpcomingEventsParams = {
@@ -33,16 +38,30 @@ export type UseCalendarUpcomingEventsResult = {
 
 /**
  * The ONLY function permitted to read GoogleCalendarService.listEvents()'s
- * raw response. Redacts to title/start/end/status only. raw.description,
- * raw.location, raw.attendees, and raw.html_link must never leave this
- * function.
+ * raw response. Redacts to title/start/end/status and a verified Google Meet
+ * URL only. raw.description, raw.location, raw.attendees, and raw.html_link
+ * must never leave this function.
  */
+function googleMeetUrl(value: string | null | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "meet.google.com"
+      ? url.toString()
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function redactEvent(raw: CalendarEventSummary): RedactedCalendarEvent {
+  const conferenceUrl = googleMeetUrl(raw.conference_url);
   return {
     title: raw.title,
     start: raw.start ?? null,
     end: raw.end ?? null,
     status: raw.status ?? null,
+    ...(conferenceUrl ? { conferenceUrl } : {}),
   };
 }
 

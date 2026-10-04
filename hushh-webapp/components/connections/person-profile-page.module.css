@@ -40,8 +40,9 @@
 .request { grid-column: 1; grid-row: 1; }
 .share { grid-column: 2; grid-row: 1; border: 1px solid var(--border); }
 .share:only-child { grid-column: 1 / -1; }
-.manage { grid-column: 1 / -1; grid-row: 2; background: transparent; }
-.relationship { grid-column: 1 / -1; grid-row: 3; justify-self: center; font-size: 13px; }
+.message { grid-column: 1 / -1; grid-row: 2; }
+.manage { grid-column: 1 / -1; grid-row: 3; background: transparent; }
+.relationship { grid-column: 1 / -1; grid-row: 4; justify-self: center; font-size: 13px; }
 .actions .relationship { min-height: 44px; margin-top: 4px; padding: 10px 20px; font-size: 13px; font-weight: 500; }
 
 .empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 96px; padding: 16px; text-align: center; }

@@ -59,8 +59,8 @@ const AGENT_SECTION_OVERRIDES: Record<
   email: {
     routeFamily: "one",
     bottomNavScope: "one",
-    screenId: "one_kyc",
-    voiceRouteActionId: "route.one_kyc",
+    screenId: "gmail",
+    voiceRouteActionId: "route.profile_receipts",
   },
   location: {
     routeFamily: "one",
