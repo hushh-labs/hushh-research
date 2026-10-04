@@ -429,6 +429,7 @@ export function ByocCloudSetupPage() {
           {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
         </>
       ),
+      supportingDecorative: true,
       testId: "cloud-tier-own",
     },
     {

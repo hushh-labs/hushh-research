@@ -22,6 +22,8 @@ export type HostingChoiceOption = {
   description: string;
   /** At most one quiet line under the description: a status, or decorative provider marks. */
   supporting?: ReactNode;
+  /** The supporting line is purely visual (provider marks): hidden from assistive tech. */
+  supportingDecorative?: boolean;
   /** Visible and honest, but not takeable (Hussh Pods while it is paused). */
   unavailable?: boolean;
   testId: string;
@@ -115,7 +117,7 @@ export function HostingChoiceCards({
               aria-checked={checked}
               aria-labelledby={titleId}
               aria-describedby={
-                option.supporting
+                option.supporting && !option.supportingDecorative
                   ? `${descriptionId} ${supportingId}`
                   : descriptionId
               }
@@ -177,6 +179,7 @@ export function HostingChoiceCards({
                 {option.supporting ? (
                   <span
                     id={supportingId}
+                    aria-hidden={option.supportingDecorative || undefined}
                     className="flex min-h-5 items-center gap-1.5 text-[13px] leading-5 text-[var(--app-text-secondary)]"
                   >
                     {option.supporting}
