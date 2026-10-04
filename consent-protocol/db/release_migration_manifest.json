@@ -241,7 +241,8 @@
     "267_gmail_receipt_cache_read_only_cutover.sql",
     "268_direct_message_feed_projection.sql",
     "269_one_referral_gamification_settings.sql",
-    "270_one_referral_cumulative_scoring.sql"
+    "270_one_referral_cumulative_scoring.sql",
+    "271_one_referral_circles_and_milestones.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -501,6 +502,7 @@
     "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
     "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql",
     "269_one_referral_gamification_settings.sql": "rollback/269_one_referral_gamification_settings.rollback.sql",
-    "270_one_referral_cumulative_scoring.sql": "rollback/270_one_referral_cumulative_scoring.rollback.sql"
+    "270_one_referral_cumulative_scoring.sql": "rollback/270_one_referral_cumulative_scoring.rollback.sql",
+    "271_one_referral_circles_and_milestones.sql": "rollback/271_one_referral_circles_and_milestones.rollback.sql"
   }
 }

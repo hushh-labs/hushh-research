@@ -18,6 +18,11 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
 from api.referral_listener import get_referral_queue, release_referral_queue
+from hushh_mcp.services.one_referral_circle_service import (
+    CircleSelectionError,
+    get_active_circle_selection,
+    select_competition_circle,
+)
 from hushh_mcp.services.one_referral_service import (
     ReferralProgramDisabled,
     ReferralServiceError,
@@ -98,6 +103,39 @@ async def bind_referral_attribution(
     except Exception:
         logger.exception("[referrals] bind_failed")
         raise HTTPException(status_code=500, detail={"code": "REFERRAL_BIND_FAILED"})
+
+
+class SelectCircleRequest(BaseModel):
+    circle_id: str = Field(..., max_length=64)
+
+
+@router.get("/circle")
+async def referral_circle_selection(firebase_uid: str = Depends(require_firebase_auth)):
+    """This person's current referral-contest team, if any."""
+    selection = get_active_circle_selection(firebase_uid)
+    if selection is None:
+        return {"circle_id": None}
+    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
+
+
+@router.post("/circle")
+async def select_referral_circle(
+    payload: SelectCircleRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Choose this person's one active referral-contest team.
+
+    Requires the caller already be an accepted member of that Location
+    Circle -- this endpoint grants no membership and changes no capacity.
+    """
+    try:
+        selection = select_competition_circle(firebase_uid, payload.circle_id)
+    except CircleSelectionError:
+        raise HTTPException(status_code=403, detail={"code": "REFERRAL_CIRCLE_NOT_A_MEMBER"})
+    except Exception:
+        logger.exception("[referrals] circle_selection_failed")
+        raise HTTPException(status_code=500, detail={"code": "REFERRAL_CIRCLE_SELECTION_FAILED"})
+    return {"circle_id": selection.circle_id, "selected_at": selection.selected_at.isoformat()}
 
 
 # Long enough that a quiet stream is not mistaken for a dead one by any proxy in

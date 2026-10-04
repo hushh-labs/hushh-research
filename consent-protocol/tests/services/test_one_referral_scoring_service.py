@@ -131,6 +131,9 @@ class _ProcessJobConnection:
         existing_streak_row: date | None = None,
         qualifying_dates: list[date] | None = None,
         raise_on_score_insert: bool = False,
+        contributing_circle_id: str | None = None,
+        lifetime_qualified_count: int = 1,
+        already_earned_milestone_keys: frozenset = frozenset(),
     ):
         self.relationship_status = relationship_status
         self.qualified_at = qualified_at
@@ -142,9 +145,15 @@ class _ProcessJobConnection:
             else ([qualified_at.date()] if qualified_at else [])
         )
         self.raise_on_score_insert = raise_on_score_insert
+        self.contributing_circle_id = contributing_circle_id
+        self.lifetime_qualified_count = lifetime_qualified_count
+        self.already_earned_milestone_keys = already_earned_milestone_keys
         self.inserted_score_events: list[dict] = []
         self.streak_updates: list[date] = []
         self.job_updates: list[dict] = []
+        self.inserted_circle_contributions: list[dict] = []
+        self.issued_milestones: list[dict] = []
+        self._next_entitlement_id = 1
 
     def execute(self, query, params=None):
         sql = str(query)
@@ -164,6 +173,26 @@ class _ProcessJobConnection:
             if self.raise_on_score_insert:
                 raise RuntimeError("simulated insert failure")
             self.inserted_score_events.append(dict(params))
+            return _Result([])
+        if "SELECT circle_id" in sql and "one_referral_circle_selections" in sql:
+            if self.contributing_circle_id is None:
+                return _Result([])
+            return _Result([SimpleNamespace(circle_id=self.contributing_circle_id)])
+        if "INSERT INTO one_referral_circle_contributions" in sql:
+            self.inserted_circle_contributions.append(dict(params))
+            return _Result([])
+        if "SELECT COUNT(*) AS total" in sql and "one_referral_relationships" in sql:
+            return _Result([SimpleNamespace(total=self.lifetime_qualified_count)])
+        if "SELECT milestone_key" in sql and "one_referral_milestone_entitlements" in sql:
+            return _Result(
+                [SimpleNamespace(milestone_key=key) for key in self.already_earned_milestone_keys]
+            )
+        if "INSERT INTO one_referral_milestone_entitlements" in sql:
+            entitlement_id = self._next_entitlement_id
+            self._next_entitlement_id += 1
+            self.issued_milestones.append(dict(params))
+            return _Result([SimpleNamespace(id=entitlement_id)])
+        if "INSERT INTO one_referral_fulfillment_records" in sql:
             return _Result([])
         if "SELECT last_awarded_through_date" in sql:
             if not self.streak_row_exists:
@@ -257,6 +286,66 @@ def test_process_one_job_does_not_reaward_a_streak_already_paid(monkeypatch):
 
     assert result["streak_awards"] == 0
     assert all(e.get("event_type") != "streak_bonus" for e in conn.inserted_score_events)
+
+
+def test_process_one_job_records_a_circle_contribution_when_a_team_is_selected(monkeypatch):
+    _patch_settings(monkeypatch, _settings_row())
+    circle_id = "circle-123"
+    conn = _ProcessJobConnection(
+        qualifying_dates=[date(2026, 11, 3)], contributing_circle_id=circle_id
+    )
+
+    with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = scoring_service.process_one_job(_job())
+
+    assert result["contributed_circle_id"] == circle_id
+    assert len(conn.inserted_circle_contributions) == 1
+    assert conn.inserted_circle_contributions[0]["cid"] == circle_id
+    assert conn.inserted_circle_contributions[0]["rid"] == RELATIONSHIP_ID
+
+
+def test_process_one_job_records_no_contribution_when_no_team_is_selected(monkeypatch):
+    _patch_settings(monkeypatch, _settings_row())
+    conn = _ProcessJobConnection(qualifying_dates=[date(2026, 11, 3)], contributing_circle_id=None)
+
+    with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = scoring_service.process_one_job(_job())
+
+    assert result["contributed_circle_id"] is None
+    assert conn.inserted_circle_contributions == []
+
+
+def test_process_one_job_issues_a_milestone_on_crossing_its_threshold(monkeypatch):
+    settings = _settings_row(
+        milestones=[{"milestone_key": "tee_5", "threshold": 5, "reward": "hushh_tee"}]
+    )
+    _patch_settings(monkeypatch, settings)
+    conn = _ProcessJobConnection(qualifying_dates=[date(2026, 11, 3)], lifetime_qualified_count=5)
+
+    with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = scoring_service.process_one_job(_job())
+
+    assert result["milestones_issued"] == ["tee_5"]
+    assert len(conn.issued_milestones) == 1
+    assert conn.issued_milestones[0]["key"] == "tee_5"
+
+
+def test_process_one_job_does_not_reissue_an_already_earned_milestone(monkeypatch):
+    settings = _settings_row(
+        milestones=[{"milestone_key": "tee_5", "threshold": 5, "reward": "hushh_tee"}]
+    )
+    _patch_settings(monkeypatch, settings)
+    conn = _ProcessJobConnection(
+        qualifying_dates=[date(2026, 11, 3)],
+        lifetime_qualified_count=6,
+        already_earned_milestone_keys=frozenset({"tee_5"}),
+    )
+
+    with patch.object(scoring_service, "get_db_connection", side_effect=lambda: _db(conn)):
+        result = scoring_service.process_one_job(_job())
+
+    assert result["milestones_issued"] == []
+    assert conn.issued_milestones == []
 
 
 def test_process_one_job_skips_a_relationship_no_longer_qualified(monkeypatch):

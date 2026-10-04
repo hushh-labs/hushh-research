@@ -29,10 +29,15 @@ from hushh_mcp.operons.referral_scoring.points import (
     compute_streak_awards,
     points_for_qualification,
 )
+from hushh_mcp.services.one_referral_circle_service import (
+    record_circle_contribution,
+    resolve_contributing_circle,
+)
 from hushh_mcp.services.one_referral_program_settings_service import (
     ProgramSettings,
     get_active_program_settings,
 )
+from hushh_mcp.services.one_referral_rewards_service import evaluate_and_issue_milestones
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +224,25 @@ def process_one_job(job: dict) -> dict:
                 },
             )
 
+            contributing_circle_id = resolve_contributing_circle(
+                connection, user_id=relationship.referrer_user_id, as_of=relationship.qualified_at
+            )
+            if contributing_circle_id is not None:
+                record_circle_contribution(
+                    connection,
+                    relationship_id=relationship_id,
+                    user_id=relationship.referrer_user_id,
+                    circle_id=contributing_circle_id,
+                    contributed_at=relationship.qualified_at,
+                )
+
+            milestones_issued = evaluate_and_issue_milestones(
+                connection,
+                user_id=relationship.referrer_user_id,
+                settings_milestones=settings.milestones,
+                settings_version=settings.version,
+            )
+
             program_timezone = (
                 str(settings.weekly_schedule.get("timezone") or "").strip() or _FALLBACK_TIMEZONE
             )
@@ -303,7 +327,13 @@ def process_one_job(job: dict) -> dict:
         _record_job_failure(job_id, job.get("retry_count", 0))
         return {"status": "failed"}
 
-    return {"status": "completed", "event_type": award.event_type, "streak_awards": len(new_awards)}
+    return {
+        "status": "completed",
+        "event_type": award.event_type,
+        "streak_awards": len(new_awards),
+        "contributed_circle_id": contributing_circle_id,
+        "milestones_issued": [m["milestone_key"] for m in milestones_issued],
+    }
 
 
 def _record_job_failure(job_id: str, retry_count: int) -> None:
