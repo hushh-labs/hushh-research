@@ -640,6 +640,16 @@
       "blocked_user_id",
       "created_at"
     ],
+    "directory_listing_claims": [
+      "id",
+      "user_id",
+      "listing_id",
+      "listing_name",
+      "status",
+      "created_at",
+      "resolved_at",
+      "resolution_note"
+    ],
     "document_chunks": [
       "document_id",
       "user_id",
@@ -2058,6 +2068,20 @@
       "created_at",
       "updated_at"
     ],
+    "pkm_packets": [
+      "id",
+      "owner_user_id",
+      "packet_kind",
+      "title",
+      "description",
+      "contents",
+      "price_cents",
+      "credit_cost",
+      "currency",
+      "for_sale",
+      "created_at",
+      "updated_at"
+    ],
     "pkm_scope_registry": [
       "user_id",
       "domain",
@@ -2368,30 +2392,6 @@
       "onboarding_callback_state",
       "onboarding_callback_attempt_id",
       "onboarding_journey_updated_at",
-      "created_at",
-      "updated_at"
-    ],
-    "directory_listing_claims": [
-      "id",
-      "user_id",
-      "listing_id",
-      "listing_name",
-      "status",
-      "created_at",
-      "resolved_at",
-      "resolution_note"
-    ],
-    "pkm_packets": [
-      "id",
-      "owner_user_id",
-      "packet_kind",
-      "title",
-      "description",
-      "contents",
-      "price_cents",
-      "credit_cost",
-      "currency",
-      "for_sale",
       "created_at",
       "updated_at"
     ]
