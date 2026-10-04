@@ -170,7 +170,15 @@ async def test_route_admits_style_as_an_opaque_turn_reference(monkeypatch, unloc
     monkeypatch.setattr(
         agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    # This branch reads vault authority from the consent header on shared hosting.
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", b"Bearer synthetic")]
+            + ([(b"x-hushh-consent", b"HCT:synthetic")] if unlocked else []),
+        }
+    )
     run = _input()
     run.forwarded_props = {"communicationPreferences": {"preferred_name": "Kay", "tone": "warm"}}
     with bound_request_chat_key("owner"):

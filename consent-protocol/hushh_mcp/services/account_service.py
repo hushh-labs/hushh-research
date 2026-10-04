@@ -1876,7 +1876,7 @@ class AccountService:
         # The first transaction has rolled back. The second independently checks
         # completion and archives evidence; a provider result cannot bypass it.
         return await self._delete_full_account_transaction(
-            user_id, requested_target=requested_target
+            user_id, requested_target=requested_target, backend_only=backend_only
         )
 
     async def _delete_full_account_transaction(

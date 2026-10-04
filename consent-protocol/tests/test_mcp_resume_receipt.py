@@ -176,7 +176,19 @@ async def test_chat_state_keeps_owner_name_as_an_expiring_reference(monkeypatch,
     monkeypatch.setattr(
         agent_chat, "_owner_display_name_for_turn", AsyncMock(return_value="Akshat Kumar")
     )
-    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+    # This branch admits the owner through Firebase identity plus the vault consent
+    # header on shared hosting, the same shape as the admission tests above.
+    monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    request = Request(
+        {
+            "type": "http",
+            "headers": [
+                (b"authorization", b"Bearer synthetic"),
+                (b"x-hushh-consent", b"HCT:synthetic"),
+            ],
+        }
+    )
 
     state = await agent_chat._extract_state(request, _input())
 

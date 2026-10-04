@@ -1440,7 +1440,7 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
     assert transaction.await_count == (2 if outcome == "complete" else 1)
     for call in transaction.await_args_list:
         assert call.args == ("owner-one",)
-        assert call.kwargs == {"requested_target": "investor"}
+        assert call.kwargs == {"requested_target": "investor", "backend_only": False}
 
 
 def _erasure_ready_service(monkeypatch):
