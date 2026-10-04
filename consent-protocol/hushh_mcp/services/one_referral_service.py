@@ -44,6 +44,7 @@ from hushh_mcp.operons.referral.slug import (
     is_valid_slug,
     normalize_slug,
 )
+from hushh_mcp.services.one_referral_scoring_service import enqueue_scoring_work
 
 # What a referrer is told about where someone has reached. Deliberately about
 # the STEP, never the person: no name, no phone, no agent, no device. Four words
@@ -596,7 +597,7 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
         relationship = connection.execute(
             text(
                 """
-                SELECT id, status
+                SELECT id, status, referrer_user_id
                   FROM one_referral_relationships
                  WHERE referred_user_id = :uid
                  LIMIT 1
@@ -646,5 +647,15 @@ def sync_referral_qualification_from_onboarding(referred_user_id: str) -> dict:
                 step_ts = onboarded_at if step == ONBOARDED and onboarded_at else now
                 connection.execute(_STEP_SQL[step], {"ts": step_ts, "rid": relationship.id})
         connection.execute(_TARGET_SQL[decision.target_status], {"ts": now, "rid": relationship.id})
+
+        if decision.target_status == QUALIFIED:
+            # Same transaction as the UPDATE above: the relationship
+            # reaching `qualified`, the canonical qualification event, and
+            # the durable scoring job either all commit together or none do.
+            enqueue_scoring_work(
+                connection,
+                relationship_id=str(relationship.id),
+                user_id=relationship.referrer_user_id,
+            )
 
     return {"status": "updated", "relationship_status": decision.target_status}

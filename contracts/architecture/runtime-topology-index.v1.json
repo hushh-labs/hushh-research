@@ -1073,14 +1073,31 @@
         "one_referral_attributions",
         "one_referral_codes",
         "one_referral_events",
+        "one_referral_leaderboard_snapshot_entries",
+        "one_referral_leaderboard_snapshots",
         "one_referral_policies",
         "one_referral_relationships",
-        "one_referral_risk_reviews"
+        "one_referral_reward_rounds",
+        "one_referral_risk_reviews",
+        "one_referral_score_events",
+        "one_referral_scoring_jobs",
+        "one_referral_streak_state"
       ],
       "id": "one_referral_program",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only."
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 269 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 270 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_voice_conversations",
+        "one_voice_pending_actions"
+      ],
+      "id": "one_voice_live_runtime",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "hushh_mcp/one_voice ConversationStore and PendingActionStore used by the One Live Voice relay (WS /api/one/voice/live) and the pending-action HTTP twins (migration 222). Conversations hold the canonical-id entity context, the provider resumption handle, and per-session counters; pending actions are confirmation-gated voice mutations (voice or tap tier, hashed single-use receipt, one open per conversation, 120 s TTL)."
     },
     {
       "data_class": "personal_projection",

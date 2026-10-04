@@ -148,6 +148,7 @@ from api.routes import (  # noqa: E402
     health,
     hushh_tech,
     notifications,
+    referral_scoring_drain,
     session,
     sse,
     trust,
@@ -301,6 +302,11 @@ app.include_router(agents.router)
 
 # Profile Connected Systems routes (/api/connected-systems/...)
 app.include_router(connected_systems.router)
+
+# A separately authenticated, default-off Cloud Scheduler route drains the
+# durable referral-scoring queue (one_referral_scoring_jobs). It has no
+# startup/background execution path.
+app.include_router(referral_scoring_drain.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
