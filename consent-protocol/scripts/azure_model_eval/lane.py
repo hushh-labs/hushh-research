@@ -34,7 +34,12 @@ CONTAINER = os.environ["EVAL_RESULTS_CONTAINER"]
 PLAN = json.loads(os.environ["EVAL_PLAN"])
 PREFIX = f"{os.environ['EVAL_RESULTS_PREFIX'].rstrip('/')}/{PLAN['lane']}"
 ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT", "")
-DRIVERS = {"ft": "run_first_tool_azure.py", "nav": "run_nav_turns.py", "so": "run_structured.py"}
+DRIVERS = {
+    "ft": "run_first_tool_azure.py",
+    "nav": "run_nav_turns.py",
+    "so": "run_structured.py",
+    "conn": "run_conn_probe.py",
+}
 STORAGE = "https://storage.azure.com"
 
 import requests  # noqa: E402
