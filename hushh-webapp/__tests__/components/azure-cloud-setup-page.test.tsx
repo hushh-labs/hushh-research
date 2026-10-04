@@ -62,6 +62,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
+const SUBSCRIPTION = "00000000-0000-0000-0000-000000000000";
 /** What the hub writes as an Azure job's projectId: `azure_setup_plan.group_id`. */
 const AZURE_GROUP = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hussh-one-abc";
 const NO_JOB = {
@@ -83,15 +84,22 @@ async function openOwnCloud() {
   fireEvent.click(await screen.findByTestId("cloud-tier-own"));
 }
 
+function enterSubscription(value: string) {
+  fireEvent.change(screen.getByTestId("azure-card-subscription-id"), { target: { value } });
+}
+
 describe("Connect Azure on the cloud step", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({ hostingMode: "shared" });
     vi.mocked(ApiService.getByocSetupStatus).mockResolvedValue({ ...NO_JOB });
     vi.mocked(ApiService.beginAzureByocAuthorize).mockResolvedValue({ authorizationUrl: SIGN_IN });
+    // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
+    vi.spyOn(window, "open").mockReturnValue(null);
   });
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("keeps the Google path unchanged while Azure is not admitted on this build", async () => {
@@ -128,10 +136,55 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    enterSubscription(` ${SUBSCRIPTION.toUpperCase()} `);
     fireEvent.click(screen.getByTestId("azure-connect"));
     await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(SIGN_IN));
-    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({});
+    // Always for a named subscription, so Microsoft signs in to that directory.
+    expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION });
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
+  });
+
+  it("keeps Connect Azure off until the subscription id is a real id", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
+    render(<ByocCloudSetupPage />);
+    await openOwnCloud();
+    fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    expect(screen.getByTestId("azure-connect")).toBeDisabled();
+    enterSubscription("not-a-subscription");
+    expect(screen.getByTestId("azure-connect")).toBeDisabled();
+    expect(screen.getByTestId("azure-card-subscription-id")).toHaveAttribute("aria-invalid", "true");
+    expect(screen.getByTestId("azure-card-find-subscription")).toHaveAttribute("target", "_blank");
+  });
+
+  it("signs in to Microsoft in a popup when the browser allows one", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
+    const popup = { closed: false, location: { assign: vi.fn() }, focus: vi.fn(), close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(popup as unknown as Window);
+    render(<ByocCloudSetupPage />);
+    await openOwnCloud();
+    fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    enterSubscription(SUBSCRIPTION);
+    fireEvent.click(screen.getByTestId("azure-connect"));
+    // Opened inside the tap (popup blockers need the gesture), filled once the hub answers.
+    expect(window.open).toHaveBeenCalledWith("about:blank", "hussh-azure-sign-in", expect.stringContaining("popup"));
+    await waitFor(() => expect(popup.location.assign).toHaveBeenCalledWith(SIGN_IN));
+    expect(mocks.assign).not.toHaveBeenCalled();
+  });
+
+  it("closes the popup when the hub refuses to start the sign-in", async () => {
+    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
+    const popup = { closed: false, location: { assign: vi.fn() }, focus: vi.fn(), close: vi.fn() };
+    vi.mocked(window.open).mockReturnValue(popup as unknown as Window);
+    vi.mocked(ApiService.beginAzureByocAuthorize).mockRejectedValue(
+      new AzureByocError("AZURE_AUTHORIZE_BEGIN_FAILED", { httpStatus: 503 }),
+    );
+    render(<ByocCloudSetupPage />);
+    await openOwnCloud();
+    fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    enterSubscription(SUBSCRIPTION);
+    fireEvent.click(screen.getByTestId("azure-connect"));
+    await waitFor(() => expect(popup.close).toHaveBeenCalled());
+    expect(popup.location.assign).not.toHaveBeenCalled();
   });
 
   it("shows the hub's refusal in the page's alert and never navigates", async () => {
@@ -146,6 +199,7 @@ describe("Connect Azure on the cloud step", () => {
     render(<ByocCloudSetupPage />);
     await openOwnCloud();
     fireEvent.click(await screen.findByRole("radio", { name: "Microsoft Azure" }));
+    enterSubscription(SUBSCRIPTION);
     fireEvent.click(screen.getByTestId("azure-connect"));
     expect(await screen.findByTestId("byoc-cloud-error")).toHaveTextContent("Verify your phone number first.");
     expect(screen.getByTestId("byoc-cloud-verify-phone")).toBeTruthy();
@@ -188,7 +242,10 @@ describe("Connect Azure on the cloud step", () => {
     expect(failed).toHaveTextContent("Approve the Hussh app in your directory, then try again.");
     expect(screen.queryByTestId("byoc-open-billing")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Sign in with Microsoft again" }));
-    await waitFor(() => expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({}));
+    // The retry reads the subscription back from the failed job's record.
+    await waitFor(() =>
+      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION }),
+    );
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 
@@ -207,7 +264,10 @@ describe("Connect Azure on the cloud step", () => {
     );
     render(<ByocCloudSetupPage />);
     fireEvent.click(await screen.findByTestId("byoc-setup-retry"));
-    await waitFor(() => expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({}));
+    // The retry reads the subscription back from the failed job's record.
+    await waitFor(() =>
+      expect(ApiService.beginAzureByocAuthorize).toHaveBeenCalledWith({ subscriptionId: SUBSCRIPTION }),
+    );
     expect(ApiService.beginByocAuthorize).not.toHaveBeenCalled();
   });
 

@@ -14,7 +14,11 @@ import { SetupStageChecklist } from "@/components/connections/byoc-setup-stage-c
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { useAzureSignIn } from "@/lib/one/azure-sign-in";
+import {
+  azureSubscriptionFromRef,
+  useAzureSetupStartedSignal,
+  useAzureSignIn,
+} from "@/lib/one/azure-sign-in";
 import {
   setupChecklistFor,
   setupJobProvider,
@@ -98,6 +102,9 @@ export function ByocCloudSetupPage() {
   const { start: startAzureSignIn } = azureSignIn;
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
+  // The popup finished and the hub started the job: read it now, not in 2s.
+  const [setupPollNonce, setSetupPollNonce] = useState(0);
+  useAzureSetupStartedSignal(() => setSetupPollNonce((value) => value + 1));
   const [job, setJob] = useState<Awaited<
     ReturnType<typeof ApiService.getByocSetupStatus>
   > | null>(null);
@@ -223,7 +230,7 @@ export function ByocCloudSetupPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [user?.uid, hostingMode]);
+  }, [user?.uid, hostingMode, setupPollNonce]);
 
   useEffect(() => {
     if (!user?.uid || hostingMode !== "byoc" || ownerProvider === "azure") return;
@@ -303,11 +310,15 @@ export function ByocCloudSetupPage() {
     }
   }, []);
 
-  // Azure's one-click setup: the Microsoft sign-in, then the return route.
-  const startAzureSetup = useCallback(() => {
-    setError(null);
-    return startAzureSignIn("setup");
-  }, [startAzureSignIn]);
+  // Azure's one-click setup: the Microsoft sign-in (in a popup), then the return
+  // route. Always for a named subscription, so it signs in to that directory.
+  const startAzureSetup = useCallback(
+    (subscriptionId: string | null) => {
+      setError(null);
+      return startAzureSignIn("setup", subscriptionId ?? undefined);
+    },
+    [startAzureSignIn],
+  );
 
   const chooseHosted = useCallback(async () => {
     setError(null);
@@ -444,7 +455,7 @@ export function ByocCloudSetupPage() {
             busy={saving || azureSignIn.starting}
             onRetry={(retry) =>
               void (retry.provider === "azure"
-                ? startAzureSetup()
+                ? startAzureSetup(azureSubscriptionFromRef(job.projectId))
                 : handleProjectNamed(retry.projectId))
             }
           />
@@ -495,7 +506,7 @@ export function ByocCloudSetupPage() {
               className="min-h-11 rounded-full border border-[var(--app-border)] px-4 text-sm font-medium disabled:opacity-60"
               onClick={() =>
                 void (ownerProvider === "azure"
-                  ? startAzureSetup()
+                  ? startAzureSetup(azureSubscriptionFromRef(reservedProjectId))
                   : handleProjectNamed(reservedProjectId))
               }
               data-testid="byoc-reserved-project-deploy"

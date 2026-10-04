@@ -22,8 +22,8 @@ type OwnerCloudProviderChoiceProps = {
   /** Google Cloud Platform: the named project to authorize. */
   onProjectNamed: (projectId: string) => void | Promise<void>;
   projectBusy?: boolean;
-  /** Microsoft Azure: start the Microsoft sign-in. */
-  onConnectAzure: () => void | Promise<void>;
+  /** Microsoft Azure: start the Microsoft sign-in for the named subscription. */
+  onConnectAzure: (subscriptionId: string) => void | Promise<void>;
   azureBusy?: boolean;
 };
 

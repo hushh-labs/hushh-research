@@ -47,6 +47,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 }));
 
 import { AzureCloudReturnPage } from "@/components/connections/azure-cloud-return-page";
+import { AZURE_SIGN_IN_CHANNEL } from "@/lib/one/azure-sign-in";
 import {
   ROUTES,
   isOneSetupNavigationRoute,
@@ -79,8 +80,34 @@ describe("the Microsoft sign-in return", () => {
   it("sends a started setup to the cloud step's live checklist", async () => {
     complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
     render(<AzureCloudReturnPage />);
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD));
+    // No tab is listening (the same-tab flow): after the hand-off window, go there here.
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith(ROUTES.ONE_SETUP_CLOUD), {
+      timeout: 3000,
+    });
     expect(complete).toHaveBeenCalledWith({ code: "c0de", state: "st4te" });
+  });
+
+  it("in the popup, hands a started setup to the tab that opened it and closes", async () => {
+    complete.mockResolvedValue({ status: "setup_started", jobId: "job-1" });
+    const close = vi.spyOn(window, "close").mockImplementation(() => undefined);
+    const opener = new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
+    const heard: unknown[] = [];
+    opener.onmessage = (event) => {
+      heard.push(event.data);
+      opener.postMessage({ type: "azure-setup-ack" });
+    };
+    try {
+      render(<AzureCloudReturnPage />);
+      expect(await screen.findByTestId("azure-return-handed-off")).toHaveTextContent(
+        "You can close this window",
+      );
+      expect(heard).toEqual([{ type: "azure-setup-started" }]);
+      expect(close).toHaveBeenCalled();
+      expect(mocks.replace).not.toHaveBeenCalled();
+    } finally {
+      opener.close();
+      close.mockRestore();
+    }
   });
 
   it("exchanges the one-time code exactly once under Strict Mode", async () => {
@@ -90,7 +117,7 @@ describe("the Microsoft sign-in return", () => {
         <AzureCloudReturnPage />
       </StrictMode>,
     );
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalled(), { timeout: 3000 });
     expect(complete).toHaveBeenCalledOnce();
   });
 

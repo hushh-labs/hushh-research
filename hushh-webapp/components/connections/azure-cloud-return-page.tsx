@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
+  announceAzureSetupStarted,
   azureRetryKind,
   azureSignInErrorMessage,
   useAzureSignIn,
@@ -41,6 +42,7 @@ import type {
 type ReturnView =
   | { kind: "completing" }
   | { kind: "redirecting" }
+  | { kind: "handed_off" }
   | {
       kind: "needs_subscription";
       subscriptions: AzureSubscription[];
@@ -60,6 +62,7 @@ const RETURN_MESSAGES = {
 const TITLES: Record<ReturnView["kind"], string> = {
   completing: "Connecting Azure",
   redirecting: "Connecting Azure",
+  handed_off: "Azure is connected",
   needs_subscription: "Choose a subscription",
   upgrading: "Updating your agent",
   error: "Microsoft sign-in did not finish",
@@ -177,10 +180,30 @@ export function AzureCloudReturnPage() {
   const signIn = useAzureSignIn();
   const { start } = signIn;
 
-  // Setup progress lives on the cloud step, which polls the same job record.
+  // Setup progress lives on the cloud step, which polls the same job record. In
+  // the popup, the tab that opened it shows that progress: tell it, then close.
+  // With no tab listening (the same-tab flow), go to the cloud step here.
+  const [handedOff, setHandedOff] = useState(false);
+  // Announced once per sign-in: a re-render must not tell the opening tab twice.
+  const announced = useRef<Promise<boolean> | null>(null);
   useEffect(() => {
-    if (view.kind === "redirecting") router.replace(ROUTES.ONE_SETUP_CLOUD);
+    if (view.kind !== "redirecting") return;
+    announced.current ??= announceAzureSetupStarted();
+    let current = true;
+    void announced.current.then((acked) => {
+      if (!current) return;
+      if (!acked) {
+        router.replace(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
+      setHandedOff(true);
+      window.close();
+    });
+    return () => {
+      current = false;
+    };
   }, [view.kind, router]);
+  const shown: ReturnView = handedOff ? { kind: "handed_off" } : view;
 
   const retry = useCallback(async () => {
     const status = await ApiService.getPersonalAgentStatus().catch(() => null);
@@ -190,10 +213,14 @@ export function AzureCloudReturnPage() {
   return (
     <AppPageShell as="main" width="reading">
       <AppPageHeaderRegion>
-        <PageHeader title={TITLES[view.kind]} accent="neutral" />
+        <PageHeader title={TITLES[shown.kind]} accent="neutral" />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
-        {view.kind === "completing" || view.kind === "redirecting" ? (
+        {shown.kind === "handed_off" ? (
+          <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">
+            Your agent is being set up. You can close this window and follow along in Hussh.
+          </p>
+        ) : view.kind === "completing" || view.kind === "redirecting" ? (
           <HushhLoader label="Finishing Microsoft sign-in…" variant="inline" />
         ) : view.kind === "needs_subscription" ? (
           <AzureSubscriptionPicker
@@ -208,13 +235,13 @@ export function AzureCloudReturnPage() {
             onRetry={() => start("upgrade")}
             retrying={signIn.starting}
           />
-        ) : (
+        ) : view.kind === "error" ? (
           <ReturnError
             message={view.message}
             onRetry={() => void retry()}
             retrying={signIn.starting}
           />
-        )}
+        ) : null}
         {signIn.error ? (
           <p role="alert" className="text-sm text-destructive" data-testid="azure-sign-in-error">
             {signIn.error}

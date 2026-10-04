@@ -1,7 +1,7 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
@@ -32,16 +32,103 @@ export function isAzureSignInAvailable(): boolean {
   return !Capacitor.isNativePlatform();
 }
 
+const SUBSCRIPTION_REF = /^\/subscriptions\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:\/|$)/i;
+
+/**
+ * The subscription a setup job or reserved home names (`/subscriptions/<id>/...`).
+ * A retry signs in to that subscription's own directory: a personal Microsoft
+ * account cannot reach Azure through the shared `common` sign-in at all.
+ */
+export function azureSubscriptionFromRef(ref: string | null | undefined): string | null {
+  const match = SUBSCRIPTION_REF.exec(String(ref ?? ""));
+  return match?.[1]?.toLowerCase() ?? null;
+}
+
+/** Same-origin only: carries a "setup started" signal, never a code or token. */
+export const AZURE_SIGN_IN_CHANNEL = "hussh-azure-sign-in";
+const POPUP_NAME = "hussh-azure-sign-in";
+const POPUP_WIDTH = 520;
+const POPUP_HEIGHT = 720;
+
+type AzureSignInMessage = { type: "azure-setup-started" } | { type: "azure-setup-ack" };
+
+/**
+ * Opened synchronously inside the tap, before the hub is asked for the address,
+ * so a popup blocker sees a user gesture. `null` means blocked: the sign-in
+ * then continues in this tab, exactly as before.
+ */
+function openSignInPopup(): Window | null {
+  if (typeof window === "undefined") return null;
+  const left = Math.max(0, window.screenX + (window.outerWidth - POPUP_WIDTH) / 2);
+  const top = Math.max(0, window.screenY + (window.outerHeight - POPUP_HEIGHT) / 2);
+  const features = `popup,width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top}`;
+  try {
+    return window.open("about:blank", POPUP_NAME, features);
+  } catch {
+    return null;
+  }
+}
+
 export async function startAzureSignIn(
   kind: AzureSignInKind,
   subscriptionId?: string,
+  popup: Window | null = null,
 ): Promise<void> {
   if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
   const begun =
     kind === "upgrade"
       ? await ApiService.beginAzureByocUpgrade()
       : await ApiService.beginAzureByocAuthorize(subscriptionId ? { subscriptionId } : {});
+  if (popup && !popup.closed) {
+    popup.location.assign(begun.authorizationUrl);
+    popup.focus();
+    return;
+  }
   assignWindowLocation(begun.authorizationUrl);
+}
+
+function signInChannel(): BroadcastChannel | null {
+  return typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel(AZURE_SIGN_IN_CHANNEL);
+}
+
+/**
+ * The return page, finished, tells the tab that opened the sign-in. Resolves
+ * `true` once that tab acknowledges, so the popup can close; `false` when no
+ * tab is listening (the same-tab flow), so the return page carries on itself.
+ */
+export function announceAzureSetupStarted(timeoutMs = 1000): Promise<boolean> {
+  const channel = signInChannel();
+  if (!channel) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const done = (acked: boolean) => {
+      clearTimeout(timer);
+      channel.close();
+      resolve(acked);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
+      if (event.data?.type === "azure-setup-ack") done(true);
+    };
+    channel.postMessage({ type: "azure-setup-started" } satisfies AzureSignInMessage);
+  });
+}
+
+/** The opening tab hears the popup finish, acknowledges, and refreshes its own view. */
+export function useAzureSetupStartedSignal(onStarted: () => void): void {
+  const latest = useRef(onStarted);
+  useEffect(() => {
+    latest.current = onStarted;
+  }, [onStarted]);
+  useEffect(() => {
+    const channel = signInChannel();
+    if (!channel) return;
+    channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
+      if (event.data?.type !== "azure-setup-started") return;
+      channel.postMessage({ type: "azure-setup-ack" } satisfies AzureSignInMessage);
+      latest.current();
+    };
+    return () => channel.close();
+  }, []);
 }
 
 const BEGIN_FALLBACK: Record<AzureSignInKind, string> = {
@@ -94,9 +181,12 @@ export function useAzureSignIn() {
     inFlight.current = true;
     setStarting(true);
     setError(null);
+    // Setup signs in beside the app; the popup must open before the first await.
+    const popup = kind === "setup" && isAzureSignInAvailable() ? openSignInPopup() : null;
     try {
-      await startAzureSignIn(kind, subscriptionId);
+      await startAzureSignIn(kind, subscriptionId, popup);
     } catch (cause) {
+      popup?.close();
       setError(azureSignInErrorMessage(cause, kind));
     } finally {
       inFlight.current = false;
