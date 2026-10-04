@@ -26,7 +26,7 @@ const PROVIDER_BY_TARGET: Readonly<Record<OwnerCloudTarget, OwnerCloudProvider>>
 
 /** The provider's name as a person reads it. */
 export const OWNER_CLOUD_PROVIDER_LABELS: Readonly<Record<OwnerCloudProvider, string>> = {
-  gcp: "Google Cloud",
+  gcp: "Google Cloud Platform",
   azure: "Microsoft Azure",
 };
 

@@ -108,7 +108,7 @@ describe("Connect Azure on the cloud step", () => {
     await openOwnCloud();
     const group = await screen.findByRole("radiogroup", { name: "Your cloud provider" });
     expect(group).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "Google Cloud" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("radio", { name: "Google Cloud Platform" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByTestId("byoc-cloud-card")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("radio", { name: "Microsoft Azure" }));
@@ -119,7 +119,7 @@ describe("Connect Azure on the cloud step", () => {
     expect(notes).toHaveTextContent("Web search is not available yet.");
     expect(notes).toHaveTextContent("New-mail alerts are off.");
     expect(screen.getByTestId("azure-cost-note")).toHaveTextContent(
-      "About $5/month while idle, billed by Microsoft to your subscription; list price, not yet measured.",
+      "About $5/month while idle, billed by Microsoft to your subscription. A full idle day measured $0.14.",
     );
   });
 

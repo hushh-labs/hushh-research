@@ -16,9 +16,9 @@ export const AZURE_V1_CAPABILITY_NOTES: readonly string[] = [
   "Files are not organized in the background yet.",
 ];
 
-/** A list price from the Azure Retail Prices API, not a measured bill. */
+/** List price, checked against one measured idle day (the registry, 2026-10-02). */
 export const AZURE_COST_NOTE =
-  "About $5/month while idle, billed by Microsoft to your subscription; list price, not yet measured.";
+  "About $5/month while idle, billed by Microsoft to your subscription. A full idle day measured $0.14.";
 
 type AzureCloudCardProps = {
   onConnect: () => void | Promise<void>;

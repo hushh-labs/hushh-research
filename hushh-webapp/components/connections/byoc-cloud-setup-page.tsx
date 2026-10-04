@@ -148,7 +148,7 @@ export function ByocCloudSetupPage() {
         } else if (mode === "byoc" && status.cloudProject && !unassignedByoc) {
           setExisting({
             projectId: status.cloudProject,
-            rationale: "Your BYOC pod assignment is still active.",
+            rationale: "Your own-cloud agent is still assigned.",
           });
         } else if (mode === "byoc" && !unassignedByoc) {
           setChoice("own");
@@ -590,7 +590,7 @@ export function ByocCloudSetupPage() {
             <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">
               <p className="text-sm font-semibold">Hussh Shared</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Shared uses Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires BYOC or an available Hussh Pods assignment.
+                Shared uses Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires your own cloud or an available Hussh Pods assignment.
               </p>
               <button
                 type="button"
@@ -608,7 +608,7 @@ export function ByocCloudSetupPage() {
               onClick={() => setChoice("own")}
               data-testid="cloud-tier-own"
             >
-              <p className="text-sm font-semibold">BYOC — your own cloud</p>
+              <p className="text-sm font-semibold">Bring your own cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
                 Your cloud, your compute, your bill. The private agent runs in your cloud.
               </p>
@@ -645,7 +645,7 @@ export function ByocCloudSetupPage() {
                 {sharedSaving ? "Saving…" : "Hussh Shared · default without a pod"}
               </p>
               <p className="text-sm text-[var(--app-text-secondary)]">
-                Use Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires BYOC or an available Hussh Pods assignment.
+                Use Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires your own cloud or an available Hussh Pods assignment.
               </p>
             </button>
             <button
@@ -654,7 +654,7 @@ export function ByocCloudSetupPage() {
               onClick={() => setChoice("own")}
               data-testid="cloud-tier-own"
             >
-              <p className="text-sm font-semibold">BYOC — your own cloud</p>
+              <p className="text-sm font-semibold">Bring your own cloud</p>
               <p className="text-sm text-[var(--app-text-secondary)]">
                 Your own cloud hosts the pod and pays its usage. Hussh uses the authorization you grant to provision it.
               </p>
