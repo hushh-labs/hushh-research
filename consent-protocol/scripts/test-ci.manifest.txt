@@ -217,9 +217,13 @@ tests/services/test_actor_identity_service.py
 tests/services/test_connection_graph_service.py
 
 # Referral program: attribution integrity (self-referral, predates-link,
-# duplicate, expiry). Was previously absent from this manifest -- collect-only,
-# not run -- which is how its hardcoded fixture clock going stale went unnoticed.
+# duplicate, expiry), the qualification pipeline (onboarding-completion is
+# the whole bar), and the gamification foundation (program settings + weekly
+# reward round schedule, migration 269) it builds on. Absent from this
+# manifest means collect-only, not run.
 tests/services/test_one_referral_service_bind_attribution.py
+tests/services/test_one_referral_service_qualification.py
+tests/services/test_one_referral_program_settings_service.py
 
 # One Location Circles, and the migration guards that protect them.
 #
