@@ -26,7 +26,11 @@ export interface HushhNativeNavigationPlugin {
   addListener(eventName: "geometryChanged", listener: (event: { contentHeight: number; bottomInset: number }) => void): Promise<PluginListenerHandle>;
 }
 
-const nativeNavigation = registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation");
+// Registered on first use, not at import, like the session privacy plugin.
+let nativeNavigationPlugin: HushhNativeNavigationPlugin | undefined;
+function nativeNavigation(): HushhNativeNavigationPlugin {
+  return (nativeNavigationPlugin ??= registerPlugin<HushhNativeNavigationPlugin>("HushhNativeNavigation"));
+}
 let documentId: string | undefined;
 let revision = 0;
 let operationQueue: Promise<unknown> = Promise.resolve();
@@ -53,7 +57,7 @@ function setInstalled(next: boolean) {
   publish();
 }
 function sendState(state: NavigationState) {
-  const operation = operationQueue.catch(() => undefined).then(() => nativeNavigation.setState(state));
+  const operation = operationQueue.catch(() => undefined).then(() => nativeNavigation().setState(state));
   operationQueue = operation;
   return operation;
 }
@@ -127,17 +131,17 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
     };
     void (async () => {
       try {
-        const capability = await nativeNavigation.getCapabilities();
+        const capability = await nativeNavigation().getCapabilities();
         if (!capability.supported || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION || cancelled) return;
         documentId ??= nativeDocumentId();
         await retain(subscribeNativeSessionPrivacy(invalidateConfirmations));
-        await retain(nativeNavigation.addListener("selectionRequested", (event) => {
+        await retain(nativeNavigation().addListener("selectionRequested", (event) => {
           const state = current.current;
           if (!state?.visible || overlays.size > 0 || event.documentId !== state.documentId ||
               event.interactionEpoch !== state.interactionEpoch || !Number.isSafeInteger(event.sequence) ||
               event.sequence <= lastSelection.current || !NATIVE_NAVIGATION_TABS.includes(event.tab)) return;
           const requestEpoch = confirmationEpoch;
-          void nativeNavigation.confirmSelection(event).then(({ valid }) => {
+          void nativeNavigation().confirmSelection(event).then(({ valid }) => {
             const latest = current.current;
             if (!valid || cancelled || requestEpoch !== confirmationEpoch || !latest?.visible || overlays.size > 0 ||
                 document.visibilityState === "hidden" || event.documentId !== latest.documentId ||
@@ -146,7 +150,7 @@ export function useNativeNavigation({ enabled, visible, selected, feedAttention,
             select.current(event.tab);
           }).catch(() => undefined);
         }));
-        await retain(nativeNavigation.addListener("geometryChanged", (event) => {
+        await retain(nativeNavigation().addListener("geometryChanged", (event) => {
           if (!cancelled) {
             try {
               const contentHeight = checkedHeight(event.contentHeight);

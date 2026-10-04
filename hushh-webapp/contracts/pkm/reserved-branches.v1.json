@@ -89,6 +89,8 @@
     "$comment_memory_edits": "The owner's direct edit and delete controls on the Memory screen. A feature writer, but listed on no reserved entry: under memory_screen_policy read_only_reserved the Memory screen never offers them on a reserved item, and the owning app screen edits it instead.",
     "pkm_memory_edited_button": {"feature": "memory_workspace", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "pkm_memory_deleted_button": {"feature": "memory_workspace", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "onboarding_local_buffer_migration": {"feature": "settings", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "public_profile_claim": {"feature": "memory_workspace", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
 
     "$comment_unattributed": "The fallback writer id when a write carries no recognizable source label (mutation-plan.ts normalizedWriterId, and the server default in pkm_mutation_contracts.py). Listed on no entry: an unattributed write into a reserved branch is exactly what this registry exists to notice.",
     "owner_confirmed_write": {"feature": "unattributed", "class": "feature", "surfaces": ["chat", "voice", "web", "ios", "android", "import"], "authorization_modes": ["owner_confirmed"]},

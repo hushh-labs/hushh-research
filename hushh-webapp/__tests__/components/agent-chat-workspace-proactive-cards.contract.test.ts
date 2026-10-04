@@ -36,17 +36,23 @@ describe("Agent One chat workspace wiring contract", () => {
   });
 
   it("uses one accessible quick-prompt rail for both empty and post-setup states", () => {
+    // The starter grid renders through the shared suggestion list; the rail's
+    // accessibility and touch-target guarantees live there.
     expect(source).toContain("function AgentPromptSuggestions(");
-    expect(source).toContain('data-testid="agent-chat-suggestions"');
-    expect(source).toContain('aria-label="Suggestions"');
     const suggestions = source.slice(
       source.indexOf("function AgentPromptSuggestions("),
       source.indexOf("function AgentPromptSuggestions(") + 1800,
     );
-    expect(suggestions).toContain('type="button"');
+    expect(suggestions).toContain('label="Suggestions" testId="agent-chat-suggestions"');
     expect(suggestions).toContain("disabled={disabled}");
-    expect(suggestions).toContain("!min-h-11");
-    expect(source).toContain("onClick={() => onPromptSelect(prompt)}");
+    const list = readFileSync(join(process.cwd(), "components/agent/agent-follow-up-suggestions.tsx"), "utf8");
+    expect(list).toContain("data-testid={testId}");
+    expect(list).toContain("aria-label={label}");
+    expect(list).toContain('type="button"');
+    expect(list).toContain("disabled={disabled}");
+    expect(list).toContain("!min-h-11");
+    expect(suggestions).toContain("onSelect={onPromptSelect}");
+    expect(list).toContain("onClick={() => onSelect(suggestion)}");
     expect(source).toContain("setInput(prompt)");
   });
 
