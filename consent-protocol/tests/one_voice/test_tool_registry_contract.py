@@ -188,7 +188,7 @@ async def test_executor_resolves_tools_only_by_exact_name():
     from hushh_mcp.one_voice.tools.base import EntityContext, ScreenContext, ToolContext
     from hushh_mcp.one_voice.tools.executor import ToolExecutor
 
-    source = inspect.getsource(executor_module.ToolExecutor.call)
+    source = inspect.getsource(executor_module.ToolExecutor._call)
     assert "registry.get_tool(name)" in source
     ctx = ToolContext(
         user_id="owner-1",

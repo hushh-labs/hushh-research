@@ -369,6 +369,15 @@ def test_people_tools_bind_and_run_with_every_alias_emptied(emptied_gateway):
     assert sent.result.status == "sent"
     accept = asyncio.run(executor.call(ctx, "accept_connection_request", {"request_id": REQ_IN}))
     assert accept.result.status == "confirmation_required"
+    asyncio.run(executor.pending.mark_shown(user_id=OWNER, pending_action_id=accept.pending.id))
+    # A different action waits until the open card is answered; it never
+    # silently replaces it.
+    blocked = asyncio.run(executor.call(ctx, "cancel_connection_request", {"request_id": REQ_OUT}))
+    assert blocked.result.status == "pending_action_exists"
+    assert blocked.result.pending_action_id == accept.pending.id
+    asyncio.run(
+        executor.call(ctx, "cancel_pending_action", {"pending_action_id": accept.pending.id})
+    )
     cancel = asyncio.run(executor.call(ctx, "cancel_connection_request", {"request_id": REQ_OUT}))
     assert cancel.result.status == "confirmation_required" and cancel.result.tier == "tap"
     # Guards are not aliases: a made-up id and a non-name are refused as such.

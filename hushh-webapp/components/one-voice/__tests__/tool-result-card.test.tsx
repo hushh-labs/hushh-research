@@ -278,6 +278,8 @@ describe("ToolResultCard", () => {
   it("classifies tools into families and tones", () => {
     expect(toolResultFamily("list_people")).toBe("people");
     expect(toolResultFamily("rename_circle")).toBe("circles");
+    expect(toolResultFamily("add_circle_members")).toBe("circles");
+    expect(toolResultFamily("add_all_connections")).toBe("circles");
     expect(toolResultFamily("share_with")).toBe("shares");
     expect(toolResultFamily("create_public_link")).toBe("links");
     expect(toolResultFamily("get_location_settings")).toBe("status");

@@ -79,6 +79,9 @@ const NEUTRAL_STATUSES = new Set<string>([
   "sos_partially_stopped",
   // The emergency roster is at its limit; nobody was added.
   "roster_full",
+  // add_circle_members: every requested person was refused or already in; no
+  // one was added, so the batch must not read as done.
+  "none_added",
   "step_order",
   "recipient_key_missing",
   "recipient_not_ready",
@@ -340,6 +343,9 @@ const INFORMATIONAL_ERROR_CODES = new Set<string>([
   // The tap's proof failed verification (expired, revoked, other account);
   // the card stays pending and a fresh tap can still complete it.
   "firebase_proof_invalid",
+  // Voice storage could not record a tap or cancel; the relay keeps the
+  // session up and the card stays as it was, so the person can try again.
+  "storage_unavailable",
 ]);
 
 function summarizeArgs(

@@ -390,4 +390,7 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "setup_required",
   // The same voice proposal is already waiting for an answer; nothing ran.
   "confirmation_waiting",
+  // A different voice action is already waiting for an answer; this proposal
+  // was refused and nothing was written.
+  "pending_action_exists",
 ]);

@@ -168,6 +168,20 @@ class ConfirmationWaiting(ToolResult):
     card_shown: bool
 
 
+class PendingActionExists(ToolResult):
+    """A different action is still waiting for an answer. Never success, never a
+    new row: a card the person may be answering is not replaced by an unrelated
+    proposal. It is confirmed or cancelled first, and the model is handed its id."""
+
+    status: Literal["pending_action_exists"] = "pending_action_exists"
+    needs: Needs | None = "confirmation"
+    pending_action_id: str
+    tool: str
+    tier: Literal["voice", "tap"]
+    summary: str
+    card_shown: bool
+
+
 class ConfirmedPerson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: str
@@ -502,6 +516,34 @@ class ToolSpec:
     # run and settle; confirming it over plain HTTP would arm an effect with
     # no publisher, so that route refuses it.
     device_step: bool = False
+    # Which kind of lookup (``resolve_person`` -> "person", ``resolve_circle``
+    # -> "circle") makes an open card for this tool stale. ``None`` derives it
+    # from ``person_args``/``circle_args``; a tool with neither stays stale on
+    # every lookup, because its counterpart can ride an opaque id (a request, a
+    # share, an invite). A tool whose effect names no counterpart at all
+    # declares ``()`` so an unrelated lookup cannot cancel its card.
+    lookup_targets: tuple[Literal["person", "circle"], ...] | None = None
+    # May replace an open card of a different action without it being answered
+    # first. Only for an effect that must never wait behind another card.
+    preempts_pending: bool = False
+    # Tools whose proposals correct one another's open card: the same effect
+    # re-aimed ("not Roopman", "turn it off instead"). ``None`` means only the
+    # tool itself. A shared gateway action is NOT enough on its own:
+    # request_location and withdraw_request share one and do opposite things.
+    correction_group: str | None = None
+
+    @property
+    def correction_key(self) -> str:
+        """Which open cards a proposal from this tool may replace as a correction."""
+        return self.correction_group or self.name
+
+    def stale_on_lookup(self, kind: Literal["person", "circle"]) -> bool:
+        """Whether a ``kind`` lookup makes an open card for this tool stale."""
+        if self.lookup_targets is not None:
+            return kind in self.lookup_targets
+        if not self.person_args and not self.circle_args:
+            return True
+        return bool(self.person_args if kind == "person" else self.circle_args)
 
     def declaration(self) -> dict[str, Any]:
         """Gemini function declaration (JSON-schema parameters, refs inlined)."""
@@ -555,6 +597,7 @@ __all__ = [
     "EntityContext",
     "Needs",
     "OfferedRequest",
+    "PendingActionExists",
     "PersonRef",
     "Rejected",
     "ScreenContext",

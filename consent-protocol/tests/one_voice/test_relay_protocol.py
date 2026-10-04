@@ -12,7 +12,9 @@ import pytest
 
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
+from hushh_mcp.one_voice.conversations import ConversationStorageError
 from hushh_mcp.one_voice.live_client import LiveEvent, translate_message
+from hushh_mcp.one_voice.pending_actions import PendingActionStorageError
 from hushh_mcp.one_voice.session import (
     AuthResult,
     SessionClosed,
@@ -2787,3 +2789,231 @@ def test_a_genuinely_corrupt_stored_context_is_dropped_and_never_trusted():
     assert restore_context(EntityContext, {"people": "not-a-mapping"}).people == {}
     assert restore_context(EntityContext, "not-a-dict-at-all").people == {}
     assert restore_context(EntityContext, None).people == {}
+
+
+# --- a storage outage never ends a healthy session ----------------------------
+#
+# Each test below ends the session with the client's own `end` frame and asserts
+# it closed (1000, "ended"). Before the storage guards, every one of these
+# failures escaped the pump TaskGroup and closed the socket with 4013.
+
+
+class FailingPendingStore(MemoryPendingStore):
+    """The memory store, with the named methods unreachable."""
+
+    def __init__(self, *failing: str) -> None:
+        super().__init__()
+        self.failing = set(failing)
+
+    def _check(self, name: str) -> None:
+        if name in self.failing:
+            raise PendingActionStorageError(f"{name} unavailable")
+
+    async def mark_shown(self, **kwargs):
+        self._check("mark_shown")
+        return await super().mark_shown(**kwargs)
+
+    async def confirm(self, **kwargs):
+        self._check("confirm")
+        return await super().confirm(**kwargs)
+
+    async def cancel(self, **kwargs):
+        self._check("cancel")
+        return await super().cancel(**kwargs)
+
+
+class FailingConversationStore(MemoryConversationStore):
+    def __init__(self, *failing: str) -> None:
+        super().__init__()
+        self.failing = set(failing)
+
+    def _check(self, name: str) -> None:
+        if name in self.failing:
+            raise ConversationStorageError(f"{name} unavailable")
+
+    async def save_resumption_handle(self, **kwargs):
+        self._check("save_resumption_handle")
+        return await super().save_resumption_handle(**kwargs)
+
+    async def save_entity_context(self, **kwargs):
+        self._check("save_entity_context")
+        return await super().save_entity_context(**kwargs)
+
+
+class QueuedLive(FakeLive):
+    """A provider the test feeds one event at a time, after client frames."""
+
+    def __init__(self) -> None:
+        super().__init__([])
+        self.queue: asyncio.Queue[LiveEvent] = asyncio.Queue()
+
+    def emit(self, event: LiveEvent) -> None:
+        self.queue.put_nowait(event)
+
+    async def events(self):
+        while True:
+            yield await self.queue.get()
+
+
+async def _until(condition, timeout: float = 2.0) -> None:
+    deadline = asyncio.get_running_loop().time() + timeout
+    while not condition():
+        if asyncio.get_running_loop().time() > deadline:
+            pytest.fail("condition not reached")
+        await asyncio.sleep(0.01)
+
+
+async def _start_live(*, pending=None, conversations=None):
+    transport = FakeTransport([AUTH])
+    live = QueuedLive()
+    session = _session(transport, live, pending=pending, conversations=conversations)
+    task = asyncio.create_task(session.run())
+    await _until(lambda: transport.frames("state"))
+    return session, transport, live, task
+
+
+async def _end_cleanly(session, transport, task) -> None:
+    # Still open after the failure, and the next client frame is still served.
+    assert transport.closed is None
+    transport.push({"type": "ping"})
+    await _until(lambda: transport.frames("pong"))
+    transport.push({"type": "end"})
+    await asyncio.wait_for(task, 3)
+    assert transport.closed == (protocol.CLOSE_ENDED, "ended")
+    assert session._counters.get("storage_failures", 0) >= 1
+
+
+async def _voice_row(pending: MemoryPendingStore, *, tool="ask", tier="voice"):
+    gateway = {"ask": "location.send_request", "delete_thing": "location.delete_circle"}[tool]
+    args = {"person": {"user_id": "u-priya"}} if tool == "ask" else {"thing_id": "t1"}
+    row, receipt = await pending.create(
+        user_id=USER,
+        conversation_id=CONV,
+        tool_name=tool,
+        gateway_action_id=gateway,
+        tier=tier,
+        args=args,
+        summary="the open card",
+    )
+    return row, receipt
+
+
+async def test_unrecordable_card_shown_keeps_the_session_and_the_card_unshown():
+    pending = FailingPendingStore("mark_shown")
+    row, _ = await _voice_row(pending)
+    session, transport, live, task = await _start_live(pending=pending)
+
+    transport.push({"type": "pending_action.shown", "pending_action_id": row.id})
+    await _until(lambda: session._counters.get("storage_failures"))
+    # The provider is still heard, and a spoken yes is still fenced: the card
+    # was never recorded as shown, so voice cannot confirm it.
+    live.emit(
+        LiveEvent(
+            kind="tool_call",
+            function_calls=[
+                {
+                    "id": "c1",
+                    "name": "confirm_pending_action",
+                    "args": {"pending_action_id": row.id},
+                }
+            ],
+        )
+    )
+    await _until(lambda: live.tool_responses)
+    assert live.tool_responses[0]["response"]["status"] == "card_not_shown"
+    assert pending.rows[row.id].shown_at is None
+    assert pending.rows[row.id].status == "pending"
+    await _end_cleanly(session, transport, task)
+
+
+async def test_unsaved_resumption_handle_keeps_the_session_listening():
+    conversations = FailingConversationStore("save_resumption_handle")
+    session, transport, live, task = await _start_live(conversations=conversations)
+
+    live.emit(LiveEvent(kind="resumption", resumption_handle="h-1", resumable=True))
+    live.emit(
+        LiveEvent(
+            kind="tool_call", function_calls=[{"id": "c1", "name": "echo", "args": {"text": "hi"}}]
+        )
+    )
+    await _until(lambda: live.tool_responses)
+    assert live.tool_responses[0]["response"]["status"] == "ok"
+    assert conversations.handles == []
+    await _end_cleanly(session, transport, task)
+
+
+async def test_unsaved_entity_context_still_answers_the_model_and_the_client():
+    conversations = FailingConversationStore("save_entity_context")
+    session, transport, live, task = await _start_live(conversations=conversations)
+
+    live.emit(
+        LiveEvent(
+            kind="tool_call", function_calls=[{"id": "c1", "name": "echo", "args": {"text": "hi"}}]
+        )
+    )
+    await _until(lambda: live.tool_responses)
+    assert live.tool_responses[0]["id"] == "c1"
+    assert live.tool_responses[0]["response"]["status"] == "ok"
+    result = transport.frames("tool.result")[-1]
+    assert result["ok"] is True and result["result_public"]["echoed"] == "hi"
+    assert conversations.entity_saves == []
+    await _end_cleanly(session, transport, task)
+
+
+@pytest.mark.parametrize("operation", ["confirm", "cancel"])
+async def test_unreachable_store_on_a_tap_answers_storage_unavailable_and_keeps_the_card(
+    operation,
+):
+    pending = FailingPendingStore(operation)
+    row, receipt = await _voice_row(pending, tool="delete_thing", tier="tap")
+    session, transport, live, task = await _start_live(pending=pending)
+
+    if operation == "confirm":
+        transport.push(
+            {"type": "confirm_action", "pending_action_id": row.id, "receipt_token": receipt}
+        )
+    else:
+        transport.push({"type": "cancel_action", "pending_action_id": row.id})
+    await _until(lambda: transport.frames("error"))
+    assert transport.frames("error")[-1]["code"] == "storage_unavailable"
+    # Nothing happened to the card, and nothing claims it did.
+    assert pending.rows[row.id].status == "pending"
+    assert transport.frames("pending_action.resolved") == []
+    assert live.events_sent == []
+    await _end_cleanly(session, transport, task)
+
+
+async def test_a_different_proposal_rebinds_the_open_card_to_the_current_turn():
+    """The model proposes something else while a card is open: it gets that
+    card back, no new card reaches the client, and a tap on the open card now
+    answers the turn the model is about to ask in."""
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    first = transport.frames("pending_action")[-1]
+    card = first["pending_action_id"]
+    # Only a card the person has actually seen holds back a different action.
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Delete the thing"))
+    later_turn = session.turn.turn_id
+    assert later_turn != first["turn_id"]
+    await _model_calls(session, "c2", "delete_thing", {"thing_id": "t1"})
+
+    blocked = _responses(fake, "delete_thing")[-1]
+    assert blocked["status"] == "pending_action_exists"
+    assert blocked["pending_action_id"] == card
+    assert len(transport.frames("pending_action")) == 1
+    assert transport.frames("pending_action.resolved") == []
+    assert [r.id for r in pending.rows.values()] == [card]
+    assert pending.rows[card].status == "pending"
+    assert session._pending_turn_ids[card] == later_turn
+
+    await session._confirm_by_tap(
+        protocol.ConfirmActionFrame(type="confirm_action", pending_action_id=card)
+    )
+    assert pending.rows[card].status == "executed"
+    result = transport.frames("tool.result")[-1]
+    assert result["pending_action_id"] == card and result["turn_id"] == later_turn

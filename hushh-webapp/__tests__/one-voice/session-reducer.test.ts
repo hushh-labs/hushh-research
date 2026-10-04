@@ -655,6 +655,45 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(selectSuccessReceipt(waiting)).toBeNull();
   });
 
+  it("pending_action_exists is a refusal: another card is still waiting, nothing ran", () => {
+    const blocked = run(
+      [
+        server(
+          toolResult({
+            tool: "add_all_connections",
+            status: "pending_action_exists",
+            result_public: {
+              status: "pending_action_exists",
+              spoken_facts: ["Answer the card that's already up first."],
+            },
+          }),
+        ),
+      ],
+      connected(),
+    );
+    expect(NOT_SUCCESS_STATUSES.has("pending_action_exists")).toBe(true);
+    expect(isSuccessStatus("pending_action_exists")).toBe(false);
+    expect(toolResultTone("pending_action_exists", true)).not.toBe("success");
+    expect(selectSuccessReceipt(blocked)).toBeNull();
+  });
+
+  it("circle batch adds succeed only when someone was added", () => {
+    // none_added (add_circle_members) and the add_all_connections refusals add
+    // nobody; a success tone would tell the person their circle grew.
+    for (const status of [
+      "none_added",
+      "no_one_to_add",
+      "not_enough_room",
+      "not_added",
+    ]) {
+      expect(isSuccessStatus(status), status).toBe(false);
+      expect(toolResultTone(status, true), status).toBe("neutral");
+    }
+    // Negative control: a real add still reads as done.
+    expect(toolResultTone("added", true)).toBe("success");
+    expect(toolResultTone("partially_added", true)).toBe("success");
+  });
+
   it("device Location switch tones: on/off succeed, already_* are neutral, pending and rejected fail", () => {
     expect(toolResultTone("on", true)).toBe("success");
     expect(toolResultTone("off", true)).toBe("success");
@@ -1082,6 +1121,20 @@ describe("reduceVoiceSession: tools and success", () => {
     );
     expect(informational.phase).toBe("listening");
     expect(informational.error?.recoverable).toBe(true);
+    // The relay survives a voice storage blip on a tap or cancel and keeps
+    // the session open, so the client must not strand it in "error".
+    const storage = run(
+      [
+        server({
+          type: "error",
+          code: "storage_unavailable",
+          message: "That didn't go through. Please try again.",
+        }),
+      ],
+      base,
+    );
+    expect(storage.phase).toBe("listening");
+    expect(storage.error?.recoverable).toBe(true);
     const fatal = run(
       [
         server({

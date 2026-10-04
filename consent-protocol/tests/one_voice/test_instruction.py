@@ -63,6 +63,7 @@ def test_rule_two_names_the_pending_status_as_not_success():
         "navigation_dispatched",
         "mail_open_dispatched",
         "confirmation_waiting",
+        "pending_action_exists",
         "card_not_shown",
     ):
         assert status in not_success
@@ -78,6 +79,23 @@ def test_rule_four_answers_a_waiting_card_with_its_id_not_a_new_proposal():
     # UAT 2026-10-02: a restated detail was read as a correction and re-asked.
     assert "it is not a correction, so never cancel it and propose the same thing again" in rule
     assert "repeats_cancelled means you cancelled this exact proposal" in rule
+
+
+def test_rule_four_confirms_first_when_a_yes_also_asks_for_more():
+    """UAT: "Create Family" -> "Yes, and add all my connections to it" was read as
+    a change, so the create card was cancelled and the same question asked
+    again. A yes plus a second request confirms first and continues from the
+    real result; only a change to the waiting action itself is a correction."""
+    rule = _rule(_build(), 4)
+    assert "approves the waiting action and makes a second request" in rule
+    assert "call confirm_pending_action first" in rule
+    assert "prepare the second request only after that result says it succeeded" in rule
+    assert (
+        "Never cancel or re-propose the waiting action because the same answer asked for more"
+        in rule
+    )
+    assert "A change to the waiting action itself" in rule and "is a correction" in rule
+    assert "pending_action_exists means a different action is still waiting" in rule
 
 
 def test_opening_screens_rule_says_opened_only_after_the_app_reports_it():
@@ -156,6 +174,12 @@ def test_rule_ten_separates_circle_membership_from_connection_and_leave_from_del
     assert "never describe a skipped person as added" in rule
     assert "One person is add_circle_member" in rule
     assert "one at a time" not in rule, "the batch path makes this instruction wrong"
+    # "All my connections" is a set the server resolves, never a resolve loop.
+    assert "Everyone they are connected with joining one circle is add_all_connections" in rule
+    assert "Never resolve_person or list people to add their connections one by one" in rule
+    assert "It adds all or none" in rule
+    assert "It refuses Trusted and the SMS circle" in rule
+    assert "add_all_connections" in {item["name"] for item in registry.declarations()}
     # Both circle reads are declared with their first line, so the model can pick them.
     declared = {item["name"] for item in registry.declarations()}
     assert {"get_circle_details", "list_circle_members"} <= declared
@@ -184,6 +208,9 @@ def test_rules_three_six_and_eleven_ground_connections_in_real_records_and_resul
     )
     assert "firebase_proof_required, ask them to tap Confirm on the card" in eleven
     assert 'A correction ("no, Priya Sharma") starts over' in eleven
+    # One-at-a-time is about connection requests, never circle membership.
+    assert "Several connection requests: one at a time" in eleven
+    assert "Several people: one at a time" not in eleven
     declared = {item["name"] for item in registry.declarations()}
     assert {"accept_connection_request", "decline_connection_request", "invite_person"} <= declared
     assert "respond_connection_request" not in declared

@@ -12,6 +12,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -34,6 +35,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -56,6 +58,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -78,6 +81,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -100,6 +104,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -122,6 +127,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -144,6 +150,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -166,6 +173,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -188,6 +196,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -210,6 +219,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -232,6 +242,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -254,6 +265,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -276,6 +288,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -298,6 +311,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -320,6 +334,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -342,6 +357,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -364,6 +380,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -386,6 +403,7 @@
         "create_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -399,6 +417,30 @@
       "note": "create only: no invitations, no sharing"
     },
     {
+      "id": "create-019",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "set up a circle named Trek Club, then put all my connections in there",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "confirm_pending_action",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "compound request: propose the create and wait for a yes; nothing is confirmed or added on this turn"
+    },
+    {
       "id": "read_members-001",
       "family": "read_members",
       "screen": "one_home",
@@ -410,6 +452,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -434,6 +477,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -458,6 +502,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -482,6 +527,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -506,6 +552,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -530,6 +577,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -555,6 +603,7 @@
         "get_circle_details"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -579,6 +628,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -603,6 +653,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -625,6 +676,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -647,6 +699,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -669,6 +722,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -691,6 +745,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -714,6 +769,7 @@
         "get_circle_details"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -736,6 +792,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -758,6 +815,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -780,6 +838,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -802,6 +861,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -824,6 +884,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -846,6 +907,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -868,6 +930,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -890,6 +953,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -913,6 +977,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -936,6 +1001,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -959,6 +1025,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -982,6 +1049,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1005,6 +1073,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1028,6 +1097,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1051,6 +1121,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1074,6 +1145,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1097,6 +1169,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1120,6 +1193,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1143,6 +1217,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1166,6 +1241,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1188,6 +1264,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1210,6 +1287,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1232,6 +1310,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1254,6 +1333,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1276,6 +1356,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1298,6 +1379,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1320,6 +1402,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1342,6 +1425,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1364,6 +1448,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1387,6 +1472,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1410,6 +1496,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1433,6 +1520,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1456,6 +1544,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1479,6 +1568,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1501,6 +1591,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1523,6 +1614,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1545,6 +1637,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1567,6 +1660,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1589,6 +1683,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1611,6 +1706,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1633,6 +1729,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1655,6 +1752,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1678,6 +1776,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1701,6 +1800,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1724,6 +1824,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1747,6 +1848,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -1770,6 +1872,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1793,6 +1896,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1816,6 +1920,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1839,6 +1944,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1862,6 +1968,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1885,6 +1992,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1908,6 +2016,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1931,6 +2040,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1954,6 +2064,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -1977,6 +2088,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2000,6 +2112,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2023,6 +2136,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2048,6 +2162,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2073,6 +2188,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2098,6 +2214,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2123,6 +2240,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2148,6 +2266,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2173,6 +2292,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle",
         "create_circle_invite_link",
         "delete_circle",
@@ -2183,6 +2303,164 @@
         "rename_circle"
       ],
       "note": "on the circle screen"
+    },
+    {
+      "id": "add_all-001",
+      "family": "add_all",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "put everybody I'm connected with in Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "needs the circle first; one add-all call, never people one by one"
+    },
+    {
+      "id": "add_all-002",
+      "family": "add_all",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you include all of my connections in Family?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "needs the circle first; one add-all call, never people one by one"
+    },
+    {
+      "id": "add_all-003",
+      "family": "add_all",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "add every one of my connections to Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "needs the circle first; one add-all call, never people one by one"
+    },
+    {
+      "id": "add_all-004",
+      "family": "add_all",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Weekend Crew mein meri saari connections daal do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "needs the circle first; one add-all call, never people one by one"
+    },
+    {
+      "id": "add_all-005",
+      "family": "add_all",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "fill this circle with all my connections",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "on the circle screen: read the circle on screen first; one add-all call"
+    },
+    {
+      "id": "add_all-006",
+      "family": "add_all",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "bring all the people I'm connected to into this group",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "list_people",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle",
+        "resolve_person"
+      ],
+      "note": "on the circle screen: read the circle on screen first; one add-all call"
     },
     {
       "id": "remove_member-001",
@@ -2197,6 +2475,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2222,6 +2501,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2247,6 +2527,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2272,6 +2553,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2297,6 +2579,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2322,6 +2605,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2347,6 +2631,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2372,6 +2657,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2397,6 +2683,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2422,6 +2709,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2446,6 +2734,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2470,6 +2759,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2494,6 +2784,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2518,6 +2809,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2542,6 +2834,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2566,6 +2859,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2590,6 +2884,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2614,6 +2909,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -2637,6 +2933,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2659,6 +2956,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2681,6 +2979,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2703,6 +3002,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2725,6 +3025,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2747,6 +3048,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2769,6 +3071,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2791,6 +3094,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2813,6 +3117,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2835,6 +3140,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2858,6 +3164,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2881,6 +3188,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2904,6 +3212,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2927,6 +3236,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2950,6 +3260,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2972,6 +3283,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -2994,6 +3306,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3016,6 +3329,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3038,6 +3352,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3060,6 +3375,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3082,6 +3398,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3104,6 +3421,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3126,6 +3444,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3148,6 +3467,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3170,6 +3490,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3193,6 +3514,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3216,6 +3538,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3239,6 +3562,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3262,6 +3586,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3285,6 +3610,7 @@
         "list_circles"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle",
@@ -3307,6 +3633,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3331,6 +3658,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3355,6 +3683,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3379,6 +3708,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3403,6 +3733,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3427,6 +3758,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3451,6 +3783,7 @@
         "list_requests"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3475,6 +3808,7 @@
         "list_requests"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3499,6 +3833,7 @@
         "list_requests"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3522,6 +3857,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_connection_request",
@@ -3547,6 +3883,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3571,6 +3908,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3596,6 +3934,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3621,6 +3960,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3646,6 +3986,7 @@
       ],
       "forbidden_tools": [
         "accept_connection_request",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3692,6 +4033,7 @@
         "confirm_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "delete_circle",
@@ -3778,6 +4120,7 @@
         "add_circle_member"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -3819,6 +4162,7 @@
         "confirm_pending_action"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "cancel_pending_action",
@@ -3840,6 +4184,7 @@
         "cancel_pending_action"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "confirm_pending_action",
@@ -3865,6 +4210,7 @@
         "confirm_circle"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "delete_circle",
@@ -3889,6 +4235,7 @@
         "add_circle_member"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -3914,6 +4261,7 @@
         "list_people"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3940,6 +4288,7 @@
         "resolve_person"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "create_circle_invite_link",
@@ -3986,6 +4335,7 @@
         "list_circle_members"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "delete_circle",
@@ -4011,6 +4361,7 @@
         "get_circle_details"
       ],
       "forbidden_tools": [
+        "add_all_connections",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -4018,6 +4369,92 @@
         "remove_circle_member"
       ],
       "note": "same intent, next person, one at a time"
+    },
+    {
+      "id": "follow_up-017",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Book Club"
+      ],
+      "utterance": "yes, and put all my connections in it",
+      "expected_tools": [
+        "confirm_pending_action"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "add_circle_members",
+        "cancel_pending_action",
+        "create_circle",
+        "delete_circle",
+        "list_people",
+        "resolve_person"
+      ],
+      "note": "approve the create first; filling it uses the circle_id the approval returns, never people one by one"
+    },
+    {
+      "id": "follow_up-018",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Book Club"
+      ],
+      "utterance": "yes but name it Readers instead",
+      "expected_tools": [
+        "cancel_pending_action",
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "confirm_pending_action",
+        "delete_circle"
+      ],
+      "note": "a different name is a correction, never approval of the old card"
+    },
+    {
+      "id": "follow_up-019",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Book Club"
+      ],
+      "utterance": "yes, create it, but leave it empty for now",
+      "expected_tools": [
+        "confirm_pending_action"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "cancel_pending_action",
+        "delete_circle"
+      ],
+      "note": "approve the create; add nobody"
+    },
+    {
+      "id": "follow_up-020",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Book Club"
+      ],
+      "utterance": "don't create it, just show my circles",
+      "expected_tools": [
+        "cancel_pending_action",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "confirm_pending_action",
+        "create_circle",
+        "delete_circle"
+      ],
+      "note": "decline the create; a read is fine"
     },
     {
       "id": "no_mutation-001",
@@ -4029,6 +4466,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4086,6 +4524,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4143,6 +4582,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4200,6 +4640,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4257,6 +4698,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4314,6 +4756,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4371,6 +4814,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4428,6 +4872,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4485,6 +4930,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4542,6 +4988,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4599,6 +5046,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4656,6 +5104,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4713,6 +5162,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4770,6 +5220,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4827,6 +5278,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4884,6 +5336,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4932,6 +5385,64 @@
       "note": "explain or decline; a read is fine; no change"
     },
     {
+      "id": "no_mutation-017",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how would I put all of my connections into the Family circle?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain; asking how is not asking to add everyone"
+    },
+    {
       "id": "clarify-001",
       "family": "clarify",
       "screen": "one_home",
@@ -4941,6 +5452,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -4998,6 +5510,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5055,6 +5568,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5112,6 +5626,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5169,6 +5684,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5226,6 +5742,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5283,6 +5800,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5340,6 +5858,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5397,6 +5916,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5454,6 +5974,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5511,6 +6032,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
@@ -5568,6 +6090,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "accept_location_setup_consent",
+        "add_all_connections",
         "add_circle_member",
         "add_circle_members",
         "add_emergency_contact",
