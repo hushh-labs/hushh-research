@@ -326,3 +326,35 @@ async def test_a_refused_reader_credential_replaces_nothing(arm, reader, monkeyp
         with pytest.raises(AzureSetupRefused):
             await backend.upgrade(_upgrade_spec(arm, backend, []))
     assert arm.writes() == []
+
+
+_DIGEST = "sha256:" + "a" * 64
+_HUB_IMAGE = f"gcr.io/hushh-pda-dev/consent-protocol-pod@{_DIGEST}"
+_RELEASE = "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod"
+
+
+def test_without_a_release_repository_the_hub_image_is_imported(monkeypatch):
+    monkeypatch.delenv(source.RELEASE_REPOSITORY_ENV, raising=False)
+    assert source.release_source(_HUB_IMAGE) == _HUB_IMAGE
+
+
+def test_a_release_repository_keeps_the_exact_digest(monkeypatch):
+    monkeypatch.setenv(source.RELEASE_REPOSITORY_ENV, _RELEASE + "/")
+    assert source.release_source(_HUB_IMAGE) == f"{_RELEASE}@{_DIGEST}"
+    assert setup.parse_source_image(source.release_source(_HUB_IMAGE))[2] == _DIGEST
+
+
+@pytest.mark.parametrize(
+    "repository",
+    [
+        "registry.example.com/hussh/pod",
+        f"{_RELEASE}:latest",
+        f"{_RELEASE}@{_DIGEST}",
+        "us-central1-docker.pkg.dev",
+    ],
+)
+def test_a_release_repository_that_is_not_a_google_repository_is_refused(monkeypatch, repository):
+    monkeypatch.setenv(source.RELEASE_REPOSITORY_ENV, repository)
+    with pytest.raises(AzureSetupRefused) as refused:
+        source.release_source(_HUB_IMAGE)
+    assert refused.value.code == "IMAGE_REPOSITORY_MISCONFIGURED"

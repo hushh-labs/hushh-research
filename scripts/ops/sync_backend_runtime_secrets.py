@@ -300,9 +300,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
         "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
         "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
-        "hushh_tech_client_enabled": getattr(
-            args, "hushh_tech_client_enabled", "false"
-        ),
+        "hushh_tech_client_enabled": getattr(args, "hushh_tech_client_enabled", "false"),
         "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
         "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
         "hushh_tech_allowed_redirect_uris": getattr(
@@ -362,17 +360,14 @@ _NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
 }
 
 
-# Connect Azure is admitted per lane, and only dev until the admission bar in
-# docs/reference/architecture/byoc-azure.md has live evidence. Each value is
-# a public identifier, not a secret. The Microsoft sign-in return is derived
-# from the lane's own origin, so one lane can never hand out another's.
+# Connect Azure, per lane: dev only until byoc-azure.md's admission bar has live
+# evidence. Public identifiers, not secrets; the sign-in return follows the origin.
 _AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
     "hushh-pda-dev": {
         "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
         "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
-        "hussh_pod_image_reader_sa": (
-            "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com"
-        ),
+        "hussh_pod_image_reader_sa": "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_azure_pod_image_repository": "us-central1-docker.pkg.dev/hushh-pda-dev/one-pod-release/consent-protocol-pod",
     },
 }
 

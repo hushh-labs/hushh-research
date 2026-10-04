@@ -352,7 +352,7 @@ reaches each one through a typed capability in
   `hushh-pda-dev`, with Token Creator on each held only by the dev hub runtime.
 - **The dev lane renders the Azure hub settings through
   `BACKEND_RUNTIME_CONFIG_JSON`,** not the deploy step:
-  `scripts/ops/sync_backend_runtime_secrets.py` writes the four values for
+  `scripts/ops/sync_backend_runtime_secrets.py` writes the values for
   `hushh-pda-dev` only, and the return address is derived from the lane origin.
   UAT and production carry none, so their Azure routes refuse with
   `NOT_CONFIGURED`. The web choice is admitted where the build sets
@@ -370,9 +370,13 @@ reaches each one through a typed capability in
   condition on the package name, or a narrower token scope, is honoured by the
   registry's Docker endpoint. Refusing a `gcr.io` source outright would block
   the dev live test until then, so that is a founder decision; today the hub
-  only logs it. On dev the reader holds Artifact Registry reader on `gcr.io` in
-  `hushh-pda-dev` (granted 2026-10-04 for the live test) besides
-  `one-pod-release`; remove that one binding to return to the narrow grant.
+  only logs it. **Dev avoids it for setup:** `HUSSH_AZURE_POD_IMAGE_REPOSITORY`
+  points the import at `one-pod-release`, the pod-only repository the reader alone
+  is granted, with the hub image's exact digest (a digest names exact bytes). A
+  release digest must be copied there before Azure can import it; a missing one
+  fails the preflight before any sign-in. The Azure **update** path still imports
+  from the approval's own reference, so on dev it refuses before sign-in until it
+  gets the same mapping.
 - **Agent-to-hub calls are dev-only:** they need `POD_HUB_IDENTITY_AUTH_ENABLED`
   and the parked migrations 947 and 948.
 - **Re-create after Azure deletes the environment:** the gone reason

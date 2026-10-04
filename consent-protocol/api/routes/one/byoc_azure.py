@@ -123,7 +123,18 @@ async def _require_setup_admission(user_id: str) -> dict:
 
 
 async def _source_image() -> str:
-    """The approved pod image, pinned by digest (resolved in Google Cloud if tagged)."""
+    """The approved pod image, pinned by digest, read where Azure is allowed to read it."""
+    from hushh_mcp.services.azure_image_source import release_source
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+
+    try:
+        return release_source(await _approved_image())
+    except AzureSetupRefused as exc:
+        raise _refuse(503, exc.code, str(exc)) from exc
+
+
+async def _approved_image() -> str:
+    """The hub's pod image, pinned by digest (resolved in Google Cloud if tagged)."""
     from hushh_mcp.services.pod_release import is_immutable_image_reference
 
     source = (os.getenv("HUSSH_ONE_POD_IMAGE") or "").strip()

@@ -38,6 +38,9 @@ from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
 logger = logging.getLogger(__name__)
 
 READER_SA_ENV = "HUSSH_POD_IMAGE_READER_SA"
+#: Where Azure imports the approved digest from, when not the hub's own pod image
+#: repository: a dedicated release repository the reader alone is granted.
+RELEASE_REPOSITORY_ENV = "HUSSH_AZURE_POD_IMAGE_REPOSITORY"
 READER_TOKEN_LIFETIME_SECONDS = 900
 READER_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 #: The username Google registries expect with an OAuth access token as the password.
@@ -92,6 +95,27 @@ def is_project_wide_registry(host: str) -> bool:
     images included, not only the pod release.
     """
     return bool(_PROJECT_WIDE_REGISTRY.match(str(host or "").strip().lower()))
+
+
+def release_source(source: str) -> str:
+    """The same approved digest, read from the dedicated release repository if one is set.
+
+    A digest names exact bytes, so ``<release repository>@<digest>`` is the approved
+    image wherever it is read from. That lets the reader be granted one pod-only
+    repository instead of the project-wide ``gcr.io`` one. A digest missing from the
+    release repository fails the import preflight, before any sign-in.
+    """
+    repository = (os.getenv(RELEASE_REPOSITORY_ENV) or "").strip().rstrip("/")
+    if not repository:
+        return source
+    host, _, path = repository.partition("/")
+    if not is_google_registry(host) or not path or "@" in path or ":" in path:
+        raise AzureSetupRefused(
+            f"{RELEASE_REPOSITORY_ENV} is not a registry repository",
+            code="IMAGE_REPOSITORY_MISCONFIGURED",
+        )
+    digest = source.rpartition("@")[2]
+    return f"{repository}@{digest}"
 
 
 def reader_service_account() -> str:
@@ -281,12 +305,14 @@ __all__ = [
     "READER_TOKEN_LIFETIME_SECONDS",
     "READER_SCOPE",
     "REGISTRY_USERNAME",
+    "RELEASE_REPOSITORY_ENV",
     "ImportAccess",
     "import_credentials",
     "is_google_registry",
     "is_project_wide_registry",
     "mint_reader_token",
     "readable_with",
+    "release_source",
     "reader_service_account",
     "require_import_access",
     "source_is_public",
