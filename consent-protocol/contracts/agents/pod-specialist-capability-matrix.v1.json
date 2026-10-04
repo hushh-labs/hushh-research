@@ -184,33 +184,6 @@
         "confirmation_owner": "hub",
         "executes_in_pod": false,
         "information_source": "hub",
-        "why": "Registered on the hub with no owner adapter; service_for refuses it in the pod.",
-        "write_scope": "none"
-      },
-      "derived": {
-        "a2a_scope": null,
-        "door": null,
-        "door_required_scope": null,
-        "hub_doors": [],
-        "one_tool_names": [],
-        "pod_agent_tool": false,
-        "pod_dispatchable": false,
-        "registered_specialist": false
-      },
-      "id": "agent_financial_guard",
-      "manifest_path": "consent-protocol/hushh_mcp/agents/financial_guard/agent.yaml",
-      "parent": "agent_one",
-      "required_scopes": [
-        "attr.financial.*"
-      ],
-      "status": "experimental"
-    },
-    {
-      "a2a_surface": false,
-      "declared": {
-        "confirmation_owner": "hub",
-        "executes_in_pod": false,
-        "information_source": "hub",
         "why": "Financial analysis needs the consented projection service; hub only today.",
         "write_scope": "none"
       },

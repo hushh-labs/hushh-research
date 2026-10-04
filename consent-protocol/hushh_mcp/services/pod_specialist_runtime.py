@@ -314,13 +314,6 @@ POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
             "Documents owner adapter or provider credentials."
         ),
     ),
-    "agent_financial_guard": _declare(
-        executes_in_pod=False,
-        information_source="hub",
-        write_scope="none",
-        confirmation_owner="hub",
-        why=_HUB_ONLY,
-    ),
     "agent_memory_intent": _declare(
         executes_in_pod=False,
         information_source="hub",
