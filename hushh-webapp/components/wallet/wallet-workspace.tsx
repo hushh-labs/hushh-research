@@ -54,6 +54,8 @@ import { Input } from "@/components/ui/input";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
+import { clearSecretOffer, peekSecretOffer } from "@/lib/pkm/secret-offer-handoff";
+import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
 import { WalletCardStack } from "@/components/wallet/wallet-card-stack";
 import { useAuth } from "@/hooks/use-auth";
@@ -72,6 +74,7 @@ import {
   focusedCardIdOf,
   walletViewReducer,
 } from "@/lib/wallet/wallet-view-state";
+import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 const WALLET_PAGE_SIZE = 10;
 
@@ -142,6 +145,12 @@ export function WalletWorkspace() {
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
   const [unlockOpen, setUnlockOpen] = useState(false);
+  // A chat offer ("Add Amex Gold to Wallet") hands over the nickname in memory
+  // (lib/pkm/reserved-offer.ts); the owner enters the card here, as always.
+  const [offerNickname, setOfferNickname] = useState<string | null>(null);
+  // A card kept in Secrets that the owner chose to file here, decrypted from
+  // the vault on this device. Memory only; cleared on save or cancel.
+  const [filing, setFiling] = useState<{ secretId: string; pan: string } | null>(null);
   const stackRef = useRef<HTMLDivElement | null>(null);
   const detailsId = useId();
   // Search and page live in the URL (same shape as Consent Center's list), so a
@@ -219,6 +228,41 @@ export function WalletWorkspace() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!renderedOwnerId || view.kind !== "list") return;
+    const staged = takeReservedOfferPrefill({
+      ownerUserId: renderedOwnerId,
+      ownerFeature: "wallet",
+      kind: "wallet_card",
+    });
+    if (!staged) return;
+    setOfferNickname(staged.nickname);
+    dispatch({ type: "open_add" });
+  }, [renderedOwnerId, view.kind]);
+  // "Add this card to Wallet" from a Secrets card: open the add form with the
+  // number decrypted from the vault. The owner still commits it here.
+  useEffect(() => {
+    if (view.kind !== "list" || filing) return;
+    const offer = peekSecretOffer({ ownerUserId: user?.uid, fileTo: "wallet" });
+    const context = vaultContext();
+    if (!offer || !context) return;
+    let active = true;
+    void SecretsVaultService.revealSecret({ ...context, secretId: offer.secretId })
+      .then((value) => {
+        if (!active) return;
+        if (!value) {
+          clearSecretOffer();
+          return;
+        }
+        setFiling({ secretId: offer.secretId, pan: value });
+        dispatch({ type: "open_add" });
+      })
+      .catch(() => clearSecretOffer());
+    return () => {
+      active = false;
+    };
+  }, [filing, user?.uid, vaultContext, view.kind]);
 
   const focusedCardId = focusedCardIdOf(view);
   const focusedCard = focusedCardId
@@ -551,6 +595,9 @@ export function WalletWorkspace() {
           {view.kind === "add" ? (
             <div className="motion-step-enter">
               <SecureCardAddForm
+                key={filing?.secretId ?? "new"}
+                initialNickname={offerNickname ?? undefined}
+                initialPan={filing?.pan}
                 onSubmit={async (card) => {
                   const context = vaultContext();
                   if (!context) throw new Error("Unlock your vault to save a card.");
@@ -570,9 +617,20 @@ export function WalletWorkspace() {
                     }
                     throw error;
                   }
+                  setOfferNickname(null);
+                  if (filing) {
+                    clearSecretOffer();
+                    void SecretsVaultService.markFiled({ ...context, secretId: filing.secretId, filedTo: "wallet" }).catch(() => undefined);
+                    setFiling(null);
+                  }
                   await refresh();
                 }}
-                onCancel={() => dispatch({ type: "close_add" })}
+                onCancel={() => {
+                  setOfferNickname(null);
+                  clearSecretOffer();
+                  setFiling(null);
+                  dispatch({ type: "close_add" });
+                }}
               />
             </div>
           ) : null}

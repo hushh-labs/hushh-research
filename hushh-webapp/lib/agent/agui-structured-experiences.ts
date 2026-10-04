@@ -10,6 +10,7 @@ import {
   type WorkspaceConnectorSetupExperience,
 } from "./connector-read-receipt";
 import { parseCustomConnectorProbe, type CustomConnectorProbeExperience } from "./custom-connector-probe";
+import { parseOwnerStyleProposal, type OwnerStyleProposal } from "./owner-style-settings";
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -33,6 +34,17 @@ export const DRIVE_BULK_SHARE_REVIEW_EXPERIENCE_TYPE = "one.drive_bulk_share_rev
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
+export const STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE = "one.style_settings_offer.v1" as const;
+
+/**
+ * One's offer to change how it writes to the owner. It names the proposed
+ * values and only opens Settings; the owner saves there, with the Settings
+ * writer. Chat never writes the reserved style branch.
+ */
+export type StyleSettingsOfferExperience = {
+  type: typeof STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE;
+  proposed: OwnerStyleProposal;
+};
 
 /**
  * The follow-up sent after a person is picked. It is chosen from the tool that
@@ -236,7 +248,8 @@ export type AgentStructuredExperience =
   | DriveBulkShareReviewExperience
   | KycReadinessExperience
   | MemoryImportReviewExperience
-  | EvidenceBriefExperience;
+  | EvidenceBriefExperience
+  | StyleSettingsOfferExperience;
 
 export type AgentStructuredExperienceWithPresentation = AgentStructuredExperience & {
   presentation?: AgentExperiencePresentation;
@@ -815,6 +828,11 @@ export function parseAgentToolResultExperience(
   if (toolName === "propose_drive_bulk_share") {
     const result = unwrapToolResult(content);
     return result?.status === "proposal_ready" ? parseDriveBulkShareReview(content) : null;
+  }
+  if (toolName === "propose_style_settings") {
+    const result = unwrapToolResult(content);
+    const proposed = result?.status === "offer_ready" ? parseOwnerStyleProposal(result.proposed) : null;
+    return proposed ? { type: STYLE_SETTINGS_OFFER_EXPERIENCE_TYPE, proposed } : null;
   }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||

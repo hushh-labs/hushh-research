@@ -26,6 +26,10 @@ from hushh_mcp.services.drive_document_processor import (  # noqa: E402
 from hushh_mcp.services.embedding_client_leaf import BAKED_MODEL_DIR  # noqa: E402
 from hushh_mcp.services.google_drive_adapter import DriveReadError  # noqa: E402
 
+# Leave headroom inside the worker's 220s Gunicorn / 240s startup-probe bounds.
+# Model admission, its single retry and scanner attestation share this budget.
+STARTUP_TIMEOUT_SECONDS = 180
+
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
@@ -33,17 +37,27 @@ async def lifespan(_app: FastAPI):
         raise RuntimeError("Drive worker image is missing its pinned local model")
     # This is synthetic content only. Failure keeps the candidate revision
     # unready and prevents the scheduler from being retargeted to it.
-    await IsolatedDocumentEmbedding().query("synthetic statement")
-    scanner = ClamAvScanner()
-    deadline = asyncio.get_running_loop().time() + 200
-    while True:
-        try:
-            await scanner.check_ready()
-            break
-        except DriveReadError:
-            if asyncio.get_running_loop().time() >= deadline:
-                raise RuntimeError("Drive scanner failed its startup check") from None
-            await asyncio.sleep(3)
+    try:
+        async with asyncio.timeout(STARTUP_TIMEOUT_SECONDS):
+            embedding = IsolatedDocumentEmbedding()
+            try:
+                await embedding.query("synthetic statement")
+            except DriveReadError as error:
+                # A cold local model can hit its existing child deadline. The
+                # failed child is reaped by the processor before retrying; keep
+                # all per-query isolation and resource limits unchanged.
+                if not error.retryable or str(error) != "processing_timeout":
+                    raise
+                await embedding.query("synthetic statement")
+            scanner = ClamAvScanner()
+            while True:
+                try:
+                    await scanner.check_ready()
+                    break
+                except DriveReadError:
+                    await asyncio.sleep(3)
+    except TimeoutError:
+        raise RuntimeError("Drive worker exceeded its startup readiness budget") from None
     yield
 
 

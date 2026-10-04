@@ -1,8 +1,9 @@
 // The Hussh One Privacy Policy and Terms of Use.
 //
 // This file is the single source for both documents. The public /privacy and
-// /terms pages and the inline sign-in sheet all render from it, so the text a
-// person agrees to at sign-in is the text the public page serves.
+// /terms pages (linked from sign-in) and Profile's Legal section all render it
+// through components/legal/legal-reader.tsx, so the text a person agrees to at
+// sign-in is the text they read in the app.
 //
 // Every statement about how information is handled must be true of the code
 // on this branch. Change the code and this text together. When the text

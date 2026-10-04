@@ -3,6 +3,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { pkmClientVersionHeaders } from "@/lib/vault/write-protocol-version";
 import type { PkmUpgradeDomainState } from "@/lib/services/personal-knowledge-model-service";
 
 export class PkmUpgradeRouteUnavailableError extends Error {
@@ -188,7 +189,12 @@ function mapErrorContext(
 }
 
 function authHeaders(vaultOwnerToken?: string): HeadersInit {
-  return vaultOwnerToken ? { Authorization: `Bearer ${vaultOwnerToken}` } : {};
+  // Every upgrade route reads the client level: a build without it is never
+  // offered the reserved-branch relocation it cannot perform.
+  return {
+    ...pkmClientVersionHeaders(),
+    ...(vaultOwnerToken ? { Authorization: `Bearer ${vaultOwnerToken}` } : {}),
+  };
 }
 
 function mapDomain(domain: Record<string, unknown>): PkmUpgradeDomainState {

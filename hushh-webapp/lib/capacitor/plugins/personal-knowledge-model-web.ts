@@ -5,6 +5,7 @@
  */
 
 import type { LocationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
+import type { KycReplyAuthorizationV1 } from "@/lib/personal-knowledge-model/mutation-plan";
 import { WebPlugin } from "@capacitor/core";
 import type { HushhPersonalKnowledgeModelPlugin } from "@/lib/capacitor/personal-knowledge-model";
 
@@ -461,6 +462,7 @@ export class HushhPersonalKnowledgeModelWeb
     };
     mutationPlan?: Record<string, unknown>;
     locationFinalizeAuthorization?: LocationFinalizeWire;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     vaultOwnerToken?: string;
   }): Promise<{
     success: boolean;
@@ -504,6 +506,7 @@ export class HushhPersonalKnowledgeModelWeb
         structure_decision: options.structureDecision,
         mutation_plan: options.mutationPlan,
         location_finalize_authorization: options.locationFinalizeAuthorization,
+        kyc_reply_authorization: options.kycReplyAuthorization,
         manifest: options.manifest,
         write_projections: (options.writeProjections || []).map((projection) => ({
           projection_type: projection.projectionType,

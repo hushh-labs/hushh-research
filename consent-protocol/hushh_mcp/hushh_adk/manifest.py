@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
 import yaml
@@ -1165,6 +1165,9 @@ class AgentManifestV2(StrictManifestModel):
     model: str | AgentModelConfig = GEMINI_MODEL
     credential_policy: CredentialPolicy = Field(default_factory=CredentialPolicy)
     system_instruction: str
+    # A shared instruction file (.md, relative to this manifest, inside the agents
+    # tree) that ManifestLoader composes ahead of system_instruction. One copy of
+    # rules several agents share; never a second prompt in service code.
     prompt_reference: str | None = None
     runtime: RuntimeContract = Field(default_factory=RuntimeContract)
     authorities: AuthorityContract = Field(default_factory=AuthorityContract)
@@ -1302,10 +1305,50 @@ class ManifestLoader:
 
     @staticmethod
     def load_from_dict(data: dict[str, Any], *, source: str = "<dict>") -> AgentManifestV2:
+        data = ManifestLoader._compose_prompt_reference(data, source=source)
         try:
             return AgentManifestV2.model_validate(data)
         except (ValidationError, TypeError) as exc:
             raise ValueError(f"Invalid manifest data from '{source}': {exc}") from exc
+
+    @staticmethod
+    def _compose_prompt_reference(data: dict[str, Any], *, source: str) -> dict[str, Any]:
+        """Compose a shared instruction ahead of the manifest's own.
+
+        ``prompt_reference`` names a Markdown file, relative to the manifest,
+        holding rules several agents share (the PKM memory kernel is the first).
+        The composed text becomes ``system_instruction``, so every consumer
+        (ADK single-turn, the direct client, the registry digest, the preview
+        cache fingerprint) sees one authoritative instruction and no service
+        keeps a copy of it. The file must sit inside the agents tree.
+        """
+
+        if not isinstance(data, dict):
+            # Validation below rejects it with the loader's ValueError.
+            return data
+        reference = data.get("prompt_reference")
+        if reference is None:
+            return data
+        if not isinstance(reference, str) or not reference.strip().endswith(".md"):
+            raise ValueError(f"Manifest '{source}': prompt_reference must name a .md file")
+        manifest_path = Path(source)
+        if not manifest_path.is_file():
+            raise ValueError(
+                f"Manifest '{source}': prompt_reference {reference!r} needs a manifest file "
+                "to resolve against"
+            )
+        agents_root = manifest_path.resolve().parent.parent
+        target = (manifest_path.resolve().parent / reference.strip()).resolve()
+        if not target.is_relative_to(agents_root) or not target.is_file():
+            raise ValueError(
+                f"Manifest '{source}': prompt_reference {reference!r} must be a file inside "
+                f"{agents_root}"
+            )
+        shared = target.read_text(encoding="utf-8").strip()
+        if not shared:
+            raise ValueError(f"Manifest '{source}': prompt_reference {reference!r} is empty")
+        own = str(data.get("system_instruction") or "").strip()
+        return {**data, "system_instruction": f"{shared}\n\n{own}" if own else shared}
 
     @staticmethod
     def load_location_knowledge_package(path: str) -> LocationKnowledgePackageV1:

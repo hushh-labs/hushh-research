@@ -38,6 +38,7 @@ from itertools import pairwise
 from typing import Literal
 
 from hushh_mcp.consent.field_sensitivity import (
+    domain_is_identifier_class,
     field_key_is_sensitive,
     sensitive_topic_phrases,
     sensitive_topic_words,
@@ -114,6 +115,8 @@ def scope_sensitivity(scope: str | None, pkm_tags: Iterable[object] = ()) -> Sen
         return SENSITIVE
     domain = parts[1].lower()
     if domain in SENSITIVE_DOMAINS or canonical_top_level_domain(domain) in SENSITIVE_DOMAINS:
+        return SENSITIVE
+    if domain_is_identifier_class(domain):
         return SENSITIVE
     segments = parts[1:]
     if any(words_are_sensitive(segment) for segment in segments):

@@ -106,6 +106,7 @@ import { AgentConsentContinuationNotifier } from "@/components/agent/agent-conse
 import { AgentFeedAttentionNotifier } from "@/components/agent/agent-feed-attention-notifier";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
+import { BootRouteCommitted } from "@/components/app-ui/boot-surface";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -115,6 +116,7 @@ import {
 import {
   PROFILE_PANE_OPEN_EVENT,
   PROFILE_PANE_ROOT_LOCATION,
+  type ProfilePaneOpenDetail,
   openProfilePane,
   clearProfilePaneQuery,
   closeProfilePane,
@@ -489,14 +491,25 @@ function AppShellFrame({ children }: ProvidersProps) {
   ]);
 
   useEffect(() => {
-    const handleProfilePaneOpen = () => {
-      if (!profilePaneEnabled) return;
-      if (profilePaneUrlState.open) return;
+    const handleProfilePaneOpen = (event: Event) => {
+      // Answer the requester so a caller that must know (voice) never reports
+      // an open that the shell silently dropped.
+      const report = (event as CustomEvent<ProfilePaneOpenDetail>).detail
+        ?.onResult;
+      if (!profilePaneEnabled) {
+        report?.("unavailable");
+        return;
+      }
+      if (profilePaneUrlState.open) {
+        report?.("already_open");
+        return;
+      }
       openProfilePane(
         pathname || ROUTES.ONE_HOME,
         searchParams,
         profilePaneResumeLocation,
       );
+      report?.("opening");
     };
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, handleProfilePaneOpen);
     return () => {
@@ -624,6 +637,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <SiriOneRequestHandoff />
                   <SiriOneActionHandoff />
                   <SiriOneEntityIndexPublisher />
+                  {/* Proof for the boot surface that the route tree has
+                      committed: after it, an empty set of guard claims means
+                      there is nothing left to wait for. */}
+                  <BootRouteCommitted />
                   <NativeTestRouter />
                   <NativeTestBootstrap />
                   <NativeTestRouteStatus />

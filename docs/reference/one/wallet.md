@@ -60,8 +60,12 @@ flowchart TD
 
 Unchanged on purpose: `card_<uuid>` segment ids, `cardId` / `last4` / `brand`
 fields, `secure-card-add-form.tsx` and `secure-card-reveal.tsx` (they render
-one card), `lib/wallet/card-validation.ts` and `pan-paste-guard.ts` (they
-validate a card), and every identity-pass identifier listed above.
+one card), `lib/wallet/card-validation.ts` (it validates a card), and every
+identity-pass identifier listed above. The chat's card-number paste guard was
+generalized into the Secrets guard (`lib/pkm/secret-span-guard.ts`): a card
+number sent in chat is kept in Secrets and offered to Wallet, never blocked and
+never sent to the model (`consent-protocol/docs/reference/personal-knowledge-model.md`,
+"The Secrets area").
 
 ## Where the pieces live
 
@@ -70,7 +74,7 @@ validate a card), and every identity-pass identifier listed above.
 - Agent manifest and roster insertion: `hushh_mcp/agents/wallet/agent.yaml`, `hushh_mcp/one_adk/agent_tree.py` (unconditional)
 - Store-domain guard: `api/routes/pkm_routes_shared.py` (`_enforce_wallet_write_policy`)
 - Route, tile, breadcrumb, screen: `app/one/wallet/page.tsx`, `lib/onboarding/one-capabilities.ts`, `lib/navigation/top-shell-breadcrumbs.ts`, `lib/voice/route-screen-derivation.ts`
-- Chat integration: `components/agent/agent-chat-workspace.tsx` (`wallet.list` / `wallet.add` / `wallet.reveal` branches, paste guard)
+- Chat integration: `components/agent/agent-chat-workspace.tsx` (`wallet.list` / `wallet.add` / `wallet.reveal` branches, the Secrets guard and its "Add this card to Wallet" offer)
 - Deploy: nothing Wallet-specific. The feature carries no flag in any lane.
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`

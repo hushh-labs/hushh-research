@@ -26,7 +26,6 @@ import pytest
 from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 from tests.services.test_pkm_agent_lab_service import _registry_choices
 
-GUARD = {"routing_decision": "non_financial_or_ephemeral"}
 DOMAINS = ["food", "health", "location"]
 
 
@@ -35,7 +34,6 @@ def _fallback(message: str) -> dict:
         message=message,
         current_domains=DOMAINS,
         registry_choices=_registry_choices(),
-        financial_guard=GUARD,
     )
 
 

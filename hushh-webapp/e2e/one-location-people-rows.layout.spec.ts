@@ -12,7 +12,11 @@ import {
 
 const WIDTHS = [320, 360, 390, 430, 768, 1280] as const;
 
-async function buildFixture(dark: boolean): Promise<string> {
+async function buildFixture(
+  dark: boolean,
+  extraCandidates: string[] = [],
+  markupOverride?: string,
+): Promise<string> {
   const root = process.cwd();
   const { compile } = await import(
     path.join(root, "node_modules/tailwindcss/dist/lib.mjs")
@@ -37,11 +41,11 @@ async function buildFixture(dark: boolean): Promise<string> {
       };
     },
   });
-  const markup = fs.readFileSync(
+  const markup = markupOverride ?? fs.readFileSync(
     path.join(root, "e2e/fixtures/one-location-people-rows.html"),
     "utf8",
   );
-  const used = new Set<string>();
+  const used = new Set<string>(extraCandidates);
   for (const match of markup.matchAll(/class="([^"]*)"/g)) {
     for (const token of match[1].split(/\s+/)) if (token) used.add(token);
   }
@@ -64,6 +68,124 @@ async function buildFixture(dark: boolean): Promise<string> {
   );
   return pathToFileURL(path.join(dir, "fixture.html")).href;
 }
+
+test.describe("Contact scroll with the page-enter observer", () => {
+  let script: string;
+  let candidates: string[];
+
+  test.beforeAll(async () => {
+    const root = process.cwd();
+    const { build } = await import("vite");
+    const { Scanner } = await import("@tailwindcss/oxide");
+    const scanner = new Scanner({});
+    const used = new Set<string>();
+    const outDir = fs.mkdtempSync(path.join(os.tmpdir(), "contact-scroll-"));
+    await build({
+      configFile: false,
+      logLevel: "error",
+      plugins: [{
+        name: "fixture-css-candidates",
+        transform(source, id) {
+          if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id)) {
+            for (const candidate of scanner.scanFiles([
+              { content: source, extension: "tsx" },
+            ])) used.add(candidate);
+          }
+        },
+      }],
+      oxc: { jsx: { runtime: "automatic" } },
+      resolve: { alias: { "@": root } },
+      define: {
+        "process.env.NODE_ENV": JSON.stringify("production"),
+        "process.env": "{}",
+      },
+      build: {
+        outDir,
+        lib: {
+          entry: path.join(root, "e2e/fixtures/one-location-contact-scroll.tsx"),
+          name: "Fixture",
+          formats: ["iife"],
+          fileName: () => "fixture.js",
+        },
+      },
+    });
+    script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+    candidates = [...used];
+  });
+
+  for (const presentation of ["grouped", "cards"] as const) {
+    for (const [width, dark] of [[390, false], [390, true], [1280, false]] as const) {
+      test(`${presentation} roster survives selection and scroll reversal at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+        const errors: string[] = [];
+        page.on("pageerror", (error) => errors.push(error.message));
+        await page.emulateMedia({ reducedMotion: "no-preference" });
+        await page.setViewportSize({ width, height: 844 });
+        await page.goto(await buildFixture(dark, candidates, '<div id="root"></div>'));
+        await page.evaluate((value) => {
+          document.body.dataset.presentation = value;
+          document.documentElement.classList.add("native-ios");
+        }, presentation);
+        await page.addScriptTag({ content: script });
+        await awaitProductFont(page);
+        await page.getByRole("button", { name: "Ask for location" }).click();
+        await expect(page.getByRole("heading", { name: "Ask for location" })).toBeVisible();
+        const list = page.getByTestId("scroll-roster");
+        // Prove the real page animation initialized before mounting more rows.
+        await expect(page.locator("#root > div")).toHaveAttribute("data-gsap-auto-fade-ready", "1");
+        await page.getByRole("button", { name: "Add Person 000", exact: true }).click();
+        await page.getByRole("button", { name: "Add Person 001", exact: true }).click();
+        await expect(page.getByTestId("selected-count")).toHaveText("2 selected");
+
+        const geometry = async (scrollTop: number) => list.evaluate(async (element, top) => {
+          element.scrollTop = top;
+          const frames = [];
+          // Measure while the mutation-triggered tween runs and after it clears
+          // props. Healthy counts/heights alone cannot detect lost row offsets.
+          for (let frame = 0; frame < 32; frame++) {
+            await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+            const rows = [...element.querySelectorAll<HTMLElement>("[data-index]")];
+            const boxes = rows.map((row) => row.getBoundingClientRect());
+            frames.push({
+              overlaps: boxes.slice(1).filter((box, index) => box.top < boxes[index].bottom - 1).length,
+              missingOffsets: rows.filter((row) => Number(row.dataset.index) > 0 && !row.style.transform).length,
+              firstIndex: Number(rows[0]?.dataset.index),
+              count: rows.length,
+            });
+          }
+          return frames;
+        }, scrollTop);
+        const down = await geometry(1900);
+        const up = await geometry(0);
+        await page.screenshot({ path: testInfo.outputPath("selected-after-scroll.png") });
+        expect(down.at(-1)!.firstIndex).toBeGreaterThan(10);
+        expect(up.at(-1)!.firstIndex).toBe(0);
+        for (const frame of [...down, ...up]) {
+          expect(frame.count).toBeGreaterThan(0);
+          expect(frame.count).toBeLessThan(30);
+          expect(frame.overlaps).toBe(0);
+          expect(frame.missingOffsets).toBe(0);
+        }
+        await expect(page.getByRole("button", { name: "Remove Person 000", exact: true })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Remove Person 001", exact: true })).toBeVisible();
+        await expect(page.getByTestId("selected-count")).toHaveText("2 selected");
+
+        const firstRow = list.locator('[data-index="0"]');
+        const collapsedHeight = await firstRow.evaluate((row) => row.getBoundingClientRect().height);
+        await page.getByRole("button", { name: "Toggle details" }).click();
+        await expect.poll(() => firstRow.evaluate((row) => row.getBoundingClientRect().height)).toBeGreaterThan(collapsedHeight);
+        await page.getByRole("button", { name: "Toggle details" }).click();
+        await expect.poll(() => firstRow.evaluate((row) => row.getBoundingClientRect().height)).toBe(collapsedHeight);
+        await page.getByRole("textbox", { name: "Search people" }).fill("Person 11");
+        await expect(page.getByRole("button", { name: "Add Person 119", exact: true })).toBeVisible();
+        await page.getByRole("textbox", { name: "Search people" }).fill("");
+        await expect(page.getByRole("button", { name: "Remove Person 000", exact: true })).toBeVisible();
+        await page.getByRole("button", { name: "Remove Person 000", exact: true }).click();
+        await expect(page.getByTestId("selected-count")).toHaveText("1 selected");
+        expect(errors).toEqual([]);
+      });
+    }
+  }
+});
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {

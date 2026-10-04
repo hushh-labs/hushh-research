@@ -440,7 +440,7 @@ View metadata:
 | Stakeholders | KYC, backend, frontend, security |
 | Concern | Mailbox intake, approval-gated draft, scoped export refresh, and structured writeback |
 | Model kind | C4 dynamic / sequence diagram |
-| Source anchors | `docs/reference/architecture/one-email-kyc.md`, `consent-protocol/hushh_mcp/services/one_email_kyc_service.py`, `hushh-webapp/lib/services/one-kyc-client-zk-service.ts` |
+| Source anchors | Retired with the legacy mailbox-KYC workflow. |
 
 ```mermaid
 sequenceDiagram

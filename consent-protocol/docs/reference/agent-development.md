@@ -591,8 +591,7 @@ is the complete roster; [One Agent Hierarchy](../../../docs/reference/one/one-ag
 owns the cross-surface roles. Keep this page on package-local agent, tool and
 operon implementation rules instead of maintaining a second roster table.
 
-For One-led email KYC, use the [One Email KYC architecture](../../../docs/reference/architecture/one-email-kyc.md)
-for routing, consent, drafts and send gates. Its attachment points here are
+The legacy One-led email-KYC routing, draft, and send workflow is retired. Its former attachment points here are
 the `agent_kyc` manifest, typed gene contracts and the existing One Email KYC
 services. Never put raw email bodies, decrypted PKM values, credentials or
 raw model reasoning in ADK session state or telemetry. Authenticated One Chat
@@ -619,6 +618,8 @@ parent: string | null         # One is null; specialists name their parent
 description: string           # What this agent does
 model: string | object        # Model identifier or AgentModelConfig
 system_instruction: string    # System prompt
+prompt_reference: string|null # Shared .md instruction (relative, inside hushh_mcp/agents)
+                              # composed ahead of system_instruction at load time
 runtime: object               # kind, factory, ADK mode, transports
 authorities: object           # invocation, data, and action authority
 required_scopes: string[]     # Internal/runtime entry scopes

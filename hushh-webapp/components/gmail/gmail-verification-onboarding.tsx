@@ -1,12 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Copy, KycAgentIcon, ShieldCheck } from "@/components/icons";
+import { ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
+import { KycPasteDetailsDialog } from "@/components/gmail/kyc-paste-details-dialog";
+import { KycProfileHero } from "@/components/gmail/kyc-profile-hero";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
@@ -43,6 +44,7 @@ export function GmailVerificationOnboarding({
   const [checking, setChecking] = useState(true);
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(false);
   const saveStartedRef = useRef(false);
 
   useEffect(() => {
@@ -119,6 +121,7 @@ export function GmailVerificationOnboarding({
     // workspace immediately while the encrypted PKM write completes without
     // holding their navigation hostage.
     setProfileReady(true);
+    setPasteOpen(false);
     onDetailsChange("");
     toast.info("Saving your KYC details privately in the background…");
     void saveTask
@@ -200,68 +203,22 @@ export function GmailVerificationOnboarding({
   }
 
   return (
-    <section className="mx-auto w-full max-w-md space-y-4 pt-6">
-      <div className="flex flex-col items-center text-center">
-        <div aria-hidden="true" className="mb-4 flex size-16 items-center justify-center rounded-[20px] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]">
-          <KycAgentIcon color="currentColor" className="size-9" />
-        </div>
-        <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-          Build your KYC profile
-        </h2>
-        <p className="mt-2 max-w-xs text-[15px] leading-[22px] text-muted-foreground">
-          For faster KYC replies.
-        </p>
-      </div>
-      <Textarea
-        value={details}
-        onChange={(event) => onDetailsChange(event.target.value)}
-        placeholder="Paste your profile details here…"
-        className="min-h-32 resize-y border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] text-base shadow-none"
-        aria-label="KYC details"
-        disabled={saving}
+    <>
+      <KycProfileHero onPasteDetails={() => setPasteOpen(true)} />
+      <KycPasteDetailsDialog
+        open={pasteOpen}
+        onOpenChange={setPasteOpen}
+        details={details}
+        onDetailsChange={onDetailsChange}
+        saving={saving}
+        copied={copied}
+        onCopyPrompt={() => void copyPrompt()}
+        onSave={save}
+        onSkip={() => {
+          setPasteOpen(false);
+          onDeferredChange(true);
+        }}
       />
-      <div className="flex items-start gap-2.5">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2">
-            <Button
-              type="button"
-              variant="none"
-              effect="fade"
-              onClick={() => void copyPrompt()}
-              aria-label="Copy prompt to clipboard"
-              className="min-h-11 px-0 [--type-button-label-size:14.45px] [--type-button-label-line:18.7px] font-medium !text-[color:var(--app-accent)]"
-            >
-              <Copy aria-hidden="true" className="mr-2 size-[17px] shrink-0" />
-              {copied ? "Copied" : "Copy AI prompt"}
-            </Button>
-            <span className="text-xs text-muted-foreground">· Optional</span>
-          </div>
-          <p className="text-xs leading-5 text-muted-foreground">
-            Use in your AI app. Then paste the reply here.
-          </p>
-        </div>
-      </div>
-      <div className="mx-auto flex w-full max-w-[244px] flex-col items-center gap-1">
-        <Button
-          type="button"
-          size="prominent"
-          onClick={save}
-          disabled={saving || !details.trim()}
-          className="w-full justify-center"
-        >
-          {saving ? "Saving…" : "Save profile"}
-        </Button>
-        <Button
-          type="button"
-          variant="none"
-          effect="fade"
-          onClick={() => onDeferredChange(true)}
-          disabled={saving}
-          className="min-h-11 px-4 text-[15px] font-normal !text-[color:var(--app-accent)]"
-        >
-          Skip for now
-        </Button>
-      </div>
-    </section>
+    </>
   );
 }

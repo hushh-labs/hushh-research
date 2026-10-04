@@ -15,6 +15,7 @@ narrates. It returns typed results the model has to read back.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,8 +32,10 @@ from hushh_mcp.one_voice.private_pending import open_sealed, seal
 from hushh_mcp.one_voice.tools import registry
 from hushh_mcp.one_voice.tools.base import (
     ConfirmationRequired,
+    ConfirmationWaiting,
     Rejected,
     ToolContext,
+    ToolPolicy,
     ToolResult,
     ToolSpec,
     arg_refs,
@@ -75,6 +78,19 @@ class ToolCallOutcome:
 # that names the signed-in user. Never success; the card stays pending so a
 # tap (which carries a fresh proof) can still complete it.
 FIREBASE_PROOF_REQUIRED = "firebase_proof_required"
+# Result status when the model proposes a voice-tier action that is already
+# open with the same arguments. Never success, never a new row or card.
+CONFIRMATION_WAITING = "confirmation_waiting"
+# How long the model's own cancel of a voice-tier card is remembered, so an
+# unchanged re-proposal right after it can say so instead of asking again.
+# Observed on UAT 2026-10-02: "Yes, go ahead for 1 hour" was read as a
+# correction, the card cancelled, and the identical question asked again.
+RECENT_CANCEL_SECONDS = 30.0
+
+
+def _person_visible(args: dict[str, Any] | None) -> dict[str, Any]:
+    """Stored args without the server's private keys (``_prepared``, origin turn)."""
+    return {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
 
 
 class ToolExecutor:
@@ -86,6 +102,10 @@ class ToolExecutor:
     ) -> None:
         self._pending = pending_store
         self._actor_proof = actor_proof or verify_firebase_actor
+        # conversation_id -> (tool, public args, monotonic time) of the last
+        # voice-tier card the model cancelled. In memory only: it informs the
+        # model about its own last move and never confirms anything.
+        self._recent_cancels: dict[str, tuple[str, dict[str, Any], float]] = {}
 
     async def prove_actor(self, ctx: ToolContext, spec: ToolSpec | None) -> ProofOutcome:
         """For a firebase-plane tool, verify the context's Firebase proof names
@@ -181,6 +201,30 @@ class ToolExecutor:
         if spec.name in LOOKUP_TOOLS:
             superseded = await self._supersede_targeted(ctx)
         if spec.policy.needs_confirmation:
+            existing = await self._open_duplicate(ctx, spec, parsed)
+            if existing is not None:
+                # The same proposal is already waiting. Minting a second row
+                # would cancel the card the person may be answering, so the
+                # model gets the existing id back instead. Nothing is confirmed.
+                shown = existing.shown_at is not None
+                logger.info(
+                    "one_voice.pending.reused tool=%s shown=%s",
+                    spec.name,
+                    "yes" if shown else "no",
+                )
+                return ToolCallOutcome(
+                    result=ConfirmationWaiting(
+                        pending_action_id=existing.id,
+                        summary=existing.summary,
+                        card_shown=shown,
+                        spoken_facts=[
+                            f"That's already waiting for your answer: {existing.summary}."
+                        ],
+                    ),
+                    spec=spec,
+                    pending=existing,
+                    parsed=parsed,
+                )
             args_json = parsed.model_dump(mode="json")
             if spec.private_args:
                 public_args = {
@@ -258,19 +302,29 @@ class ToolExecutor:
                 args=args_json,
                 summary=summary,
             )
+            repeated = self._repeats_recent_cancel(ctx, spec, parsed)
+            if repeated:
+                logger.info("one_voice.pending.repeat_after_cancel tool=%s", spec.name)
+            result: ToolResult = ConfirmationRequired(
+                pending_action_id=row.id,
+                tier="tap" if row.tier == "tap" else "voice",
+                summary=summary,
+                spoken_facts=[
+                    (
+                        f"I can {summary}. Tap Confirm on the card to go ahead."
+                        if row.tier == "tap"
+                        else f"That's the same as the one just cancelled: {summary}."
+                        if repeated
+                        else f"I can {summary}. Should I go ahead?"
+                    )
+                ],
+            )
+            if repeated:
+                # The model cancelled this exact proposal moments ago and made
+                # it again unchanged. Say so; the model still decides.
+                result = result.model_copy(update={"repeats_cancelled": True})
             return ToolCallOutcome(
-                result=ConfirmationRequired(
-                    pending_action_id=row.id,
-                    tier="tap" if row.tier == "tap" else "voice",
-                    summary=summary,
-                    spoken_facts=[
-                        (
-                            f"I can {summary}. Tap Confirm on the card to go ahead."
-                            if row.tier == "tap"
-                            else f"I can {summary}. Should I go ahead?"
-                        )
-                    ],
-                ),
+                result=result,
                 spec=spec,
                 pending=row,
                 receipt_token=receipt,
@@ -294,6 +348,56 @@ class ToolExecutor:
         if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
             result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
         return ToolCallOutcome(result=result, spec=spec, parsed=parsed, superseded=superseded)
+
+    async def _open_duplicate(
+        self, ctx: ToolContext, spec: ToolSpec, parsed: Any
+    ) -> PendingAction | None:
+        """An open voice-tier row for the same tool with identical public args.
+
+        Voice tier only: a tap card's receipt is handed out once, at creation.
+        Never for sealed args: two dictations to one recipient stay two proposals.
+        """
+        if not self._repeat_guarded(spec):
+            return None
+        wanted = parsed.model_dump(mode="json")
+        for row in await self.pending.list_open(
+            user_id=ctx.user_id, conversation_id=ctx.conversation_id
+        ):
+            if (
+                row.tool_name == spec.name
+                and row.tier == "voice"
+                and _person_visible(row.args) == wanted
+            ):
+                return row
+        return None
+
+    @staticmethod
+    def _repeat_guarded(spec: ToolSpec | None) -> bool:
+        """Voice tier without sealed args: the same scope as the duplicate guard."""
+        return (
+            spec is not None and spec.policy is ToolPolicy.confirm_voice and not spec.private_args
+        )
+
+    def _remember_cancel(self, ctx: ToolContext, row: PendingAction) -> None:
+        if self._repeat_guarded(registry.get_tool(row.tool_name)):
+            self._recent_cancels[ctx.conversation_id] = (
+                row.tool_name,
+                _person_visible(row.args),
+                time.monotonic(),
+            )
+
+    def _repeats_recent_cancel(self, ctx: ToolContext, spec: ToolSpec, parsed: Any) -> bool:
+        """True when this proposal is the voice-tier card the model itself just
+        cancelled, unchanged. Consumed by the next proposal either way."""
+        recent = self._recent_cancels.pop(ctx.conversation_id, None)
+        if recent is None or not self._repeat_guarded(spec):
+            return False
+        tool_name, args, cancelled_at = recent
+        return (
+            tool_name == spec.name
+            and args == parsed.model_dump(mode="json")
+            and time.monotonic() - cancelled_at <= RECENT_CANCEL_SECONDS
+        )
 
     async def _supersede_targeted(self, ctx: ToolContext) -> list[PendingAction]:
         """Cancel every open pending action: a new lookup makes its target stale."""
@@ -396,7 +500,13 @@ class ToolExecutor:
             row = open_rows[0]
             summary_result = ToolResult(
                 status="pending", spoken_facts=[f"Waiting for confirmation: {row.summary}."]
-            ).model_copy(update={"pending_action": row.public()})
+            ).model_copy(
+                update={
+                    "pending_action": row.public(),
+                    "pending_action_id": row.id,
+                    "card_shown": row.shown_at is not None,
+                }
+            )
             return ToolCallOutcome(result=summary_result, pending=row)
         if not pending_id:
             return ToolCallOutcome(result=Rejected(reason_code="invalid_arguments"))
@@ -408,6 +518,7 @@ class ToolExecutor:
                         status="not_pending", spoken_facts=["There was nothing pending to cancel."]
                     )
                 )
+            self._remember_cancel(ctx, cancelled)
             return ToolCallOutcome(
                 result=ToolResult(
                     status="cancelled", spoken_facts=["Okay, cancelled. Nothing was changed."]
@@ -439,6 +550,10 @@ class ToolExecutor:
             )
         except PendingActionConflict as exc:
             code = str(exc)
+            logger.info(
+                "one_voice.pending.confirm_refused reason=%s",
+                code if code in {"tap_required", "card_not_shown"} else "not_pending",
+            )
             if code == "tap_required":
                 return ToolCallOutcome(
                     result=ToolResult(
@@ -457,6 +572,10 @@ class ToolExecutor:
                             "The confirmation hasn't appeared on screen yet. One moment."
                         ],
                         needs="confirmation",
+                    ).model_copy(
+                        # The id to confirm once the card shows, so the model
+                        # retries this row instead of proposing a new one.
+                        update={"pending_action_id": pending_id, "card_shown": False}
                     )
                 )
             return ToolCallOutcome(

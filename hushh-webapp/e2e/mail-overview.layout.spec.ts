@@ -166,6 +166,11 @@ for (const width of [320, 390, 430, 768, 1440]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     await expect(chat.locator("svg")).toHaveCount(0);
     await expect(page.getByRole("status", {name: "Fetching receipts"})).toBeVisible();
+    await expect(page.getByText("Agent One")).toHaveCount(0);
+    const arc = page.getByRole("status", {name: "Fetching receipts"}).locator(".animate-spin");
+    // The ring's arc has to be turning, not parked, so the right edge reads as live.
+    await expect.poll(() => arc.evaluate(el => getComputedStyle(el).transform)).not.toBe("none");
+    await page.screenshot({path: testInfo.outputPath(`mail-fetching-${width}.png`)});
     await page.getByRole("button", {name: "Finish sync"}).click();
     await expect(page.getByRole("status", {name: "Fetching receipts"})).toHaveCount(0);
     const cards = page.getByTestId("mail-draft-card");

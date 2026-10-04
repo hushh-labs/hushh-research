@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { AgentMemorySaveCard } from "../../components/agent/agent-memory-save-card";
-import type { PkmSaveReceipt } from "../../lib/agent/pkm-save-receipt";
+import type { PkmSaveReceipt, PkmSaveReceiptCoverageLine } from "../../lib/agent/pkm-save-receipt";
 import type { AgentPkmPreviewCard } from "../../lib/agent/agent-pkm-memory";
 
 /**
@@ -26,8 +26,32 @@ const FULL: PkmSaveReceipt = {
   ],
 };
 
+const saved = (domainLabel: string, path: string) => [{ domainLabel, path, commitId: "commit_synthetic" }];
+const LINES: PkmSaveReceiptCoverageLine[] = [
+  { line: 1, text: "Personal context transfer for One (synthetic)", status: "saved", savedTo: saved("Identity", "Profile > Title") },
+  { line: 3, text: "Core stack", status: "structure", reason: "heading", savedTo: [] },
+  { line: 4, text: "Stack item 1: synthetic tool 1 for layer 1", status: "saved", savedTo: saved("Work context", "Stack > Item 1") },
+  { line: 5, text: "Stack item 2: synthetic tool 2 for layer 2", status: "saved", savedTo: saved("Work context", "Stack > Item 2") },
+  { line: 6, text: "Background: the synthetic team ships weekly, reviews every change twice, and keeps a written log of each release decision for later reading.", status: "saved", savedTo: saved("Work context", "Practices > Release cadence") },
+  { line: 7, text: "Food fact 2: synthetic detail 2 for Food", status: "not_memory", reason: "already_known", savedTo: [] },
+  { line: 8, text: "Housing fact 1: synthetic detail 1 for Housing", status: "not_memory", reason: "duplicate", savedTo: [] },
+  { line: 9, text: "Passport number on file (synthetic)", status: "held", reason: "needs_owner", savedTo: [], heldCardIds: ["pending-1"] },
+  { line: 10, text: "Vendors fact 3: synthetic detail 3 for Vendors", status: "not_yet_saved", savedTo: [] },
+  { line: 11, text: "Vendors fact 4: synthetic detail 4 for Vendors", status: "not_yet_saved", savedTo: [] },
+  { line: 13, text: "Information not known", status: "structure", reason: "heading", savedTo: [] },
+  { line: 14, text: "Exact home street address", status: "not_memory", reason: "disclaimer", savedTo: [] },
+];
+const COVERAGE: PkmSaveReceipt = {
+  ...FULL,
+  coverage: {
+    jobId: "job-synthetic", jobState: "completed_with_gaps", totalLines: 12, accountedLines: 9, savedLines: 4,
+    notMemoryLines: 3, structureLines: 2, heldLines: 1, notYetSavedLines: 2, lines: LINES,
+  },
+};
+
 const STATES: Record<string, PkmSaveReceipt> = {
   full: FULL,
+  coverage: COVERAGE,
   unchanged: {
     ...FULL, saved: 0, updated: 0, merged: 0, unchanged: 51, skipped: 2, needsOwner: 0, unprepared: 0,
     domains: [], items: [],
@@ -47,6 +71,7 @@ function App() {
         receipt={STATES[state] ?? FULL}
         memoryHref="/pkm/recent"
         onConfirmNeedsOwner={async () => undefined}
+        onRetry={state === "coverage" ? async () => undefined : undefined}
         pendingCards={state === "unchanged" ? [] : PENDING}
       />
     </main>

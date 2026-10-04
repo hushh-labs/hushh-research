@@ -191,6 +191,8 @@ def test_one_knows_a_question_needs_no_google_step():
 # memory honesty rule and its punctuation are what the founder reviewed.
 # Measured 2026-09-29 with Gemini countTokens: authored 5,833 -> 6,005 tokens,
 # composed (empty state) 12,133 -> 12,305 tokens.
+# 2026-10-01, local Gemini tokenizer: composed (empty state) 12,717 -> 12,728
+# tokens (59,793 -> 59,801 chars) for the owner standing style channel.
 _COMPOSED_INSTRUCTION_CHAR_BUDGET = 60_000
 
 

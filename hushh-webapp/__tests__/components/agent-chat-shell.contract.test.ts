@@ -17,12 +17,18 @@ describe("private-agent chat shell contract", () => {
 
     expect(workspace).not.toContain("<DriveBackgroundSearches");
   });
-  it("exposes connections from chat history in the shared drawer", () => {
+  // Connectors is a Profile section (founder, 2026-10-02): every chat entry
+  // opens it in the Profile pane over the chat, never in a drawer of its own,
+  // and the chat lends the pane its draft saver for sign-ins that leave.
+  it("opens Connectors from chat in the Profile pane, never in its own drawer", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    expect(workspace).toContain('setDrawerMode("connections")');
     expect(workspace).toContain("<AgentConnectionsDrawer");
-    expect(workspace).toContain("<ConnectorsPanel");
-    expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
+    expect(workspace).toContain("connections={null}");
+    expect(workspace).not.toContain("<ConnectorsPanel");
+    expect(workspace).not.toContain('setDrawerMode("connections")');
+    expect(workspace).toContain("openProfilePane(");
+    expect(workspace).toContain("profileConnectorsLocation(");
+    expect(workspace).toContain("registerChatConnectorRecoveryHost(");
   });
   it("keeps the connector manager bounded, scrollable, and on the shared modal scrim", () => {
     const drawer = read("components/agent/agent-connections-drawer.tsx");
@@ -79,14 +85,14 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("<AgentQueuedStack");
     expect(read("components/agent/agent-queued-stack.tsx")).toContain("agent-chat-prompt-queue");
     // Queued text reaches the running turn only through enqueuePrompt, which
-    // the card-number guard calls; an edit is screened the same way.
+    // the secret guard calls; an edit is screened the same way.
     const edit = workspace.slice(
       workspace.indexOf("const editQueuedPrompt = async"),
       workspace.indexOf("const removeQueuedPrompt = async"),
     );
-    expect(edit).toContain("detectLikelyPan(text)");
-    expect(edit).toContain("enqueueGuardedTurn({ typedText: text");
-    expect(edit.indexOf("detectLikelyPan(text)")).toBeLessThan(edit.indexOf("reclaimQueuedPrompt(id)"));
+    expect(edit).toContain("containsSecretSpan(text)");
+    expect(edit).toContain("keepSecretsFromTurn([text])");
+    expect(edit.indexOf("containsSecretSpan(text)")).toBeLessThan(edit.indexOf("reclaimQueuedPrompt(id)"));
     expect(workspace.match(/queue\.offer\(/g)).toHaveLength(1);
     expect(workspace).toContain("enqueueCalendarDirective");
     // Calendar and reviewed Gmail changes share one serialized runner.
@@ -150,8 +156,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
     expect(workspace).toContain("await submitComposerText()");
-    expect(workspace).toContain("redactLikelyPans");
-    expect(workspace).toContain("const submittedText");
+    expect(workspace).toContain("keepSecretsFromTurn");
+    expect(workspace).toContain("const [submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
     expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");

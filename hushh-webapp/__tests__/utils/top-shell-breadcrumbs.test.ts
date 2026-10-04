@@ -685,7 +685,6 @@ describe("top shell breadcrumbs", () => {
     // and the /one dashboard tiles. Direct/cold One capability entry now falls
     // back to the Agents dashboard, while explicit safe origins still retrace.
     const surfaces: Array<{ path: string; label: string }> = [
-      { path: "/one/kyc", label: "KYC" },
       { path: "/one/location", label: "Location" },
       { path: "/one/marketplace", label: "Marketplace" },
     ];
@@ -939,7 +938,6 @@ describe("top shell breadcrumbs", () => {
     fromHub.set("from", "/one/setup");
 
     const expected = new Map([
-      ["/one/kyc", "/one/setup"],
       ["/one/location", "/one/setup"],
       ["/one/gmail", "/one/setup"],
       ["/one/connected-systems", "/one/setup"],
@@ -961,7 +959,6 @@ describe("top shell breadcrumbs", () => {
       params.set("from", origin);
 
       for (const path of [
-        "/one/kyc",
         "/one/location",
         "/one/marketplace",
         "/one/pkm",
@@ -974,9 +971,6 @@ describe("top shell breadcrumbs", () => {
     // Unsafe origins are still rejected → the route's own default fallback.
     const unsafe = new URLSearchParams();
     unsafe.set("from", "https://evil.example/path");
-    expect(resolveTopShellBreadcrumb("/one/kyc", unsafe)?.backHref).toBe(
-      "/one",
-    );
     expect(resolveTopShellBreadcrumb("/one/pkm", unsafe)?.backHref).toBe(
       "/one",
     );
@@ -1146,7 +1140,6 @@ describe("top shell title slot", () => {
     ["/one/connected-systems", "", ["Connected Systems"]],
     ["/one/consent", "", "none"],
     ["/consents", "", "none"],
-    ["/one/kyc", "", ["KYC"]],
     ["/one/gmail", "from=/one/setup", "title"],
   ])(
     "keeps %s (%s) titled beside its back arrow, even scrolled",

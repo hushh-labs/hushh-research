@@ -10,6 +10,7 @@ import {
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { HttpAgent } from "@ag-ui/client";
+import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
 import { Check, Copy, Laptop, Loader2, Send } from "@/components/icons";
 
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
@@ -252,6 +253,13 @@ export function HermesChatPanel({
   async function send() {
     const message = draft.trim();
     if (!message || sending) return;
+    // A secret never reaches a model, on this device or in the cloud. Puppy
+    // has no vault-backed Secrets writer, so it keeps the draft and says so;
+    // One's composer is where a secret is kept (lib/pkm/secret-span-guard.ts).
+    if (containsSecretSpan(message)) {
+      setError("That message holds a secret, so it stayed on this device and was not sent. Send it to One to keep it in Secrets.");
+      return;
+    }
     setDraft("");
     setError("");
     setSending(true);

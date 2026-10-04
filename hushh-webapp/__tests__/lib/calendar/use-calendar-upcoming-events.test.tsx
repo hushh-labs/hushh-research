@@ -85,6 +85,36 @@ describe("useCalendarUpcomingEvents", () => {
     }
   });
 
+  it("keeps only a validated Google Meet URL in the memory-only event shape", async () => {
+    mockedListEvents.mockResolvedValueOnce({
+      events: [
+        {
+          ...RAW_EVENT,
+          conference_url: "https://meet.google.com/abc-defg-hij",
+        },
+        {
+          ...RAW_EVENT,
+          id: "e2",
+          conference_url: "https://attacker.example/meeting",
+        },
+      ],
+    });
+
+    const { result } = renderHook(() =>
+      useCalendarUpcomingEvents({
+        userId: "user-1",
+        vaultOwnerToken: "vault-token",
+        isConnected: true,
+      }),
+    );
+
+    await waitFor(() => expect(result.current.loaded).toBe(true));
+    expect(result.current.events[0]?.conferenceUrl).toBe(
+      "https://meet.google.com/abc-defg-hij",
+    );
+    expect(result.current.events[1]?.conferenceUrl).toBeUndefined();
+  });
+
   it("requests roughly a 48h look-ahead window by default", async () => {
     mockedListEvents.mockResolvedValueOnce({ events: [] });
 

@@ -280,7 +280,8 @@ describe("encrypted preference write", () => {
       identity_profile: { full_name: "K T" },
       communication_preferences: {
         preferred_name: "Old",
-        reply_style: "Short and direct replies",
+        tone: "direct",
+        length: "short",
         updated_at: "2026-09-27T00:00:00.000Z",
       },
     });

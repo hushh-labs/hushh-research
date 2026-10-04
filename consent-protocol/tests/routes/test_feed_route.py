@@ -28,6 +28,7 @@ def test_feed_uses_authenticated_identity_and_validated_cursor() -> None:
         response = _client("authenticated-user").get("/api/one/feed?cursor=42&limit=25")
 
     assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
     service.list_feed.assert_called_once_with("authenticated-user", cursor=42, limit=25)
 
 

@@ -57,6 +57,36 @@ def test_manifest_round_trip_preserves_selected_collection_path_and_excludes_pri
     }
 
 
+def test_only_an_upgrade_commit_sets_the_reserved_branch_marker_and_writes_keep_it():
+    """The relocation marker is server-owned.
+
+    An ordinary write cannot set or clear it (it keeps the prior manifest's), and
+    an upgrade-claim commit records it. Without the carry-forward every ordinary
+    write would drop it and re-schedule the upgrade.
+    """
+    service = PersonalKnowledgeModelService()
+    marker = "reserved_branch_migration_version"
+
+    def normalize(projection: dict, *, prior: dict | None, upgrade: bool | None):
+        manifest = service._normalize_manifest_payload(
+            "synthetic-owner",
+            "financial",
+            {"manifest_version": 2, "summary_projection": projection, "paths": []},
+            {},
+            prior,
+            upgrade_commit=upgrade,
+        )
+        return manifest.summary_projection.get(marker)
+
+    migrated = {"summary_projection": {marker: 1}}
+    assert normalize({marker: 1}, prior=None, upgrade=True) == 1
+    assert normalize({}, prior=migrated, upgrade=False) == 1
+    assert normalize({marker: 7}, prior=None, upgrade=False) is None
+    assert normalize({}, prior=migrated, upgrade=True) == 1
+    # Re-normalizing a stored manifest (no write) keeps what it holds.
+    assert normalize({marker: 1}, prior=None, upgrade=None) == 1
+
+
 def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
     payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
 

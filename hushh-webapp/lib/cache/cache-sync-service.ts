@@ -7,6 +7,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
+import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { noteConsentMutated } from "@/lib/cache/consent-read-after-write";
 import {
@@ -694,6 +695,7 @@ export class CacheSyncService {
    */
   static onFeedReadStarted(userId: string, upToId: string): void {
     if (!userId || !upToId) return;
+    bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     const listKey = CACHE_KEYS.FEED_LIST(userId);
     const snapshot = cache.peek<FeedListResponse>(listKey);
@@ -729,15 +731,23 @@ export class CacheSyncService {
    * may have arrived concurrently after that watermark. */
   static onFeedReadSettled(userId: string): void {
     if (!userId) return;
+    bumpFeedInvalidationEpoch(userId);
     CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
   }
 
   /** Restore both projections from authority after a failed read mutation. */
   static onFeedReadFailed(userId: string): void {
     if (!userId) return;
+    bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.FEED_LIST(userId));
     cache.invalidate(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
+  }
+
+  /** Circle/cross-device reads settle only a subset of Feed. Recount without
+   * applying the global Feed watermark to unrelated unread activity. */
+  static onFeedExternalReadChanged(userId: string): void {
+    this.onFeedReadFailed(userId);
   }
 
   /**
@@ -933,6 +943,7 @@ export class CacheSyncService {
   }
 
   static onAuthSignedOut(userId?: string | null): void {
+    bumpFeedInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     if (userId) {
       OneLocationStateResource.discard(userId);

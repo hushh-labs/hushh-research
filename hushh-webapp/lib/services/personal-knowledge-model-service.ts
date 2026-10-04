@@ -18,6 +18,12 @@
 import { mergeWithSupersedeHistory } from "@/lib/pkm/pkm-supersede-merge";
 import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
 import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
+import { pkmClientVersionHeaders } from "@/lib/vault/write-protocol-version";
+import {
+  RESERVED_ENFORCEMENT_MODE,
+  ReservedBranchWriteBlocked,
+  evaluateReservedWrite,
+} from "@/lib/pkm/reserved-branches";
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -39,11 +45,13 @@ import {
   CURRENT_PKM_MODEL_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
+  PKM_QUARANTINE_SEGMENT_ID,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import {
   buildConfirmedPkmMutationPlanV2,
   sha256Hex,
+  type KycReplyAuthorizationV1,
   type PkmMutationPlanV2,
   type PkmUserConfirmation,
 } from "@/lib/personal-knowledge-model/mutation-plan";
@@ -870,6 +878,13 @@ export class PersonalKnowledgeModelService {
   }
 
   private static canonicalSegmentId(segmentId: string): string {
+    // The quarantine segment keeps its exact spelling: the server requires a
+    // `__quarantine_v1` segment for any upgrade that quarantined something
+    // (migration 098), and stripping the underscores would also rename the key
+    // when the segment is decrypted back into the domain.
+    if (String(segmentId || "").trim().toLowerCase() === PKM_QUARANTINE_SEGMENT_ID) {
+      return PKM_QUARANTINE_SEGMENT_ID;
+    }
     const normalized = String(segmentId || "")
       .trim()
       .toLowerCase()
@@ -1846,6 +1861,7 @@ export class PersonalKnowledgeModelService {
         const fetchMetadataResponse = async (token?: string) =>
           ApiService.apiFetch(`${this.PKM_API_PREFIX}/metadata/${userId}`, {
             headers: {
+              ...pkmClientVersionHeaders(),
               ...this.getAuthHeaders(token),
               ...(shouldBypassProxyCache ? { "Cache-Control": "no-cache" } : {}),
             },
@@ -2030,6 +2046,37 @@ export class PersonalKnowledgeModelService {
    * @param params.encryptedBlob - Pre-encrypted data from client
    * @param params.summary - Non-sensitive metadata for pkm_index
    */
+  /**
+   * The light writer-versus-scope check at the last client step before the
+   * network, for the paths that do not go through PkmWriteCoordinator's value
+   * diff: the Wallet service and the runtime-secret commits. Judges the plan's
+   * declared scope against contracts/pkm/reserved-branches.v1.json; throws
+   * ReservedBranchWriteBlocked in enforce mode, counts nothing otherwise.
+   */
+  private static assertReservedWriterMayWrite(params: {
+    domain: string;
+    mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
+  }): void {
+    if (RESERVED_ENFORCEMENT_MODE !== "enforce" || !params.mutationPlan) return;
+    // The declared scope only. A merged save's structure decision lists every
+    // branch of the whole domain, changed or not, so judging it refused chat
+    // saves into an agent_memory sibling. Coordinator writes also get the
+    // value diff; the server judges structure paths against the stored manifest.
+    const refusals = evaluateReservedWrite({
+      domain: params.domain,
+      paths: [params.mutationPlan.proposed_scope],
+      writerId: params.mutationPlan.writer_id,
+      authorizationMode: params.mutationPlan.confirmation_receipt.authorization_mode,
+      capabilities: [
+        ...(params.locationFinalizeAuthorization ? ["location_finalize_authorization"] : []),
+        ...(params.kycReplyAuthorization ? ["information_request_id"] : []),
+      ],
+    });
+    if (refusals.length) throw new ReservedBranchWriteBlocked(refusals);
+  }
+
   static async storeDomainData(params: {
     userId: string;
     domain: string;
@@ -2045,11 +2092,13 @@ export class PersonalKnowledgeModelService {
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     beforeEffect?: () => Promise<void>;
     mayPublish?: () => boolean;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
+    this.assertReservedWriterMayWrite(params);
     const metadataTimestamp = new Date().toISOString();
     const normalizedSummary: Record<string, unknown> = {
       ...params.summary,
@@ -2138,6 +2187,7 @@ export class PersonalKnowledgeModelService {
         preservationReceipt: params.preservationReceipt,
         mutationPlan: params.mutationPlan,
         locationFinalizeAuthorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
+        kycReplyAuthorization: params.kycReplyAuthorization,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
@@ -2200,6 +2250,7 @@ export class PersonalKnowledgeModelService {
       })),
       mutation_plan: params.mutationPlan,
       location_finalize_authorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
+      kyc_reply_authorization: params.kycReplyAuthorization,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
@@ -2493,6 +2544,40 @@ export class PersonalKnowledgeModelService {
         ),
       scopeEntries: Array.isArray(data.scope_entries) ? data.scope_entries : undefined,
     };
+  }
+
+  /**
+   * Whether each of the owner's own writes already committed, in order.
+   * Owner-scoped on the server; the answer is existence and the committed
+   * revision only. Used when a write's response never arrived.
+   */
+  static async lookupMutationCommits(params: {
+    userId: string;
+    vaultOwnerToken: string;
+    commits: ReadonlyArray<{ domain: string; planId: string }>;
+  }): Promise<Array<{ exists: boolean; dataVersion: number | null }>> {
+    if (!params.commits.length) return [];
+    const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/commits/lookup`, {
+      method: "POST",
+      headers: { ...this.getAuthHeaders(params.vaultOwnerToken), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        user_id: params.userId,
+        commits: params.commits.map((commit) => ({ domain: commit.domain, plan_id: commit.planId })),
+      }),
+    });
+    if (!response.ok) {
+      throw new Error("Saved details could not be confirmed. Try again.");
+    }
+    const payload = (await response.json()) as { commits?: Array<{ exists?: unknown; data_version?: unknown }> };
+    const rows = Array.isArray(payload.commits) ? payload.commits : [];
+    return params.commits.map((_, index) => {
+      const row = rows[index];
+      const version = row?.data_version;
+      return {
+        exists: row?.exists === true,
+        dataVersion: typeof version === "number" && Number.isInteger(version) && version >= 0 ? version : null,
+      };
+    });
   }
 
   static async getMutationSharingImpact(params: {
@@ -3289,6 +3374,7 @@ export class PersonalKnowledgeModelService {
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
     locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     beforeEffect?: () => Promise<void>;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
@@ -3356,6 +3442,7 @@ export class PersonalKnowledgeModelService {
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
       locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+      kycReplyAuthorization: params.kycReplyAuthorization,
       beforeEffect: params.beforeEffect,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
@@ -3452,6 +3539,7 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    kycReplyAuthorization?: KycReplyAuthorizationV1;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3523,6 +3611,7 @@ export class PersonalKnowledgeModelService {
       upgradeContext: params.upgradeContext,
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
+      kycReplyAuthorization: params.kycReplyAuthorization,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
       beforeEffect: params.beforeEffect,

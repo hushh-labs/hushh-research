@@ -11,17 +11,40 @@ Implements the current PKM architecture:
 import asyncio
 import json
 import logging
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import partial
 from typing import Annotated, Any, List, Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Path, Query, Response, status
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, ValidationError
 
 from api.middleware import require_vault_owner_token
+from hushh_mcp.consent.internal_path_keys import bookkeeping_top_level_keys
+from hushh_mcp.consent.kyc_reply_authorization import (
+    KYC_REPLY_CAPABILITY,
+    KycReplyAuthorizationV1,
+    verify_kyc_reply_authorization,
+)
+from hushh_mcp.consent.reserved_branches import (
+    REFUSAL_CODE_REGISTRY_OUTDATED,
+    REFUSAL_CODE_WRITER_UNKNOWN,
+    ReservedRefusal,
+    client_version_is_current,
+    domain_has_reserved_entries,
+    enforcement_mode,
+    evaluate_reserved_write,
+    min_client_version,
+    refusal_code,
+    refusal_detail,
+    registry_version,
+)
+from hushh_mcp.consent.reserved_branches import (
+    entries as reserved_entries,
+)
 from hushh_mcp.services.domain_contracts import (
     canonical_top_level_domain,
     domain_registry_payload,
@@ -36,6 +59,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 from hushh_mcp.services.push_notifications import send_user_data_push
+from hushh_mcp.services.secrets_domain_validation import validate_secrets_summary_envelope
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
@@ -48,6 +72,36 @@ _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=128)]
 _RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
+
+_ClientVersionHeader = Annotated[
+    Optional[str],
+    Header(
+        alias="x-hushh-client-version",
+        max_length=32,
+        description=(
+            "The client's vault-write protocol level. Absent on the upgrade routes "
+            "means a build that predates the reserved-branch migration."
+        ),
+    ),
+]
+
+
+def _is_legacy_upgrade_client(client_version: str | None) -> bool:
+    """True for a client that cannot run the reserved-branch relocation.
+
+    Builds before the migration release never send the header on these routes,
+    so they are never offered an upgrade whose only reason is the missing
+    relocation marker: their upgrade is a copy that would never record it, and
+    would rerun on every entry. A registry that cannot be read
+    treats every client as legacy: the safe default delays a migration, it
+    never fakes one.
+    """
+    try:
+        return not client_version_is_current(client_version)
+    except Exception:
+        return True
+
+
 _JsonPath = Annotated[str, Field(min_length=1, max_length=1024)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
@@ -566,6 +620,13 @@ class StoreDomainRequest(BaseModel):
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
     location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None
+    kyc_reply_authorization: KycReplyAuthorizationV1 | None = Field(
+        default=None,
+        description=(
+            "Server-issued authority binding the KYC reply writer to one open "
+            "information request (reserved-branches.v1.json requires_capability)"
+        ),
+    )
     mutation_plan: Optional[PkmMutationPlanV2] = Field(
         default=None,
         description="Mandatory owner-confirmed PKM mutation plan for non-upgrade writes",
@@ -612,6 +673,426 @@ def _enforce_wallet_write_policy(request: "StoreDomainRequest", canonical_domain
                 "reason": str(exc),
             },
         ) from exc
+
+
+def _enforce_secrets_write_policy(request: "StoreDomainRequest", canonical_domain: str) -> None:
+    """Reserved secrets writes: the plaintext summary carries bookkeeping only.
+
+    Same posture as the wallet envelope: the blob is ciphertext, so the summary
+    is the one place a faulty client could put a secret or its label onto the
+    server in plaintext, and that is refused outright.
+    """
+    if canonical_domain != "secrets":
+        return
+    try:
+        validate_secrets_summary_envelope(request.summary)
+    except ValueError as exc:
+        logger.warning("[PKM] secrets write refused: envelope reason=%s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "SECRETS_SUMMARY_ENVELOPE_INVALID",
+                "message": "The Secrets summary may carry bookkeeping only.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+
+_SHADOW_LOG_LABEL = re.compile(r"^[a-z][a-z0-9_.:-]{0,127}$")
+
+
+def _shadow_log_label(value: str) -> str:
+    # Writer ids and wildcard branch names are client-supplied strings. Only a
+    # machine-shaped label reaches the log line, so nothing a person typed can.
+    return value if _SHADOW_LOG_LABEL.fullmatch(value) else "unrecognized"
+
+
+def _effective_writer_id(request: "StoreDomainRequest") -> str:
+    """The writer the service records for this write (store_domain_data's rule)."""
+    if request.mutation_plan is not None:
+        return str(request.mutation_plan.writer_id)
+    if request.upgrade_claim is not None:
+        return "pkm_upgrade_orchestrator"
+    if request.structure_decision is not None:
+        return str(request.structure_decision.source_agent or "pkm_structure_agent")
+    return "pkm_structure_agent"
+
+
+def _authorization_mode(request: "StoreDomainRequest") -> str | None:
+    plan = request.mutation_plan
+    receipt = getattr(plan, "confirmation_receipt", None) if plan is not None else None
+    return getattr(receipt, "authorization_mode", None)
+
+
+def _reserved_request_paths(
+    request: "StoreDomainRequest", stored_paths: frozenset[str] | None = None
+) -> list[str]:
+    """The branches a write declares it changes: its plan scope, and new structure paths.
+
+    The structure decision a client sends for a merged save is built from the
+    WHOLE domain after the merge (manifest.ts buildPersonalKnowledgeModelStructureArtifacts),
+    so its paths name every branch the domain holds, changed or not. Judged
+    as-is, a chat save into ``location.agent_memory`` read as a write to
+    ``saved_places`` and was refused in enforce mode (measured on the
+    Phase 2 copy). With a stored manifest, only the structure paths it does not
+    already hold are a declaration of change; with none, every path is new.
+    """
+    paths: list[str] = []
+    if request.mutation_plan is not None:
+        paths.append(request.mutation_plan.proposed_scope)
+    if request.structure_decision is not None:
+        structure_paths = [
+            *request.structure_decision.top_level_scope_paths,
+            *request.structure_decision.json_paths,
+        ]
+        if stored_paths is None:
+            paths.extend(structure_paths)
+        else:
+            paths.extend(
+                path
+                for path in structure_paths
+                if str(path or "").strip().lower() not in stored_paths
+            )
+    return paths
+
+
+def _manifest_path_diff(
+    request_paths: frozenset[str], stored_paths: frozenset[str] | None
+) -> list[str]:
+    """Paths a write adds to or drops from the stored manifest.
+
+    ``proposed_scope`` is what the client SAYS it changes; the manifest is what
+    it actually ships. A path that appears or disappears under a reserved
+    branch is a change to that branch whatever the scope claims. Bookkeeping
+    keys every save rewrites are ignored, as on the device. With no stored
+    manifest there is nothing to diff against, and the device-side value diff
+    remains the check.
+    """
+    if stored_paths is None:
+        return []
+    bookkeeping = bookkeeping_top_level_keys()
+    return sorted(
+        path
+        for path in request_paths.symmetric_difference(stored_paths)
+        if path and path.split(".", 1)[0] not in bookkeeping
+    )
+
+
+async def _stored_reserved_manifest_paths(
+    request: "StoreDomainRequest", canonical_domain: str
+) -> frozenset[str] | None:
+    """The stored manifest's paths, read once per write, for a domain with reserved branches.
+
+    Read only when the write ships something to compare: a manifest or a
+    structure decision. A plan alone is judged by its declared scope.
+    """
+    if not domain_has_reserved_entries(canonical_domain):
+        return None
+    if request.manifest is None and request.structure_decision is None:
+        return None
+    stored: frozenset[str] | None = await get_pkm_service().get_manifest_json_paths(
+        request.user_id, canonical_domain
+    )
+    return stored
+
+
+def _reserved_manifest_diff(
+    request: "StoreDomainRequest", stored: frozenset[str] | None
+) -> list[str]:
+    if request.manifest is None:
+        return []
+    request_paths = frozenset(
+        str(path.json_path or "").strip().lower()
+        for path in request.manifest.paths
+        if str(path.json_path or "").strip()
+    )
+    return _manifest_path_diff(request_paths, stored)
+
+
+async def _verified_reserved_capabilities(
+    request: "StoreDomainRequest", canonical_domain: str
+) -> frozenset[str]:
+    """Capabilities this write has PROVEN, for writers whose entry requires one.
+
+    Location's finalize authority is verified by _validate_location_finalize_request
+    before this runs. The KYC reply authority is verified here: signature, owner
+    and expiry, then a live check that the information request is still open.
+    A presented but invalid authority is refused in every mode, as Location's is.
+    """
+    held: set[str] = set()
+    if request.location_finalize_authorization is not None:
+        held.add("location_finalize_authorization")
+    authorization = request.kyc_reply_authorization
+    if authorization is None:
+        return frozenset(held)
+    try:
+        verify_kyc_reply_authorization(
+            authorization=authorization, authenticated_user_id=request.user_id
+        )
+        from hushh_mcp.services.gmail_personal_information_request_service import (
+            get_personal_gmail_information_request_service,
+        )
+
+        still_open = await get_personal_gmail_information_request_service().is_open_workflow(
+            user_id=request.user_id,
+            workflow_id=str(authorization.information_request_id),
+        )
+        if not still_open:
+            raise ValueError("kyc_reply_information_request_closed")
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "PKM_KYC_REPLY_AUTHORIZATION_INVALID",
+                "message": "The information-request authority does not match this write.",
+                "reason": str(exc),
+            },
+        ) from exc
+    held.add(KYC_REPLY_CAPABILITY)
+    return frozenset(held)
+
+
+def _log_reserved_refusals(
+    refusals: list[ReservedRefusal], *, outcome: str, source: str = "declared"
+) -> None:
+    for refusal in refusals:
+        # Labels are format text, not arguments: the process-wide redactor
+        # (mcp_modules/log_redaction.py) scrubs any underscored argument of
+        # 24+ characters as a uid, which erased `agent_chat_owner_request`.
+        # Every label here is already restricted to a machine shape above.
+        logger.info(
+            f"pkm.{outcome}"
+            f" domain={_shadow_log_label(refusal.domain)}"
+            f" branch={_shadow_log_label(refusal.branch)}"
+            f" writer={_shadow_log_label(refusal.writer_id)}"
+            f" reason={refusal.reason}"
+            f" source={source}"
+        )
+
+
+def _shadow_reserved_branch_write(
+    request: "StoreDomainRequest",
+    canonical_domain: str,
+    *,
+    extra_paths: list[str] | None = None,
+    capabilities: frozenset[str] = frozenset(),
+    stored_paths: frozenset[str] | None = None,
+) -> None:
+    """Log, never refuse, a write the reserved-branch registry WOULD refuse.
+
+    Shadow mode for ``contracts/pkm/reserved-branches.v1.json``. The touched
+    branches are the ones the server can see: the mutation plan's
+    ``proposed_scope``, the structure decision's paths and the manifest diff.
+    The ciphertext is re-encrypted whole on every write, so the device runs the
+    value-level diff. The line carries labels only (domain, registry branch,
+    writer, reason) and no stored value. Any failure here is swallowed: shadow
+    mode must not be able to change the outcome of a write.
+    """
+    try:
+        # Declared paths and the manifest diff are judged and logged apart, so
+        # the shadow counts show whether a would-refuse comes from what a
+        # client claims or from a manifest that changed under a reserved branch
+        # (path-convention drift would show up only on the second).
+        def judge(paths: list[str]) -> list[ReservedRefusal]:
+            judged: list[ReservedRefusal] = evaluate_reserved_write(
+                domain=canonical_domain,
+                paths=paths,
+                writer_id=_effective_writer_id(request),
+                authorization_mode=_authorization_mode(request),
+                capabilities=capabilities,
+            )
+            return judged
+
+        declared = judge(_reserved_request_paths(request, stored_paths))
+        _log_reserved_refusals(declared, outcome="reserved_would_refuse", source="declared")
+        seen = {(item.branch, item.reason) for item in declared}
+        diffed = [
+            item
+            for item in judge(list(extra_paths or []))
+            if (item.branch, item.reason) not in seen
+        ]
+        _log_reserved_refusals(diffed, outcome="reserved_would_refuse", source="manifest_diff")
+    except Exception as exc:  # shadow mode never blocks a write
+        logger.warning("pkm.reserved_shadow_unavailable error=%s", type(exc).__name__)
+
+
+def _reserved_refusal_exception(refusals: list[ReservedRefusal]) -> HTTPException:
+    code = refusal_code(refusals)
+    first = next(
+        (item for item in refusals if item.reason == "writer_unknown"),
+        refusals[0],
+    )
+    detail = refusal_detail(first, code=code)
+    detail["message"] = (
+        "This writer is not in the reserved-branch writer catalog."
+        if code == REFUSAL_CODE_WRITER_UNKNOWN
+        else "This information belongs to an app feature. Save it from that feature's own screen."
+    )
+    detail["branches"] = sorted({item.branch for item in refusals})
+    return HTTPException(
+        status_code=(
+            status.HTTP_422_UNPROCESSABLE_ENTITY
+            if code == REFUSAL_CODE_WRITER_UNKNOWN
+            else status.HTTP_403_FORBIDDEN
+        ),
+        detail=detail,
+    )
+
+
+def _reserved_enforcement_mode() -> str:
+    """The contract's mode. An unreadable registry fails closed, in every mode."""
+    try:
+        return str(enforcement_mode())
+    except Exception as exc:
+        logger.error("pkm.reserved_registry_unavailable error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "PKM_RESERVED_REGISTRY_UNAVAILABLE",
+                "message": "Saving is briefly unavailable. Try again.",
+            },
+        ) from exc
+
+
+def _is_legacy_store_client(request: "StoreDomainRequest") -> bool:
+    """A plan without a current ``client_version``: a build that predates the registry.
+
+    Builds already in TestFlight and the App Store send no ``client_version``.
+    They cannot run the device-side value diff, but their feature writers carry
+    the same catalogued labels as today's, so the writer catalog still applies.
+    """
+    plan = request.mutation_plan
+    return plan is not None and not client_version_is_current(getattr(plan, "client_version", None))
+
+
+def _registry_outdated_exception(canonical_domain: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_409_CONFLICT,
+        detail={
+            "code": REFUSAL_CODE_REGISTRY_OUTDATED,
+            "message": "Update the app to save this information.",
+            "domain": canonical_domain,
+            "min_client_version": min_client_version(),
+            "registry_version": registry_version(),
+        },
+    )
+
+
+async def _guard_reserved_branch_write(
+    request: "StoreDomainRequest", canonical_domain: str
+) -> frozenset[str]:
+    """The reserved-branch registry at the store routes, in the contract's mode.
+
+    ``shadow`` logs what it would refuse. ``enforce`` refuses: 422
+    ``PKM_WRITER_UNKNOWN`` for an uncatalogued writer, 403
+    ``PKM_RESERVED_BRANCH_WRITER_FORBIDDEN`` otherwise. A ``migration`` writer
+    (an upgrade-claim write) is never refused here: its authority is the
+    server-verified upgrade claim. Returns the capabilities the write proved,
+    for the service's defense-in-depth re-check.
+
+    Old clients (no current ``client_version``; the policy in
+    consent-protocol/docs/reference/personal-knowledge-model.md): the writer
+    catalog still applies, so a memory-agent writer is refused and a listed
+    feature writer is accepted. Only the checks that depend on the client's own
+    code are skipped: the structure-path novelty and the manifest diff, which
+    compare a manifest built by that client's (older) builder against one a
+    newer builder stored, and so can name branches the write never touched.
+    The 409 ``PKM_RESERVED_REGISTRY_OUTDATED`` is reserved for an old client
+    whose writer the catalog does not know.
+    """
+    mode = _reserved_enforcement_mode()
+    capabilities = await _verified_reserved_capabilities(request, canonical_domain)
+    if mode != "enforce":
+        try:
+            stored_paths = await _stored_reserved_manifest_paths(request, canonical_domain)
+            manifest_paths = _reserved_manifest_diff(request, stored_paths)
+        except Exception as exc:  # shadow mode never blocks a write
+            logger.warning("pkm.reserved_shadow_unavailable error=%s", type(exc).__name__)
+            stored_paths, manifest_paths = None, []
+        _shadow_reserved_branch_write(
+            request,
+            canonical_domain,
+            extra_paths=manifest_paths,
+            capabilities=capabilities,
+            stored_paths=stored_paths,
+        )
+        return capabilities
+    if request.mutation_plan is None and request.upgrade_claim is not None:
+        return capabilities
+    legacy = _is_legacy_store_client(request)
+    if legacy:
+        paths = [request.mutation_plan.proposed_scope] if request.mutation_plan else []
+    else:
+        stored_paths = await _stored_reserved_manifest_paths(request, canonical_domain)
+        paths = [
+            *_reserved_request_paths(request, stored_paths),
+            *_reserved_manifest_diff(request, stored_paths),
+        ]
+    refusals = evaluate_reserved_write(
+        domain=canonical_domain,
+        paths=paths,
+        writer_id=_effective_writer_id(request),
+        authorization_mode=_authorization_mode(request),
+        capabilities=capabilities,
+    )
+    if legacy and domain_has_reserved_entries(canonical_domain):
+        logger.info(
+            "pkm.reserved_legacy_client_write"
+            f" domain={_shadow_log_label(canonical_domain)}"
+            f" writer={_shadow_log_label(_effective_writer_id(request))}"
+            f" refused={bool(refusals)}"
+        )
+    if not refusals:
+        return capabilities
+    _log_reserved_refusals(refusals, outcome="reserved_refused")
+    if legacy and any(item.reason == "writer_unknown" for item in refusals):
+        raise _registry_outdated_exception(canonical_domain)
+    raise _reserved_refusal_exception(refusals)
+
+
+def _whole_domain_reserved_paths(canonical_domain: str) -> list[str]:
+    """Every reserved branch of a domain, as paths a whole-domain delete touches."""
+    return [
+        "" if entry.branch_prefix == "*" else entry.branch_prefix
+        for entry in reserved_entries()
+        if entry.domain == canonical_domain
+    ]
+
+
+def _guard_reserved_domain_delete(
+    *,
+    canonical_domain: str,
+    writer_id: str | None,
+    authorization_mode: str | None,
+    legacy_plan_client: bool = False,
+) -> None:
+    """A whole-domain delete removes every reserved branch the domain holds.
+
+    Same old-client rule as the store routes: the catalog applies to every
+    client, and an old client (a plan without a current ``client_version``)
+    whose writer is unknown gets the 409. The plan-less legacy route has no
+    writer and no client level at all; it keeps the 422 for an unattributed
+    write, since telling a current client to update would be false.
+    """
+    mode = _reserved_enforcement_mode()
+    paths = _whole_domain_reserved_paths(canonical_domain)
+    if not paths:
+        return
+    refusals = evaluate_reserved_write(
+        domain=canonical_domain,
+        paths=paths,
+        writer_id=writer_id,
+        authorization_mode=authorization_mode,
+    )
+    if not refusals:
+        return
+    if mode != "enforce":
+        _log_reserved_refusals(refusals, outcome="reserved_would_refuse")
+        return
+    _log_reserved_refusals(refusals, outcome="reserved_refused")
+    if legacy_plan_client and any(item.reason == "writer_unknown" for item in refusals):
+        raise _registry_outdated_exception(canonical_domain)
+    raise _reserved_refusal_exception(refusals)
 
 
 def _validate_location_finalize_request(request: StoreDomainRequest, domain: str) -> None:
@@ -688,7 +1169,9 @@ async def validate_store_domain(
             },
         ) from exc
     _enforce_wallet_write_policy(request, canonical_domain)
+    _enforce_secrets_write_policy(request, canonical_domain)
     _validate_location_finalize_request(request, canonical_domain)
+    await _guard_reserved_branch_write(request, canonical_domain)
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -748,7 +1231,9 @@ async def store_domain(
         ) from exc
 
     _enforce_wallet_write_policy(request, canonical_domain)
+    _enforce_secrets_write_policy(request, canonical_domain)
     _validate_location_finalize_request(request, canonical_domain)
+    reserved_capabilities = await _guard_reserved_branch_write(request, canonical_domain)
 
     if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(
@@ -879,9 +1364,21 @@ async def store_domain(
         )
         if request.location_finalize_authorization
         else None,
+        # Proven above by _guard_reserved_branch_write; the service re-checks
+        # the registry with them as defense in depth.
+        reserved_capabilities=reserved_capabilities,
     )
 
     if not store_result.get("success"):
+        if store_result.get("reserved_refusal"):
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_422_UNPROCESSABLE_ENTITY
+                    if store_result.get("code") == REFUSAL_CODE_WRITER_UNKNOWN
+                    else status.HTTP_403_FORBIDDEN
+                ),
+                detail=store_result["reserved_refusal"],
+            )
         if store_result.get("conflict"):
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -1469,6 +1966,12 @@ async def delete_domain_data(
             detail="Token user_id does not match request user_id",
         )
 
+    # No mutation plan, so no writer: an unattributed whole-domain delete.
+    _guard_reserved_domain_delete(
+        canonical_domain=canonical_top_level_domain(domain),
+        writer_id=None,
+        authorization_mode=None,
+    )
     pkm_service = get_pkm_service()
     success = await pkm_service.delete_domain_data(user_id, domain)
 
@@ -1521,6 +2024,14 @@ async def delete_domain_data_confirmed(
             },
         ) from exc
 
+    _guard_reserved_domain_delete(
+        canonical_domain=canonical_domain,
+        writer_id=request.mutation_plan.writer_id,
+        authorization_mode=request.mutation_plan.confirmation_receipt.authorization_mode,
+        legacy_plan_client=not client_version_is_current(
+            getattr(request.mutation_plan, "client_version", None)
+        ),
+    )
     pkm_service = get_pkm_service()
     server_impact = await pkm_service.get_mutation_sharing_impact(
         user_id=request.user_id,
@@ -1789,6 +2300,7 @@ class PersonalKnowledgeModelMetadataResponse(BaseModel):
 async def get_metadata(
     user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     """
     Get user's PKM metadata for UI display.
@@ -1834,10 +2346,14 @@ async def get_metadata(
                 user_id,
                 resolved_index=resolved_index,
                 domain_manifests=domain_manifests,
+                legacy_client=_is_legacy_upgrade_client(client_version),
             ),
         )
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
-            upgrade_service, user_id, upgrade_status_payload
+            upgrade_service,
+            user_id,
+            upgrade_status_payload,
+            legacy_client=_is_legacy_upgrade_client(client_version),
         )
 
         if resolved_index is None:
@@ -2237,12 +2753,12 @@ def _build_upgrade_status_response(payload: dict) -> PkmUpgradeStatusResponse:
 
 
 async def _maybe_reconcile_upgrade_status(
-    upgrade_service: Any, user_id: str, payload: dict
+    upgrade_service: Any, user_id: str, payload: dict, *, legacy_client: bool = False
 ) -> dict:
     reconcile = getattr(upgrade_service, "_maybe_reconcile_current_index", None)
     if not callable(reconcile):
         return payload
-    reconciled = await reconcile(user_id, payload)
+    reconciled = await reconcile(user_id, payload, legacy_client=legacy_client)
     if isinstance(reconciled, dict):
         return reconciled
     return payload
@@ -2252,6 +2768,7 @@ async def _maybe_reconcile_upgrade_status(
 async def get_upgrade_status(
     user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != user_id:
         raise HTTPException(
@@ -2259,9 +2776,12 @@ async def get_upgrade_status(
             detail="Token user_id does not match request user_id",
         )
 
+    legacy_client = _is_legacy_upgrade_client(client_version)
     service = get_pkm_upgrade_service()
-    payload = await service.build_status(user_id)
-    payload = await _maybe_reconcile_upgrade_status(service, user_id, payload)
+    payload = await service.build_status(user_id, legacy_client=legacy_client)
+    payload = await _maybe_reconcile_upgrade_status(
+        service, user_id, payload, legacy_client=legacy_client
+    )
     return _build_upgrade_status_response(payload)
 
 
@@ -2269,6 +2789,7 @@ async def get_upgrade_status(
 async def start_or_resume_upgrade(
     request: StartOrResumeUpgradeRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2280,6 +2801,7 @@ async def start_or_resume_upgrade(
         request.user_id,
         initiated_by=request.initiated_by,
         mode=request.mode,
+        legacy_client=_is_legacy_upgrade_client(client_version),
     )
     return _build_upgrade_status_response(payload)
 
@@ -2289,6 +2811,7 @@ async def update_upgrade_run_status(
     run_id: _RunId,
     request: UpdateUpgradeRunRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2315,7 +2838,9 @@ async def update_upgrade_run_status(
         ) from exc
     if updated is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade run not found")
-    payload = await service.build_status(request.user_id)
+    payload = await service.build_status(
+        request.user_id, legacy_client=_is_legacy_upgrade_client(client_version)
+    )
     return _build_upgrade_status_response(payload)
 
 
@@ -2325,6 +2850,7 @@ async def update_upgrade_step(
     domain: _Domain,
     request: UpdateUpgradeStepRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2353,7 +2879,9 @@ async def update_upgrade_step(
         ) from exc
     if step is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upgrade step not found")
-    payload = await get_pkm_upgrade_service().build_status(request.user_id)
+    payload = await get_pkm_upgrade_service().build_status(
+        request.user_id, legacy_client=_is_legacy_upgrade_client(client_version)
+    )
     return _build_upgrade_status_response(payload)
 
 
@@ -2366,6 +2894,7 @@ async def issue_upgrade_claim(
     domain: _Domain,
     request: IssueUpgradeClaimRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2379,6 +2908,7 @@ async def issue_upgrade_claim(
             domain=canonical_top_level_domain(domain),
             source_content_revision=request.source_content_revision,
             source_manifest_revision=request.source_manifest_revision,
+            legacy_client=_is_legacy_upgrade_client(client_version),
         )
     except PermissionError as exc:
         raise HTTPException(
@@ -2452,6 +2982,7 @@ async def complete_upgrade_run(
     run_id: _RunId,
     request: StartOrResumeUpgradeRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2460,7 +2991,11 @@ async def complete_upgrade_run(
         )
 
     try:
-        payload = await get_pkm_upgrade_service().complete_run(run_id, user_id=request.user_id)
+        payload = await get_pkm_upgrade_service().complete_run(
+            run_id,
+            user_id=request.user_id,
+            legacy_client=_is_legacy_upgrade_client(client_version),
+        )
     except PermissionError as exc:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Upgrade run not owned"
@@ -2480,6 +3015,7 @@ async def fail_upgrade_run(
     run_id: _RunId,
     request: UpdateUpgradeRunRequest,
     token_data: dict = Depends(require_vault_owner_token),
+    client_version: _ClientVersionHeader = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
@@ -2493,6 +3029,7 @@ async def fail_upgrade_run(
             user_id=request.user_id,
             last_error=request.last_error,
             error_context=request.error_context,
+            legacy_client=_is_legacy_upgrade_client(client_version),
         )
     except PermissionError as exc:
         raise HTTPException(

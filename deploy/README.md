@@ -104,9 +104,15 @@ Every hosted deployment must prove:
 
 The UAT expensive-lane selector is
 `scripts/ci/resolve-uat-verification-plan.py`. It alone decides when PKM upgrade
-rehearsal, candidate evaluation, or reviewer BYOK proof is required. The
+rehearsal or reviewer BYOK proof is required. Paid candidate evaluation and
+Gemini/Vertex generation probes require UAT's explicit
+`run_live_model_checks=true` dispatch input; changed paths and unknown comparison
+bases never opt in. Backend Cloud Build generation probes also default off for
+production/direct builds (`_VERIFY_MANAGED_VERTEX_RUNTIME=false`). An omitted
+model check is recorded as skipped, not passed. When explicitly selected, the
 structure-agent evaluator is warning-only and does not authorize rollback by
-itself; provenance, schema, runtime, and semantic authority remain blocking.
+itself; preservation, provenance, schema, runtime and semantic authority remain
+blocking. Product journeys may still exercise their own model/readiness calls.
 
 ## Read-only operator diagnostics
 

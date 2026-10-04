@@ -109,6 +109,14 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Security and Privacy Checks
 
+- Historical automatic Trusted memberships do not reveal the owner's roster,
+  counts or overview through any reader. Only owner-authored `direct_add`
+  provenance admits a non-owner; missing/unknown/wrong-actor provenance fails
+  closed. Ordinary Circle access and owner visibility remain unchanged.
+- Disconnect cleanup removes non-owner rows only from Circles shared by both
+  active participants, never unrelated rosters. Verify owner-row preservation,
+  former-member isolation and no-op retry using real PostgreSQL statements.
+
 - Native custom MCP calls set the external-content barrier before dispatch. The
   person's own connectors run without review, budget or first-call limits
   (founder decision 2026-09-27); another owner's connector is refused with

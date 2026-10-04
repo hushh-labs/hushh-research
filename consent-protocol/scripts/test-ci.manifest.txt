@@ -31,6 +31,8 @@ tests/services/test_drive_work_wake.py
 tests/test_prod_drive_deploy_contract.py
 tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
+tests/test_drive_worker_revision_provenance.py
+tests/test_drive_worker_release_rollback.py
 tests/services/test_google_drive_permission_adapter.py
 tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
@@ -56,6 +58,7 @@ tests/services/test_drive_suggestion_coverage.py
 tests/services/test_drive_suggestion_recency.py
 tests/services/test_document_review_authority_postgres.py
 tests/services/test_drive_sharing_store.py
+tests/services/test_drive_sharing_retention.py
 tests/services/test_drive_permission_executor.py
 tests/services/test_drive_revocation_executor.py
 tests/test_documents_agent_a2a.py
@@ -93,6 +96,7 @@ tests/test_developer_api_routes.py
 tests/test_encrypted_blob_bounds.py
 tests/test_data_model_audit_script.py
 tests/test_data_model_audit_postgres.py
+tests/test_gmail_receipt_cache_cutover.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
@@ -142,6 +146,8 @@ tests/test_adk_a2a_compliance_script.py
 tests/test_agent_manifests.py
 tests/test_hushh_adk_single_turn.py
 tests/services/test_pkm_agent_lab_service.py
+# A pasted context transfer is kept whole (Phase 4): recorded server answers.
+tests/services/test_context_transfer_is_kept.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
@@ -341,6 +347,13 @@ tests/test_information_chat_service.py
 # reporting as one that ran. None of them is caught by a type error or a 500.
 tests/test_consent_lifecycle_chat.py
 tests/test_internal_path_keys.py
+# Reserved-branch registry: three identical copies, the shadow hook that logs a
+# would-be refusal with labels only, and the server writer labels it catalogues.
+tests/test_reserved_branches.py
+# Secrets area: the shared secret-pattern contract (three copies, the same cases
+# on both sides), spans without values, the per-item grant shape, and the
+# plaintext summary envelope that refuses a leaked label or value.
+tests/test_secrets_area.py
 tests/test_scope_catalog_self_corrects_stale_rows.py
 tests/services/test_structure_decision_is_the_models.py
 tests/services/test_intent_frame_is_the_models.py
@@ -493,6 +506,8 @@ tests/test_one_output_privacy.py
 tests/test_one_text_attachments.py
 tests/test_governed_mcp_toolset.py
 tests/test_one_turn_location.py
+# Owner standing style: closed schema, template-only prompt section, no authority.
+tests/test_one_owner_style.py
 tests/test_mcp_review_service.py
 tests/test_mcp_review_wire_contract.py
 # Custom connectors: reads free, writes reviewed. The review policy follows the
@@ -547,4 +562,8 @@ tests/test_feed_metadata_allowlist.py
 tests/test_scope_sensitivity.py
 tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
+
+# Circle chat membership, encrypted relay, retries, delivery and migration replay.
+tests/test_circle_chat.py
+
 tests/test_pkm_packets_and_directory_claims.py

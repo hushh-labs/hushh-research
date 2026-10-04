@@ -43,10 +43,49 @@ from hushh_mcp.one_voice.tools.base import (
     arg_refs,
     restore_context,
 )
-from hushh_mcp.one_voice.tools.executor import ToolCallOutcome, ToolExecutor
+from hushh_mcp.one_voice.tools.executor import (
+    CONFIRMATION_WAITING,
+    ToolCallOutcome,
+    ToolExecutor,
+)
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
 
 logger = logging.getLogger(__name__)
+
+
+def _failure_fingerprints(error: BaseException) -> list[dict[str, Any]]:
+    """Bounded error locations without messages, locals, arguments or transcripts.
+
+    TaskGroup wraps the useful exception. Logging only that wrapper prevented
+    diagnosis of live sessions which failed immediately after a people read.
+    """
+    from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
+
+    pending = [error]
+    seen: set[int] = set()
+    details: list[dict[str, Any]] = []
+    while pending and len(seen) < 32 and len(details) < 6:
+        current = pending.pop()
+        if id(current) in seen:
+            continue
+        seen.add(id(current))
+        if isinstance(current, BaseExceptionGroup):
+            pending.extend(current.exceptions[:6])
+            continue
+        frames = []
+        trace = current.__traceback__
+        while trace is not None:
+            code = trace.tb_frame.f_code
+            frames.append(f"{code.co_filename.rsplit('/', 1)[-1]}:{code.co_name}:{trace.tb_lineno}")
+            trace = trace.tb_next
+        details.append(
+            {
+                "type": type(current).__name__,
+                "class": classify_provider_error(current),
+                "frames": frames[-6:],
+            }
+        )
+    return details
 
 
 AUTH_TIMEOUT_SECONDS = 5.0
@@ -61,11 +100,15 @@ _NOT_SUCCESS = {
     "rejected",
     "unsupported",
     "confirmation_required",
+    CONFIRMATION_WAITING,
     "tap_required",
     "card_not_shown",
     "firebase_proof_required",
     "draft_open_unconfirmed",
 }
+# Bound for the per-session directive metadata and card_not_shown waiters.
+_DIRECTIVE_MEMORY = 128
+_SHOWN_WAITERS_MAX = 32
 # A client-executed step is still outstanding: neither a receipt nor a
 # rejection. It never counts as ok (so the turn cannot read "complete") and
 # never bumps the rejected counter; the settled result does one or the other.
@@ -194,6 +237,12 @@ class VoiceSession:
         # this map retains the input that owns its effects and stale checks.
         self._turn_input_origins: dict[str, str] = {}
         self._directive_turn_ids: dict[str, str | None] = {}
+        # What each directive asked the client to do, so its ui.settled can be
+        # reported to the model with the screen it was about.
+        self._directive_meta: dict[str, dict[str, str]] = {}
+        # Cards whose spoken confirm was refused as card_not_shown. When the
+        # client reports one shown, the model is told (it still decides).
+        self._shown_waiters: dict[str, str | None] = {}
         # A tool call can end its provider turn before Live speaks its reply.
         # Keep narration ownership through that continuation until new input
         # actually reaches Live.
@@ -295,7 +344,13 @@ class VoiceSession:
             from hushh_mcp.runtime_providers.dependency_health import classify_provider_error
 
             reason = classify_provider_error(exc)
-            logger.warning("one_voice.session.failed class=%s error=%s", reason, type(exc).__name__)
+            logger.warning(
+                "one_voice.session.failed class=%s error=%s session=%s failures=%s",
+                reason,
+                type(exc).__name__,
+                self.session_id,
+                json.dumps(_failure_fingerprints(exc), separators=(",", ":")),
+            )
             try:
                 await self._send(
                     protocol.error("voice_unavailable", "Voice is unavailable right now.")
@@ -563,9 +618,22 @@ class VoiceSession:
         elif isinstance(frame, protocol.AppContextFrame):
             await self._update_screen(frame)
         elif isinstance(frame, protocol.PendingShownFrame):
-            await self.pending.mark_shown(
+            shown = await self.pending.mark_shown(
                 user_id=self.ctx.user_id, pending_action_id=frame.pending_action_id
             )
+            if shown is not None and shown.id in self._shown_waiters:
+                refused_turn_id = self._shown_waiters.pop(shown.id)
+                if self._origin_is_stale(refused_turn_id):
+                    # The person moved on after the refused yes; that yes no
+                    # longer answers this card. Never revive it in a new turn.
+                    self._bump(pending_shown_stale=1)
+                else:
+                    # A spoken yes was refused because the card was not on
+                    # screen. Tell the model it is now; it decides.
+                    self._bump(pending_shown_late=1)
+                    await self._inject_event(
+                        {"kind": "pending_shown", "pending_action_id": shown.id}
+                    )
         elif isinstance(frame, protocol.ConfirmActionFrame):
             await self._confirm_by_tap(frame)
         elif isinstance(frame, protocol.CancelActionFrame):
@@ -583,12 +651,15 @@ class VoiceSession:
             await self._client_step_result(frame)
         elif isinstance(frame, protocol.UiSettledFrame):
             origin_turn_id = self._directive_turn_ids.pop(frame.directive_id, None)
+            meta = self._directive_meta.pop(frame.directive_id, {})
             if origin_turn_id is not None and not self._origin_is_stale(origin_turn_id):
+                # Screen ids go to the model only, never to a log line.
                 await self._inject_event(
                     {
                         "kind": "ui_settled",
                         "directive_id": frame.directive_id,
                         "status": frame.status,
+                        **meta,
                     }
                 )
         elif isinstance(frame, protocol.InterruptFrame):
@@ -646,6 +717,7 @@ class VoiceSession:
         if turn_id not in self._turn_input_origins and len(self._turn_input_origins) >= 512:
             protected = {
                 *self._pending_turn_ids.values(),
+                *self._shown_waiters.values(),
                 *(str(step.get("origin_turn_id") or "") for step in self.client_steps.values()),
                 *self._directive_turn_ids.values(),
                 self.turn.turn_id,
@@ -657,13 +729,21 @@ class VoiceSession:
                     break
         self._turn_input_origins[turn_id] = input_turn_id
 
-    def _remember_directive(self, origin_turn_id: str | None) -> str:
+    def _remember_directive(
+        self, origin_turn_id: str | None, *, kind: str, screen: str | None = None
+    ) -> str:
         directive_id = uuid.uuid4().hex[:12]
-        if len(self._directive_turn_ids) >= 128:
+        if len(self._directive_turn_ids) >= _DIRECTIVE_MEMORY:
             self._directive_turn_ids.pop(next(iter(self._directive_turn_ids)))
+        if len(self._directive_meta) >= _DIRECTIVE_MEMORY:
+            self._directive_meta.pop(next(iter(self._directive_meta)))
         self._directive_turn_ids[directive_id] = (
             origin_turn_id or self._latest_input_turn_id or self.turn.turn_id
         )
+        meta = {"directive_kind": kind}
+        if screen:
+            meta["screen"] = screen
+        self._directive_meta[directive_id] = meta
         return directive_id
 
     # -- confirmations -------------------------------------------------------
@@ -711,8 +791,10 @@ class VoiceSession:
                 )
             )
             return
-        origin_turn_id = confirmed.origin_turn_id or self._pending_turn_ids.get(
-            frame.pending_action_id
+        # This session's binding first: a card re-shown for a repeated proposal
+        # belongs to the turn it was re-shown on, not the turn that created it.
+        origin_turn_id = (
+            self._pending_turn_ids.get(frame.pending_action_id) or confirmed.origin_turn_id
         )
         if origin_turn_id is not None:
             await self._send(protocol.voice_state("executing", turn_id=origin_turn_id))
@@ -1376,6 +1458,13 @@ class VoiceSession:
         public = outcome.result.public()
         if outcome.result.status == "rejected" and outcome.result.reason_code == "unknown_tool":
             self._bump(unknown_tool_calls=1)
+        if outcome.result.status == "card_not_shown":
+            waiting_id = public.get("pending_action_id")
+            if isinstance(waiting_id, str) and waiting_id:
+                self._bump(confirm_not_shown=1)
+                if len(self._shown_waiters) >= _SHOWN_WAITERS_MAX:
+                    self._shown_waiters.pop(next(iter(self._shown_waiters)))
+                self._shown_waiters[waiting_id] = origin_turn_id
         for stale in outcome.superseded:
             # A card the client is still showing no longer means anything: a
             # newer proposal replaced it, or a fresh lookup made its target
@@ -1448,6 +1537,25 @@ class VoiceSession:
             )
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
             self._bump(pending_created=1)
+        elif outcome.pending is not None and outcome.result.status == CONFIRMATION_WAITING:
+            # The same proposal is already open: no new row, no side effects.
+            # The card now answers this turn, so a tap on it reports here.
+            self._pending_turn_ids[outcome.pending.id] = origin_turn_id
+            self._bump(pending_reused=1)
+            if outcome.pending.shown_at is None:
+                # Repair, not a new card: the same row and id, carried on the
+                # current turn so the client does not drop it as stale. Voice
+                # tier has no receipt to hand out again.
+                await self._send(
+                    protocol.pending_action(
+                        row=outcome.pending.public(),
+                        receipt_token=None,
+                        entities=self._entities_for(outcome),
+                        risk_level="medium",
+                        turn_id=origin_turn_id,
+                    )
+                )
+            await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
         else:
             if outcome.pending is not None and outcome.pending.status in {
                 "executed",
@@ -1598,14 +1706,20 @@ class VoiceSession:
         ):
             await self._send(
                 protocol.ui_directive(
-                    directive_id=self._remember_directive(origin_turn_id),
+                    directive_id=self._remember_directive(
+                        origin_turn_id,
+                        kind="navigate",
+                        screen=str(public.get("screen") or "") or None,
+                    ),
                     kind="navigate",
                     turn_id=origin_turn_id,
                     payload={
+                        "call_id": call_id,
                         "gateway_action_id": public["gateway_action_id"],
                         "screen": public.get("screen"),
                         "circle_id": public.get("circle_id"),
                         "user_id": public.get("user_id"),
+                        "public_person_ref": public.get("public_person_ref"),
                     },
                 )
             )
@@ -1615,7 +1729,7 @@ class VoiceSession:
             # carries only which row, from which offer, in which conversation.
             await self._send(
                 protocol.ui_directive(
-                    directive_id=self._remember_directive(origin_turn_id),
+                    directive_id=self._remember_directive(origin_turn_id, kind="open_mail"),
                     kind="open_mail",
                     turn_id=origin_turn_id,
                     payload={

@@ -24,6 +24,8 @@ export type CalendarExecution = {
     start?: { dateTime?: string; date?: string } | null;
     end?: { dateTime?: string; date?: string } | null;
     status?: string | null;
+    conference_url?: string | null;
+    conference_status?: string | null;
   };
 };
 
@@ -47,6 +49,8 @@ export type CalendarEventSummary = {
   status?: string | null;
   attendees?: { email?: string | null; response_status?: string | null }[];
   html_link?: string | null;
+  conference_url?: string | null;
+  conference_status?: string | null;
   updated?: string | null;
 };
 

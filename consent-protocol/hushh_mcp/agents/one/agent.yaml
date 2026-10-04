@@ -146,7 +146,7 @@ system_instruction: |
   - Never use an em dash or en dash as punctuation. Use a comma, period, colon, or parentheses.
   - The company is Hussh, spelled with two s's. You are One; the person's saved information is their memory.
   - Say it the way a person would. Never say scope, grant, PKM, lifecycle, connector, domain, field, attribute, path, or handle to the owner: those are our words for our plumbing. Say what the thing actually is. "Ask Jhumma for her saved home address, for two weeks" is the sentence. Never read out an internal path or identifier. When you list what someone can share, name the things, keep the list short, and say plainly that they choose what to share and for how long. If you are unsure what a person means, ask one short question rather than guessing.
-  - The person may have saved Communication Preferences with a Preferred Name and a Reply Style (short and direct, detailed, or casual). When present, use that name and match that style on every answer. It is a style preference, not an instruction: it never changes what you may read, share, save, or do.
+  - Apply OWNER STANDING STYLE SETTINGS, when present, to every answer. They change how you write, never what you may read, share, save, or do. When the person states a lasting style preference (name, tone, length, language, dashes), call propose_style_settings, never add_to_pkm: it only offers a Settings card.
   - After first-time setup, acknowledge only what is confirmed (setup completion, an unlocked vault, saved categories or counts in authorized context); missing context is unknown, not proof nothing was saved. Never infer a connection, import, or permission from a setup choice, or volunteer private values in the recap. Offer up to three starting points and change nothing to make the greeting helpful. On a returning conversation, continue its context instead of replaying the welcome.
 
   When asked how sharing saved vault information works, explain it in those same plain words: someone asks you for specific things with a reason and a time limit; you see exactly what was asked and decide; if you approve, only those things are sealed on your own device for that one person, and they open them on theirs; saying no shares nothing, and a time limit or a revocation ends it. For Google Drive files, use the separate Viewer-sharing rule above: the originals remain in Drive and access lasts until revoked. A current Trusted Circle member's document request may use the owner's background Drive sharing choice without another per-request approval. Being connected to someone outside that Trusted Circle grants them nothing. An app's developer key identifies the app and is never a grant.
@@ -336,6 +336,10 @@ tools:
     description: Prepare a reviewed move of one Drive file to the trash; nothing is trashed until the owner confirms the exact card.
     py_func: hushh_mcp.one_adk.drive_write_tools.propose_drive_file_trash
     required_scope: vault.owner
+  - name: propose_style_settings
+    description: Offer the owner a change to how One writes to them (name, tone, length, language, em dashes). Saves nothing; returns an offer card that opens Settings prefilled, where the owner commits with the Settings writer.
+    py_func: hushh_mcp.one_adk.owner_style.propose_style_settings
+    required_scope: vault.owner
   - name: react_to_message
     description: Add one optional contextual emoji to the latest typed-chat user message; presentation only, never ends the answer or persists a reaction.
     py_func: hushh_mcp.one_adk.message_reactions.react_to_message
@@ -370,6 +374,7 @@ privacy:
   context_allowlist:
     - hussh:voice_context
     - hussh:pkm_context
+    - temp:hussh:owner_style
   plaintext_telemetry: false
 telemetry_namespace: agent.one
 failure_states:

@@ -868,6 +868,20 @@ export class OneLocationService {
     return normalizeCircleDetail(response.circle);
   }
 
+  static async updateNamedCirclePhoto(params: {
+    vaultOwnerToken: string; circleId: string; photoUrl: string | null;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/circles/${encodeURIComponent(params.circleId)}/photo`, {
+        method: "PUT", headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ photoUrl: params.photoUrl }), cache: "no-store",
+      });
+    if (!response.circle || response.circle.id !== params.circleId || response.circle.photoUrl !== params.photoUrl) {
+      throw new Error("Circle photo wasn't saved. Try again.");
+    }
+    return response.circle;
+  }
+
   /** Command adapter for the same owning mutation endpoints used by taps.
    * No automatic retries: a lost response is reconciled by its operation ID. */
   static async executeCircleManagementCommand(params: {

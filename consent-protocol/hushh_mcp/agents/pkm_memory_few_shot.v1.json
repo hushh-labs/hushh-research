@@ -1,0 +1,501 @@
+{
+  "version": 1,
+  "about": "Worked examples for the PKM memory agents, rendered into each agent's request by agent id. Small on purpose: principles live in the manifests; each example anchors one principle and names the eval cases that grade it (never the same text, so the eval does not grade a memorized answer). Synthetic content only.",
+  "examples": [
+    {
+      "id": "segmentation_duplicate_and_disclaimer",
+      "agent": "agent_memory_segmentation",
+      "teaches": "exact quotes with Markdown kept; a repeat is duplicate; an unknown-only line is disclaimer",
+      "exercised_by": [
+        "document:Vendors",
+        "document:Information not known"
+      ],
+      "input": {
+        "message": "## Stack\n- **Backend:** FastAPI on Cloud Run\n- Backend: FastAPI on Cloud Run\n- Information not known: team size"
+      },
+      "answer": {
+        "segments": [
+          {
+            "source_text": "- **Backend:** FastAPI on Cloud Run",
+            "context_quotes": [
+              "## Stack"
+            ],
+            "confidence": 0.95,
+            "reason": "stack fact"
+          }
+        ],
+        "not_memory": [
+          {
+            "quote": "- Backend: FastAPI on Cloud Run",
+            "reason": "duplicate"
+          },
+          {
+            "quote": "- Information not known: team size",
+            "reason": "disclaimer"
+          }
+        ],
+        "has_more_candidates": false
+      }
+    },
+    {
+      "id": "intent_live_command",
+      "agent": "agent_memory_intent",
+      "teaches": "a live instruction to act now is an ephemeral command, never memory",
+      "exercised_by": [
+        "ct_command"
+      ],
+      "input": {
+        "message": "Rebalance my retirement account toward bonds today."
+      },
+      "answer": {
+        "save_class": "ephemeral",
+        "intent_class": "command",
+        "mutation_intent": "no_op",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "financial",
+            "recommended": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "intent_person_at_work",
+      "agent": "agent_memory_intent",
+      "teaches": "a fact about another person is relationship, in work context too",
+      "exercised_by": [
+        "ct_people",
+        "persona_01_fresh_chain_005"
+      ],
+      "input": {
+        "message": "- Rina Das is our head of sales and runs the Monday pipeline review",
+        "section_context": [
+          "## People"
+        ]
+      },
+      "answer": {
+        "save_class": "durable",
+        "intent_class": "relationship",
+        "mutation_intent": "create",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "professional",
+            "recommended": true
+          },
+          {
+            "domain_key": "social",
+            "recommended": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "intent_ai_tool_daily",
+      "agent": "agent_memory_intent",
+      "teaches": "a tool the owner chooses to work with is preference, even when used daily",
+      "exercised_by": [
+        "ct_ai_tools"
+      ],
+      "input": {
+        "message": "I draft every spec with Cursor and a local Llama model, every single day."
+      },
+      "answer": {
+        "save_class": "durable",
+        "intent_class": "preference",
+        "mutation_intent": "create",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "professional",
+            "recommended": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "intent_extend_same_subject",
+      "agent": "agent_memory_intent",
+      "teaches": "a statement about the same subject as an existing entity extends it",
+      "exercised_by": [
+        "persona_01_fresh_chain_012",
+        "persona_01_fresh_chain_013",
+        "persona_01_fresh_chain_017"
+      ],
+      "input": {
+        "message": "I still order extra chili oil whenever I get Sichuan food.",
+        "existing_entities": [
+          {
+            "domain": "food",
+            "entity_id": "sichuan_food",
+            "entity_scope": "preferences",
+            "summary": "I love spicy Sichuan dishes"
+          }
+        ]
+      },
+      "answer": {
+        "save_class": "durable",
+        "intent_class": "preference",
+        "mutation_intent": "extend",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "food",
+            "recommended": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "intent_money_preference",
+      "agent": "agent_memory_intent",
+      "teaches": "a money preference is financial_event with financial recommended first",
+      "exercised_by": [
+        "persona_01_fresh_chain_009",
+        "persona_01_fresh_chain_020"
+      ],
+      "input": {
+        "message": "I lean toward low-cost ETFs for long-term savings."
+      },
+      "answer": {
+        "save_class": "durable",
+        "intent_class": "financial_event",
+        "mutation_intent": "create",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "financial",
+            "recommended": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "intent_explicit_correction",
+      "agent": "agent_memory_intent",
+      "teaches": "the owner replacing an existing memory's value is a correction",
+      "exercised_by": [
+        "persona_01_fresh_chain_023",
+        "persona_01_fresh_chain_028"
+      ],
+      "input": {
+        "message": "Update my location memory: I moved to Denver last month.",
+        "existing_entities": [
+          {
+            "domain": "location",
+            "entity_id": "home_city",
+            "entity_scope": "profile",
+            "summary": "I live in Austin"
+          }
+        ]
+      },
+      "answer": {
+        "save_class": "durable",
+        "intent_class": "correction",
+        "mutation_intent": "correct",
+        "requires_confirmation": false,
+        "candidate_domain_choices": [
+          {
+            "domain_key": "location",
+            "recommended": true
+          }
+        ]
+      }
+    },
+    {
+      "id": "merge_extend_same_subject",
+      "agent": "agent_memory_merge",
+      "teaches": "same subject, added detail: extend the named entity",
+      "exercised_by": [
+        "persona_01_fresh_chain_013",
+        "persona_01_fresh_chain_017",
+        "persona_01_fresh_chain_018"
+      ],
+      "input": {
+        "message": "Boutique hotels are still my first pick, especially ones with a rooftop bar.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "preference",
+          "mutation_intent": "extend"
+        },
+        "existing_entities": [
+          {
+            "domain": "travel",
+            "entity_id": "hotel_style",
+            "entity_scope": "preferences",
+            "summary": "I book boutique hotels near the old town"
+          }
+        ]
+      },
+      "answer": {
+        "merge_mode": "extend_entity",
+        "target_domain": "travel",
+        "target_entity_id": "hotel_style",
+        "target_entity_path": "preferences.entities.hotel_style",
+        "match_reason": "same hotel preference"
+      }
+    },
+    {
+      "id": "merge_new_subject_same_domain",
+      "agent": "agent_memory_merge",
+      "teaches": "a new subject in a domain already in use is create_entity",
+      "exercised_by": [
+        "persona_01_fresh_chain_006"
+      ],
+      "input": {
+        "message": "I bake sourdough every Sunday morning.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "routine",
+          "mutation_intent": "create"
+        },
+        "existing_entities": [
+          {
+            "domain": "food",
+            "entity_id": "fried_food",
+            "entity_scope": "preferences",
+            "summary": "I avoid fried food"
+          }
+        ]
+      },
+      "answer": {
+        "merge_mode": "create_entity",
+        "target_domain": "food",
+        "target_entity_id": "",
+        "target_entity_path": "",
+        "match_reason": "new subject"
+      }
+    },
+    {
+      "id": "merge_explicit_correction",
+      "agent": "agent_memory_merge",
+      "teaches": "an explicit replacement corrects the named entity",
+      "exercised_by": [
+        "persona_01_fresh_chain_023"
+      ],
+      "input": {
+        "message": "Update my location memory: I moved to Denver last month.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "correction",
+          "mutation_intent": "correct"
+        },
+        "existing_entities": [
+          {
+            "domain": "location",
+            "entity_id": "home_city",
+            "entity_scope": "profile",
+            "summary": "I live in Austin"
+          }
+        ]
+      },
+      "answer": {
+        "merge_mode": "correct_entity",
+        "target_domain": "location",
+        "target_entity_id": "home_city",
+        "target_entity_path": "profile.entities.home_city",
+        "match_reason": "same home city"
+      }
+    },
+    {
+      "id": "merge_delete_named",
+      "agent": "agent_memory_merge",
+      "teaches": "a removal request deletes the named entity",
+      "exercised_by": [
+        "persona_01_fresh_chain_029",
+        "persona_01_fresh_chain_034"
+      ],
+      "input": {
+        "message": "Please forget the basketball note.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "deletion",
+          "mutation_intent": "delete"
+        },
+        "existing_entities": [
+          {
+            "domain": "health",
+            "entity_id": "pickup_basketball",
+            "entity_scope": "routines",
+            "summary": "I play pickup basketball on Thursday nights"
+          }
+        ]
+      },
+      "answer": {
+        "merge_mode": "delete_entity",
+        "target_domain": "health",
+        "target_entity_id": "pickup_basketball",
+        "target_entity_path": "routines.entities.pickup_basketball",
+        "match_reason": "same basketball routine"
+      }
+    },
+    {
+      "id": "structure_person_attributed",
+      "agent": "agent_pkm_structure",
+      "teaches": "a person is a people entity named for them, attributed, under professional for a colleague",
+      "exercised_by": [
+        "ct_people"
+      ],
+      "input": {
+        "message": "- Rina Das is our head of sales and runs the Monday pipeline review",
+        "section_context": [
+          "## People"
+        ],
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "relationship",
+          "mutation_intent": "create"
+        },
+        "merge_decision": {
+          "merge_mode": "create_entity",
+          "target_domain": "professional"
+        }
+      },
+      "answer": {
+        "candidate_payload": {
+          "people": {
+            "entities": {
+              "rina_das": {
+                "summary": "Rina Das is our head of sales and runs the Monday pipeline review",
+                "role": "head of sales"
+              }
+            }
+          }
+        },
+        "structure_decision": {
+          "action": "match_existing_domain",
+          "target_domain": "professional",
+          "json_paths": [
+            "people",
+            "people.entities.rina_das",
+            "people.entities.rina_das.summary",
+            "people.entities.rina_das.role"
+          ],
+          "top_level_scope_paths": [
+            "people"
+          ],
+          "externalizable_paths": [
+            "people.entities.rina_das.summary"
+          ],
+          "sensitivity_labels": {},
+          "contract_version": 1
+        },
+        "write_mode": "confirm_first",
+        "primary_json_path": "people.entities.rina_das",
+        "target_entity_scope": "people"
+      }
+    },
+    {
+      "id": "structure_extend_named_entity",
+      "agent": "agent_pkm_structure",
+      "teaches": "extend_entity writes into merge_decision.target_entity_path",
+      "exercised_by": [
+        "persona_01_fresh_chain_013"
+      ],
+      "input": {
+        "message": "Boutique hotels are still my first pick, especially ones with a rooftop bar.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "preference",
+          "mutation_intent": "extend"
+        },
+        "merge_decision": {
+          "merge_mode": "extend_entity",
+          "target_domain": "travel",
+          "target_entity_id": "hotel_style",
+          "target_entity_path": "preferences.entities.hotel_style"
+        }
+      },
+      "answer": {
+        "candidate_payload": {
+          "preferences": {
+            "entities": {
+              "hotel_style": {
+                "summary": "Boutique hotels are still my first pick, especially ones with a rooftop bar."
+              }
+            }
+          }
+        },
+        "structure_decision": {
+          "action": "match_existing_domain",
+          "target_domain": "travel",
+          "json_paths": [
+            "preferences",
+            "preferences.entities.hotel_style",
+            "preferences.entities.hotel_style.summary"
+          ],
+          "top_level_scope_paths": [
+            "preferences"
+          ],
+          "externalizable_paths": [
+            "preferences.entities.hotel_style.summary"
+          ],
+          "sensitivity_labels": {},
+          "contract_version": 1
+        },
+        "write_mode": "confirm_first",
+        "primary_json_path": "preferences.entities.hotel_style",
+        "target_entity_scope": "preferences"
+      }
+    },
+    {
+      "id": "structure_money_chat_fact",
+      "agent": "agent_pkm_structure",
+      "teaches": "a money fact from chat goes under financial agent_memory with a reserved_offer",
+      "exercised_by": [
+        "persona_01_fresh_chain_009",
+        "ct_finance_pref"
+      ],
+      "input": {
+        "message": "I lean toward low-cost ETFs for long-term savings.",
+        "intent_frame": {
+          "save_class": "durable",
+          "intent_class": "financial_event",
+          "mutation_intent": "create"
+        },
+        "merge_decision": {
+          "merge_mode": "create_entity",
+          "target_domain": "financial"
+        }
+      },
+      "answer": {
+        "candidate_payload": {
+          "agent_memory": {
+            "entities": {
+              "etf_preference": {
+                "summary": "I lean toward low-cost ETFs for long-term savings."
+              }
+            }
+          }
+        },
+        "structure_decision": {
+          "action": "match_existing_domain",
+          "target_domain": "financial",
+          "json_paths": [
+            "agent_memory",
+            "agent_memory.entities.etf_preference",
+            "agent_memory.entities.etf_preference.summary"
+          ],
+          "top_level_scope_paths": [
+            "agent_memory"
+          ],
+          "externalizable_paths": [
+            "agent_memory.entities.etf_preference.summary"
+          ],
+          "sensitivity_labels": {
+            "agent_memory.entities.etf_preference": "confidential"
+          },
+          "contract_version": 1
+        },
+        "write_mode": "confirm_first",
+        "primary_json_path": "agent_memory.entities.etf_preference",
+        "target_entity_scope": "agent_memory",
+        "reserved_offer": {
+          "branch": "financial.profile",
+          "label": "Investing style"
+        }
+      }
+    }
+  ]
+}

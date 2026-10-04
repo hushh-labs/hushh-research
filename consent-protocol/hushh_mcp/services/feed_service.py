@@ -10,7 +10,11 @@ one_location_events, connected_system_audit_events) or completion point (Kai,
 KYC, connections) remains the authority for its domain; feed_events exists
 only to give the Feed one uniform, paginated shape to read. Rows never carry
 ciphertext or vault-protected content, only bounded, non-sensitive metadata a
-human-readable line can be rendered from client-side.
+human-readable line can be rendered from client-side. Recipient-only Direct
+Message previews are the narrow exception at read time: the service reopens
+the encrypted source inside the authenticated Feed query and returns a bounded
+transient string. That preview never enters a Feed row, push payload, or
+realtime doorbell.
 
 Methods here are synchronous (the underlying client is a sync Postgrest-style
 query builder). Route handlers in api/routes/one/feed.py are plain ``def``
@@ -31,6 +35,11 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from db.db_client import get_db
+from hushh_mcp.services.direct_messages_service import (
+    DirectMessageCipher,
+    DirectMessagesError,
+)
+from hushh_mcp.services.requester_identity import label_from_identity_row
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +51,11 @@ _MAX_ACTOR_LABEL_LENGTH = 160
 _MAX_METADATA_STRING_LENGTH = 256
 _MAX_METADATA_URL_LENGTH = 1024
 _MAX_METADATA_NUMBER = 1_000_000_000_000
+_DIRECT_MESSAGE_RECEIVED_EVENT = "direct_message_received"
+_DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH = 256
+_DIRECT_MESSAGE_PREVIEW_FIELD = "_direct_message_preview"
+_DIRECT_MESSAGE_CONVERSATION_FIELD = "_direct_message_conversation_id"
+_DIRECT_MESSAGE_COUNTERPART_LABEL_FIELD = "_direct_message_counterpart_label"
 POSTGRES_BIGINT_MAX = 9_223_372_036_854_775_807
 _FEED_SELECT_COLUMNS = (
     "id,source_domain,event_type,actor_label,metadata,source_row_id,read_at,created_at"
@@ -124,6 +138,26 @@ def _bounded_text(value: object, *, limit: int) -> str | None:
         return None
     cleaned = value.strip()
     return cleaned[:limit] if cleaned else None
+
+
+def _direct_message_source_id(value: object) -> str | None:
+    """Return a canonical UUID only for an opaque direct-message source id."""
+    try:
+        return str(UUID(str(value or "").strip()))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
+def _direct_message_preview(value: object) -> str | None:
+    """Normalize a private, read-time message preview without retaining it."""
+    if not isinstance(value, str):
+        return None
+    cleaned = " ".join(value.split())
+    if not cleaned:
+        return None
+    if len(cleaned) <= _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH:
+        return cleaned
+    return f"{cleaned[: _DIRECT_MESSAGE_FEED_PREVIEW_MAX_LENGTH - 1].rstrip()}…"
 
 
 def _safe_feed_metadata(value: object) -> dict[str, str | int | float | bool]:
@@ -283,6 +317,7 @@ class FeedService:
         has_more = len(rows) > bounded_limit
         rows = rows[:bounded_limit]
         rows = self._with_counterpart_photos(user_id, rows)
+        rows = self._with_direct_message_previews(user_id, rows)
         next_cursor = str(rows[-1]["id"]) if has_more and rows else None
         return {
             "items": [self._to_item(row) for row in rows],
@@ -438,6 +473,130 @@ class FeedService:
             }
             enriched.append(next_row)
         return enriched
+
+    def _with_direct_message_previews(
+        self, user_id: str, rows: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Attach recipient-authorized DM previews without persisting them.
+
+        A Feed row stores only the source message UUID. This query rechecks
+        that the viewer is the non-sender conversation participant before the
+        envelope is opened, so a copied or stale Feed row cannot turn into a
+        message-content oracle. Any missing, erased, or damaged source remains
+        a generic Feed item instead of failing the complete page.
+        """
+        source_ids = {
+            source_id
+            for row in rows
+            if str(row.get("source_domain") or "") == "connections"
+            and str(row.get("event_type") or "") == _DIRECT_MESSAGE_RECEIVED_EVENT
+            and (source_id := _direct_message_source_id(row.get("source_row_id"))) is not None
+        }
+        if not source_ids:
+            return rows
+
+        try:
+            preview_rows = (
+                self._get_db()
+                .execute_raw(
+                    """
+                    WITH requested_messages AS (
+                      SELECT value::UUID AS message_id
+                      FROM jsonb_array_elements_text(CAST(:message_ids_json AS JSONB))
+                    )
+                    SELECT
+                      message.id::TEXT AS source_row_id,
+                      message.id,
+                      message.conversation_id,
+                      message.sender_user_id,
+                      message.content_ciphertext,
+                      message.content_iv,
+                      message.content_algorithm,
+                      identity.user_id,
+                      identity.display_name,
+                      identity.email
+                    FROM requested_messages requested
+                    JOIN public.messages AS message
+                      ON message.id = requested.message_id
+                    JOIN public.conversations AS conversation
+                      ON conversation.id = message.conversation_id
+                    JOIN public.feed_events AS feed
+                      ON feed.user_id = :viewer_user_id
+                     AND feed.source_domain = 'connections'
+                     AND feed.event_type = 'direct_message_received'
+                     AND feed.source_row_id = message.id::TEXT
+                    LEFT JOIN public.actor_identity_cache AS identity
+                      ON identity.user_id = message.sender_user_id
+                    WHERE (
+                      conversation.participant_a_user_id = message.sender_user_id
+                      AND conversation.participant_b_user_id = :viewer_user_id
+                    ) OR (
+                      conversation.participant_b_user_id = message.sender_user_id
+                      AND conversation.participant_a_user_id = :viewer_user_id
+                    )
+                    """,
+                    {
+                        "viewer_user_id": user_id,
+                        "message_ids_json": json.dumps(sorted(source_ids)),
+                    },
+                )
+                .data
+                or []
+            )
+        except Exception as exc:  # noqa: BLE001 - a private preview is optional
+            logger.warning(
+                "feed.direct_message_preview_lookup_failed error=%s",
+                type(exc).__name__,
+            )
+            return rows
+
+        cipher = DirectMessageCipher()
+        enrichments: dict[str, dict[str, str]] = {}
+        for preview_row in preview_rows:
+            source_id = _direct_message_source_id(preview_row.get("source_row_id"))
+            if source_id is None:
+                continue
+
+            enrichment: dict[str, str] = {}
+            conversation_id = _direct_message_source_id(preview_row.get("conversation_id"))
+            if conversation_id is not None:
+                enrichment[_DIRECT_MESSAGE_CONVERSATION_FIELD] = conversation_id
+
+            counterpart_label = label_from_identity_row(
+                preview_row,
+                allow_email_handle=True,
+                fallback="",
+            )
+            if counterpart_label:
+                enrichment[_DIRECT_MESSAGE_COUNTERPART_LABEL_FIELD] = counterpart_label[
+                    :_MAX_ACTOR_LABEL_LENGTH
+                ]
+
+            try:
+                preview = _direct_message_preview(cipher.open(preview_row))
+            except DirectMessagesError as exc:
+                logger.warning("feed.direct_message_preview_unavailable code=%s", exc.code)
+            except Exception as exc:  # noqa: BLE001 - preserve the generic item
+                logger.warning(
+                    "feed.direct_message_preview_unavailable error=%s",
+                    type(exc).__name__,
+                )
+            else:
+                if preview is not None:
+                    enrichment[_DIRECT_MESSAGE_PREVIEW_FIELD] = preview
+
+            if enrichment:
+                enrichments[source_id] = enrichment
+
+        if not enrichments:
+            return rows
+        return [
+            {
+                **row,
+                **enrichments.get(_direct_message_source_id(row.get("source_row_id")) or "", {}),
+            }
+            for row in rows
+        ]
 
     def _durable_counterpart_photos(
         self, user_id: str, rows: list[dict[str, Any]]
@@ -634,6 +793,24 @@ class FeedService:
     @staticmethod
     def _to_item(row: dict[str, Any]) -> dict[str, Any]:
         metadata = _safe_feed_metadata(row.get("metadata"))
+        if row.get("event_type") == _DIRECT_MESSAGE_RECEIVED_EVENT:
+            # These fields originate only from `_with_direct_message_previews`.
+            # Do not admit a message preview or conversation id from persisted
+            # Feed metadata: that table is intentionally plaintext-free.
+            counterpart_label = _bounded_text(
+                row.get(_DIRECT_MESSAGE_COUNTERPART_LABEL_FIELD),
+                limit=_MAX_ACTOR_LABEL_LENGTH,
+            )
+            if counterpart_label is not None:
+                metadata["counterpart_label"] = counterpart_label
+
+            conversation_id = _direct_message_source_id(row.get(_DIRECT_MESSAGE_CONVERSATION_FIELD))
+            if conversation_id is not None:
+                metadata["direct_message_conversation_id"] = conversation_id
+
+            preview = _direct_message_preview(row.get(_DIRECT_MESSAGE_PREVIEW_FIELD))
+            if preview is not None:
+                metadata["message_preview"] = preview
         if (
             row.get("event_type") == "document_share_outcome"
             and metadata.get("feed_audience") == "recipient"

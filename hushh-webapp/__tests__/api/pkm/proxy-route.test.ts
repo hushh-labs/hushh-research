@@ -24,6 +24,7 @@ function createRequest(
     method?: "GET" | "POST";
     body?: Record<string, unknown>;
     cacheControl?: string;
+    clientVersion?: string;
   } = {},
 ): NextRequest {
   return new NextRequest(url, {
@@ -32,6 +33,7 @@ function createRequest(
       Authorization: "Bearer vault_owner_token",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...(options.cacheControl ? { "Cache-Control": options.cacheControl } : {}),
+      ...(options.clientVersion ? { "x-hushh-client-version": options.clientVersion } : {}),
     },
     ...(options.body ? { body: JSON.stringify(options.body) } : {}),
   });
@@ -234,5 +236,32 @@ describe("/api/pkm/[...path] proxy", () => {
       domains: [{ key: "professional" }],
     });
     expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it("forwards the PKM client level and never serves an old build a current client's upgrade status", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      new Response(JSON.stringify({ user_id: "user-1", upgrade_status: "current" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const statusPath = { params: Promise.resolve({ path: ["upgrade", "status", "user-1"] }) };
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1", { clientVersion: "2.0.0" }),
+      statusPath,
+    );
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1"),
+      statusPath,
+    );
+    await pkmRoute.GET(
+      createRequest("http://localhost:3000/api/pkm/upgrade/status/user-1", { clientVersion: "not-a-version" }),
+      statusPath,
+    );
+
+    // Current, old, and a malformed level that the proxy drops (so it reads as old, from cache).
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const sent = fetchSpy.mock.calls.map(([, init]) => new Headers(init?.headers).get("x-hushh-client-version"));
+    expect(sent).toEqual(["2.0.0", null]);
   });
 });

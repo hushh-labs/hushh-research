@@ -272,7 +272,10 @@ export function RequestFilesButton({
         </DialogTrigger>
         <DialogContent
           data-request-files-dialog
-          className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
+          // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
+          // the centering translate is reset here because a CSS `translate`
+          // reset does not survive production minification.
+          className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
           showCloseButton={Boolean(created)}
           srDescription={`Request files from ${personName}.`}
         >
