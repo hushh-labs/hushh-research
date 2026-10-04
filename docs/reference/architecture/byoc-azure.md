@@ -415,6 +415,29 @@ and nothing here is run by the hub or an agent.
    dedicated repository first (see *Known gaps*). The hub does not check what
    the reader is granted.
 
+### The agent's model (measured inside Azure, 2026-10-04)
+
+The setup plan deploys **gpt-5.6-luna** (`2026-07-09`, Global Standard, capacity
+250K tokens/min) in the person's own Azure OpenAI account, reached over the
+**Responses API** (`openai_responses_transport`, stateless `store: false`): GPT-6
+and GPT-5.6 refuse tools with reasoning on Chat Completions. Measured inside the
+person's Azure on the pod's managed identity, repo harnesses, 60 first-tool cases
+and 22 full Nav turns, two runs each:
+
+| Model at effort | First tool right | Nav goal | p50 call / turn | $ per 1k calls / turns |
+|---|---|---|---|---|
+| gpt-5.6-luna, `low` (One's head setting) | **54/60** | 91% | 2.9 s / 4.8 s | 0.46 / 0.41 |
+| gpt-6-luna, default (`medium`) | 49/60 | 96% | 2.6 s / 5.4 s | 0.23 / 0.21 |
+| gpt-6-luna, `low` | 47/60 | 96% | 2.4 s / 4.7 s | 0.20 / 0.17 |
+| gpt-6-luna, `none` | 45/60 | 82% | 2.5 s / 4.8 s | 0.22 / 0.18 |
+| gpt-5-mini, `low` | 45/60 | 77% | 3.2 s / 8.2 s | 0.95 / 1.51 |
+
+gpt-5.6-luna leads gpt-6-luna `low` and gpt-5-mini `low` significantly (paired, p
+0.04 and 0.004); gpt-6-luna is the half-price alternative, weakest at handing work
+to specialists. Zero invalid tool arguments and zero rate limits across 2,030
+calls. Gemini was not re-run (known to work). Tool roster 62 (no web search off
+Gemini); the pod head itself carries 50.
+
 ### Microsoft Entra, the Hussh app registration
 
 1. Supported account types: any organizational directory and personal Microsoft

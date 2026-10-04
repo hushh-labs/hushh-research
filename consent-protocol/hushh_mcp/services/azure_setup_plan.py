@@ -87,12 +87,24 @@ StepKind = Literal["resource", "action", "role_definition", "role_assignment"]
 
 @dataclass(frozen=True)
 class ModelChoice:
-    """The agent's own chat model, deployed in the person's Azure OpenAI account."""
+    """The agent's own chat model, deployed in the person's Azure OpenAI account.
 
-    name: str = "gpt-5-mini"
-    version: str = "2025-08-07"
+    gpt-5.6-luna, measured inside Azure on the pod's own identity through the agent
+    harness (2026-10-04, 60 first-tool cases and 22 full Nav turns, two runs each):
+    the most accurate Azure model (54/60 at One's ``low`` effort; gpt-5-mini 45 to
+    49, gpt-6-luna 45 to 49), Nav goal 91%, and at the same time faster (2.9 s per
+    call, 4.8 s per turn) and three times cheaper than gpt-5-mini. One's head already
+    asks for ``low``, which the Responses transport now sends.
+
+    Capacity is thousands of tokens per minute and costs nothing on Global Standard
+    (billed per token). One agent call carries about 18,600 input tokens, so the old
+    50 allowed two or three calls a minute; 250 leaves room for a busy turn.
+    """
+
+    name: str = "gpt-5.6-luna"
+    version: str = "2026-07-09"
     sku: str = "GlobalStandard"
-    capacity: int = 50
+    capacity: int = 250
     account_kind: Literal["OpenAI", "AIServices"] = "OpenAI"
 
 
