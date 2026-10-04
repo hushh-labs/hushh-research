@@ -31,6 +31,15 @@ const KEY_WORDS: ReadonlySet<string> = new Set(contract.identifier_key_words.map
 const KEY_PHRASES: ReadonlySet<string> = new Set(
   contract.identifier_key_phrases.map(([left, right]) => `${left!.toLowerCase()} ${right!.toLowerCase()}`),
 );
+const IDENTIFIER_DOMAINS: ReadonlySet<string> = new Set(
+  (contract.identifier_domains ?? []).map((domain) => domain.toLowerCase()),
+);
+
+/** Whether every field of a domain is identifier-class (`secrets`). */
+export function domainIsIdentifierClass(domain: string | null | undefined): boolean {
+  return IDENTIFIER_DOMAINS.has(String(domain ?? "").trim().toLowerCase());
+}
+
 const VALUE_PATTERNS: ReadonlyArray<{ pattern: RegExp; luhn: boolean }> = contract.identifier_value_patterns.map(
   (entry) => ({ pattern: new RegExp(entry.pattern, "g"), luhn: "luhn" in entry && entry.luhn === true }),
 );
@@ -134,9 +143,19 @@ export function sensitiveTopicLabel(text: unknown): SensitiveTopicLabel | null {
   return label;
 }
 
-/** `"sensitive"` or `"standard"` for one field of a shared item. */
-export function fieldSensitivity(keyPath: string | readonly string[], value: unknown = null): FieldSensitivity {
-  return fieldKeyIsSensitive(keyPath) || valueIsIdentifierShaped(value) ? "sensitive" : "standard";
+/**
+ * `"sensitive"` or `"standard"` for one field of a shared item. `domain` is the
+ * item's top-level PKM domain when known; every field of an identifier-class
+ * domain is sensitive whatever it holds.
+ */
+export function fieldSensitivity(
+  keyPath: string | readonly string[],
+  value: unknown = null,
+  domain: string | null = null,
+): FieldSensitivity {
+  return domainIsIdentifierClass(domain) || fieldKeyIsSensitive(keyPath) || valueIsIdentifierShaped(value)
+    ? "sensitive"
+    : "standard";
 }
 
 /** Letters and digits only, lower-cased: "Federal EIN" and "federal_ein" are one name. */

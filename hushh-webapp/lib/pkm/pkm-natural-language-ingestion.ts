@@ -27,9 +27,20 @@ const DEFAULT_PREPARATION_BUDGET_MS = 120_000;
 // already fans out to bounded semantic workers. Keep this small so a long
 // import does not create a provider burst while still avoiding a serial wait
 // for every source block. Encrypted saves remain explicitly sequential.
-const MAX_CONCURRENT_PROPOSALS = 2;
+export const MAX_CONCURRENT_PROPOSALS = 2;
 // Leave room under MAX_PROPOSAL_CHUNKS for sections the agent asks to split.
 const SECTION_PLAN_MAX_CHUNKS = 24;
+
+/**
+ * The source plan of an explicit save of a long document: one section per
+ * proposal, or the packed plan when the document has too many sections to fit
+ * the proposal bound with room left for splits. Shared by the one-shot
+ * preparation below and the resumable save job (lib/pkm/pkm-save-job.ts).
+ */
+export function planExplicitSaveSourceChunks(message: string): PkmSourceChunk[] {
+  const sectionPlan = planPkmSourceSections(message) ?? planPkmSourceChunks(message, { maxBlocks: 1 });
+  return sectionPlan.length <= SECTION_PLAN_MAX_CHUNKS ? sectionPlan : planPkmSourceChunks(message);
+}
 
 export type PkmNaturalLanguageIngestionResult = {
   preview: AgentPkmPreviewResponse;
@@ -62,7 +73,9 @@ export type PkmNaturalLanguageSourceCoverage = {
     | "chunk_limit"
     | "preparation_timeout"
     /** The block was answered, but by a fallback or an errored agent stage. */
-    | "degraded_preview";
+    | "degraded_preview"
+    /** A resumable save job has not finished this block yet (paused or retrying). */
+    | "not_yet_saved";
   disposition: "proposed" | "intentionally_ignored" | "review_required" | "failed";
   detectedFactCount: number;
   accountedFactCount: number;
@@ -70,6 +83,11 @@ export type PkmNaturalLanguageSourceCoverage = {
   duplicateCount?: number;
   /** Cards the structurer refused because they carry a secret. */
   excludedSecretCount?: number;
+  /**
+   * Passages the agent marked as a pure disclaimer (not memory). They are
+   * accounted for in coverage, never silently dropped.
+   */
+  disclaimerCount?: number;
 };
 
 /** One previously prepared block, re-planned on its own for a retry. */
@@ -118,32 +136,6 @@ function createIngestionId(): string {
 
 function logIngestion(event: string, fields: PkmIngestionLogFields): void {
   console.info(`[PKM_INGEST] ${event}`, fields);
-}
-
-const EXPLICIT_PKM_SAVE_INTENT =
-  /\b(?:save|store|remember|add|keep)\b[\s\S]{0,100}\b(?:my\s+)?(?:pkm|memory|vault)\b/i;
-const KYC_IDENTITY_FIELD_HINT =
-  /\b(?:aadha{1,2}r|pan(?:\s+(?:number|no))?|passport(?:\s+number)?|driving\s+licen[cs]e(?:\s+number)?|voter\s*id(?:\s+number)?|roll\s*(?:number|no)|student\s*id|address)\b/i;
-
-/**
- * The restricted KYC writer is one constrained extraction call over a fixed
- * identity schema. It is for a short request that names an identity field
- * ("save my passport number ..."), never for a long document. Measured on
- * production 2026-09-29: a 17,120 character personal-context transfer that
- * mentioned a passport and asked to be saved matched this rule, went to the
- * KYC writer as ONE call, and came back as three identity cards. The other
- * fourteen sections were never prepared. A message that plans into more than
- * one source section, or is longer than one proposal, stays on the general
- * semantic path, where every section is prepared.
- */
-const KYC_EXPLICIT_SAVE_MAX_CHARS = 1_200;
-
-export function isExplicitKycIdentitySaveRequest(message: string): boolean {
-  if (message.length > KYC_EXPLICIT_SAVE_MAX_CHARS) return false;
-  if (!EXPLICIT_PKM_SAVE_INTENT.test(message) || !KYC_IDENTITY_FIELD_HINT.test(message)) {
-    return false;
-  }
-  return planPkmSourceChunks(message, { maxBlocks: 1 }).length <= 1;
 }
 
 function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
@@ -331,16 +323,14 @@ export async function prepareNaturalLanguagePkm(params: {
   // cannot silently swallow the tail of a large profile import.
   // KYC imports are intentionally one constrained extraction call. Splitting
   // an export first loses cross-field context and reintroduces model fan-out.
-  const sectionPlan = params.granularity === "section" && !params.sourceSelection &&
-    params.memoryProfile !== "kyc_identity_v1"
-    ? planPkmSourceSections(message) ?? planPkmSourceChunks(message, { maxBlocks: 1 })
-    : null;
+  const sectionGranularity = params.granularity === "section" && !params.sourceSelection &&
+    params.memoryProfile !== "kyc_identity_v1";
   let queue: PkmSourceChunk[] = params.memoryProfile === "kyc_identity_v1"
     ? [{ blocks: [{ start: 0, end: message.length, protectedContext: true }] }]
     : params.sourceSelection
       ? planPkmSourceSelection(message, params.sourceSelection.range, params.sourceSelection.context)
-      : sectionPlan && sectionPlan.length <= SECTION_PLAN_MAX_CHUNKS
-        ? sectionPlan
+      : sectionGranularity
+        ? planExplicitSaveSourceChunks(message)
         : planPkmSourceChunks(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];

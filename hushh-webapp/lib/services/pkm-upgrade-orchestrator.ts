@@ -31,6 +31,10 @@ import {
   setSessionItem,
 } from "@/lib/utils/session-storage";
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  RESERVED_BRANCH_MIGRATION_MARKER,
+  RESERVED_BRANCH_MIGRATION_VERSION,
+} from "@/lib/personal-knowledge-model/upgrade-contracts";
 
 const PKM_UPGRADE_TASK_KIND = "pkm_upgrade";
 const PKM_UPGRADE_SNAPSHOT_PREFIX = "pkm_upgrade_snapshot_v1";
@@ -874,6 +878,11 @@ export class PkmUpgradeOrchestrator {
         capabilities_applied: capabilitiesApplied,
         compatibility_blocked_reasons: compatibilityBlockedReasons,
         upgraded_at: upgradedAt,
+        // The relocation ran in this upgrade; the server keeps the marker only
+        // from an upgrade-claim commit and carries it across ordinary writes.
+        ...(upgradeResult.reservedMigration
+          ? { [RESERVED_BRANCH_MIGRATION_MARKER]: RESERVED_BRANCH_MIGRATION_VERSION }
+          : {}),
       },
     };
     const nextSummary = {

@@ -66,17 +66,6 @@ def _is_pkm_upgrade(path: str) -> bool:
     )
 
 
-def _is_pkm_evaluator_contract(path: str) -> bool:
-    """Whether a change must exercise the candidate evaluator itself.
-
-    The evaluator's workflow control path is intentionally narrower than the
-    zero-loss upgrade rehearsal: changing its release behavior must prove the
-    candidate job once, but does not by itself require the full PKM migration
-    suite.
-    """
-    return _is_pkm_upgrade(path) or path == ".github/workflows/deploy-uat.yml"
-
-
 def _is_reviewer_byok(path: str) -> bool:
     return (
         path.startswith(".codex/skills/reviewer-app-testing/")
@@ -106,15 +95,17 @@ class VerificationPlan:
     run_pkm_upgrade_gate: bool
     run_reviewer_byok: bool
     reason: str
+    run_live_model_checks: bool = False
 
     def as_dict(self) -> dict[str, object]:
         requires_web_dependencies = self.run_pkm_upgrade_gate or self.run_reviewer_byok
         lanes = {
             "candidate_pkm_evaluator": {
                 "required": self.pkm_evaluator_runs != 0,
-                "reason": "pkm_upgrade_or_evaluator_contract_changed"
+                "reason": "live_model_checks_explicitly_requested"
                 if self.pkm_evaluator_runs
-                else "no_pkm_upgrade_or_evaluator_contract_changed",
+                else ("backend_not_selected" if self.run_live_model_checks
+                      else "live_model_checks_not_requested"),
             },
             "pkm_upgrade": {
                 "required": self.run_pkm_upgrade_gate,
@@ -130,13 +121,15 @@ class VerificationPlan:
             },
         }
         if self.reason.startswith("conservative:"):
-            for lane in lanes.values():
+            for name in ("pkm_upgrade", "reviewer_byok"):
+                lane = lanes[name]
                 lane["required"] = True
                 lane["reason"] = "comparison_base_unproven_fail_closed"
         return {
             "schema_version": 1,
             "changed_files": list(self.changed_files),
             "pkm_evaluator_runs": self.pkm_evaluator_runs,
+            "run_live_model_checks": self.run_live_model_checks,
             "run_pkm_upgrade_gate": self.run_pkm_upgrade_gate,
             "run_reviewer_byok": self.run_reviewer_byok,
             "requires_web_dependencies": requires_web_dependencies,
@@ -152,12 +145,20 @@ def resolve_plan(
     frontend_base_sha: str,
     deploy_backend: bool,
     deploy_frontend: bool,
+    run_live_model_checks: bool = False,
 ) -> VerificationPlan:
+    # Paid provider calls require an explicit operator choice. An unknown
+    # comparison base still fails closed for preservation and owner authority,
+    # but never silently opts an operator into model evaluation.
+    evaluator_runs = int(run_live_model_checks and deploy_backend)
     missing_base = (deploy_backend and not backend_base_sha) or (
         deploy_frontend and not frontend_base_sha
     )
     if missing_base:
-        return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
+        return VerificationPlan(
+            (), evaluator_runs, True, True, "conservative:comparison_base_unproven",
+            run_live_model_checks,
+        )
 
     changed: set[str] = set()
     try:
@@ -179,10 +180,12 @@ def resolve_plan(
                 )
             )
     except subprocess.CalledProcessError:
-        return VerificationPlan((), 1, True, True, "conservative:comparison_base_unproven")
+        return VerificationPlan(
+            (), evaluator_runs, True, True, "conservative:comparison_base_unproven",
+            run_live_model_checks,
+        )
 
     pkm_upgrade = any(_is_pkm_upgrade(path) for path in changed)
-    evaluator_runs = 1 if any(_is_pkm_evaluator_contract(path) for path in changed) else 0
     reviewer_byok = any(_is_reviewer_byok(path) for path in changed)
     active = [
         name
@@ -199,6 +202,7 @@ def resolve_plan(
         pkm_upgrade,
         reviewer_byok,
         f"changed_paths:{','.join(active) if active else 'standard'}",
+        run_live_model_checks,
     )
 
 
@@ -228,6 +232,7 @@ def main() -> int:
     parser.add_argument("--frontend-base-sha", default="")
     parser.add_argument("--deploy-backend", default="true")
     parser.add_argument("--deploy-frontend", default="true")
+    parser.add_argument("--run-live-model-checks", choices=("true", "false"), default="false")
     parser.add_argument("--github-output", default="")
     parser.add_argument("--json-output", default="")
     args = parser.parse_args()
@@ -238,6 +243,7 @@ def main() -> int:
         frontend_base_sha=shared_base or args.frontend_base_sha.strip(),
         deploy_backend=_bool(args.deploy_backend),
         deploy_frontend=_bool(args.deploy_frontend),
+        run_live_model_checks=_bool(args.run_live_model_checks),
     )
     payload = plan.as_dict()
     if args.github_output:

@@ -8,7 +8,6 @@ flowchart TD
   location["one_location_events<br/>INSERT trigger"]
   connected["connected_system_audit_events<br/>INSERT trigger"]
   kai["Kai run_manager.py<br/>run.status = completed"]
-  kyc["one_email_kyc_service.py<br/>_update_workflow(status=...)"]
   connections["connections_service.py<br/>accept / reject / revoke"]
   feed_events["feed_events table"]
   api["GET/POST /api/one/feed*<br/>FeedService"]
@@ -19,7 +18,6 @@ flowchart TD
   location -->|trigger| feed_events
   connected -->|trigger| feed_events
   kai -->|app-level write| feed_events
-  kyc -->|app-level write| feed_events
   connections -->|app-level write| feed_events
   feed_events --> api
   api --> page
@@ -80,8 +78,6 @@ tracking, added alongside each domain's existing mutation):
 - **Kai** — `consent-protocol/api/routes/kai/run_manager.py`, at the existing
   debate-completion point (`run.status = "completed"`). The analysis itself
   stays E2EE in PKM as before; the feed row is just `{ticker}` metadata.
-- **KYC** — `consent-protocol/hushh_mcp/services/one_email_kyc_service.py`,
-  inside the shared `_update_workflow` helper, whenever `status` is set.
 - **Connections** — `consent-protocol/hushh_mcp/services/connections_service.py`,
   at `accept_request` / `reject_request` / `remove_connection`.
 

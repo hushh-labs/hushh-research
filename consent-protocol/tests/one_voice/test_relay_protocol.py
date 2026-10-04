@@ -13,7 +13,12 @@ import pytest
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.one_voice.live_client import LiveEvent, translate_message
-from hushh_mcp.one_voice.session import AuthResult, SessionClosed, VoiceSession
+from hushh_mcp.one_voice.session import (
+    AuthResult,
+    SessionClosed,
+    VoiceSession,
+    _failure_fingerprints,
+)
 from hushh_mcp.one_voice.tickets import TicketClaims
 from hushh_mcp.one_voice.tools import location_state, registry
 from hushh_mcp.one_voice.tools.base import (
@@ -216,6 +221,22 @@ async def _run(session, timeout=3.0):
 
 
 # --- auth ------------------------------------------------------------------
+
+
+def test_grouped_failure_identifies_leaf_without_recording_private_error_text():
+    try:
+        raise ValueError("private mail body and token must not be logged")
+    except ValueError as leaf:
+        group = ExceptionGroup("private outer detail", [ExceptionGroup("nested", [leaf])])
+    details = _failure_fingerprints(group)
+    assert details[0]["type"] == "ValueError"
+    assert details[0]["frames"][-1].startswith(
+        "test_relay_protocol.py:test_grouped_failure_identifies_leaf_without_recording_private_error_text:"
+    )
+    assert "private" not in json.dumps(details).replace(
+        "test_grouped_failure_identifies_leaf_without_recording_private_error_text", "test"
+    )
+    assert "token" not in json.dumps(details)
 
 
 async def test_first_frame_must_be_auth():
@@ -451,6 +472,50 @@ async def test_stale_directive_and_client_step_acks_do_not_enter_new_question():
     assert [
         json.loads(event.removeprefix("[ONE_EVENT] "))["kind"] for event in fake.events_sent
     ] == ["ui_settled", "client_step"]
+
+
+async def test_ui_settled_tells_the_model_which_screen_it_was_about():
+    """A failed open must reach the model as a failed open of that screen, so it
+    cannot keep saying "I've opened your profile"."""
+    transport = FakeTransport()
+    fake = FakeLive([])
+    session = _session(transport, fake)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Open my profile"))
+    ref = "0f8fad5b-d9cb-469f-a165-70867728950e"
+    await session._emit_side_effects(
+        ToolCallOutcome(
+            result=ToolResult(
+                status="navigation_dispatched",
+                gateway_action_id="route.person_profile",
+                screen="person_profile",
+                user_id="u-priya",
+                public_person_ref=ref,
+            )
+        ),
+        call_id="call-profile",
+        origin_turn_id=session.turn.turn_id,
+    )
+    directive = transport.frames("ui_directive")[-1]
+    assert directive["payload"]["public_person_ref"] == ref
+    assert directive["payload"]["call_id"] == "call-profile"
+    assert directive["payload"]["gateway_action_id"] == "route.person_profile"
+    await session._handle_client_frame(
+        protocol.UiSettledFrame(
+            type="ui.settled", directive_id=directive["directive_id"], status="failed"
+        )
+    )
+    event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
+    assert event == {
+        "kind": "ui_settled",
+        "directive_id": directive["directive_id"],
+        "status": "failed",
+        "directive_kind": "navigate",
+        "screen": "person_profile",
+    }
 
 
 async def test_superseded_confirmation_is_cancelled_before_it_can_be_relisted():
@@ -1229,6 +1294,203 @@ async def test_voice_tier_confirmation_needs_card_shown_then_executes():
     assert pending.rows[card["pending_action_id"]].status == "executed"
     transport.push({"type": "end"})
     await asyncio.wait_for(task, 3)
+
+
+async def _voice_card_session():
+    transport = FakeTransport()
+    fake = FakeLive([])
+    pending = MemoryPendingStore()
+    session = _session(transport, fake, pending=pending)
+    await session._open_conversation(
+        AuthResult(user_id=USER, vault_owner_token="HCT:token", firebase_id_token=None)  # noqa: S106 - synthetic test authority
+    )
+    session.live = fake
+    session.ctx.entities.remember_person(
+        ConfirmedPerson(
+            user_id="u-priya",
+            display_name="Priya Nair",
+            relationship="connected",
+            confirmed_at=now_iso(),
+        )
+    )
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Ask Priya"))
+    return session, transport, fake, pending
+
+
+def _responses(fake: FakeLive, name: str) -> list[dict]:
+    return [r["response"] for r in fake.tool_responses if r["name"] == name]
+
+
+async def test_repeated_voice_proposal_reuses_the_open_card_on_the_current_turn():
+    """After a yes, a model that proposes the same action again gets the open
+    card's id back: no second row, no cancelled card, no new question."""
+    session, transport, fake, pending = await _voice_card_session()
+    ask = {"person": {"user_id": "u-priya"}}
+    await _model_calls(session, "c1", "ask", ask)
+    first = transport.frames("pending_action")[-1]
+    card = first["pending_action_id"]
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Yes"))
+    yes_turn = session.turn.turn_id
+    assert yes_turn != first["turn_id"]
+    await _model_calls(session, "c2", "ask", ask)
+    # Not shown yet: the same card is sent again on the turn the client accepts.
+    cards = transport.frames("pending_action")
+    assert len(cards) == 2
+    assert cards[-1]["pending_action_id"] == card and cards[-1]["turn_id"] == yes_turn
+    assert "receipt_token" not in cards[-1]
+    assert transport.frames("pending_action.resolved") == []
+    waiting = _responses(fake, "ask")[-1]
+    assert waiting["status"] == "confirmation_waiting"
+    assert waiting["pending_action_id"] == card and waiting["card_shown"] is False
+    assert transport.frames("tool.result")[-1]["ok"] is False
+    assert [row.id for row in pending.rows.values() if row.status == "pending"] == [card]
+
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    await _model_calls(session, "c3", "ask", ask)
+    # Already on screen: no further card frame.
+    assert len(transport.frames("pending_action")) == 2
+    assert _responses(fake, "ask")[-1]["card_shown"] is True
+    assert pending.rows[card].status == "pending"
+
+
+async def test_card_shown_after_a_refused_yes_tells_the_model_without_confirming():
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await _model_calls(session, "c2", "confirm_pending_action", {"pending_action_id": card})
+    refused = _responses(fake, "confirm_pending_action")[-1]
+    assert refused["status"] == "card_not_shown" and refused["pending_action_id"] == card
+    assert fake.events_sent == []
+
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    assert [json.loads(e.removeprefix("[ONE_EVENT] ")) for e in fake.events_sent] == [
+        {"kind": "pending_shown", "pending_action_id": card}
+    ]
+    # The host never confirms on the model's behalf.
+    assert pending.rows[card].status == "pending"
+    # A second shown report for the same card says nothing more.
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    assert len(fake.events_sent) == 1
+
+
+async def test_card_shown_without_a_refused_yes_tells_the_model_nothing():
+    """Negative control: an ordinary card display is not an event."""
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    assert fake.events_sent == []
+    assert pending.rows[card].shown_at is not None
+
+
+async def test_card_shown_after_the_person_moved_on_does_not_revive_the_old_yes():
+    """A refused yes answers its own turn only. Once the person has moved on,
+    the card appearing later is not news to the model."""
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await _model_calls(session, "c2", "confirm_pending_action", {"pending_action_id": card})
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="What's the weather?"))
+
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    assert fake.events_sent == []
+    assert pending.rows[card].status == "pending"
+
+
+async def _refused_confirmation_in_provider_continuation():
+    session, transport, fake, pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Yes"))
+    yes_turn = session.turn.turn_id
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    continuation_turn = session.turn.turn_id
+    assert continuation_turn != yes_turn
+
+    await session._handle_live_event(
+        LiveEvent(
+            kind="tool_call",
+            function_calls=[
+                {
+                    "id": "c2",
+                    "name": "confirm_pending_action",
+                    "args": {"pending_action_id": card},
+                }
+            ],
+        )
+    )
+    assert _responses(fake, "confirm_pending_action")[-1]["status"] == "card_not_shown"
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    return session, fake, pending, card, yes_turn
+
+
+@pytest.mark.parametrize("newer_input", [False, True])
+async def test_late_card_shown_after_provider_continuation_respects_the_yes_input(newer_input):
+    session, fake, pending, card, yes_turn = await _refused_confirmation_in_provider_continuation()
+    if newer_input:
+        await session._handle_client_frame(protocol.TextFrame(type="text", text="Actually, no"))
+        assert session._latest_input_turn_id != yes_turn
+
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    events = [json.loads(event.removeprefix("[ONE_EVENT] ")) for event in fake.events_sent]
+    assert events == ([] if newer_input else [{"kind": "pending_shown", "pending_action_id": card}])
+    assert pending.rows[card].status == "pending"
+
+
+async def test_late_card_shown_keeps_its_provider_turn_alias_while_the_card_is_open():
+    session, fake, pending, card, yes_turn = await _refused_confirmation_in_provider_continuation()
+    # A long session may rotate its bounded turn map before the card appears.
+    # The refused confirmation still belongs to the same yes input.
+    for index in range(520):
+        session._bind_turn_to_input(f"later-provider-{index}", yes_turn)
+
+    await session._handle_client_frame(
+        protocol.PendingShownFrame(type="pending_action.shown", pending_action_id=card)
+    )
+    assert [json.loads(event.removeprefix("[ONE_EVENT] ")) for event in fake.events_sent] == [
+        {"kind": "pending_shown", "pending_action_id": card}
+    ]
+    assert pending.rows[card].status == "pending"
+
+
+async def test_tap_on_a_reused_card_reports_to_the_turn_it_was_reshown_on():
+    """The card a repeated proposal re-showed answers the newer turn: a tap on
+    it must reach the model and the screen, not be fenced as the old turn's."""
+    session, transport, fake, pending = await _voice_card_session()
+    ask = {"person": {"user_id": "u-priya"}}
+    await _model_calls(session, "c1", "ask", ask)
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    await session._handle_live_event(LiveEvent(kind="turn_complete"))
+    await session._handle_client_frame(protocol.TextFrame(type="text", text="Yes"))
+    yes_turn = session.turn.turn_id
+    await _model_calls(session, "c2", "ask", ask)
+    assert _responses(fake, "ask")[-1]["status"] == "confirmation_waiting"
+
+    await session._confirm_by_tap(
+        protocol.ConfirmActionFrame(type="confirm_action", pending_action_id=card)
+    )
+    assert pending.rows[card].status == "executed"
+    result = transport.frames("tool.result")[-1]
+    assert result["pending_action_id"] == card and result["turn_id"] == yes_turn
+    event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
+    assert event["kind"] == "tool_result"
 
 
 async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():

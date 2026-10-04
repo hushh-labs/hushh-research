@@ -68,6 +68,7 @@ vi.mock("@/lib/services/wallet-service", async () => {
 });
 
 import { WalletWorkspace } from "@/components/wallet/wallet-workspace";
+import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 function makeCards(count: number) {
   return Array.from({ length: count }, (_, i) => ({
@@ -128,6 +129,26 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.getByText("Page 1 of 3")).toBeTruthy();
     fireEvent.click(screen.getByLabelText("Go to next page"));
     expect(navigationMock.replace).toHaveBeenCalledWith("/one/wallet?page=2", { scroll: false });
+  });
+
+  it("opens Add card with the nickname a chat offer handed over in memory", async () => {
+    stageReservedOfferPrefill({
+      ownerUserId: "user_1",
+      ownerFeature: "wallet",
+      prefill: { kind: "wallet_card", nickname: "Amex Gold" },
+    });
+    render(<WalletWorkspace />);
+    const nickname = (await screen.findByLabelText("Nickname")) as HTMLInputElement;
+    expect(nickname.value).toBe("Amex Gold");
+    // Only the label: every card detail is still the owner's to type here.
+    expect((screen.getByLabelText(/card number/i) as HTMLInputElement).value).toBe("");
+    expect(navigationMock.replace).not.toHaveBeenCalledWith(expect.stringMatching(/Amex/), expect.anything());
+  });
+
+  it("opens the list, not Add card, when no offer is waiting (negative control)", async () => {
+    render(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
+    expect(screen.queryByLabelText("Nickname")).toBeNull();
   });
 
   it("renders the requested page from the URL", async () => {

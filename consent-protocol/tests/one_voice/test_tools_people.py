@@ -7,6 +7,9 @@ spoken fact asserted here is derived from what the double returned.
 from __future__ import annotations
 
 import asyncio
+import base64
+import json
+import random
 from typing import Any
 
 import pytest
@@ -23,6 +26,7 @@ from hushh_mcp.one_voice.tools.base import (
     now_iso,
 )
 from hushh_mcp.one_voice.tools.executor import ToolExecutor
+from hushh_mcp.one_voice.tools.session import OpenScreenInput, open_screen
 from hushh_mcp.services.connections_service import ConnectionsError
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentError
 
@@ -561,6 +565,49 @@ async def test_confirm_person_vanished_from_every_source():
 
 
 # -- list_people / get_person ---------------------------------------------
+
+
+@pytest.mark.parametrize("tool", ["list_people", "resolve_person", "confirm_person", "get_person"])
+async def test_people_photos_stay_on_cards_and_out_of_live_context(tool):
+    """UAT closed with 1007 when real avatar data URLs filled Live's context."""
+    ctx, connections, _ = make_ctx()
+    photo = "data:image/png;base64," + base64.b64encode(
+        random.Random(4013).randbytes(14_000)  # noqa: S311 - reproducible avatar fixture, not a key
+    ).decode("ascii")
+    connections.connections[0]["photoUrl"] = photo
+    connections.incoming[0]["counterpartPhotoUrl"] = photo
+    connections.outgoing[0]["counterpartPhotoUrl"] = photo
+    if tool == "list_people":
+        result = await people.list_people(ctx, people.ListPeopleInput())
+        card_fields = ("connected", "ready_for_location", "pending_incoming", "pending_outgoing")
+    elif tool == "resolve_person":
+        result = await people.resolve_person(ctx, people.ResolvePersonInput(spoken_name="Ayesha"))
+        card_fields = ("candidates",)
+    elif tool == "confirm_person":
+        await people.resolve_person(ctx, people.ResolvePersonInput(spoken_name="Ayesha"))
+        result = await people.confirm_person(ctx, people.ConfirmPersonInput(user_id=AYESHA))
+        card_fields = ("person",)
+    else:
+        confirm(ctx, AYESHA, "Ayesha Sharma")
+        result = await people.get_person(
+            ctx, people.GetPersonInput(person=PersonRef(user_id=AYESHA))
+        )
+        card_fields = ("person",)
+
+    client = result.public()
+    model = result.model_public()
+    assert photo in json.dumps(client), "The visible card must retain its avatar."
+    assert "photo_url" not in json.dumps(model)
+    assert photo not in json.dumps(model)
+    # Every identity, offer revision, count, relationship and spoken fact stays
+    # intact; only the display-only image field differs between the two ports.
+    expected = json.loads(json.dumps(client))
+    for field in card_fields:
+        cards = expected[field] if isinstance(expected[field], list) else [expected[field]]
+        for card in cards:
+            card.pop("photo_url")
+    assert model == expected
+    assert result.public() == client, "Projecting for the model must not mutate the UI result."
 
 
 async def test_list_people_reports_real_lists_and_counts():
@@ -1314,3 +1361,71 @@ def test_request_cards_name_the_listed_counterpart_even_without_a_person():
     assert spec("accept_connection_request").summarize(ctx, named) == (
         "accept the connection request from Rahul Verma"
     )
+
+
+# -- open_screen: someone else's profile ---------------------------------------
+#
+# "Open Ayesha's profile" used to dispatch the owner's own profile screen with
+# Ayesha's user_id riding along, which the app ignored. Another person's profile
+# is its own screen, filled only from the server-confirmed public ref; the
+# owner-only screens refuse a foreign user_id instead of silently opening yours.
+
+AYESHA_REF = "6f1c2a1e-4b6d-4c7e-9a3b-2d5e8f9a0b1c"
+
+
+def _confirm_with_ref(ctx: ToolContext, ref: str | None) -> None:
+    ctx.entities.remember_person(
+        ConfirmedPerson(
+            user_id=AYESHA,
+            public_person_ref=ref,
+            display_name="Ayesha Sharma",
+            relationship="connected",
+            confirmed_at=now_iso(),
+        )
+    )
+
+
+def _open(ctx: ToolContext, **args: Any):
+    return asyncio.run(open_screen(ctx, OpenScreenInput(**args)))
+
+
+def test_person_profile_opens_from_the_confirmed_public_ref():
+    ctx, _, _ = make_ctx()
+    _confirm_with_ref(ctx, AYESHA_REF.upper())
+    result = _open(ctx, screen="person_profile", user_id=AYESHA)
+    assert result.status == "navigation_dispatched"
+    assert result.gateway_action_id == "route.person_profile"
+    assert result.public_person_ref == AYESHA_REF
+    assert result.user_id == AYESHA
+    assert result.spoken_facts == ["Opening their profile."]
+
+
+@pytest.mark.parametrize(
+    ("args", "ref", "reason"),
+    [
+        ({"screen": "person_profile"}, AYESHA_REF, "person_required"),
+        ({"screen": "person_profile", "user_id": "u-stranger"}, AYESHA_REF, "person_not_confirmed"),
+        ({"screen": "person_profile", "user_id": AYESHA}, None, "no_profile_ref"),
+        ({"screen": "person_profile", "user_id": AYESHA}, "ppr-ayesha", "no_profile_ref"),
+    ],
+)
+def test_person_profile_refuses_without_a_confirmed_person_and_ref(args, ref, reason):
+    ctx, _, _ = make_ctx()
+    _confirm_with_ref(ctx, ref)
+    result = _open(ctx, **args)
+    assert result.status == "rejected"
+    assert result.reason_code == reason
+    assert getattr(result, "public_person_ref", None) is None
+
+
+@pytest.mark.parametrize("screen", ["profile", "profile_privacy", "profile_voice_preferences"])
+def test_owner_profile_screens_refuse_someone_elses_user_id(screen):
+    """Before the fix this returned navigation_dispatched for route.profile."""
+    ctx, _, _ = make_ctx()
+    _confirm_with_ref(ctx, AYESHA_REF)
+    refused = _open(ctx, screen=screen, user_id=AYESHA)
+    assert refused.status == "rejected"
+    assert refused.reason_code == "owner_only_screen"
+    assert "person_profile" in refused.spoken_facts[0]
+    # The owner's own profile still opens.
+    assert _open(ctx, screen=screen).status == "navigation_dispatched"

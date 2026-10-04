@@ -200,7 +200,6 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
         "connections",
         "connected_systems",
         "email",
-        "financial_guard",
         "kai",
         "kyc",
         "location",
@@ -284,13 +283,131 @@ def test_single_turn_genes_leave_room_for_thinking(path: Path) -> None:
 
 
 def test_structure_agent_is_told_the_finance_hierarchy_and_its_source_managed_branches() -> None:
-    """The instruction and the validator guard must name the same branches."""
+    """The instruction and the reserved-branch registry must agree about Finance.
+
+    The registry reserves every Finance branch but agent_memory for the Finance
+    app; the instruction must send chat facts there, never into the hierarchy.
+    """
+    from hushh_mcp.consent.reserved_branches import is_reserved_path
     from hushh_mcp.services.domain_contracts import FINANCIAL_SOURCE_MANAGED_BRANCHES
 
     instruction = load("pkm_structure").system_instruction
     assert "Finance hierarchy" in instruction
     for branch in ("profile", "goals", "events", "linked_accounts"):
         assert f"- {branch}:" in instruction
+        assert is_reserved_path("financial", branch), branch
+    assert "goes under agent_memory" in instruction
+    assert not is_reserved_path("financial", "agent_memory")
+    assert "reserved_offer" in instruction
     for branch in FINANCIAL_SOURCE_MANAGED_BRANCHES:
         named = branch in instruction or (branch.endswith("_v1") and "ending in _v1" in instruction)
         assert named, branch
+        assert is_reserved_path("financial", branch), branch
+
+
+# The PKM memory agents' model-facing budget, in characters: the composed
+# system instruction (shared kernel included), the worked examples, and the
+# request scaffold with an empty input. Owner input is excluded because it is
+# the owner's, not the instruction's. Measured 2026-10-02 at about nine tenths
+# of each cap. The intent prompt had grown to 20,357 characters, carrying its
+# instruction twice. Raising a cap is a deliberate edit to this table, made
+# with the live eval result that justifies it, never a side effect.
+PKM_MEMORY_PROMPT_BUDGET = {
+    "agent_memory_segmentation": 5_400,
+    "agent_memory_intent": 9_400,
+    "agent_memory_merge": 7_300,
+    "agent_pkm_structure": 14_200,
+}
+PKM_MEMORY_KERNEL = MANIFEST_ROOT / "pkm_memory_kernel.v3.md"
+PKM_FEW_SHOT = MANIFEST_ROOT / "pkm_memory_few_shot.v1.json"
+PKM_FEW_SHOT_MAX_PER_AGENT = 6
+
+
+def _pkm_memory_prompts() -> dict[str, tuple[str, str]]:
+    from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
+
+    service = PKMAgentLabService()
+    common = dict(message="", current_domains=[], simulated_state=None, strict_small_model=False)
+    built = [
+        (
+            service.memory_segmentation_manifest,
+            service._build_memory_segmentation_prompt(message="", strict_small_model=False),
+        ),
+        (
+            service.memory_intent_manifest,
+            service._build_memory_intent_prompt(**common, registry_choices=[]),
+        ),
+        (
+            service.memory_merge_manifest,
+            service._build_memory_merge_prompt(**common, intent_frame={}),
+        ),
+        (
+            service.structure_manifest,
+            service._build_structure_prompt(
+                **common, registry_choices=[], intent_frame={}, merge_decision={}
+            ),
+        ),
+    ]
+    return {manifest.id: (manifest.system_instruction, prompt) for manifest, prompt in built}
+
+
+@pytest.mark.parametrize("agent_id", sorted(PKM_MEMORY_PROMPT_BUDGET))
+def test_pkm_memory_agent_stays_inside_its_prompt_budget(agent_id: str) -> None:
+    instruction, prompt = _pkm_memory_prompts()[agent_id]
+    size = len(instruction) + len(prompt)
+    assert size <= PKM_MEMORY_PROMPT_BUDGET[agent_id], (
+        f"{agent_id} reads {size} characters, over its {PKM_MEMORY_PROMPT_BUDGET[agent_id]} cap: "
+        "state a principle instead of adding a case, or raise the cap with eval evidence"
+    )
+
+
+def test_pkm_memory_kernel_is_composed_once_into_every_memory_agent() -> None:
+    kernel = PKM_MEMORY_KERNEL.read_text(encoding="utf-8").strip()
+    prompts = _pkm_memory_prompts()
+    assert set(prompts) == set(PKM_MEMORY_PROMPT_BUDGET)
+    for agent_id, (instruction, prompt) in prompts.items():
+        assert instruction.count(kernel) == 1, agent_id
+        assert kernel not in prompt, f"{agent_id} restates the kernel in its prompt"
+        assert instruction not in prompt, f"{agent_id} sends its instruction twice"
+
+
+def test_pkm_few_shot_set_is_small_versioned_and_never_the_graded_text() -> None:
+    """Each worked example names eval cases grading its principle, never their text.
+
+    An example equal to a graded case would let the eval reward a memorized
+    answer; an example naming no existing case is not exercised by anything.
+    """
+
+    import json
+    from collections import Counter
+
+    from scripts import eval_pkm_structure_agent as eval_script
+    from scripts import pkm_eval_document as document_eval
+
+    payload = json.loads(PKM_FEW_SHOT.read_text(encoding="utf-8"))
+    assert payload["version"] == 1 and PKM_FEW_SHOT.name.endswith(".v1.json")
+    examples = payload["examples"]
+    counts = Counter(example["agent"] for example in examples)
+    assert set(counts) <= set(PKM_MEMORY_PROMPT_BUDGET)
+    assert max(counts.values()) <= PKM_FEW_SHOT_MAX_PER_AGENT
+    cases = {}
+    for phase in eval_script.PHASE_ORDER:
+        if phase == eval_script.DOCUMENT_PHASE:
+            continue
+        personas, _ = eval_script.build_phase_personas(phase=phase, max_prompts_per_persona=200)
+        cases.update({case.case_id: case.message for case in personas[0]["prompts"]})
+    sections = {
+        passage.section
+        for passage in document_eval.parse_document(
+            document_eval.DOCUMENT_PATH.read_text(encoding="utf-8")
+        )
+    }
+    graded_text = {message.strip().lower() for message in cases.values()}
+    for example in examples:
+        assert example["exercised_by"], example["id"]
+        for reference in example["exercised_by"]:
+            if reference.startswith("document:"):
+                assert reference.removeprefix("document:") in sections, reference
+            else:
+                assert reference in cases, reference
+        assert example["input"]["message"].strip().lower() not in graded_text, example["id"]

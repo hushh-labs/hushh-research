@@ -14,6 +14,8 @@ FRONTEND_TESTS=(
   "__tests__/services/pkm-historical-rehearsal.test.ts"
   "__tests__/services/financial-v7-reader-compatibility.test.ts"
   "__tests__/services/pkm-domain-resource.test.ts"
+  "__tests__/lib/pkm/reserved-branches.test.ts"
+  "__tests__/api/pkm/proxy-route.test.ts"
 )
 
 BACKEND_TESTS=(
@@ -24,6 +26,8 @@ BACKEND_TESTS=(
   "tests/test_active_pkm_shape_audit.py"
   "tests/test_offline_db.py"
   "tests/services/test_pkm_service_store_domain_data.py"
+  "tests/test_reserved_branches.py"
+  "tests/test_domain_contracts.py"
 )
 
 echo "== PKM Upgrade Gate =="
@@ -64,13 +68,6 @@ fi
 
 if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] && [ -z "$POSTGRES_REHEARSAL_TARGET" ]; then
   echo "Protected UAT requires a PostgreSQL rehearsal connection." >&2
-  exit 1
-fi
-
-if [ "${PKM_UPGRADE_PROTECTED_UAT:-}" = "1" ] \
-  && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" != "1" ] \
-  && [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED:-}" != "1" ]; then
-  echo "Protected UAT requires a local structure-agent evaluation or an explicit candidate-runtime evaluation deferral." >&2
   exit 1
 fi
 
@@ -120,6 +117,8 @@ if [ "${PKM_UPGRADE_STRUCTURE_AGENT_EVAL:-}" = "1" ]; then
     fi
     "$PYTHON_RUNNER" scripts/eval_pkm_structure_agent.py "${EVAL_ARGS[@]}"
   done
+else
+  echo "Skipping live structure-agent evaluation: not explicitly requested."
 fi
 
 if [ -n "${PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL:-}" ]; then

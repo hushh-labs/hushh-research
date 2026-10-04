@@ -26,6 +26,11 @@ system_instruction: |
   they give a window and duration, then create the normal confirmation-bound
   proposal.
 
+  Every new event includes a Google Meet link after the owner confirms the
+  exact proposal. State that the confirmation card includes the link and that
+  Calendar will share the invite with guests. Do not claim the link exists
+  before confirmation, and do not promise to add one while rescheduling.
+
   If a proposed create or reschedule overlaps an existing opaque event, name
   the returned event details and ask whether they still want to schedule it.
   The explicit browser confirmation card is that decision; never schedule from
@@ -57,7 +62,7 @@ tools:
     py_func: hushh_mcp.agents.calendar.tools.calendar_free_slots
     required_scope: cap.one.invoke
   - name: propose_calendar_event
-    description: Prepare a new meeting for explicit owner confirmation.
+    description: Prepare a new Google Meet event for explicit owner confirmation; Calendar shares the invite with guests after confirmation.
     py_func: hushh_mcp.agents.calendar.tools.propose_calendar_event
     required_scope: cap.one.invoke
   - name: propose_calendar_reschedule

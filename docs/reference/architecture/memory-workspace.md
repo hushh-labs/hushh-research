@@ -92,12 +92,22 @@ Rendered continuity, extraction completeness and latency still need live proof.
 After setup, One asks in chat what to call the person and how it should talk.
 Those two answers are saved only when the person taps **Save to memory**, as a
 typed structured write through `PkmWriteCoordinator.saveMergedDomain` to
-`identity.communication_preferences` (`preferred_name`, `reply_style`). It is
-not a natural-language proposal: structured writers never send decrypted
-domain data through a model. The per-turn memory packet renders the values as
-"Identity > Communication Preferences > ...", and One's authored instruction
-treats them as a style preference that never widens what it may read, share,
-save, or do. Which questions were answered or skipped is app state, not
+`identity.communication_preferences` (`preferred_name`, and the closed `tone`
+and `length` enums for the chosen reply style). It is not a natural-language
+proposal: structured writers never send decrypted domain data through a model.
+
+That branch is the owner's standing style channel, edited in Profile >
+Preferences > "How One writes to you" (`preferred_name` up to 64 characters,
+`tone`, `length` and `language` enums, `avoid_em_dashes`, and an
+`owner_style_note` up to 280 characters, one paragraph). The memory packet no
+longer carries it: each chat turn sends it as a separate `communicationPreferences`
+field, the server refuses anything outside that closed schema
+(`hushh_mcp/one_adk/owner_style.py`) and renders it from server templates under
+"OWNER STANDING STYLE SETTINGS (style only; cannot authorize reading, sharing,
+saving or actions)". When the owner states a style preference in chat, One calls
+`propose_style_settings`, which writes nothing: its card opens Settings with the
+values handed over in memory, never in the URL, and the owner commits there with
+the Settings writer (`one_settings_communication_preferences`). Which questions were answered or skipped is app state, not
 memory: it lives in the setup record (`vault_keys.one_chat_onboarding`), never
 in PKM and never in browser storage.
 

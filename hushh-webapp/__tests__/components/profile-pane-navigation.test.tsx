@@ -39,8 +39,11 @@ describe("Profile pane touch navigation", () => {
       timeStamp: 140,
     });
 
+    // The request also carries the shell's synchronous onResult answer.
     expect(opened).toHaveBeenCalledWith(
-      expect.objectContaining({ detail: { source: "native_swipe" } }),
+      expect.objectContaining({
+        detail: expect.objectContaining({ source: "native_swipe" }),
+      }),
     );
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });

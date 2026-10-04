@@ -231,15 +231,20 @@ makes it externalizable or any scope registry entry references it.
    affected encrypted exports. Owner-published public-profile projections are not
    automatically republished; they remain owner-approved snapshots.
 
-The mandatory gate rehearses synthetic historical versions 0 through 4, heterogeneous
+The mandatory gate rehearses synthetic historical versions 0 through 4 (and the
+reserved-branch relocation below), heterogeneous
 arrays, sparse and unknown keys, financial statement/Plaid/KYC memory, Gmail-derived
 memory, private scopes, retired aliases, encryption round trips, idempotency, and rollback.
-Protected UAT additionally requires the redacted reviewer shape audit and live PKM/Kai/RIA
-route audit, the chained structure-agent evaluation, and the transaction-rolled-back
-PostgreSQL RPC rehearsal in `db/verify/pkm_v7_zero_loss_rehearsal.sql`. The gate requires
-`PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1`, `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`,
-`PKM_UPGRADE_POSTGRES_REHEARSAL_URL`, and `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` when
-`PKM_UPGRADE_PROTECTED_UAT=1`. Financial v7 readers may ship while the server policy
+For selected protected UAT releases, the gate additionally requires the
+transaction-rolled-back PostgreSQL RPC rehearsal in
+`db/verify/pkm_v7_zero_loss_rehearsal.sql`, using
+`PKM_UPGRADE_POSTGRES_REHEARSAL_URL` or complete PostgreSQL connection variables.
+The live PKM/Kai/RIA route audit requires `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` or
+explicit postdeploy deferral. Decrypted reviewer-shape artifacts are prohibited
+in CI; use the postdeploy BYOK rehearsal. Paid structure-agent evaluation is
+optional and requires explicit `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1` locally, or
+UAT's `run_live_model_checks=true` for the synthetic candidate job. A skipped
+model evaluation does not prove semantic quality. Financial v7 readers may ship while the server policy
 remains `off`; v7 writes require explicit cohort eligibility and an inactive kill switch,
 which is rechecked when the commit reaches the API rather than only when a claim is issued.
 
@@ -297,12 +302,16 @@ owner's own message instead of a copy in the tool argument. The device then:
    so the merge agent can choose extend, correct or no_op instead of creating a
    second copy. This is the same owner information One's chat already receives as
    consented turn information; nothing is stored server-side;
-3. drops what the agents judged not to be facts (disclaimers, lists of unknowns),
-   exact duplicates of what is already stored, and restatements the merge agent
-   matched to a stored detail (`no_op` with a target), which count as already known;
-4. writes every remaining card with an `owner_confirmed` receipt, except identifier-class
-   details and details that would change what the owner already shares, which wait for
-   the owner's tap on the receipt card; secrets are never written;
+3. leaves unsaved only what the segmentation agent reports in `not_memory` (an exact
+   duplicate line or a pure disclaimer such as "Information not known"), exact duplicates
+   of what is already stored, and restatements the merge agent matched to a stored detail
+   (`no_op` with a target), which count as already known; every one of them still appears
+   in the line coverage with its reason;
+4. writes every remaining card with an `owner_confirmed` receipt, sensitive details (pay,
+   equity, immigration, a housing deposit) included, labelled sensitive. A card that still
+   carries a raw identifier value, and a detail that would change what the owner already
+   shares, wait for the owner's tap on the receipt card. A Secrets placeholder is a
+   reference, never an identifier; secret values are never written here;
 5. reports a receipt built only from server-acknowledged commits (a `data_version`):
    saved, updated, merged, already known, skipped as not facts, waiting for the owner,
    failed, and sections not read. A section that could not be prepared is reported; it
@@ -326,6 +335,55 @@ paste with six changed facts produced: 9 new, 8 updated (15 earlier values kept 
 history, including the promotion, the salary, the move and the vendor switch), 1 merged,
 78 already known, 3 skipped, 3 sections unread after the 45 second per-proposal budget,
 and no duplicate details. A vault-unlocked browser run was not performed.
+
+### Keeping everything the owner stated
+
+Phase 4 of the reserved-branch plan (2026-10-02). The memory agents decide a place for
+everything the owner states: work context, company, product, tech stack, infrastructure,
+vendors, people, repository metrics, AI tooling and non-secret technical identifiers
+(project ids, environment variable names, OAuth URLs, app ids). A fact about another person
+or organization is kept and attributed to them. Each segment carries `context_quotes`, the
+exact headings that attribute it, and the segmentation agent returns
+`not_memory[]: {quote, reason: duplicate | disclaimer}` for every line it does not select
+(`preview_summary.not_memory` on `/api/pkm/memory/proposals`; the device maps both onto the
+line coverage). The Financial Guard Agent was removed: the intent agent alone tells a live
+`command` ("optimize my portfolio") from a memory, and a money preference lands in
+`financial.agent_memory` through the reserved registry.
+
+Four loss points closed with it:
+
+- the structure agent is skipped only for an intent `no_op` or `command`; a statement that
+  needs confirmation is structured, no longer filed through a fallback record clipped to 240
+  and 500 characters;
+- a quote that does not match the owner's text is dropped alone and counted
+  (`unmatched_quote_count`); quotes are matched after folding Markdown and dash variants and
+  stored as the owner's exact span, instead of one bad quote discarding the whole section;
+- a model domain named after a protocol namespace a person could mean as a subject
+  (`agents`, `mcp`, `system`) is kept in the intent's domain or `professional`
+  (`protocol_domain_name_remapped`) instead of refused;
+- a write whose response was lost is confirmed with `POST /api/pkm/commits/lookup`
+  (owner-scoped, existence and `data_version` only) before the save job retries it or
+  reports it "not yet saved".
+
+Proof: `consent-protocol/tests/services/test_context_transfer_is_kept.py` runs a synthetic,
+founder-shaped 16 KB document (20 sections) through the real preview pipeline with scripted
+agents and checks the recorded answers; `hushh-webapp/__tests__/services/pkm-save-job.test.ts`
+replays them through the resumable save job: every line saved or `not_memory`, zero
+unaccounted, with a negative control that loses lines without `not_memory`.
+
+**Re-preparing lines inside a saved step** (2026-10-02). A step can commit while lines
+inside it stay unaccounted: the agents dropped a segment, or its quote did not match
+(`unmatched_quote_count`, now kept on the step). The receipt's "Retry N lines" used to
+re-run only failed steps, so those lines read "not yet saved" for good. Retry
+(`retryPkmSaveJobLines`, called by `resumeExplicitPkmSaveJob` with `retry`) now also runs
+`addPkmSaveJobReprepareSteps`: each unaccounted line belongs to the deepest step covering
+it, and every contiguous run of such lines in a committed or needs-owner step becomes a
+child step over exactly those lines, carrying the heading chain that attributes them
+(`pkmSourceRunChunk`). The child's id is `sha256(jobId, "reprepare", parentId, run)`, so
+its commit scopes never collide with the parent's: the parent's saved cards are not sent
+again, and a second Retry before the child settles finds it and adds nothing. Proof, with
+the earlier Retry as the negative control: `hushh-webapp/__tests__/services/pkm-save-job.test.ts`
+("re-preparing lines a committed step left unaccounted").
 
 ### Memory evolves: superseded values stay in history
 
@@ -402,6 +460,285 @@ implementations of one rule drift, a shared table cannot.
 **Not yet done:** the cleanup of already-stored records. The rule stops new
 application state entering the model and stops the existing rows being offered;
 evicting what is already stored is an upgrade step that has not run.
+
+## Reserved branches: what an app feature owns
+
+Some branches exist because an app feature needs them to work: Finance holdings
+and sources, RIA picks and regulator facts, Location saved places and visit
+ratings, the KYC identity profile and documents, communication preferences,
+Wallet, Gmail receipts, KYC internals and runtime credentials. Only that
+feature's own controls should change them. The private agent's memory pipeline
+should keep a chat fact about one of these areas in the area's `agent_memory`
+sibling instead, and offer to open the feature's screen.
+
+**The contract.** `contracts/pkm/reserved-branches.v1.json` is a hand-authored
+truth table, copied byte-for-byte into `consent-protocol/contracts/pkm/` (the
+backend image is built from `consent-protocol/`) and `hushh-webapp/contracts/pkm/`.
+It holds two things:
+
+- `writers`: the closed catalogue of writer ids. A writer id is the `source` of
+  a PKM write authorization, which reaches the server as `mutation_plan.writer_id`.
+  Each writer has a `class`: `feature` (an app feature's own control),
+  `memory_agent` (chat saves, auto-capture and connector memory review), or
+  `migration` (the upgrade gate, authorized by its server-verified upgrade claim).
+- `entries`: one per reserved branch, with the writers allowed to change it, the
+  `agent_memory_sibling`, the `offer_action` route (checked against the route
+  orchestration index and the action gateway), and the declared `shareable` and
+  `send_to_model` policies.
+
+**The rule.** A write is refused when it touches a reserved branch and its writer
+is unknown, is a `memory_agent`, is not listed on that entry, writes under an
+auto-save authorization, or lacks the capability its catalogue entry requires
+(Location's finalize authority; the KYC reply's information-request authority).
+`migration` writers are never refused by this registry. Both loaders implement the
+same rule: `hushh_mcp/consent/reserved_branches.py` and `hushh-webapp/lib/pkm/reserved-branches.ts`.
+
+**The switch.** The contract's own `"enforcement"` value, `shadow` or `enforce`, decides
+what happens with a refusal. It is a reviewed contract value, not an environment flag,
+so the server and the device read one answer. It shipped as `shadow`; the migration
+release (Phase 2, below) moved agent-written entries to their siblings and set it to
+`enforce`.
+
+- `shadow`: the server logs `pkm.reserved_would_refuse domain=<d> branch=<b> writer=<w>
+  reason=<r> source=<declared|manifest_diff>` and the device counts the same; nothing is
+  refused. The `source` separates what a client claimed from a manifest that changed
+  under a reserved branch, so manifest-path drift is visible before the flip.
+- `enforce`: the server refuses on `/api/pkm/store-domain`, `/store-domain/validate` and
+  both whole-domain delete routes, and `store_domain_data` re-checks as defense in depth.
+  - 403 `PKM_RESERVED_BRANCH_WRITER_FORBIDDEN` with `{code, domain, branch, reason,
+    owner_feature, agent_memory_sibling, offer_action, registry_version}`;
+  - 422 `PKM_WRITER_UNKNOWN` for an uncatalogued writer;
+  - 409 `PKM_RESERVED_REGISTRY_OUTDATED` only for an old client whose writer the catalogue
+    does not know (the old-client policy below). The version rides on the mutation plan
+    as `client_version` because the plan reaches the server whole from the web proxy and
+    both native plugins.
+
+  The device returns `blocked_reserved_branch` from `PkmWriteCoordinator` before anything
+  is encrypted or sent, and a failure of the check itself fails closed.
+
+**What each side can see.** The server judges what a write changes: the plan's
+`proposed_scope`, the structure decision's paths the stored manifest does not already
+hold, and the manifest-path diff against the stored manifest (a path that appears or
+disappears under a reserved branch, whatever the scope claims). A merged save's structure
+decision lists every branch of the whole domain, so judging those paths as-is refused a
+chat save into `location.agent_memory` as a write to `saved_places`; with no stored
+manifest every path is new and is judged. The device
+diffs every reserved branch's VALUE before and after the write
+(`assertReservedBranchesUntouched`), which catches a change smuggled behind an innocent
+scope: the server cannot, because each write re-encrypts the whole domain.
+`PersonalKnowledgeModelService.storeDomainData` adds a writer-versus-scope check (the
+declared scope) for the Wallet and runtime-secret paths, which do not go through the
+coordinator; `store_domain_data` on the server re-checks the declared scope the same way.
+
+**Old clients.** Builds already in TestFlight and the App Store send no `client_version`.
+A blanket 409 would have broken their Finance and Location saves, so instead:
+
+- the writer catalogue still applies: a `memory_agent` writer is refused on a reserved
+  branch, and a feature writer listed on the entry is accepted;
+- only the checks that depend on the client's own code are skipped: the structure-path
+  novelty and the manifest diff, which compare a manifest built by that build's (older)
+  builder with one a newer builder stored, and the device value diff it cannot run;
+- 409 `PKM_RESERVED_REGISTRY_OUTDATED` is returned only when the writer is unknown and the
+  client is old (on store, validate and the plan-carrying whole-domain delete).
+
+The residual risk is a memory-agent write from an old build that changes a reserved branch
+behind an `agent_memory` scope: no old-build path does this, and raising
+`min_client_version` once those builds age out closes it. Every old-client write to a
+domain with a reserved branch logs `pkm.reserved_legacy_client_write domain writer
+refused` (labels only), which is the count that decides when.
+
+**The KYC reply capability.** `agent_chat_kyc_owner_confirmed` may write identity
+information only with a `kyc_reply_authorization`: an HMAC token for one owner and one
+open information request, minted by
+`POST /api/one/email/information-requests/{id}/pkm-reply-authorization` and verified at
+`/store-domain` with a live check that the request is still open
+(`hushh_mcp/consent/kyc_reply_authorization.py`). The keyword route that also used this
+writer (`isExplicitKycIdentitySaveRequest`) is retired.
+
+**Agents keep the fact, the app commits it.** The structure prompt carries the reserved
+table. A model target inside an app-owned branch is moved to that branch's
+`agent_memory_sibling` and recorded as `reserved_target_rerouted_to_sibling`; a branch
+with no sibling, or a correction of an app-owned record, is `do_not_save`. See the
+declaration in `backend-semantic-boundary.md`. The card carries a `reserved_offer`, and the
+chat's save receipt shows it as a row ("Add as Home in Location"). Tapping it opens the
+registry route and hands a prefill to that screen in memory only
+(`hushh-webapp/lib/pkm/reserved-offer.ts`: owner-bound, 15 minutes, taken once), never in
+the URL. Location saved places (category and name) and Wallet (nickname) take a prefill;
+the other areas open their screen without one. The owner commits there, with that
+feature's own writer.
+
+**The Memory screen.** `"memory_screen_policy": "read_only_reserved"` makes an item inside
+a reserved branch read-only in Memory, with "Open in <app>" from the entry's offer route;
+the owning screen edits or removes it. Items in `agent_memory` siblings stay editable.
+Setting the value to `editable` restores Memory editing (its writers are then refused in
+enforce mode, since no entry lists them).
+
+Neither side logs a stored value.
+
+**Keeping the catalogue honest.** `hushh-webapp/__tests__/lib/pkm/reserved-branches.test.ts`
+parses the webapp source, collects every writer label (including labels forwarded
+through `WalletService`, saved-locations, portfolio-source and connector-review
+helpers), and fails when a label has no registry entry or a registry writer has no
+code behind it. `consent-protocol/tests/test_reserved_branches.py` covers the
+copies, the shared rules and the server log line. A new writer means a new
+registry entry in the same change.
+
+### Phase 2: moving agent entries out, then enforcing
+
+**The migration.** Every upgrade of a domain in `RESERVED_BRANCH_MIGRATION_DOMAINS`
+(financial, identity, location, professional, ria, shopping, wallet; the TypeScript and
+Python lists are parity-tested) runs one device-side relocation,
+`hushh-webapp/lib/personal-knowledge-model/reserved-branch-migration.ts`, after its
+version steps. It runs through the ordinary upgrade gate: writer `pkm_upgrade_orchestrator` (class `migration`), an
+`upgrade_claim`, and a `preservation_receipt` with occurrence lineage. It classifies each
+member of an `entities` map inside a reserved branch:
+
+| Classification | Rule | Outcome |
+|---|---|---|
+| Agent-written | key is a memory-agent id (`mem_<hex>`, `_stable_entity_id`), or the value has the whole `_build_entity_record` shape (`summary`, `kind`, `observations`) | moved to the entry's `agent_memory` sibling, at the same path below the branch; equal copies already there are deduplicated |
+| App-written | no agent marker | kept exactly in place |
+| Ambiguous | partial shape (`observations` without `summary`/`kind`), a `mem_` key on a non-object, an agent shape stamped with a feature writer's `source`/`writer_id`/`source_agent`, a list item carrying `observations`, a different value already at the sibling target, or a sibling in another domain (Wallet's is `financial.agent_memory`) or none | preserved under `__quarantine_v1.reserved_branch_migration_v1`, keyed by source pointer, with its reason |
+
+Provenance is the decrypted blob's own writer labels: `pkm_events` records a
+`source_agent` and a path set but no per-path writer, and no client route reads it. A
+supersede history (`entities.superseded.<id>`, and the entity's own `superseded`) moves
+with its entity. A list item that leaves a list shifts the app items after it; that shift
+is recorded as lineage, never assumed. The step is idempotent on its own output.
+
+The quarantine was half-built before this release: the server's commit already required a
+`__quarantine_v1` segment for any receipt with `quarantined > 0`, but the client stripped
+the underscores from segment ids, so such an upgrade would have been refused and the key
+renamed on read. The segment id now keeps its spelling, and the manifest treats
+`__quarantine_v1` as an opaque private branch (no path walk, never exposable).
+
+**Why a marker and not a version bump.** The plan bumped the domain contract version.
+Every build since 2026-07-14 refuses to write a domain whose stored
+`domain_contract_version` is newer than its own (`ensureWritableVersion` in
+`pkm-write-coordinator.ts`: "Update the app before changing it"), and current clients
+stamp their version on every write. A bump would have locked a person's TestFlight or App
+Store build out of Finance and Location the moment the web app touched those domains. So
+the domain version stays at 4, and completion is the manifest summary marker
+`reserved_branch_migration_version` (1). Old builds never read it.
+
+The server owns the marker: only an upgrade-claim commit records it, and an ordinary
+write keeps the prior manifest's value and cannot set or clear it
+(`_normalize_manifest_payload`). `build_status` schedules an upgrade for a migration
+domain whose manifest lacks it, for current clients only: without `x-hushh-client-version`
+on the upgrade and metadata routes a client is a legacy build, whose upgrade would be a
+copy that never records the marker and would rerun on every entry. The web proxy forwards
+the header (semver only) and keys its hot cache on it. Current clients reach the
+relocation before their first write to such a domain, because a write first runs any
+scheduled upgrade.
+
+**Readiness, as proven on the Phase 2 copy before the flip.**
+
+- Historical corpus (`hushh-webapp/__tests__/fixtures/pkm/historical-corpus.v1.json`),
+  five new fixtures through decrypt, transform, lineage proof, encrypt, decrypt, compare,
+  rollback and idempotency (`pkm-historical-rehearsal.test.ts`, in
+  `scripts/ci/pkm-upgrade-gate.sh`): mixed `financial.profile` (2 moved: the entity and its
+  map-level history), `location.saved_places` note (1 moved), `identity.identity_profile`
+  fact with an equal sibling copy (1 deduplicated), mixed `professional.profile` (2 moved,
+  4 quarantined, 2 app occurrences re-indexed), `ria.advisor_package` (unchanged
+  byte-for-byte). Every receipt is complete with zero rejected occurrences; app-branch
+  exposable paths after the upgrade equal the original minus exactly the relocated nodes;
+  no previously exposable top-level scope disappears; the quarantine is never exposable
+  and survives the segment round trip under its own key.
+- Every writer listed on an entry replays clean against that entry, in both loaders and
+  through `/store-domain` for current and old clients (capability writers through their
+  own authority tests).
+- The Phase 0 and Phase 1 suites pass with the contract at `enforce`.
+
+**Rollback.** Set `"enforcement"` back to `"shadow"` in `contracts/pkm/reserved-branches.v1.json`
+and copy it to both mirrors (the parity tests require all three). Nothing refuses after
+the next backend and web deploy; the shadow log lines resume. No data changes: migrated
+entries stay in their siblings, which every reader already shows, and quarantined
+entries stay private and restorable from their source pointers. Because no domain
+contract version moved, reverting the whole release is also safe for every client: an
+older server ignores the marker, and no build is told its information is newer than it.
+## The Secrets area: kept, never sent to a model
+
+API keys, passwords, tokens and private keys the owner types, pastes or asks One
+to save are kept in the reserved `secrets` domain and are never sent to the AI.
+Card numbers and government id numbers (passport, SSN, Aadhaar) are held there
+too, with an offer to file them in Wallet or the KYC identity documents. Things
+that only NAME a secret (environment variable names, a secret-store path, a GCP
+project id, an OAuth URL, an app id) are not secrets and are saved as ordinary
+work context.
+
+**One contract, two loaders.** `contracts/pkm/secret-patterns.v1.json` (with
+byte-identical copies in `consent-protocol/contracts/pkm/` and
+`hushh-webapp/contracts/pkm/`) lists each pattern with its `kind`, the place the
+owner may file it (`file_to`: `wallet`, `kyc_identity_documents` or `none`), and
+shared cases, positive and negative, that both loaders run:
+`hushh-webapp/lib/pkm/secret-patterns.ts` and
+`consent-protocol/hushh_mcp/consent/secret_patterns.py`. The fixtures are
+assembled from parts, so the repository holds no credential-shaped literal. The
+root and backend `.gitignore` files carry an exact-path exception for this file
+under their `*secret*.json` rule.
+
+**The device guard runs first.** `hushh-webapp/lib/pkm/secret-span-guard.ts`
+runs in the chat composer's send path (typed text and every pasted attachment,
+including "Edit and send again" and a queued edit) before anything reaches chat,
+a memory proposal, history or telemetry. Each secret span is saved through the
+feature writer `secrets_vault` (an owner-confirmed plan through
+`PkmWriteCoordinator`, `hushh-webapp/lib/pkm/secrets-vault-service.ts`) and
+replaced by `⟦secret:<id> <label>⟧`. The label is built on the device from the
+words before the secret, with the value masked ("GitHub token ending 4f2a"). The
+text is rendered only after the save settles; if the vault is locked or the save
+fails, nothing is sent and the draft is restored. `streamAgentChat`, the queued
+input transport and `previewAgentPkmMemory` refuse any text that still holds a
+raw secret (`UnguardedSecretError`), before a request exists.
+
+**The server is the second net.** `PKMAgentLabService._contains_sensitive_secret`
+now delegates to `secret_patterns.find_secret_spans`, which returns offsets and
+kinds and has no way to return a value. A `/store-domain` write to `secrets`
+must carry a bookkeeping-only plaintext summary
+(`hushh_mcp/services/secrets_domain_validation.py`); a label, an item, nested
+content or a secret-shaped string is refused with
+`422 SECRETS_SUMMARY_ENVELOPE_INVALID`.
+
+**Label only, everywhere a model reads.** Any branch whose registry entry says
+`send_to_model: label_only` (`secrets.*`, `wallet.*`,
+`identity.identity_documents`) reaches One's context packet and the merge
+agent's reconciliation candidates only as `Secret exists: <label>`
+(`hushh-webapp/lib/agent/agent-pkm-context-store.ts`). A detail saved before
+this release that still holds a raw secret is printed with `[hidden secret]` in
+its place. `secrets` is identifier-class in all three `field-sensitivity.v1.json`
+copies (`identifier_domains`).
+
+**Reveal and sharing.** The value is decrypted on the device only after the
+vault is unlocked, held in component memory, hidden after 45 seconds, on Hide or
+when the app leaves the screen, and copied only after a second, confirming tap
+(`hushh-webapp/components/secrets/`). The `secrets` sharing policy
+(`domain_contracts.py`) makes nothing requestable: no wildcard, no branch, no
+exact path. The only shareable unit is one item, `attr.secrets.items.<sec_id>`
+(`pkm_scope_policy.is_owner_item_grant_scope`), in a grant the owner starts;
+the owner-initiated grant flow itself is not built yet, so today every
+`attr.secrets.*` scope is refused at approval and export.
+
+**Filing offers.** "Add this card to Wallet" and "Add passport to Identity
+documents" hand a reference (owner and secret id, never the value, never the
+URL) in memory to the Wallet add form, or to the identity-documents filing card
+on the Profile Secrets list (`hushh-webapp/lib/pkm/secret-offer-handoff.ts`,
+`SECRET_OFFER_ROUTES`). The target decrypts the value itself, and the owner
+commits with that feature's writer: `one_wallet_add`, or
+`kyc_identity_document_file` for `identity.identity_documents`. The filing card
+lives on Profile because the `/one/kyc` screen was retired on 2026-09-27.
+
+**Identity facts open Mail's KYC tab** (2026-10-02). The `identity.identity_profile`,
+`identity.identity_documents` and `professional.profile` entries offer
+`/one/gmail?workspace=kyc` (action `route.one_gmail_kyc`, "Review {label} in Mail"), so
+a chat fact for those branches is kept in its `agent_memory` sibling and offered there,
+and Memory shows "Open in Mail" on a reserved identity item. The link names the tab only
+(`buildGmailWorkspaceRoute` and `gmailDeepLinkWorkspace` in
+`hushh-webapp/lib/navigation/routes.ts`); identity takes no prefill. When Gmail is not
+connected the KYC tab shows its own "Connect Gmail to manage identity" entry instead of
+the general Mail status card, so the link is never a dead end
+(`hushh-webapp/components/gmail/mail-kyc-connect-entry.tsx`); a status error keeps the
+card because it carries the retry. A same-screen tab is not a route-index entry (the
+index keeps a query-qualified route only when it changes the screen), so the registry
+test accepts such an offer only when its path is indexed and the gateway declares that
+exact route on a wired route action whose screen is the path's own.
 
 ## Storage rules
 

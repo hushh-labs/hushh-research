@@ -133,6 +133,7 @@ import {
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { DuplicateSavedLocationError } from "@/lib/one-location/saved-locations";
+import { stageReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 const HOME = {
   id: "home",
@@ -382,6 +383,38 @@ describe("SavedLocationsSection", () => {
         true,
       ),
     );
+  });
+
+  it("opens the add sheet from a chat offer's in-memory prefill and saves with its own writer", async () => {
+    // "Add as Work in Location" from chat: the category arrives in memory only;
+    // the owner still pins the place and saves it here.
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    stageReservedOfferPrefill({
+      ownerUserId: "user-123",
+      ownerFeature: "location",
+      prefill: { kind: "location_saved_place", category: "work", label: "" },
+    });
+    render(<SavedLocationsSection />);
+    await waitFor(() => expect(mocks.captureCurrentPosition).toHaveBeenCalledTimes(1));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirm pin" }));
+    await screen.findByRole("heading", { name: "Address details" });
+    // Without the offer a first place opens on Home (negative control above).
+    expect(screen.getByRole("button", { name: "Work" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute("aria-pressed", "false");
+    fireEvent.change(screen.getByLabelText(/House or flat/), { target: { value: "Floor 3" } });
+    fireEvent.click(screen.getByRole("button", { name: /save location/i }));
+    await waitFor(() =>
+      expect(mocks.addSavedLocation).toHaveBeenCalledWith(
+        expect.objectContaining({ input: expect.objectContaining({ category: "work" }) }),
+      ),
+    );
+  });
+
+  it("opens no add sheet when no offer is waiting (negative control)", async () => {
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    render(<SavedLocationsSection />);
+    await screen.findByText(/no places yet/i);
+    expect(mocks.captureCurrentPosition).not.toHaveBeenCalled();
   });
 
   it("cannot turn the preview on while Location is paused", async () => {

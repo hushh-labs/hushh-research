@@ -35,6 +35,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_DRIVE_SEARCH_SELECTION,
     STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
     STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID,
+    STATE_OWNER_DISPLAY_NAME,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -69,6 +70,7 @@ from hushh_mcp.one_adk.feed_attention import (
 )
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.mcp_turn_scope import STATE_MCP_CONFIGURATION, admit_turn_configurations
+from hushh_mcp.one_adk.owner_style import STATE_OWNER_STYLE, OwnerStyleError, admit_owner_style
 from hushh_mcp.one_adk.pending_email_draft import (
     STATE_PENDING_EMAIL_DRAFT,
     admit_pending_email_draft,
@@ -95,6 +97,7 @@ from hushh_mcp.one_adk.turn_location import STATE_TURN_LOCATION, admit_turn_loca
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.chat_key import request_has_chat_key
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_personal_information_request_service import (
@@ -109,6 +112,30 @@ from hushh_mcp.services.person_profile_service import PersonProfileService
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
+
+
+async def _owner_display_name_for_turn(user_id: str) -> str:
+    """Return bounded account metadata without making a chat turn depend on it."""
+
+    try:
+        identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+        try:
+            return str(
+                ActorIdentityService.validate_display_name(str(identity.get("display_name") or ""))
+            )
+        except ValueError:
+            # A pre-enrichment Gmail connection can be repaired from its
+            # owner-bound provider grant. This is still account metadata, not
+            # an implicit PKM write.
+            from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
+
+            await get_gmail_receipts_service().refresh_owner_identity_profile(user_id=user_id)
+            refreshed = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+            return str(
+                ActorIdentityService.validate_display_name(str(refreshed.get("display_name") or ""))
+            )
+    except Exception:  # noqa: BLE001 - identity metadata is a best-effort nicety
+        return ""
 
 
 def _user_id(input_data: RunAgentInput) -> str:
@@ -357,11 +384,20 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     # The person's unsent draft card, so a follow-up can revise it. Only an
     # unlocked owner turn keeps it; it never becomes conversation state.
     pending_email_draft = admit_pending_email_draft(forwarded)
+    # The owner's Settings style choices, sent apart from the memory packet.
+    # Closed schema: anything outside it refuses the turn instead of clipping.
+    try:
+        owner_style = admit_owner_style(forwarded, owner_admitted=bool(token and user_id))
+    except OwnerStyleError:
+        raise HTTPException(
+            status_code=400, detail="Communication preferences are invalid."
+        ) from None
     if not (token and user_id):
         consume_request_secret(turn_location)
         turn_location = ""
         consume_request_secret(pending_email_draft)
         pending_email_draft = ""
+    owner_display_name = await _owner_display_name_for_turn(user_id) if token and user_id else ""
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
         STATE_TURN_LOCATION: turn_location,
@@ -389,6 +425,8 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_OWNER_STYLE: owner_style,
+        STATE_OWNER_DISPLAY_NAME: store_request_secret(owner_display_name),
         STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
         STATE_GMAIL_INFORMATION_REQUEST_CONTEXT: store_request_secret(
             gmail_information_request_context
@@ -1360,6 +1398,7 @@ _ACTIVITY_TOOLS = frozenset(
         "propose_document_request",
         "list_available_models",
         "set_preferred_model",
+        "propose_style_settings",
         "calendar_summary",
         "calendar_events",
         "calendar_availability",

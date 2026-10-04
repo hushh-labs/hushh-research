@@ -451,6 +451,11 @@ class ResolvePersonResult(ToolResult):
     # Which offer these candidates belong to; confirm_person needs the same one.
     offer_revision: int = 0
 
+    def model_public(self) -> dict[str, Any]:
+        # Avatars can be base64 data URLs. They belong on the card, not in
+        # Live's text context, where a few photos can exhaust the session.
+        return self.model_dump(mode="json", exclude={"candidates": {"__all__": {"photo_url"}}})
+
 
 async def _directory_candidates(ctx: ToolContext, target: str) -> tuple[list[dict[str, Any]], bool]:
     """Directory rows for ``target`` across up to ``DIRECTORY_MAX_PAGES`` pages,
@@ -626,6 +631,9 @@ class ConfirmPersonResult(ToolResult):
     status: Literal["confirmed"]
     person: PersonCard
 
+    def model_public(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude={"person": {"photo_url"}})
+
 
 async def confirm_person(ctx: ToolContext, args: ConfirmPersonInput) -> ToolResult:
     if ctx.entities.offered_person_ids and not ctx.entities.offer_is_fresh():
@@ -683,6 +691,20 @@ class ListPeopleResult(ToolResult):
     pending_incoming: list[PendingRequest] = Field(default_factory=list)
     pending_outgoing: list[PendingRequest] = Field(default_factory=list)
     counts: PeopleCounts
+
+    def model_public(self) -> dict[str, Any]:
+        return self.model_dump(
+            mode="json",
+            exclude={
+                field: {"__all__": {"photo_url"}}
+                for field in (
+                    "connected",
+                    "ready_for_location",
+                    "pending_incoming",
+                    "pending_outgoing",
+                )
+            },
+        )
 
 
 def _plural(count: int, singular: str, plural: str | None = None) -> str:
@@ -816,6 +838,9 @@ class GetPersonResult(ToolResult):
     status: Literal["ok", "not_found"]
     person: PersonCard | None = None
     counts: PeopleCounts
+
+    def model_public(self) -> dict[str, Any]:
+        return self.model_dump(mode="json", exclude={"person": {"photo_url"}})
 
 
 async def get_person(ctx: ToolContext, args: GetPersonInput) -> ToolResult:

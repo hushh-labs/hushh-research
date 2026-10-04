@@ -11,9 +11,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import importlib.metadata
 import json
 import os
+import random
+import secrets
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -33,6 +36,8 @@ from hushh_mcp.services.personal_knowledge_model_service import (  # noqa: E402
     PersonalKnowledgeModelService,
 )
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service  # noqa: E402
+from scripts import pkm_eval_document as document_eval  # noqa: E402
+from scripts import pkm_eval_integrity as integrity  # noqa: E402
 
 DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env"
 DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent_eval_latest.json"
@@ -51,13 +56,156 @@ PHASE_ORDER = (
     "fresh_random_120",
     "fresh_chain_60",
     "fresh_chain_120",
+    "context_transfer",
+    "context_transfer_document",
 )
+# Graded line by line over a pasted document, not as prompt cases.
+DOCUMENT_PHASE = "context_transfer_document"
 PHASE_PROMPT_LIMIT = {
     "release_chain_24": 24,
     "fresh_random_120": 120,
     "fresh_chain_60": 60,
     "fresh_chain_120": 120,
+    "context_transfer": 12,
 }
+# Work context may land in professional or in a work domain the structure agent
+# names itself; either keeps it. What must never happen is a do_not_save.
+_WORK_DOMAINS = (
+    "professional",
+    "work",
+    "career",
+    "company",
+    "business",
+    "engineering",
+    "technology",
+    "tech_stack",
+)
+# A pasted "context transfer", one section at a time, the way the device sends
+# it (heading plus lines). Production 2026-09-29: the memory agents dropped work
+# context, vendors, people, metrics and technical identifiers from exactly this
+# shape as "not about the owner" or "opaque". Synthetic values only.
+_CONTEXT_TRANSFER_CASES: tuple[tuple[str, str, str, str, str, tuple[str, ...], bool, str], ...] = (
+    (
+        "ct_stack",
+        "## Tech stack\n- Backend: FastAPI on Cloud Run with Postgres on Cloud SQL",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_work",
+    ),
+    (
+        "ct_project_id",
+        "## Infrastructure\n- GCP project: lumen-demo-482910 in us-central1",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_technical_id",
+    ),
+    (
+        "ct_env_name",
+        "## Infrastructure\n- The API reads its signing key from the LUMEN_SIGNING_KEY environment variable",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_technical_id",
+    ),
+    (
+        "ct_oauth",
+        "## Integrations\n- Google OAuth callback: https://app.lumen-demo.dev/api/auth/callback/google",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_technical_id",
+    ),
+    (
+        "ct_people",
+        "## People\n- Asha Varma is our CTO and owns the data platform",
+        "durable",
+        "relationship",
+        "create",
+        (*_WORK_DOMAINS, "social"),
+        False,
+        "context_people",
+    ),
+    (
+        "ct_vendors",
+        "## Vendors\n- We use Twilio for SMS and Plaid for bank connections",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_work",
+    ),
+    (
+        "ct_metrics",
+        "## Repository\n- The monorepo has about 9,800 commits and 41 contributors",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_work",
+    ),
+    (
+        "ct_ai_tools",
+        "## AI tools\n- I code every day with Claude Code and Gemini CLI",
+        "durable",
+        "preference",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_work",
+    ),
+    (
+        "ct_agents",
+        "## Architecture\n- Our agents are orchestrated with Google ADK and talk over A2A",
+        "durable",
+        "profile_fact",
+        "create",
+        _WORK_DOMAINS,
+        False,
+        "context_work",
+    ),
+    (
+        "ct_salary",
+        "## Compensation\n- Base salary: USD 185,000 with 0.4% equity",
+        "durable",
+        "profile_fact",
+        "create",
+        (*_WORK_DOMAINS, "financial"),
+        True,
+        "context_sensitive",
+    ),
+    (
+        "ct_finance_pref",
+        "## Money\n- I prefer index funds over picking stocks",
+        "durable",
+        "preference",
+        "create",
+        ("financial",),
+        False,
+        "context_finance_memory",
+    ),
+    (
+        "ct_command",
+        "Optimize my portfolio for lower volatility.",
+        "ephemeral",
+        "command",
+        "no_op",
+        ("financial",),
+        False,
+        "context_command",
+    ),
+)
 DEFAULT_GATE_THRESHOLDS = {
     "schema_ok_rate": 1.0,
     "domain_ok_rate": 0.95,
@@ -71,6 +219,11 @@ DEFAULT_GATE_THRESHOLDS = {
 # an order of magnitude apart, so a baked-in ceiling would be wrong for one.
 DEFAULT_MAX_P95_LATENCY_MS: float | None = None
 DEFAULT_REPS = 1
+# Variance is a gate of its own: --enforce-gates fails a run of fewer than
+# integrity.MIN_GATED_REPS repetitions, and any gated rate whose spread across
+# repetitions exceeds this. Kept apart from DEFAULT_GATE_THRESHOLDS because it
+# gates a set of runs, not one summary.
+DEFAULT_MAX_RATE_SPREAD = integrity.DEFAULT_MAX_RATE_SPREAD
 # Release coverage keeps one coherent chain across every storage decision class
 # and every canonical domain without repeating the long-form research matrix.
 _RELEASE_CHAIN_INDICES = (
@@ -267,6 +420,16 @@ class EvaluationResult:
     # local model load, so it is summarized apart from the warm repetitions.
     rep: int = 0
     failure_class: str | None = None
+    # False when the structure stage fell back to a non-model answer. Such a
+    # domain is not the agent's judgement and never counts as coverage.
+    structure_answered: bool = True
+    # Diagnostics only, never graded. What the merge agent decided; whether the
+    # structure model authored the saved payload itself (None: no structure
+    # answer observed); and, for a statement that was not saved, the stage that
+    # dropped it (intent, merge, structure, or service for a deterministic rule).
+    actual_merge_mode: str = ""
+    structure_payload_authored: bool | None = None
+    drop_stage: str = ""
 
 
 def pct(values: list[float], quantile: float) -> float:
@@ -508,7 +671,7 @@ def parse_args() -> argparse.Namespace:
         default="fresh_random_120",
         help=(
             "Benchmark phase: 24-case release chain, 120 fresh single-turn prompts, "
-            "60 chained prompts, or 120 chained prompts."
+            "60 chained prompts, 120 chained prompts, or the pasted context-transfer pack."
         ),
     )
     parser.add_argument(
@@ -611,6 +774,61 @@ def parse_args() -> argparse.Namespace:
         "--min-durable-domain-coverage-rate",
         type=float,
         default=DEFAULT_GATE_THRESHOLDS["durable_domain_coverage_rate"],
+    )
+    parser.add_argument(
+        "--max-rate-spread",
+        type=float,
+        default=DEFAULT_MAX_RATE_SPREAD,
+        help="Largest allowed max-minus-min of a gated rate across repetitions.",
+    )
+    parser.add_argument(
+        "--min-line-coverage-rate",
+        type=float,
+        default=document_eval.DEFAULT_MIN_LINE_COVERAGE,
+        help="context_transfer_document: minimum share of memory lines kept.",
+    )
+    parser.add_argument(
+        "--strict-small-model",
+        action="store_true",
+        help=(
+            "Exercise the compact small-model prompt path. Default is the production "
+            "path the /api/pkm route uses; the choice is part of the capability profile."
+        ),
+    )
+    parser.add_argument(
+        "--control-seed",
+        type=int,
+        default=None,
+        help="Seed for planted-control positions. Random per run unless pinned.",
+    )
+    parser.add_argument(
+        "--document",
+        default=str(document_eval.DOCUMENT_PATH),
+        help="context_transfer_document: the synthetic context-transfer document.",
+    )
+    parser.add_argument(
+        "--ledger",
+        default=None,
+        help=(
+            "Append this run to an append-only results ledger, for example "
+            f"{integrity.DEFAULT_LEDGER_PATH.relative_to(CONSENT_PROTOCOL_ROOT)}."
+        ),
+    )
+    parser.add_argument(
+        "--source-ref",
+        default=None,
+        help=(
+            "The commit the code under test came from, recorded in the ledger when "
+            "this tree is not a git checkout (a git archive of a baseline)."
+        ),
+    )
+    parser.add_argument(
+        "--compare",
+        nargs=2,
+        type=int,
+        metavar=("BEFORE_SEQ", "AFTER_SEQ"),
+        default=None,
+        help="Compare two ledger entries of the same phase and capability profile, then exit.",
     )
     parser.add_argument(
         "--max-p95-latency-ms",
@@ -3004,10 +3222,44 @@ def _build_fresh_chain(seed: PersonaSeed) -> list[PromptCase]:
     return prompts
 
 
+def _build_context_transfer_cases() -> list[PromptCase]:
+    prompts: list[PromptCase] = []
+    for (
+        case_id,
+        message,
+        save_class,
+        intent,
+        mutation,
+        domains,
+        confirm,
+        category,
+    ) in _CONTEXT_TRANSFER_CASES:
+        _append_case(
+            prompts,
+            case_id=case_id,
+            message=message,
+            save_class=save_class,
+            intent=intent,
+            mutation=mutation,
+            domains=domains,
+            confirm=confirm,
+            category=category,
+        )
+    return prompts
+
+
 def build_phase_personas(
     *, phase: str, max_prompts_per_persona: int
 ) -> tuple[list[dict[str, Any]], bool]:
     prompt_limit = min(max_prompts_per_persona, PHASE_PROMPT_LIMIT[phase])
+    if phase == "context_transfer":
+        return [
+            {
+                "persona_id": "context_transfer_pack",
+                "name": "Context Transfer Pack",
+                "prompts": _build_context_transfer_cases()[:prompt_limit],
+            }
+        ], False
     if phase == "fresh_random_120":
         prompts: list[PromptCase] = []
         for seed in PERSONA_SEEDS:
@@ -3074,18 +3326,44 @@ def _schema_ok(result: dict[str, Any]) -> bool:
     )
 
 
+_WRITE_ELIGIBLE_MODES = frozenset({"can_save", "confirm_first"})
+
+
+def _payload_entity_id(payload: Any) -> str:
+    """The first entity key the structure agent wrote, or empty."""
+
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if key == "entities" and isinstance(value, dict) and value:
+                return str(next(iter(value)))
+            found = _payload_entity_id(value)
+            if found:
+                return found
+    return ""
+
+
 def _apply_preview_to_state(state: dict[str, Any], result: dict[str, Any], message: str) -> None:
+    """Advance the simulated chain the way an owner who reviews each card would.
+
+    A confirm_first card is a save the owner approves on the review screen, so
+    it enters the chain like a can_save card. Counting only can_save meant the
+    production prompt path (every durable write is confirm_first) never grew a
+    state at all, and every later "extend" was graded against an empty PKM.
+    """
+
     frame = result.get("intent_frame") or {}
     mutation = str(frame.get("mutation_intent") or "create")
     write_mode = str(result.get("write_mode") or "confirm_first")
     target_domain = str((result.get("structure_decision") or {}).get("target_domain") or "")
     target_entity_scope = str(result.get("target_entity_scope") or "")
-    if write_mode != "can_save" or not target_domain:
+    if write_mode not in _WRITE_ELIGIBLE_MODES or not target_domain:
         return
 
     if target_domain not in state["domains"]:
         state["domains"].append(target_domain)
 
+    entity_id = str((result.get("merge_decision") or {}).get("target_entity_id") or "")
+    entity_id = entity_id or _payload_entity_id(result.get("candidate_payload"))
     active_memories = [memory for memory in state["memories"] if memory.get("active", True)]
     matching = [
         memory
@@ -3115,6 +3393,7 @@ def _apply_preview_to_state(state: dict[str, Any], result: dict[str, Any], messa
     state["memories"].append(
         {
             "domain": target_domain,
+            "entity_id": entity_id,
             "entity_scope": target_entity_scope,
             "intent_class": frame.get("intent_class"),
             "message": message,
@@ -3123,7 +3402,98 @@ def _apply_preview_to_state(state: dict[str, Any], result: dict[str, Any], messa
     )
 
 
-async def _evaluate_case(
+def _request_state(state: dict[str, Any]) -> dict[str, Any]:
+    """The existing entities sent with a request: active only, newest first.
+
+    The device sends at most ten active entity summaries; the server keeps the
+    first ten it is given. Sending the chain oldest-first with inactive rows
+    meant a twelve-memory chain hid its newest entities from the merge agent.
+    """
+
+    active = [dict(memory) for memory in state.get("memories") or [] if memory.get("active", True)]
+    return {"domains": list(state.get("domains") or []), "memories": list(reversed(active))}
+
+
+# What each stage's model returned for the case being answered, keyed by agent
+# id. Read at _run_agent_contract, the one method every memory stage goes
+# through in both the baseline and the head, so the observation does not depend
+# on either version's own diagnostics. Never graded.
+_STAGE_OBSERVATIONS: contextvars.ContextVar[dict[str, list[Any]] | None] = contextvars.ContextVar(
+    "pkm_eval_stage_observations", default=None
+)
+
+
+def install_stage_observer(service: Any) -> None:
+    """Record each stage's raw answer for the case in flight. Idempotent.
+
+    A service without the method (a test double) is left alone: a diagnostic
+    never changes or breaks a run.
+    """
+
+    run = getattr(service, "_run_agent_contract", None)
+    if run is None or getattr(service, "_pkm_eval_stage_observer", False):
+        return
+
+    async def observed(*args: Any, **kwargs: Any) -> Any:
+        output = await run(*args, **kwargs)
+        sink = _STAGE_OBSERVATIONS.get()
+        manifest = kwargs.get("manifest", args[0] if args else None)
+        if sink is not None and manifest is not None:
+            sink.setdefault(str(getattr(manifest, "id", "")), []).append(
+                output if isinstance(output, dict) else None
+            )
+        return output
+
+    service._run_agent_contract = observed
+    service._pkm_eval_stage_observer = True
+
+
+def _payload_authored(stages: dict[str, list[Any]]) -> bool | None:
+    answers = stages.get("agent_pkm_structure") or []
+    if not answers:
+        return None
+    return any(
+        isinstance(answer, dict)
+        and isinstance(answer.get("candidate_payload"), dict)
+        and bool(answer["candidate_payload"])
+        for answer in answers
+    )
+
+
+def _drop_stage(stages: dict[str, list[Any]], write_mode: str) -> str:
+    """The first stage whose own answer dropped an unsaved statement."""
+
+    if write_mode != "do_not_save":
+        return ""
+
+    def said(agent: str, key: str, values: set[str]) -> bool:
+        return any(
+            isinstance(answer, dict) and str(answer.get(key) or "") in values
+            for answer in stages.get(agent) or []
+        )
+
+    if said("agent_memory_intent", "mutation_intent", {"no_op"}):
+        return "intent"
+    if said("agent_memory_merge", "merge_mode", {"no_op"}):
+        return "merge"
+    if said("agent_pkm_structure", "write_mode", {"do_not_save"}):
+        return "structure"
+    return "service"
+
+
+@dataclass(frozen=True)
+class _Answer:
+    """One model answer and how it arrived. Never graded here."""
+
+    result: dict[str, Any]
+    latency_ms: float
+    timed_out: bool
+    failure_class: str | None
+    rep: int
+    stages: dict[str, list[Any]] = field(default_factory=dict)
+
+
+async def _answer_case(
     *,
     service,
     case: PromptCase,
@@ -3134,17 +3504,19 @@ async def _evaluate_case(
     per_prompt_timeout_seconds: float,
     domain_registry_override: list[dict[str, Any]],
     rep: int = 0,
-) -> EvaluationResult:
+) -> _Answer:
     started_at = time.perf_counter()
     timed_out = False
     failure_class = None
+    stages: dict[str, list[Any]] = {}
+    observation = _STAGE_OBSERVATIONS.set(stages)
     try:
         result = await asyncio.wait_for(
             service.generate_structure_preview(
                 user_id=user_id,
                 message=case.message,
                 current_domains=list(state["domains"]),
-                simulated_state=state,
+                simulated_state=_request_state(state),
                 model_override=model_override,
                 strict_small_model=strict_small_model,
                 domain_registry_override=domain_registry_override,
@@ -3167,7 +3539,34 @@ async def _evaluate_case(
             "validation_hints": ["model_timeout" if timed_out else "model_error"],
             "used_fallback": True,
         }
+    finally:
+        _STAGE_OBSERVATIONS.reset(observation)
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
+    return _Answer(
+        result=result,
+        latency_ms=latency_ms,
+        timed_out=timed_out,
+        failure_class=failure_class,
+        rep=rep,
+        stages=stages,
+    )
+
+
+def _score_case(case: PromptCase, answer: _Answer) -> EvaluationResult:
+    """Grade one answer against its case. Pure: no state, no model, no key.
+
+    Two rules keep the rates honest:
+
+    * ``unsure`` counts against accuracy. A field produced by a stage that fell
+      back to a non-model answer is graded wrong even when the fallback guessed
+      the label, because no model judgement exists for it.
+    * A durable case's domain is graded on every write mode. The retired rule
+      graded any confirm_first or do_not_save card as domain-correct, and the
+      production prompt makes every durable write confirm_first, so the domain
+      rate read 1.0 by construction.
+    """
+
+    result = answer.result
     frame = result.get("intent_frame") or {}
     decision = result.get("structure_decision") or {}
     actual_domain = str(decision.get("target_domain") or "")
@@ -3181,29 +3580,26 @@ async def _evaluate_case(
     trace_statuses = [
         str(item.get("status") or "") for item in execution_trace if isinstance(item, dict)
     ]
-    stage_latencies_ms = _agent_latencies_ms(execution_trace)
-    stage_totals_ms = _stage_totals_ms(performance.get("stage_latencies_ms"))
-    inner_timeout_count = trace_statuses.count("timeout")
-    inner_budget_exhausted_count = trace_statuses.count("budget_exhausted")
     inner_failure_count = sum(
         1
         for status in trace_statuses
         if status in {"client_unavailable", "invalid_response", "error"}
     )
+    failed = answer.timed_out or bool(answer.failure_class)
+    intent_answered = not failed and not bool(result.get("intent_used_fallback"))
+    merge_answered = intent_answered and not bool(result.get("merge_used_fallback"))
+    structure_answered = not failed and not bool(result.get("structure_used_fallback"))
     finance_contamination = (
         actual_domain == "financial"
         and "financial" not in case.expected_domains
         and case.expected_intent_class != "financial_event"
     )
-    unresolved_domain = "unresolved_domain_choice" in validation_hints
-    domain_ok = actual_domain in case.expected_domains
-    if case.expected_save_class in {"ephemeral", "ambiguous"} or actual_write_mode in {
-        "do_not_save",
-        "confirm_first",
-    }:
+    if case.expected_save_class in {"ephemeral", "ambiguous"}:
         domain_ok = not finance_contamination
+    else:
+        domain_ok = structure_answered and actual_domain in case.expected_domains
 
-    evaluation = EvaluationResult(
+    return EvaluationResult(
         case_id=case.case_id,
         message=case.message,
         category=case.category,
@@ -3212,7 +3608,7 @@ async def _evaluate_case(
         expected_mutation_intent=case.expected_mutation_intent,
         expected_domains=list(case.expected_domains),
         expect_confirmation=case.expect_confirmation,
-        latency_ms=latency_ms,
+        latency_ms=answer.latency_ms,
         actual_save_class=str(frame.get("save_class") or ""),
         actual_intent_class=str(frame.get("intent_class") or ""),
         actual_mutation_intent=str(frame.get("mutation_intent") or ""),
@@ -3222,24 +3618,57 @@ async def _evaluate_case(
         validation_hints=validation_hints,
         drift_flags=dict(result.get("drift_flags") or {}),
         used_fallback=bool(result.get("used_fallback")),
-        timed_out=timed_out,
-        failure_class=failure_class,
+        timed_out=answer.timed_out,
+        failure_class=answer.failure_class,
         finance_contamination=finance_contamination,
-        unresolved_domain=unresolved_domain,
-        inner_timeout_count=inner_timeout_count,
-        inner_budget_exhausted_count=inner_budget_exhausted_count,
+        unresolved_domain="unresolved_domain_choice" in validation_hints,
+        inner_timeout_count=trace_statuses.count("timeout"),
+        inner_budget_exhausted_count=trace_statuses.count("budget_exhausted"),
         inner_failure_count=inner_failure_count,
-        save_class_ok=str(frame.get("save_class") or "") == case.expected_save_class,
-        intent_ok=str(frame.get("intent_class") or "") == case.expected_intent_class,
-        mutation_ok=str(frame.get("mutation_intent") or "") == case.expected_mutation_intent,
+        save_class_ok=intent_answered
+        and str(frame.get("save_class") or "") == case.expected_save_class,
+        intent_ok=intent_answered
+        and str(frame.get("intent_class") or "") == case.expected_intent_class,
+        mutation_ok=merge_answered
+        and str(frame.get("mutation_intent") or "") == case.expected_mutation_intent,
         domain_ok=domain_ok,
         confirmation_ok=requires_confirmation == case.expect_confirmation,
         schema_ok=_schema_ok(result),
-        stage_latencies_ms=stage_latencies_ms,
-        stage_totals_ms=stage_totals_ms,
+        stage_latencies_ms=_agent_latencies_ms(execution_trace),
+        stage_totals_ms=_stage_totals_ms(performance.get("stage_latencies_ms")),
+        rep=answer.rep,
+        structure_answered=structure_answered,
+        actual_merge_mode=str((result.get("merge_decision") or {}).get("merge_mode") or ""),
+        structure_payload_authored=_payload_authored(answer.stages),
+        drop_stage=_drop_stage(answer.stages, str(result.get("write_mode") or "")),
+    )
+
+
+async def _evaluate_case(
+    *,
+    service,
+    case: PromptCase,
+    state: dict[str, Any],
+    user_id: str,
+    model_override: str | None,
+    strict_small_model: bool,
+    per_prompt_timeout_seconds: float,
+    domain_registry_override: list[dict[str, Any]],
+    rep: int = 0,
+) -> EvaluationResult:
+    answer = await _answer_case(
+        service=service,
+        case=case,
+        state=state,
+        user_id=user_id,
+        model_override=model_override,
+        strict_small_model=strict_small_model,
+        per_prompt_timeout_seconds=per_prompt_timeout_seconds,
+        domain_registry_override=domain_registry_override,
         rep=rep,
     )
-    _apply_preview_to_state(state, result, case.message)
+    evaluation = _score_case(case, answer)
+    _apply_preview_to_state(state, answer.result, case.message)
     return evaluation
 
 
@@ -3275,6 +3704,175 @@ def _stage_totals_ms(stage_latencies: Any) -> dict[str, float]:
     return totals
 
 
+# --------------------------------------------------------------------------
+# Planted controls for the case phases
+# --------------------------------------------------------------------------
+
+_ONTOLOGY_INTENTS = (
+    "preference",
+    "profile_fact",
+    "routine",
+    "task_or_reminder",
+    "plan_or_goal",
+    "relationship",
+    "health",
+    "travel",
+    "shopping_need",
+    "financial_event",
+    "command",
+    "correction",
+    "deletion",
+    "note",
+    "ambiguous",
+)
+_MUTATIONS = ("create", "extend", "update", "correct", "delete", "no_op")
+_CONTROL_DOMAINS = ("food", "travel", "health", "shopping", "social", "location", "professional")
+
+
+def _planted_result(
+    case: PromptCase,
+    *,
+    save_class: str | None = None,
+    intent: str | None = None,
+    mutation: str | None = None,
+    domain: str | None = None,
+) -> dict[str, Any]:
+    """A structurally valid preview, as the service returns one.
+
+    Defaults to exactly the case's expected answer, shaped the way the
+    production path answers (durable writes are confirm_first).
+    """
+
+    save = save_class or case.expected_save_class
+    target = domain or case.expected_domains[0]
+    return {
+        "intent_frame": {
+            "save_class": save,
+            "intent_class": intent or case.expected_intent_class,
+            "mutation_intent": mutation or case.expected_mutation_intent,
+            "requires_confirmation": save == "durable",
+            "candidate_domain_choices": [{"domain_key": target, "recommended": True}],
+            "confidence": 0.9,
+        },
+        "candidate_payload": {},
+        "structure_decision": {
+            "action": "match_existing_domain",
+            "target_domain": target,
+            "json_paths": [],
+            "top_level_scope_paths": [],
+            "externalizable_paths": [],
+        },
+        "write_mode": "confirm_first" if save == "durable" else "do_not_save",
+        "validation_hints": [],
+        "used_fallback": False,
+        "intent_used_fallback": False,
+        "merge_used_fallback": False,
+        "structure_used_fallback": False,
+    }
+
+
+def _case_controls(
+    cases: list[PromptCase], *, seed: int, rep: int
+) -> list[tuple[integrity.Control, tuple[PromptCase, _Answer]]]:
+    """Four negative and two positive controls built from this phase's cases.
+
+    Each negative breaks one gated field and nothing else. The domain negative
+    is deliberately confirm_first, the exact shape the retired scorer passed.
+    """
+
+    rng = random.Random(f"{seed}:{rep}")  # noqa: S311 - seeded placement, not secrecy
+    durable = [case for case in cases if case.expected_save_class == "durable"]
+    if not durable:
+        return []
+
+    def answer(result: dict[str, Any]) -> _Answer:
+        return _Answer(result=result, latency_ms=0.0, timed_out=False, failure_class=None, rep=rep)
+
+    def pick() -> PromptCase:
+        return rng.choice(durable)
+
+    controls: list[tuple[integrity.Control, tuple[PromptCase, _Answer]]] = []
+    case = pick()
+    wrong_domain = rng.choice([d for d in _CONTROL_DOMAINS if d not in case.expected_domains])
+    controls.append(
+        (
+            integrity.Control("wrong_domain_confirm_first", "catch", "domain"),
+            (case, answer(_planted_result(case, domain=wrong_domain))),
+        )
+    )
+    case = pick()
+    wrong_intent = rng.choice([i for i in _ONTOLOGY_INTENTS if i != case.expected_intent_class])
+    controls.append(
+        (
+            integrity.Control("wrong_intent", "catch", "intent"),
+            (case, answer(_planted_result(case, intent=wrong_intent))),
+        )
+    )
+    case = pick()
+    wrong_mutation = rng.choice([m for m in _MUTATIONS if m != case.expected_mutation_intent])
+    controls.append(
+        (
+            integrity.Control("wrong_mutation", "catch", "mutation"),
+            (case, answer(_planted_result(case, mutation=wrong_mutation))),
+        )
+    )
+    case = pick()
+    fallback = _planted_result(case)
+    fallback["intent_used_fallback"] = True
+    fallback["used_fallback"] = True
+    controls.append(
+        (
+            integrity.Control("unsure_fallback_guessed_right", "catch", "intent"),
+            (case, answer(fallback)),
+        )
+    )
+    for _ in range(2):
+        case = pick()
+        controls.append(
+            (
+                integrity.Control("expected_answer", "clean", ""),
+                (case, answer(_planted_result(case))),
+            )
+        )
+    return controls
+
+
+def _gated_flags(evaluation: EvaluationResult) -> set[str]:
+    """The gated fields the scorer marked wrong for one row."""
+
+    flags = set()
+    for field_name, ok in (
+        ("schema", evaluation.schema_ok),
+        ("save_class", evaluation.save_class_ok),
+        ("intent", evaluation.intent_ok),
+        ("mutation", evaluation.mutation_ok),
+        ("domain", evaluation.domain_ok),
+    ):
+        if not ok:
+            flags.add(field_name)
+    if _durable_domain_coverage_rate([evaluation]) < 1.0:
+        flags.add("coverage")
+    return flags
+
+
+def _grade_with_controls(
+    rows: list[tuple[PromptCase, _Answer]], *, seed: int
+) -> tuple[list[EvaluationResult], list[str], dict[str, Any]]:
+    """Grade every real row and the planted controls in one seeded pass."""
+
+    reps = sorted({answer.rep for _, answer in rows})
+    cases = list({case.case_id: case for case, _ in rows}.values())
+    planted = [control for rep in reps for control in _case_controls(cases, seed=seed, rep=rep)]
+    graded_rows, key = integrity.plant(rows, planted, seed=seed)
+    verdicts = [_score_case(case, answer) for case, answer in graded_rows]
+    void_reasons, control_summary = integrity.check_controls(verdicts, key, flags=_gated_flags)
+    # Real verdicts back in answer order; controls never reach a rate.
+    real = [(position, verdict) for position, verdict in enumerate(verdicts) if position not in key]
+    order = {id(row): index for index, row in enumerate(rows)}
+    real.sort(key=lambda item: order[id(graded_rows[item[0]])])
+    return [verdict for _, verdict in real], void_reasons, control_summary
+
+
 async def _run_synthetic_mode(
     *,
     service,
@@ -3286,58 +3884,82 @@ async def _run_synthetic_mode(
     per_prompt_timeout_seconds: float,
     fail_fast: bool = False,
     reps: int = DEFAULT_REPS,
+    control_seed: int | None = None,
 ) -> dict[str, Any]:
     registry_override = _registry_override()
     persona_reports = []
     all_results: list[EvaluationResult] = []
     rep_count = max(1, reps)
+    seed = control_seed if control_seed is not None else secrets.randbits(32)
     aborted_reason = None
-    for persona in personas:
-        state = _blank_state()
-        persona_results = []
-        for rep in range(rep_count):
-            # Each repetition replays the whole chain from a blank state.
-            # Re-sending one prompt into a state that already holds it would
-            # turn a create into a no_op and corrupt the accuracy rates, so a
-            # repetition is a fresh pass rather than a repeated prompt.
+    # A stage the provider refused was graded wrong for a reason outside the
+    # subject; counting them is what lets such a run be voided below.
+    with integrity.count_provider_refusals() as refusals:
+        for persona in personas:
             state = _blank_state()
-            for case in persona["prompts"]:
-                case_state = state if chain_state else _blank_state(domains=list(state["domains"]))
-                evaluation = await _evaluate_case(
-                    service=service,
-                    case=case,
-                    state=case_state,
-                    user_id="synthetic-benchmark-user",
-                    model_override=model_override,
-                    strict_small_model=strict_small_model,
-                    per_prompt_timeout_seconds=per_prompt_timeout_seconds,
-                    domain_registry_override=registry_override,
-                    rep=rep,
-                )
-                persona_results.append(evaluation)
-                all_results.append(evaluation)
-                if fail_fast:
-                    decisive_failure = _decisive_release_failure(evaluation)
-                    if decisive_failure:
-                        aborted_reason = f"{case.case_id}:{decisive_failure}"
-                        break
+            rows: list[tuple[PromptCase, _Answer]] = []
+            for rep in range(rep_count):
+                # Each repetition replays the whole chain from a blank state.
+                # Re-sending one prompt into a state that already holds it would
+                # turn a create into a no_op and corrupt the accuracy rates, so a
+                # repetition is a fresh pass rather than a repeated prompt.
+                state = _blank_state()
+                for case in persona["prompts"]:
+                    case_state = (
+                        state if chain_state else _blank_state(domains=list(state["domains"]))
+                    )
+                    answer = await _answer_case(
+                        service=service,
+                        case=case,
+                        state=case_state,
+                        user_id="synthetic-benchmark-user",
+                        model_override=model_override,
+                        strict_small_model=strict_small_model,
+                        per_prompt_timeout_seconds=per_prompt_timeout_seconds,
+                        domain_registry_override=registry_override,
+                        rep=rep,
+                    )
+                    _apply_preview_to_state(case_state, answer.result, case.message)
+                    rows.append((case, answer))
+                    if fail_fast:
+                        decisive_failure = _decisive_release_failure(_score_case(case, answer))
+                        if decisive_failure:
+                            aborted_reason = f"{case.case_id}:{decisive_failure}"
+                            break
+                if aborted_reason:
+                    break
+            persona_results, void_reasons, control_summary = _grade_with_controls(rows, seed=seed)
+            all_results.extend(persona_results)
+            persona_reports.append(
+                {
+                    "persona_id": persona["persona_id"],
+                    "name": persona["name"],
+                    "prompt_count": len(persona_results),
+                    "rep_count": rep_count,
+                    "final_domains": sorted(state["domains"]),
+                    "active_memory_count": sum(
+                        1 for entry in state["memories"] if entry.get("active", True)
+                    ),
+                    "controls": control_summary,
+                    "void_reasons": void_reasons,
+                    "results": [asdict(result) for result in persona_results],
+                }
+            )
             if aborted_reason:
                 break
-        persona_reports.append(
-            {
-                "persona_id": persona["persona_id"],
-                "name": persona["name"],
-                "prompt_count": len(persona_results),
-                "rep_count": rep_count,
-                "final_domains": sorted(state["domains"]),
-                "active_memory_count": sum(
-                    1 for entry in state["memories"] if entry.get("active", True)
-                ),
-                "results": [asdict(result) for result in persona_results],
-            }
-        )
-        if aborted_reason:
-            break
+    void_reasons = [reason for report in persona_reports for reason in report["void_reasons"]]
+    void_reasons += integrity.provider_void_reasons(refusals.count)
+    per_rep = [
+        _summarize_results([result for result in all_results if result.rep == rep])
+        for rep in range(rep_count)
+        if any(result.rep == rep for result in all_results)
+    ]
+    summary = _summarize_results(all_results)
+    rep_stats = integrity.rep_statistics(per_rep, integrity.CASE_GATED_RATES)
+    if void_reasons:
+        summary = integrity.void_rates(summary)
+        per_rep = [integrity.void_rates(entry) for entry in per_rep]
+        rep_stats = {}
     return {
         "mode": mode_name,
         "model_override": model_override or "",
@@ -3352,8 +3974,14 @@ async def _run_synthetic_mode(
         "evaluated_run_count": len(all_results),
         "synthetic_prompt_count": sum(len(persona["prompts"]) for persona in personas),
         "reps": reps,
+        "control_seed": seed,
+        "void": bool(void_reasons),
+        "void_reasons": void_reasons,
+        "provider_refused_calls": refusals.count,
         "personas": persona_reports,
-        "summary": _summarize_results(all_results),
+        "summary": summary,
+        "rep_summaries": per_rep,
+        "rep_statistics": rep_stats,
     }
 
 
@@ -3602,6 +4230,7 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
             "unresolved_domain_count": 0,
             "durable_domain_coverage_rate": 0.0,
             "drift_flag_counts": {},
+            **_stage_diagnostics([]),
         }
 
     def _rate(attr: str) -> float:
@@ -3651,6 +4280,27 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "unresolved_domain_count": unresolved_domain_count,
         "durable_domain_coverage_rate": durable_domain_coverage_rate,
         "drift_flag_counts": drift_flag_counts,
+        **_stage_diagnostics(results),
+    }
+
+
+def _stage_diagnostics(results: list[EvaluationResult]) -> dict[str, Any]:
+    """Ungated: who authored the payload, and which stage dropped durable statements."""
+
+    observed = [
+        item.structure_payload_authored
+        for item in results
+        if item.structure_payload_authored is not None
+    ]
+    drops: dict[str, int] = {}
+    for item in results:
+        if item.expected_save_class == "durable" and item.drop_stage:
+            drops[item.drop_stage] = drops.get(item.drop_stage, 0) + 1
+    return {
+        "payload_authored_by_model_rate": (
+            round(sum(observed) / len(observed), 4) if observed else None
+        ),
+        "durable_drop_stage_counts": drops,
     }
 
 
@@ -3670,7 +4320,8 @@ def _durable_domain_coverage_rate(
     if not durable_cases:
         return 1.0
     covered_cases = sum(
-        item.actual_save_class == "durable"
+        getattr(item, "structure_answered", True)
+        and item.actual_save_class == "durable"
         and item.actual_write_mode != "do_not_save"
         and item.actual_domain != _GENERAL_DOMAIN_KEY
         and item.actual_domain in item.expected_domains
@@ -3716,8 +4367,17 @@ def _compute_mode_stability(modes: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 def _mode_matrix(args: argparse.Namespace) -> list[tuple[str, str | None, bool]]:
+    """One mode. Production prompt path unless --strict-small-model.
+
+    This used to be hardwired to the strict small-model path, which the
+    /api/pkm route never takes, so the release gate graded prompts no owner
+    ever received.
+    """
+
     primary = (args.model or "").strip()
-    return [("candidate_minimal", primary or DEFAULT_PRIMARY_MODEL, True)]
+    strict = bool(getattr(args, "strict_small_model", False))
+    mode = "candidate_minimal" if strict else "candidate_production"
+    return [(mode, primary or DEFAULT_PRIMARY_MODEL, strict)]
 
 
 def _manual_kpi_summary(
@@ -3736,6 +4396,9 @@ def _manual_kpi_summary(
                 "model_override": report["model_override"],
                 "strict_small_model": report["strict_small_model"],
                 **report["summary"],
+                "rep_statistics": report.get("rep_statistics") or {},
+                "void_reasons": report.get("void_reasons") or [],
+                "controls": [p.get("controls") for p in report.get("personas") or []],
             }
             for report in synthetic_reports
         ],
@@ -3770,6 +4433,7 @@ def _gate_thresholds(args: argparse.Namespace) -> dict[str, float | None]:
         "fallback_rate": float(args.max_fallback_rate),
         "durable_domain_coverage_rate": float(args.min_durable_domain_coverage_rate),
         "max_p95_latency_ms": float(max_p95_latency_ms) if max_p95_latency_ms is not None else None,
+        "max_rate_spread": float(getattr(args, "max_rate_spread", DEFAULT_MAX_RATE_SPREAD)),
     }
 
 
@@ -3844,7 +4508,7 @@ def _execution_context(args: argparse.Namespace) -> dict[str, Any]:
         genai_sdk_version = "not-installed"
     return {
         "model": str(args.model or "").strip(),
-        "strict_small_model": True,
+        "strict_small_model": bool(getattr(args, "strict_small_model", False)),
         "reps": max(1, int(getattr(args, "reps", DEFAULT_REPS))),
         "per_prompt_timeout_seconds": float(args.per_prompt_timeout_seconds),
         "runtime_preview_budget_seconds": pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS,
@@ -3870,9 +4534,19 @@ def _build_quality_gate(
 ) -> dict[str, Any]:
     failures: list[str] = []
     for report in synthetic_reports:
+        label = f"synthetic:{report.get('mode') or 'unknown'}"
         if report.get("aborted_reason"):
-            failures.append(
-                f"synthetic:{report.get('mode') or 'unknown'}:aborted:{report['aborted_reason']}"
+            failures.append(f"{label}:aborted:{report['aborted_reason']}")
+        # A void run publishes no accuracy, so it can never pass.
+        failures.extend(f"{label}:void:{reason}" for reason in report.get("void_reasons") or [])
+        if thresholds.get("max_rate_spread") is not None and not report.get("void_reasons"):
+            failures.extend(
+                integrity.variance_failures(
+                    label=label,
+                    stats=report.get("rep_statistics") or {},
+                    reps=int(report.get("reps") or 1),
+                    max_spread=float(thresholds["max_rate_spread"]),
+                )
             )
         failures.extend(
             _gate_failures_for_summary(
@@ -3896,8 +4570,149 @@ def _build_quality_gate(
     }
 
 
+def _ledger_rates(stats: dict[str, Any]) -> dict[str, Any]:
+    return {
+        metric: {key: entry.get(key) for key in ("n", "mean", "min", "max", "spread", "stdev")}
+        for metric, entry in stats.items()
+    }
+
+
+def _ledger_record(
+    *,
+    args: argparse.Namespace,
+    service: Any,
+    model_override: str | None,
+    strict_small_model: bool,
+    quality_gate: dict[str, Any],
+    void_reasons: list[str],
+    rep_stats: dict[str, Any],
+    controls: dict[str, Any],
+    reps: int,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    status = "void" if void_reasons else quality_gate.get("status", "fail")
+    return {
+        "phase": args.phase,
+        "status": status,
+        "void_reasons": void_reasons,
+        "reps": reps,
+        "git": getattr(args, "run_git_state", None) or _run_git_state(args),
+        "capability_profile": integrity.capability_profile(
+            service=service, model_override=model_override, strict_small_model=strict_small_model
+        ),
+        "subject": integrity.subject_fingerprint(service),
+        # A void run publishes no accuracy at all, not a number with a caveat.
+        "rates": {} if void_reasons else _ledger_rates(rep_stats),
+        "controls": controls,
+        "gate_failures": quality_gate.get("failures") or [],
+        **(extra or {}),
+    }
+
+
+def _run_git_state(args: argparse.Namespace) -> dict[str, Any]:
+    if getattr(args, "source_ref", None):
+        return {"sha": args.source_ref, "dirty": False, "source": "declared"}
+    return integrity.git_state()
+
+
+def _compare_ledger(args: argparse.Namespace) -> int:
+    path = Path(args.ledger or integrity.DEFAULT_LEDGER_PATH)
+    errors = integrity.verify_ledger(path)
+    if errors:
+        print("Ledger chain is broken; refusing to compare:", *errors, sep="\n- ", file=sys.stderr)
+        return 2
+    entries = {entry["seq"]: entry for entry in integrity.read_ledger(path)}
+    before_seq, after_seq = args.compare
+    if before_seq not in entries or after_seq not in entries:
+        print(f"Ledger {path} has no entry {before_seq} or {after_seq}.", file=sys.stderr)
+        return 2
+    try:
+        comparison = integrity.compare_entries(entries[before_seq], entries[after_seq])
+    except integrity.IncomparableRunsError as error:
+        print(f"Refusing to compare: {error}", file=sys.stderr)
+        return 2
+    print(json.dumps(comparison, indent=2))
+    return 0
+
+
+async def _run_document_phase(args: argparse.Namespace, service: Any) -> int:
+    modes = _mode_matrix(args)
+    _, model_override, strict_small_model = modes[0]
+    reps = max(1, int(getattr(args, "reps", DEFAULT_REPS)))
+    seed = args.control_seed if args.control_seed is not None else secrets.randbits(32)
+    started_at = time.time()
+    report = await document_eval.run_document_mode(
+        service=service,
+        document_path=Path(args.document).expanduser().resolve(),
+        model_override=model_override,
+        strict_small_model=strict_small_model,
+        timeout_seconds=float(args.per_prompt_timeout_seconds),
+        reps=reps,
+        control_seed=seed,
+    )
+    failures = document_eval.gate_failures(
+        report,
+        min_line_coverage=float(args.min_line_coverage_rate),
+        max_fallback=float(args.max_fallback_rate),
+        max_spread=float(args.max_rate_spread),
+    )
+    quality_gate = {"status": "pass" if not failures else "fail", "failures": failures}
+    output = {
+        "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "duration_seconds": round(time.time() - started_at, 2),
+        "phase": args.phase,
+        "execution_context": _execution_context(args),
+        "capability_profile": integrity.capability_profile(
+            service=service, model_override=model_override, strict_small_model=strict_small_model
+        ),
+        "subject": integrity.subject_fingerprint(service),
+        "document_report": report,
+        "quality_gate": quality_gate,
+    }
+    report_path = Path(args.json_out).expanduser().resolve()
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(output, indent=2) + "\n", encoding="utf-8")
+    if args.ledger:
+        entry = integrity.append_ledger(
+            Path(args.ledger),
+            _ledger_record(
+                args=args,
+                service=service,
+                model_override=model_override,
+                strict_small_model=strict_small_model,
+                quality_gate=quality_gate,
+                void_reasons=report["void_reasons"],
+                rep_stats=report["rep_statistics"],
+                controls=report["controls"],
+                reps=reps,
+                extra={"lost_lines": report["lost_lines"]},
+            ),
+        )
+        print(f"Ledger entry {entry['seq']} appended to {args.ledger}")
+    print(
+        json.dumps(
+            {
+                "rep_statistics": report["rep_statistics"],
+                "controls": report["controls"],
+                "void_reasons": report["void_reasons"],
+                "quality_gate": quality_gate,
+            },
+            indent=2,
+        )
+    )
+    print(f"Wrote PKM context-transfer document report to {report_path}")
+    if args.enforce_gates and quality_gate["status"] != "pass":
+        print("PKM context-transfer document gate failed:", file=sys.stderr)
+        for failure in failures:
+            print(f"- {failure}", file=sys.stderr)
+        return 1
+    return 0
+
+
 async def main() -> int:
     args = parse_args()
+    if getattr(args, "compare", None):
+        return _compare_ledger(args)
     env_file = Path(args.env_file).expanduser().resolve() if args.env_file else None
     if env_file and env_file.exists():
         load_dotenv(env_file, override=True)
@@ -3905,7 +4720,13 @@ async def main() -> int:
     report_path = Path(args.json_out).expanduser().resolve()
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # The code this process imports is the code at its start; other work can
+    # land in the tree while a run is under way, so record the start state.
+    args.run_git_state = _run_git_state(args)
     service = get_pkm_agent_lab_service()
+    install_stage_observer(service)
+    if args.phase == DOCUMENT_PHASE:
+        return await _run_document_phase(args, service)
     # A synthetic-only rehearsal must not initialize the PKM database path.
     # Besides keeping the job read-only, this lets the no-traffic Cloud Run
     # candidate run with only its model credential.
@@ -3933,6 +4754,7 @@ async def main() -> int:
                 per_prompt_timeout_seconds=args.per_prompt_timeout_seconds,
                 fail_fast=bool(getattr(args, "fail_fast", False)),
                 reps=max(1, int(getattr(args, "reps", DEFAULT_REPS))),
+                control_seed=getattr(args, "control_seed", None),
             )
         )
         if not args.skip_shadow:
@@ -3978,6 +4800,25 @@ async def main() -> int:
         "quality_gate": quality_gate,
     }
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    if getattr(args, "ledger", None):
+        primary = synthetic_reports[0]
+        _, model_override, strict_small_model = modes[0]
+        entry = integrity.append_ledger(
+            Path(args.ledger),
+            _ledger_record(
+                args=args,
+                service=service,
+                model_override=model_override,
+                strict_small_model=strict_small_model,
+                quality_gate=quality_gate,
+                void_reasons=list(primary.get("void_reasons") or []),
+                rep_stats=primary.get("rep_statistics") or {},
+                controls=(primary.get("personas") or [{}])[0].get("controls") or {},
+                reps=int(primary.get("reps") or 1),
+                extra={"aborted_reason": primary.get("aborted_reason")},
+            ),
+        )
+        print(f"Ledger entry {entry['seq']} appended to {args.ledger}")
     print(
         json.dumps(
             _manual_kpi_summary(

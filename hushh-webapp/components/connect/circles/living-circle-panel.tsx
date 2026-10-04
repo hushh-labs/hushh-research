@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Plus, Trash2, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { PeopleOrbit } from "@/components/connect/people-orbit";
+import { CircleAvatar } from "./circle-photo-editor";
 import { Button } from "@/components/ui/button";
 import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
 import type {
@@ -34,6 +35,8 @@ export function LivingCirclePanel({
   loadingMore,
   onLoadMore,
   onRetry,
+  groupPhotoUrl,
+  showGroupIdentity = false,
 }: {
   circleName: string;
   members: readonly OneLocationCircleMember[];
@@ -53,6 +56,8 @@ export function LivingCirclePanel({
   loadingMore: boolean;
   onLoadMore: () => void;
   onRetry: () => void;
+  groupPhotoUrl?: string | null;
+  showGroupIdentity?: boolean;
 }) {
   const [overCircle, setOverCircle] = useState(false);
   const [overRemoveZone, setOverRemoveZone] = useState(false);
@@ -60,10 +65,10 @@ export function LivingCirclePanel({
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
   const owner = members.find((member) => member.role === "owner");
-  const orbitMembers = owner
+  const orbitMembers = owner && !showGroupIdentity
     ? members.filter((member) => member.userId !== owner.userId)
     : members;
-  const orbitMemberCount = Math.max(0, memberCount - (owner ? 1 : 0));
+  const orbitMemberCount = Math.max(0, memberCount - (owner && !showGroupIdentity ? 1 : 0));
   // Keep the first four positions stable while a new circle grows. These are
   // illustrations, not member records or a representation of the circle limit.
   const emptySlots =
@@ -133,7 +138,7 @@ export function LivingCirclePanel({
           totalCount={orbitMemberCount}
           emptySlots={emptySlots}
           center={
-            owner?.publicPersonRef ? (
+            showGroupIdentity ? <CircleAvatar photoUrl={groupPhotoUrl} className="size-16 ring-2 ring-background" /> : owner?.publicPersonRef ? (
               <Link
                 data-testid="circle-owner-profile"
                 className="cursor-pointer rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"

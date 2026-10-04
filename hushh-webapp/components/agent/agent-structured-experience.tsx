@@ -46,6 +46,10 @@ import {
   scopeItemsFromRequestable,
 } from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { EditRowIcon } from "@/components/icons/agents";
+import { ROUTES } from "@/lib/navigation/routes";
+import { describeOwnerStyleProposal, stageOwnerStyleProposal } from "@/lib/agent/owner-style-settings";
 import {
   ArrowUpRight,
   Check,
@@ -67,6 +71,7 @@ import type {
   MemoryImportReviewExperience,
   PersonSelectionSourceTool,
   ScopeDiscoveryExperience,
+  StyleSettingsOfferExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { parseAgentActivityExperience } from "@/lib/agent/agui-structured-experiences";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
@@ -192,7 +197,38 @@ export function AgentStructuredExperienceView({
       return <MemoryImportReviewView experience={experience} />;
     case "one.evidence_brief.v1":
       return <EvidenceBriefView experience={experience} />;
+    case "one.style_settings_offer.v1":
+      return <StyleSettingsOfferView experience={experience} />;
   }
+}
+
+/**
+ * One's offer to change how it writes. It names the values and opens Settings;
+ * the proposal travels in memory, never in the URL, and nothing changes until
+ * the owner saves there.
+ */
+function StyleSettingsOfferView({ experience }: { experience: StyleSettingsOfferExperience }) {
+  const { user } = useAuth();
+  const router = useRouter();
+  const ownerId = user?.uid ?? null;
+  return (
+    <ExperienceShell experienceType={experience.type} label="Writing style" title="Change how One writes to you"
+      summary="Review it in Settings. Nothing changes until you save." icon={<EditRowIcon size={24} aria-hidden="true" />}>
+      <dl className="divide-y divide-border/35" data-testid="style-offer-values">
+        {describeOwnerStyleProposal(experience.proposed).map((row) => (
+          <div key={row.label} className="flex min-h-11 items-center justify-between gap-4 py-2">
+            <dt className="text-sm text-muted-foreground">{row.label}</dt>
+            <dd className="min-w-0 truncate text-sm font-medium text-foreground">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <MorphyButton type="button" size="sm" className="mt-4" disabled={!ownerId} onClick={() => {
+        if (!ownerId) return;
+        stageOwnerStyleProposal(ownerId, experience.proposed);
+        router.push(ROUTES.PROFILE_PREFERENCES);
+      }}>Review in Settings</MorphyButton>
+    </ExperienceShell>
+  );
 }
 
 function DocumentRequestReviewView({ experience }: { experience: DocumentRequestReviewExperience }) {

@@ -48,6 +48,11 @@ class DomainSharingPolicy:
     denied_manifest_path_parts: frozenset[str] = frozenset()
     requestable_scopes: frozenset[str] | None = None
     allow_public_projection: bool = True
+    # Per-item sharing: the only shareable unit is one item under this branch,
+    # ``attr.<domain>.<branch>.<item_id>``, and only when the OWNER starts the
+    # grant. A requester can never ask for it, by wildcard or by exact path.
+    per_item_grant_branch: str | None = None
+    per_item_id_pattern: str | None = None
 
 
 CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
@@ -206,6 +211,19 @@ CURRENT_READABLE_PROJECTION_VERSION = "6.0.0"
 CURRENT_READABLE_SUMMARY_VERSION = 6
 GENERIC_DOMAIN_CONTRACT_VERSION = 4
 DYNAMIC_DOMAIN_CONTRACT_VERSION = 4
+# The reserved-branch relocation moves agent-written entries out of app-owned
+# branches into their agent_memory sibling (contracts/pkm/reserved-branches.v1.json),
+# on the device, through the PKM upgrade gate. It is recorded by a manifest
+# summary marker, not a domain contract version: shipped builds refuse to write a
+# domain stored at a newer version than their own, so a version bump would lock
+# their Finance and Location saves. The TypeScript twin is in
+# hushh-webapp/lib/personal-knowledge-model/upgrade-contracts.ts; a parity test
+# reads both.
+RESERVED_BRANCH_MIGRATION_VERSION = 1
+RESERVED_BRANCH_MIGRATION_MARKER = "reserved_branch_migration_version"
+RESERVED_BRANCH_MIGRATION_DOMAINS: frozenset[str] = frozenset(
+    {"financial", "identity", "location", "professional", "ria", "shopping", "wallet"}
+)
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
 FINANCIAL_DOMAIN_CONTRACT_VERSION = GENERIC_DOMAIN_CONTRACT_VERSION
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
@@ -402,7 +420,7 @@ CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBIN
 # These domains are protocol-reserved and writable only through first-party
 # owner-authorized PKM paths.  They must never be invented or repurposed by the
 # semantic structure agent as arbitrary user domains.
-OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library", "wallet"})
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"secrets", "source_library", "wallet"})
 
 DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     "identity": DomainSharingPolicy(
@@ -495,6 +513,21 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
             }
         ),
         allow_public_projection=False,
+    ),
+    "secrets": DomainSharingPolicy(
+        domain_key="secrets",
+        allow_domain_wildcard=False,
+        # API keys, passwords, tokens, private keys, and card and government id
+        # numbers held for the owner (contracts/pkm/secret-patterns.v1.json).
+        # One only ever knows an item exists, by its label. Nothing here is
+        # requestable: no wildcard, no branch, no exact path. The one way out
+        # is a grant the owner starts for a single item, whose scope is exactly
+        # ``attr.secrets.items.<sec_id>`` (pkm_scope_policy.is_owner_item_grant_scope).
+        allowed_manifest_path_prefixes=("items",),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+        per_item_grant_branch="items",
+        per_item_id_pattern=r"^sec_[a-f0-9]{16}$",
     ),
 }
 
@@ -615,6 +648,23 @@ def is_allowed_top_level_domain(domain: str) -> bool:
 def current_domain_contract_version(domain: str) -> int:
     _canonical = canonical_top_level_domain(domain)
     return GENERIC_DOMAIN_CONTRACT_VERSION
+
+
+def needs_reserved_branch_migration(domain: str, summary_projection: object) -> bool:
+    """True when ``domain`` holds a reserved branch and its manifest lacks the marker.
+
+    The marker is set by an upgrade-claim commit from a client that ran the
+    relocation, and the server carries it across ordinary writes
+    (``PersonalKnowledgeModelService._normalize_manifest_payload``).
+    """
+    if canonical_top_level_domain(domain) not in RESERVED_BRANCH_MIGRATION_DOMAINS:
+        return False
+    projection = summary_projection if isinstance(summary_projection, dict) else {}
+    try:
+        recorded = int(projection.get(RESERVED_BRANCH_MIGRATION_MARKER) or 0)
+    except (TypeError, ValueError):
+        recorded = 0
+    return recorded < RESERVED_BRANCH_MIGRATION_VERSION
 
 
 def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None:

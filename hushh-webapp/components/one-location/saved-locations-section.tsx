@@ -51,6 +51,7 @@ import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
 import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
+import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
   const config: {
@@ -120,6 +121,13 @@ export function SavedLocationsSection() {
   );
   const [rendererDisclosureAccepted, setRendererDisclosureAccepted] =
     useState(false);
+  // A chat offer ("Add as Home in Location") hands its category and name over
+  // in memory (lib/pkm/reserved-offer.ts). The owner still pins the place and
+  // saves it here, with this screen's own writer.
+  const [offerPrefill, setOfferPrefill] = useState<{
+    category: SavedLocationCategory;
+    label: string;
+  } | null>(null);
 
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
@@ -383,6 +391,19 @@ export function SavedLocationsSection() {
     vaultOwnerToken,
   ]);
 
+  useEffect(() => {
+    if (!userId || !hasVaultAccess || capturing || saveLocationModalOpen) return;
+    const staged = takeReservedOfferPrefill({
+      ownerUserId: userId,
+      ownerFeature: "location",
+      kind: "location_saved_place",
+    });
+    if (!staged) return;
+    setEditingLocation(null);
+    setOfferPrefill({ category: staged.category, label: staged.label });
+    void handleAdd();
+  }, [capturing, handleAdd, hasVaultAccess, saveLocationModalOpen, userId]);
+
   const handleSave = useCallback(
     async (
       category: SavedLocationCategory,
@@ -470,6 +491,7 @@ export function SavedLocationsSection() {
         setSaveLocationModalOpen(false);
         setSaveLocationPoint(null);
         setEditingLocation(null);
+        setOfferPrefill(null);
         toast.success(
           editing ? "Location updated." : "Location saved securely.",
         );
@@ -846,7 +868,7 @@ export function SavedLocationsSection() {
         onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
         collectAddressDetails
         startWithMapPicker
-        initialCategory={editingLocation?.category ?? null}
+        initialCategory={editingLocation?.category ?? offerPrefill?.category ?? null}
         // Excluding the place being edited: its own label is still free to it.
         existingLocations={
           editingLocation
@@ -855,7 +877,11 @@ export function SavedLocationsSection() {
         }
 
         initialCustomLabel={
-          editingLocation?.category === "other" ? editingLocation.label : null
+          editingLocation?.category === "other"
+            ? editingLocation.label
+            : !editingLocation && offerPrefill?.category === "other"
+              ? offerPrefill.label
+              : null
         }
         // What the person actually typed last time. This used to hand back an
         // empty houseOrFlat on every edit, which the modal required before it
@@ -883,6 +909,7 @@ export function SavedLocationsSection() {
           setSaveLocationAddress(null);
           setSaveLocationAddressLoading(false);
           setEditingLocation(null);
+          setOfferPrefill(null);
         }}
       />
     </>

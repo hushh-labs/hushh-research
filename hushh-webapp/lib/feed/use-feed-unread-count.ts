@@ -10,6 +10,7 @@ import {
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
+import { currentFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 
 /**
@@ -35,6 +36,9 @@ export function useFeedUnreadCount(): number | null {
     session: typeof session;
     promise: Promise<void>;
   } | null>(null);
+  const refreshPendingRef = useRef(false);
+  const feedEpochRef = useRef(currentFeedInvalidationEpoch(currentUserId ?? ""));
+  const loadRef = useRef<((force: boolean) => Promise<void>) | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -44,10 +48,13 @@ export function useFeedUnreadCount(): number | null {
   }, []);
 
   const load = useCallback(
-    (force = false): Promise<void> => {
+    (force = false, followup = false): Promise<void> => {
       if (!user?.uid) return Promise.resolve();
       const existing = inFlightRef.current;
-      if (existing?.session === session) return existing.promise;
+      if (existing?.session === session) {
+        if (followup) refreshPendingRef.current = true;
+        return existing.promise;
+      }
 
       const requestedUserId = user.uid;
       const requestId = ++requestSequenceRef.current;
@@ -74,16 +81,25 @@ export function useFeedUnreadCount(): number | null {
       const request = { session, promise };
       inFlightRef.current = request;
       void promise.finally(() => {
-        if (inFlightRef.current === request) inFlightRef.current = null;
+        if (inFlightRef.current === request) {
+          inFlightRef.current = null;
+          if (refreshPendingRef.current && mountedRef.current) {
+            refreshPendingRef.current = false;
+            void loadRef.current?.(true);
+          }
+        }
       });
       return promise;
     },
     [session, user],
   );
+  useEffect(() => { loadRef.current = load; }, [load]);
 
   useEffect(() => {
     requestSequenceRef.current += 1;
     inFlightRef.current = null;
+    refreshPendingRef.current = false;
+    feedEpochRef.current = currentFeedInvalidationEpoch(session.userId ?? "");
     setCountState({ session, count: null });
     if (!user?.uid || !rootChatReady) {
       return;
@@ -105,6 +121,13 @@ export function useFeedUnreadCount(): number | null {
   useEffect(() => {
     if (!user?.uid || !rootChatReady) return;
     const recount = (event: Event) => {
+      const epoch = currentFeedInvalidationEpoch(user.uid);
+      if (epoch !== feedEpochRef.current) {
+        feedEpochRef.current = epoch;
+        requestSequenceRef.current += 1;
+        inFlightRef.current = null;
+        refreshPendingRef.current = false;
+      }
       const reason = feedStateChangeReason(event);
       if (reason === "read") {
         const cached = CacheService.getInstance().get<number>(
@@ -115,6 +138,7 @@ export function useFeedUnreadCount(): number | null {
           // Retire those requests so a late pre-read response cannot restore
           // the badge the user just cleared by opening Feed.
           requestSequenceRef.current += 1;
+          refreshPendingRef.current = false;
           if (inFlightRef.current?.session === session) {
             inFlightRef.current = null;
           }
@@ -124,7 +148,7 @@ export function useFeedUnreadCount(): number | null {
           return;
         }
       }
-      void load(true);
+      void load(true, true);
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);

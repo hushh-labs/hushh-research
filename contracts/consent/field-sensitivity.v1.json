@@ -42,6 +42,8 @@
     ["mother", "maiden"],
     ["maiden", "name"]
   ],
+  "$comment_identifier_domains": "Domains where EVERY field is identifier-class, whatever its key or value: a label such as 'GitHub token ending 4f2a' is sensitive because of where it lives. `secrets` holds API keys, passwords, tokens, private keys and card and government id numbers, saved by the device guard (contracts/pkm/secret-patterns.v1.json) and never sent to a model.",
+  "identifier_domains": ["secrets"],
   "$comment_value_patterns": "Regexes in the shared subset of Python and JavaScript syntax (no lookbehind, no named groups). A value is identifier-shaped when any pattern is found in it. A 'luhn' pattern counts only when its digits pass the Luhn checksum, so an ordinary long number is not mistaken for a card.",
   "identifier_value_patterns": [
     {"name": "ssn", "pattern": "\\b\\d{3}-\\d{2}-\\d{4}\\b"},
@@ -110,6 +112,9 @@
     {"key": "payment", "value": "4111 1111 1111 1111", "sensitive": true, "why": "Luhn-valid card number."},
     {"key": "order_total", "value": "1234567890123", "sensitive": false, "why": "A long number that fails Luhn is not a card."},
     {"key": "spin_class", "value": "Tuesdays", "sensitive": false, "why": "'pin' is matched as a whole word, never inside 'spin'."},
-    {"key": "business_address", "value": "1 Market St", "sensitive": false, "why": "An address line is not an identifier."}
+    {"key": "business_address", "value": "1 Market St", "sensitive": false, "why": "An address line is not an identifier."},
+    {"domain": "secrets", "key": "label", "value": "GitHub token ending 0000", "sensitive": true, "why": "Every field in Secrets is identifier-class, even its masked label."},
+    {"domain": "secrets", "key": "created_at", "value": "2026-10-01", "sensitive": true, "why": "Including fields that would be standard anywhere else."},
+    {"domain": "notes", "key": "label", "value": "GitHub token ending 0000", "sensitive": false, "why": "The same words outside Secrets are ordinary text."}
   ]
 }

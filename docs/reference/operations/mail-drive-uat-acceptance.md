@@ -405,6 +405,15 @@ running the helper; do not weaken the route or make a direct Cloud Run deploymen
 Scheduler attempt means a bounded work dispatch occurred—not that Firebase delivered a push,
 someone opened a review, or Google shared a file.
 
+Worker startup requires the baked local model's synthetic query and the scanner's
+fresh-signature/EICAR attestation before admitting traffic. These checks share a
+180-second readiness budget, leaving headroom inside the 220-second Gunicorn and
+240-second startup-probe bounds. Only a retryable `processing_timeout` receives
+one model retry; other model failures and a second timeout fail closed. Query
+isolation and per-query resource limits remain unchanged. Exhausting the shared
+budget cancels the unfinished check and keeps the candidate unready; the existing
+release workflow restores its prior serving services and scheduler targets.
+
 ## Remaining delivery checklist
 
 - [x] Dedicated Drive web client provisioned in `hushh-drive-uat`; UAT web origin and both

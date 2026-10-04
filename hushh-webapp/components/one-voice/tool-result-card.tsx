@@ -42,6 +42,7 @@ import {
   type ToolResultPublic,
 } from "@/lib/one-voice/protocol";
 import {
+  NAVIGATION_DISPATCH_STATUSES,
   isPendingStatus,
   toolResultTone,
   type ToolResultTone,
@@ -184,6 +185,10 @@ export function toneForResult(
   const status = String(result.status || "").trim();
   if (status === "draft_open_unconfirmed") return "neutral";
   if (isPendingStatus(status)) return "pending";
+  // A navigation request is neither done nor failed; ui_settled decides.
+  if (NAVIGATION_DISPATCH_STATUSES.has(status)) {
+    return ok === false ? "failure" : "neutral";
+  }
   if (ok === undefined) {
     return NOT_SUCCESS_STATUSES.has(status) ||
       status === "rejected" ||
@@ -1313,13 +1318,18 @@ export function ToolResultCard({
         : tone === "pending"
           ? "In progress"
           : null;
+  const dispatchHeadline =
+    tone === "neutral" &&
+    NAVIGATION_DISPATCH_STATUSES.has(String(result.status || "").trim())
+      ? "Opening…"
+      : null;
   const headline =
     family === "sos"
       ? (sosHeadline(result.status, tone) ?? genericHeadline)
       : family === "mail" && tone !== "failure"
         ? // A read is not a thing that got "Done". The count line is the headline.
           null
-        : genericHeadline;
+        : (dispatchHeadline ?? genericHeadline);
 
   return (
     <div

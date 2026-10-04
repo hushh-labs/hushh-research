@@ -535,6 +535,46 @@ def send_connection_removed_push(
     )
 
 
+def send_direct_message_push(
+    recipient_user_id: str,
+    *,
+    conversation_id: str,
+    message_id: str,
+) -> int:
+    """Nudge a recipient about a direct message without revealing its body.
+
+    This follows the existing token/OS-permission path in
+    :func:`send_user_data_push`; no direct-message-specific preference table
+    exists yet, so an account with no registered/authorized push token gets no
+    OS alert.  The authenticated SSE doorbell remains available in that case.
+    """
+
+    recipient = str(recipient_user_id or "").strip()
+    conversation = str(conversation_id or "").strip()
+    message = str(message_id or "").strip()
+    if not recipient or not conversation or not message:
+        return 0
+    notification_id = f"direct-message:{message}"
+    deep_link = f"/one/messages?conversationId={quote(conversation, safe='')}"
+    return send_user_data_push(
+        recipient,
+        notification_type="direct_message",
+        title="New message",
+        body="You have a new message.",
+        deep_link=deep_link,
+        notification_tag=notification_id,
+        notification_category="ONE_MESSAGES",
+        data={
+            "message_id": notification_id,
+            "conversation_id": conversation,
+            "direct_message_id": message,
+        },
+        # Firebase does not need a raw recipient id to route an opaque message
+        # reference, and message content never reaches FCM.
+        include_user_id=False,
+    )
+
+
 def _send_circle_user_event(
     user_id: str,
     *,

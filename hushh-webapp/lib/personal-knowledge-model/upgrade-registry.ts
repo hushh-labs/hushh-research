@@ -3,14 +3,20 @@ import {
   CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
+  PKM_QUARANTINE_SEGMENT_ID,
+  RESERVED_BRANCH_MIGRATION_DOMAINS,
   comparePkmSemanticVersions,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
+import {
+  relocateAgentEntriesFromReservedBranches,
+  type ReservedMigrationReport,
+} from "@/lib/personal-knowledge-model/reserved-branch-migration";
 import type { DomainSummary } from "@/lib/services/personal-knowledge-model-service";
 
 // Cross-runtime reserved segment contract. Information placed here remains
 // encrypted but must never appear in scope discovery or consent exports.
-export const PKM_QUARANTINE_SEGMENT_ID = "__quarantine_v1" as const;
+export { PKM_QUARANTINE_SEGMENT_ID };
 
 export type PkmDomainCapability =
   | "manifest_normalization"
@@ -38,6 +44,10 @@ export type PkmDomainUpgradeResult = {
   capabilitiesApplied: PkmDomainCapability[];
   compatibility: PkmDomainCompatibility;
   losslessValidation: PkmLosslessValidation;
+  /** Every original occurrence that changed place, from the stored data to `domainData`. */
+  lineage: PkmOccurrenceLineage[];
+  /** Present when the reserved-branch relocation ran for this domain (`RESERVED_BRANCH_MIGRATION_DOMAINS`). */
+  reservedMigration?: ReservedMigrationReport;
 };
 
 export type PkmLosslessValidation = {
@@ -238,17 +248,56 @@ export function validateLosslessDomainUpgrade(
   };
 }
 
-type PkmDomainUpgradeStep = {
-  toVersion: number;
-  transform: (domainData: Record<string, unknown>) => Record<string, unknown>;
+type PkmDomainUpgradeStepResult = {
+  domainData: Record<string, unknown>;
+  /** Every occurrence the step put somewhere else; unlisted ones must stay put. */
+  lineage: PkmOccurrenceLineage[];
 };
 
-const LOSSLESS_DOMAIN_UPGRADE_STEPS: Record<number, PkmDomainUpgradeStep> = {
-  1: { toVersion: 1, transform: cloneRecord },
-  2: { toVersion: 2, transform: cloneRecord },
-  3: { toVersion: 3, transform: cloneRecord },
-  4: { toVersion: 4, transform: cloneRecord },
+type PkmDomainUpgradeStep = {
+  toVersion: number;
+  transform: (params: { domain: string; domainData: Record<string, unknown> }) => PkmDomainUpgradeStepResult;
 };
+
+const cloneStep = ({ domainData }: { domainData: Record<string, unknown> }): PkmDomainUpgradeStepResult => ({
+  domainData: cloneRecord(domainData),
+  lineage: [],
+});
+
+const RESERVED_BRANCH_MIGRATION_DOMAIN_SET: ReadonlySet<string> = new Set(RESERVED_BRANCH_MIGRATION_DOMAINS);
+
+const LOSSLESS_DOMAIN_UPGRADE_STEPS: Record<number, PkmDomainUpgradeStep> = {
+  1: { toVersion: 1, transform: cloneStep },
+  2: { toVersion: 2, transform: cloneStep },
+  3: { toVersion: 3, transform: cloneStep },
+  4: { toVersion: 4, transform: cloneStep },
+};
+
+/**
+ * Carry each original occurrence through every step's lineage, so the final
+ * receipt is proved against the data as it was before the whole upgrade.
+ */
+function composeLineage(
+  original: Record<string, unknown>,
+  stepLineages: PkmOccurrenceLineage[][],
+): PkmOccurrenceLineage[] {
+  const composed: PkmOccurrenceLineage[] = [];
+  const steps = stepLineages.map((lineage) => new Map(lineage.map((entry) => [entry.sourcePointer, entry])));
+  for (const occurrence of enumerateOccurrences(original)) {
+    let current = occurrence.pointer;
+    let classification: PkmOccurrenceClassification = "preserved";
+    for (const lineage of steps) {
+      const declared = lineage.get(current);
+      if (!declared) continue;
+      current = declared.targetPointer;
+      if (declared.classification !== "preserved") classification = declared.classification;
+    }
+    if (current !== occurrence.pointer || classification !== "preserved") {
+      composed.push({ sourcePointer: occurrence.pointer, targetPointer: current, classification });
+    }
+  }
+  return composed;
+}
 
 function assertSupportedStoredVersions(params: {
   currentVersion: number;
@@ -389,9 +438,11 @@ export function runDomainUpgrade(params: {
   currentVersion: number;
   manifest?: DomainManifest | null;
 }): PkmDomainUpgradeResult {
-  const targetVersion = currentDomainContractVersion(params.domain);
+  const domain = String(params.domain || "").trim().toLowerCase();
+  const targetVersion = currentDomainContractVersion(domain);
+  const fromVersion = Math.max(0, params.currentVersion || 0);
   assertSupportedStoredVersions({
-    currentVersion: Math.max(0, params.currentVersion || 0),
+    currentVersion: fromVersion,
     targetVersion,
     manifest: params.manifest,
   });
@@ -399,28 +450,14 @@ export function runDomainUpgrade(params: {
     domainData: params.domainData,
     manifest: params.manifest || null,
   });
-  if ((params.currentVersion || 0) <= 0) {
-    const nextDomainData = cloneRecord(params.domainData);
-    const losslessValidation = validateLosslessDomainUpgrade(params.domainData, nextDomainData);
-    if (!losslessValidation.preserved) {
-      throw new PkmLosslessUpgradeError(losslessValidation);
-    }
-    return {
-      domainData: nextDomainData,
-      notes: [
-        `Rebuilt ${titleize(params.domain)} into the current Personal Knowledge Model contract from legacy or unversioned information.`,
-      ],
-      newDomainContractVersion: targetVersion,
-      pkmContractVersion: CURRENT_PKM_CONTRACT_VERSION,
-      readableProjectionVersion: CURRENT_READABLE_PROJECTION_VERSION,
-      capabilitiesApplied: compatibility.capabilities,
-      compatibility,
-      losslessValidation,
-    };
-  }
+  // Unversioned or legacy information bootstraps through every step.
+  const notes: string[] = fromVersion <= 0
+    ? [`Rebuilt ${titleize(domain)} into the current Personal Knowledge Model contract from legacy or unversioned information.`]
+    : [];
   let nextDomainData = cloneRecord(params.domainData);
-  let nextVersion = Math.max(0, params.currentVersion || 0);
-  const notes: string[] = [];
+  let nextVersion = fromVersion;
+  const stepLineages: PkmOccurrenceLineage[][] = [];
+  let reservedMigration: ReservedMigrationReport | undefined;
 
   while (nextVersion < targetVersion) {
     const toVersion = nextVersion + 1;
@@ -428,17 +465,46 @@ export function runDomainUpgrade(params: {
     if (!step || step.toVersion !== toVersion) {
       throw new Error(`Missing PKM domain upgrade transform for version ${toVersion}.`);
     }
-    const candidate = step.transform(nextDomainData);
-    const stepValidation = validateLosslessDomainUpgrade(nextDomainData, candidate);
+    const candidate = step.transform({ domain, domainData: nextDomainData });
+    const stepValidation = validateLosslessDomainUpgrade(nextDomainData, candidate.domainData, candidate.lineage);
     if (!stepValidation.preserved) {
       throw new PkmLosslessUpgradeError(stepValidation);
     }
-    nextDomainData = candidate;
+    nextDomainData = candidate.domainData;
     nextVersion = toVersion;
-    notes.push(`Refreshed ${titleize(params.domain)} with the generic dynamic PKM capability pipeline.`);
+    stepLineages.push(candidate.lineage);
+    if (fromVersion > 0) {
+      notes.push(`Refreshed ${titleize(domain)} with the generic dynamic PKM capability pipeline.`);
+    }
   }
 
-  const losslessValidation = validateLosslessDomainUpgrade(params.domainData, nextDomainData);
+  // The reserved-branch relocation is not a version step: it runs on every
+  // upgrade of a domain that holds a reserved branch, and is idempotent, so a
+  // domain already relocated passes through unchanged. Its completion is the
+  // manifest marker the orchestrator stamps (RESERVED_BRANCH_MIGRATION_MARKER).
+  if (RESERVED_BRANCH_MIGRATION_DOMAIN_SET.has(domain)) {
+    const relocated = relocateAgentEntriesFromReservedBranches({ domain, domainData: nextDomainData });
+    const relocationValidation = validateLosslessDomainUpgrade(
+      nextDomainData,
+      relocated.domainData,
+      relocated.lineage,
+    );
+    if (!relocationValidation.preserved) {
+      throw new PkmLosslessUpgradeError(relocationValidation);
+    }
+    nextDomainData = relocated.domainData;
+    stepLineages.push(relocated.lineage);
+    reservedMigration = relocated.report;
+    if (relocated.lineage.length > 0) {
+      notes.push(
+        `Moved ${relocated.report.moved} agent-written ${titleize(domain)} entries out of app-owned branches; ` +
+          `${relocated.report.quarantined} ambiguous entries were preserved privately.`
+      );
+    }
+  }
+
+  const lineage = composeLineage(params.domainData, stepLineages);
+  const losslessValidation = validateLosslessDomainUpgrade(params.domainData, nextDomainData, lineage);
   if (!losslessValidation.preserved) {
     throw new PkmLosslessUpgradeError(losslessValidation);
   }
@@ -452,6 +518,8 @@ export function runDomainUpgrade(params: {
     capabilitiesApplied: compatibility.capabilities,
     compatibility,
     losslessValidation,
+    lineage,
+    ...(reservedMigration ? { reservedMigration } : {}),
   };
 }
 

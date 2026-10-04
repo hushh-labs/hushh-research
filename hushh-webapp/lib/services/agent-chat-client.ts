@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -51,6 +52,7 @@ import {
   parseAgentToolResultExperience,
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
+import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 
 export type AgentChatMessage = {
   id: string;
@@ -740,6 +742,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Updating your preferred model.",
     activity: "Updating your model",
   },
+  propose_style_settings: {
+    label: "Writing style",
+    message: "Preparing a writing style change for you to review in Settings.",
+    activity: "Preparing a style change",
+  },
   calendar_summary: {
     label: "Google Calendar",
     message: "Summarizing your calendar.",
@@ -1151,6 +1158,11 @@ export async function streamAgentChat(input: {
   vaultKey: string;
   loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
+  /**
+   * The owner's Settings style choices (reserved `identity.communication_preferences`),
+   * sent apart from `pkmContext` so One reads them as standing style, never as recalled data.
+   */
+  communicationPreferences?: OwnerStyleSettings;
   personSelectionHandle?: string;
   /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
   gmailInformationRequestWorkflowId?: string;
@@ -1182,7 +1194,13 @@ export async function streamAgentChat(input: {
    */
   detached: boolean;
 }> {
+  // Last line before the wire. The composer already kept every secret in
+  // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
+  // a turn that still carries a raw one is refused before any request exists.
+  assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
   const timezone = resolveBrowserTimeZone();
+  // Closed to the server's schema here, so a stale branch never refuses the turn.
+  const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
@@ -1392,6 +1410,7 @@ export async function streamAgentChat(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              communicationPreferences,
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -1830,7 +1849,7 @@ export async function streamAgentChat(input: {
                   tools, context: [],
                   forwardedProps: {
                     ...await connectorProjection(),
-                    timezone, turnLocation, pkmContext: input.pkmContext,
+                    timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -1927,6 +1946,7 @@ export async function streamAgentChat(input: {
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,
+        communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -2066,11 +2086,14 @@ export function createQueuedInputPorts(getVaultOwnerToken: () => string | null):
   const base = (conversationId: string) =>
     `/api/one/agent-chat/runs/${encodeURIComponent(conversationId)}`;
   return {
-    enqueue: async (conversationId, clientMessageId, text) =>
-      parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
+    enqueue: async (conversationId, clientMessageId, text) => {
+      // The same last line as streamAgentChat: a raw secret never leaves.
+      assertNoUnguardedSecrets([text]);
+      return parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
         method: "POST",
         body: JSON.stringify({ client_message_id: clientMessageId, text }),
-      })).status),
+      })).status);
+    },
     withdraw: async (conversationId, clientMessageId) =>
       parseQueuedInputStatus((await call(
         `${base(conversationId)}/queue/${encodeURIComponent(clientMessageId)}`,

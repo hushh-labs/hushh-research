@@ -124,6 +124,16 @@ const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_reques
  */
 export const DISPATCH_ONLY_STATUSES = new Set<string>(["mail_open_dispatched"]);
 
+/**
+ * A navigation the app was asked to make. It is not a success (it stays in
+ * NOT_SUCCESS_STATUSES; the ui_settled outcome decides) and not a failure: it
+ * reads as "Opening…". Not pending either -- that would hold the turn open
+ * waiting on a device step that never comes.
+ */
+export const NAVIGATION_DISPATCH_STATUSES = new Set<string>([
+  "navigation_dispatched",
+]);
+
 export function isPendingStatus(status: string | null | undefined): boolean {
   return PENDING_STATUSES.has(String(status || "").trim());
 }
@@ -140,6 +150,9 @@ export function toolResultTone(
   // The review card may already be visible after a lost acknowledgement.
   // This says nothing about a send, so avoid both success and failure claims.
   if (value === "draft_open_unconfirmed") return "neutral";
+  if (NAVIGATION_DISPATCH_STATUSES.has(value)) {
+    return ok === false ? "failure" : "neutral";
+  }
   if (
     !ok ||
     !value ||
@@ -486,6 +499,12 @@ function isStaleOrigin(state: VoiceSessionState, turnId: string | null | undefin
   );
 }
 
+/** A completed model turn can still be waiting for its screen to mount. */
+export function isStaleNavigation(state: VoiceSessionState, callId: string, turnId?: string | null): boolean {
+  const item = state.toolTimeline.findLast((entry) => entry.callId === callId && entry.tool === "open_screen");
+  return !item || Boolean(item.navigationSuperseded) || Boolean(turnId && item.turnId !== turnId);
+}
+
 // --- server frames ------------------------------------------------------------
 
 function reduceServerFrame(
@@ -617,6 +636,9 @@ function reduceServerFrame(
         // A new question owns the visible answer slot. Older tool receipts
         // remain in the timeline and any pending action still settles by ID.
         lastResult: newInput ? null : state.lastResult,
+        toolTimeline: newInput
+          ? state.toolTimeline.map((item) => item.tool === "open_screen" ? { ...item, navigationSuperseded: true } : item)
+          : state.toolTimeline,
         phase:
           newInput && state.phase !== "paused" && state.phase !== "error"
             ? "understanding"
@@ -651,6 +673,9 @@ function reduceServerFrame(
             ? addFencedTurns(state.fencedTurnIds, frame.turn_id)
             : state.fencedTurnIds,
         transcript,
+        toolTimeline: frame.state === "interrupted"
+          ? state.toolTimeline.map((item) => item.tool === "open_screen" && item.turnId === frame.turn_id ? { ...item, navigationSuperseded: true } : item)
+          : state.toolTimeline,
         idleDeadlineAt: null,
       };
     }
@@ -1029,6 +1054,19 @@ export function reduceVoiceSession(
   event: VoiceSessionEvent,
 ): VoiceSessionState {
   switch (event.type) {
+    case "navigation_settled": {
+      if (isStaleNavigation(state, event.callId, event.turnId)) return state;
+      const index = findLastIndex(state.toolTimeline, (item) =>
+        item.callId === event.callId && item.tool === "open_screen" &&
+        (!event.turnId || item.turnId === event.turnId),
+      );
+      if (index < 0 || state.toolTimeline[index]!.navigationOutcome) return state;
+      const timeline = state.toolTimeline.slice();
+      // tool.started precedes the directive. Retain settlement on that entry
+      // even if navigation completes before tool.result arrives.
+      timeline[index] = { ...timeline[index]!, navigationOutcome: event.status };
+      return { ...state, toolTimeline: timeline };
+    }
     case "reset":
       return INITIAL_VOICE_SESSION_STATE;
     case "clear_view": {

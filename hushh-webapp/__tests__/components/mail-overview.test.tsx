@@ -8,6 +8,7 @@ describe("Mail overview", () => {
     const props = { receiptUpdated: "Last updated just now.", onOpenChat };
     const { rerender } = render(<MailOverview {...props} fetching receiptDetail="Fetching your latest purchases…" />);
     expect(screen.getByRole("status", { name: "Fetching receipts" })).toBeInTheDocument();
+    expect(screen.queryByText("Agent One")).not.toBeInTheDocument();
     rerender(<MailOverview {...props} fetching={false} receiptDetail="Your latest receipts are ready." />);
     expect(screen.queryByRole("status", { name: "Fetching receipts" })).not.toBeInTheDocument();
     expect(screen.getByText("Your latest receipts are ready.")).toBeInTheDocument();

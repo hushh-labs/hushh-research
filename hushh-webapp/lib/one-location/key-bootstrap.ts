@@ -21,6 +21,7 @@ export async function bootstrapCurrentUserLocationRecipientKey(params: {
   userId: string;
   vaultOwnerToken: string;
   vaultKey?: string | null;
+  strictRecovery?: boolean;
 }): Promise<OneLocationRecipient> {
   const userId = String(params.userId || "").trim();
   const vaultOwnerToken = String(params.vaultOwnerToken || "").trim();
@@ -48,13 +49,15 @@ export async function bootstrapCurrentUserLocationRecipientKey(params: {
     try {
       const state = await OneLocationService.getState(vaultOwnerToken);
       remoteBackup = state.myRecipientKey ?? null;
-    } catch {
+    } catch (error) {
+      if (params.strictRecovery) throw error;
       // Best-effort: the resolver falls back to the local key or generates one.
     }
     const resolved = await ensureVaultSyncedRecipientKey({
       userId,
       vaultKey,
       remoteBackup,
+      strictRecovery: params.strictRecovery,
     });
     // Register idempotently. The backend upsert keeps the same key active and
     // COALESCEs the blob, so re-registering an already-synced key is a no-op that

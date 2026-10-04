@@ -14,8 +14,15 @@ const VIEWPORTS = [
   { width: 768, height: 1024 },
 ];
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page, baseURL }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
+  // Firebase checks public domain metadata even before sign-in. The QA build
+  // uses a fixture API key; keep this guest-flow contract independent of Google.
+  await page.route("https://www.googleapis.com/identitytoolkit/v3/relyingparty/getProjectConfig?*", (route) =>
+    route.fulfill({
+      json: { authorizedDomains: [new URL(baseURL || "http://localhost:3000").hostname] },
+    }),
+  );
   await page.route("**/api/one/location/circle-codes/public-preview", (route) =>
     route.fulfill({
       json: { circle: { name: "Family Circle", ownerDisplayName: "Alex" } },
@@ -171,28 +178,49 @@ test("the account action preserves the invite through sign-in and cancellation",
   await expect(preview).toBeVisible();
 });
 
-test("the native token landing retains the invitation through all three screens and login", async ({ page }) => {
-  const destination = "/circle/join?invite=browser_fixture_token";
-  let claims = 0;
-  await page.route("**/api/one/location/circle-invites/browser_fixture_token", (route) => route.fulfill({
-    json: { invite: { id: "fixture", ownerLabel: "Alex", status: "active", durationHours: 24 } },
-  }));
-  await page.route("**/api/one/location/circle-invites/*/claim", (route) => {
-    claims++;
-    return route.fulfill({ status: 403, json: {} });
+for (const { name, destination } of [
+  {
+    name: "native token landing",
+    destination: "/circle/join?invite=browser_fixture_token",
+  },
+  {
+    name: "shared One invite link",
+    destination: "/one/location/invite/browser_fixture_token",
+  },
+]) {
+  test(`the ${name} retains the invitation through all three screens and login`, async ({ page }) => {
+    // Cold WebKit waits for Firebase restoration and the streamed One layout.
+    test.setTimeout(60000);
+    const errors = watchRuntime(page);
+    let claims = 0;
+    await page.route("**/api/one/location/circle-invites/browser_fixture_token", (route) => route.fulfill({
+      json: { invite: { id: "fixture", ownerLabel: "Alex", status: "active", durationHours: 24 } },
+    }));
+    await page.route("**/api/one/location/circle-invites/*/claim", (route) => {
+      claims++;
+      return route.fulfill({ status: 403, json: {} });
+    });
+    const response = await page.goto(destination);
+    expect(response?.status()).toBe(200);
+    const preview = page.getByTestId("guest-preview");
+    await expect(preview).toHaveAttribute("data-preview-step", "1", { timeout: 30000 });
+    await expect(preview.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
+    await preview.getByRole("button", { name: "Meet your agents" }).click();
+    await expect(preview).toHaveAttribute("data-preview-step", "2");
+    await expect(preview.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
+    await preview.getByRole("button", { name: "See what’s next" }).click();
+    await expect(preview).toHaveAttribute("data-preview-step", "3");
+    await expect(preview.getByText("Invited by Alex")).toBeVisible();
+    await preview.getByRole("button", { name: "Accept invitation" }).click();
+    await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === destination);
+    await expect(page.getByTestId("auth-step-primary")).toBeVisible();
+    await page.getByRole("button", { name: "Go back", exact: true }).click();
+    await expect(page).toHaveURL((url) => `${url.pathname}${url.search}` === destination);
+    await expect(preview).toHaveAttribute("data-preview-step", "1");
+    expect(claims).toBe(0);
+    expect(errors).toEqual([]);
   });
-  await page.goto(destination);
-  const preview = page.getByTestId("guest-preview");
-  await expect(preview).toHaveAttribute("data-preview-step", "1");
-  await expect(preview.getByRole("button", { name: "Sign in", exact: true })).toHaveCount(0);
-  await preview.getByRole("button", { name: "Meet your agents" }).click();
-  await expect(preview).toHaveAttribute("data-preview-step", "2");
-  await preview.getByRole("button", { name: "See what’s next" }).click();
-  await expect(preview.getByText("Invited by Alex")).toBeVisible();
-  await preview.getByRole("button", { name: "Accept invitation" }).click();
-  await page.waitForURL((url) => url.pathname === "/login" && url.searchParams.get("redirect") === destination);
-  expect(claims).toBe(0);
-});
+}
 
 test("large text and long invite names remain readable with reachable actions", async ({
   page,

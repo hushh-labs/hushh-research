@@ -1226,6 +1226,21 @@ class PersonalGmailInformationRequestService:
             )
         return self._public_workflow(dict(row)) if row else None
 
+    async def is_open_workflow(self, *, user_id: str, workflow_id: str) -> bool:
+        """True while this owner's information request still awaits a reply.
+
+        The KYC reply writer's capability is bound to an open request, so an
+        ignored or answered request stops authorizing identity writes.
+        """
+        try:
+            uuid.UUID(str(workflow_id))
+        except ValueError:
+            return False
+        return (
+            await self._public_workflow_by_id(user_id=user_id, workflow_id=str(workflow_id))
+            is not None
+        )
+
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
         """Maintenance entrypoint for the scheduled personal-Gmail monitor.
 

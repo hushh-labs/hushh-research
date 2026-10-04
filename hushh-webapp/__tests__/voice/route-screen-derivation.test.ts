@@ -76,14 +76,14 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
-  it("maps One KYC to a voice-eligible screen", () => {
+  it("does not reintroduce the retired One KYC voice screen through Email", () => {
     expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
-      screen: "one_kyc",
+      screen: "app",
       subview: null,
     });
-    expect(deriveVoiceRouteScreen("/one/kyc", "panel=aliases")).toEqual({
-      screen: "one_kyc",
-      subview: "aliases",
+    expect(deriveVoiceRouteScreen("/one/email", "panel=aliases")).toEqual({
+      screen: "app",
+      subview: null,
     });
   });
 

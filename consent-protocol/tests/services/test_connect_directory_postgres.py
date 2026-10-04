@@ -211,18 +211,28 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
     _person(connection, "trusted-no-vault", "Tess Trusted", vault=None, trusted_by_owner=True)
     _person(connection, "trusts-me", "Uma Reverse", vault=None)
     _trusted(connection, "trusts-me", OWNER)
-    # Opt-outs are unchanged: a stranger's hides them, and only a trusted edge
-    # from the viewer overrides it. A plain connection never did.
+    # An opt-out hides a person from strangers. A trusted edge from the viewer
+    # or an active connection to them lifts it: "My connections" already lists
+    # that person, so a search that cannot find them contradicts the screen.
+    # Circle and contact-sync connections never mirrored a trusted edge, so the
+    # connection itself has to be enough (Abdul Rashid on UAT, 2026-10-03).
     _person(connection, "opted-out", "Olive Optout", discoverable=False)
     _person(connection, "trusted-hidden", "Hana Hidden", discoverable=False, trusted_by_owner=True)
     _person(connection, "connected-hidden", "Cody Hidden", discoverable=False)
     _connected(connection, "connected-hidden")
+    # Negative control: a resolved connection is history, so the opt-out wins.
+    _person(connection, "revoked-hidden", "Rhea Hidden", discoverable=False)
+    _connected(connection, "revoked-hidden", status="revoked")
+    # Negative control: an unanswered request is not a connection either.
+    _person(connection, "asked-hidden", "Asa Hidden", discoverable=False, vault="active")
+    _requested(connection, OWNER, "asked-hidden")
     service = _Directory(connection)
 
     listed = service.search_directory_candidates(owner_user_id=OWNER, limit=50)
 
     assert [item["userId"] for item in listed["items"]] == [
         "active",
+        "connected-hidden",
         "connected",
         "trusted-hidden",
         "asked-me",
@@ -246,10 +256,12 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
             "asked-me",
             "opted-out",
             "connected-hidden",
+            "revoked-hidden",
+            "asked-hidden",
         )
         if service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id=uid)
     }
-    assert visible == {"active", "connected", "asked-them", "asked-me"}
+    assert visible == {"active", "connected", "asked-them", "asked-me", "connected-hidden"}
 
 
 @pytest.mark.parametrize("query", ["", "member"])

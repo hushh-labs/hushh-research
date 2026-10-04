@@ -156,6 +156,18 @@ class ConfirmationRequired(ToolResult):
     summary: str
 
 
+class ConfirmationWaiting(ToolResult):
+    """The same voice-tier proposal is already open. Never success, never a new
+    row: the host refuses to mint a duplicate and hands back the existing id."""
+
+    status: Literal["confirmation_waiting"] = "confirmation_waiting"
+    needs: Needs | None = "confirmation"
+    pending_action_id: str
+    tier: Literal["voice"] = "voice"
+    summary: str
+    card_shown: bool
+
+
 class ConfirmedPerson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: str
@@ -534,6 +546,7 @@ def now_iso() -> str:
 __all__ = [
     "CircleRef",
     "ConfirmationRequired",
+    "ConfirmationWaiting",
     "ConfirmedCircle",
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",

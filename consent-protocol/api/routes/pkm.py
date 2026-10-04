@@ -162,7 +162,6 @@ class PKMAgentLabStructureResponse(BaseModel):
     intent_used_fallback: bool = False
     structure_used_fallback: bool = False
     error: str | None = None
-    routing_decision: str = "non_financial_or_ephemeral"
     intent_frame: dict = Field(default_factory=dict)
     merge_decision: dict = Field(default_factory=dict)
     candidate_payload: dict
@@ -189,6 +188,25 @@ class PKMMutationSharingImpactResponse(BaseModel):
     affected_export_ids: list[str] = Field(
         default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
     )
+
+
+class PKMCommitLookupEntry(BaseModel):
+    domain: str = Field(min_length=1, max_length=64)
+    plan_id: str = Field(min_length=16, max_length=140, pattern=r"^pkm_[A-Za-z0-9_-]{12,128}$")
+
+
+class PKMCommitLookupRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    commits: list[PKMCommitLookupEntry] = Field(min_length=1, max_length=64)
+
+
+class PKMCommitLookupResult(BaseModel):
+    exists: bool
+    data_version: int | None = None
+
+
+class PKMCommitLookupResponse(BaseModel):
+    commits: list[PKMCommitLookupResult]
 
 
 @router.post("/store-domain", response_model=StoreDomainResponse)
@@ -232,6 +250,30 @@ async def get_domain_manifest(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_domain_manifest(user_id, domain, token_data)
+
+
+@router.post("/commits/lookup", response_model=PKMCommitLookupResponse)
+async def lookup_pkm_commits(
+    request: PKMCommitLookupRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Whether the owner's own writes already committed, in request order.
+
+    A device that sent a write and lost the connection before the answer
+    arrived asks here instead of guessing. Owner-scoped: the commit id is
+    derived from the token's user, so no other owner's write can be named.
+    The answer is existence and the committed revision, nothing else.
+    """
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    results = await get_pkm_service().find_mutation_commits(
+        user_id=request.user_id,
+        commits=[(entry.domain, entry.plan_id) for entry in request.commits],
+    )
+    return PKMCommitLookupResponse(commits=[PKMCommitLookupResult(**result) for result in results])
 
 
 @router.get(

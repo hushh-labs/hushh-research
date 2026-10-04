@@ -531,13 +531,7 @@ export function CalendarAgentPage({
                   <AskOneButton
                     disabled={busy}
                     showIcon={false}
-                    onClick={() => {
-                      if (needsSchedulingReconnect) {
-                        void connect("manage");
-                      } else {
-                        openChat("Summarize my calendar events and help me plan meetings");
-                      }
-                    }}
+                    onClick={() => openChat("Summarize my calendar events and help me plan meetings")}
                     className="w-full rounded-full"
                   >
                     Try Calendar Agent with One

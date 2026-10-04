@@ -215,6 +215,7 @@ class CacheService {
         key.startsWith(`marketplace_investors_`) ||
         key.startsWith(`connected_systems_${userId}_`) ||
         key.startsWith(`connections_first_page_${userId}_`) ||
+        key.startsWith(`connect_directory_first_page_${userId}_`) ||
         key.startsWith(`google_connection_${userId}_`)
       ) {
         keysToDelete.add(key);
@@ -333,6 +334,11 @@ export const CACHE_KEYS = {
   // connections (0) · No connections yet" and jumped when the list landed.
   CONNECTIONS_FIRST_PAGE: (userId: string, audience: string) =>
     `connections_first_page_${userId}_${audience}`,
+  // Connect's People/Advisors first page (browse only). It paints a revisit at
+  // once and, kept past its freshness, stands in for a read the server refused
+  // so people already known are never replaced by an error.
+  CONNECT_DIRECTORY_FIRST_PAGE: (userId: string, audience: string) =>
+    `connect_directory_first_page_${userId}_${audience}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   // Cached licence-verify result, keyed by normalized regulator:license so a

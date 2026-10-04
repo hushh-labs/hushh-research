@@ -235,9 +235,14 @@
     "261_drive_background_default_on.sql",
     "262_drive_request_payments.sql",
     "263_drive_request_no_match.sql",
-    "264_pkm_packets.sql",
-    "265_directory_listing_claims.sql",
-    "266_pkm_packet_orders.sql"
+    "264_direct_messages.sql",
+    "265_circle_chat.sql",
+    "266_circle_chat_presentation.sql",
+    "267_gmail_receipt_cache_read_only_cutover.sql",
+    "268_direct_message_feed_projection.sql",
+    "269_pkm_packets.sql",
+    "270_directory_listing_claims.sql",
+    "271_pkm_packet_orders.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -492,8 +497,12 @@
     "261_drive_background_default_on.sql": "rollback/261_drive_background_default_on.rollback.sql",
     "262_drive_request_payments.sql": "rollback/262_drive_request_payments.rollback.sql",
     "263_drive_request_no_match.sql": "rollback/263_drive_request_no_match.rollback.sql",
-    "264_pkm_packets.sql": "rollback/264_pkm_packets.rollback.sql",
-    "265_directory_listing_claims.sql": "rollback/265_directory_listing_claims.rollback.sql",
-    "266_pkm_packet_orders.sql": "rollback/266_pkm_packet_orders.rollback.sql"
+    "265_circle_chat.sql": "rollback/265_circle_chat.rollback.sql",
+    "266_circle_chat_presentation.sql": "rollback/266_circle_chat_presentation.rollback.sql",
+    "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
+    "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql",
+    "269_pkm_packets.sql": "rollback/269_pkm_packets.rollback.sql",
+    "270_directory_listing_claims.sql": "rollback/270_directory_listing_claims.rollback.sql",
+    "271_pkm_packet_orders.sql": "rollback/271_pkm_packet_orders.rollback.sql"
   }
 }

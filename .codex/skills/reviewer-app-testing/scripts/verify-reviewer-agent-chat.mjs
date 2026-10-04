@@ -110,7 +110,7 @@ try {
   sentAt = performance.now();
   phase = "turn";
 
-  await page.getByTestId("agent-chat-self-avatar").last().waitFor({ state: "visible" });
+  await page.getByTestId("profile-open-button").last().waitFor({ state: "visible" });
   await page.waitForFunction(
     ({ expectedPrompt, forbidden, baselineCount }) => {
       const body = document.body.innerText;
@@ -140,16 +140,16 @@ try {
 
   const result = await page.evaluate((forbidden) => {
     const body = document.body.innerText;
-    const selfAvatars = [...document.querySelectorAll('[data-testid="agent-chat-self-avatar"]')];
-    const selfAvatar = selfAvatars.at(-1);
-    const avatarImage = selfAvatar?.querySelector("img");
+    const profile = document.querySelector('[data-testid="profile-open-button"]');
+    const profileRect = profile?.getBoundingClientRect();
     const voice = document.querySelector('[aria-label="Start voice mode"]')?.getBoundingClientRect();
     const send = document.querySelector('[aria-label="Send message"]')?.getBoundingClientRect();
     return {
       rawErrorLeak: forbidden.some((value) => body.includes(value)),
       idleReadyVisible: /(^|\n)Ready($|\n)/.test(body),
-      selfAvatarVisible: Boolean(selfAvatar),
-      selfAvatarImageOrFallback: Boolean(avatarImage || selfAvatar?.textContent?.trim()),
+      messageAvatarsAbsent: !document.querySelector('[data-testid="agent-chat-self-avatar"]'),
+      profileVisible: Boolean(profileRect && profileRect.width > 0 && profileRect.height > 0),
+      profileImageOrFallback: Boolean(profile?.querySelector("img,svg") || profile?.textContent?.trim()),
       horizontalOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
       composerControlGeometry:
         Boolean(voice && send) &&
@@ -161,8 +161,8 @@ try {
 
   if (result.rawErrorLeak) throw new Error("Agent Chat exposed an internal runtime error.");
   if (result.idleReadyVisible) throw new Error("Agent Chat still exposes the idle Ready badge.");
-  if (!result.selfAvatarVisible || !result.selfAvatarImageOrFallback) {
-    throw new Error("Agent Chat did not render the canonical self avatar or fallback.");
+  if (!result.messageAvatarsAbsent || !result.profileVisible || !result.profileImageOrFallback) {
+    throw new Error("Agent Chat does not match the profile-only avatar contract.");
   }
   if (result.horizontalOverflow) throw new Error("Agent Chat has horizontal overflow.");
   if (!result.composerControlGeometry) {
@@ -199,7 +199,7 @@ try {
       } catch {
         throw new Error("PRIVATE_CONNECTOR_ADD_UNAVAILABLE");
       }
-      await custom.getByRole("textbox", { name: "Server address" }).waitFor({
+      await custom.getByRole("textbox", { name: "Server URL" }).waitFor({
         state: "visible", timeout: 15_000,
       });
     }
@@ -212,7 +212,7 @@ try {
   session.capture.assertNoCriticalApiFailures("agent chat prompt round-trip");
   phase = "complete";
   process.stdout.write(
-    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 self_avatar=1 horizontal_overflow=0 composer_control_symmetry=1 bootstrap_ms=${Math.round(bootstrapAt - startedAt)} turn_ms=${Math.round(settledAt - sentAt)} post_turn_ms=${Math.round(performance.now() - settledAt)} total_ms=${Math.round(performance.now() - startedAt)}\n`,
+    `[reviewer-app-testing] PASS agent_chat_round_trip=1 scenario=${scenario} fresh_conversation=1 raw_error_leak=0 idle_ready=0 profile_avatar=1 message_avatars=0 horizontal_overflow=0 composer_control_symmetry=1 bootstrap_ms=${Math.round(bootstrapAt - startedAt)} turn_ms=${Math.round(settledAt - sentAt)} post_turn_ms=${Math.round(performance.now() - settledAt)} total_ms=${Math.round(performance.now() - startedAt)}\n`,
   );
 } catch (error) {
   process.stderr.write(

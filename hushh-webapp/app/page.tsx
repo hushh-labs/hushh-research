@@ -156,7 +156,13 @@ function HomeContent() {
   ]);
 
   if (loading || (!user && !isOneInvitation && !sessionVerificationRequired)) {
-    return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
+    return (
+      <HushhLoader
+        stage={loading ? "session" : "redirect"}
+        label="Preparing welcome…"
+        holdThroughNavigation={!loading}
+      />
+    );
   }
 
   if (sessionVerificationRequired) {
@@ -181,7 +187,7 @@ function HomeContent() {
       );
     }
     if (!authenticatedRootReady && !canRenderAuthenticatedChatImmediately) {
-      return <HushhLoader variant="fullscreen" label="Opening chat…" />;
+      return <HushhLoader stage="workspace" label="Opening chat…" />;
     }
     return (
       <>
@@ -195,7 +201,7 @@ function HomeContent() {
           <PhoneMandateGuard>
             <Suspense
               fallback={
-                <HushhLoader variant="fullscreen" label="Loading chat…" />
+                <HushhLoader stage="workspace" label="Loading chat…" />
               }
             >
               <AgentChatWorkspace />
@@ -227,7 +233,7 @@ export default function Home() {
   return (
     <>
       <JsonLd data={buildFaqGraph(HOME_FAQ)} />
-      <Suspense fallback={null}>
+      <Suspense fallback={<HushhLoader stage="session" label="Preparing welcome…" />}>
         <HomeContent />
       </Suspense>
     </>

@@ -153,6 +153,16 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 - `/one/profile/access/connection?id=<connection_id>`
 - `/one/profile/support/compose?kind=<support_kind>`
 
+Shared invitations keep their existing recipient entrypoints: `/circle/join?code=<code>`
+for a Circle and `/one/location/invite/<token>` for Invite to One. Both wait for
+auth restoration and show guests the shared three-screen `GuestPreview` before
+sign-in, retaining the original invitation as the login redirect. The native
+token transport `/circle/join?invite=<token>` uses the same invitation client.
+Opening or previewing an invitation does not claim it or grant sharing access.
+The hosted token route renders per request, with an inert build probe that
+prevents unseen tokens from receiving a static fallback; Capacitor retains a
+static fixture and skips the server request boundary.
+
 Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
 `/ria/profile` is the canonical RIA home. `/ria` is a compatibility redirect for
