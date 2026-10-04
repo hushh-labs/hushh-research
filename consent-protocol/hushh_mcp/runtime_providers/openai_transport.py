@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Awaitable, Callable
 
@@ -101,6 +102,15 @@ def _tools(tools: tuple[NeutralTool, ...]) -> list[dict[str, Any]]:
         }
         for tool in tools
     ]
+
+
+_SCHEMA_NAME_UNSAFE = re.compile(r"[^A-Za-z0-9_-]+")
+
+
+def _schema_name(schema: dict[str, Any]) -> str:
+    """The wire format's ``json_schema.name``: 1-64 of ``[A-Za-z0-9_-]``."""
+    cleaned = _SCHEMA_NAME_UNSAFE.sub("_", str(schema.get("title") or "")).strip("_")
+    return cleaned[:64] or "response"
 
 
 def _parse_args(raw: Any) -> dict[str, Any]:
@@ -215,6 +225,19 @@ class OpenAITransport(ProviderTransport):
         if request.tools:
             kwargs["tools"] = _tools(request.tools)
             kwargs["tool_choice"] = "auto"
+        if request.response_schema is not None:
+            # A schema the agent asked for is sent, never silently dropped: an
+            # unconstrained answer looks right and is not the one requested.
+            # Non-strict, because strict mode refuses optional properties and
+            # ``default`` keywords that ordinary pydantic schemas carry.
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": _schema_name(request.response_schema),
+                    "schema": request.response_schema,
+                    "strict": False,
+                },
+            }
         return kwargs
 
     async def _generate(self, request: NeutralRequest, *, model: str) -> NormalizedResponse:

@@ -98,6 +98,14 @@ def _schema_dict(value: Any) -> dict[str, Any] | None:
         return None
     if isinstance(value, dict):
         return value
+    if isinstance(value, type):
+        # ADK forwards an agent's ``output_schema`` as the pydantic CLASS. Its
+        # ``model_dump`` is an instance method, so calling it raised TypeError
+        # before dispatch and every schema-constrained gene failed on a
+        # non-Gemini transport. A class describes its schema; it has no values.
+        describe = getattr(value, "model_json_schema", None)
+        dumped = describe() if callable(describe) else None
+        return dumped if isinstance(dumped, dict) else None
     if hasattr(value, "model_dump"):
         dumped = value.model_dump(exclude_none=True)
         return dumped if isinstance(dumped, dict) else None

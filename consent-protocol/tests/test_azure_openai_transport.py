@@ -16,6 +16,7 @@ import httpx
 import pytest
 from google.adk.models.llm_request import LlmRequest
 from google.genai import types
+from pydantic import BaseModel, ConfigDict
 
 from hushh_mcp.runtime_providers import azure_openai
 from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
@@ -364,3 +365,50 @@ def test_the_adk_adapter_refuses_a_key_for_the_pods_own_identity() -> None:
     )
     with pytest.raises(azure_openai.AzureOpenAIModeMismatch, match="API key"):
         model._client()
+
+
+class _Answer(BaseModel):
+    """A schema-constrained gene's output, the shape ADK passes as ``output_schema``."""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str
+    tags: list[str] = []
+
+
+async def test_an_output_schema_class_reaches_the_wire_as_a_json_schema_response_format() -> None:
+    """ADK forwards ``output_schema`` as the pydantic CLASS. Translating it used to
+    raise TypeError (``model_dump`` is an instance method) before any request left,
+    so every schema-constrained gene failed on Azure; and a translated schema was then
+    dropped by this transport, so the answer would have been unconstrained."""
+
+    config = types.GenerateContentConfig(
+        response_mime_type="application/json", response_schema=_Answer
+    )
+    server = _Server(_completion('{"title": "Trip", "tags": []}'))
+    answer = await _azure(server, _Tokens("t")).aio.models.generate_content(
+        model="gpt-5-mini", contents=_contents(), config=config
+    )
+
+    sent = server.body(0)["response_format"]
+    assert sent["type"] == "json_schema"
+    assert sent["json_schema"]["name"] == "Answer"
+    assert sent["json_schema"]["strict"] is False
+    assert sent["json_schema"]["schema"] == _Answer.model_json_schema()
+    assert answer.text == '{"title": "Trip", "tags": []}'
+
+
+async def test_no_response_format_is_sent_when_no_schema_was_asked_negative_control() -> None:
+    server = _Server(_completion())
+    await _azure(server, _Tokens("t")).aio.models.generate_content(
+        model="gpt-5-mini", contents=_contents(), config=types.GenerateContentConfig()
+    )
+
+    assert "response_format" not in server.body(0)
+
+
+def test_a_schema_name_is_reduced_to_the_wire_alphabet() -> None:
+    from hushh_mcp.runtime_providers.openai_transport import _schema_name
+
+    assert _schema_name({"title": "Conversation Titles!"}) == "Conversation_Titles"
+    assert _schema_name({"title": "x" * 80}) == "x" * 64
+    assert _schema_name({}) == "response"
