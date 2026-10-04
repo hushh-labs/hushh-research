@@ -393,6 +393,8 @@ Used by:
 | `HUSSH_TECH_PROXY_AUDIENCE` | `api/routes/hushh_tech.py`, Research Next launch proxy | No | Exact Research consent API audience used by Google service-account proxy attestation |
 | `HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS` | `api/routes/hushh_tech.py` | No | Exact UAT runtime service accounts allowed to attest a forwarded visitor address |
 | `HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS` | Research Next launch proxy | No | Rightmost edge hops skipped before the Research proxy signs in with its runtime service account |
+| `HUSSH_AZURE_APP_CLIENT_ID`, `HUSSH_AZURE_BROKER_SA`, `HUSSH_POD_IMAGE_READER_SA` | `hushh_mcp/services/azure_federation.py`, `azure_image_source.py` | Dev only | Connect Azure hub identities, public identifiers written for `hushh-pda-dev` only into `BACKEND_RUNTIME_CONFIG_JSON` by `scripts/ops/sync_backend_runtime_secrets.py`; absent on UAT and production, where the Azure routes refuse with `NOT_CONFIGURED` |
+| `HUSSH_AZURE_OAUTH_REDIRECT_URI` | `hushh_mcp/services/azure_entra_authorizer.py` | Dev only | `APP_FRONTEND_ORIGIN` plus `/one/setup/cloud/azure/return`, derived by the same script and registered on the dev Entra app |
 | `HUSSH_TECH_LAUNCH_PEPPER` | `hushh_mcp/services/hushh_tech_client_service.py` | UAT only | Dedicated Secret Manager binding for one-time launch-code hashing; absent in production |
 | `RATE_LIMIT_STORAGE_URI` | backend limiter and Research Next launch proxy | UAT only | Secret Manager binding for shared Redis abuse budgets; HushhTech remains fail-closed without a `redis://` or `rediss://` URI |
 | `DEVELOPER_REGISTRY_JSON` | n/a (legacy) | Optional legacy | Legacy developer registry payload; no active backend reader |

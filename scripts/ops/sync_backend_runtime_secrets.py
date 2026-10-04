@@ -15,6 +15,7 @@ from urllib.parse import urlsplit, urlunsplit
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+AZURE_OAUTH_RETURN_PATH = "/one/setup/cloud/azure/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
@@ -134,7 +135,7 @@ def _drop_empty(value: dict[str, Any]) -> dict[str, Any]:
     return {key: item for key, item in value.items() if item not in ("", None, [], {})}
 
 
-def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+def _canonical_frontend_origin(app_frontend_origin: str) -> str:
     parsed = urlsplit(app_frontend_origin.strip())
     if (
         parsed.scheme not in {"http", "https"}
@@ -146,8 +147,11 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
         or parsed.path not in {"", "/"}
     ):
         raise ValueError("--app-frontend-origin must be a canonical HTTP(S) origin")
-    origin = urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
-    return f"{origin}{GMAIL_OAUTH_RETURN_PATH}"
+    return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+
+def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
+    return f"{_canonical_frontend_origin(app_frontend_origin)}{GMAIL_OAUTH_RETURN_PATH}"
 
 
 def _frontend_origin_host(app_frontend_origin: str) -> str:
@@ -331,6 +335,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # mismatch — which reads like an outage, not a config error.
         "nws_nearby_v4_project_id": args.project,
         "one_places_directory_enabled": args.one_places_directory_enabled,
+        **_azure_owner_cloud_config(args.project, getattr(args, "app_frontend_origin", "")),
     }
     return _drop_empty(config)
 
@@ -355,6 +360,29 @@ _NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
     "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
     "hushh-pda": "nws-hushh-research-v4-api-key-prod",
 }
+
+
+# Connect Azure is admitted per lane, and only dev until the admission bar in
+# docs/reference/architecture/byoc-azure.md has live evidence. Each value is
+# a public identifier, not a secret. The Microsoft sign-in return is derived
+# from the lane's own origin, so one lane can never hand out another's.
+_AZURE_OWNER_CLOUD_BY_PROJECT: dict[str, dict[str, str]] = {
+    "hushh-pda-dev": {
+        "hussh_azure_app_client_id": "4c6a5fc7-d4da-4061-ad27-b95fb125237b",
+        "hussh_azure_broker_sa": "hussh-azure-broker@hushh-pda-dev.iam.gserviceaccount.com",
+        "hussh_pod_image_reader_sa": (
+            "hussh-pod-image-reader@hushh-pda-dev.iam.gserviceaccount.com"
+        ),
+    },
+}
+
+
+def _azure_owner_cloud_config(project: str, app_frontend_origin: str) -> dict[str, str]:
+    lane = _AZURE_OWNER_CLOUD_BY_PROJECT.get(project)
+    if not lane:
+        return {}
+    origin = _canonical_frontend_origin(app_frontend_origin)
+    return {**lane, "hussh_azure_oauth_redirect_uri": f"{origin}{AZURE_OAUTH_RETURN_PATH}"}
 
 
 def _mirror_directory_key(

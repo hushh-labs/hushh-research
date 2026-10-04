@@ -39,4 +39,14 @@ describe("the owner-cloud question", () => {
     vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "1");
     expect(isAzureHomeSelectable()).toBe(true);
   });
+
+  it("admits Azure on the hosted dev lane and nowhere else by environment", () => {
+    vi.stubEnv("NEXT_PUBLIC_AZURE_BYOC_SELECTABLE", "");
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "dev");
+    expect(isAzureHomeSelectable()).toBe(true);
+    for (const env of ["uat", "production", "development", "staging", "", "dev-uat"]) {
+      vi.stubEnv("NEXT_PUBLIC_APP_ENV", env);
+      expect(isAzureHomeSelectable()).toBe(false);
+    }
+  });
 });

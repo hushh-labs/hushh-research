@@ -832,6 +832,7 @@ tests/test_pod_signing_key_rotation_postgres.py
 tests/test_azure_openai_transport.py
 tests/test_azure_openai_responses_transport.py
 tests/test_azure_openai_owner_mode.py
+tests/test_azure_runtime_config_wiring.py
 tests/test_azure_openai_model_diagnostic.py
 tests/test_azure_openai_turn_doors.py
 # Azure lane hub-azure (2026-10-02)

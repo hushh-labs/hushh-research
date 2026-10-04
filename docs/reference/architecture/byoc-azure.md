@@ -341,15 +341,23 @@ reaches each one through a typed capability in
 
 ## Known gaps
 
-- **No live proof yet.** No Azure agent has been created or answered a turn
-  through this code; every gate in the admission bar still needs live evidence.
-- **Operator setup is not done:** the Entra app, the broker and reader service
-  accounts and their grants (runbook below) do not exist yet.
-- **The dev deploy lane does not render the Azure hub variables.**
-  `HUSSH_AZURE_APP_CLIENT_ID`, `HUSSH_AZURE_BROKER_SA`,
-  `HUSSH_AZURE_OAUTH_REDIRECT_URI` and `HUSSH_POD_IMAGE_READER_SA` are plain
-  environment, not secrets, so the secret-coverage check does not require them;
-  adding them to the dev backend is a change to protected pipeline paths.
+- **No Azure agent has answered a turn yet.** Microsoft sign-in, home-directory
+  discovery and setup admission ran live on localhost against the 1711
+  subscription (2026-10-03 and 2026-10-04); both setups then stopped at free-trial
+  limits (one Azure OpenAI account, one Container Apps environment per
+  subscription), now freed. Every other gate in the admission bar still needs
+  live evidence.
+- **Operator setup exists for dev only:** the `Hussh One (dev)` Entra app, the
+  `hussh-azure-broker` and `hussh-pod-image-reader` service accounts in
+  `hushh-pda-dev`, with Token Creator on each held only by the dev hub runtime.
+- **The dev lane renders the Azure hub settings through
+  `BACKEND_RUNTIME_CONFIG_JSON`,** not the deploy step:
+  `scripts/ops/sync_backend_runtime_secrets.py` writes the four values for
+  `hushh-pda-dev` only, and the return address is derived from the lane origin.
+  UAT and production carry none, so their Azure routes refuse with
+  `NOT_CONFIGURED`. The web choice is admitted where the build sets
+  `NEXT_PUBLIC_APP_ENV=dev` exactly. Pinned by
+  `consent-protocol/tests/test_azure_runtime_config_wiring.py`.
 - **The image reader is not pod-only on the current release layout.** The pod
   release lives in `gcr.io/<project>/consent-protocol-pod`, the same repository
   as the hub (`consent-protocol`) and web (`hushh-webapp`) images, so the
@@ -362,7 +370,9 @@ reaches each one through a typed capability in
   condition on the package name, or a narrower token scope, is honoured by the
   registry's Docker endpoint. Refusing a `gcr.io` source outright would block
   the dev live test until then, so that is a founder decision; today the hub
-  only logs it.
+  only logs it. On dev the reader holds Artifact Registry reader on `gcr.io` in
+  `hushh-pda-dev` (granted 2026-10-04 for the live test) besides
+  `one-pod-release`; remove that one binding to return to the narrow grant.
 - **Agent-to-hub calls are dev-only:** they need `POD_HUB_IDENTITY_AUTH_ENABLED`
   and the parked migrations 947 and 948.
 - **Re-create after Azure deletes the environment:** the gone reason

@@ -47,10 +47,13 @@ export function ownerCloudProvider(target: unknown): OwnerCloudProvider | null {
  *
  * Azure becomes selectable only once each admission gate has live evidence
  * (`docs/reference/architecture/byoc-azure.md`, admission bar), so the choice
- * ships dark: a build sets `NEXT_PUBLIC_AZURE_BYOC_SELECTABLE=1` where Azure is
- * admitted (localhost first, then the dev lane). This gates choosing only; an
- * agent that already lives in Azure is always shown and always updatable.
+ * ships dark. It is admitted on a localhost build that sets
+ * `NEXT_PUBLIC_AZURE_BYOC_SELECTABLE=1`, and on the hosted dev lane, whose web
+ * build is compiled with `NEXT_PUBLIC_APP_ENV=dev` (exactly; UAT and production
+ * never are). This gates choosing only; an agent that already lives in Azure is
+ * always shown and always updatable.
  */
 export function isAzureHomeSelectable(): boolean {
-  return process.env.NEXT_PUBLIC_AZURE_BYOC_SELECTABLE === "1";
+  if (process.env.NEXT_PUBLIC_AZURE_BYOC_SELECTABLE === "1") return true;
+  return String(process.env.NEXT_PUBLIC_APP_ENV ?? "").trim().toLowerCase() === "dev";
 }

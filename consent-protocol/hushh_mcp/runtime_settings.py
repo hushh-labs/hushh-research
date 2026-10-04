@@ -178,6 +178,15 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # one path here that sends mail-derived text to a second model, so it is
     # enabled deliberately rather than inherited from the read switch.
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
+    # Connect Azure (bring your own cloud). Hub deployment configuration, none of
+    # it a secret: the Entra app's client id, the Google service account that
+    # federates into it, the Microsoft sign-in return address, and the
+    # read-only account Azure imports the agent image as. Absent on a lane, the
+    # Azure routes refuse with a typed missing-configuration error.
+    "hussh_azure_app_client_id": "HUSSH_AZURE_APP_CLIENT_ID",
+    "hussh_azure_broker_sa": "HUSSH_AZURE_BROKER_SA",
+    "hussh_azure_oauth_redirect_uri": "HUSSH_AZURE_OAUTH_REDIRECT_URI",
+    "hussh_pod_image_reader_sa": "HUSSH_POD_IMAGE_READER_SA",
 }
 
 
