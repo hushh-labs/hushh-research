@@ -8715,7 +8715,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               "relative min-h-0 flex-1 overflow-hidden",
               isPuppySurface && "hidden",
             )}
-            inert={isHistoryDrawerOpen}
           >
             <div
               ref={transcriptRef}
@@ -10018,7 +10017,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <form
             onSubmit={handleSubmit}
-            inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
               isCanonicalChatRoute ? "root" : "embedded"
             }

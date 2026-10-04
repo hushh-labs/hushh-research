@@ -28,12 +28,12 @@ describe("Puppy One chat layout", () => {
   it("hides One's whole transcript region in Puppy mode, not only its scroller", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const region = workspace.match(
-      /className=\{cn\(\s*"relative min-h-0 flex-1 overflow-hidden",\s*isPuppySurface && "hidden",\s*\)\}\s*inert=\{isHistoryDrawerOpen\}/,
+      /className=\{cn\(\s*"relative min-h-0 flex-1 overflow-hidden",\s*isPuppySurface && "hidden",\s*\)\}/,
     );
     expect(region).not.toBeNull();
     // The bare, always-displayed form the defect shipped as.
     expect(workspace).not.toContain(
-      'className="relative min-h-0 flex-1 overflow-hidden"\n            inert={isHistoryDrawerOpen}',
+      'className="relative min-h-0 flex-1 overflow-hidden"',
     );
   });
 

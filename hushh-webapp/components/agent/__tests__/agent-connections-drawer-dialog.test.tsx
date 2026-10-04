@@ -33,4 +33,18 @@ describe("chat drawer dialog layering", () => {
     await waitFor(() => expect(detail).not.toBeInTheDocument());
     expect(screen.getByRole("dialog", { name: "Agent chat history" })).toBeVisible();
   });
+
+  it("closes the chat drawer when clicking outside", async () => {
+    render(
+      <div>
+        <div data-testid="outside-area">Outside chat canvas</div>
+        <Harness />
+      </div>
+    );
+    expect(screen.getByRole("dialog", { name: "Agent chat history" })).toBeVisible();
+    fireEvent.pointerDown(screen.getByTestId("outside-area"));
+    await waitFor(() => {
+      expect(document.querySelector('[data-agent-history-drawer]')).toHaveAttribute("aria-hidden", "true");
+    });
+  });
 });
