@@ -642,6 +642,16 @@
       "blocked_user_id",
       "created_at"
     ],
+    "directory_listing_claims": [
+      "id",
+      "user_id",
+      "listing_id",
+      "listing_name",
+      "status",
+      "created_at",
+      "resolved_at",
+      "resolution_note"
+    ],
     "document_chunks": [
       "document_id",
       "user_id",
@@ -1963,6 +1973,29 @@
       "created_at",
       "updated_at"
     ],
+    "pkm_credit_ledger": [
+      "id",
+      "user_id",
+      "delta",
+      "reason",
+      "ref",
+      "created_at"
+    ],
+    "pkm_credit_subscription_cancellations": [
+      "stripe_subscription_id",
+      "created_at"
+    ],
+    "pkm_credit_subscriptions": [
+      "user_id",
+      "plan",
+      "stripe_customer_id",
+      "stripe_subscription_id",
+      "status",
+      "cancel_at_period_end",
+      "current_period_end",
+      "created_at",
+      "updated_at"
+    ],
     "pkm_default_available_projections": [
       "id",
       "user_id",
@@ -2057,6 +2090,42 @@
       "readable_projection_version",
       "latest_upgrade_commit_id",
       "upgraded_at",
+      "created_at",
+      "updated_at"
+    ],
+    "pkm_packet_orders": [
+      "id",
+      "buyer_user_id",
+      "owner_user_id",
+      "packet_id",
+      "listing_id",
+      "packet_title",
+      "amount_cents",
+      "platform_fee_cents",
+      "currency",
+      "status",
+      "stripe_checkout_session_id",
+      "stripe_payment_intent_id",
+      "stripe_refund_id",
+      "access_request_id",
+      "created_at",
+      "updated_at",
+      "paid_at",
+      "refunded_at",
+      "payment_method",
+      "credits_spent"
+    ],
+    "pkm_packets": [
+      "id",
+      "owner_user_id",
+      "packet_kind",
+      "title",
+      "description",
+      "contents",
+      "price_cents",
+      "credit_cost",
+      "currency",
+      "for_sale",
       "created_at",
       "updated_at"
     ],
@@ -2370,75 +2439,6 @@
       "onboarding_callback_state",
       "onboarding_callback_attempt_id",
       "onboarding_journey_updated_at",
-      "created_at",
-      "updated_at"
-    ],
-    "directory_listing_claims": [
-      "id",
-      "user_id",
-      "listing_id",
-      "listing_name",
-      "status",
-      "created_at",
-      "resolved_at",
-      "resolution_note"
-    ],
-    "pkm_packets": [
-      "id",
-      "owner_user_id",
-      "packet_kind",
-      "title",
-      "description",
-      "contents",
-      "price_cents",
-      "credit_cost",
-      "currency",
-      "for_sale",
-      "created_at",
-      "updated_at"
-    ],
-    "pkm_packet_orders": [
-      "id",
-      "buyer_user_id",
-      "owner_user_id",
-      "packet_id",
-      "listing_id",
-      "packet_title",
-      "amount_cents",
-      "platform_fee_cents",
-      "currency",
-      "status",
-      "stripe_checkout_session_id",
-      "stripe_payment_intent_id",
-      "stripe_refund_id",
-      "access_request_id",
-      "created_at",
-      "updated_at",
-      "paid_at",
-      "refunded_at",
-      "payment_method",
-      "credits_spent"
-    ],
-    "pkm_credit_ledger": [
-      "id",
-      "user_id",
-      "delta",
-      "reason",
-      "ref",
-      "created_at"
-    ],
-    "pkm_credit_subscription_cancellations": [
-      "stripe_subscription_id",
-      "created_at"
-    ],
-    "pkm_credit_subscriptions": [
-      "user_id",
-      "plan",
-      "stripe_customer_id",
-      "stripe_subscription_id",
-      "status",
-      "cancel_at_period_end",
-      "current_period_end",
       "created_at",
       "updated_at"
     ]
