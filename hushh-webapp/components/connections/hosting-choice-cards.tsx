@@ -140,13 +140,13 @@ export function HostingChoiceCards({
                 "transition-[border-color,background-color,box-shadow,transform] duration-150",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 option.unavailable
-                  ? "cursor-not-allowed border-[var(--app-border)]"
+                  ? "cursor-not-allowed border-[color:var(--app-card-border-standard)] bg-transparent"
                   : "enabled:active:scale-[0.99]",
                 checked
                   ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent-tint)] shadow-[0_0_0_1px_var(--app-accent)]"
                   : option.unavailable
                     ? null
-                    : "border-[var(--app-border)] hover:bg-black/[0.03] dark:hover:bg-white/[0.04]",
+                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default)] shadow-[var(--app-card-shadow-standard)] hover:border-[color:var(--app-accent-border)]",
               )}
             >
               <span
@@ -172,7 +172,7 @@ export function HostingChoiceCards({
                 </span>
                 <span
                   id={descriptionId}
-                  className="text-sm leading-5 text-[var(--app-text-secondary)]"
+                  className="text-pretty text-sm leading-5 text-[var(--app-text-secondary)]"
                 >
                   {option.description}
                 </span>
