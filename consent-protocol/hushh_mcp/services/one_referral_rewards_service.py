@@ -36,7 +36,7 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _lifetime_qualified_count(connection, user_id: str) -> int:
+def lifetime_qualified_count(connection, user_id: str) -> int:
     row = connection.execute(
         text(
             """
@@ -69,7 +69,7 @@ def evaluate_and_issue_milestones(
     index on (user_id, milestone_key) makes a duplicate issue a no-op, so
     reprocessing the same job never issues a second tee for the same person.
     """
-    lifetime_count = _lifetime_qualified_count(connection, user_id)
+    lifetime_count = lifetime_qualified_count(connection, user_id)
     already_earned = _already_earned_keys(connection, user_id)
     awards = milestones_newly_earned(lifetime_count, settings_milestones, already_earned)
 
