@@ -24,6 +24,7 @@ from hushh_mcp.services import one_referral_service
 
 RELATIONSHIP_ID = "22222222-2222-2222-2222-222222222222"
 REFERRED_USER = "user_referred_b"
+REFERRER_USER = "user_referrer_a"
 NOW_MS = int(datetime(2026, 8, 25, tzinfo=timezone.utc).timestamp() * 1000)
 
 
@@ -42,6 +43,7 @@ class _Relationship:
     def __init__(self, status: str):
         self.id = RELATIONSHIP_ID
         self.status = status
+        self.referrer_user_id = REFERRER_USER
         self.signed_up_at = None
         self.phone_verified_at = None
         self.onboarded_at = None
@@ -92,7 +94,15 @@ def _harness(
         if "SELECT id, status" in sql and "one_referral_relationships" in sql:
             if relationship is None:
                 return _Result([])
-            return _Result([SimpleNamespace(id=relationship.id, status=relationship.status)])
+            return _Result(
+                [
+                    SimpleNamespace(
+                        id=relationship.id,
+                        status=relationship.status,
+                        referrer_user_id=relationship.referrer_user_id,
+                    )
+                ]
+            )
         if "FROM vault_keys" in sql:
             return _Result([vault_row] if vault_row is not None else [])
         if "FROM actor_identity_cache" in sql:
@@ -137,8 +147,19 @@ def _db(conn):
     yield conn
 
 
-def _run(conn):
-    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+def _run(conn, *, enqueue_scoring_work=None):
+    """`enqueue_scoring_work` is scoring's own concern (its SQL and
+    idempotency are pinned in test_one_referral_scoring_service.py); here it
+    is stubbed so these tests stay about qualification, and the wiring itself
+    is pinned by test_qualifying_atomically_enqueues_scoring_work below."""
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(
+            one_referral_service,
+            "enqueue_scoring_work",
+            enqueue_scoring_work or MagicMock(),
+        ),
+    ):
         return one_referral_service.sync_referral_qualification_from_onboarding(REFERRED_USER)
 
 
@@ -289,6 +310,46 @@ def test_a_revoked_referral_is_never_resurrected():
 
     assert result == {"status": "no_change", "relationship_status": "revoked"}
     assert relationship.status == "revoked"
+
+
+def test_qualifying_atomically_enqueues_scoring_work():
+    """The product spec requires the relationship update, the canonical
+    qualification event, and the durable scoring job to commit in ONE
+    transaction. This pins the wiring: enqueue_scoring_work is called with
+    the SAME connection sync_referral_qualification_from_onboarding used for
+    everything else, and with the relationship's referrer, not the referred
+    user."""
+    relationship = _Relationship("engaging")
+    conn = _harness(
+        relationship=relationship,
+        setup_completed=True,
+        setup_completed_at=NOW_MS,
+        phone_verified=True,
+    )
+    enqueue_scoring_work = MagicMock()
+
+    result = _run(conn, enqueue_scoring_work=enqueue_scoring_work)
+
+    assert result["relationship_status"] == "qualified"
+    enqueue_scoring_work.assert_called_once_with(
+        conn, relationship_id=RELATIONSHIP_ID, user_id=REFERRER_USER
+    )
+
+
+def test_not_reaching_qualified_never_enqueues_scoring_work():
+    relationship = _Relationship("signed_up")
+    conn = _harness(
+        relationship=relationship,
+        setup_completed=False,
+        setup_completed_at=None,
+        phone_verified=True,
+    )
+    enqueue_scoring_work = MagicMock()
+
+    result = _run(conn, enqueue_scoring_work=enqueue_scoring_work)
+
+    assert result["status"] == "no_change"
+    enqueue_scoring_work.assert_not_called()
 
 
 def test_someone_who_was_never_referred_is_a_safe_no_op():
