@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 import types
 from datetime import datetime, timezone
@@ -127,6 +128,25 @@ class _AliasFakeConnection:
             )
             return row
         return None
+
+
+def _stub_referral_resync(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Replace the referral re-sync hook with a recorder.
+
+    Keeps tests that aren't about referral qualification hermetic against
+    `hushh_mcp.services.one_referral_service`'s real (blocking, DB-backed)
+    call, which `upsert_identity`/`claim_verified_phone` now invoke best-effort
+    whenever a write asserts `phone_verified=True`.
+    """
+    calls: list[str] = []
+
+    async def fake(user_id: str) -> None:
+        calls.append(user_id)
+
+    monkeypatch.setattr(
+        ActorIdentityService, "_sync_referral_qualification_best_effort", staticmethod(fake)
+    )
+    return calls
 
 
 class _PhoneClaimFakeConnection:
@@ -288,6 +308,7 @@ async def test_sync_from_firebase_preserves_backend_phone_claim_when_firebase_ha
 async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    _stub_referral_resync(monkeypatch)
     service = ActorIdentityService()
     conn = _PhoneClaimFakeConnection()
 
@@ -308,6 +329,216 @@ async def test_claim_verified_phone_moves_duplicate_shadow_to_current_actor(
     previous_owner = conn.rows["other-firebase-user-1234567890"]
     assert previous_owner["phone_number"] is None
     assert previous_owner["phone_verified"] is False
+
+
+@pytest.mark.asyncio
+async def test_upsert_identity_asserting_phone_verified_retriggers_referral_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Closes the ordering gap: `sync_referral_qualification_from_onboarding`
+    was previously only re-invoked when onboarding itself completed, so a
+    referred user whose phone verification lands late (e.g. the background
+    `sync_from_firebase` resync) could stay stuck at `phone_not_verified`
+    forever -- nothing ever checked again. The write that actually asserts
+    `phone_verified=True` must re-check qualification."""
+    import hushh_mcp.services.one_referral_service as one_referral_service
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        one_referral_service,
+        "sync_referral_qualification_from_onboarding",
+        lambda user_id: calls.append(user_id),
+    )
+
+    class FakeTx:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakeConn:
+        def transaction(self) -> FakeTx:
+            return FakeTx()
+
+        async def execute(self, query: str, *args: object) -> str:
+            return "INSERT 0 1"
+
+        async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
+            now = datetime.now(timezone.utc)
+            return {
+                "user_id": args[0],
+                "display_name": args[1],
+                "email": args[2],
+                "phone_number": args[3],
+                "photo_url": args[4],
+                "email_verified": bool(args[5]),
+                "phone_verified": bool(args[6]),
+                "source": args[7],
+                "last_synced_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    class FakeAcquire:
+        async def __aenter__(self) -> FakeConn:
+            return FakeConn()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakePool:
+        def acquire(self) -> FakeAcquire:
+            return FakeAcquire()
+
+    async def fake_get_pool() -> FakePool:
+        return FakePool()
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    service = ActorIdentityService()
+    identity = await service.upsert_identity(
+        user_id="late-phone-verify-user-0001",
+        phone_number="+15551230000",
+        phone_verified=True,
+    )
+
+    assert identity is not None
+    assert calls == ["late-phone-verify-user-0001"]
+
+
+@pytest.mark.asyncio
+async def test_upsert_identity_without_asserting_phone_verified_skips_referral_resync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hushh_mcp.services.one_referral_service as one_referral_service
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        one_referral_service,
+        "sync_referral_qualification_from_onboarding",
+        lambda user_id: calls.append(user_id),
+    )
+
+    class FakeTx:
+        async def __aenter__(self) -> None:
+            return None
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakeConn:
+        def transaction(self) -> FakeTx:
+            return FakeTx()
+
+        async def execute(self, query: str, *args: object) -> str:
+            return "INSERT 0 1"
+
+        async def fetchrow(self, query: str, *args: object) -> dict[str, object]:
+            now = datetime.now(timezone.utc)
+            return {
+                "user_id": args[0],
+                "display_name": args[1],
+                "email": args[2],
+                "phone_number": args[3],
+                "photo_url": args[4],
+                "email_verified": bool(args[5]),
+                "phone_verified": bool(args[6]),
+                "source": args[7],
+                "last_synced_at": now,
+                "created_at": now,
+                "updated_at": now,
+            }
+
+    class FakeAcquire:
+        async def __aenter__(self) -> FakeConn:
+            return FakeConn()
+
+        async def __aexit__(self, *args: object) -> None:
+            return None
+
+    class FakePool:
+        def acquire(self) -> FakeAcquire:
+            return FakeAcquire()
+
+    async def fake_get_pool() -> FakePool:
+        return FakePool()
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    service = ActorIdentityService()
+    await service.upsert_identity(
+        user_id="no-phone-change-user-0002",
+        display_name="Someone",
+    )
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_claim_verified_phone_retriggers_referral_qualification(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hushh_mcp.services.one_referral_service as one_referral_service
+
+    calls: list[str] = []
+    monkeypatch.setattr(
+        one_referral_service,
+        "sync_referral_qualification_from_onboarding",
+        lambda user_id: calls.append(user_id),
+    )
+
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    identity = await service.claim_verified_phone(
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert identity is not None
+    assert calls == ["firebase-user-123456789012"]
+
+
+@pytest.mark.asyncio
+async def test_referral_qualification_resync_failure_does_not_fail_phone_write(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Referral qualification is a side effect of phone verification, never a
+    precondition for it: a bug or outage in the referral pipeline must not be
+    able to fail someone's own phone-claim write."""
+    import hushh_mcp.services.one_referral_service as one_referral_service
+
+    def boom(user_id: str) -> None:
+        raise RuntimeError("referral service unreachable")
+
+    monkeypatch.setattr(one_referral_service, "sync_referral_qualification_from_onboarding", boom)
+    caplog.set_level(logging.ERROR, logger=actor_identity_service.__name__)
+
+    service = ActorIdentityService()
+    conn = _PhoneClaimFakeConnection()
+
+    async def fake_get_pool() -> _AliasFakePool:
+        return _AliasFakePool(conn)
+
+    monkeypatch.setattr(actor_identity_service, "get_pool", fake_get_pool)
+
+    identity = await service.claim_verified_phone(
+        user_id="firebase-user-123456789012",
+        phone_number="+16505550101",
+    )
+
+    assert identity is not None
+    assert identity["phone_verified"] is True
+    assert any(
+        "referral_qualification_sync_failed" in record.getMessage() for record in caplog.records
+    )
 
 
 @pytest.mark.asyncio
@@ -500,7 +731,8 @@ async def test_email_alias_verification_blocks_existing_verified_owner(
 async def test_upsert_identity_ensures_actor_profile_spine_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    executed_statements: list[str] = []
+    _stub_referral_resync(monkeypatch)
+    executed_statements: list[tuple[str, tuple[object, ...]]] = []
 
     class FakeTx:
         async def __aenter__(self) -> None:

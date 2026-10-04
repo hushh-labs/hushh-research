@@ -92,6 +92,24 @@ tests/test_verify_uat_release.py
 # test, and this manifest is the only pytest invocation in any lane.
 tests/test_contact_match_correctness.py
 
+# Identity cache warmup must run on an asyncio loop, and the match/mutation
+# contract must keep verified-phone uniqueness, verified-directory eligibility,
+# explicit opt-outs, safe provenance, and tombstones fail-closed. These are one
+# end-to-end contact-sync boundary.
+tests/test_api_middleware.py
+tests/test_contact_sync_connection_contract.py
+tests/services/test_actor_identity_service.py
+tests/services/test_connection_graph_service.py
+
+# Referral program: attribution integrity (self-referral, predates-link,
+# duplicate, expiry), the qualification pipeline (onboarding-completion is
+# the whole bar), and the gamification foundation (program settings + weekly
+# reward round schedule, migration 269) it builds on. Absent from this
+# manifest means collect-only, not run.
+tests/services/test_one_referral_service_bind_attribution.py
+tests/services/test_one_referral_service_qualification.py
+tests/services/test_one_referral_program_settings_service.py
+
 # One Location Circles, and the migration guards that protect them.
 #
 # Every file below was written to lock a behaviour that had already broken

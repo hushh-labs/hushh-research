@@ -566,6 +566,96 @@ class ActorIdentityService:
             )
             return None
 
+        if phone_verified is True:
+            await self._sync_referral_qualification_best_effort(normalized_user_id)
+
+        return self._normalize_row(row)
+
+    @staticmethod
+    async def _sync_referral_qualification_best_effort(user_id: str) -> None:
+        """Best-effort hook: let a newly-verified phone progress a referral.
+
+        `sync_referral_qualification_from_onboarding` is otherwise only
+        re-invoked from `vault_keys_service` when onboarding itself completes.
+        Phone verification can land after that -- `sync_from_firebase` is a
+        background, cooldown-gated resync -- and nothing previously re-checked
+        a relationship that was parked at `phone_not_verified`. Calling it
+        again here, from the write that actually flips `phone_verified` to
+        true, closes that ordering gap. It is safe to call for an unreferred
+        user or an already-settled relationship (both are documented no-ops),
+        and it runs in a worker thread because the referral service uses a
+        blocking psycopg2 connection, not asyncpg. Any failure here must never
+        surface as a failure of the identity write that triggered it.
+        """
+        try:
+            from hushh_mcp.services.one_referral_service import (
+                sync_referral_qualification_from_onboarding,
+            )
+
+            await asyncio.to_thread(sync_referral_qualification_from_onboarding, user_id)
+        except Exception:
+            logger.exception("[actor_identity] referral_qualification_sync_failed user=%s", user_id)
+
+    async def fill_missing_display_name(
+        self,
+        *,
+        user_id: str,
+        display_name: str,
+        source: str,
+    ) -> dict[str, Any] | None:
+        """Seed a verified provider name without replacing the owner's chosen name."""
+
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        value = self.validate_display_name(display_name)
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await self._ensure_actor_spine(conn, normalized_user_id)
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id, display_name, source, last_synced_at, created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, NOW(), NOW(), NOW())
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = CASE
+                            WHEN NULLIF(BTRIM(actor_identity_cache.display_name), '') IS NULL
+                              THEN EXCLUDED.display_name
+                            ELSE actor_identity_cache.display_name
+                          END,
+                          source = CASE
+                            WHEN NULLIF(BTRIM(actor_identity_cache.display_name), '') IS NULL
+                              THEN EXCLUDED.source
+                            ELSE actor_identity_cache.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        value,
+                        str(source or "").strip() or "provider_profile",
+                    )
+        except Exception as exc:
+            logger.error(
+                "actor_identity_cache fill_missing_display_name failed error=%s",
+                type(exc).__name__,
+            )
+            return None
         return self._normalize_row(row)
 
     async def set_custom_photo_url(
@@ -742,6 +832,8 @@ class ActorIdentityService:
                 exc,
             )
             return None
+
+        await self._sync_referral_qualification_best_effort(normalized_user_id)
 
         return self._normalize_row(row)
 
