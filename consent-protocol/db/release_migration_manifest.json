@@ -164,7 +164,8 @@
     "189_trusted_device_heartbeat.sql",
     "190_one_location_place_ratings.sql",
     "269_one_referral_gamification_settings.sql",
-    "270_one_referral_cumulative_scoring.sql"
+    "270_one_referral_cumulative_scoring.sql",
+    "271_one_referral_circles_and_milestones.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -324,6 +325,7 @@
   },
   "rollback_migrations": {
     "269_one_referral_gamification_settings.sql": "rollback/269_one_referral_gamification_settings.rollback.sql",
-    "270_one_referral_cumulative_scoring.sql": "rollback/270_one_referral_cumulative_scoring.rollback.sql"
+    "270_one_referral_cumulative_scoring.sql": "rollback/270_one_referral_cumulative_scoring.rollback.sql",
+    "271_one_referral_circles_and_milestones.sql": "rollback/271_one_referral_circles_and_milestones.rollback.sql"
   }
 }
