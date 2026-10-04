@@ -11,6 +11,7 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { AzureReturnHandoff } from "@/components/connections/azure-return-handoff";
 import { AzureSubscriptionPicker } from "@/components/connections/azure-subscription-picker";
 import { AzureUpgradeProgress } from "@/components/connections/azure-upgrade-progress";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ import {
   announceAzureSetupStarted,
   azureRetryKind,
   azureSignInErrorMessage,
+  isSignInPopup,
   useAzureSignIn,
 } from "@/lib/one/azure-sign-in";
 import { ApiService } from "@/lib/services/api-service";
@@ -181,27 +183,36 @@ function ReturnError({
 export function AzureCloudReturnPage() {
   const router = useRouter();
   const view = useAzureCompletion();
-  const signIn = useAzureSignIn();
+  // This page may itself be the sign-in popup: every restart stays in this window.
+  const signIn = useAzureSignIn({ inPlace: true });
   const { start } = signIn;
 
   // Setup progress lives on the cloud step, which polls the same job record. In
   // the popup, the tab that opened it shows that progress: tell it, then close.
   // With no tab listening (the same-tab flow), go to the cloud step here.
   const [handedOff, setHandedOff] = useState(false);
-  // Announced once per sign-in: a re-render must not tell the opening tab twice.
+  const [unanswered, setUnanswered] = useState(false);
+  // Announced once per sign-in: a re-render must not start a second announcement.
   const announced = useRef<Promise<boolean> | null>(null);
   useEffect(() => {
     if (view.kind !== "redirecting") return;
+    // In the person's own tab (the popup was blocked) there is no other tab to tell.
+    if (!isSignInPopup()) {
+      router.replace(ROUTES.ONE_SETUP_CLOUD);
+      return;
+    }
     announced.current ??= announceAzureSetupStarted();
     let current = true;
     void announced.current.then((acked) => {
       if (!current) return;
-      if (!acked) {
-        router.replace(ROUTES.ONE_SETUP_CLOUD);
+      if (acked) {
+        setHandedOff(true);
+        window.close();
         return;
       }
-      setHandedOff(true);
-      window.close();
+      // A popup whose tab did not answer offers the way back instead of turning into
+      // a second, popup-sized copy of the app.
+      setUnanswered(true);
     });
     return () => {
       current = false;
@@ -230,6 +241,8 @@ export function AzureCloudReturnPage() {
           <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">
             Your agent is being set up. You can close this window and follow along in Hussh.
           </p>
+        ) : unanswered ? (
+          <AzureReturnHandoff />
         ) : view.kind === "continuing" ? (
           <HushhLoader label="Finding your Azure subscriptions…" variant="inline" />
         ) : view.kind === "completing" || view.kind === "redirecting" ? (

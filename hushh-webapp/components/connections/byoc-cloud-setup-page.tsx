@@ -748,6 +748,17 @@ export function ByocCloudSetupPage() {
           </div>
         ) : null}
 
+        {azureSignIn.notice && !shownError && !(job && job.status === "running") ? (
+          // Not a refusal: the person (or Microsoft's own page) closed the sign-in window.
+          <p
+            className="text-sm text-[var(--app-text-secondary)]"
+            role="status"
+            data-testid="azure-sign-in-notice"
+          >
+            {azureSignIn.notice}
+          </p>
+        ) : null}
+
         {authorized ? (
           <p
             className="text-sm text-[var(--app-success)]"

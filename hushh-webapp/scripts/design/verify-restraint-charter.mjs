@@ -45,6 +45,7 @@ const FIRST_RUN_SURFACES = [
   { path: "components/connections/azure-cloud-card.tsx", singleCard: true },
   { path: "components/connections/azure-subscription-picker.tsx", singleCard: true },
   { path: "components/connections/azure-cloud-return-page.tsx", singleCard: false },
+  { path: "components/connections/azure-return-handoff.tsx", singleCard: true },
   { path: "components/connections/azure-upgrade-progress.tsx", singleCard: false },
 ];
 

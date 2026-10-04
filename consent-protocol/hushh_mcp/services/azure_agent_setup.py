@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from hushh_mcp.services import azure_federation as federation
-from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
+from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
 from hushh_mcp.services.azure_image_source import import_credentials
 from hushh_mcp.services.azure_keyed import digest_matches
@@ -45,6 +45,7 @@ from hushh_mcp.services.azure_setup_plan import (
     resource_names,
     tags,
 )
+from hushh_mcp.services.azure_subscription_limits import environment_limit_refusal
 from hushh_mcp.services.compute_backend import PodSpec
 
 logger = logging.getLogger(__name__)
@@ -235,7 +236,14 @@ def run_agent_setup(
     applier = SetupApplier(
         arm, advance=advance, sleep=sleep, image_source_credentials=image_credentials
     )
-    result = applier.apply(plan_for(inputs), values=values, plan_for=plan_for)
+    try:
+        result = applier.apply(plan_for(inputs), values=values, plan_for=plan_for)
+    except ArmError as exc:
+        # A subscription limit is the person's to resolve: name it and what fills it.
+        refusal = environment_limit_refusal(exc, arm, subscription_id)
+        if refusal is not None:
+            raise refusal from exc
+        raise
     advance("proving")
     if http is None:
         import requests  # type: ignore[import-untyped]  # noqa: PLC0415

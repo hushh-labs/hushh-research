@@ -839,6 +839,7 @@ tests/test_azure_arm_client.py
 tests/test_azure_federation.py
 tests/test_azure_entra_authorizer.py
 tests/test_azure_home_directory.py
+tests/test_azure_setup_settling_and_limits.py
 tests/test_azure_setup_plan.py
 tests/test_azure_container_app_renderer.py
 tests/test_azure_pod_ingress_wall.py
