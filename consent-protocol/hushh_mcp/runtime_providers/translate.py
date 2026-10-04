@@ -60,6 +60,9 @@ class NeutralRequest:
     seed: int | None = None
     thinking_budget: int | None = None
     include_thoughts: bool | None = None
+    # Gemini's thinking level (LOW / MEDIUM / HIGH), lowercased. OpenAI-wire
+    # adapters map it to their reasoning effort; others ignore it.
+    thinking_level: str | None = None
 
     def requires_tool_calling(self) -> bool:
         return bool(self.tools) or bool(self.allowed_function_names)
@@ -181,6 +184,15 @@ def _thinking_from_config(config: Any) -> tuple[int | None, bool | None]:
     )
 
 
+def _thinking_level_from_config(config: Any) -> str | None:
+    """``thinking_level`` as a lowercase word (``ThinkingLevel.LOW`` -> ``low``)."""
+    level = getattr(getattr(config, "thinking_config", None), "thinking_level", None)
+    if level is None:
+        return None
+    text = str(getattr(level, "value", level) or "").strip().lower()
+    return text if text and text != "thinking_level_unspecified" else None
+
+
 def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
     messages: list[NeutralMessage] = []
     for content in contents or []:
@@ -254,4 +266,5 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
         seed=int(seed) if isinstance(seed, int) and not isinstance(seed, bool) else None,
         thinking_budget=thinking_budget,
         include_thoughts=include_thoughts,
+        thinking_level=_thinking_level_from_config(config),
     )

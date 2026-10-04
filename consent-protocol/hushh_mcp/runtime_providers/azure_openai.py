@@ -185,23 +185,26 @@ def build_owner_azure_transport(
     token_provider: TokenProvider | None = None,
     http_client: Any = None,
 ) -> Any:
-    """The OpenAI-wire transport for the person's deployment, as the pod's own identity."""
+    """The Responses API transport for the person's deployment, as the pod's own identity.
+
+    Responses, not Chat Completions: GPT-6 and GPT-5.6 deployments refuse tools with
+    reasoning on Chat Completions (``openai_responses_transport``). The Responses API
+    sends no sampling controls, so a reasoning deployment never sees a temperature
+    it refuses.
+    """
     require_owner_azure_pair(
         runtime_provider=runtime_provider, runtime_mode=runtime_mode, credential=credential
     )
     resolved = topology if topology is not None else azure_openai_topology()
     if resolved is None:
         raise AzureOpenAITopologyInvalid("this pod carries no Azure model topology")
-    from .openai_transport import OpenAITransport  # noqa: PLC0415
+    from .openai_responses_transport import OpenAIResponsesTransport  # noqa: PLC0415
 
-    return OpenAITransport(
+    return OpenAIResponsesTransport(
         base_url=resolved.base_url,
         provider=AZURE_OPENAI_PROVIDER,
         token_provider=token_provider or workload_token_provider(),
         http_client=http_client,
-        # A deployment may be a reasoning model, which refuses any non-default
-        # temperature with a 400. The deployment's own default always works.
-        send_sampling_controls=False,
     )
 
 

@@ -78,6 +78,20 @@ class ProviderAdkModel(BaseLlm):
         reported = str(getattr(value, "model_version", "") or "").strip()
         return reported or None
 
+    @staticmethod
+    def _usage_metadata(value: Any) -> types.GenerateContentResponseUsageMetadata | None:
+        """Provider token counts in ADK's shape, so a non-Gemini pod can account spend."""
+        usage = getattr(value, "usage", None)
+        if usage is None:
+            return None
+        return types.GenerateContentResponseUsageMetadata(
+            prompt_token_count=usage.input_tokens,
+            candidates_token_count=usage.output_tokens,
+            cached_content_token_count=usage.cached_input_tokens or None,
+            thoughts_token_count=usage.reasoning_tokens or None,
+            total_token_count=usage.input_tokens + usage.output_tokens,
+        )
+
     def _genai_response(self, chunk: Any) -> types.GenerateContentResponse | None:
         """Wrap one normalized chunk as the genai response shape ADK aggregates."""
         parts = self._parts(
@@ -89,6 +103,7 @@ class ProviderAdkModel(BaseLlm):
         return types.GenerateContentResponse(
             candidates=[types.Candidate(content=types.Content(role="model", parts=parts))],
             model_version=self._model_version(chunk),
+            usage_metadata=self._usage_metadata(chunk),
         )
 
     def _client(self) -> Any:
@@ -141,7 +156,10 @@ class ProviderAdkModel(BaseLlm):
                 contents=llm_request.contents,
                 config=self._request_config(llm_request.config),
             )
+            trailing_usage = None
             async for chunk in chunks:
+                # A usage-only final chunk carries no parts; keep its counts for close().
+                trailing_usage = self._usage_metadata(chunk) or trailing_usage
                 response = self._genai_response(chunk)
                 if response is None:
                     continue
@@ -149,6 +167,8 @@ class ProviderAdkModel(BaseLlm):
                     yield llm_response
             final = aggregator.close()
             if final is not None:
+                if final.usage_metadata is None and trailing_usage is not None:
+                    final.usage_metadata = trailing_usage
                 yield final
             return
 
@@ -160,6 +180,7 @@ class ProviderAdkModel(BaseLlm):
         yield LlmResponse(
             model_version=self._model_version(response),
             content=self._content(text=response.text, function_calls=response.function_calls),
+            usage_metadata=self._usage_metadata(response),
             partial=False,
             turn_complete=True,
         )

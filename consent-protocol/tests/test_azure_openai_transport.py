@@ -1,4 +1,9 @@
-"""The OpenAI-wire transport, driven through the real SDK against a fake HTTP server.
+"""The Chat Completions transport, driven through the real SDK against a fake HTTP server.
+
+It serves OpenAI and Grok, and any OpenAI-wire host that speaks Chat Completions; the
+person's Azure deployment now rides the Responses API instead
+(``test_azure_openai_responses_transport.py``), because GPT-6 and GPT-5.6 refuse
+tools with reasoning here.
 
 Every request here leaves the real ``AsyncOpenAI`` client and lands on an
 ``httpx.MockTransport`` that records it, so the assertions are about the bytes the
@@ -14,7 +19,6 @@ from typing import Any
 
 import httpx
 import pytest
-from google.adk.models.llm_request import LlmRequest
 from google.genai import types
 from pydantic import BaseModel, ConfigDict
 
@@ -132,12 +136,13 @@ def _contents(text: str = "open my settings") -> list[types.Content]:
 
 
 def _azure(server: _Server, tokens: Any) -> Any:
-    return azure_openai.build_owner_azure_transport(
-        runtime_provider="azure_openai",
-        runtime_mode="user_azure_mi",
-        topology=TOPOLOGY,
+    """The Chat Completions transport on an Azure host, as a chat-wire caller builds it."""
+    return OpenAITransport(
+        base_url=TOPOLOGY.base_url,
+        provider="azure_openai",
         token_provider=tokens,
         http_client=server.client(),
+        send_sampling_controls=False,
     )
 
 
@@ -315,44 +320,6 @@ def test_two_plain_assistant_messages_stay_two_negative_control() -> None:
     assert wire == [
         {"role": "assistant", "content": "first"},
         {"role": "assistant", "content": "second"},
-    ]
-
-
-async def test_the_one_runner_gets_an_executable_tool_call_from_a_streamed_answer(
-    monkeypatch,
-) -> None:
-    """End to end through the ADK adapter: the final, non-partial response carries the
-    function call, which is the event ADK executes tools from."""
-    server = _Server(_streamed_answer_with_two_tool_calls())
-    real = azure_openai.build_owner_azure_transport
-
-    def _with_fake_server(**kwargs: Any) -> Any:
-        return real(
-            **kwargs, topology=TOPOLOGY, token_provider=_Tokens("t"), http_client=server.client()
-        )
-
-    monkeypatch.setattr(azure_openai, "build_owner_azure_transport", _with_fake_server)
-    model = ProviderAdkModel(
-        model="gpt-5-mini", provider="azure_openai", credential="", runtime_mode="user_azure_mi"
-    )
-    request = LlmRequest(
-        model="gpt-5-mini", contents=_contents(), config=types.GenerateContentConfig()
-    )
-
-    responses = [r async for r in model.generate_content_async(request, stream=True)]
-
-    final = [r for r in responses if not r.partial]
-    assert final, "the aggregator's closing response must exist"
-    calls = [
-        part.function_call
-        for response in responses
-        if not response.partial and response.content
-        for part in response.content.parts or []
-        if part.function_call
-    ]
-    assert [(c.name, c.args) for c in calls] == [
-        ("open_screen", {"screen": "settings"}),
-        ("list_app_actions", {"limit": 3}),
     ]
 
 
