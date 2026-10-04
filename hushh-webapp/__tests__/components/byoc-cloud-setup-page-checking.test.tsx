@@ -129,7 +129,7 @@ describe("ByocCloudSetupPage — the checking ceiling", () => {
     expect(screen.getByTestId("shared-hosting-selected")).toBeTruthy();
     expect(screen.getByTestId("cloud-tier-own")).toBeTruthy();
     expect((screen.getByTestId("cloud-tier-hosted") as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText(/without a dedicated pod/i)).toBeTruthy();
+    expect(screen.getByText(/not a dedicated agent/i)).toBeTruthy();
   });
 
   it("keeps a provisioning assignment on its pending screen", async () => {

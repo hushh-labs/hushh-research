@@ -40,6 +40,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const FIRST_RUN_SURFACES = [
   { path: "components/connections/byoc-cloud-card.tsx", singleCard: true },
   { path: "components/connections/byoc-cloud-setup-page.tsx", singleCard: false },
+  { path: "components/connections/hosting-choice-cards.tsx", singleCard: false },
   { path: "components/connections/byoc-setup-failed-card.tsx", singleCard: false },
   { path: "components/connections/azure-cloud-card.tsx", singleCard: true },
   { path: "components/connections/azure-subscription-picker.tsx", singleCard: true },

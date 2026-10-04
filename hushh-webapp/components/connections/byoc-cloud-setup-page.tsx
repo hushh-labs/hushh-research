@@ -9,10 +9,24 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
+import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import { ByocSetupFailedCard } from "@/components/connections/byoc-setup-failed-card";
 import { SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
+import {
+  HostingChoiceCards,
+  type HostingChoice,
+  type HostingChoiceOption,
+} from "@/components/connections/hosting-choice-cards";
 import { OwnerCloudProviderChoice } from "@/components/connections/owner-cloud-provider-choice";
+import {
+  DedicatedHostingRowIcon,
+  OwnCloudRowIcon,
+  PauseRowIcon,
+  SharedHostingRowIcon,
+} from "@/components/icons";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
+import { Button } from "@/components/ui/button";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   azureSubscriptionFromRef,
@@ -25,6 +39,7 @@ import {
   setupRetryFor,
 } from "@/lib/one/cloud-setup-stages";
 import {
+  isAzureHomeSelectable,
   isOwnerCloudTarget,
   ownerCloudProvider,
   type OwnerCloudProvider,
@@ -76,8 +91,8 @@ export function ByocCloudSetupPage() {
     projectId: string;
     rationale: string;
   } | null>(null);
-  // Which alternative this person is taking from a confirmed Shared state.
-  const [choice, setChoice] = useState<"own" | "hosted" | null>(null);
+  // Which hosting card is picked. Null falls back to the confirmed Shared state.
+  const [choice, setChoice] = useState<HostingChoice | null>(null);
   // The hosted door is closed for maintenance (founder direction, 2026-09-02):
   // the card stays visible so the choice is still honest, but it cannot be
   // taken. Lift it with NEXT_PUBLIC_HOSTED_POD_TIER_MAINTENANCE=0; no code
@@ -386,6 +401,74 @@ export function ByocCloudSetupPage() {
   // One alert, whichever cloud's authorization refused.
   const shownError = error ?? azureSignIn.error;
 
+  // Shared is the confirmed default when the server says so or this session chose it.
+  const sharedConfirmed = hostingMode === "shared" || sharedChosen;
+  const selectedHosting: HostingChoice | null =
+    choice ?? (sharedConfirmed ? "shared" : null);
+  // Azure is named only on a build where it can actually be chosen.
+  const azureSelectable = isAzureHomeSelectable();
+  const hostingOptions: HostingChoiceOption[] = [
+    {
+      value: "shared",
+      icon: SharedHostingRowIcon,
+      title: "Hussh Shared",
+      description: "Start right away. Your private information stays locked to you.",
+      supporting: "Not a dedicated agent. You can move to your own cloud later.",
+      testId: "cloud-tier-shared-option",
+    },
+    {
+      value: "own",
+      icon: OwnCloudRowIcon,
+      title: "Bring your own cloud",
+      description: azureSelectable
+        ? "Your agent runs in your own Google Cloud Platform or Microsoft Azure account. You own it and pay for it."
+        : "Your agent runs in your own Google Cloud Platform account. You own it and pay for it.",
+      supporting: (
+        <>
+          <GoogleCloudLogo decorative className="h-4" />
+          {azureSelectable ? <MicrosoftAzureLogo decorative className="h-4 w-4" /> : null}
+        </>
+      ),
+      testId: "cloud-tier-own",
+    },
+    {
+      value: "hosted",
+      icon: DedicatedHostingRowIcon,
+      title: "Hussh Pods",
+      description: "A dedicated agent we run for you.",
+      supporting: hostedUnderMaintenance ? (
+        <>
+          <PauseRowIcon size={14} color="currentColor" aria-hidden="true" />
+          Paused for maintenance
+        </>
+      ) : undefined,
+      unavailable: hostedUnderMaintenance,
+      testId: "cloud-tier-hosted",
+    },
+  ];
+  // The one commit under the cards. Shared keeps its two ids: the confirm on a
+  // confirmed Shared state, and the plain pick where Shared is not yet the default.
+  const hostingCommit =
+    selectedHosting === "shared"
+      ? {
+          label: sharedChosen
+            ? "Hussh Shared selected"
+            : sharedSaving
+              ? "Saving…"
+              : "Continue with Hussh Shared",
+          onClick: () => void chooseShared(),
+          disabled: sharedSaving || sharedChosen,
+          testId: sharedConfirmed ? "cloud-tier-shared-continue" : "cloud-tier-shared",
+        }
+      : selectedHosting === "hosted" && !hostedUnderMaintenance
+        ? {
+            label: hostedSaving ? "Setting that up…" : "Set up Hussh Pods",
+            onClick: () => void chooseHosted(),
+            disabled: hostedSaving,
+            testId: "cloud-tier-hosted-continue",
+          }
+        : null;
+
   const finish = useCallback(() => {
     const requested = requestInternalAppNavigation({
       href: ROUTES.ONE_SETUP,
@@ -573,7 +656,7 @@ export function ByocCloudSetupPage() {
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
             data-testid="hosted-cloud-chosen"
           >
-            <p className="text-sm font-semibold">Hosted by hussh</p>
+            <p className="text-sm font-semibold">Hosted by Hussh</p>
             <p className="text-sm text-[var(--app-text-secondary)]">
               {hosted.assurance}
             </p>
@@ -589,109 +672,41 @@ export function ByocCloudSetupPage() {
               Use my own cloud instead
             </button>
           </div>
-        ) : choice === "own" ? (
-          <OwnerCloudProviderChoice
-            onProjectNamed={handleProjectNamed}
-            projectBusy={saving}
-            onConnectAzure={startAzureSetup}
-            azureBusy={azureSignIn.starting}
-          />
-        ) : hostingMode === "shared" || sharedChosen ? (
-          <div className="space-y-3" data-testid="shared-hosting-selected">
-            <div className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4">
-              <p className="text-sm font-semibold">Hussh Shared</p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                Shared uses Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires your own cloud or an available Hussh Pods assignment.
-              </p>
-              <button
-                type="button"
-                className="rounded-full border border-[var(--app-border)] px-3 py-1.5 text-sm disabled:opacity-60"
-                onClick={() => void chooseShared()}
-                disabled={sharedSaving || sharedChosen}
-                data-testid="cloud-tier-shared-continue"
-              >
-                {sharedChosen ? "Hussh Shared selected" : sharedSaving ? "Saving…" : "Continue with Hussh Shared"}
-              </button>
-            </div>
-            <button
-              type="button"
-              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
-              onClick={() => setChoice("own")}
-              data-testid="cloud-tier-own"
-            >
-              <p className="text-sm font-semibold">Bring your own cloud</p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                Your cloud, your compute, your bill. The private agent runs in your cloud.
-              </p>
-            </button>
-            <button
-              type="button"
-              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left disabled:opacity-60"
-              onClick={() => void chooseHosted()}
-              disabled={hostedSaving || hostedUnderMaintenance}
-              aria-disabled={hostedUnderMaintenance || undefined}
-              data-testid="cloud-tier-hosted"
-            >
-              <p className="text-sm font-semibold">
-                {hostedSaving ? "Setting that up…" : hostedUnderMaintenance ? "Hussh Pods · unavailable" : "Hussh Pods"}
-              </p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                A dedicated pod on Hussh infrastructure. New assignments are paused while this option is under maintenance.
-              </p>
-            </button>
-          </div>
         ) : (
           // Offer a hosting choice only when the server confirms no pod is
           // assigned or being provisioned. Existing and in-progress placements
-          // render above and are never switched by this selection UI.
-          <div className="space-y-3" data-testid="cloud-tier-choice">
-            <button
-              type="button"
-              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
-              onClick={() => void chooseShared()}
-              disabled={sharedSaving}
-              data-testid="cloud-tier-shared"
-            >
-              <p className="text-sm font-semibold">
-                {sharedSaving ? "Saving…" : "Hussh Shared · default without a pod"}
-              </p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                Use Hussh&rsquo;s shared runtime without a dedicated pod. Your vault stays owner-scoped, and One uses only the context permitted for the session. A private agent in a personal pod requires your own cloud or an available Hussh Pods assignment.
-              </p>
-            </button>
-            <button
-              type="button"
-              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left"
-              onClick={() => setChoice("own")}
-              data-testid="cloud-tier-own"
-            >
-              <p className="text-sm font-semibold">Bring your own cloud</p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                Your own cloud hosts the pod and pays its usage. Hussh uses the authorization you grant to provision it.
-              </p>
-            </button>
-            <button
-              type="button"
-              className="w-full space-y-1 rounded-2xl border border-[var(--app-border)] p-4 text-left disabled:opacity-60"
-              onClick={() => void chooseHosted()}
-              disabled={hostedSaving || hostedUnderMaintenance}
-              aria-disabled={hostedUnderMaintenance || undefined}
-              data-testid="cloud-tier-hosted"
-              data-maintenance={hostedUnderMaintenance ? "true" : undefined}
-            >
-              <p className="text-sm font-semibold">
-                {hostedSaving
-                  ? "Setting that up…"
-                  : hostedUnderMaintenance
-                    ? "Hussh Pods · unavailable"
-                    : "Hussh Pods"}
-              </p>
-              <p className="text-sm text-[var(--app-text-secondary)]">
-                {hostedUnderMaintenance
-                  ? "New Hussh Pods assignments are paused while this option is under maintenance. Existing pod assignments stay in place."
-                  : "A dedicated pod on Hussh-operated infrastructure."}
-              </p>
-            </button>
+          // render above and are never switched by this selection UI. Picking a
+          // card only moves the selection; what that pick needs next appears
+          // below it, so nothing is committed by a tap or an arrow key alone.
+          <div
+            className="space-y-4"
+            data-testid={sharedConfirmed ? "shared-hosting-selected" : "cloud-tier-choice"}
+          >
+            <HostingChoiceCards
+              label="Where your agent runs"
+              options={hostingOptions}
+              value={selectedHosting}
+              onChange={setChoice}
+              busy={sharedSaving || hostedSaving}
+            />
+            {selectedHosting === "own" ? (
+              <OwnerCloudProviderChoice
+                onProjectNamed={handleProjectNamed}
+                projectBusy={saving}
+                onConnectAzure={startAzureSetup}
+                azureBusy={azureSignIn.starting}
+              />
+            ) : hostingCommit ? (
+              <Button
+                type="button"
+                className="w-full"
+                onClick={hostingCommit.onClick}
+                disabled={hostingCommit.disabled}
+                data-testid={hostingCommit.testId}
+              >
+                {hostingCommit.label}
+              </Button>
+            ) : null}
           </div>
         )}
 
