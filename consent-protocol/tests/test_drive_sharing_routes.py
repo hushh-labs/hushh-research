@@ -70,7 +70,11 @@ def unlock(app, uid="recipient"):
             {
                 "ownerUserId": "owner",
                 "clientRequestId": str(uuid4()),
-                "purpose": {"purpose": "Statements"},
+                "purpose": {
+                    "purpose": "Statements",
+                    "periodStart": "2026-09-01",
+                    "periodEnd": "2026-09-30",
+                },
             },
         ),
         (
@@ -239,7 +243,11 @@ def create_body():
     return {
         "ownerUserId": "owner",
         "clientRequestId": str(uuid4()),
-        "purpose": {"purpose": "Statements"},
+        "purpose": {
+            "purpose": "Statements",
+            "periodStart": "2026-09-01",
+            "periodEnd": "2026-09-30",
+        },
     }
 
 

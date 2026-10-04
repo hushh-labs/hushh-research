@@ -1,21 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
   decideProfileOpen,
   isOneProductPathname,
   isProfilePathname,
-  openProfileFromVoice,
 } from "@/lib/one-voice/profile-open";
-import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
-import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
-
-vi.mock("@/lib/navigation/profile-pane", () => ({
-  requestProfilePaneOpen: vi.fn(),
-}));
-
-vi.mock("@/lib/utils/browser-navigation", () => ({
-  requestInternalAppNavigation: vi.fn(() => true),
-}));
 
 describe("profile-open pathname helpers", () => {
   it("recognises Profile and its nested screens", () => {
@@ -137,44 +126,5 @@ describe("decideProfileOpen", () => {
         detail: "account",
       }).kind,
     ).toBe("route");
-  });
-});
-
-describe("openProfileFromVoice", () => {
-  beforeEach(() => {
-    vi.mocked(requestProfilePaneOpen).mockClear();
-    vi.mocked(requestInternalAppNavigation).mockClear();
-  });
-
-  it("asks the shell for the pane on a product route", () => {
-    const decision = openProfileFromVoice({ pathname: "/one/location" });
-    expect(decision).toEqual({ kind: "pane", source: "tap" });
-    expect(requestProfilePaneOpen).toHaveBeenCalledWith("tap");
-    expect(requestInternalAppNavigation).not.toHaveBeenCalled();
-  });
-
-  it("navigates as a voice-sourced internal request for a detail", () => {
-    const decision = openProfileFromVoice({
-      pathname: "/one/location",
-      detail: "preferences/voice",
-    });
-    expect(decision).toEqual({
-      kind: "route",
-      href: "/one/profile/preferences/voice?from=%2Fone%2Flocation",
-    });
-    expect(requestInternalAppNavigation).toHaveBeenCalledWith({
-      href: "/one/profile/preferences/voice?from=%2Fone%2Flocation",
-      source: "voice",
-      transitionMode: "contextual",
-    });
-    expect(requestProfilePaneOpen).not.toHaveBeenCalled();
-  });
-
-  it("navigates instead of re-opening the pane while already in Profile", () => {
-    openProfileFromVoice({ pathname: "/one/profile/security" });
-    expect(requestInternalAppNavigation).toHaveBeenCalledWith(
-      expect.objectContaining({ href: "/one/profile", source: "voice" }),
-    );
-    expect(requestProfilePaneOpen).not.toHaveBeenCalled();
   });
 });

@@ -63,6 +63,8 @@ export const Ban = createCanonicalIcon(Phosphor.Prohibit);
 export const Banknote = createCanonicalIcon(Phosphor.Money);
 export const BarChart3 = createCanonicalIcon(Phosphor.ChartBar);
 export const Bell = createCanonicalIcon(Phosphor.Bell);
+export const BellOff = createCanonicalIcon(Phosphor.BellSlash);
+export const ArrowDown = createCanonicalIcon(Phosphor.ArrowDown);
 export const BookOpen = createCanonicalIcon(Phosphor.BookOpen);
 export const BookOpenText = createCanonicalIcon(Phosphor.BookOpenText);
 export const BookUser = createCanonicalIcon(Phosphor.AddressBook);
@@ -82,6 +84,7 @@ export const ChartNoAxesCombined = createCanonicalIcon(Phosphor.ChartLine);
 // A check is a small utility glyph. Duotone paints a second shape behind it,
 // which reads as a square inside selected circles and CTA buttons.
 export const Check = createCanonicalIcon(Phosphor.Check, "regular");
+export const CheckCheck = createCanonicalIcon(Phosphor.Checks, "regular");
 export const CheckCircle = createCanonicalIcon(Phosphor.CheckCircle);
 export const CheckCircle2 = createCanonicalIcon(Phosphor.CheckCircle);
 export const ChevronDown = createCanonicalIcon(Phosphor.CaretDown, "regular");

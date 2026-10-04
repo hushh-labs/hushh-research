@@ -289,6 +289,36 @@ async def test_delivery_service_delegates_drafting_to_email_gene(monkeypatch) ->
 
 
 @pytest.mark.asyncio
+async def test_delivery_service_supplies_verified_name_to_the_draft_gene(monkeypatch) -> None:
+    calls: dict[str, object] = {}
+
+    async def fake_run_email_gene(**kwargs):
+        calls.update(kwargs)
+        return {
+            "to": ["mat@example.com"],
+            "cc": [],
+            "bcc": [],
+            "subject": "Partnership",
+            "body": "Hello Mat\n\nBest,\nAkshat Kumar",
+            "missing_details": [],
+        }
+
+    monkeypatch.setattr(gmail_delivery_service, "run_email_gene", fake_run_email_gene)
+
+    await GmailDeliveryService().draft_from_instruction(
+        instruction="Write a partnership note to Mat",
+        user_id="owner-1",
+        consent_token=_TEST_CONSENT_TOKEN,
+        owner_display_name="Akshat Kumar",
+    )
+
+    prompt = str(calls["prompt"])
+    assert "OWNER SIGNATURE NAME" in prompt
+    assert "Akshat Kumar" in prompt
+    assert "Never output [Your Name]" in prompt
+
+
+@pytest.mark.asyncio
 async def test_delivery_service_rejects_an_empty_model_draft(monkeypatch) -> None:
     async def fake_run_email_gene(**_kwargs):
         return {

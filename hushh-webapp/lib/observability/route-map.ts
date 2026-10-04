@@ -8,6 +8,7 @@ import {
 export const ROUTE_ID_VALUES = [
   "chat",
   "one_dashboard",
+  "one_messages",
   "getting_started",
   "delete_account",
   "privacy_policy",
@@ -265,6 +266,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.CONSENTS || pathname === ROUTES.LEGACY_CONSENTS) {
     return "consents";
   }
+  if (pathname === ROUTES.ONE_MESSAGES) return "one_messages";
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";

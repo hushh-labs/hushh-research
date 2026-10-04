@@ -159,8 +159,10 @@ goes missing.
 
 The law, which holds for every signed-in route:
 
-1. A screen has exactly **one** back control, **one** breadcrumb and **one**
-   title, and the breadcrumb's last crumb **is** that title.
+1. A screen has exactly **one** back control and **one** visible title. A
+   nested route's last breadcrumb crumb is that title; an agent root may keep
+   only an implicit `One` root to mint its back action and draw the visible
+   title as its body `PageHeader`.
 2. **The back control is derived from the breadcrumb, not from the page.** A
    `standard` route with no breadcrumb entry gets no back button and no native
    left-edge back gesture, on web and on device. Declaring the breadcrumb is
@@ -178,10 +180,10 @@ The law, which holds for every signed-in route:
    the declaration moves with it.
 7. **A trail is never replaced on scroll.** A nested route keeps its back arrow
    and trail at rest and scrolled; the scroll-collapsed title chip only fills a
-   bar with no trail (`resolveTopShellTitleSlot`). When the trail already names
-   the screen, its `PageHeader` passes `titleVisuallyHidden`, so the title is
-   drawn once, in the bar, as on Feed and Connect (founder direction,
-   2026-09-27).
+   bar with no trail (`resolveTopShellTitleSlot`). An agent root that owns a
+   visible body heading suppresses that fallback chip, so its title remains in
+   one place below the back-only bar. Nested pages whose trail already names
+   the screen pass `titleVisuallyHidden` and draw the title once, in the bar.
 
 `PkmSettingsShell` is not a second shell. It is a composition of exactly these
 primitives, and surfaces that use it are conformant.
@@ -190,8 +192,9 @@ primitives, and surfaces that use it are conformant.
 
 1. The top shell is the single authority for header clearance.
 2. The top shell is one public visual component with three route-declared
-   modes: `hidden`, `bar`, and `bar-with-tabs`. A tab row cannot exist without
-   its parent bar.
+   modes: `hidden`, `bar`, and `bar-with-tabs`. A fixed-shell tab row cannot
+   exist without its parent bar; agent-workspace rails live beneath their
+   route-owned headers.
 3. Standard routes must reserve top space through `--top-shell-reserved-height`, not raw `env(safe-area-inset-top)`.
 4. Standard page roots own their own start spacing through `padding-top: var(--page-top-start)`.
 5. Do not solve overlap by adding bottom padding to the fixed top bar or by inserting route-local spacer nodes above page content.
@@ -210,16 +213,20 @@ in normal flow and use the shared scroll tail so their final control can be
 scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade is visual-only and must never add extra content spacing. 10. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm. 11. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks. 12. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent. 13. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior. 14. `AppPageShell` owns route width and horizontal gutters for signed-in routes. 15. The canonical shell widths are:
 
 - `reading`
+- `agent`
 - `standard`
 - `expanded`
 
 16. The canonical container tokens are:
 
 - `--app-shell-reading: 54rem`
+- `--app-shell-agent: 55rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
 
-17. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
+17. Signed-in app routes default to `standard`; use `reading` only for narrow
+    detail/settings pages, `agent` for Location-aligned agent roots, and
+    `expanded` for dashboard/table-heavy routes.
 18. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
 19. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
 20. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
@@ -432,11 +439,14 @@ Rules:
 
 1. The primary bottom navigation is fixed and constant on all signed-in standard routes: `Chat`, `One`, `Connect`, `Feed`, and `Search`, in that order. `Chat` is the canonical `/` route. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open an agent overlay.
 2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
-3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Contextual workspace tabs are rendered by the shared top shell from the central route registry; they never become route-local or bottom-navigation chrome.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`,
+   `Clients`, and `Picks`. The central route registry remains the selection
+   authority, while their route bodies render the registered rail directly
+   beneath the module header; it never becomes bottom-navigation chrome.
 4. Consent Center owns `Requests`, `Active`, `History`, and `Connections` in
-   the same shared top shell. Do not render a second in-page segmented control;
-   tab changes clear transient search, pagination, and detail selection while
-   preserving valid advisor context.
+   the same central registry. Its route body renders that one registered rail
+   below the agent heading; tab changes clear transient search, pagination, and
+   detail selection while preserving valid advisor context.
 5. Finance uses one canonical workspace pathname: `/one/kai`. Portfolio
    and Analysis are URL-backed selections at
    `/one/kai?tab=portfolio` and

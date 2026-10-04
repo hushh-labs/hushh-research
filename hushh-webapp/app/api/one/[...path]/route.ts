@@ -36,6 +36,34 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
 });
 
+const CIRCLE_CHAT_MAX_REQUEST_BYTES = 7_250_000;
+async function readCircleChatBody(request: NextRequest, maximum = CIRCLE_CHAT_MAX_REQUEST_BYTES): Promise<string> {
+  const declared = request.headers.get("content-length");
+  if (declared && (!/^\d+$/.test(declared) || Number(declared) > maximum)) {
+    throw new RangeError("Chat request is too large");
+  }
+  const reader = request.body?.getReader();
+  if (!reader) return "";
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; void reader.cancel(); }, 30_000);
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      size += chunk.value.byteLength;
+      if (size > maximum) throw new RangeError("Chat request is too large");
+      chunks.push(chunk.value);
+    }
+    if (timedOut) throw new DOMException("Chat request timed out", "TimeoutError");
+    const body = new Uint8Array(size);
+    let offset = 0;
+    for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+    return new TextDecoder().decode(body);
+  } finally { clearTimeout(timeout); await reader.cancel(); reader.releaseLock(); }
+}
+
 function privateResponseHeaders(upstream?: Response): Headers {
   const headers = new Headers({
     "Cache-Control": "private, no-store",
@@ -187,7 +215,8 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     let body: BodyInit | undefined;
     if (request.method !== "GET" && request.method !== "HEAD") {
       headers.set("Content-Type", contentType || "application/json");
-      body = (await request.text()) || undefined;
+      body = (await (/^circles\/[^/]+\/photo$/.test(path) ? readCircleChatBody(request, 430000) :
+        /^circles\/[^/]+\/chat(?:\/|$)/.test(path) ? readCircleChatBody(request) : request.text())) || undefined;
     }
 
     const response = await fetch(url, {
@@ -238,6 +267,10 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       headers: privateResponseHeaders(response),
     });
   } catch (error) {
+    if (error instanceof RangeError) {
+      return withRequestIdJson(requestId, { error: "Chat request is too large" },
+        { status: 413, headers: privateResponseHeaders() });
+    }
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(
       requestId,

@@ -17,6 +17,7 @@ from hushh_mcp.services.drive_sharing_contract import (
     recipient_from_verified_firebase_claims,
     recipient_from_verified_firebase_email,
 )
+from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 
 NOW = datetime(2026, 9, 23, tzinfo=UTC)
 
@@ -237,6 +238,19 @@ def test_substituted_file_or_recipient_changes_bound_authority(cipher):
 def test_request_period_is_explicit_and_valid(data):
     with pytest.raises(ValidationError):
         ShareRequestPurpose.model_validate(data)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("purpose", ["last 3 days standup notes", "bank statements"])
+async def test_recipient_request_cannot_be_persisted_without_calendar_dates(purpose):
+    store = object.__new__(DriveSharingStore)
+    with pytest.raises(DriveSharingError, match="date_range_required"):
+        await store.create_request(
+            recipient=SimpleNamespace(user_id="recipient"),
+            owner_user_id="owner",
+            client_request_id=str(uuid4()),
+            purpose=ShareRequestPurpose(purpose=purpose),
+        )
 
 
 def _approval_with(*document_ids):

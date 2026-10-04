@@ -7,6 +7,7 @@ import {
   FileText,
   Mail,
   MapPin,
+  MessageCircle,
   Newspaper,
   ShieldCheck,
   TrendingUp,
@@ -24,8 +25,12 @@ import { documentShareNotificationSelection } from "@/lib/consent/document-share
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
-import { buildKaiMarketRoute } from "@/lib/navigation/routes";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildDirectMessageRoute,
+  buildKaiMarketRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { circleChatHref } from "@/lib/circle-chat/routes";
 import type { FeedItem, FeedSourceDomain } from "@/lib/services/feed-service";
 import { getAnalysisHistoryRunRouteId } from "@/lib/kai/analysis-route-intent";
 
@@ -90,6 +95,19 @@ function metadataString(
 
 function metadataBool(metadata: Record<string, unknown>, key: string): boolean {
   return metadata[key] === true;
+}
+
+const DIRECT_MESSAGE_CONVERSATION_ID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function directMessageFeedHref(metadata: Record<string, unknown>): string {
+  const conversationId = metadataString(
+    metadata,
+    "direct_message_conversation_id",
+  );
+  return DIRECT_MESSAGE_CONVERSATION_ID.test(conversationId)
+    ? buildDirectMessageRoute({ conversationId })
+    : ROUTES.ONE_MESSAGES;
 }
 
 /**
@@ -192,6 +210,11 @@ function driveFeedLine(
         ? "Withdrew their file request"
         : status === "pending" ? "Some shared files are available" : "Getting your shared files";
     case "document_share_outcome":
+      if (status === "no_files_shared") return "No files were shared";
+      if (status === "no_match")
+        return sharedWithMe
+          ? "No files were shared"
+          : "No matching files found; nothing was shared";
       if (sharedWithMe) {
         return status === "partial"
           ? "Sharing finished with some files unavailable"
@@ -904,6 +927,11 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : ROUTES.ONE_LOCATION,
       };
     }
+    case "location_circle_message": {
+      return { icon: Users, domainLabel: "Circle chat", label: "New circle message",
+        description: metadataString(item.metadata, "circle_name") || "Open your circle chat",
+        href: circleChatHref(metadataString(item.metadata, "circle_id")) };
+    }
     case "circle_member_added": {
       const circleName = metadataString(item.metadata, "circle_name");
       const circleId = metadataString(item.metadata, "circle_id");
@@ -1175,6 +1203,18 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
             ? "You removed the connection"
             : "Removed your connection",
         href: ROUTES.CONNECT,
+      };
+    }
+    case "direct_message_received": {
+      const hasWho = who !== "Someone";
+      const preview = metadataString(item.metadata, "message_preview");
+      return {
+        icon: MessageCircle,
+        domainLabel: "Messages",
+        label: hasWho ? who : "New message",
+        person: counterpartPerson(item.metadata, who),
+        description: preview || "Sent you a message",
+        href: directMessageFeedHref(item.metadata),
       };
     }
     case "document_share_request":

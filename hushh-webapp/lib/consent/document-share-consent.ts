@@ -64,8 +64,8 @@ export const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE: Readonly<
     body: "Open One to see the latest.",
   },
   document_share_outcome: {
-    title: "Drive sharing finished",
-    body: "Open One to see the shared files.",
+    title: "Drive request update",
+    body: "Open One to see the result.",
   },
   document_share_revoked: {
     title: "Drive access changed",

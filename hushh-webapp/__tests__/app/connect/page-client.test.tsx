@@ -491,6 +491,49 @@ beforeEach(() => {
 });
 
 describe("P0 connection reconciliation", () => {
+  it("repairs idle connections without spending directory searches, but retains graph refreshes", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.searchDirectory.mockClear();
+      mocks.listConnectionsPage.mockClear();
+      await act(() => vi.advanceTimersByTimeAsync(180_000));
+      expect(mocks.listConnectionsPage).toHaveBeenCalled();
+      expect(mocks.searchDirectory).not.toHaveBeenCalled();
+      act(() => dispatchConnectionGraphChanged("me"));
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledOnce());
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("retains a graph refresh queued during an idle repair", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      const repair = deferred<TestConnectionPage>();
+      mocks.listConnectionsPage.mockReturnValueOnce(repair.promise);
+      mocks.searchDirectory.mockClear();
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(mocks.searchDirectory).not.toHaveBeenCalled();
+      act(() => dispatchConnectionGraphChanged("me"));
+      await act(async () => {
+        repair.resolve({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" });
+      });
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledOnce());
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("refreshes connection, request, and directory projections after a graph event", async () => {
     render(<ConnectPageClient />);
     await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
@@ -506,6 +549,25 @@ describe("P0 connection reconciliation", () => {
     );
     await waitFor(() => expect(mocks.listRequests).toHaveBeenCalledOnce());
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+  });
+
+  it("keeps directory cards visible during a background graph refresh", async () => {
+    const refreshed = deferred<{ items: ReturnType<typeof person>[]; hasMore: boolean }>();
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("first", "Visible Person")],
+      hasMore: false,
+    }).mockImplementation(() => refreshed.promise);
+    render(<ConnectPageClient />);
+    await screen.findByText("Visible Person");
+    act(() => dispatchConnectionGraphChanged("me"));
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    expect(screen.getByText("Visible Person")).toBeVisible();
+    expect(screen.queryByText("Finding people…")).toBeNull();
+    await act(async () => {
+      refreshed.resolve({ items: [person("next", "Updated Person")], hasMore: false });
+    });
+    await screen.findByText("Updated Person");
+    expect(screen.queryByText("Visible Person")).toBeNull();
   });
 
   it("reconciles on foreground focus and coalesces a duplicate focus burst", async () => {
@@ -595,27 +657,159 @@ describe("P0 connection reconciliation", () => {
   });
 });
 
+describe("Connect — directory under rate limits", () => {
+  const rateLimited = () =>
+    Object.assign(new Error("Too many searches. Try again shortly."), {
+      status: 429,
+    });
+
+  it("keeps the people already shown when a refresh is refused", async () => {
+    mocks.searchDirectory
+      .mockResolvedValueOnce({ items: [person("first", "Visible Person")], hasMore: false })
+      .mockRejectedValue(rateLimited());
+    render(<ConnectPageClient />);
+    await screen.findByText("Visible Person");
+
+    act(() => dispatchConnectionGraphChanged("me"));
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+
+    expect(screen.getByText("Visible Person")).toBeVisible();
+    expect(screen.queryByText("People are unavailable")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry loading people" })).toBeNull();
+  });
+
+  it("shows the last list on a revisit even when the first read is refused", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("first", "Visible Person")],
+      hasMore: false,
+    });
+    const first = render(<ConnectPageClient />);
+    await screen.findByText("Visible Person");
+    first.unmount();
+
+    mocks.searchDirectory.mockReset();
+    mocks.searchDirectory.mockRejectedValue(rateLimited());
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Visible Person")).toBeVisible();
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+    await act(async () => {});
+    expect(screen.getByText("Visible Person")).toBeVisible();
+    expect(screen.queryByText("People are unavailable")).toBeNull();
+  });
+
+  it("does not show another person's saved list", async () => {
+    mocks.searchDirectory.mockResolvedValueOnce({
+      items: [person("first", "Visible Person")],
+      hasMore: false,
+    });
+    const first = render(<ConnectPageClient />);
+    await screen.findByText("Visible Person");
+    first.unmount();
+
+    mocks.user = { uid: "someone-else", getIdToken: async () => "id-token" };
+    mocks.searchDirectory.mockReset();
+    mocks.searchDirectory.mockRejectedValue(rateLimited());
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("People are taking a moment")).toBeVisible();
+    expect(screen.queryByText("Visible Person")).toBeNull();
+  });
+
+  it("never offers a button for a rate limit, and says people are slow, not broken", async () => {
+    mocks.searchDirectory.mockRejectedValue(rateLimited());
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("People are taking a moment")).toBeVisible();
+    expect(
+      screen.getByText("We'll keep trying and show everyone here as soon as they're ready."),
+    ).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByText("People are unavailable")).toBeNull();
+  });
+
+  it("never pads People with connections while refused, then shows the real list on a quiet retry", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      mocks.listConnections.mockResolvedValue([
+        { connectionId: "c-known", userId: "u-known", displayName: "Known Friend", photoUrl: null },
+      ]);
+      mocks.searchDirectory
+        .mockRejectedValueOnce(rateLimited())
+        .mockResolvedValue({ items: [person("n", "Discoverable Person")], hasMore: false });
+      render(<ConnectPageClient />);
+
+      expect(await screen.findByText("People are taking a moment")).toBeVisible();
+      // People is for people you are not connected to: the connection appears
+      // once, in My connections, and is not copied into the refused list.
+      expect(screen.getAllByText("Known Friend")).toHaveLength(1);
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+
+      await act(() => vi.advanceTimersByTimeAsync(31_000));
+      expect(await screen.findByText("Discoverable Person")).toBeVisible();
+      expect(screen.queryByText("People are taking a moment")).toBeNull();
+      expect(screen.getAllByText("Known Friend")).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still offers Try again for a real failure, which a person can act on", async () => {
+    mocks.searchDirectory.mockRejectedValue(new Error("Request failed (500)"));
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("People are unavailable")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+  });
+
+  it("does not spend a directory read every time the window regains focus", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.searchDirectory.mockClear();
+      mocks.listConnectionsPage.mockClear();
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalledOnce());
+      // The directory reread, when there is one, lands after the connections
+      // read settles; let the whole reconciliation finish before judging.
+      await act(() => vi.advanceTimersByTimeAsync(500));
+      expect(mocks.searchDirectory).not.toHaveBeenCalled();
+
+      // Once the directory has gone stale, coming back rereads it.
+      await act(() => vi.advanceTimersByTimeAsync(121_000));
+      mocks.searchDirectory.mockClear();
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledOnce());
+    } finally {
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+});
+
 describe("Connect — People", () => {
   it("welcomes a new member without hiding the real people directory", async () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByRole("heading", { name: "Circles" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add connection" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Find people to connect with" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
     expect(
       await screen.findByText(
-        /Send a request, then add people after they accept/,
+        /Find people to connect with/,
       ),
     ).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", { name: "Create your own circle" }),
     );
-    expect(mocks.routerPush).toHaveBeenCalledWith(
-      "/one/connect?tab=circles&action=create-circle",
-      {
-        scroll: false,
-      },
-    );
+    expect(await screen.findByRole("dialog", { name: "Create a Circle" })).toBeTruthy();
+    expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
   it("places one directory selector below connections and keeps every directory reachable", async () => {
@@ -1236,7 +1430,7 @@ describe("Connect — People", () => {
       name: "Remove connection with Remove Me",
     });
     fireEvent.click(remove);
-    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
 
     expect(await screen.findByText("Shifted Boundary")).toBeTruthy();
     expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith("me");
@@ -1907,7 +2101,7 @@ describe("Connect — People", () => {
     expect(mocks.sendRequest).not.toHaveBeenCalled();
   });
 
-  it("keeps directory rows name-only while preserving duplicate disambiguation", async () => {
+  it("shows directory emails while preserving duplicate disambiguation", async () => {
     mocks.searchDirectory.mockResolvedValue({
       items: [
         {
@@ -1931,8 +2125,8 @@ describe("Connect — People", () => {
 
     const directory = screen.getByTestId("connect-directory-group");
     expect(within(directory).getAllByText("Ankit Kumar Singh")).toHaveLength(2);
-    expect(within(directory).queryByText("a***t@hushh.ai")).toBeNull();
-    expect(within(directory).queryByText("a***3@gmail.com")).toBeNull();
+    expect(within(directory).getByText("a***t@hushh.ai")).toBeVisible();
+    expect(within(directory).getByText("a***3@gmail.com")).toBeVisible();
 
     const sendRequest = resolveLocalOnboardingHandler("connect.send_request");
     const result = await sendRequest!({ person: "Ankit Kumar Singh" });
@@ -2493,7 +2687,7 @@ describe("Connect — the phone-width geometry QA reported", () => {
   // `e2e/connect-circle-cta.layout.spec.ts` measured and found correct. Neither
   // half is sufficient on its own; that spec is the other half.
 
-  it("keeps a connection's Remove beside the name, not under it", async () => {
+  it("keeps Message and icon-only removal beside the name", async () => {
     // `stackTrailingOnMobile` puts the trailing control on its own line below
     // `sm:` -- which is 640px, so on every iPhone. It was set here for a single
     // 72px "Remove", and QA read the result as a broken row: "remove neeche aa
@@ -2502,23 +2696,38 @@ describe("Connect — the phone-width geometry QA reported", () => {
       {
         connectionId: "c-1",
         userId: "u-rashid",
+        publicPersonRef: "person-ref-rashid",
         displayName: "Abdul Rashid",
         maskedEmail: "r***d@gmail.com",
       },
     ]);
     render(<ConnectPageClient />);
 
+    const message = await screen.findByRole("button", {
+      name: "Message Abdul Rashid",
+    });
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
+    expect(message.textContent).toContain("Message");
+    expect(message.className).toContain("h-11");
     expect(remove.className).toContain("h-11");
     expect(remove.className).toContain("min-h-11");
-    expect(remove.className).toContain("rounded-xl");
-    expect(remove.className).toContain("text-destructive");
+    expect(remove.querySelector("svg")).toBeTruthy();
+    expect(remove).not.toHaveTextContent("Remove");
+    expect(message).toBeEnabled();
     expect(remove.className).not.toContain("h-9");
     expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
+    expect(trailing).toContainElement(message);
+
+    fireEvent.click(message);
+    expect(mocks.toastInfo).not.toHaveBeenCalled();
+    expect(mocks.removeConnection).not.toHaveBeenCalled();
+    expect(mocks.routerPush).toHaveBeenCalledWith(
+      "/one/messages?person=person-ref-rashid",
+    );
 
     // Whole class tokens, not substrings: this wrapper already carries
     // `max-w-full`, which contains "w-full" and would make a `toContain` check
@@ -2533,15 +2742,17 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
 
     fireEvent.click(remove);
-    const confirm = screen.getByRole("button", { name: "Confirm" });
+    const confirm = screen.getByRole("button", { name: "Delete" });
     const cancel = screen.getByRole("button", { name: "Cancel" });
-    expect(confirm.className).toContain("bg-destructive/10");
-    expect(new Set(confirm.className.split(/\s+/)).has("bg-destructive")).toBe(
-      false,
-    );
-    expect(confirm.className).toContain("h-11");
-    expect(cancel.className).toContain("h-11");
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Remove connection?");
+    expect(dialog).toContainElement(confirm);
+    expect(dialog).toContainElement(cancel);
+    expect(trailing).not.toContainElement(confirm);
     expect(confirm.parentElement).toBe(cancel.parentElement);
+    fireEvent.click(cancel);
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(remove).toBeVisible();
   });
 
   it("caps My connections on every viewport, phones included", async () => {

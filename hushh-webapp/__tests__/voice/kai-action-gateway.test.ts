@@ -438,33 +438,13 @@ describe("kai-action-gateway", () => {
     });
   });
 
-  it("treats auth_required as a signed-in guard for One KYC actions", () => {
-    const action = getKaiActionById("route.one_kyc");
-    const availability = evaluateKaiActionAvailability({
-      action: action!,
-      appRuntimeState: makeRuntimeState({
-        auth: {
-          signed_in: false,
-          user_id: null,
-        },
-      }),
-    });
-
-    expect(action?.guard_ids).toContain("auth_required");
-    expect(availability).toEqual({
-      status: "blocked",
-      reason: "Sign in to use this action.",
-      target_persona: null,
-      blocked_guidance: null,
-    });
-  });
-
-  it("projects One KYC route and draft actions with explicit safety policies", () => {
+  it("removes the retired One KYC route and draft actions from the gateway", () => {
     const kycActions = KAI_ACTION_GATEWAY.actions.filter(
       (action) => action.surface_id === "one_kyc",
     );
 
-    expect(kycActions.map((action) => action.action_id)).toEqual([
+    expect(kycActions).toEqual([]);
+    expect([
       "route.one_kyc",
       "kyc.aliases.manage",
       "kyc.workflow.sync_status",
@@ -472,57 +452,7 @@ describe("kai-action-gateway", () => {
       "kyc.draft.request_redraft",
       "kyc.draft.approve_send",
       "kyc.draft.reject",
-    ]);
-    expect(
-      kycActions.every(
-        (action) =>
-          action.speaker_persona === "kyc" &&
-          action.delegate_agent_id === "agent_kyc",
-      ),
-    ).toBe(true);
-
-    expect(getKaiActionById("route.one_kyc")).toEqual(
-      expect.objectContaining({
-        action_id: "route.one_kyc",
-        risk_level: "low",
-        execution_policy: "allow_direct",
-        execution_target: {
-          status: "wired",
-          path: "route",
-          target: "/one/kyc",
-        },
-        guard_ids: ["auth_required", "vault_unlocked"],
-      }),
-    );
-    expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
-      expect.objectContaining({
-        risk_level: "high",
-        execution_policy: "manual_only",
-        guard_ids: ["auth_required", "explicit_confirmation_required"],
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
-      }),
-    );
-    expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
-      expect.objectContaining({
-        execution_policy: "confirm_required",
-        guard_ids: ["auth_required", "vault_unlocked"],
-        execution_target: {
-          status: "wired",
-          path: "local_handler",
-          target: "one_kyc_redraft",
-        },
-      }),
-    );
-    expect(getKaiActionById("kyc.draft.reject")).toEqual(
-      expect.objectContaining({
-        execution_policy: "confirm_required",
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
-      }),
-    );
+    ].map(getKaiActionById)).toEqual(Array(7).fill(null));
   });
 
   it("keeps typed search on the same action plane as voice and guard filtering", () => {

@@ -160,6 +160,10 @@ export function resolvedLabel(
   const resolved = action.resolvedStatus;
   if (resolved === null) return null;
   const status = String(action.resolvedResult?.status || "").trim();
+  if (status === "draft_open_requested") return { label: "Opening draft…", kind: "pending" };
+  if (status === "draft_opened") return { label: "Draft opened", kind: "success" };
+  if (status === "draft_not_opened") return { label: "Draft did not open", kind: "neutral" };
+  if (status === "draft_open_unconfirmed") return { label: "Draft may be open · review it before sending", kind: "neutral" };
   const sos = SOS_RESOLVED_LABEL[status];
   if (sos) {
     return {

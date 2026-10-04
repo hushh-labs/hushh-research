@@ -8,6 +8,7 @@ import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manife
 import {
   buildConfirmedPkmMutationPlanV2,
   isAutomaticPkmWriteAuthorization,
+  type KycReplyAuthorizationV1,
   type PkmMutationOperation,
   type PkmUserConfirmation,
   type PkmWriteAuthorization,
@@ -20,6 +21,13 @@ import {
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import {
+  RESERVED_ENFORCEMENT_MODE,
+  ReservedBranchWriteBlocked,
+  assertReservedBranchesUntouched,
+  reservedEntryFor,
+  type ReservedRefusal,
+} from "@/lib/pkm/reserved-branches";
 import type {
   EncryptedDomainBlob,
   PkmMergeDecision,
@@ -40,6 +48,8 @@ export type PkmWriteCoordinatorSaveState =
   | "retrying_after_conflict"
   | "blocked_pending_unlock"
   | "blocked_pending_upgrade"
+  /** The reserved-branch registry refused this writer (enforce mode only). */
+  | "blocked_reserved_branch"
   | "failed";
 
 class PkmAutomaticUpgradeRequired extends Error {}
@@ -82,6 +92,8 @@ export type PkmWriteCoordinatorResult = {
   commitId?: string;
   locationRunRevision?: number;
   locationPlaceReceiptId?: string;
+  /** Labels only: which app-owned branches refused this writer. */
+  reservedRefusals?: readonly ReservedRefusal[];
 };
 
 function toNullableVersion(value: unknown): number | null {
@@ -159,6 +171,10 @@ function pkmWriteFailureResult(
   if (error instanceof PkmAutomaticUpgradeRequired) {
     return emptyResult("blocked_pending_upgrade", "Open Memory to update it before saving this detail.");
   }
+  if (error instanceof ReservedBranchWriteBlocked) {
+    // The store's own writer-versus-scope check (enforce mode only).
+    return reservedBlockedResult(error.refusals);
+  }
   if (error instanceof DOMException && error.name === "AbortError") {
     return emptyResult("blocked_pending_unlock", "Memory saving stopped because the session changed.");
   }
@@ -189,6 +205,96 @@ function pkmWriteFailureResult(
     "failed",
     "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
   );
+}
+
+let reservedWouldRefuseShadowCount = 0;
+
+/** How many writes this session the reserved-branch registry WOULD have refused. */
+export function getReservedWouldRefuseShadowCount(): number {
+  return reservedWouldRefuseShadowCount;
+}
+
+function reservedBlockedResult(refusals: readonly ReservedRefusal[]): PkmWriteCoordinatorResult {
+  const entry = refusals[0] ? reservedEntryFor(refusals[0].domain, refusals[0].branch) : null;
+  const owner = entry?.ownerFeature ? ` in ${entry.ownerFeature.replace(/_/g, " ")}` : "";
+  return {
+    ...emptyResult(
+      "blocked_reserved_branch",
+      `This belongs to an app screen. Open it${owner} to save it there; nothing was changed.`,
+    ),
+    reservedRefusals: refusals,
+  };
+}
+
+/**
+ * `contracts/pkm/reserved-branches.v1.json` on the device, after `build`.
+ *
+ * Diffs every reserved branch before and after the write and judges the
+ * writer, through `assertReservedBranchesUntouched`. In `shadow` it counts and
+ * never blocks, and any failure is swallowed. In `enforce` a refusal returns
+ * `blocked_reserved_branch`, and a failure of the check itself fails closed:
+ * the write is not sent. Only labels reach the console, never a stored value.
+ */
+function guardReservedBranchWrite(params: {
+  domain: string;
+  context: BaseContext;
+  plan: MergedWritePlan | PreparedWritePlan;
+  writerId: string;
+  authorizationMode?: string | null;
+  capabilities: readonly string[];
+}): PkmWriteCoordinatorResult | null {
+  const enforce = RESERVED_ENFORCEMENT_MODE === "enforce";
+  try {
+    const refusals = assertReservedBranchesUntouched({
+      domain: params.domain,
+      before: params.context.currentDomainData,
+      after: params.plan.domainData,
+      writerId: params.writerId,
+      mergeMode: params.plan.mergeDecision?.merge_mode,
+      deleteTargetPath: params.plan.mergeDecision?.target_entity_path,
+      authorizationMode: params.authorizationMode,
+      capabilities: params.capabilities,
+      mode: RESERVED_ENFORCEMENT_MODE,
+    });
+    for (const refusal of refusals) {
+      reservedWouldRefuseShadowCount += 1;
+      console.debug("[PkmWriteCoordinator] pkm.reserved_would_refuse", {
+        domain: refusal.domain,
+        branch: refusal.branch,
+        writer: refusal.writerId,
+        reason: refusal.reason,
+      });
+    }
+    return null;
+  } catch (error) {
+    if (error instanceof ReservedBranchWriteBlocked) {
+      console.warn("[PkmWriteCoordinator] pkm.reserved_refused", error.refusals.map((refusal) => ({
+        domain: refusal.domain,
+        branch: refusal.branch,
+        writer: refusal.writerId,
+        reason: refusal.reason,
+      })));
+      return reservedBlockedResult(error.refusals);
+    }
+    // Shadow mode must not be able to block or fail a save; enforce fails closed.
+    return enforce ? reservedBlockedResult([]) : null;
+  }
+}
+
+function kycReplyAuthorizationOf(confirmation: PkmWriteAuthorization): KycReplyAuthorizationV1 | undefined {
+  return "kycReplyAuthorization" in confirmation ? confirmation.kycReplyAuthorization : undefined;
+}
+
+function writeCapabilities(params: {
+  confirmation: PkmWriteAuthorization;
+  locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+}): string[] {
+  const held: string[] = [];
+  if (params.locationFinalizeAuthorization) held.push("location_finalize_authorization");
+  if ("kycReplyAuthorization" in params.confirmation && params.confirmation.kycReplyAuthorization) {
+    held.push("information_request_id");
+  }
+  return held;
 }
 
 async function buildWriteContext(params: {
@@ -363,6 +469,18 @@ export class PkmWriteCoordinator {
           confirmation: params.confirmation,
           idempotencyScope: params.idempotencyScope,
         });
+        const reservedBlock = guardReservedBranchWrite({
+          domain: params.domain,
+          context,
+          plan,
+          writerId: mutationPlan.writer_id,
+          authorizationMode: mutationPlan.confirmation_receipt.authorization_mode,
+          capabilities: writeCapabilities({
+            confirmation: params.confirmation,
+            locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+          }),
+        });
+        if (reservedBlock) return reservedBlock;
         const syncCheckpoint = buildSyncCheckpoint({
           source: "merged_domain",
           domain: params.domain,
@@ -386,6 +504,7 @@ export class PkmWriteCoordinator {
           syncCheckpoint,
           mutationPlan,
           locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+          kycReplyAuthorization: kycReplyAuthorizationOf(params.confirmation),
           beforeEffect: params.beforeEffect,
           cacheFullBlob: false,
         });
@@ -440,6 +559,7 @@ export class PkmWriteCoordinator {
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
     confirmation: PkmWriteAuthorization;
+    /** Deterministic plan id (and so commit id) for a replay-safe write. */
     idempotencyScope?: string;
     beforeEffect?: () => Promise<void>;
     mayPublish?: () => boolean;
@@ -500,6 +620,15 @@ export class PkmWriteCoordinator {
           confirmation: params.confirmation,
           idempotencyScope: params.idempotencyScope,
         });
+        const reservedBlock = guardReservedBranchWrite({
+          domain: params.domain,
+          context,
+          plan,
+          writerId: mutationPlan.writer_id,
+          authorizationMode: mutationPlan.confirmation_receipt.authorization_mode,
+          capabilities: writeCapabilities({ confirmation: params.confirmation }),
+        });
+        if (reservedBlock) return reservedBlock;
         const syncCheckpoint = buildSyncCheckpoint({
           source: "prepared_domain",
           domain: params.domain,
@@ -523,6 +652,7 @@ export class PkmWriteCoordinator {
           expectedDataVersion: context.currentEncryptedDomain?.dataVersion ?? context.expectedDataVersion,
           syncCheckpoint,
           mutationPlan,
+          kycReplyAuthorization: kycReplyAuthorizationOf(params.confirmation),
           cacheFullBlob: false,
           beforeEffect: params.beforeEffect,
           mayPublish: params.mayPublish,

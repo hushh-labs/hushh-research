@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any, Literal
 from urllib.parse import quote
 
@@ -22,6 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from hushh_mcp.one_voice.tools.base import (
     CircleRef,
     ConfirmedCircle,
+    Needs,
     PersonRef,
     Rejected,
     ToolContext,
@@ -172,19 +175,45 @@ async def _refresh_remembered(ctx: ToolContext, circle_id: str) -> None:
         ctx.entities.remember_circle(circle.model_copy(update={"member_count": None}))
 
 
-async def _fresh_relationship(ctx: ToolContext, user_id: str) -> str:
-    """The person's current relationship to the viewer, re-read now. Falls
-    back to what was true when they were confirmed if the people plane is
-    unavailable, and says so via ``none`` only when nothing is known."""
+async def _relationships(ctx: ToolContext, user_ids: Sequence[str]) -> dict[str, str]:
+    """Each person's current relationship to the viewer, from one people read.
+
+    One read for the whole audience, not one per person: ``load_people_snapshot``
+    costs four service calls, so asking it per person would cost four times the
+    audience inside a confirmation card's lifetime. Reading once also means every
+    person in a batch is judged against the same moment rather than a sequence
+    that can drift between them.
+
+    Falls back to what was true when each person was confirmed if the people
+    plane is unavailable, and says ``none`` only when nothing is known.
+    """
+    ids = list(dict.fromkeys(user_ids))
+    if not ids:
+        return {}
     try:
         snapshot = await load_people_snapshot(ctx)
     except PeopleServiceError:
-        person = ctx.entities.person(user_id)
-        return person.relationship if person is not None else "none"
-    record = snapshot.people.get(user_id)
-    if record is not None:
-        return str(record.get("relationship") or "none")
-    return "none"
+        remembered: dict[str, str] = {}
+        for user_id in ids:
+            person = ctx.entities.person(user_id)
+            remembered[user_id] = person.relationship if person is not None else "none"
+        return remembered
+    resolved: dict[str, str] = {}
+    for user_id in ids:
+        record = snapshot.people.get(user_id)
+        resolved[user_id] = (
+            str(record.get("relationship") or "none") if record is not None else "none"
+        )
+    return resolved
+
+
+async def _fresh_relationship(ctx: ToolContext, user_id: str) -> str:
+    """One person's current relationship to the viewer, re-read now.
+
+    Delegates to the batch read so adding one person and adding several cannot
+    answer this question differently.
+    """
+    return (await _relationships(ctx, [user_id])).get(user_id, "none")
 
 
 def _public_app_origin() -> str:
@@ -879,6 +908,127 @@ class AddCircleMemberResult(ToolResult):
     relationship: str | None = None
 
 
+# Not a reported status: the one outcome that goes on to the write.
+_ELIGIBLE = "eligible"
+
+
+@dataclass(frozen=True)
+class _MemberDecision:
+    """What happens to one person, decided before anything is written.
+
+    ``spoken`` is the sentence One says about this person. It is empty only for
+    ``_ELIGIBLE``, where what gets said depends on how the write turns out.
+    """
+
+    user_id: str
+    status: str
+    spoken: str = ""
+    relationship: str | None = None
+    needs: Needs | None = None
+
+
+def _decide_member(
+    *,
+    user_id: str,
+    person_name: str,
+    circle_label: str,
+    is_member: bool,
+    is_eligible: bool,
+    has_pending_invite: bool,
+    relationship: str | None,
+) -> _MemberDecision:
+    """One person's outcome and the sentence that explains it.
+
+    Pure, and shared by the single-person and batch tools, so one question gets
+    one answer and the sentences stay in one place. The order is the order the
+    single-person handler established: membership, then addability, then the
+    missing prerequisite -- most specific first, so "already in" is never
+    reported as "not connected".
+    """
+    if is_member:
+        return _MemberDecision(
+            user_id, "already_member", f"{person_name} is already in {circle_label}."
+        )
+    if is_eligible:
+        return _MemberDecision(user_id, _ELIGIBLE)
+    if has_pending_invite:
+        return _MemberDecision(
+            user_id,
+            "invite_pending",
+            f"{person_name} already has a pending invitation to {circle_label}. "
+            "It's pending until they accept.",
+        )
+    if relationship == "pending_outgoing":
+        return _MemberDecision(
+            user_id,
+            "connection_pending_outgoing",
+            f"Your connection request to {person_name} is still pending. "
+            f"They can be added to {circle_label} once they accept.",
+            relationship=relationship,
+        )
+    if relationship == "pending_incoming":
+        return _MemberDecision(
+            user_id,
+            "connection_pending_incoming",
+            f"{person_name} has asked to connect with you. "
+            f"Accept their request first, then they can be added to {circle_label}.",
+            relationship=relationship,
+        )
+    if relationship == "connected":
+        return _MemberDecision(
+            user_id,
+            "not_eligible",
+            f"{person_name} is connected with you, but can't be added to {circle_label} right now.",
+            relationship=relationship,
+        )
+    return _MemberDecision(
+        user_id,
+        "not_connected",
+        f"You aren't connected with {person_name} yet, so they can't be added to "
+        f"{circle_label}. Send them a connection request, or share the circle's join link.",
+        relationship=relationship,
+        needs="invite",
+    )
+
+
+async def _circle_membership_state(
+    ctx: ToolContext, service: Any, circle_id: str
+) -> tuple[set[str], set[str]]:
+    """Who is in the circle, and who may be added to it.
+
+    Two reads per circle rather than per person, so one person and twenty cost
+    the same. These are the only two needed when everybody named is addable.
+    """
+    circle_row = dict(
+        await asyncio.to_thread(service.get_circle, user_id=ctx.user_id, circle_id=circle_id) or {}
+    )
+    member_ids = {str(row.get("userId") or "") for row in (circle_row.get("members") or [])}
+    eligible = await asyncio.to_thread(
+        service.list_eligible_direct_connections, actor_user_id=ctx.user_id, circle_id=circle_id
+    )
+    eligible_ids = {str(row.get("userId") or "") for row in (eligible or [])}
+    return member_ids, eligible_ids
+
+
+async def _pending_invitee_ids(ctx: ToolContext, service: Any, circle_id: str) -> set[str]:
+    """Who already holds a pending invitation to this circle.
+
+    Read only once somebody turns out not to be addable, which keeps the ordinary
+    path at the two reads it always had.
+    """
+    outgoing = await asyncio.to_thread(
+        service.list_member_invites,
+        user_id=ctx.user_id,
+        circle_id=circle_id,
+        direction="outgoing",
+    )
+    return {
+        str(invite.get("inviteeUserId") or "")
+        for invite in (outgoing or [])
+        if invite.get("status") == "pending"
+    }
+
+
 async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> ToolResult:
     """Add one confirmed connection to one confirmed circle.
 
@@ -903,78 +1053,30 @@ async def add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) -> Too
         )
 
     try:
-        circle_row = dict(
-            await asyncio.to_thread(service.get_circle, user_id=ctx.user_id, circle_id=circle_id)
-            or {}
-        )
-        member_ids = {str(row.get("userId") or "") for row in (circle_row.get("members") or [])}
+        member_ids, eligible_ids = await _circle_membership_state(ctx, service, circle_id)
         if user_id in member_ids:
             return already()
-        eligible = await asyncio.to_thread(
-            service.list_eligible_direct_connections, actor_user_id=ctx.user_id, circle_id=circle_id
-        )
-        eligible_ids = {str(row.get("userId") or "") for row in (eligible or [])}
         if user_id not in eligible_ids:
-            outgoing = await asyncio.to_thread(
-                service.list_member_invites,
-                user_id=ctx.user_id,
-                circle_id=circle_id,
-                direction="outgoing",
-            )
-            for invite in outgoing or []:
-                if (
-                    str(invite.get("inviteeUserId") or "") == user_id
-                    and invite.get("status") == "pending"
-                ):
-                    return AddCircleMemberResult(
-                        status="invite_pending",
-                        **base,
-                        spoken_facts=[
-                            f"{person_name} already has a pending invitation to {circle_label}. "
-                            "It's pending until they accept."
-                        ],
-                    )
-            relationship = await _fresh_relationship(ctx, user_id)
-            if relationship == "pending_outgoing":
-                return AddCircleMemberResult(
-                    status="connection_pending_outgoing",
-                    relationship=relationship,
-                    **base,
-                    spoken_facts=[
-                        f"Your connection request to {person_name} is still pending. "
-                        f"They can be added to {circle_label} once they accept."
-                    ],
-                )
-            if relationship == "pending_incoming":
-                return AddCircleMemberResult(
-                    status="connection_pending_incoming",
-                    relationship=relationship,
-                    **base,
-                    spoken_facts=[
-                        f"{person_name} has asked to connect with you. "
-                        f"Accept their request first, then they can be added to {circle_label}."
-                    ],
-                )
-            if relationship == "connected":
-                return AddCircleMemberResult(
-                    status="not_eligible",
-                    relationship=relationship,
-                    **base,
-                    spoken_facts=[
-                        f"{person_name} is connected with you, but can't be added to "
-                        f"{circle_label} right now."
-                    ],
-                )
-            return AddCircleMemberResult(
-                status="not_connected",
+            invited = await _pending_invitee_ids(ctx, service, circle_id)
+            has_invite = user_id in invited
+            # Only reached for someone who is not addable, and only when no
+            # invitation already explains it -- the same order as before.
+            relationship = None if has_invite else await _fresh_relationship(ctx, user_id)
+            decision = _decide_member(
+                user_id=user_id,
+                person_name=person_name,
+                circle_label=circle_label,
+                is_member=False,
+                is_eligible=False,
+                has_pending_invite=has_invite,
                 relationship=relationship,
+            )
+            return AddCircleMemberResult(
+                status=decision.status,  # type: ignore[arg-type]
+                relationship=decision.relationship,
+                needs=decision.needs,
                 **base,
-                needs="invite",
-                spoken_facts=[
-                    f"You aren't connected with {person_name} yet, so they can't be added to "
-                    f"{circle_label}. Send them a connection request, or share the circle's "
-                    "join link."
-                ],
+                spoken_facts=[decision.spoken],
             )
         result = await asyncio.to_thread(
             service.create_member_invites,
@@ -1026,6 +1128,242 @@ def summarize_add_circle_member(ctx: ToolContext, args: AddCircleMemberInput) ->
         f"add {_person_name(ctx, args.person.user_id)} to "
         f"{_circle_label(_circle_name(ctx, args.circle.circle_id))}"
     )
+
+
+# -- add_circle_members -----------------------------------------------------------
+
+# The service refuses more than twenty in one call, so the input carries the same
+# ceiling. Discovering it as a 422 would mean refusing after the person already
+# said yes.
+MAX_BATCH_MEMBERS = 20
+
+
+class AddCircleMembersInput(ToolInput):
+    """One circle, and the several people to add to it.
+
+    Two or more on purpose: one person is ``add_circle_member``, and keeping the
+    two arities disjoint means the model never has to choose between two tools
+    that would both fit the same request.
+    """
+
+    circle: CircleRef
+    people: list[PersonRef] = Field(min_length=2, max_length=MAX_BATCH_MEMBERS)
+
+
+BatchAddStatus = Literal["added", "partially_added", "none_added"]
+
+# The per-person vocabulary, which is the single-person one plus the cooldown the
+# service can report for somebody who left moments ago. Kept separate from
+# ``AddMemberStatus`` so adding a reason here does not change what the
+# single-person tool declares it can return.
+BatchMemberStatus = Literal[
+    "added",
+    "already_member",
+    "invite_pending",
+    "not_connected",
+    "connection_pending_outgoing",
+    "connection_pending_incoming",
+    "not_eligible",
+    "left_recently",
+]
+
+
+class MemberOutcome(BaseModel):
+    """What happened to one person in the batch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: str
+    person_name: str
+    status: BatchMemberStatus
+
+
+class AddCircleMembersResult(ToolResult):
+    """One outcome for the call, and one row per person.
+
+    Parallel lists rather than a list of whole results: the call succeeded or it
+    did not, and each person's reason belongs to them. ``none_added`` is an
+    answer, not an error -- everybody named may simply have been in the circle
+    already.
+    """
+
+    status: BatchAddStatus
+    circle_id: str
+    added: list[MemberOutcome] = Field(default_factory=list)
+    skipped: list[MemberOutcome] = Field(default_factory=list)
+
+
+def _names_for_speech(names: Sequence[str]) -> str:
+    """Names One can say, bounded so a long audience stays a sentence."""
+    listed = list(names)
+    if len(listed) <= SPOKEN_LIST_LIMIT:
+        return str(join_names_for_speech(listed))
+    extra = len(listed) - SPOKEN_LIST_LIMIT
+    return f"{join_names_for_speech(listed[:SPOKEN_LIST_LIMIT])} and {extra} more"
+
+
+def _batch_spoken(
+    circle_label: str, added: Sequence[MemberOutcome], skipped: Sequence[MemberOutcome]
+) -> list[str]:
+    """What One says, composed only from the outcomes.
+
+    Grouped by reason rather than one sentence per person: twenty sentences is a
+    readout, not an answer. Nobody is named in a group they are not in, and every
+    name comes from the confirmed entity rather than from the model's arguments.
+    """
+    lines: list[str] = []
+    if added:
+        lines.append(
+            f"Added {_names_for_speech([row.person_name for row in added])} to {circle_label}."
+        )
+    grouped: dict[str, list[str]] = {}
+    for row in skipped:
+        grouped.setdefault(row.status, []).append(row.person_name)
+    for status, people in grouped.items():
+        names = _names_for_speech(people)
+        one = len(people) == 1
+        if status == "already_member":
+            lines.append(f"{names} {'was' if one else 'were'} already in {circle_label}.")
+        elif status == "not_connected":
+            lines.append(f"You aren't connected with {names} yet, so I skipped them.")
+        elif status == "connection_pending_outgoing":
+            lines.append(f"Your connection request to {names} is still pending, so I skipped them.")
+        elif status == "connection_pending_incoming":
+            lines.append(f"{names} asked to connect with you first, so I skipped them.")
+        elif status == "invite_pending":
+            lines.append(
+                f"{names} already {'has' if one else 'have'} a pending invitation, "
+                "so I skipped them."
+            )
+        elif status == "left_recently":
+            lines.append(f"{names} left {circle_label} recently, so I couldn't add them back yet.")
+        else:
+            lines.append(f"{names} can't be added to {circle_label} right now, so I skipped them.")
+    if not lines:
+        lines.append(f"Nobody was added to {circle_label}.")
+    return lines
+
+
+async def add_circle_members(ctx: ToolContext, args: AddCircleMembersInput) -> ToolResult:
+    """Add several confirmed connections to one confirmed circle, in one step.
+
+    Every person is judged by the same shared decision the single-person tool
+    uses, so the two tools cannot disagree about who is addable or why. Only the
+    people who pass that check are sent to the service, which matters because the
+    service refuses the whole batch -- naming nobody -- if even one id is not an
+    active connection. Filtering first is what makes a per-person answer possible
+    at all.
+
+    Partial success is reported honestly in both directions: someone skipped is
+    never counted as added, and when the write fails nobody is reported as added.
+    """
+    circle_id = args.circle.circle_id
+    circle_label = _circle_label(_circle_name(ctx, circle_id))
+    service = _service(ctx)
+    # Deduped in request order: the same person named twice is one decision and
+    # one row, never two that could disagree.
+    user_ids = list(dict.fromkeys(ref.user_id for ref in args.people))
+    names = {user_id: _person_name(ctx, user_id) for user_id in user_ids}
+
+    def rows(entries: Sequence[tuple[str, str]]) -> list[MemberOutcome]:
+        return [
+            MemberOutcome(user_id=user_id, person_name=names[user_id], status=status)  # type: ignore[arg-type]
+            for user_id, status in entries
+        ]
+
+    try:
+        member_ids, eligible_ids = await _circle_membership_state(ctx, service, circle_id)
+        undecided = [
+            user_id
+            for user_id in user_ids
+            if user_id not in member_ids and user_id not in eligible_ids
+        ]
+        invited: set[str] = set()
+        relationships: dict[str, str] = {}
+        if undecided:
+            invited = await _pending_invitee_ids(ctx, service, circle_id)
+            relationships = await _relationships(
+                ctx, [user_id for user_id in undecided if user_id not in invited]
+            )
+        decisions = [
+            _decide_member(
+                user_id=user_id,
+                person_name=names[user_id],
+                circle_label=circle_label,
+                is_member=user_id in member_ids,
+                is_eligible=user_id in eligible_ids,
+                has_pending_invite=user_id in invited,
+                relationship=relationships.get(user_id),
+            )
+            for user_id in user_ids
+        ]
+        addable = [decision.user_id for decision in decisions if decision.status == _ELIGIBLE]
+        written: dict[str, Any] = {}
+        if addable:
+            # One call for the whole audience: the service is already atomic over
+            # the list, so a second call would be a second transaction.
+            written = dict(
+                await asyncio.to_thread(
+                    service.create_member_invites,
+                    actor_user_id=ctx.user_id,
+                    circle_id=circle_id,
+                    invitee_user_ids=addable,
+                )
+                or {}
+            )
+    except _SERVICE_ERRORS as exc:
+        if getattr(exc, "code", "") == "LOCATION_CIRCLE_ALREADY_MEMBER":
+            # Everyone addable turned out to be in the circle already. An answer,
+            # not a failure, and nothing was written.
+            skipped = rows([(user_id, "already_member") for user_id in user_ids])
+            return AddCircleMembersResult(
+                status="none_added",
+                circle_id=circle_id,
+                skipped=skipped,
+                spoken_facts=_batch_spoken(circle_label, (), skipped),
+            )
+        # Any other refusal takes the whole batch down: the service writes nobody
+        # when it raises, so this must not report a partial add.
+        return _rejected(exc)
+
+    added_ids = {str(item) for item in (written.get("addedUserIds") or [])}
+    service_skips = {
+        str(key): str(value) for key, value in dict(written.get("skippedReasons") or {}).items()
+    }
+    if added_ids:
+        await _refresh_remembered(ctx, circle_id)
+
+    added_rows: list[tuple[str, str]] = []
+    skipped_rows: list[tuple[str, str]] = []
+    for decision in decisions:
+        if decision.user_id in added_ids:
+            added_rows.append((decision.user_id, "added"))
+            continue
+        row_status = decision.status
+        if row_status == _ELIGIBLE:
+            # Addable a moment ago and not in the response: take the service's own
+            # reason when it gave one rather than claiming it was added.
+            reason = service_skips.get(decision.user_id)
+            row_status = reason if reason in {"already_member", "left_recently"} else "not_eligible"
+        skipped_rows.append((decision.user_id, row_status))
+
+    added = rows(added_rows)
+    skipped = rows(skipped_rows)
+    status: BatchAddStatus = "added" if added and not skipped else "none_added"
+    if added and skipped:
+        status = "partially_added"
+    return AddCircleMembersResult(
+        status=status,
+        circle_id=circle_id,
+        added=added,
+        skipped=skipped,
+        spoken_facts=_batch_spoken(circle_label, added, skipped),
+    )
+
+
+def summarize_add_circle_members(ctx: ToolContext, args: AddCircleMembersInput) -> str:
+    people = [_person_name(ctx, ref.user_id) for ref in args.people]
+    return f"add {_names_for_speech(people)} to {_circle_label(_circle_name(ctx, args.circle.circle_id))}"
 
 
 # -- remove_circle_member ---------------------------------------------------------
@@ -1519,6 +1857,30 @@ TOOLS: tuple[ToolSpec, ...] = (
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_add_circle_member,
+    ),
+    ToolSpec(
+        name="add_circle_members",
+        gateway_action_id="location.add_to_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=AddCircleMembersInput,
+        output_model=AddCircleMembersResult,
+        description=(
+            "Add two or more confirmed people to one confirmed circle in a single step, "
+            "with one confirmation for the whole group. Use this when the person names "
+            "several people at once; use add_circle_member when they name one. The same "
+            "rule applies to each person as for a single add: only an existing connection "
+            "joins, and anyone else is skipped with their own reason (already_member, "
+            "invite_pending, connection_pending_outgoing, connection_pending_incoming, "
+            "not_eligible, not_connected, left_recently). Skipping is not inviting: this "
+            "never sends a connection request to anybody. The result says who joined and "
+            "who did not, so some people can join while others are skipped. Every "
+            "argument is a canonical id, never a name."
+        ),
+        handler=add_circle_members,
+        person_args=("people",),
+        circle_args=("circle",),
+        ui_refresh=REFRESH_CIRCLES,
+        summarize=summarize_add_circle_members,
     ),
     ToolSpec(
         name="remove_circle_member",

@@ -198,6 +198,7 @@ _ACTIVITY_TOOLS = frozenset(
         "propose_document_request",
         "list_available_models",
         "set_preferred_model",
+        "propose_style_settings",
         "calendar_summary",
         "calendar_events",
         "calendar_availability",

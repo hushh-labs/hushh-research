@@ -8,6 +8,7 @@ import { LocationPublisherBridge } from "@/components/location/location-publishe
 import { LocationUpdatesStepBridge } from "@/components/location/location-updates-step-bridge";
 import { RequestReviewStepBridge } from "@/components/connections/request-review-step-bridge";
 import { VoiceSessionProvider } from "@/components/one-voice/voice-session-provider";
+import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useOneVoiceLiveEnabled, useOneVoiceCommandsEnabled } from "@/lib/one-voice/readiness";
 
 /**
@@ -25,6 +26,7 @@ export function AgentOwnerGate({ children }: { children: ReactNode }) {
     <LocationCommandProvider enabled={commands}>
       {commands ? <LocationCommandDeviceBridge /> : null}
       <VoiceSessionProvider enabled={live}>
+        <OneVoiceMailDraftBridge />
         {live ? (
           <>
             <LocationPublisherBridge />

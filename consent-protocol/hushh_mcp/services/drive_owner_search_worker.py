@@ -33,6 +33,15 @@ class DriveOwnerSearchWorker:
         deadline = asyncio.get_running_loop().time() + deadline_seconds
         if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
             try:
+                # A payment/restart wake can arrive with committed results
+                # still waiting for approval. Drain them before the next
+                # provider page can spend the whole search slice.
+                async with asyncio.timeout(20):
+                    await self.trusted_auto.continue_batches(max_jobs=min(max_jobs, 2))
+            except Exception:
+                counts["unavailable"] += 1
+        if self.trusted_auto and deadline - asyncio.get_running_loop().time() > 20:
+            try:
                 started = await self.trusted_auto.start_pending(
                     max_jobs=min(max_jobs, 2), deadline_at=deadline
                 )
@@ -57,7 +66,14 @@ class DriveOwnerSearchWorker:
                     user_id=job["user_id"],
                     job_id=str(job["job_id"]),
                     deadline_seconds=min(90, remaining),
-                    **({"require_current": authority} if authority is not None else {}),
+                    **(
+                        {
+                            "require_current": authority,
+                            "after_page": self.trusted_auto.after_search_page,
+                        }
+                        if authority is not None
+                        else {}
+                    ),
                 )
                 if outcome == "queued":
                     # The slice has released its lease before waking another

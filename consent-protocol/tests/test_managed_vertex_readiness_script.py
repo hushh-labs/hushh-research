@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import importlib.util
+import json
 import subprocess
 import sys
 from contextlib import asynccontextmanager
@@ -12,6 +13,35 @@ import pytest
 
 PROTOCOL_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_PATH = PROTOCOL_ROOT / "scripts" / "verify_managed_vertex_runtime.py"
+LIVE_ASSERTION_PATH = PROTOCOL_ROOT.parent / "scripts" / "ci" / "assert_one_voice_live_probe.py"
+
+
+def test_production_live_probe_requires_exact_success() -> None:
+    spec = importlib.util.spec_from_file_location("live_probe_assertion", LIVE_ASSERTION_PATH)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    target = "one_voice_live:gemini-live-2.5-flash-native-audio@us-central1"
+
+    def line(probes: list[dict[str, object]]) -> str:
+        return "managed_vertex_probe_result " + json.dumps({"probes": probes})
+
+    good = {"probe": target, "ok": True, "classification": "dependency_ok"}
+    assert module.live_probe_passed(
+        line([good]), model="gemini-live-2.5-flash-native-audio", location="us-central1"
+    )
+    for verdict in (
+        line([{**good, "ok": False, "classification": "provider_unavailable"}]),
+        line([{**good, "probe": "one_voice_live:wrong@us-central1"}]),
+        line([good, good]),
+        line([]),
+        "managed_vertex_probe_result invalid-json",
+        "",
+    ):
+        assert not module.live_probe_passed(
+            verdict, model="gemini-live-2.5-flash-native-audio", location="us-central1"
+        )
 
 
 def test_readiness_script_imports_from_an_uninstalled_container_checkout() -> None:

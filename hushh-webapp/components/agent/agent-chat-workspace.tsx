@@ -22,11 +22,18 @@ import {
   describeOwnerMemoryReview,
   formatPkmSaveReceiptForAgent,
   pkmSaveReceiptWrote,
-  runExplicitPkmSave,
   saveOwnerConfirmedCards,
   type PkmSaveReceipt,
 } from "@/lib/agent/agent-pkm-explicit-save";
+import { explicitSaveReceiptPhase } from "@/lib/agent/pkm-save-receipt";
+import {
+  listResumablePkmSaveJobs,
+  resumeExplicitPkmSaveJob,
+  startExplicitPkmSaveJob,
+  type ExplicitPkmSaveJobResult,
+} from "@/lib/pkm/pkm-save-job";
 import { isCommittedPkmSave, type AgentPkmPreviewCard } from "@/lib/agent/agent-pkm-memory";
+import type { OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import {
   AgentConsentContinuationContext,
   AgentPersonSelectionContext,
@@ -93,10 +100,14 @@ import {
 
 import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
+import {
+  openProfilePane,
+  profileConnectorsLocation,
+  replaceProfilePaneLocation,
+  requestProfilePaneOpen,
+} from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
-import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
@@ -120,6 +131,11 @@ import {
 import { EmailDraftCard } from "@/components/agent/email-draft-card";
 import { richEmailPlainText } from "@/components/agent/email-rich-text";
 import {
+  AgentCalendarProposalCard,
+  type CalendarProposalAction,
+  type CalendarProposalConflict,
+} from "@/components/agent/agent-calendar-proposal-card";
+import {
   EmailDeliveryHistoryCard,
   type EmailDeliveryHistoryItem,
 } from "@/components/agent/email-delivery-history-card";
@@ -130,10 +146,12 @@ import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
-import {
-  detectLikelyPan,
-  redactLikelyPans,
-} from "@/lib/wallet/pan-paste-guard";
+import { SecretCaptureCard, type KeptSecretRef } from "@/components/secrets/secret-capture-card";
+import { SecretPlaceholderText } from "@/components/secrets/secret-placeholder-text";
+import { containsSecretSpan } from "@/lib/pkm/secret-patterns";
+import { SECRET_OFFER_ROUTES, stageSecretOffer } from "@/lib/pkm/secret-offer-handoff";
+import { planSecretCaptures } from "@/lib/pkm/secret-span-guard";
+import { SecretsVaultService } from "@/lib/pkm/secrets-vault-service";
 import {
   WalletService,
   type WalletCardSecrets,
@@ -167,8 +185,9 @@ import { ConnectorBrandMark, type ConnectorBrand } from "@/components/agent/conn
 import { AgentResponseReportButton } from "@/components/agent/agent-response-report";
 import { isAndroid } from "@/lib/capacitor/platform";
 import {
-  CHAT_USER_BUBBLE_CLASSNAME,
   ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME,
+  OneChatBubble,
+  OneChatTimeSeparator,
 } from "@/components/agent/chat-message-styles";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { AgentFollowUpSuggestions, visibleFollowUps } from "@/components/agent/agent-follow-up-suggestions";
@@ -232,7 +251,6 @@ import {
 } from "@/lib/agent/agent-pkm-memory";
 import {
   ingestNaturalLanguagePkm,
-  isExplicitKycIdentitySaveRequest,
   prepareNaturalLanguagePkm,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
@@ -379,6 +397,8 @@ import {
   type QueuedAgentPrompt,
 } from "@/lib/agent/agent-chat-prompt-queue";
 import { LiveTurnQueue } from "@/lib/agent/agent-chat-live-turn-queue";
+import { AgentMessageReactionBadge } from "./agent-message-reaction";
+import { attachMessageReaction, type AgentMessageReaction } from "@/lib/agent/agent-message-reaction";
 import { AgentQueuedStack, QueuedJoinedCaption } from "@/components/agent/agent-queued-stack";
 import { useAgentChatSlowNotice } from "@/components/agent/agent-chat-slow-notice";
 import {
@@ -404,6 +424,7 @@ import {
 import {
   DRIVE_CHAT_RECOVERY_RETURN_EVENT,
   clearDriveChatRecovery,
+  registerChatConnectorRecoveryHost,
   saveDriveChatRecovery,
   takeDriveChatRecovery,
   type DriveChatRecoveryReason,
@@ -426,6 +447,10 @@ import {
 // explicit save of a long document within 300 s, and each leaves time to write.
 const AGENT_PKM_CAPTURE_DEADLINE_MS = 4 * 60_000;
 const AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS = 8 * 60_000;
+// An explicit save runs as a resumable job (lib/pkm/pkm-save-job.ts): it
+// pauses this long before the deadline and continues later, so the deadline
+// ends the progress line without dropping any section.
+const AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS = 20_000;
 
 type AgentMessage = {
   id: string;
@@ -469,6 +494,7 @@ type AgentMessage = {
   lostTurn?: AgentLostTurn;
   /** One's 2-3 next questions for this answer; in memory only, shown while it is latest. */
   followUps?: string[];
+  reaction?: AgentMessageReaction | null;
   /**
    * The information request this outcome chip or continuation answer belongs
    * to. Set live when the turn starts; restored from history metadata
@@ -658,6 +684,8 @@ function clearDriveCompilationFromMessages(messages: AgentMessage[]): AgentMessa
  */
 type AgentWalletWidget =
   | { id: string; kind: "add" }
+  /** Secrets the device guard kept from an outgoing turn: ids and labels only. */
+  | { id: string; kind: "secrets"; items: KeptSecretRef[] }
   | { id: string; kind: "list"; summaries: WalletCardSummary[] }
   | {
       id: string;
@@ -674,6 +702,7 @@ type AgentRunTurnOptions = {
   driveSearchSelection?: { jobId: string; position: number };
   kycInformationSaveConfirmed?: boolean;
   appendUserMessage?: boolean;
+  reactionUserMessageId?: string;
   replaceAssistantMessageId?: string | null;
   deferPkmContext?: boolean;
   /** Pasted text sent as separate document parts beside the typed text. */
@@ -884,7 +913,12 @@ export function getCalendarDirectiveFromToolEvent(
           ? "Reschedule"
           : "Schedule";
     const conflicts = Array.isArray(parsed.conflicts) ? parsed.conflicts : [];
-    const confirmLabel = conflicts.length > 0 ? `${verb} anyway` : verb;
+    const confirmLabel =
+      conflicts.length > 0
+        ? `${verb} anyway`
+        : action === "create"
+          ? "Schedule meeting"
+          : verb;
     const title = String(plan.title || plan.event_id || "event");
     const summary = `${verb} '${title}'`;
 
@@ -896,6 +930,7 @@ export function getCalendarDirectiveFromToolEvent(
           type: "calendar.execute_proposal",
           proposalId: parsed.proposal_id,
           action,
+          googleMeet: action === "create",
           summary,
           confirmLabel,
           expiresAt: String(parsed.expires_at || ""),
@@ -1776,6 +1811,7 @@ export function AgentBubble({
   driveMemoryReview,
   onResendAttachment,
   onConfirmMemoryNeedsOwner,
+  onRetryMemorySave,
   pendingMemoryCards,
   canConfirmMemoryNeedsOwner,
   onUnlockVault,
@@ -1807,6 +1843,8 @@ export function AgentBubble({
   /** "Edit and send again" on a sent paste: a new turn, never an edit of this one. */
   onResendAttachment?: (index: number, editedText: string) => boolean | void;
   onConfirmMemoryNeedsOwner?: (reviewedCards: readonly AgentPkmPreviewCard[]) => Promise<void>;
+  /** Continue a paused or gapped memory save job for this message. */
+  onRetryMemorySave?: () => Promise<void>;
   pendingMemoryCards?: readonly AgentPkmPreviewCard[];
   canConfirmMemoryNeedsOwner?: boolean;
   onUnlockVault?: () => void;
@@ -1995,16 +2033,12 @@ export function AgentBubble({
           isUser && "sm:max-w-[min(76%,42rem)]",
         )}
       >
-        <div
+        <OneChatBubble
           aria-live={!isUser && isStreaming ? "polite" : undefined}
           data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
+          tone={isUser ? "user" : showAssistantBubble ? "assistant" : "plain"}
           className={cn(
-            "text-sm leading-6",
-            isUser
-              ? CHAT_USER_BUBBLE_CLASSNAME
-              : showAssistantBubble
-                ? cn(ONE_CHAT_ASSISTANT_BUBBLE_CLASSNAME, "relative")
-                : "px-0 py-1 text-foreground",
+            (isUser || showAssistantBubble) && "relative",
             isError &&
               "rounded-2xl border border-destructive/20 bg-destructive/[0.06] px-4 py-2.5 text-foreground",
           )}
@@ -2012,7 +2046,7 @@ export function AgentBubble({
           {isUser ? (
             <>
               {message.text ? (
-                <span className="whitespace-pre-wrap break-words">{message.text}</span>
+                <span className="whitespace-pre-wrap break-words"><SecretPlaceholderText text={message.text} /></span>
               ) : null}
               {message.attachments?.length ? (
                 <div className={cn(message.text && "mt-2")}>
@@ -2023,6 +2057,7 @@ export function AgentBubble({
                 </div>
               ) : null}
               {gmailInformationRequestAttachment}
+              {message.reaction && <AgentMessageReactionBadge reaction={message.reaction} />}
             </>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
@@ -2069,9 +2104,9 @@ export function AgentBubble({
               {message.errorNotice}
             </p>
           ) : null}
-        </div>
+        </OneChatBubble>
         {isUser && message.queuedPlacement === "joined" ? <QueuedJoinedCaption /> : null}
-        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
+        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} onConfirmNeedsOwner={onConfirmMemoryNeedsOwner} onRetry={onRetryMemorySave} pendingCards={pendingMemoryCards} canConfirmNeedsOwner={canConfirmMemoryNeedsOwner} onUnlock={onUnlockVault} /> : null}
         {!isUser && !isStreaming && !isError ? driveMemoryReview : null}
         {showResponseActions ? (
         <div
@@ -2124,25 +2159,12 @@ export function AgentBubble({
 /** The centered date/time line that opens a group of messages. */
 function ChatTimeSeparatorRow({ separator }: { separator: ChatTimeSeparator }) {
   return (
-    <div
-      data-testid="agent-chat-time-separator"
-      className="flex justify-center whitespace-nowrap pb-0.5 pt-2 first:pt-0"
-    >
-      {separator.dateTime ? (
-        <time
-          dateTime={separator.dateTime}
-          title={separator.accessibleLabel}
-          className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]"
-        >
-          <span aria-hidden="true">{separator.text}</span>
-          <span className="sr-only">{separator.accessibleLabel}</span>
-        </time>
-      ) : (
-        <span className="whitespace-nowrap text-[12.5px] font-medium tabular-nums text-[color:var(--one-chat-meta)]">
-          <span aria-hidden="true">{separator.text}</span>
-          <span className="sr-only">{separator.accessibleLabel}</span>
-        </span>
-      )}
+    <div data-testid="agent-chat-time-separator">
+      <OneChatTimeSeparator
+        accessibleLabel={separator.accessibleLabel}
+        dateTime={separator.dateTime}
+        label={separator.text}
+      />
     </div>
   );
 }
@@ -2580,8 +2602,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
-  const [connectorPanelInitialConnector, setConnectorPanelInitialConnector] =
-    useState<"google_drive" | "gmail" | null>(null);
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -2589,8 +2609,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
-    if (!next.open) setConnectorPanelInitialConnector(null);
   }, [drawerMode, isHistoryDrawerOpen]);
+  // Connectors is a Profile section. Every chat entry (the sidebar's
+  // Connectors, a card's "Open connectors") opens it in the Profile pane over
+  // this chat, and Back from there returns here with the draft untouched.
   const openConnectorSurface = useCallback((
     provider?: WorkspaceConnectorProvider,
     trigger?: HTMLButtonElement,
@@ -2600,11 +2622,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       router.push(ROUTES.CALENDAR);
       return;
     }
-    setConnectorPanelInitialConnector(
-      provider === "drive" ? "google_drive" : provider === "gmail" ? "gmail" : null,
+    // The pane is the one modal surface: leave the history drawer first.
+    setIsHistoryDrawerOpen(false);
+    setDrawerMode("chats");
+    openProfilePane(
+      window.location.pathname,
+      window.location.search,
+      profileConnectorsLocation(
+        provider === "drive" ? "google_drive" : provider === "gmail" ? "gmail" : null,
+      ),
+      { returnsToOrigin: true },
     );
-    setDrawerMode("connections");
-    setIsHistoryDrawerOpen(true);
   }, [router]);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
@@ -2631,21 +2659,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
     return () => window.removeEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
   }, []);
-  const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
-    useState(false);
   useEffect(() => {
-    // `?panel=connectors` is the connector OAuth-return flow's landing signal
-    // -- connectors live in the responsive modal, not a dedicated route, so
-    // completing a connect has to reopen it here instead of navigating to one.
+    // `?panel=connectors` is the landing signal sign-in returns used before
+    // Connectors moved into Profile. An address that still carries it opens
+    // Connectors in the Profile pane over this chat, in place of the signal.
     if (searchParams?.get("panel") !== "connectors") return;
-    setDrawerMode("connections");
-    setIsHistoryDrawerOpen(true);
     const next = new URLSearchParams(searchParams.toString());
     next.delete("panel");
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, {
-      scroll: false,
-    });
+    replaceProfilePaneLocation(pathname, next, profileConnectorsLocation());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams]);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<
@@ -2773,7 +2794,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return () => {
       setIsHistoryDrawerOpen(false);
       setDrawerMode("chats");
-      setConnectorPanelInitialConnector(null);
     };
   }, [pathname]);
   const [driveReviewSignal, setDriveReviewSignal] = useState<{ ownerId: string | null; epoch: number; count: number }>(
@@ -4685,8 +4705,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setInput(state.input);
         setLongPromptAttachment(state.attachment);
         setComposerExpanded(state.composerExpanded);
-        setDrawerMode(state.drawerMode);
-        setIsHistoryDrawerOpen(state.drawerOpen);
+        // Connectors no longer opens in this drawer; a draft saved while it
+        // did comes back to the chat list (or closed), never an empty drawer.
+        setDrawerMode("chats");
+        setIsHistoryDrawerOpen(state.drawerOpen && state.drawerMode === "chats");
         setRecoveryScrollTop(state.scrollTop);
         pendingDriveRecoveryRef.current = null;
       }
@@ -4727,8 +4749,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingSpecialistDirective ||
       emailDraftOpen ||
       gmailKycReplyRequest ||
-      queuedHandoffPrompt ||
-      connectorExternalModalOpen
+      queuedHandoffPrompt
     ) return "busy";
     try {
       const state = {
@@ -4768,7 +4789,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return "unavailable";
     }
   }, [
-    activeActionRun, composerExpanded, connectorExternalModalOpen,
+    activeActionRun, composerExpanded,
     conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
     hasChatAccess, historyInteractionDisabled, input,
     isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
@@ -4780,6 +4801,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const clearPreparedDriveChatRecovery = useCallback(async () => {
     if (user?.uid) await clearDriveChatRecovery(user.uid);
   }, [user?.uid]);
+  // Connectors opens in the Profile pane over this chat. Lend it this chat's
+  // draft saver, so a sign-in that leaves the app brings the draft back.
+  useEffect(() => {
+    if (isPuppySurface) return undefined;
+    return registerChatConnectorRecoveryHost({
+      prepare: prepareDriveChatRecovery,
+      clear: clearPreparedDriveChatRecovery,
+    });
+  }, [clearPreparedDriveChatRecovery, isPuppySurface, prepareDriveChatRecovery]);
 
   const loadConversationList = useCallback(
     async (force = false) => {
@@ -5074,6 +5104,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       sourceMessage: string;
       currentDomains: string[];
       kycInformationSaveConfirmed?: boolean;
+      /** The open information request the KYC reply answers; binds the KYC writer. */
+      kycInformationRequestWorkflowId?: string;
       /** The owner asked One to save this; see lib/agent/agent-pkm-explicit-save.ts. */
       explicitRequest?: boolean;
     }): Promise<AgentPkmCaptureStatus> => {
@@ -5082,10 +5114,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const existing = pkmCaptureJobsRef.current.get(jobKey);
       if (existing) return existing;
       const token = getVaultOwnerToken();
-      const ownerConfirmedKycSave = params.kycInformationSaveConfirmed === true;
+      // Only a typed reply to an owner-selected information request runs the
+      // KYC writer. The keyword route that also sent "save my passport ..." here
+      // is retired: it once took a whole 17,120 character paste away from the
+      // semantic agents (production, 2026-09-29). An explicit save goes to them.
+      const ownerConfirmedKycSave =
+        params.kycInformationSaveConfirmed === true && Boolean(params.kycInformationRequestWorkflowId);
       const explicitRequest = params.explicitRequest === true;
-      const userRequestedSave = explicitRequest || ownerConfirmedKycSave ||
-        isExplicitKycIdentitySaveRequest(params.sourceMessage);
+      const userRequestedSave = explicitRequest || ownerConfirmedKycSave;
       if (explicitRequest && (!user?.uid || !vaultKey || !token)) {
         const locked: AgentPkmCaptureStatus = { phase: "needs_unlock", saved: 0 };
         setMessages((current) => current.map((message) =>
@@ -5142,10 +5178,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // Yield presentation without creating an untracked detached timer.
           await guard.assertCurrent();
           settle({ phase: "preparing", saved: 0 });
-          if (ownerConfirmedKycSave || isExplicitKycIdentitySaveRequest(params.sourceMessage)) {
+          if (ownerConfirmedKycSave && params.kycInformationRequestWorkflowId) {
             // A typed reply to an owner-selected KYC request is an explicit
             // confirmation for the fixed, restricted KYC schema. The Gmail
             // email never enters this writer; only the owner's message does.
+            // The server binds the writer to this open request: without the
+            // capability it refuses identity writes (reserved-branches.v1.json).
+            const kycReplyAuthorization = await GmailInformationRequestsService.issuePkmReplyAuthorization({
+              firebaseIdToken: await user.getIdToken(),
+              vaultOwnerToken: token,
+              workflowId: params.kycInformationRequestWorkflowId,
+            });
+            await guard.assertCurrent();
             const ingestion = await ingestNaturalLanguagePkm({
               userId,
               message: params.sourceMessage,
@@ -5158,6 +5202,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 confirmedByUser: true,
                 surface: "chat",
                 source: "agent_chat_kyc_owner_confirmed",
+                kycReplyAuthorization,
               },
               writePolicy: "reviewable",
               batchSimpleDomainExtensions: true,
@@ -5177,19 +5222,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           if (explicitRequest) {
             const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
             await guard.assertCurrent();
-            const { receipt, needsOwnerCards } = await runExplicitPkmSave({
+            // A resumable job: a relock, reconnect or the deadline pauses it,
+            // and it continues on unlock or Retry without losing a section.
+            const { receipt, needsOwnerCards } = await startExplicitPkmSaveJob({
               userId,
               message: params.sourceMessage,
               currentDomains: params.currentDomains,
               currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
               vaultKey,
               vaultOwnerToken: token,
+              assistantMessageId: params.assistantMessageId,
               findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
               findReconciliationCandidates: (passage) =>
                 AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
               beforeEffect: guard.assertCurrent,
               isEffectCurrent: guard.isCurrent,
               mayPublish: guard.isCurrent,
+              signal: controller.signal,
+              pauseAt: Date.now() + AGENT_PKM_EXPLICIT_SAVE_DEADLINE_MS - AGENT_PKM_EXPLICIT_SAVE_PAUSE_MARGIN_MS,
               onProgress: (progress) => {
                 settle({ phase: progress.stage === "saving" ? "saving" : "preparing", saved: 0, progress });
               },
@@ -5211,14 +5261,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               saved_count_bucket: toPkmFactCountBucket(wrote), failed_count_bucket: toPkmFactCountBucket(receipt.failed),
               has_active_recipients: false,
             });
-            const incomplete = receipt.failed + receipt.unprepared + receipt.unreadable + receipt.excluded + receipt.needsOwner > 0;
-            return settle({
-              phase: wrote > 0 || receipt.unchanged > 0
-                ? (incomplete ? "partial" : "saved")
-                : incomplete ? "failed" : "skipped",
-              saved: wrote,
-              receipt,
-            });
+            return settle({ phase: explicitSaveReceiptPhase(receipt), saved: wrote, receipt });
           }
           const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
           await guard.assertCurrent();
@@ -5281,7 +5324,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pkmCaptureJobsRef.current.set(jobKey, job);
       return job;
     },
-    [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
+    [appendDebugEvent, getVaultOwnerToken, user, vaultKey],
   );
 
   // The owner tapped "Save these too" on a memory receipt card: their direct
@@ -5316,6 +5359,70 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     }));
   }, [getVaultOwnerToken, user?.uid, vaultKey]);
 
+  // Continue a persisted memory save job: on unlock, on reconnect, after a
+  // reload, or when the owner taps Retry. The job's Web Lock keeps a second
+  // runner (another tab, or the original run) from starting it twice.
+  const resumeMemorySaveJob = useCallback(async (
+    jobId: string,
+    options: { retry?: boolean; messageId?: string } = {},
+  ) => {
+    const token = getVaultOwnerToken();
+    if (!user?.uid || !vaultKey || !token) throw new Error("Unlock your vault to continue saving.");
+    const userId = user.uid;
+    const guard = createAgentPkmCaptureGuard({
+      userId, signal: new AbortController().signal,
+      isEnabled: () => isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
+    });
+    const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+    const outcome: ExplicitPkmSaveJobResult | null = await resumeExplicitPkmSaveJob({
+      userId, jobId, retry: options.retry, vaultKey, vaultOwnerToken: token,
+      currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
+      findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
+      findReconciliationCandidates: (passage) =>
+        AgentPkmContextStore.findReconciliationCandidates({ userId, text: passage }),
+      beforeEffect: guard.assertCurrent, isEffectCurrent: guard.isCurrent, mayPublish: guard.isCurrent,
+    });
+    const messageId = options.messageId ?? outcome?.assistantMessageId;
+    if (!outcome || !messageId) return;
+    if (outcome.needsOwnerCards.length) {
+      pkmNeedsOwnerCardsRef.current.set(messageId, { cards: outcome.needsOwnerCards, sourceMessage: outcome.sourceMessage });
+    }
+    latestPkmSaveReceiptRef.current = outcome.receipt;
+    setMessages((current) => current.map((message) => message.id === messageId
+      ? {
+          ...message,
+          memoryCapture: {
+            phase: explicitSaveReceiptPhase(outcome.receipt),
+            saved: pkmSaveReceiptWrote(outcome.receipt),
+            receipt: outcome.receipt,
+          },
+        }
+      : message));
+  }, [getVaultOwnerToken, user?.uid, vaultKey]);
+
+  // The vault key changes exactly when the vault unlocks (vault-context
+  // dispatches "vault-unlocked" alongside it): resume paused jobs then, and
+  // again whenever the device comes back online.
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId || !vaultKey) return;
+    let active = true;
+    const resumeAll = () => {
+      void listResumablePkmSaveJobs({ userId, vaultKey }).then((jobs) => {
+        for (const job of jobs) {
+          if (!active) return;
+          void resumeMemorySaveJob(job.id, { messageId: job.assistantMessageId }).catch(() => undefined);
+        }
+      });
+    };
+    resumeAll();
+    window.addEventListener("online", resumeAll);
+    return () => {
+      active = false;
+      window.removeEventListener("online", resumeAll);
+    };
+  }, [resumeMemorySaveJob, user?.uid, vaultKey]);
+
   const runAgentTurn = async (
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
@@ -5337,24 +5444,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // lookup and memory capture -- use this. The wire and the transcript keep
     // the attachment separate from the typed text.
     const turnSourceText = composeTurnSourceText(text, attachments);
-    // Pre-model paste guard: a message that appears to contain a full card
-    // number must never reach /api/one/agent-chat, history, or telemetry.
-    // Block before ANY network call and route to the secure add form.
-    if (detectLikelyPan(turnSourceText)) {
+    // Last line before the model: a composer turn arrives here with every
+    // secret already kept in Secrets and replaced by its placeholder
+    // (keepSecretsFromTurn). Any other path that still carries a raw secret
+    // (a handed-off prompt, a voice transcript) is stopped here, before ANY
+    // network call, history or telemetry.
+    if (containsSecretSpan(turnSourceText)) {
       appendMessage({
-        id: `msg-${Date.now()}-pan-blocked`,
+        id: `msg-${Date.now()}-secret-blocked`,
         role: "assistant",
-        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
+        text: "That message holds a secret, so it stayed on this device and was not sent. Type or paste it into the chat box to keep it in Secrets.",
         ...stampNow(),
         status: "done",
         renderAsPlainAssistantMessage: true,
       });
-      if (WalletService.isEnabled()) {
-        setWalletWidgets((current) => [
-          ...current,
-          { id: `pan-guard-${Date.now()}`, kind: "add" },
-        ]);
-      }
       return;
     }
     // A person starting a new turn owns the workspace. Invalidate any ambient
@@ -5955,6 +6058,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           sourceMessage: turnSourceText,
           currentDomains: agentPkmContext.domains,
           kycInformationSaveConfirmed: true,
+          kycInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         });
         if (capture.saved > 0) {
           agentPkmContext = await loadAgentPkmContext({
@@ -6029,6 +6133,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             : "",
           agentPkmContext.text || "",
         ].filter(Boolean).join("\n\n") || undefined,
+        // Settings style choices ride beside the packet, never inside it.
+        communicationPreferences: agentPkmContext.communicationPreferences,
         personSelectionHandle: options.personSelectionHandle,
         gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         driveSearchSelection: options.driveSearchSelection,
@@ -6206,6 +6312,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
+          },
+          onMessageReaction: ({ reaction, clientMessageId }) => {
+            if (streamAbortController.signal.aborted || latestVisibleTurnIdRef.current !== debugTurnId) return;
+            const targetId = clientMessageId ? `msg-queued-${clientMessageId}`
+              : options.reactionUserMessageId ?? userMessages.at(-1)?.id ?? userMessage.id;
+            setMessages(current => attachMessageReaction(current, targetId, reaction));
           },
           onFollowUpSuggestions: (followUps) => {
             if (streamAbortController.signal.aborted) return;
@@ -6404,6 +6516,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       consentContinuation?: AgentChatConsentContinuation;
       feedAttention?: { itemId: string };
       pkmContext?: string;
+      communicationPreferences?: OwnerStyleSettings;
     } = {},
   ): Promise<FollowUpTurnResult> => {
     if (!hasChatAccess || !user?.uid) return "failed";
@@ -6500,6 +6613,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ...(extra.consentContinuation ? { consentContinuation: extra.consentContinuation } : {}),
         ...(extra.feedAttention ? { feedAttention: extra.feedAttention } : {}),
         ...(extra.pkmContext ? { pkmContext: extra.pkmContext } : {}),
+        ...(extra.communicationPreferences ? { communicationPreferences: extra.communicationPreferences } : {}),
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         vaultKey: vaultKeyRef.current ?? "",
@@ -7070,13 +7184,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const editQueuedPrompt = async (id: string, textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
-    if (detectLikelyPan(text)) {
-      // An edit is screened like a fresh message: the guard blocks it and
-      // opens the secure form; the queued message keeps its previous text.
-      enqueueGuardedTurn({ typedText: text, attachments: [], fromPaste: false });
+    if (containsSecretSpan(text)) {
+      // An edit is screened like a fresh message: its secrets are kept in
+      // Secrets and the queued message takes the guarded text, or keeps its
+      // previous text when nothing may be sent.
+      const kept = await keepSecretsFromTurn([text]);
       setEditingQueuedPromptId(null);
       setEditingQueuedPromptText("");
-      return;
+      if (!kept?.[0]) return;
+      return editQueuedPrompt(id, kept[0]);
     }
     const held = liveTurnQueueRef.current?.holds(id) ?? false;
     if (!(await reclaimQueuedPrompt(id))) return;
@@ -7554,6 +7670,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           await sendFollowUpTurn(FEED_ATTENTION_LABEL, {
             feedAttention: { itemId },
             pkmContext: memory.text || undefined,
+            communicationPreferences: memory.communicationPreferences,
           });
         },
       });
@@ -7602,7 +7719,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     generatedDriveSearchDraftRef.current = false;
     setLongPromptAttachment(null);
     setComposerExpanded(false);
-    enqueueGuardedTurn({
+    void enqueueGuardedTurn({
       typedText,
       // The paste leaves as its own attachment part: a chip in the transcript
       // and a separate document for One, never text folded into the message.
@@ -7611,56 +7728,94 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         : [],
       fromPaste: attachment !== null,
       driveSearchSelection,
+      // Nothing was sent: give the person their draft back, untouched.
+      onRefused: () => {
+        setInput((current) => current || typedText);
+        if (attachmentText?.trim()) {
+          setLongPromptAttachment((current) => current ?? createPendingTextAttachment(attachmentText));
+        }
+      },
     });
   };
 
   /**
-   * The card-number guard and the queue, shared by the composer and by
-   * "Edit and send again" on a sent paste, so an edited copy is screened
-   * exactly like a fresh one.
+   * The device guard for an outgoing turn (lib/pkm/secret-span-guard.ts).
+   * Every secret in the typed text and pasted attachments is saved to the
+   * reserved Secrets area and replaced with its placeholder BEFORE the turn is
+   * queued, so chat, memory capture, history and telemetry only ever see its
+   * label. Returns the texts to send, or null when nothing may be sent.
    */
-  const enqueueGuardedTurn = ({
+  const keepSecretsFromTurn = async (texts: string[]): Promise<string[] | null> => {
+    const plan = planSecretCaptures(texts);
+    if (plan.captures.length === 0) return texts;
+    const saved = await SecretsVaultService.saveCaptures({
+      userId: user?.uid ?? "",
+      vaultKey,
+      vaultOwnerToken: getVaultOwnerToken(),
+      captures: plan.captures,
+      surface: "chat",
+    });
+    if (!saved.ok) {
+      appendMessage({
+        id: `msg-${Date.now()}-secret-held`,
+        role: "assistant",
+        text: saved.reason === "locked"
+          ? "That message holds a secret, so it stayed on this device and was not sent. Unlock your vault, then send it again to keep it in Secrets."
+          : saved.message,
+        ...stampNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      if (saved.reason === "locked") setVaultDialogOpen(true);
+      return null;
+    }
+    const resolve = (capture: (typeof plan.captures)[number]) =>
+      saved.resolved.get(capture.id) ?? { id: capture.id, label: capture.label };
+    setWalletWidgets((current) => [
+      ...current,
+      {
+        id: `secrets-${Date.now()}`,
+        kind: "secrets",
+        items: plan.captures.map((capture) => ({
+          ...resolve(capture),
+          kind: capture.kind,
+          fileTo: capture.fileTo,
+          offerNoun: capture.offerNoun,
+        })),
+      },
+    ]);
+    return plan.render(resolve);
+  };
+
+  /**
+   * The secret guard and the queue, shared by the composer and by "Edit and
+   * send again" on a sent paste, so an edited copy is screened exactly like a
+   * fresh one. Typed text and every pasted attachment go through
+   * keepSecretsFromTurn, so the queued turn, its transcript bubble and the
+   * memory capture it starts hold placeholders, never a value.
+   */
+  const enqueueGuardedTurn = async ({
     typedText,
     attachments,
     fromPaste,
     driveSearchSelection,
+    onRefused,
   }: {
     typedText: string;
     attachments: AgentTextAttachment[];
     fromPaste: boolean;
     driveSearchSelection?: AgentRunTurnOptions["driveSearchSelection"];
+    onRefused?: () => void;
   }) => {
-    // A large paste is a dedicated browser-memory import lane. Redact payment
-    // card numbers before the text can enter Chat, history, telemetry, or the
-    // guarded background PKM proposal flow; ordinary typed PAN input remains a
-    // hard block and is routed to the secure card form.
-    const redactPaste =
-      fromPaste &&
-      detectLikelyPan([typedText, ...attachments.map((item) => item.text)].join("\n\n"));
-    const submittedText = redactPaste ? redactLikelyPans(typedText) : typedText;
-    const submittedAttachments = redactPaste
-      ? attachments.map((item) => createAgentTextAttachment(redactLikelyPans(item.text), item.name))
-      : attachments;
-    if (
-      detectLikelyPan(submittedText) ||
-      submittedAttachments.some((item) => detectLikelyPan(item.text))
-    ) {
-      appendMessage({
-        id: `msg-${Date.now()}-pan-blocked`,
-        role: "assistant",
-        text: "That looked like a full card number, so it was blocked on this device and never sent. Use the secure form to save a card.",
-        ...stampNow(),
-        status: "done",
-        renderAsPlainAssistantMessage: true,
-      });
-      if (WalletService.isEnabled()) {
-        setWalletWidgets((current) => [
-          ...current,
-          { id: `pan-guard-${Date.now()}`, kind: "add" },
-        ]);
-      }
+    const kept = await keepSecretsFromTurn([typedText, ...attachments.map((item) => item.text)]);
+    if (!kept) {
+      onRefused?.();
       return;
     }
+    const [submittedText = "", ...attachmentTexts] = kept;
+    const submittedAttachments = attachments.map((item, index) =>
+      attachmentTexts[index] === item.text ? item : createAgentTextAttachment(attachmentTexts[index] ?? "", item.name),
+    );
     enqueuePrompt(submittedText, undefined, {
       deferPkmContext: fromPaste,
       driveSearchSelection,
@@ -7675,7 +7830,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!attachments) return false;
     transcriptUserScrollRef.current = false;
     scrollToSubmittedTurnRef.current = true;
-    enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
+    void enqueueGuardedTurn({ typedText: message.text, attachments, fromPaste: true });
     return true;
   };
 
@@ -8050,6 +8205,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         await runAgentTurn(retryText, {
           source: "typed",
           appendUserMessage: false,
+          reactionUserMessageId: previousUserMessage.id,
           replaceAssistantMessageId: messageId,
           attachments: retryAttachments,
         });
@@ -8070,7 +8226,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
-    if (next.mode === "chats") setConnectorPanelInitialConnector(null);
     if (next.open && !isPuppySurface)
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
@@ -8324,24 +8479,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
-          externalModalOpen={connectorExternalModalOpen}
+          externalModalOpen={false}
           chats={renderHistorySidebar(
             "h-full w-full",
             () => handleHistoryDrawerOpenChange(false),
             false,
             "mobile",
           )}
-          connections={
-            <ConnectorsPanel
-              open={isHistoryDrawerOpen && drawerMode === "connections"}
-              initialConnector={connectorPanelInitialConnector}
-              onBack={() => setDrawerMode("chats")}
-              onClose={() => handleHistoryDrawerOpenChange(false)}
-              onExternalModalChange={setConnectorExternalModalOpen}
-              onPrepareRecovery={prepareDriveChatRecovery}
-              onClearRecovery={clearPreparedDriveChatRecovery}
-            />
-          }
+          // Connectors opens in the Profile pane (openConnectorSurface), so
+          // this drawer only ever holds chat history.
+          connections={null}
         />
 
         <section
@@ -8705,9 +8852,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </div>
               ) : null}
 
+              {/* While voice is live the voice card is the interface, so the
+                  welcome panel stands down rather than sharing the canvas with
+                  it. The card is an `absolute bottom-0` overlay and this panel
+                  is centred in the scroll area below it, so on a short phone
+                  viewport the two land on each other. Spacing them apart would
+                  only hold until the next shorter viewport; not rendering both
+                  cannot collide on any screen. Nothing is lost: the panel's
+                  prompts feed the text composer, which voice has already
+                  replaced and disabled. */}
               {chatOnboarding.turns.length ? (
                 renderChatOnboarding({ kind: "top" })
-              ) : !hasStartedConversation ? (
+              ) : !hasStartedConversation && !voiceActive ? (
                 <>
                   <AgentWelcomePanel
                     name={displayName}
@@ -8749,6 +8905,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           : undefined
                       }
                       onConfirmMemoryNeedsOwner={(reviewedCards) => confirmMemoryNeedsOwner(message.id, reviewedCards)}
+                      onRetryMemorySave={message.memoryCapture?.receipt?.coverage
+                        ? () => resumeMemorySaveJob(message.memoryCapture!.receipt!.coverage!.jobId, { retry: true, messageId: message.id })
+                        : undefined}
                       pendingMemoryCards={pkmNeedsOwnerCardsRef.current.get(message.id)?.cards}
                       canConfirmMemoryNeedsOwner={isVaultUnlocked && Boolean(vaultKey && vaultOwnerToken)}
                       onUnlockVault={() => setVaultDialogOpen(true)}
@@ -9026,7 +9185,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {renderChatOnboarding({ kind: "end", visibleMessageIds })}
 
               {walletWidgets.map((widget) =>
-                widget.kind === "list" ? (
+                widget.kind === "secrets" ? (
+                  <SecretCaptureCard
+                    key={widget.id}
+                    items={widget.items}
+                    onUnlock={() => setVaultDialogOpen(true)}
+                    onOffer={(secretId, offer) => {
+                      if (!user?.uid) return;
+                      // A reference only, in memory: the target screen decrypts
+                      // the value itself and the owner commits there.
+                      stageSecretOffer({ ownerUserId: user.uid, secretId, fileTo: offer.fileTo });
+                      router.push(SECRET_OFFER_ROUTES[offer.fileTo]);
+                    }}
+                  />
+                ) : widget.kind === "list" ? (
                   <div
                     key={widget.id}
                     data-testid="agent-chat-wallet-list"
@@ -9390,31 +9562,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   />
                 ) : pendingSpecialistDirective.delegateAgentId ===
                   "agent_calendar" ? (
-                  <SpecialistDirectiveCard
-                    summary={String(
-                      (
-                        pendingSpecialistDirective.directive.payload as Record<
-                          string,
-                          unknown
-                        >
-                      ).summary ?? pendingSpecialistDirective.message,
-                    )}
-                    confirmLabel={String(
-                      (
-                        pendingSpecialistDirective.directive.payload as Record<
-                          string,
-                          unknown
-                        >
-                      ).confirmLabel ?? "Continue",
-                    )}
-                    busy={specialistBusy}
-                    onConfirm={async () => {
-                      const directive = pendingSpecialistDirective;
-                      const payload = directive.directive.payload as Record<
-                        string,
-                        unknown
-                      >;
-                      const type = String(payload.type ?? "");
+                  (() => {
+                    const directive = pendingSpecialistDirective;
+                    const payload = directive.directive.payload as Record<
+                      string,
+                      unknown
+                    >;
+                    const type = String(payload.type ?? "");
+                    const calendarAction: CalendarProposalAction =
+                      payload.action === "reschedule" || payload.action === "cancel"
+                        ? payload.action
+                        : "create";
+                    const attendees = Array.isArray(payload.attendees)
+                      ? payload.attendees.filter(
+                          (item): item is string => typeof item === "string",
+                        )
+                      : [];
+                    const conflicts: CalendarProposalConflict[] = Array.isArray(
+                      payload.conflicts,
+                    )
+                      ? payload.conflicts.map((item) => {
+                          const conflict =
+                            item && typeof item === "object"
+                              ? (item as Record<string, unknown>)
+                              : {};
+                          return {
+                            title:
+                              typeof conflict.title === "string"
+                                ? conflict.title
+                                : null,
+                            startAt:
+                              typeof conflict.startAt === "string"
+                                ? conflict.startAt
+                                : typeof conflict.start_at === "string"
+                                  ? conflict.start_at
+                                  : null,
+                          };
+                        })
+                      : [];
+                    const onConfirm = async () => {
                       if (type === "calendar.connect") {
                         if (!user?.uid) {
                           addErrorMessage(
@@ -9442,19 +9628,49 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         return;
                       }
                       enqueueCalendarDirective(directive, token, user.uid);
-                    }}
-                    busyLabel={
-                      directiveConnectWaiting ? "Waiting for Google…" : undefined
-                    }
-                    cancelWhileBusy={directiveConnectWaiting}
-                    onCancel={() => {
+                    };
+                    const onCancel = () => {
                       directiveConnect.cancel();
                       setPendingSpecialistDirective(null);
                       toast.info(
                         "Calendar change cancelled. Nothing was changed.",
                       );
-                    }}
-                  />
+                    };
+
+                    if (type === "calendar.execute_proposal") {
+                      return (
+                        <AgentCalendarProposalCard
+                          action={calendarAction}
+                          title={typeof payload.title === "string" ? payload.title : null}
+                          startAt={typeof payload.startAt === "string" ? payload.startAt : null}
+                          endAt={typeof payload.endAt === "string" ? payload.endAt : null}
+                          attendees={attendees}
+                          location={typeof payload.location === "string" ? payload.location : null}
+                          sendUpdates={payload.sendUpdates === true}
+                          googleMeet={payload.googleMeet === true}
+                          conflicts={conflicts}
+                          confirmLabel={String(payload.confirmLabel ?? "Schedule meeting")}
+                          busy={specialistBusy}
+                          onConfirm={onConfirm}
+                          onCancel={onCancel}
+                        />
+                      );
+                    }
+
+                    return (
+                      <SpecialistDirectiveCard
+                        summary={String(payload.summary ?? directive.message)}
+                        confirmLabel={String(payload.confirmLabel ?? "Continue")}
+                        busy={specialistBusy}
+                        onConfirm={onConfirm}
+                        busyLabel={
+                          directiveConnectWaiting ? "Waiting for Google…" : undefined
+                        }
+                        cancelWhileBusy={directiveConnectWaiting}
+                        onCancel={onCancel}
+                      />
+                    );
+                  })()
                 ) : pendingSpecialistDirective.delegateAgentId ===
                   DRIVE_REVIEW_DELEGATE ? (
                   <SpecialistDirectiveCard

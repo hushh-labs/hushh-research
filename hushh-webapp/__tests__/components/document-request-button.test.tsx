@@ -270,9 +270,13 @@ describe("requesting exact files from a connection", () => {
   });
   afterEach(cleanup);
 
-  async function openFiles(purpose = "Files modified in the last two days") {
+  async function openFiles(purpose = "Six months of statements", withDates = true) {
     fireEvent.click(await screen.findByRole("button", { name: "Request files" }));
     fireEvent.change(screen.getByLabelText("What do you need?"), { target: { value: purpose } });
+    if (withDates) {
+      fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-03-01" } });
+      fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-08-31" } });
+    }
   }
 
   it("opens a focused dialog over the shared backdrop", async () => {
@@ -301,8 +305,13 @@ describe("requesting exact files from a connection", () => {
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
     try {
       mount();
-      await openFiles("  Files modified in the last two days  ");
+      await openFiles("  Files modified in the last two days  ", false);
       expect(screen.getByRole("dialog", { name: "Request files" })).toBeVisible();
+      expect(screen.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
+      expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
+      expect(state.googleIdentity).not.toHaveBeenCalled();
+      fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-29" } });
+      fireEvent.change(screen.getByLabelText("End date"), { target: { value: "2026-10-01" } });
       fireEvent.click(screen.getByRole("button", { name: "Send request" }));
       expect(await screen.findByText("Request sent.")).toBeVisible();
       expect(state.googleIdentity).toHaveBeenCalledOnce();
@@ -314,7 +323,7 @@ describe("requesting exact files from a connection", () => {
         {
           ownerPersonRef: personRef,
           clientRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-          purpose: { purpose: "Files modified in the last two days", periodStart: null, periodEnd: null },
+          purpose: { purpose: "Files modified in the last two days", periodStart: "2026-09-29", periodEnd: "2026-10-01" },
         },
         expect.any(Function),
       );
@@ -348,9 +357,10 @@ describe("requesting exact files from a connection", () => {
 
   it("refuses an incomplete period before any identity check", async () => {
     mount();
-    await openFiles();
+    await openFiles(undefined, false);
     fireEvent.change(screen.getByLabelText("Start date"), { target: { value: "2026-09-01" } });
-    expect(screen.getByText("Choose both dates, with the end on or after the start.")).toBeVisible();
+    expect(screen.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
+    expect(screen.queryByText("Choose both dates, with the end on or after the start.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Send request" })).toBeDisabled();
     expect(state.googleIdentity).not.toHaveBeenCalled();
   });
@@ -359,6 +369,7 @@ describe("requesting exact files from a connection", () => {
     ["identity_link_web_required", "Open One on the web to add your Google account once."],
     ["connection_required", "You need an active connection with this person."],
     ["sharing_unavailable", "File requests aren't available for this connection yet."],
+    ["date_range_required", "Choose exact start and end dates before sending this request."],
   ])("maps %s to plain copy", async (code, copy) => {
     state.create.mockRejectedValueOnce(new DriveSharingError(code, 409));
     mount();
@@ -400,12 +411,25 @@ describe("chat draft question card", () => {
     expect(state.googleIdentity).not.toHaveBeenCalled();
   });
 
-  it("sends a draft without a period as the purpose alone", async () => {
+  it("blocks an undated draft even without relative date words", async () => {
     render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
       clientRequestId, purpose: "Tax return", periodStart: null, periodEnd: null,
     }} />);
-    fireEvent.click(await screen.findByRole("button", { name: "Ask as a question" }));
-    await waitFor(() => expect(state.createQuery.mock.calls[0][1].query).toBe("Tax return"));
+    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
+    expect(state.createQuery).not.toHaveBeenCalled();
+  });
+
+  it("blocks a relative-day draft until the requester gives exact dates", async () => {
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "last 3 days standup notes", periodStart: null, periodEnd: null,
+    }} />);
+    expect(await screen.findByText("Choose exact start and end dates with your private agent before sending this request.")).toBeVisible();
+    expect(screen.getByRole("button", { name: "Request files" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ask as a question" })).toBeDisabled();
+    expect(state.create).not.toHaveBeenCalled();
+    expect(state.createQuery).not.toHaveBeenCalled();
   });
 
   it("requests the draft's exact files with its own retry key, then shows the request", async () => {

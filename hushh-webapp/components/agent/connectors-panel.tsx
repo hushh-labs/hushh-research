@@ -47,10 +47,13 @@ import {
   clearGmailOAuthPopupAttempt,
 } from "@/lib/profile/gmail-oauth-popup";
 import {
+  clearDrivePopupAttempt,
+  createDrivePopupAttempt,
   openDriveOAuthPopup,
   navigateDriveOAuthPopup,
   waitForDrivePopup,
   waitForOAuthPopup,
+  type DrivePopupAttempt,
 } from "@/lib/profile/drive-oauth-popup";
 import { connectCalendarInPlace } from "@/lib/connections/google-connect-in-place";
 import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
@@ -1087,6 +1090,7 @@ function OwnerConnectorsPanel({
     drivePopupCancel.current = attemptCancel;
     setDrivePopupPending(true);
     void runDrive(async (token, signal) => {
+      let attempt: DrivePopupAttempt | null = null;
       let popupClosed = false;
       const close = () => {
         if (popupClosed) return;
@@ -1129,11 +1133,7 @@ function OwnerConnectorsPanel({
         if (signal.aborted || attemptCancel.signal.aborted) return;
         if (!start.attemptId || start.connectorId !== "google_drive")
           throw new Error("invalid_start");
-        const attempt = {
-          connectorId: "google_drive" as const,
-          attemptId: start.attemptId,
-          expiresAt: Date.parse(start.expiresAt),
-        };
+        attempt = createDrivePopupAttempt(start.attemptId);
         navigateDriveOAuthPopup(popup, attempt, start.authorizeUrl);
         await waitForDrivePopup(popup, attempt, signal, attemptCancel.signal);
         if (attemptCancel.signal.aborted) {
@@ -1147,6 +1147,7 @@ function OwnerConnectorsPanel({
               : "Connection checked. Ask One to find a file.",
           );
       } finally {
+        if (attempt) clearDrivePopupAttempt(attempt);
         if (drivePopupCancel.current === attemptCancel) drivePopupCancel.current = null;
         if (!signal.aborted) setDrivePopupPending(false);
         signal.removeEventListener("abort", abortForDriveSession);

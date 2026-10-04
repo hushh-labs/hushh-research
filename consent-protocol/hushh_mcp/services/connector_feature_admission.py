@@ -39,11 +39,55 @@ OWNER_AVAILABLE = frozenset(
     }
 )
 
+# Production activation is a separate, explicit rollout. An existing UAT
+# cohort or all-users setting must never become production authority merely
+# because the same backend image is deployed there.
+PRODUCTION_STAGED_DRIVE = frozenset(
+    {
+        "connections_panel_v2",
+        "google_drive_live",
+        "drive_document_indexing",
+        "drive_document_sharing",
+    }
+)
+
+
+def _production_owner_admitted(user_id: str) -> bool:
+    if not user_id or user_id.strip() != user_id:
+        return False
+    raw = os.getenv("CONNECTOR_PRODUCTION_OWNER_COHORT", "")
+    all_users = os.getenv("CONNECTOR_PRODUCTION_ALL_USERS", "").strip().lower() == "true"
+    if all_users:
+        return not raw
+    members = raw.split(",")
+    if (
+        not raw
+        or len(members) > 25
+        or len(set(members)) != len(members)
+        or any(
+            not member
+            or member.lower() in {"*", "all"}
+            or len(member) > 128
+            or any(char.isspace() for char in member)
+            for member in members
+        )
+    ):
+        return False
+    return user_id in members
+
 
 def connector_feature_enabled(feature: str, user_id: str) -> bool:
     if feature in OWNER_AVAILABLE:
         return bool(user_id and user_id.strip() == user_id)
     environment = os.getenv("ENVIRONMENT", "").strip().lower()
+    if environment == "production":
+        env_name = FEATURES.get(feature)
+        return bool(
+            feature in PRODUCTION_STAGED_DRIVE
+            and env_name
+            and os.getenv(env_name, "").strip().lower() == "true"
+            and _production_owner_admitted(user_id)
+        )
     if environment not in {"uat", "test", "local", "development"}:
         return False
     env_name = FEATURES.get(feature)

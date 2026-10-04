@@ -647,6 +647,7 @@ const DRIVE_SHARE_ISSUE_COPY: Record<import("@/lib/services/drive-sharing-servic
   connection_changed: "Your Drive connection changed. Reconnect before a new request.",
   stopped: "Stopped before sharing.",
   sharing_unavailable: "Drive sharing is disabled.",
+  date_range_required: "This request needs exact start and end dates. Make a new request before sharing.",
   retry_limit: "Google Drive could not finish after several attempts. Make a new request to try again.",
   provider_unavailable: "Google Drive was unavailable. Retry the unshared files.",
   permission_rejected: "Google Drive denied sharing. Check the file’s permissions in Drive.",

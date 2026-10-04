@@ -3,8 +3,8 @@
 Joining a Circle is explicit relationship consent. Membership creates a
 source-aware connection origin with every active Circle member, but never
 creates a trusted edge, SMS selection, live-location grant, capability token,
-or encrypted envelope. Every active member may invite an existing direct
-connection without requiring another connection request or a code. Circle
+or encrypted envelope. The owner may add an existing direct connection
+without requiring another connection request or a code. Circle
 governance (rename, removal, code rotation, and deletion) remains owner-only.
 """
 
@@ -28,6 +28,8 @@ from sqlalchemy import text
 
 from db.db_client import DatabaseClient, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.account_deletion_lifecycle_service import AccountDeletionLifecycleService
+from hushh_mcp.services.circle_photo import validate_circle_photo
 from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
     revoke_circle_origins,
@@ -94,7 +96,7 @@ CIRCLE_DEFAULT_MEMBER_LIMIT = 100
 # contact list among Circles is the confusion the UAT report described.
 SMS_SYSTEM_CIRCLE_NAME = "SMS Circle"
 
-# The Circle that mirrors the accepted-connection graph (#5458).
+# The built-in container offered as a default Circle. Its membership is manual.
 #
 # Marked with `system_kind` and deliberately NOT `is_system`: pre-163 code
 # looks a system Circle up with `WHERE is_system ... LIMIT 1` and no ORDER BY,
@@ -102,26 +104,25 @@ SMS_SYSTEM_CIRCLE_NAME = "SMS Circle"
 # handed to SOS. Migration 163's header carries the full reasoning.
 TRUSTED_SYSTEM_CIRCLE_NAME = "Trusted"
 
-# A projection is not a list a person curates, so it is not capped the way one
-# is. SMALLINT's ceiling is the honest statement that the product does not cap
-# it; migration 163 widens the CHECK for this kind alone. The auto-join path
-# never reads it -- refusing to record a connection somebody already accepted
-# would be worse than an oversized roster.
-# What a Trusted Circle stores in `member_limit`, which is NOT a ceiling on it.
-#
-# Nothing on a Trusted write path consults this: the reconcile is one
-# INSERT ... SELECT with no capacity check, the accept hook is a plain upsert,
-# and `_circle_summary` reports `memberLimit: null` for Trusted from
-# `is_trusted` rather than from this number. So a person with four hundred
-# connections gets four hundred members regardless of what is stored here.
-#
-# It is the ORDINARY default rather than SMALLINT's ceiling because migration
-# 158 replays ahead of 163 on every deploy and re-adds
-# `CHECK (member_limit BETWEEN 2 AND 100)` against the whole table. A stored
-# 32767 makes that ADD raise 23514 on the first deploy after any Trusted Circle
-# exists, which fails the migration step of every release after it. 163's
-# header carries the full account.
+# Trusted uses the same normal capacity enforcement as every other manually
+# managed Circle. The ordinary default also remains compatible with migration
+# 158's replay-safe `member_limit BETWEEN 2 AND 100` constraint.
 TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT = CIRCLE_DEFAULT_MEMBER_LIMIT
+
+# Historical connection projections were owner-private, not roster-sharing
+# decisions. Only the owner or a member explicitly added by that owner may
+# read a Trusted roster. Keep old rows intact; bootstrap must not promote them.
+# The placeholders below are fixed SQL aliases supplied by these readers,
+# never request input. Keep one admission rule for all four read surfaces.
+_TRUSTED_ROSTER_VIEWER_SQL = """(
+    {circle}.system_kind IS DISTINCT FROM 'trusted'
+    OR {circle}.owner_user_id = :{viewer}
+    OR COALESCE(
+      {membership}.metadata @> jsonb_build_object(
+        'addedVia', 'direct_add', 'addedBy', {circle}.owner_user_id
+      ), FALSE
+    )
+)"""
 
 # What the product called it before. Rows still carrying this are renamed on
 # the next bootstrap; a name the OWNER chose is never touched.
@@ -592,40 +593,23 @@ class OneLocationCircleService:
         return {
             "id": str(row.get("id") or ""),
             "name": name,
+            "photoUrl": row.get("photo_url") or None,
             "kind": str(row.get("kind") or "other"),
             "role": role,
             "isSystem": is_system,
-            # Which product-managed Circle this is, so a screen can
-            # tell the emergency one from the connection projection
-            # without matching on a name the owner may have changed.
+            # Which product-managed Circle this is. Trusted keeps a stable marker
+            # for the product-provided container, but its membership is curated by
+            # the owner through the same paths as every other Circle.
             "systemKind": str(row.get("system_kind") or "") or None,
             "memberCount": int(row.get("member_count") or 0),
-            # Null for the Trusted Circle. Its stored ceiling is SMALLINT's,
-            # which is a storage fact rather than a product one -- rendering
-            # "47 / 32767" would invite somebody to wonder what happens at
-            # 32,767. There is no limit to show, so none is sent.
-            "memberLimit": (
-                None if is_trusted else int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT)
-            ),
+            "memberLimit": int(row.get("member_limit") or CIRCLE_DEFAULT_MEMBER_LIMIT),
             "createdAt": _iso(row.get("created_at")),
             "updatedAt": _iso(row.get("updated_at")),
             "viewerCapabilities": {
-                # Both doors into a Circle are the owner's.
-                #
-                # Sharing through a Circle never asks whether two people
-                # connected -- shared membership is enough. So whoever decides
-                # membership decides who may receive the owner's location. A
-                # member adding their own connection put a stranger to the
-                # owner inside that scope, and the owner was never shown the
-                # decision. On a system Circle the same act handed out SOS
-                # alerts, with an address, to someone the owner never chose.
-                # Trusted excluded, and that is not tidiness. Its roster IS
-                # the accepted-connection graph, reconciled on every read, so a
-                # hand-written membership is a row the product did not derive
-                # and cannot explain -- while the detail screen tells the same
-                # person "to take somebody out, disconnect from them", which is
-                # only true as long as nobody put them in by hand.
-                "canInviteMembers": is_owner and not is_trusted,
+                # Both doors into a Circle are the owner's. Trusted uses this
+                # ordinary manual membership path too; add operations still
+                # validate that each selected person is an active connection.
+                "canInviteMembers": is_owner,
                 # A join code a member can hand out is the same hole with a
                 # link attached: whoever redeems it lands in the owner's Circle
                 # just the same. A system Circle has no code at all.
@@ -650,14 +634,7 @@ class OneLocationCircleService:
                 # still only ever pairs a joiner with whoever invited them, so
                 # members are listed together without being introduced.
                 "canDeleteCircle": is_owner and not is_system and not is_trusted,
-                # Leaving, stated rather than inferred.
-                #
-                # The screen derived this as "not the owner", which left a
-                # system Circle's owner being offered a Leave that
-                # `_end_membership` refuses every time. And a Trusted Circle
-                # cannot be left by anyone: its roster IS the connection graph,
-                # so the way out is to disconnect, not to leave.
-                "canLeaveCircle": not is_owner and not is_trusted,
+                "canLeaveCircle": not is_owner,
             },
         }
 
@@ -817,9 +794,9 @@ class OneLocationCircleService:
     def list_circles(self, *, user_id: str) -> list[dict[str, Any]]:
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
                   c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
@@ -836,22 +813,22 @@ class OneLocationCircleService:
                  AND active_members.status = 'active'
                 WHERE mine.user_id = :user_id
                   AND mine.status = 'active'
-                  -- A trusted Circle is the owner's own view of who they are
-                  -- connected to. Every one of those people is a member of it,
-                  -- so listing it on the member side would put one "Trusted"
-                  -- row in your list for every person you know -- each of them
-                  -- rendered with their owner's name, and each of them a
-                  -- readable roster of that person's whole connection graph.
-                  AND (
-                    c.system_kind IS DISTINCT FROM 'trusted'
-                    OR c.owner_user_id = :user_id
-                  )
+                  AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
                 GROUP BY c.id, mine.role, owner_identity.display_name
                 ORDER BY c.updated_at DESC, c.created_at DESC
-                """,
+                """,  # nosec B608 - Only static Trusted aliases; owner inputs remain bound.
                 {"user_id": user_id},
             )
-            return [self._circle_summary(row) for row in (result.data or [])]
+            circles = [self._circle_summary(row) for row in (result.data or [])]
+            photo_budget = 2_000_000
+            for circle in circles:
+                photo = circle["photoUrl"]
+                size = len(photo.encode("utf-8")) if photo else 0
+                if size > photo_budget:
+                    circle["photoUrl"] = None
+                else:
+                    photo_budget -= size
+            return circles
         except OneLocationCircleError:
             raise
         except Exception as exc:
@@ -861,9 +838,9 @@ class OneLocationCircleService:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
             summary_result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
                   c.system_kind,
                   c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
@@ -881,17 +858,7 @@ class OneLocationCircleService:
                   ON mine.circle_id = c.id
                  AND mine.user_id = :user_id
                  AND mine.status = 'active'
-                 -- Same rule as `list_circles`, enforced again here because
-                 -- knowing an id is not a reason to read a roster. A trusted
-                 -- Circle's roster IS its owner's connection graph, so a member
-                 -- who guessed or kept an id could enumerate everyone that
-                 -- person knows. Falls through to the existing
-                 -- LOCATION_CIRCLE_NOT_FOUND, which is the honest answer: there
-                 -- is no such Circle, for you.
-                 AND (
-                   c.system_kind IS DISTINCT FROM 'trusted'
-                   OR c.owner_user_id = :user_id
-                 )
+                 AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
                 LEFT JOIN one_location_circle_memberships active_members
                   ON active_members.circle_id = c.id
                  AND active_members.status = 'active'
@@ -913,7 +880,7 @@ class OneLocationCircleService:
                   active_code.id, active_code.circle_id,
                   active_code.code_hash, active_code.expires_at,
                   active_code.metadata
-                """,
+                """,  # nosec B608 - Only static Trusted aliases; owner inputs remain bound.
                 {"user_id": user_id, "circle_id": cleaned_circle_id},
             )
             summary_row = next(iter(summary_result.data or []), None)
@@ -1046,9 +1013,9 @@ class OneLocationCircleService:
         cleaned_circle_id = _clean_circle_id(circle_id)
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
-                  c.id, c.name, c.kind, c.member_limit, c.is_system,
+                  c.id, c.name, c.kind, c.member_limit, c.is_system, c.photo_url,
                   c.system_kind, c.created_at, c.updated_at,
                   c.owner_user_id, :user_id AS viewer_user_id, mine.role,
                   owner_identity.display_name AS owner_display_name,
@@ -1067,8 +1034,7 @@ class OneLocationCircleService:
                   ON mine.circle_id = c.id
                  AND mine.user_id = :user_id
                  AND mine.status = 'active'
-                 AND (c.system_kind IS DISTINCT FROM 'trusted'
-                      OR c.owner_user_id = :user_id)
+                 AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="c", membership="mine", viewer="user_id")}
                 LEFT JOIN LATERAL (
                   SELECT code.id, code.circle_id, code.code_hash,
                          code.expires_at, code.metadata
@@ -1081,7 +1047,7 @@ class OneLocationCircleService:
                 ) active_code ON TRUE
                 WHERE c.id = CAST(:circle_id AS UUID)
                   AND c.status = 'active'
-                """,
+                """,  # nosec B608 - Only static Trusted aliases; owner inputs remain bound.
                 {"user_id": user_id, "circle_id": cleaned_circle_id},
             )
             row = next(iter(result.data or []), None)
@@ -1143,8 +1109,7 @@ class OneLocationCircleService:
                    AND viewer.status = 'active'
                   WHERE circle.id = CAST(:circle_id AS UUID)
                     AND circle.status = 'active'
-                    AND (circle.system_kind IS DISTINCT FROM 'trusted'
-                         OR circle.owner_user_id = :viewer_user_id)
+                    AND {_TRUSTED_ROSTER_VIEWER_SQL.format(circle="circle", membership="viewer", viewer="viewer_user_id")}
                 ), candidates AS (
                   SELECT membership.user_id, membership.role, membership.joined_at,
                          identity.display_name, identity.email, identity.photo_url,
@@ -1468,111 +1433,16 @@ class OneLocationCircleService:
         )
         return circle_id
 
-    @staticmethod
-    def _reconcile_trusted_members(conn: Any, *, circle_id: str, owner_user_id: str) -> int:
-        """Add every accepted connection that has no membership row at all.
-
-        "No row of ANY status" is the whole guard, and it is the same one
-        `_migrate_sms_contacts_into_circle` uses. A `removed` row is a decision
-        somebody made; filtering on `status = 'active'` instead would re-add a
-        dismissed person on every single login.
-
-        "Accepted" means an active connection with an active origin that is not
-        `named_circle`. Migration 135 backfilled a `named_circle` connection for
-        every co-member pair in every Circle -- eighteen pairs of strangers per
-        twenty-person Circle, by 138's own account -- and those people never
-        agreed to anything about each other.
-        """
-
-        row = _first(
-            conn.execute(
-                text(
-                    """
-                    WITH inserted AS (
-                    INSERT INTO one_location_circle_memberships (
-                      circle_id, user_id, role, status, joined_at, updated_at,
-                      ended_at, metadata
-                    )
-                    SELECT
-                      CAST(:circle_id AS UUID),
-                      peer.member_id,
-                      'member',
-                      'active',
-                      NOW(), NOW(), NULL,
-                      jsonb_build_object('addedVia', 'connection')
-                    FROM connections conn_row
-                    JOIN connection_origins origin
-                      ON origin.connection_id = conn_row.id
-                     AND origin.status = 'active'
-                     AND origin.origin_kind <> 'named_circle'
-                    CROSS JOIN LATERAL (
-                      SELECT CASE
-                        WHEN conn_row.user_a_id = :owner_user_id THEN conn_row.user_b_id
-                        ELSE conn_row.user_a_id
-                      END AS member_id
-                    ) AS peer
-                    WHERE conn_row.status = 'active'
-                      AND (
-                        conn_row.user_a_id = :owner_user_id
-                        OR conn_row.user_b_id = :owner_user_id
-                      )
-                      AND peer.member_id <> :owner_user_id
-                      -- `connections` has no FK to actor_profiles; the
-                      -- membership table does. Without this a connection to a
-                      -- deleted account raises ForeignKeyViolation and takes
-                      -- the whole bootstrap with it.
-                      AND EXISTS (
-                        SELECT 1 FROM actor_profiles p
-                        WHERE p.user_id = peer.member_id
-                      )
-                      AND NOT EXISTS (
-                        SELECT 1
-                        FROM one_location_circle_memberships existing
-                        WHERE existing.circle_id = CAST(:circle_id AS UUID)
-                          AND existing.user_id = peer.member_id
-                    )
-                    ON CONFLICT (circle_id, user_id) DO NOTHING
-                    RETURNING 1
-                    )
-                    SELECT COUNT(*)::BIGINT AS added_count FROM inserted
-                    """
-                ),
-                {"circle_id": circle_id, "owner_user_id": owner_user_id},
-            )
-        )
-        return int((row or {}).get("added_count") or 0)
-
     def ensure_trusted_system_circle(
         self, *, owner_user_id: str, summary_only: bool = False
     ) -> dict[str, Any]:
-        """Find-or-create this owner's Trusted Circle and top up its roster.
+        """Find or create the caller's empty, manually curated Trusted Circle.
 
-        Trusted is a projection of the accepted-connection graph, not a list a
-        person curates: everyone they are connected to is in it, and the way out
-        of it is to disconnect. #5458 asks for it so that Connect can show one
-        grouping that always means something, and so that Location, SMS and
-        anything after them can consume Circles rather than each keeping their
-        own idea of "my people".
-
-        Two writers keep it true, and neither can produce a duplicate:
-
-          * this reconcile, on bootstrap, which is also what heals a membership
-            missed while an older revision was serving;
-          * `ensure_trusted_membership_for_pair`, inside the transaction that
-            accepts a connection.
-
-        It is deliberately NOT provisioned by a migration. Every environment
-        deploys with `--migration-mode replay`, so a backfill in SQL is a
-        backfill that runs on every deploy forever -- and provisioning belongs
-        in the service, where a membership write can be reasoned about next to
-        the connection graph it mirrors.
-
-        What this does not do, all on purpose: it writes no
-        `connection_origins` (they are already connected -- that is why they are
-        here, and a `named_circle` origin would be revoked when the membership
-        ended, which is backwards), sends no push, records no feed event, and
-        never consults `member_limit`. A reconcile for a 200-connection account
-        must be silent.
+        This is container provisioning only. It never reads the connection
+        graph and never creates, restores, or changes a membership. New
+        connections remain in the general Connections list until the owner
+        explicitly adds them through the ordinary Circle membership API.
+        Existing memberships are deliberately left intact.
         """
 
         owner = str(owner_user_id or "").strip()
@@ -1588,15 +1458,6 @@ class OneLocationCircleService:
                 circle_id = self._find_trusted_circle_id(conn, owner)
                 if not circle_id:
                     circle_id = self._insert_trusted_circle(conn, owner)
-                added = self._reconcile_trusted_members(
-                    conn, circle_id=circle_id, owner_user_id=owner
-                )
-            if added:
-                logger.info(
-                    "one_location.trusted_circle_reconciled owner=%s added=%s",
-                    redact_log_field("user_id", owner),
-                    added,
-                )
             if summary_only:
                 return self.get_circle_overview(user_id=owner, circle_id=circle_id)
             return self.get_circle(user_id=owner, circle_id=circle_id)
@@ -1604,278 +1465,6 @@ class OneLocationCircleService:
             raise
         except Exception as exc:
             raise self._safe_db_failure("trusted", exc) from exc
-
-    @staticmethod
-    def ensure_trusted_membership_for_pair(
-        conn: Any,
-        *,
-        user_a_id: str,
-        user_b_id: str,
-        source: str = "connection",
-    ) -> None:
-        """Cross-enroll a newly connected pair, on the caller's connection.
-
-        Called from inside `accept_request`'s transaction so the membership and
-        the connection commit together.
-
-        Deliberately does NOT take the `actor_profiles` locks the invite path
-        takes. Those serialize capacity checks between Circle mutations; taking
-        them from inside the connections transaction would introduce a second
-        lock order between two subsystems that never contend today. Every write
-        below is an idempotent upsert and needs no lock of its own.
-
-        `DO UPDATE`, not `DO NOTHING`: the only way to hold a non-active row in
-        a Trusted Circle is to have been disconnected, and reconnecting is
-        exactly when it should come back. That is the opposite of the
-        contact-match path, where a dismissal must survive a re-sync -- the two
-        differ here on purpose.
-        """
-
-        for owner_id, member_id in ((user_a_id, user_b_id), (user_b_id, user_a_id)):
-            owner = str(owner_id or "").strip()
-            member = str(member_id or "").strip()
-            if not owner or not member or owner == member:
-                continue
-            circle_row = _first(
-                conn.execute(
-                    text(
-                        """
-                        INSERT INTO one_location_circles (
-                          owner_user_id, name, kind, status, member_limit,
-                          is_system, system_kind, created_at, updated_at, metadata
-                        )
-                        SELECT
-                          :owner_user_id, :name, 'other', 'active',
-                          :member_limit, false, 'trusted', NOW(), NOW(),
-                          '{}'::jsonb
-                        WHERE EXISTS (
-                          SELECT 1 FROM actor_profiles p
-                          WHERE p.user_id = :owner_user_id
-                        )
-                        ON CONFLICT DO NOTHING
-                        RETURNING id
-                        """
-                    ),
-                    {
-                        "owner_user_id": owner,
-                        "name": TRUSTED_SYSTEM_CIRCLE_NAME,
-                        "member_limit": TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT,
-                    },
-                )
-            )
-            circle_id = str((circle_row or {}).get("id") or "")
-            if not circle_id:
-                circle_id = OneLocationCircleService._find_trusted_circle_id(conn, owner)
-            if not circle_id:
-                # No profile row for this owner yet, so there is nothing to hang
-                # a Circle on. Their next bootstrap reconciles it.
-                continue
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO one_location_circle_memberships (
-                      circle_id, user_id, role, status, joined_at, updated_at,
-                      metadata
-                    )
-                    VALUES (
-                      CAST(:circle_id AS UUID), :owner_user_id, 'owner',
-                      'active', NOW(), NOW(), '{}'::jsonb
-                    )
-                    ON CONFLICT (circle_id, user_id) DO NOTHING
-                    """
-                ),
-                {"circle_id": circle_id, "owner_user_id": owner},
-            )
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO one_location_circle_memberships (
-                      circle_id, user_id, role, status, joined_at, updated_at,
-                      ended_at, metadata
-                    )
-                    SELECT
-                      CAST(:circle_id AS UUID), :member_user_id, 'member',
-                      'active', NOW(), NOW(), NULL,
-                      jsonb_build_object('addedVia', :source)
-                    WHERE EXISTS (
-                      SELECT 1 FROM actor_profiles p
-                      WHERE p.user_id = :member_user_id
-                    )
-                    ON CONFLICT (circle_id, user_id) DO UPDATE SET
-                      role = 'member',
-                      status = 'active',
-                      ended_at = NULL,
-                      updated_at = NOW(),
-                      metadata = COALESCE(
-                        one_location_circle_memberships.metadata, '{}'::jsonb
-                      ) || jsonb_build_object('addedVia', :source)
-                    """
-                ),
-                {
-                    "circle_id": circle_id,
-                    "member_user_id": member,
-                    "source": source,
-                },
-            )
-
-    @staticmethod
-    def ensure_trusted_memberships_for_pairs(
-        conn: Any,
-        *,
-        pairs: Iterable[tuple[str, str]],
-        source: str = "connection",
-    ) -> None:
-        """Set-based Trusted-Circle projection for a graph-gated batch.
-
-        This is the batch counterpart to ``ensure_trusted_membership_for_pair``.
-        It preserves the same idempotent/healing behavior with three bounded
-        statements regardless of pair count and does not create any share.
-        Every statement revalidates an active canonical connection backed by
-        an active non-Circle origin, so cleanup cannot be followed by a stale
-        roster write.
-        """
-
-        canonical_pairs = sorted(
-            {
-                (str(first or "").strip(), str(second or "").strip())
-                for first, second in pairs
-                if str(first or "").strip()
-                and str(second or "").strip()
-                and str(first or "").strip() != str(second or "").strip()
-            }
-        )
-        if not canonical_pairs:
-            return
-
-        first_user_ids = [pair[0] for pair in canonical_pairs]
-        second_user_ids = [pair[1] for pair in canonical_pairs]
-        params = {
-            "first_user_ids": first_user_ids,
-            "second_user_ids": second_user_ids,
-            "name": TRUSTED_SYSTEM_CIRCLE_NAME,
-            "member_limit": TRUSTED_SYSTEM_CIRCLE_MEMBER_LIMIT,
-            "source": source,
-        }
-        directional_cte = """
-          pair_rows AS (
-            SELECT first_user_id, second_user_id
-            FROM UNNEST(
-              CAST(:first_user_ids AS TEXT[]),
-              CAST(:second_user_ids AS TEXT[])
-            ) AS row(first_user_id, second_user_id)
-          ),
-          eligible_pairs AS (
-            SELECT pair.first_user_id, pair.second_user_id
-            FROM pair_rows pair
-            JOIN connections connection
-              ON connection.user_a_id = LEAST(
-                   pair.first_user_id, pair.second_user_id
-                 )
-             AND connection.user_b_id = GREATEST(
-                   pair.first_user_id, pair.second_user_id
-                 )
-             AND connection.status = 'active'
-            WHERE EXISTS (
-              SELECT 1
-              FROM connection_origins origin
-              WHERE origin.connection_id = connection.id
-                AND origin.status = 'active'
-                AND origin.origin_kind <> 'named_circle'
-            )
-          ),
-          directional AS (
-            SELECT first_user_id AS owner_user_id,
-                   second_user_id AS member_user_id
-            FROM eligible_pairs
-            UNION
-            SELECT second_user_id, first_user_id
-            FROM eligible_pairs
-          )
-        """
-
-        conn.execute(
-            text(
-                f"""
-                WITH {directional_cte}
-                INSERT INTO one_location_circles (
-                  owner_user_id, name, kind, status, member_limit,
-                  is_system, system_kind, created_at, updated_at, metadata
-                )
-                SELECT DISTINCT
-                  directional.owner_user_id, :name, 'other', 'active',
-                  :member_limit, false, 'trusted', NOW(), NOW(), '{{}}'::jsonb
-                FROM directional
-                JOIN actor_profiles profile
-                  ON profile.user_id = directional.owner_user_id
-                ORDER BY directional.owner_user_id
-                ON CONFLICT DO NOTHING
-                """,  # nosec B608 - directional_cte is fixed internal SQL text;
-                # all contact-derived values remain bound parameters.
-            ),
-            params,
-        )
-        conn.execute(
-            text(
-                f"""
-                WITH {directional_cte},
-                trusted_circle AS (
-                  SELECT circle.id, circle.owner_user_id
-                  FROM one_location_circles circle
-                  JOIN (SELECT DISTINCT owner_user_id FROM directional) owner
-                    ON owner.owner_user_id = circle.owner_user_id
-                  WHERE circle.status = 'active'
-                    AND circle.system_kind = 'trusted'
-                )
-                INSERT INTO one_location_circle_memberships (
-                  circle_id, user_id, role, status, joined_at, updated_at,
-                  metadata
-                )
-                SELECT circle.id, circle.owner_user_id, 'owner', 'active',
-                       NOW(), NOW(), '{{}}'::jsonb
-                FROM trusted_circle circle
-                ORDER BY circle.owner_user_id
-                ON CONFLICT (circle_id, user_id) DO NOTHING
-                """,  # nosec B608 - directional_cte is fixed internal SQL text;
-                # all contact-derived values remain bound parameters.
-            ),
-            params,
-        )
-        conn.execute(
-            text(
-                f"""
-                WITH {directional_cte},
-                trusted_circle AS (
-                  SELECT circle.id, circle.owner_user_id
-                  FROM one_location_circles circle
-                  JOIN (SELECT DISTINCT owner_user_id FROM directional) owner
-                    ON owner.owner_user_id = circle.owner_user_id
-                  WHERE circle.status = 'active'
-                    AND circle.system_kind = 'trusted'
-                )
-                INSERT INTO one_location_circle_memberships (
-                  circle_id, user_id, role, status, joined_at, updated_at,
-                  ended_at, metadata
-                )
-                SELECT circle.id, directional.member_user_id, 'member',
-                       'active', NOW(), NOW(), NULL,
-                       jsonb_build_object('addedVia', :source)
-                FROM directional
-                JOIN trusted_circle circle
-                  ON circle.owner_user_id = directional.owner_user_id
-                JOIN actor_profiles member_profile
-                  ON member_profile.user_id = directional.member_user_id
-                ORDER BY directional.owner_user_id, directional.member_user_id
-                ON CONFLICT (circle_id, user_id) DO UPDATE SET
-                  role = 'member', status = 'active', ended_at = NULL,
-                  updated_at = NOW(),
-                  metadata = COALESCE(
-                    one_location_circle_memberships.metadata, '{{}}'::jsonb
-                  ) || jsonb_build_object('addedVia', :source)
-                """,  # nosec B608 - directional_cte is fixed internal SQL text;
-                # all contact-derived values remain bound parameters.
-            ),
-            params,
-        )
 
     def ensure_sms_system_circle(self, *, owner_user_id: str) -> dict[str, Any]:
         """Find-or-create this owner's SMS Circle and fold their contacts into it.
@@ -2199,13 +1788,6 @@ class OneLocationCircleService:
                 WHERE id = CAST(:circle_id AS UUID)
                   AND owner_user_id = :owner_user_id
                   AND status = 'active'
-                  -- A Trusted Circle's name is derived exactly like its
-                  -- roster. Renaming it used to land, persist and toast
-                  -- success, and then Connect went on calling it "Trusted"
-                  -- while Location showed the new name: one Circle, two names.
-                  -- The SMS Circle is deliberately NOT excluded -- its rename
-                  -- is a decision `ensure_sms_system_circle` promises to keep.
-                  AND system_kind IS DISTINCT FROM 'trusted'
                 RETURNING id, name
                 """
         params = {
@@ -2390,6 +1972,57 @@ class OneLocationCircleService:
                     )
         except Exception:
             logger.exception("circle.notify_deleted_invites_import_failed circle_id=%s", circle_id)
+
+    def update_circle_photo(
+        self, *, owner_user_id: str, circle_id: str, photo_url: str | None
+    ) -> dict[str, Any]:
+        cleaned_circle_id = _clean_circle_id(circle_id)
+        try:
+            photo = validate_circle_photo(photo_url)
+        except ValueError as exc:
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_PHOTO_INVALID", str(exc), status_code=422
+            ) from exc
+        with self._db.engine.begin() as conn:
+            AccountDeletionLifecycleService.lock_user_writes_in_transaction(
+                conn, user_ids=[owner_user_id]
+            )
+            updated = _first(
+                conn.execute(
+                    text("""
+              UPDATE one_location_circles SET photo_url = :photo, updated_at = now()
+              WHERE id = CAST(:circle AS uuid) AND owner_user_id = :owner AND status = 'active'
+                AND NOT is_system AND system_kind IS NULL
+                AND EXISTS (SELECT 1 FROM one_location_circle_memberships membership
+                  WHERE membership.circle_id = one_location_circles.id
+                    AND membership.user_id = :owner AND membership.status = 'active')
+              RETURNING id
+            """),
+                    {"circle": cleaned_circle_id, "owner": owner_user_id, "photo": photo},
+                )
+            )
+            if not updated:
+                raise OneLocationCircleError(
+                    "LOCATION_CIRCLE_OWNER_REQUIRED",
+                    "Only the Circle owner can change this photo.",
+                    status_code=403,
+                )
+            for recipient in self._active_circle_user_ids(conn, cleaned_circle_id):
+                # No image, name or personal profile in the doorbell.
+                conn.execute(
+                    text("SELECT pg_notify('one_user_state_changed', :event)"),
+                    {
+                        "event": json.dumps(
+                            {
+                                "user_id": recipient,
+                                "type": "location_circle_photo_updated",
+                                "circle_id": cleaned_circle_id,
+                                "message_id": str(uuid.uuid4()),
+                            }
+                        )
+                    },
+                )
+        return self.get_circle_overview(user_id=owner_user_id, circle_id=cleaned_circle_id)
 
     def update_circle(
         self,
@@ -3847,22 +3480,8 @@ class OneLocationCircleService:
                 # owner is the only person who may grant it. This is checked
                 # before any capacity, connection or invitation state is read:
                 # a non-owner learns nothing about the Circle by asking.
-                # Refused for a Trusted Circle whoever asks, its owner included.
-                # `_connect_member_to_circle` would write a `named_circle` origin
-                # scoped to Trusted -- the exact provenance
-                # `ensure_trusted_system_circle` documents it must never write,
-                # because that origin is revoked when the membership ends, which
-                # is backwards for a roster derived from the connection itself.
-                #
-                # The capability flag beside this says the same thing, and a flag
-                # is an instruction rather than a control.
-                if str(circle_row.get("system_kind") or "") == "trusted":
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION",
-                        "Everyone you're connected to is already in this Circle. "
-                        "Connect with someone to add them.",
-                        status_code=409,
-                    )
+                # Trusted intentionally uses this exact path; its roster is no
+                # longer derived from the connection graph.
                 if str(circle_row.get("owner_user_id") or "") != actor_user_id:
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_OWNER_REQUIRED",
@@ -5101,20 +4720,9 @@ class OneLocationCircleService:
                     JOIN one_location_circles circle
                       ON circle.id = first_member.circle_id
                      AND circle.status = 'active'
-                     -- The seventh copy of the shared-membership join, and it
-                     -- has to narrow with the other six: this one decides
-                     -- whether a legacy SMS contact row is still eligible and
-                     -- may be pruned. Left wide, a Trusted Circle would make
-                     -- every pair "still eligible" and nothing would ever be
-                     -- cleaned up again.
-                     -- Trusted is excluded outright, not merely owner-scoped.
-                     -- Everyone in it is already a connection, so they satisfy the
-                     -- connection arm above and lose nothing here. What it closes is the
-                     -- other direction: contact sync (#5458) puts matched people into
-                     -- Trusted before they have accepted anything, and membership must not
-                     -- be what makes them shareable. Authority comes from the connection.
-                     -- Trusted records who you are connected to; it never decides who can
-                     -- see you.
+                     -- Trusted membership is manual, but it remains an
+                     -- ordinary Circle roster rather than an SMS authority
+                     -- source. A live direct connection is checked above.
                      AND circle.system_kind IS DISTINCT FROM 'trusted'
                      AND (
                        (circle.system_kind IS NULL AND NOT circle.is_system)
@@ -5269,10 +4877,10 @@ class OneLocationCircleService:
         you as a connection would keep receiving your live location, and -- SOS
         reads the system Circle's roster -- your address in an emergency.
 
-        Only Circles OWNED by one of the two are touched. A third person's
-        Circle that both happen to be in is left alone: they are both in it
-        because that person put them there, and two members falling out is not
-        the owner's decision to make. Either can leave it themselves.
+        End non-owner memberships only in Circles shared by both people,
+        including a third person's shared Circle. Membership in an unrelated
+        Circle cannot authorize delivery between this pair and stays intact.
+        Owners retain their own rows; disconnecting never deletes a Circle.
 
         `removed`, not `left`: neither of them chose to go. It also means the
         owner is the only one who can put them back, which is right -- if they
@@ -5287,6 +4895,16 @@ class OneLocationCircleService:
             conn.execute(
                 text(
                     """
+                    WITH shared_circles AS MATERIALIZED (
+                      SELECT first_member.circle_id
+                      FROM one_location_circle_memberships first_member
+                      JOIN one_location_circle_memberships second_member
+                        ON second_member.circle_id = first_member.circle_id
+                      WHERE first_member.user_id = :user_a
+                        AND first_member.status = 'active'
+                        AND second_member.user_id = :user_b
+                        AND second_member.status = 'active'
+                    )
                     UPDATE one_location_circle_memberships membership
                     SET status = 'removed',
                         ended_at = NOW(),
@@ -5300,16 +4918,8 @@ class OneLocationCircleService:
                       -- Never the owner's own row. The owner does not leave
                       -- their Circle by falling out with somebody in it.
                       AND membership.role = 'member'
-                      AND (
-                        (
-                          circle.owner_user_id = :user_a
-                          AND membership.user_id = :user_b
-                        )
-                        OR (
-                          circle.owner_user_id = :user_b
-                          AND membership.user_id = :user_a
-                        )
-                      )
+                      AND membership.user_id IN (:user_a, :user_b)
+                      AND membership.circle_id IN (SELECT circle_id FROM shared_circles)
                     RETURNING
                       membership.circle_id::text AS circle_id,
                       membership.user_id AS user_id
@@ -5440,17 +5050,6 @@ class OneLocationCircleService:
                         "LOCATION_CIRCLE_OWNER_LEAVE_INVALID",
                         "Delete the Circle instead of leaving it.",
                         status_code=422,
-                    )
-                if str(circle_row.get("system_kind") or "") == "trusted":
-                    # Membership here is derived from the connection, so leaving
-                    # would be undone by the next reconcile -- a control that
-                    # appears to work and quietly does not. The connection is
-                    # the thing to end.
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION",
-                        "Everyone you're connected to is in Trusted. "
-                        "Disconnect in Connect to leave it.",
-                        status_code=409,
                     )
                 membership_row = _first(
                     conn.execute(
@@ -5727,8 +5326,8 @@ class OneLocationCircleService:
         if row and str(row.get("system_kind") or "") == "trusted":
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_SYSTEM_PROTECTED",
-                "Trusted holds everyone you're connected to, so it can't be deleted. "
-                "Disconnect in Connect to remove someone.",
+                "Trusted is your built-in Circle and cannot be deleted. "
+                "You can add or remove people at any time.",
                 status_code=409,
             )
         if row and bool(row.get("is_system")):

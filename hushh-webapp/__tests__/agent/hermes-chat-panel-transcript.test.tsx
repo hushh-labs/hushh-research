@@ -237,3 +237,17 @@ describe("HermesChatPanel transcript", () => {
     );
   });
 });
+
+describe("HermesChatPanel secrets", () => {
+  it("never sends a raw secret to Puppy, keeps the draft and says why (negative control)", async () => {
+    await mount();
+    const secret = ["gh", "p_", "fakefake0000fakefake0000fakefake0000"].join("");
+    await ask(`my github token ${secret}`);
+    expect(await screen.findByText(/holds a secret, so it stayed on this device/)).toBeInTheDocument();
+    expect(mocks.runAgent).not.toHaveBeenCalled();
+    expect((screen.getByPlaceholderText("Ask Puppy One…") as HTMLTextAreaElement).value).toContain(secret);
+
+    await ask("what is on my calendar today");
+    await waitFor(() => expect(mocks.runAgent).toHaveBeenCalledTimes(1));
+  });
+});

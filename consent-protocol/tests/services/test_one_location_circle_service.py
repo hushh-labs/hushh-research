@@ -2002,7 +2002,7 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
-def test_disconnecting_takes_each_person_out_of_the_others_circles(
+def test_disconnecting_takes_each_person_out_of_shared_circles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The membership was the second arm of an OR, not a leftover row.
@@ -2020,6 +2020,7 @@ def test_disconnecting_takes_each_person_out_of_the_others_circles(
         [
             {"circle_id": "circle-owned-by-a", "user_id": "user-b"},
             {"circle_id": "circle-sms-of-b", "user_id": "user-a"},
+            {"circle_id": "circle-owned-by-c", "user_id": "user-a"},
         ],
         # Per ended membership: code revoke, invite cancel, then the grant
         # reconciliation's three statements and the SMS-contact cleanup.
@@ -2041,13 +2042,18 @@ def test_disconnecting_takes_each_person_out_of_the_others_circles(
     assert ended == [
         {"circleId": "circle-owned-by-a", "userId": "user-b"},
         {"circleId": "circle-sms-of-b", "userId": "user-a"},
+        {"circleId": "circle-owned-by-c", "userId": "user-a"},
     ]
     update = conn.sql[0]
     assert "UPDATE one_location_circle_memberships" in update
     assert "status = 'removed'" in update
-    # Both directions: your Circles and theirs.
-    assert "circle.owner_user_id = :user_a" in update
-    assert "circle.owner_user_id = :user_b" in update
+    # Both people must belong: an unrelated third-party roster stays intact.
+    assert "membership.user_id IN (:user_a, :user_b)" in update
+    assert "circle.owner_user_id" not in update
+    assert "WITH shared_circles AS MATERIALIZED" in update
+    assert "first_member.user_id = :user_a" in update
+    assert "second_member.user_id = :user_b" in update
+    assert "membership.circle_id IN (SELECT circle_id FROM shared_circles)" in update
     # Never the owner's own row -- falling out with a member does not evict
     # you from the Circle you own.
     assert "membership.role = 'member'" in update
@@ -2058,31 +2064,10 @@ def test_disconnecting_takes_each_person_out_of_the_others_circles(
     assert origin_revocations == [
         {"circle_id": "circle-owned-by-a", "member_user_id": "user-b"},
         {"circle_id": "circle-sms-of-b", "member_user_id": "user-a"},
+        {"circle_id": "circle-owned-by-c", "member_user_id": "user-a"},
     ]
-    assert sum("UPDATE one_location_circle_invite_codes" in sql for sql in conn.sql) == 2
-    assert sum("SET status = 'revoked', revoked_at = NOW()" in sql for sql in conn.sql) >= 2
-
-
-def test_a_third_persons_circle_is_not_theirs_to_break_up() -> None:
-    """Two members falling out is not the owner's decision to act on.
-
-    A and B are both in C's Family Circle because C put them there. If they
-    disconnect from each other, neither has been rejected by C, and evicting
-    either would be C's Circle answering for a relationship it is not part of.
-    Either of them can leave it; nothing here does it for them.
-    """
-
-    import inspect
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    source = inspect.getsource(OneLocationCircleService.end_memberships_for_disconnected_pair)
-
-    # Every branch of the match is anchored on one of the two OWNING the
-    # Circle. There is no clause that matches on co-membership alone.
-    assert "circle.owner_user_id = :user_a" in source
-    assert "circle.owner_user_id = :user_b" in source
-    assert source.count("circle.owner_user_id") == 2
+    assert sum("UPDATE one_location_circle_invite_codes" in sql for sql in conn.sql) == 3
+    assert sum("SET status = 'revoked', revoked_at = NOW()" in sql for sql in conn.sql) >= 3
 
 
 def test_disconnecting_from_yourself_is_not_an_eviction() -> None:
@@ -3415,7 +3400,7 @@ def test_onboarding_still_reuses_a_circle_the_person_made_beside_trusted(
 
 
 # ---------------------------------------------------------------------------
-# Trusted: a projection of the connection graph, not a permission over it.
+# Trusted: a manually curated default Circle, not a connection projection.
 # ---------------------------------------------------------------------------
 
 
@@ -3458,10 +3443,7 @@ def test_trusted_grants_no_location_authority_anywhere() -> None:
     assert sites >= 7, f"expected at least 7 shared-Circle joins, found {sites}"
 
 
-def test_a_trusted_circle_reports_no_member_ceiling() -> None:
-    # Its stored limit is SMALLINT's, which is a storage fact rather than a
-    # product one. "47 / 32767" would invite somebody to wonder what happens at
-    # 32,767, and nothing does.
+def test_a_trusted_circle_reports_the_ordinary_member_ceiling() -> None:
     summary = OneLocationCircleService._circle_summary(
         {
             "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -3473,16 +3455,16 @@ def test_a_trusted_circle_reports_no_member_ceiling() -> None:
             "is_system": False,
             "system_kind": "trusted",
             "member_count": 47,
-            "member_limit": 32767,
+            "member_limit": 100,
         }
     )
 
-    assert summary["memberLimit"] is None
+    assert summary["memberLimit"] == 100
     assert summary["systemKind"] == "trusted"
     assert summary["isSystem"] is False
 
 
-def test_a_trusted_circle_offers_no_door_and_no_exit() -> None:
+def test_a_trusted_circle_offers_the_ordinary_member_controls() -> None:
     owner = OneLocationCircleService._circle_summary(
         {
             "id": "550e8400-e29b-41d4-a716-446655440000",
@@ -3494,18 +3476,17 @@ def test_a_trusted_circle_offers_no_door_and_no_exit() -> None:
             "is_system": False,
             "system_kind": "trusted",
             "member_count": 3,
-            "member_limit": 32767,
+            "member_limit": 100,
         }
     )
     caps = owner["viewerCapabilities"]
 
-    # No code: a link into the Circle would be a link into the whole
-    # connection graph, handed to whoever holds it.
+    # Membership is explicit and uses the same direct-add path as other
+    # Circles. The default container still has no join code or delete action.
+    assert caps["canInviteMembers"] is True
     assert caps["canViewInviteCode"] is False
     assert caps["canRotateInviteCode"] is False
-    # Deleting it is not a decision the product offers -- the roster is derived.
     assert caps["canDeleteCircle"] is False
-    # And the owner is not offered a Leave that would be refused.
     assert caps["canLeaveCircle"] is False
 
 
@@ -3553,83 +3534,28 @@ def test_a_member_of_an_ordinary_circle_can_still_leave() -> None:
     assert summary["viewerCapabilities"]["canLeaveCircle"] is True
 
 
-def test_the_trusted_reconcile_never_resurrects_a_removed_member() -> None:
-    """`NOT EXISTS (any status)` is the whole guard.
-
-    This runs on every bootstrap. Filtering the guard on `status = 'active'`
-    instead would re-add somebody who had been removed, on every single login --
-    the same trap `_migrate_sms_contacts_into_circle` documents and
-    test_service_migration_never_resurrects_a_removed_contact locks.
-    """
+def test_trusted_provisioning_never_reads_connections_or_writes_memberships() -> None:
+    """Opening Circles may create the container, never populate its roster."""
 
     import inspect
 
-    source = inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
-    guard = source[source.index("NOT EXISTS") :]
-    guard = guard[: guard.index("ON CONFLICT")]
+    source = inspect.getsource(OneLocationCircleService.ensure_trusted_system_circle)
 
-    assert "existing.circle_id" in guard
-    assert "existing.user_id" in guard
-    # The absence that matters.
-    assert "status" not in guard
+    assert "FROM connections" not in source
+    assert "one_location_circle_memberships" not in source
+    assert "_reconcile_trusted_members" not in source
+    assert "ensure_trusted_membership_for_pair" not in source
 
 
-def test_the_trusted_reconcile_seeds_only_real_connections() -> None:
-    # Migration 135 backfilled a `named_circle` connection for every co-member
-    # pair in every Circle -- eighteen pairs of strangers per twenty-person
-    # Circle, by 138's own account. Those people never agreed to anything about
-    # each other and do not belong in each other's Trusted Circle.
+def test_trusted_uses_the_generic_direct_member_add_path() -> None:
+    """No Trusted-only membership mutation remains in the Circle service."""
+
     import inspect
 
-    source = inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
+    source = inspect.getsource(OneLocationCircleService.create_member_invites)
 
-    assert "origin.status = 'active'" in source
-    assert "origin.origin_kind <> 'named_circle'" in source
-    assert "conn_row.status = 'active'" in source
-
-
-def test_the_trusted_reconcile_says_nothing_to_anybody() -> None:
-    # `create_member_invites` sends a push and writes a feed event per member
-    # added. A reconcile for a 200-connection account must be silent.
-    import inspect
-
-    source = (
-        inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
-        + inspect.getsource(OneLocationCircleService.ensure_trusted_system_circle)
-        + inspect.getsource(OneLocationCircleService.ensure_trusted_membership_for_pair)
-    )
-
-    assert "send_circle_member_added_push" not in source
-    assert "FeedService" not in source
-    assert "record_event" not in source
-
-
-def test_the_trusted_reconcile_is_not_bound_by_a_member_ceiling() -> None:
-    # Refusing to record a connection somebody already accepted would be worse
-    # than an oversized roster. The ceiling is written once, when the Circle is
-    # created; neither the reconcile nor the accept-path enroll consults it.
-    import inspect
-
-    for method in (
-        OneLocationCircleService._reconcile_trusted_members,
-        OneLocationCircleService.ensure_trusted_membership_for_pair,
-    ):
-        source = inspect.getsource(method)
-        # The pair-enroll creates the Circle if it is missing, so it names the
-        # constant -- but never reads the column back to compare against.
-        assert "member_count" not in source
-
-
-def test_a_trusted_membership_is_reactivated_on_reconnect() -> None:
-    # The opposite of the contact-match path, where a dismissal must survive a
-    # re-sync. Reconnecting is exactly when a Trusted membership should return.
-    import inspect
-
-    source = inspect.getsource(OneLocationCircleService.ensure_trusted_membership_for_pair)
-
-    assert "ON CONFLICT (circle_id, user_id) DO UPDATE SET" in source
-    assert "status = 'active'" in source
-    assert "ended_at = NULL" in source
+    assert "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION" not in source
+    assert "system_kind <> 'trusted'" not in source
 
 
 # ---------------------------------------------------------------------------
@@ -3661,41 +3587,17 @@ def test_the_join_code_is_withheld_from_anyone_who_may_not_see_it() -> None:
     assert 'summary_row.get("code_id") and invite_code_payload is None' in source
 
 
-def test_nobody_adds_a_member_to_trusted_by_hand() -> None:
-    """Its roster is derived, so a hand-written membership is unexplainable.
-
-    The capability said `is_owner` alone, and Trusted is owner-scoped, so the
-    detail screen rendered a filled "Add people" button -- and the endpoint
-    honoured it, writing a `named_circle` origin scoped to Trusted. That is the
-    exact provenance `ensure_trusted_system_circle` documents it must never
-    write: such an origin is revoked when the membership ends, which is
-    backwards for a roster derived from the connection itself.
-    """
+def test_trusted_allows_manual_add_through_the_generic_member_api() -> None:
+    """Trusted exposes the same owner add capability as every other Circle."""
 
     import inspect
 
     summary = inspect.getsource(OneLocationCircleService._circle_summary)
-    assert '"canInviteMembers": is_owner and not is_trusted' in summary
-
-    # And the endpoint refuses independently, because a capability flag is an
-    # instruction rather than a control.
-    invites = inspect.getsource(OneLocationCircleService.create_member_invites)
-    assert "circle.system_kind" in invites
-    assert 'if str(circle_row.get("system_kind") or "") == "trusted":' in invites
-    assert "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION" in invites
-
-
-def test_the_trusted_refusal_comes_before_the_ownership_check() -> None:
-    """Its owner is refused too, so the order has to put the kind first.
-
-    Checking ownership first would let the Circle's owner -- the one person who
-    passes it -- straight through to the write.
-    """
-
-    import inspect
+    assert '"canInviteMembers": is_owner' in summary
 
     invites = inspect.getsource(OneLocationCircleService.create_member_invites)
-    assert invites.index('== "trusted"') < invites.index("LOCATION_CIRCLE_OWNER_REQUIRED")
+    assert "LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION" not in invites
+    assert '== "trusted"' not in invites
 
 
 def test_a_user_id_is_never_shown_where_a_name_belongs() -> None:

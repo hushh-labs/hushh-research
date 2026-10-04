@@ -56,6 +56,38 @@ def test_rule_two_names_the_pending_status_as_not_success():
     assert "location_updates_pending" in rule
     assert "switching that on this device now" in rule
     assert "[ONE_EVENT] tool_result" in rule
+    # A dispatched open, a reused card and an unseen card are not outcomes.
+    assert '"opened"' in rule
+    not_success = rule.split("These statuses are NOT success:", 1)[1]
+    for status in (
+        "navigation_dispatched",
+        "mail_open_dispatched",
+        "confirmation_waiting",
+        "card_not_shown",
+    ):
+        assert status in not_success
+
+
+def test_rule_four_answers_a_waiting_card_with_its_id_not_a_new_proposal():
+    rule = _rule(_build(), 4)
+    assert "confirmation_waiting means that exact action is already waiting" in rule
+    assert "do not ask again and do not call the tool again" in rule
+    assert "call confirm_pending_action with its pending_action_id" in rule
+    assert "card_not_shown means the card has not appeared yet" in rule
+    assert "[ONE_EVENT] pending_shown" in rule
+    # UAT 2026-10-02: a restated detail was read as a correction and re-asked.
+    assert "it is not a correction, so never cancel it and propose the same thing again" in rule
+    assert "repeats_cancelled means you cancelled this exact proposal" in rule
+
+
+def test_opening_screens_rule_says_opened_only_after_the_app_reports_it():
+    rule = _rule(_build(), 14)
+    assert "navigation_dispatched means the app was asked, not that anything is showing" in rule
+    assert "[ONE_EVENT] ui_settled for that screen with status opened" in rule
+    assert "Status failed means it did not open" in rule
+    assert "never say it opened" in rule
+    assert "screen person_profile and their user_id" in rule
+    assert "screen profile is only the person's own profile" in rule
 
 
 def test_rule_seven_routes_a_bare_location_request_to_the_device_switch():
@@ -118,7 +150,12 @@ def test_rule_ten_separates_circle_membership_from_connection_and_leave_from_del
     assert "leave_circle, never delete_circle" in rule
     assert "Confirming which circle or person they meant approves nothing" in rule
     assert "send a connection request only if they ask, with invite_person" in rule
-    assert "one at a time, and report each real result separately" in rule
+    # Several people joining one circle is one call and one card. This replaced
+    # "one at a time", which is what made three names cost three confirmations.
+    assert "Two or more people joining one circle is add_circle_members" in rule
+    assert "never describe a skipped person as added" in rule
+    assert "One person is add_circle_member" in rule
+    assert "one at a time" not in rule, "the batch path makes this instruction wrong"
     # Both circle reads are declared with their first line, so the model can pick them.
     declared = {item["name"] for item in registry.declarations()}
     assert {"get_circle_details", "list_circle_members"} <= declared

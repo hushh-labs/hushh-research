@@ -77,6 +77,22 @@
       "execution_target": { "status": "wired", "path": "local_handler", "target": "people.profile.manage_consent" },
       "control_ids": ["person-profile-manage-consent"],
       "state_exposure": ["grant count", "request history count"]
+    },
+    {
+      "action_id": "route.person_profile",
+      "label": "Open a person's profile",
+      "meaning": "Navigates to the profile of one person already confirmed by name. It changes nothing, and it needs that person's profile reference, never a guessed one.",
+      "aliases": ["open their profile", "show their profile"],
+      "search_keywords": ["profile", "person", "people"],
+      "reachability": { "routes": ["/people/[personRef]"], "screens": ["one_person_profile"], "hidden_navigable": true, "navigation_prerequisites": ["The person must be confirmed by name first."] },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": { "status": "wired", "path": "route", "target": "/people/[personRef]", "params": { "requires_person_ref": true } },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": ["hushh-webapp/components/connections/person-profile-page.tsx"],
+      "speaker_persona": "one"
     }
   ]
 }

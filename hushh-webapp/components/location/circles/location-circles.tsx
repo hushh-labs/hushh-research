@@ -66,6 +66,7 @@ const CIRCLE_TOOLS = new Set([
   "rename_circle",
   "delete_circle",
   "add_circle_member",
+  "add_circle_members",
   "remove_circle_member",
   "leave_circle",
   "list_circle_invites",

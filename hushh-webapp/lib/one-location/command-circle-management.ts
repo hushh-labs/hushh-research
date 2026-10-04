@@ -180,13 +180,6 @@ export async function prepareCircleManagement(input: {
       summary:
         "People opened. Review the circle there; its current state could not be verified.",
     };
-  if (circle.systemKind === "trusted")
-    return {
-      status: "blocked",
-      gate: "input",
-      summary:
-        "Trusted follows your accepted connections. Change those connections in Connect.",
-    };
   const caps = circle.viewerCapabilities;
   if (
     input.action === "location.leave_circle"

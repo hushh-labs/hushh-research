@@ -60,8 +60,8 @@ const DOCUMENT_SHARE_NOTIFICATION_COPY_BY_TYPE = {
     body: "Open One to see the latest.",
   },
   document_share_outcome: {
-    title: "Drive sharing finished",
-    body: "Open One to see the shared files.",
+    title: "Drive request update",
+    body: "Open One to see the result.",
   },
   document_share_revoked: {
     title: "Drive access changed",
@@ -175,6 +175,11 @@ function isSilentNotification(data) {
 }
 
 function notificationTapTarget(data) {
+  if (data?.type === "location_circle_message") {
+    const circleId = String(data.circle_id || "");
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(circleId)) return "/one/feed";
+    return `/one/connect?tab=circles&action=circle-detail&circleId=${encodeURIComponent(circleId)}&circleChat=1`;
+  }
   const documentRequestId = documentShareNotificationRequestId(data);
   if (documentRequestId) {
     const eventType = normalizedDocumentShareType(data);
@@ -191,6 +196,21 @@ function notificationTapTarget(data) {
   const type = String(data?.type || "")
     .trim()
     .toLowerCase();
+  // Private-message pushes carry only opaque identifiers. The app verifies
+  // conversation membership before it renders any history.
+  if (type === "direct_message") {
+    const conversationId = String(
+      data?.conversation_id || data?.conversationId || "",
+    ).trim();
+    if (
+      conversationId &&
+      conversationId.length <= 256 &&
+      !/[\x00-\x1f]/.test(conversationId)
+    ) {
+      return `/one/messages?conversation=${encodeURIComponent(conversationId)}`;
+    }
+    return "/one/messages";
+  }
   // Recipient-only alerts match the native/shared FCM tap handler. Historical
   // identifiers must not reopen another workflow or imply current access.
   if (

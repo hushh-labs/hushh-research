@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -186,18 +187,49 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
     enabled = any(
         getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS
     )
-    cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
-    all_users_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
-    if all_users_value not in {"true", "false"}:
+    uat_cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
+    prod_cohort = str(getattr(args, "connector_production_owner_cohort", "") or "")
+    uat_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
+    prod_value = str(getattr(args, "connector_production_all_users", "false")).strip().lower()
+    if uat_value not in {"true", "false"}:
         raise ValueError("UAT connector all-users mode must be true or false")
-    all_uat_users = all_users_value == "true"
-    if (enabled or cohort or all_uat_users) and args.environment != "uat":
-        raise ValueError("Mail/Drive connector rollout is limited to UAT")
-    if all_uat_users and cohort:
+    if prod_value not in {"true", "false"}:
+        raise ValueError("Production connector all-users mode must be true or false")
+    all_uat_users = uat_value == "true"
+    all_prod_users = prod_value == "true"
+    if (uat_cohort or all_uat_users) and args.environment != "uat":
+        raise ValueError("UAT connector audience is limited to UAT")
+    if (prod_cohort or all_prod_users) and args.environment != "production":
+        raise ValueError("Production connector audience is limited to production")
+    if all_uat_users and uat_cohort:
         raise ValueError("UAT connector all-users mode cannot be combined with a cohort")
-    if enabled and not (cohort or all_uat_users):
+    if all_prod_users and prod_cohort:
+        raise ValueError("Production connector all-users mode cannot be combined with a cohort")
+    if enabled and args.environment not in {"uat", "production"}:
+        raise ValueError("Mail/Drive connector rollout requires a reviewed hosted lane")
+    if args.environment == "production" and enabled and args.project != "hushh-pda":
+        raise ValueError("Production Drive rollout requires the production project")
+    if args.environment == "production" and (prod_cohort or all_prod_users) and not enabled:
+        raise ValueError("Production connector audience requires enabled rollout flags")
+    candidate_secret = str(getattr(args, "production_drive_candidate_secret", "") or "")
+    if args.environment == "production" and (
+        (enabled and not candidate_secret)
+        or (
+            candidate_secret
+            and not re.fullmatch(
+                r"BACKEND_RUNTIME_CONFIG_JSON_DRIVE_[1-9][0-9]*_[1-9][0-9]*",
+                candidate_secret,
+            )
+        )
+    ):
+        raise ValueError("Production Drive rollout requires a per-release candidate secret")
+    if candidate_secret and args.environment != "production":
+        raise ValueError("Production Drive candidate secret is production-only")
+    cohort = uat_cohort if args.environment == "uat" else prod_cohort
+    all_users = all_uat_users if args.environment == "uat" else all_prod_users
+    if enabled and not (cohort or all_users):
         raise ValueError(
-            "Enabled Mail/Drive flags require a UAT cohort or all-users mode"
+            "Enabled Mail/Drive flags require a lane-specific cohort or all-users mode"
         )
     if not cohort:
         return
@@ -214,7 +246,7 @@ def _validate_connector_rollout(args: argparse.Namespace) -> None:
         )
     ):
         raise ValueError(
-            "UAT connector cohort must contain at most 25 distinct exact Firebase UIDs"
+            "Connector cohort must contain at most 25 distinct exact Firebase UIDs"
         )
 
 
@@ -256,6 +288,8 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "curated_mcp_connectors": getattr(args, "curated_mcp_connectors", "false"),
         "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
         "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
+        "connector_production_owner_cohort": getattr(args, "connector_production_owner_cohort", ""),
+        "connector_production_all_users": getattr(args, "connector_production_all_users", "false"),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
@@ -299,6 +333,17 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
+
+
+def _split_production_drive_candidate_config(
+    args: argparse.Namespace, config: dict[str, Any]
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if args.environment != "production" or not args.production_drive_candidate_secret:
+        return config, None
+    # Existing serving revisions may read canonical :latest at runtime.
+    # Every backend release writes only its own candidate, even when Drive is
+    # disabled, so any new config flag becomes live only with the new revision.
+    return None, dict(config)
 
 
 # One NWS v4 credential per lane, because the upstream registry binds each key
@@ -413,6 +458,9 @@ def main() -> int:
     parser.add_argument("--curated-mcp-connectors", default="false", choices=["true", "false"])
     parser.add_argument("--connector-internal-owner-cohort", default="")
     parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
+    parser.add_argument("--connector-production-owner-cohort", default="")
+    parser.add_argument("--connector-production-all-users", default="false", choices=["true", "false"])
+    parser.add_argument("--production-drive-candidate-secret", default="")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -571,21 +619,36 @@ def main() -> int:
     )
     sync_summary.append("GMAIL_OAUTH_REDIRECT_URI")
 
-    backend_runtime_config = _build_backend_runtime_config(args)
-    _upsert_secret(
-        args.project,
-        "BACKEND_RUNTIME_CONFIG_JSON",
-        json.dumps(backend_runtime_config, separators=(",", ":"), sort_keys=True),
+    backend_runtime_config, candidate_runtime_config = (
+        _split_production_drive_candidate_config(args, _build_backend_runtime_config(args))
     )
-    sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
+    if candidate_runtime_config is None:
+        _upsert_secret(
+            args.project,
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            json.dumps(backend_runtime_config, separators=(",", ":"), sort_keys=True),
+        )
+        sync_summary.append("BACKEND_RUNTIME_CONFIG_JSON")
+    # Existing production revisions may read canonical :latest at runtime.
+    # Leave canonical :latest untouched for every candidate release. The
+    # candidate is attested before app traffic is promoted.
+    if candidate_runtime_config is not None:
+        _upsert_secret(
+            args.project,
+            args.production_drive_candidate_secret,
+            json.dumps(candidate_runtime_config, separators=(",", ":"), sort_keys=True),
+        )
+        sync_summary.append(args.production_drive_candidate_secret)
 
-
+    runtime_config_for_summary = candidate_runtime_config or backend_runtime_config
+    if runtime_config_for_summary is None:
+        raise ValueError("Backend runtime config target is unavailable")
     print(
         json.dumps(
             {
                 "project": args.project,
                 "synced_secrets": sorted(set(sync_summary)),
-                "backend_runtime_config_keys": sorted(backend_runtime_config.keys()),
+                "backend_runtime_config_keys": sorted(runtime_config_for_summary.keys()),
             },
             indent=2,
         )

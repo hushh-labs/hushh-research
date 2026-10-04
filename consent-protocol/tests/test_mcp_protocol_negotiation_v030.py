@@ -19,24 +19,25 @@ EXPECTED_TOOLS = [
 ]
 
 
-def _stopped_server_diagnostics(process: subprocess.Popen[str]) -> str:
-    # Reading stderr from a live stdio server can wait forever for EOF. Stop
-    # this test-owned child before collecting bounded timeout diagnostics.
-    process.terminate()
-    try:
-        _, stderr = process.communicate(timeout=2)
-    except subprocess.TimeoutExpired:
+def _stderr_after_exit(process: subprocess.Popen[str]) -> str:
+    # Reading a live process's stderr pipe blocks until it closes, which hung the
+    # whole parallel suite whenever the server was slow to answer. Stop the
+    # server first, so the read ends at EOF.
+    if process.poll() is None:
         process.kill()
-        _, stderr = process.communicate(timeout=2)
-    return (stderr or "")[:2000]
+        process.wait(timeout=5)
+    return process.stderr.read(2000) if process.stderr else ""
 
 
-def _read_json_line(process: subprocess.Popen[str], timeout: float = 10.0) -> dict:
+def _read_json_line(process: subprocess.Popen[str], timeout: float = 30.0) -> dict:
+    # A cold server start imports the whole runtime; under a parallel suite on a
+    # busy machine that can take well over 10s, so allow for that cold start.
     ready, _, _ = select.select([process.stdout], [], [], timeout)
     if not ready or process.stdout is None:
-        raise AssertionError(f"MCP server did not respond: {_stopped_server_diagnostics(process)}")
+        raise AssertionError(f"MCP server did not respond: {_stderr_after_exit(process)}")
     line = process.stdout.readline()
-    assert line, _stopped_server_diagnostics(process)
+    if not line:
+        raise AssertionError(f"MCP server closed stdout: {_stderr_after_exit(process)}")
     return json.loads(line)
 
 

@@ -488,6 +488,10 @@ def test_catalog_policies_and_gateway_ids():
         "set_circle_kind": (ToolPolicy.confirm_voice, "location.set_circle_kind"),
         "delete_circle": (ToolPolicy.confirm_tap, "location.delete_circle"),
         "add_circle_member": (ToolPolicy.confirm_voice, "location.add_to_circle"),
+        # Same gateway action as the single add: one capability, two arities. The
+        # gateway already declares a person-list slot, so this binds rather than
+        # minting a second action for the same effect.
+        "add_circle_members": (ToolPolicy.confirm_voice, "location.add_to_circle"),
         "remove_circle_member": (ToolPolicy.confirm_tap, "location.remove_from_circle"),
         "leave_circle": (ToolPolicy.confirm_tap, "location.leave_circle"),
         "list_circle_invites": (ToolPolicy.read, "location.open_needs_review"),
@@ -1600,3 +1604,228 @@ def test_rename_and_set_kind_are_separate_actions_with_separate_receipts():
     run("set_circle_kind", ctx, circle={"circle_id": FAMILY}, kind="friends")
     updates = [kw for name, kw in service.calls if name == "update_circle"]
     assert [(u["name"], u["kind"]) for u in updates] == [("Fam", None), (None, "friends")]
+
+
+# -- add_circle_members: one card, one call, an answer per person -----------------------
+
+DEV = "user-dev"
+
+
+def _batch_ctx(service: FakeCircleService | None = None):
+    """A context where all three people are confirmed, so the names One says are
+    the server's and not the model's arguments."""
+    service = service or FakeCircleService()
+    ctx = make_ctx(service)
+    for user_id, name, relationship in (
+        (PRIYA, "Priya Nair", "connected"),
+        (DEV, "Dev Kapoor", "none"),
+    ):
+        ctx.entities.remember_person(
+            ConfirmedPerson(
+                user_id=user_id,
+                display_name=name,
+                relationship=relationship,
+                confirmed_at=now_iso(),
+            )
+        )
+    return ctx, service
+
+
+def test_add_circle_members_answers_for_each_person_and_claims_nothing_more():
+    """The point of the batch: one write, and three different true answers."""
+    ctx, service = _batch_ctx()
+
+    result = run(
+        "add_circle_members",
+        ctx,
+        circle={"circle_id": FAMILY},
+        people=[{"user_id": AYESHA}, {"user_id": PRIYA}, {"user_id": DEV}],
+    )
+
+    assert result.status == "partially_added"
+    assert [(row.user_id, row.status) for row in result.added] == [(AYESHA, "added")]
+    assert [(row.user_id, row.status) for row in result.skipped] == [
+        (PRIYA, "already_member"),
+        (DEV, "not_connected"),
+    ]
+    assert result.spoken_facts == [
+        "Added Ayesha Sharma to the Family circle.",
+        "Priya Nair was already in the Family circle.",
+        "You aren't connected with Dev Kapoor yet, so I skipped them.",
+    ]
+    # Only the addable person was written, so a non-connection cannot take the
+    # whole batch down with them.
+    assert (
+        "create_member_invites",
+        {"actor_user_id": USER, "circle_id": FAMILY, "invitee_user_ids": [AYESHA]},
+    ) in service.calls
+
+
+def test_a_person_named_twice_is_decided_once_and_written_once():
+    ctx, service = _batch_ctx()
+
+    result = run(
+        "add_circle_members",
+        ctx,
+        circle={"circle_id": FAMILY},
+        people=[{"user_id": AYESHA}, {"user_id": DEV}, {"user_id": AYESHA}],
+    )
+
+    assert [row.user_id for row in result.added] == [AYESHA]
+    writes = [kwargs for name, kwargs in service.calls if name == "create_member_invites"]
+    assert writes == [{"actor_user_id": USER, "circle_id": FAMILY, "invitee_user_ids": [AYESHA]}], (
+        "a repeated name must not become a repeated add"
+    )
+
+
+def test_more_than_twenty_people_is_refused_before_anything_is_read_or_written():
+    """The service caps the batch at twenty. Discovering that after the person
+    said yes would mean refusing work already approved."""
+    import pytest
+    from pydantic import ValidationError
+
+    ctx, service = _batch_ctx()
+    too_many = [{"user_id": f"user-{index:02d}"} for index in range(21)]
+
+    with pytest.raises(ValidationError):
+        run("add_circle_members", ctx, circle={"circle_id": FAMILY}, people=too_many)
+    assert service.calls == [], "nothing may be read or written for a refused batch"
+
+
+def test_one_person_is_not_a_batch():
+    """Keeping the arities disjoint is what stops the model having to choose
+    between two tools that would both fit."""
+    import pytest
+    from pydantic import ValidationError
+
+    ctx, _ = _batch_ctx()
+    with pytest.raises(ValidationError):
+        run("add_circle_members", ctx, circle={"circle_id": FAMILY}, people=[{"user_id": AYESHA}])
+
+
+def test_a_batch_asks_once_rather_than_once_per_person():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _batch_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = asyncio.run(
+        executor.call(
+            ctx,
+            "add_circle_members",
+            {
+                "circle": {"circle_id": FAMILY},
+                "people": [{"user_id": AYESHA}, {"user_id": PRIYA}],
+            },
+        )
+    )
+
+    assert outcome.result.status == "confirmation_required"
+    assert outcome.result.tier == "voice"
+    assert outcome.pending is not None and outcome.pending.tool_name == "add_circle_members"
+    # One card for the group, and nothing written until it is answered.
+    assert [name for name, _ in service.calls if name == "create_member_invites"] == []
+    assert (
+        summary(
+            "add_circle_members",
+            ctx,
+            circle={"circle_id": FAMILY},
+            people=[{"user_id": AYESHA}, {"user_id": PRIYA}],
+        )
+        == "add Ayesha Sharma and Priya Nair to the Family circle"
+    )
+
+
+def test_an_unconfirmed_person_anywhere_in_the_batch_is_refused():
+    """The negative control for the widened guard: every id in the list has to
+    have been offered and confirmed, not just the first one."""
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _batch_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = asyncio.run(
+        executor.call(
+            ctx,
+            "add_circle_members",
+            {
+                "circle": {"circle_id": FAMILY},
+                "people": [{"user_id": AYESHA}, {"user_id": NOT_OFFERED}],
+            },
+        )
+    )
+
+    assert outcome.result.status == "rejected"
+    assert outcome.result.reason_code == "person_not_confirmed"
+    assert service.calls == []
+
+
+def test_a_refused_write_reports_nobody_added_rather_than_a_partial_success():
+    """The service writes nobody when it raises, so this must never read as
+    "added some". Its refusals do not name a person, which is exactly why the
+    batch cannot invent per-person detail here."""
+    ctx, service = _batch_ctx()
+    service.errors["create_member_invites"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_INVITE_COOLDOWN", "Try again in an hour.", status_code=429
+    )
+
+    result = run(
+        "add_circle_members",
+        ctx,
+        circle={"circle_id": FAMILY},
+        people=[{"user_id": AYESHA}, {"user_id": PRIYA}],
+    )
+
+    assert result.status == "rejected"
+    assert result.reason_code == "LOCATION_CIRCLE_INVITE_COOLDOWN"
+    assert getattr(result, "added", []) == []
+
+
+def test_everyone_already_in_the_circle_is_an_answer_not_a_failure():
+    ctx, service = _batch_ctx()
+    service.errors["create_member_invites"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_ALREADY_MEMBER",
+        "One or more selected connections are already in the Circle.",
+        status_code=409,
+    )
+
+    result = run(
+        "add_circle_members",
+        ctx,
+        circle={"circle_id": FAMILY},
+        people=[{"user_id": AYESHA}, {"user_id": PRIYA}],
+    )
+
+    assert result.status == "none_added"
+    assert result.added == []
+    assert {row.status for row in result.skipped} == {"already_member"}
+
+
+def test_the_cooldown_the_service_reports_is_not_flattened_into_not_eligible():
+    """``left_recently`` is a different fact from "can't be added": one is a wait
+    and the other is a prerequisite."""
+    ctx, service = _batch_ctx()
+    service.eligible[FAMILY] = [
+        {"userId": AYESHA, "displayName": "Ayesha Sharma"},
+        {"userId": DEV, "displayName": "Dev Kapoor"},
+    ]
+    service.add_result = {
+        "invites": [],
+        "createdInviteIds": [],
+        "addedUserIds": [AYESHA],
+        "skippedUserIds": [DEV],
+        "skippedReasons": {DEV: "left_recently"},
+    }
+
+    result = run(
+        "add_circle_members",
+        ctx,
+        circle={"circle_id": FAMILY},
+        people=[{"user_id": AYESHA}, {"user_id": DEV}],
+    )
+
+    assert result.status == "partially_added"
+    assert [(row.user_id, row.status) for row in result.skipped] == [(DEV, "left_recently")]
+    assert result.spoken_facts[-1] == (
+        "Dev Kapoor left the Family circle recently, so I couldn't add them back yet."
+    )

@@ -131,6 +131,11 @@ export function createConnectCircleActions({
         }),
       ),
 
+    updatePhoto: (circleId: string, photoUrl: string | null) =>
+      guard("Could not update the Circle photo.", () => OneLocationService.updateNamedCirclePhoto({
+        vaultOwnerToken, circleId, photoUrl,
+      })),
+
     loadEligibleConnections: (
       circleId: string,
     ): Promise<OneLocationCircleEligibleConnections> =>

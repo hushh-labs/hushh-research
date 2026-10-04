@@ -4295,6 +4295,7 @@ def test_directory_candidate_search_filters_before_pagination(
     assert service.params == {
         "owner_user_id": "owner",
         "candidate_user_id": None,
+        "candidate_user_ids": None,
         "query": "cara",
         "identifier_search": False,
         "exact_email": None,

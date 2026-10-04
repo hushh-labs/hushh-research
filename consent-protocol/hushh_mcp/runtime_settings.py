@@ -115,6 +115,8 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "curated_mcp_connectors": "CURATED_MCP_CONNECTORS",
     "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",
     "connector_uat_all_users": "CONNECTOR_UAT_ALL_USERS",
+    "connector_production_owner_cohort": "CONNECTOR_PRODUCTION_OWNER_COHORT",
+    "connector_production_all_users": "CONNECTOR_PRODUCTION_ALL_USERS",
     # Nearby check-in admission. Both are required to open the flow in
     # production -- the mode alone leaves it closed -- so that a half-finished
     # rollout fails safe. See `_nearby_presence_enabled` in the location routes.

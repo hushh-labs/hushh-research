@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 129,
-  "native_required_routes": 107,
-  "excluded_routes": 22,
+  "total_routes": 128,
+  "native_required_routes": 105,
+  "excluded_routes": 23,
   "routes": [
     {
       "route": "/",
@@ -582,18 +582,6 @@
       ]
     },
     {
-      "route": "/one/kyc",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fkyc",
-      "expectedMarker": "native-route-one-kyc",
-      "expectedRoute": "/one/kyc",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
       "route": "/one/location",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Flocation",
@@ -756,15 +744,8 @@
     },
     {
       "route": "/one/profile/connectors",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/connectors",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
+      "classification": "excluded-compatibility-redirect",
+      "reason": "Compatibility redirect into Connectors in the Profile pane on /one. Connectors is a Profile section, so the pane carries the parity obligation, not this address."
     },
     {
       "route": "/one/profile/discovery",
@@ -1179,8 +1160,8 @@
       "route": "/one/setup/email",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Femail",
-      "expectedMarker": "native-route-one-kyc",
-      "expectedRoute": "/one/kyc",
+      "expectedMarker": "native-route-one-setup-email",
+      "expectedRoute": "/one/setup/email",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

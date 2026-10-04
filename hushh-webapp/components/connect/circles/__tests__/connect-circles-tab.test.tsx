@@ -181,7 +181,7 @@ describe("circleRowDescription", () => {
     // never asked. These lines answer the question a Circle you did not create
     // actually raises.
     expect(circleRowDescription(circle("t", "Trusted", 8, "trusted"))).toBe(
-      "Everyone you're connected to · 8 people",
+      "People you add yourself · 8 people",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 4, "sms"))).toBe(
       "Gets your SMS · 4 people",
@@ -190,7 +190,7 @@ describe("circleRowDescription", () => {
 
   it("reads honestly when a system Circle is still empty", () => {
     expect(circleRowDescription(circle("t", "Trusted", 1, "trusted"))).toBe(
-      "Everyone you're connected to",
+      "People you add yourself",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 1, "sms"))).toBe(
       "Gets your SMS · no one yet",
@@ -252,7 +252,7 @@ describe("ConnectCirclesTab", () => {
     const owned = await screen.findByTestId("connect-circle-group-owned");
     const joined = screen.getByTestId("connect-circle-group-joined");
 
-    expect(within(owned).getByText("Your circles")).toBeTruthy();
+    expect(screen.getByText("Your circles")).toBeTruthy();
     expect(within(owned).getByText("Trusted")).toBeTruthy();
     expect(within(owned).getByText("SMS Circle")).toBeTruthy();
     expect(within(owned).getByText("Roommates")).toBeTruthy();
@@ -268,17 +268,7 @@ describe("ConnectCirclesTab", () => {
     expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
   });
 
-  it("gives the SMS Circle the same red mark Location's People tab gives it", async () => {
-    // Reported: the same Circle looked like two different things depending on
-    // which tab you opened. Location's People tab draws a filled red disc
-    // reading "SMS"; this list drew a `Siren` glyph in the same indigo well it
-    // gives Trusted and every user-made Circle, so the one row whose whole
-    // point is that it behaves differently in an emergency read as another
-    // ordinary group.
-    //
-    // Upstream landed the same fix while this branch was in review, with a
-    // shared `SmsTextIcon` and the destructive token instead of a literal hex.
-    // The claim is unchanged, so it is asserted against what ships.
+  it("keeps the SMS mark in the reference orange icon tile", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("trusted", "Trusted", 20, "trusted"),
       circle("sms", "SMS Circle", 4, "sms"),
@@ -289,10 +279,10 @@ describe("ConnectCirclesTab", () => {
     const smsRow = await screen.findByTestId("connect-circle-sms");
     const mark = within(smsRow).getByText("SMS");
     const disc = mark.parentElement!;
-    // Red, round and filled -- the identity as the main circle icon.
-    expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
-    expect(disc.className).toContain("rounded-full");
-    expect(disc.className).toContain("size-10");
+    // SMS identity remains explicit within the pastel reference tile.
+    expect(disc.className).toContain("bg-orange-50");
+    expect(disc.className).toContain("rounded-2xl");
+    expect(disc.className).toContain("size-12");
 
     // The SMS identity remains distinct within the new circle tile layout.
     expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
@@ -341,7 +331,7 @@ describe("ConnectCirclesTab", () => {
     await waitFor(() => expect(card.querySelectorAll("[data-photo-url]")).toHaveLength(3));
     expect(card.querySelector('[data-photo-url="https://example.com/asha.png"]')).toBeTruthy();
     expect(within(card).getByText("+4")).toBeTruthy();
-    expect(card.className).toContain("items-start");
+    expect(card.className).toContain("items-center");
     expect(within(card).getByTestId("connect-circle-cluster").className).toContain("h-11");
     expect(within(card).getByTestId("connect-circle-cluster").className).not.toContain("size-28");
     expect(mocks.listCircleMembersPage).toHaveBeenCalledWith(expect.objectContaining({
@@ -355,7 +345,7 @@ describe("ConnectCirclesTab", () => {
     render(<ConnectCirclesTab />);
     const card = await screen.findByTestId("connect-circle-owned");
     expect(within(card).getByText("No members yet")).toBeTruthy();
-    expect(within(card).getByTestId("connect-circle-cluster").querySelector("svg")).toBeTruthy();
+    expect(within(card).getByTestId("connect-circle-empty-add").querySelector("svg")).toBeTruthy();
     expect(card.querySelector("[data-photo-url]")).toBeNull();
   });
 
@@ -442,7 +432,7 @@ describe("ConnectCirclesTab", () => {
     render(<ConnectCirclesTab />);
 
     expect(screen.getByText("Loading circles…")).toBeTruthy();
-    fireEvent.click(screen.getByText("New circle"));
+    fireEvent.click(screen.getByText("Create circle"));
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     expect(String(mocks.routerPush.mock.calls[0][0])).toContain(
       "action=create-circle",
@@ -515,14 +505,12 @@ describe("ConnectCirclesTab", () => {
     expect(await screen.findByText("Roommates")).toBeTruthy();
   });
 
-  it("reconciles Trusted before it reads the list", async () => {
-    // The accept hook covers a NEW connection. It cannot cover the ones a
-    // person already had -- without this call they open the tab to no Trusted
-    // Circle at all, and after their next accept to one holding a single name
-    // under the words "Everyone you're connected to".
+  it("provisions an empty Trusted Circle before it reads the list", async () => {
+    // Provisioning makes the default manual destination available without
+    // deriving a roster from either new or existing connections.
     const order: string[] = [];
     mocks.ensureTrusted.mockImplementation(async () => {
-      order.push("reconcile");
+      order.push("provision");
       return {};
     });
     mocks.listCircles.mockImplementation(async () => {
@@ -532,15 +520,15 @@ describe("ConnectCirclesTab", () => {
 
     render(<ConnectCirclesTab />);
 
-    await waitFor(() => expect(order).toEqual(["reconcile", "list"]));
+    await waitFor(() => expect(order).toEqual(["provision", "list"]));
     expect(mocks.ensureTrusted).toHaveBeenCalledWith({
       vaultOwnerToken: "vault-token",
       summaryOnly: true,
     });
   });
 
-  it("still shows the circles when the reconcile fails", async () => {
-    // A reconcile that fails must not cost the list. An older server with no
+  it("still shows the circles when provisioning Trusted fails", async () => {
+    // Provisioning that fails must not cost the list. An older server with no
     // such route, a rate limit, a dropped request -- the Circles they already
     // have are still worth showing, and the next open tries again.
     mocks.ensureTrusted.mockRejectedValue(new Error("404"));
@@ -583,8 +571,9 @@ describe("ConnectCirclesTab", () => {
     const onStateChange = vi.fn();
     const view = render(<ConnectCirclesTab currentUserId="first-owner" onStateChange={onStateChange} />);
     await screen.findByText("Private family");
-    // The DOM can commit before the reporting effect. Finish the first session
-    // before collecting callbacks caused by the account switch.
+    // The relay runs in a passive effect that can flush after the DOM shows the
+    // list, so wait for the first owner's settled report before clearing, or
+    // that legitimate report lands after the clear and reads as a leak.
     await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ ownerId: "first-owner", loading: false, count: 1 }),
     ));
@@ -655,7 +644,7 @@ describe("ConnectCirclesTab", () => {
     render(<ConnectCirclesTab />);
 
     const starter = await screen.findByTestId("connect-circle-starter");
-    const actions = within(starter).getByText("New circle").parentElement?.parentElement;
+    const actions = within(starter).getByText("Create circle").parentElement?.parentElement;
     expect(actions?.className).toContain("flex-col");
     expect(actions?.className).toContain("min-[440px]:flex-row");
   });
@@ -673,6 +662,39 @@ describe("ConnectCirclesTab", () => {
 });
 
 describe("the flows are hosted on Connect, not linked away to Location", () => {
+  it("opens custom creation in a modal without navigation and uses the existing creation action", async () => {
+    mocks.searchParams = new URLSearchParams("tab=people");
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    const dialog = await screen.findByRole("dialog", { name: "Create a Circle" });
+    expect(mocks.routerPush).not.toHaveBeenCalled();
+    fireEvent.change(within(dialog).getByRole("textbox"), { target: { value: "Roommates" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Friends" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Create Circle" }));
+    await waitFor(() => expect(mocks.createNamedCircle).toHaveBeenCalledWith({ vaultOwnerToken: "vault-token", name: "Roommates", kind: "friends" }));
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain("circleId=new-circle");
+  });
+
+  it("dismisses custom creation in one close action without validating an empty name", async () => {
+    const onOpenChange = vi.fn();
+    render(<ConnectCirclesTab createDialogOpen onCreateDialogOpenChange={onOpenChange} />);
+    const dialog = await screen.findByRole("dialog");
+    const nameInput = within(dialog).getByRole("textbox", { name: "Circle name" });
+    const closeButton = within(dialog).getByRole("button", { name: "Close" });
+
+    fireEvent.focus(nameInput);
+    fireEvent.blur(nameInput, { relatedTarget: closeButton });
+
+    expect(screen.queryByText("Enter a Circle name.")).toBeNull();
+    expect(nameInput).not.toHaveAttribute("aria-invalid", "true");
+
+    fireEvent.click(closeButton);
+    await waitFor(() => expect(onOpenChange).toHaveBeenCalledTimes(1));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(mocks.createNamedCircle).not.toHaveBeenCalled();
+  });
+
   it("renders Create a circle in place when ?action=create-circle", async () => {
     // Create stays on Connect without Location's first-run takeover.
     mocks.searchParams = new URLSearchParams(
@@ -862,7 +884,7 @@ describe("somebody else acting on your Circle", () => {
   it("closes an open Circle when a repair read finds membership was removed", async () => {
     const intervalSpy = vi.spyOn(window, "setInterval");
     mocks.searchParams = new URLSearchParams(
-      "tab=circles&action=circle-detail&circleId=mine",
+      "tab=circles&action=circle-detail&circleId=mine&circleChat=1",
     );
     mocks.listCircles
       .mockResolvedValueOnce([circle("mine", "Friends", 2)])
@@ -882,6 +904,7 @@ describe("somebody else acting on your Circle", () => {
     const href = String(mocks.routerReplace.mock.calls.at(-1)?.[0]);
     expect(href).toContain("tab=circles");
     expect(href).not.toContain("circleId=");
+    expect(href).not.toContain("circleChat=");
   });
 
   it("re-reads when the shared Circle channel announces a change", async () => {

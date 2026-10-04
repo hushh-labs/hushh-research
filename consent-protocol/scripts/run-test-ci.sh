@@ -54,7 +54,8 @@ fi
 # Measured 2026-09-26 on the full manifest (see docs/reference/operations/ci.md):
 # serial vs parallel, same pass count, three clean parallel runs.
 #
-# The *_postgres.py files are the exception and run serially afterwards. They
+# The *_postgres.py files and the legacy-named Drive sharing store/trusted-auto suites
+# are the exception and run serially afterwards. They
 # share ONE real database (ONE_COMMAND_TEST_DATABASE_URL), and although each
 # test gets its own schema, Postgres catalog work is database-wide: two workers
 # raced on `CREATE EXTENSION pgcrypto` (UniqueViolation on
@@ -68,7 +69,7 @@ PARALLEL_TESTS=()
 POSTGRES_TESTS=()
 for test_file in "${TESTS[@]}"; do
   case "$test_file" in
-    *_postgres.py) POSTGRES_TESTS+=("$test_file") ;;
+    *_postgres.py|tests/services/test_drive_sharing_store.py|tests/services/test_drive_trusted_auto.py) POSTGRES_TESTS+=("$test_file") ;;
     *) PARALLEL_TESTS+=("$test_file") ;;
   esac
 done

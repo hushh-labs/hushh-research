@@ -106,7 +106,58 @@ test.beforeAll(async () => {
       },
     },
   );
-  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+  // Measure the CSS production ships: @tailwindcss/postcss runs this exact
+  // Lightning CSS optimize pass when NODE_ENV=production. Unminified CSS hid a
+  // phone-only defect: the optimizer folded the request sheet's
+  // `translate: none` into `transform`, so the dialog kept its -50% centering
+  // shift and rendered half off the left edge on UAT.
+  const { optimize } = await import("@tailwindcss/node");
+  css =
+    stripAppFontFaces(
+      optimize(compiler.build([...candidates]), { minify: true }).code,
+    ) + productFontStyle();
+});
+
+test("relative standup request asks for exact dates before sending", async ({ page }) => {
+  const submissions: Record<string, unknown>[] = [];
+  await page.route("http://localhost/document-request-fixture", (route) =>
+    route.fulfill({
+      contentType: "text/html",
+      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    }),
+  );
+  await page.route("**/api/connectors/google_drive/sharing/requests", async (route) => {
+    submissions.push(route.request().postDataJSON());
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({
+        requestId: "11111111-1111-4111-8111-111111111111",
+        status: "pending",
+        revision: 0,
+      }),
+    });
+  });
+  await page.goto("http://localhost/document-request-fixture");
+  await page.addScriptTag({ content: script });
+  await page.getByRole("button", { name: "Request files", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+  await panel.getByLabel("What do you need?").fill("last 3 days standup notes");
+  await expect(panel.getByText("Choose exact start and end dates before sending this request.")).toBeVisible();
+  await expect(panel.getByRole("button", { name: "Send request" })).toBeDisabled();
+  expect(submissions).toHaveLength(0);
+  await page.screenshot({ path: "/tmp/agentone-date-clarification.png" });
+  await panel.getByLabel("Start date", { exact: true }).fill("2026-09-29");
+  await panel.getByLabel("End date", { exact: true }).fill("2026-10-01");
+  await expect(panel.getByRole("button", { name: "Send request" })).toBeEnabled();
+  await panel.getByRole("button", { name: "Send request" }).click();
+  await expect(panel.getByText("Request sent.")).toBeVisible();
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].purpose).toEqual({
+    purpose: "last 3 days standup notes",
+    periodStart: "2026-09-29",
+    periodEnd: "2026-10-01",
+  });
 });
 
 for (const width of [320, 390, 768, 1440])
@@ -158,18 +209,65 @@ for (const width of [320, 390, 768, 1440])
       name: "Request files",
       exact: true,
     });
+    if (width === 320) {
+      await page.evaluate(() => {
+        document.documentElement.style.setProperty("--kb-height", "240px");
+        document.documentElement.style.setProperty("--app-safe-area-top-effective", "44px");
+      });
+      await expect.poll(() => panel.evaluate((node) =>
+        Number.parseFloat(getComputedStyle(node).bottom),
+      )).toBeGreaterThanOrEqual(239);
+      const lifted = (await panel.boundingBox())!;
+      expect(lifted.y).toBeGreaterThanOrEqual(44);
+      expect(lifted.y + lifted.height).toBeLessThanOrEqual(820 - 240 + 1);
+      await page.evaluate(() => {
+        document.documentElement.style.removeProperty("--kb-height");
+        document.documentElement.style.removeProperty("--app-safe-area-top-effective");
+      });
+    }
     const purpose = `${"UntrustedLongPurpose".repeat(20)} <script>text only</script>`;
     await panel.getByLabel("What do you need?").fill(purpose);
-    await panel.getByLabel("Start date").fill("2026-01-01");
+    if (width < 640) {
+      await panel.getByRole("button", { name: "Start date: Choose date" }).click();
+      const calendar = panel.getByRole("group", { name: "Choose start date" });
+      const gridBounds = (await calendar.locator("[data-calendar-days]").boundingBox())!;
+      expect(gridBounds.x).toBeGreaterThanOrEqual(0);
+      expect(gridBounds.x + gridBounds.width).toBeLessThanOrEqual(width + 1);
+      expect(await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+      await calendar.getByRole("combobox", { name: "Year" }).selectOption("2026");
+      await calendar.getByRole("combobox", { name: "Month" }).selectOption("0");
+      const day = calendar.getByRole("button", { name: "Thursday, January 1, 2026" });
+      const dayBounds = (await day.boundingBox())!;
+      expect(dayBounds.width).toBeGreaterThanOrEqual(44);
+      expect(dayBounds.height).toBeGreaterThanOrEqual(44);
+      await day.click();
+      await expect(panel.getByRole("group", { name: "Choose end date" })).toBeVisible();
+    } else {
+      await panel.getByLabel("Start date", { exact: true }).fill("2026-01-01");
+    }
     await expect(
       panel.getByRole("button", { name: "Send request" }),
     ).toBeDisabled();
-    await panel.getByLabel("End date").fill("2026-06-30");
+    if (width < 640) {
+      const calendar = panel.getByRole("group", { name: "Choose end date" });
+      await calendar.getByRole("combobox", { name: "Month" }).selectOption("5");
+      await calendar.getByRole("button", { name: "Tuesday, June 30, 2026" }).click();
+      await expect(panel.getByRole("button", { name: "End date: Jun 30, 2026" })).toBeVisible();
+    } else {
+      await panel.getByLabel("End date", { exact: true }).fill("2026-06-30");
+    }
     expect(submissions).toHaveLength(0);
     for (const control of [
       panel.getByLabel("What do you need?"),
-      panel.getByLabel("Start date"),
-      panel.getByLabel("End date"),
+      ...(width < 640
+        ? [
+            panel.getByRole("button", { name: "Start date: Jan 1, 2026" }),
+            panel.getByRole("button", { name: "End date: Jun 30, 2026" }),
+          ]
+        : [
+            panel.getByLabel("Start date", { exact: true }),
+            panel.getByLabel("End date", { exact: true }),
+          ]),
       panel.getByRole("button", { name: "Send request" }),
       panel.getByRole("button", { name: "Cancel" }),
     ]) {
@@ -178,6 +276,8 @@ for (const width of [320, 390, 768, 1440])
       expect(bounds.height).toBeGreaterThanOrEqual(44);
       expect(bounds.x).toBeGreaterThanOrEqual(0);
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(821);
     }
     expect(
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
@@ -205,6 +305,85 @@ for (const width of [320, 390, 768, 1440])
       await page.evaluate(() => localStorage.length + sessionStorage.length),
     ).toBe(0);
     expect(errors).toEqual([]);
+  });
+
+for (const [width, height] of [
+  [320, 568],
+  [390, 844],
+  [412, 924],
+  [1440, 900],
+] as const)
+  test(`the request files dialog stays inside a ${width}x${height} viewport`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height });
+    await page.route("http://localhost/document-request-fixture", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      }),
+    );
+    await page.goto("http://localhost/document-request-fixture");
+    await page.addScriptTag({ content: script });
+    await page
+      .getByRole("button", { name: "Request files", exact: true })
+      .click();
+    const panel = page.getByRole("dialog", { name: "Request files", exact: true });
+    await expect(panel).toBeVisible();
+    // Wait out the open animation so the box is the settled geometry.
+    await expect
+      .poll(() =>
+        panel.evaluate((node) =>
+          node.getAnimations().every((animation) => animation.playState === "finished"),
+        ),
+      )
+      .toBe(true);
+    const expectInside = async (bottomInset: number) => {
+      const box = (await panel.boundingBox())!;
+      const right = width - (box.x + box.width);
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(right).toBeGreaterThanOrEqual(0);
+      // Centered: equal side margins (0 for the phone sheet, auto on desktop).
+      expect(Math.abs(box.x - right)).toBeLessThanOrEqual(1);
+      expect(box.y).toBeGreaterThanOrEqual(0);
+      expect(box.y + box.height).toBeLessThanOrEqual(height - bottomInset + 1);
+      return box;
+    };
+    const box = await expectInside(0);
+    if (width >= 640) {
+      // Desktop keeps the centered sm:max-w-md card.
+      expect(box.width).toBeLessThanOrEqual(448 + 1);
+      expect(Math.abs(box.y + box.height / 2 - height / 2)).toBeLessThanOrEqual(1);
+      return;
+    }
+    // A phone keyboard (KeyboardInsetManager's --kb-height) shrinks the sheet
+    // above it; the form then scrolls inside the dialog, never off-screen.
+    await page.evaluate(() =>
+      document.documentElement.style.setProperty("--kb-height", "300px"),
+    );
+    await expect
+      .poll(async () => {
+        const lifted = (await panel.boundingBox())!;
+        return lifted.y + lifted.height;
+      })
+      .toBeLessThanOrEqual(height - 300 + 1);
+    await expectInside(300);
+    expect(
+      await panel.evaluate((node) => getComputedStyle(node).overflowY),
+    ).toBe("auto");
+    for (const control of [
+      panel.getByLabel("What do you need?"),
+      panel.getByRole("button", { name: "Start date: Choose date" }),
+      panel.getByRole("button", { name: "Send request" }),
+      panel.getByRole("button", { name: "Cancel" }),
+    ]) {
+      await control.scrollIntoViewIfNeeded();
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+      expect(bounds.y).toBeGreaterThanOrEqual(0);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(height - 300 + 1);
+    }
   });
 
 for (const width of [320, 390, 768, 1440])

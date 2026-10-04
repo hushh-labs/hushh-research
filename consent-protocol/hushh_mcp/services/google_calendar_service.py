@@ -141,6 +141,24 @@ class GoogleCalendarService:
 
     @staticmethod
     def _event_summary(event: dict[str, Any]) -> dict[str, Any]:
+        conference_data = _mapping(event.get("conferenceData"))
+        entry_points = conference_data.get("entryPoints")
+        video_entry = (
+            next(
+                (
+                    item
+                    for item in entry_points
+                    if isinstance(item, dict)
+                    and item.get("entryPointType") == "video"
+                    and isinstance(item.get("uri"), str)
+                ),
+                None,
+            )
+            if isinstance(entry_points, list)
+            else None
+        )
+        conference_request = _mapping(conference_data.get("createRequest"))
+        conference_status = _mapping(conference_request.get("status"))
         return {
             "id": event.get("id"),
             "etag": event.get("etag"),
@@ -156,6 +174,8 @@ class GoogleCalendarService:
                 if isinstance(item, dict)
             ],
             "html_link": event.get("htmlLink"),
+            "conference_url": (video_entry.get("uri") if video_entry else event.get("hangoutLink")),
+            "conference_status": conference_status.get("statusCode") or None,
             "updated": event.get("updated"),
         }
 
@@ -511,6 +531,10 @@ class GoogleCalendarService:
                 "attendees": attendees,
                 "description": description,
                 "location": location,
+                # This id is created before the confirmation is persisted, so
+                # the reviewed proposal remains the idempotency boundary for
+                # Google's asynchronous conference generation request.
+                "conference_request_id": f"meet_{secrets.token_urlsafe(18)}",
             }
         # Reschedule: an omitted or empty field is left exactly as it is.
         # Attendees, when given, are the complete new list; the review shows
@@ -651,6 +675,14 @@ class GoogleCalendarService:
         try:
             action = proposal["action"]
             if action == "create":
+                if not str(plan.get("conference_request_id") or "").strip():
+                    # A proposal persisted immediately before Meet support
+                    # shipped has no request id. Its proposal id is already
+                    # owner-scoped and confirmation-bound, so it provides a
+                    # stable idempotency key for this short compatibility path.
+                    plan["conference_request_id"] = (
+                        f"meet_legacy_{proposal_id.removeprefix('gcal_')}"
+                    )
                 self._reject_new_conflicts(
                     planned=plan.get("conflicts"),
                     current=await self._find_conflicts(
@@ -664,7 +696,10 @@ class GoogleCalendarService:
                     method="POST",
                     path="/calendars/primary/events",
                     access="manage",
-                    params={"sendUpdates": "all" if plan["send_updates"] else "none"},
+                    params={
+                        "sendUpdates": "all" if plan["send_updates"] else "none",
+                        "conferenceDataVersion": 1,
+                    },
                     payload=self._event_payload(plan),
                 )
             else:
@@ -782,6 +817,12 @@ class GoogleCalendarService:
             "start": {"dateTime": plan["start_at"], "timeZone": plan["time_zone"]},
             "end": {"dateTime": plan["end_at"], "timeZone": plan["time_zone"]},
             "attendees": [{"email": email} for email in plan["attendees"]],
+            "conferenceData": {
+                "createRequest": {
+                    "requestId": plan["conference_request_id"],
+                    "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                }
+            },
         }
 
 

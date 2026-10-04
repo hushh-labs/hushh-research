@@ -8,6 +8,7 @@ import {
   Broadcast,
   Buildings,
   ChatCircle,
+  ChatCircleText,
   CheckCircle,
   CircleHalf,
   ClipboardText,
@@ -31,8 +32,12 @@ import {
   SealCheck,
   ShareNetwork,
   Siren,
+  TextAa,
+  TextAlignLeft,
+  Translate,
   Trash,
   Tray,
+  UserCircle,
   UserPlus,
   UsersThree,
   Vault,
@@ -136,3 +141,9 @@ export const EditRowIcon = createRowIcon(PencilSimple, ROW_TONE.cobalt, "EditRow
 export const SharedHostingRowIcon = createRowIcon(Buildings, ROW_TONE.indigo, "SharedHostingRowIcon");
 export const OwnCloudRowIcon = createRowIcon(Cloud, ROW_TONE.sky, "OwnCloudRowIcon");
 export const DedicatedHostingRowIcon = createRowIcon(House, ROW_TONE.emerald, "DedicatedHostingRowIcon");
+// How One writes to the owner (Preferences)
+export const PreferredNameRowIcon = createRowIcon(UserCircle, ROW_TONE.cobalt, "PreferredNameRowIcon");
+export const ToneRowIcon = createRowIcon(ChatCircleText, ROW_TONE.purple, "ToneRowIcon");
+export const ReplyLengthRowIcon = createRowIcon(TextAlignLeft, ROW_TONE.sky, "ReplyLengthRowIcon");
+export const LanguageRowIcon = createRowIcon(Translate, ROW_TONE.indigo, "LanguageRowIcon");
+export const PunctuationRowIcon = createRowIcon(TextAa, ROW_TONE.amber, "PunctuationRowIcon");

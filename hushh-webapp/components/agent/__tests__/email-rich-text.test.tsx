@@ -5,6 +5,7 @@ import {
   EmailRichTextPreview,
   normalizeRichEmailText,
   richEmailHtmlFromMarkdown,
+  verbatimEmailHtmlFromText,
 } from "@/components/agent/email-rich-text";
 
 describe("Email rich text", () => {
@@ -33,5 +34,11 @@ describe("Email rich text", () => {
 
   it("normalizes literal escaped newlines from a drafting model", () => {
     expect(normalizeRichEmailText("Hi,\\n\\nThanks")).toBe("Hi,\n\nThanks");
+  });
+
+  it("renders dictated punctuation and whitespace without Markdown rewriting", () => {
+    const html = verbatimEmailHtmlFromText("Tomorrow - I'll send <the demo>.\n  Thanks!");
+    expect(html).toBe("<p>Tomorrow&nbsp;-&nbsp;I&#39;ll&nbsp;send&nbsp;&lt;the&nbsp;demo&gt;.<br>&nbsp;&nbsp;Thanks!</p>");
+    expect(html).not.toContain("<ul>");
   });
 });

@@ -173,6 +173,27 @@ if [[ "${_DRIVE_WORK_DRAIN_ENABLED}" == "true" ]]; then
     fi
   done
 fi
+# The account-deletion cleanup scheduler identity travels as one packed Cloud
+# Build entry (the step is at Cloud Build's 100-entry env cap). Both keys must be
+# present, even when empty, so a typo cannot silently drop the OIDC audience.
+IFS=',' read -r -a _account_deletion_pairs <<< "${_ACCOUNT_DELETION_CLEANUP_SETTINGS:?missing account-deletion cleanup settings}"
+if [[ "${#_account_deletion_pairs[@]}" -ne 2 ]]; then
+  echo "Account-deletion cleanup settings must contain two keys." >&2; exit 1
+fi
+for _pair in "${_account_deletion_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid account-deletion cleanup settings." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    audience) _ACCOUNT_DELETION_CLEANUP_AUDIENCE="${_value}" ;;
+    service_account) _ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL="${_value}" ;;
+    *) echo "Account-deletion cleanup settings carry an unknown key." >&2; exit 1 ;;
+  esac
+done
+for _required in _ACCOUNT_DELETION_CLEANUP_AUDIENCE _ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL; do
+  if ! declare -p "${_required}" >/dev/null 2>&1; then
+    echo "Account-deletion cleanup settings are missing ${_required}." >&2; exit 1
+  fi
+done
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -254,6 +275,7 @@ append_optional_secret "${_OMNIGATEWAY_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_CLIEN
 append_optional_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
 append_optional_secret "${_OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_SECRET}" "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"
 append_optional_secret "${_HUSHH_DEVELOPER_TOKEN_SECRET}" "HUSHH_DEVELOPER_TOKEN"
+append_optional_secret "${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}" "DIRECT_MESSAGE_ENCRYPTION_KEY_V1"
 append_optional_secret "${_HUSHH_TECH_LAUNCH_PEPPER_SECRET}" "HUSSH_TECH_LAUNCH_PEPPER"
 append_optional_secret "${_RATE_LIMIT_STORAGE_URI_SECRET}" "RATE_LIMIT_STORAGE_URI"
 append_optional_secret "${_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET}" "HUSHH_UAT_PHONE_TEST_NUMBERS"

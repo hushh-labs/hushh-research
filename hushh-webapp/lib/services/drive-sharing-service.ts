@@ -42,6 +42,20 @@ export function validDocumentRequestPeriod(
   };
   return validDate(start) && validDate(end) && end >= start;
 }
+
+export function validDocumentRequestTerms(
+  purpose: string,
+  start: string | null,
+  end: string | null,
+): boolean {
+  return (
+    purpose.trim().length > 0 &&
+    purpose.length <= 2000 &&
+    start !== null &&
+    end !== null &&
+    validDocumentRequestPeriod(start, end)
+  );
+}
 export type SharingReview = {
   revision: number;
   status: string;
@@ -88,6 +102,7 @@ const SHARING_PREPARATION_ERRORS = [
   "trust_revoked",
   "background_preparation_required",
   "trusted_relationship_changed",
+  "date_range_required",
 ] as const;
 /** Why preparation ended without suggestions. Unknown codes are dropped. */
 export type SharingPreparationError =
@@ -569,7 +584,7 @@ export type DriveBulkShareCounts = {
 };
 const BULK_REASON_CODES = [
   "source_changed", "source_not_shareable", "recipient_changed", "connection_changed", "stopped",
-  "sharing_unavailable", "retry_limit", "provider_unavailable", "permission_rejected",
+  "sharing_unavailable", "date_range_required", "retry_limit", "provider_unavailable", "permission_rejected",
   "permission_outcome_unknown", "permission_catalog_incomplete", "unavailable",
 ] as const;
 export type DriveBulkReasonCode = (typeof BULK_REASON_CODES)[number];
@@ -881,9 +896,8 @@ export class DriveSharingService {
     id(draft.clientRequestId);
     if (
       !firebaseToken ||
-      !draft.purpose.purpose.trim() ||
-      draft.purpose.purpose.length > 2000 ||
-      !validDocumentRequestPeriod(
+      !validDocumentRequestTerms(
+        draft.purpose.purpose,
         draft.purpose.periodStart,
         draft.purpose.periodEnd,
       )

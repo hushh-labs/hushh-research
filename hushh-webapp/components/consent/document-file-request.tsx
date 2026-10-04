@@ -11,6 +11,7 @@ import {
   DriveSharingError,
   DriveSharingService,
   validDocumentRequestPeriod,
+  validDocumentRequestTerms,
 } from "@/lib/services/drive-sharing-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
@@ -21,6 +22,7 @@ import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { MobileDocumentDateRange } from "@/components/consent/mobile-document-date-range";
 import {
   Dialog,
   DialogContent,
@@ -44,10 +46,10 @@ const IDENTITY_REQUIRED = new Set([
 ]);
 
 export function validFileRequest(terms: FileRequestTerms): boolean {
-  return (
-    terms.purpose.trim().length > 0 &&
-    terms.purpose.length <= 2000 &&
-    validDocumentRequestPeriod(terms.periodStart || null, terms.periodEnd || null)
+  return validDocumentRequestTerms(
+    terms.purpose,
+    terms.periodStart || null,
+    terms.periodEnd || null,
   );
 }
 
@@ -78,6 +80,8 @@ function fileRequestError(code: string): string {
       return "You need an active connection with this person.";
     case "request_changed":
       return "This request was already sent with different details. Start a new request.";
+    case "date_range_required":
+      return "Choose exact start and end dates before sending this request.";
     default:
       return "Couldn't confirm it was sent. Send again. It won't be sent twice.";
   }
@@ -267,7 +271,11 @@ export function RequestFilesButton({
           <Button size="standard" variant="none">Request files</Button>
         </DialogTrigger>
         <DialogContent
-          className="max-h-[85dvh] overflow-y-auto sm:max-w-md"
+          data-request-files-dialog
+          // Phone sheet geometry lives in globals.css ([data-request-files-dialog]);
+          // the centering translate is reset here because a CSS `translate`
+          // reset does not survive production minification.
+          className="max-h-[85dvh] overflow-y-auto max-sm:translate-x-0 max-sm:translate-y-0 sm:max-w-md"
           showCloseButton={Boolean(created)}
           srDescription={`Request files from ${personName}.`}
         >
@@ -324,31 +332,43 @@ export function RequestFilesButton({
                   placeholder="Six months of bank statements"
                 />
               </div>
-              <fieldset
-                className="grid min-w-0 gap-3 sm:grid-cols-2"
-                disabled={busy}
-              >
-                <legend className="mb-2">Period (optional)</legend>
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor="document-period-start">Start date</Label>
-                  <Input
-                    id="document-period-start"
-                    type="date"
-                    value={start}
-                    onChange={(event) => setStart(event.target.value)}
-                  />
-                </div>
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor="document-period-end">End date</Label>
-                  <Input
-                    id="document-period-end"
-                    type="date"
-                    value={end}
-                    onChange={(event) => setEnd(event.target.value)}
-                  />
+              <fieldset className="min-w-0" disabled={busy}>
+                <legend className="mb-2">Period (required)</legend>
+                <MobileDocumentDateRange
+                  start={start}
+                  end={end}
+                  onStartChange={setStart}
+                  onEndChange={setEnd}
+                />
+                <div className="hidden min-w-0 gap-3 sm:grid sm:grid-cols-2">
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor="document-period-start">Start date</Label>
+                    <Input
+                      id="document-period-start"
+                      type="date"
+                      value={start}
+                      onChange={(event) => setStart(event.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor="document-period-end">End date</Label>
+                    <Input
+                      id="document-period-end"
+                      type="date"
+                      value={end}
+                      onChange={(event) => setEnd(event.target.value)}
+                      required
+                    />
+                  </div>
                 </div>
               </fieldset>
-              {!validDocumentRequestPeriod(start || null, end || null) ? (
+              {!start || !end ? (
+                <HelperText role="status">
+                  Choose exact start and end dates before sending this request.
+                </HelperText>
+              ) : null}
+              {start && end && !validDocumentRequestPeriod(start, end) ? (
                 <HelperText role="status">
                   Choose both dates, with the end on or after the start.
                 </HelperText>

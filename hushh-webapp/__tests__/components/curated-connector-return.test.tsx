@@ -73,7 +73,7 @@ describe("curated connector OAuth return", () => {
     });
     expect(mocks.completeWeb).not.toHaveBeenCalled();
     expect(window.location.search).toBe("");
-    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one/profile/connectors"), {
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalledWith("/one?profile_pane=1&profile_panel=connectors"), {
       timeout: 4000,
     });
   });

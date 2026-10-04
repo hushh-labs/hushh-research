@@ -13,6 +13,9 @@ from api.routes import drive_work_drain as routes
 PROJECT = "hushh-pda-uat"
 SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 AUDIENCE = "https://api.uat.hushh.ai"
+PRODUCTION_PROJECT = "hushh-pda"
+PRODUCTION_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
+PRODUCTION_AUDIENCE = "https://api.hushh.ai"
 PATH = "/api/internal/drive-work/drain"
 
 
@@ -107,6 +110,79 @@ def test_route_requires_complete_runtime_configuration(client, monkeypatch):
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"
     assert "no-store" in response.headers["Cache-Control"]
+
+
+def _production_configuration(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PRODUCTION_PROJECT)
+    monkeypatch.setenv(
+        "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", PRODUCTION_SERVICE_ACCOUNT
+    )
+    monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", PRODUCTION_AUDIENCE)
+
+
+def test_production_worker_remains_default_off(client, monkeypatch):
+    _production_configuration(monkeypatch)
+    monkeypatch.delenv("DRIVE_WORK_DRAIN_ENABLED")
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+    assert response.status_code == 404
+    verifier.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PROJECT),
+        ("DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", SERVICE_ACCOUNT),
+        ("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", AUDIENCE),
+    ],
+)
+def test_production_worker_rejects_uat_scheduler_configuration(client, monkeypatch, name, value):
+    _production_configuration(monkeypatch)
+    monkeypatch.setenv(name, value)
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    response = client.post(PATH, headers=_authorized_headers(), json={})
+    assert response.status_code == 503
+    verifier.assert_not_called()
+
+
+def test_production_worker_accepts_only_exact_prod_identity(client, monkeypatch):
+    _production_configuration(monkeypatch)
+    verifier = Mock(return_value=_claims(email=PRODUCTION_SERVICE_ACCOUNT, aud=PRODUCTION_AUDIENCE))
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type(
+            "Retention",
+            (),
+            {
+                "purge_batch": AsyncMock(
+                    return_value={
+                        "oauth_scrubbed": 0,
+                        "native_picker_scrubbed": 0,
+                        "oauth_deleted": 0,
+                        "native_picker_deleted": 0,
+                        "picker_sessions_deleted": 0,
+                    }
+                )
+            },
+        )(),
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "sharing"})
+    assert response.status_code == 200
+    verifier.assert_called_once_with("scheduler-oidc-token", PRODUCTION_AUDIENCE)
+    run.assert_awaited_once()
+
+    verifier.reset_mock(return_value=True)
+    verifier.return_value = _claims()
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": "sharing"})
+    assert response.status_code == 401
 
 
 @pytest.mark.parametrize(

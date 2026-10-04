@@ -31,6 +31,7 @@ WITH participants AS (
     CASE WHEN status IN ('pending','preparing','review_ready') AND expires_at<=now()
       THEN 'expired'
       WHEN recipient_user_id=:user AND status IN ('preparing','review_ready') THEN 'pending'
+      WHEN recipient_user_id=:user AND status='no_match' THEN 'no_files_shared'
       ELSE status END AS state,
     preparation_error_code,
     {owner_search_state} AS owner_search_state,

@@ -602,7 +602,7 @@ HTML; Gmail send uses multipart/alternative while preserving the plain-text
 fallback and original-thread reply headers. The
 `agent_kyc.approved_disclosure_formatter.v1` contract owns the render model;
 the vault-unlocked browser executes it against decrypted scoped exports. The
-maintained architecture reference is [One Email KYC](./one-email-kyc.md).
+legacy mailbox-KYC architecture has been retired.
 
 Inbound user resolution uses exact verified sender evidence. The resolver binds
 an actionable request only to the `From` sender when that sender matches a
@@ -830,6 +830,44 @@ budget to Redis/Memorystore later without changing the API contract.
 | GET | `/api/iam/contact-discoverability` | Firebase Bearer | Read effective contact-directory eligibility plus `stored_contact_discoverable`, `directory_visible`, `contact_sync_preference_state` (`default`, `enabled`, `disabled`, or `invalid`), and `contact_sync_match_policy_version`. Untouched accounts follow the visible Connect-directory default; explicit opt-outs and marketplace hides remain disabled. Historical explicit enablement timestamp, rule version, and consent-contract version are reported as stored, never fabricated for default eligibility |
 | POST | `/api/iam/contact-discoverability` | Firebase Bearer | Atomically set the combined preference. Enabling requires `{enabled:true, consent_version:"contact_find_auto_connect_v1"}`; a missing/stale marker returns `409`, so an older findability-only client cannot broaden authority. Disabling accepts `{enabled:false}` and blocks future new-person discovery and automatic edge creation without erasing or hiding existing active connections. The relationship grants no location or information access |
 
+### Direct Messages
+
+Direct Messages are a separate one-to-one relationship surface. Every route is
+Firebase-authenticated and derives the caller from the bearer token; the client
+never supplies a sender identity. A new conversation or message is admitted
+only when the canonical `connections` pair is currently `active` and neither
+participant has a directed direct-message block. This database gate locks the
+connection row, so a revoke or block cannot race a send. It does **not** query
+Circle membership, trusted-edge membership, or Circle provenance. Conversation
+history remains participant-readable after disconnect or block, with
+`canSend:false` and a disconnected notice; it is not deleted merely because the
+connection ended.
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/api/one/messages/conversations` | Participant-only inbox with latest decrypted message projection, timestamp, unread count, peer-safe profile projection, and `canSend`. |
+| GET | `/api/one/messages/with/person/{personRef}` | Open the viewer's existing conversation with an opaque public person reference, or return a no-conversation draft state. Internal `/with/{userId}` compatibility remains Firebase-authenticated and is never exposed as a profile route. |
+| POST | `/api/one/messages` | Send `{recipientPersonRef|recipientUserId, content}`. Creates the canonical pair conversation on first message and returns the conversation plus sender/receiver-safe message projection. Empty text, self-send, unconnected pair, and a block fail closed. |
+| GET | `/api/one/messages/conversations/{conversationId}/messages?before=&limit=` | Participant-only chronological history page; `before` is an opaque message id and `limit` is bounded. |
+| POST | `/api/one/messages/conversations/{conversationId}/read` | Mark the viewer's received unread messages as read. This remains available for preserved history after a connection ends. |
+| GET | `/api/one/messages/events` and `/stream` | Authenticated metadata-only realtime subscription. The event is a doorbell; clients re-read the inbox/history instead of trusting an event payload. |
+| POST / DELETE | `/api/one/messages/blocks` | Create/remove the caller's directed block using `{blockedPersonRef|blockedUserId}`. Blocking does not revoke the canonical connection or delete history, but either direction disables future sends. |
+
+Persisted body text is AES-256-GCM ciphertext under the server-managed
+direct-message envelope key. API responses decrypt only inside the authenticated
+service boundary and expose `senderIsViewer`, never a peer's raw user id. Push
+and realtime payloads contain no message content. Stable `403` failures are
+`DIRECT_MESSAGE_CONNECTION_REQUIRED`, `DIRECT_MESSAGE_BLOCKED`, and
+`DIRECT_MESSAGE_SENDER_FORBIDDEN`; malformed/self/empty requests are `422`.
+
+Each newly received Direct Message also creates one recipient-only Feed row.
+That row contains only the opaque source message id; it never stores a body,
+envelope, sender id, or preview. During the authenticated recipient's Feed
+read, the service verifies the recipient relationship again, decrypts the
+source in memory, and returns a whitespace-normalized preview capped at 256
+characters. The source message's delete path removes that derived Feed row,
+and push/SSE payloads remain metadata-only.
+
 ### One Location Agent
 
 One Location Agent is One-owned live-location sharing for trusted people. The
@@ -882,7 +920,7 @@ not the product owner for live location.
 | GET | `/api/one/location/circle-invites/{public_token}` | Public | Resolve safe owner label, status, duration, expiry, and optional owner message for an Invite to One link |
 | POST | `/api/one/location/circle-invites/{public_token}/claim` | VAULT_OWNER Bearer | Claim an Invite to One link after sign-in, phone verification, and vault unlock; creates a one-way trusted edge in `trusted_connections` (claimer→inviter) so SOS and check-in have recipients |
 | DELETE | `/api/one/location/circle-invites/{invite_id}` | VAULT_OWNER Bearer | Revoke an active Invite to One link |
-| GET | `/api/one/location/circles` | VAULT_OWNER Bearer | List the authenticated user's active named Circles and membership role |
+| GET | `/api/one/location/circles` | VAULT_OWNER Bearer | List the authenticated user's active Circles and membership role, including the manually curated Trusted default Circle |
 | POST | `/api/one/location/circles` | VAULT_OWNER Bearer | Create a bounded named Circle and its owner membership atomically |
 | GET | `/api/one/location/circles/{circle_id}` | VAULT_OWNER Bearer | Return Circle metadata, viewer capabilities, the safe active-member roster, and the current shared invite code to an active member under `Cache-Control: private, no-store`; recipient public keys support explicit Circle expansion, while no private key, coordinates, grant, or SMS authority is returned |
 | GET | `/api/one/location/circles/{circle_id}/overview` | VAULT_OWNER Bearer | Return Circle metadata, invite-code metadata, and viewer capabilities without a `members` field. This distinct shape lets large Circle screens load safely without pretending a partial roster is complete. |
@@ -892,8 +930,8 @@ not the product owner for live location.
 | POST | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Active-member idempotent ensure/read of the shared reusable 72-hour code; `?rotate=true` is authorized only by canonical `circle.owner_user_id`, responses are `private, no-store`, and only a keyed HMAC digest plus derivation metadata is persisted. An unreadable legacy active code returns `LOCATION_CIRCLE_CODE_ROTATION_REQUIRED` until the owner explicitly rotates it |
 | DELETE | `/api/one/location/circles/{circle_id}/invite-code` | VAULT_OWNER Bearer | Owner-only revoke of the active code |
 | GET | `/api/one/location/circles/{circle_id}/eligible-connections` | VAULT_OWNER Bearer | Active-member list of that caller's own active connections who are not active Circle members or covered by a pending invitation. With no query parameters the legacy complete arrays remain unchanged; supplying `page`, `limit<=100`, or `query` adds `{page,hasMore,totalCount}` and bounds `eligibleConnections` after stable filtering/ordering by the displayed safe name/email handle only. Hidden email domains and phones are not searchable. `pendingInvites` and `remainingCapacity` retain their existing meanings. Owner-removed users are offered only to the canonical Circle owner. |
-| POST | `/api/one/location/circles/trusted?summaryOnly=true` | VAULT_OWNER Bearer | Find/create and set-reconcile the Trusted projection, then return overview metadata without materializing its complete roster. Omitting `summaryOnly` preserves the legacy complete Circle response. |
-| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected direct connections. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds at most 10 people, an ordinary Circle 100; existing SMS Circles are lowered to 10 on the owner's next bootstrap and nobody already on one is removed. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
+| POST | `/api/one/location/circles/trusted?summaryOnly=true` | VAULT_OWNER Bearer | Find or create the empty, manually curated Trusted Circle and return overview metadata without materializing its complete roster. It never reads Connections or adds, restores, or reconciles a member; existing memberships remain untouched. Omitting `summaryOnly` preserves the legacy complete Circle response. |
+| POST | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | OWNER-ONLY batch ADD of the owner's selected active connections, including to Trusted. Only the Circle owner may add anyone, and only the owner may read or create the join code: sharing through a Circle is authorized by shared membership alone, so whoever decides membership decides who may receive the owner's location. Details: every person named must already be an active connection of the actor, so membership is written outright rather than invited, and each is notified by name. Actor identity comes only from the token. Terminal invitees keep the 12-hour Circle-wide cooldown so a direct add cannot overrule a decline, someone who LEFT the Circle within the same 12 hours cannot be re-added by anyone including the owner, and only the canonical owner may re-add an owner-removed user. There is no cap on how many Circles a person may belong to. An SMS/Emergency Circle holds at most 10 people; Trusted and ordinary Circles hold at most 100. Existing SMS Circles are lowered to 10 on the owner's next bootstrap and nobody already on one is removed. Any pending invitation for an added person is marked accepted. Adding grants no location, SMS, or trusted authorization; the response's `invites` array is retained and always empty |
 | GET | `/api/one/location/circle-member-invites` | VAULT_OWNER Bearer | List the authenticated user's incoming invitations or outgoing invitations authored by that member; Circle owners may also see outgoing invitations for moderation |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/accept` | VAULT_OWNER Bearer | Invitee-only acceptance after Circle-first locking and revalidation that the actual inviter remains an active Circle member and their direct connection remains active; only an owner-authored invitation may restore an owner-removed membership. Acceptance atomically joins and creates source-aware connection origins without location/SMS/trusted authorization |
 | POST | `/api/one/location/circle-member-invites/{invite_id}/decline` | VAULT_OWNER Bearer | Invitee-only decline of a pending targeted Circle invitation |
@@ -985,7 +1023,7 @@ RIA relationship bundle note:
 - investor private information -> RIA stays on explicit scope consent
 - RIA active picks feed -> investor is the reserved bilateral capability (`ria_active_picks_feed_v1`)
 - connection acceptance is social only; it grants no information access
-- disconnecting ends BOTH people's One Location Circle memberships in Circles the other OWNS, in the same transaction and after the connection row is revoked. One Location authorizes a delivery on an active non-Circle connection origin OR a shared active Circle, so a membership left behind keeps that permission alive on its own -- including the system Circle SOS reads. A third party's Circle both happen to be in is untouched; either can leave it
+- disconnecting ends BOTH people's non-owner One Location Circle memberships in every Circle, in the same transaction and after the connection row is revoked. One Location authorizes a delivery on an active non-Circle connection origin OR a shared active Circle, so a membership left behind keeps that permission alive on its own -- including the system Circle SOS reads. Owner rows are retained, so disconnecting a member never deletes a Circle
 - advisor picks require a current proposal, active relationship-share grant, and active share artifact with matching lineage
 - legacy RIA Picks uploads were product-authorized clean-start retirement; they have no read, migration, fallback, or access route
 
@@ -1000,6 +1038,7 @@ RIA relationship bundle note:
 | POST   | `/api/pkm/delete-domain`                                                 | Delete a PKM domain with an owner-confirmed `PkmMutationPlanV2`, current sharing-impact check, and expected content revision                          |
 | GET    | `/api/pkm/device-sync/{user_id}`                                         | List metadata-only upsert/delete events after a monotonic cursor; trusted devices fetch ciphertext through the domain snapshot contract               |
 | GET    | `/api/pkm/metadata/{user_id}`                                            | Get PKM metadata for UI                                                                                                                               |
+| POST   | `/api/pkm/commits/lookup`                                                | Owner-scoped: whether each of the caller's own writes `{domain, plan_id}` already committed, in order. The commit id is derived from the token's user; the answer is `{exists, data_version}` only. The resumable save job asks this when a write's response was lost. |
 | POST   | `/api/pkm/memory/proposals`                                              | Produce an owner-local PKM preview. `memory_profile` is optional: `general` remains the compatibility default and `kyc_identity_v1` performs one constrained KYC fact-extraction pass. Preview cards may include canonical field IDs, confidence, source disposition, and value-free retrieval hints; they never contain server-stored PKM values. |
 | POST   | `/api/pkm/domains/{domain}/scope-exposure`                               | Set a top-level PKM section posture: private or consent-required                                                                                      |
 | POST   | `/api/pkm/domains/{domain}/public-profile-projection`                    | Vault-owner publishes a client-generated public-profile projection independent of encrypted consent posture                                           |
@@ -1779,6 +1818,12 @@ does not require an opener vault key; Firebase identity and the prior attempt au
 server completion. Other management routes retain their vault gates. The official web Picker
 receives an in-memory short-lived token only, and selection needs a separate explicit owner
 confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
+Drive's popup marker has a local 9.5-minute correlation deadline so a device clock behind the
+server cannot reject a newly created attempt before Google opens; the server still enforces
+the OAuth attempt's ten-minute expiry during completion.
+The opener removes its attempt marker on settlement, cancellation, expiry, or failed
+navigation. The callback uses popup mode only when a live marker matches the signed
+state's attempt ID; other full-page OAuth returns keep their own handoff.
 
 Connecting Mail, Drive or Calendar from the chat drawer never navigates the chat window, so
 the memory-only vault key, the chat and the open drawer survive. All three open their consent
@@ -1987,6 +2032,18 @@ the recipient list. Ordinary live requests with earlier small reviews switch to
 the complete search when the owner opens them; explicit owner-selected exact
 file reviews retain their original selection.
 
+Every recipient file request requires the requester to supply both exact
+`periodStart` and `periodEnd` calendar dates (`YYYY-MM-DD`) before creation.
+Missing dates return `422 date_range_required`; the private agent asks for both
+dates and checks that they appear in the user's current message before staging
+the card. This includes relative day, week, and month wording. Existing queued
+automatic requests without saved dates cannot continue searching or grant
+Viewer access through the request-bound bulk worker. Owner-approved exact-file
+grants retain their explicit file selection, including already approved legacy
+operations. Owner-initiated shares of already selected exact files are exempt.
+The frozen range is applied to each candidate's title date first, then its
+creation or modification date.
+
 | Method / suffix under `/sharing/requests/{id}` | Contract |
 | --- | --- |
 | `POST /search` | Start or resume the request-bound metadata search. The request ID is the idempotency key; no content or permission is read or written. |
@@ -2029,7 +2086,7 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | Method / suffix | Authority and result |
 | --- | --- |
 | `POST /owner/compile/stream` | A-only original-note compilation, separate from consent-sheet preparation and Google sharing. Body `{message,window:{start_date,end_date,timezone}}` uses the canonical named 1–31-day query and fixed local-calendar window from A's successful metadata listing. The server checks the window's span, offset and age before work. Discovery combines a creation-time window, a bounded full-text token search, and children of up to three matching named folders; exact local title/date or verified folder/date filtering follows. Folder children must be Google Docs with a Gemini-note or requested meeting-subject title, and obvious non-note titles are excluded from meeting-note title results too. Excluded ambiguous files and search truncation force partial status. The current Vault Owner and live Drive grant are checked before work, per Google read, and before each private Markdown/complete frame. `text/event-stream` sends `stage {phase}` (`starting`, `searching`, `fetching`, `finalizing`), `file {phase:"fetching",completed,total,failed}` with counts only, `heartbeat`, then ordered `markdown {index,text}` chunks and `complete {status,matched,included,failed,truncated}`. Missing `complete` means interruption and the client discards accumulated Markdown. An `error {code,message}` carries no provider payload. Up to 40 files are read with four concurrent fenced Google REST reads; Markdown is capped at 2 MB with explicit partial coverage. No index, model, persistent artifact, Viewer permission or B disclosure is created. Disconnect cancels this read-only job. |
-| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
+| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Every recipient file request requires both period dates or returns `422 date_range_required`. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
 | `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
 | `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
 | `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
@@ -2053,7 +2110,7 @@ table.
 | `GET /queries` | Participant-scoped incoming/outgoing questions, bounded pagination. |
 | `GET /queries/{id}` | A or B only: status, the question, and the answer (text plus file titles) once answered. The failure reason after a failed Allow is A-only. A also receives `answer.selectedFileRefs` (null before sharing). Reopening A's answered card can link an already committed approval; GET never prepares or approves files. |
 | `POST /queries/{id}/allow` | A's exact revision and optional IANA `timeZone`. Claims the unexpired question once, then runs A's own bounded live chat turn (`DriveChatService.run_live_query`) under A's current authority, fenced on every step. Stores answer text and titles only; B never receives Drive links, file IDs or dates. When the question carries search words (and no exact title), the tool-less selector gene `agent_documents_live_select` judges the keyword-found files from metadata before any title is released; B receives only the titles it chose, worded as judged from names, types and dates (not opened), or the no-clear-match text when it chose none. A date-only listing (no search words) and a resolved exact-title match skip the selector, record the skip as `metadata_listing` / `exact_title`, and release the found titles worded as found, not judged. An explicit `none_relevant` interpreter answer is stored as answered with no titles. When some matching files couldn't be read, a connection's answer adds only a count, never which files or why. A selector failure or invented reference fails closed like any other failed run. A failed run returns the question to `pending` with `reconnect_required` or `drive_query_unavailable`. A stored answer queues one opaque `document_share_answered` notification for B. |
-| `POST /owner-shares` | A's Vault Owner. Exactly one audience: `recipientPersonRef` (resolved server-side to an active connection), or `audience: "trusted_circle"`. For the circle, only active Trusted members A accepted by request or invite (`direct_request`, `legacy_invite` origins), admitted to sharing, with one Google identity, at most 10, receive a row; an accepted connection whose best-effort Trusted membership projection is missing is included unless any membership row records an explicit decision. Everyone else is returned as `excluded` with a closed reason (`not_connected`, `contacts`, `circle`, `imported`, `unavailable`, `no_google_account`, `limit`), and each recipient is then shared with through their own `/owner-shares/{id}/share`. An opaque client request ID, the files in A's words (`query`, ≤2000 characters) and optional IANA `timeZone`. Runs A's own bounded live chat turn once under A's authority and seals the found files (at most 8, no folders) in `drive_owner_shares`; returns them by reference (`f1`..`f8`), names and dates only, never Drive ids. Nothing is shared and B is not told. A retried client request ID returns the first search without searching again; cached unshared recipients must still be eligible. Committed approvals are recovered into existing receipts. Owner rows and circle recipients expose `selectedFileRefs` (null before a Share attempt) and `selectionExpired`; a reserved selection stays fixed across retries and an expired unapproved attempt requires a new share request. No match returns `no_match` with A's own answer text. |
+| `POST /owner-shares` | A's Vault Owner. Exactly one audience: `recipientPersonRef` (resolved server-side to an active connection), or `audience: "trusted_circle"`. For the circle, only actual active Trusted members A accepted by request or invite (`direct_request`, `legacy_invite` origins), admitted to sharing, with one Google identity, at most 10, receive a row. An accepted connection with no active Trusted membership is excluded; connection status never implies Circle membership. Everyone else is returned as `excluded` with a closed reason (`not_connected`, `contacts`, `circle`, `imported`, `unavailable`, `no_google_account`, `limit`), and each recipient is then shared with through their own `/owner-shares/{id}/share`. An opaque client request ID, the files in A's words (`query`, ≤2000 characters) and optional IANA `timeZone`. Runs A's own bounded live chat turn once under A's authority and seals the found files (at most 8, no folders) in `drive_owner_shares`; returns them by reference (`f1`..`f8`), names and dates only, never Drive ids. Nothing is shared and B is not told. A retried client request ID returns the first search without searching again; cached unshared recipients must still be eligible. Committed approvals are recovered into existing receipts. Owner rows and circle recipients expose `selectedFileRefs` (null before a Share attempt) and `selectionExpired`; a reserved selection stays fixed across retries and an expired unapproved attempt requires a new share request. No match returns `no_match` with A's own answer text. |
 | `POST /owner-shares/{id}/share` | A's Vault Owner and 1–8 unique `fileRefs` from that search (valid for one hour). Shares exactly those files with the connection as Viewer through the owner-initiated exact-file lane (B's verified Google identity, owner-selected review, A's ledger approval, permission worker); B gets the document-share notifications. Unknown refs, another owner or an expired search are refused. The first attempt atomically reserves the exact references and a stable downstream client key; repeated/concurrent taps resume that request, return its approved receipt, or report `drive_share_in_progress` (409) while another preparation owns the lease. A lost response never creates another approval. Expired reservations may recover an already-committed receipt but cannot authorize new work. |
 | `POST /queries/{id}/share` | A's Vault Owner and 1–8 unique `fileRefs` from the answered question. Atomically seals canonical selected refs and a private random downstream client key once before any effects. Same-selection retries resume the same approval or return its receipt; different refs are refused. The private key and refs are never returned to B. A lost approval response or receipt write is recovered on retry or owner status read without another approval. The question’s seven-day decision expiry does not expire its answered files; the downstream request and review retain their own authority bounds. |
 | `POST /queries/{id}/deny` | A's revision-bound decision; no Drive I/O. Queues one opaque `document_share_declined` notification for B. |
@@ -2237,6 +2294,107 @@ the `hushh_tech_client` tool group and no broader capability.
 
 ## Response Format
 
+### Circle member chat
+
+Ordinary named Circles expose member chat through the existing One JSON proxy
+on web and `ApiService.apiFetch` / Capacitor HTTP on iOS and Android. Trusted
+and SMS system Circles are excluded because their rosters have different
+visibility contracts. Every endpoint requires a current `VAULT_OWNER` token;
+the authenticated owner determines the user, and an active Circle membership
+must match the recipient envelope's current `joined_at` generation. Joining
+or rejoining starts a new history window.
+
+| Method | Endpoint | Contract |
+| --- | --- | --- |
+| GET | `/api/one/circles/{circle}/chat` | Current public-key roster/version, unread count, latest sequence and mute state |
+| GET | `/api/one/circles/{circle}/chat/messages` | Ascending visible messages; exclusive `before` or `after` sequence cursor; 40 default, 50 maximum |
+| POST | `/api/one/circles/{circle}/chat/messages` | Client UUID, roster version, encrypted content/image and exactly one key wrap per current member, including sender |
+| GET | `/api/one/circles/{circle}/chat/messages/{message}/image` | Separately authorized encrypted image bytes; images are omitted from transcript pages |
+| GET | `/api/one/circles/{circle}/chat/wait?after={sequence}` | Twenty-second JSON long poll over the existing PostgreSQL user-state event bus; subscribe before revision read, reauthorize before response, disconnect cleanup, four waits per user per worker; `changed` distinguishes matching doorbells from idle timeouts |
+| GET | `/api/one/circles/{circle}/chat/keys/{key}` | Owner-only vault-encrypted historical key backup, only for an accessible current-generation message; active/rotated keys, never revoked keys |
+| POST | `/api/one/circles/{circle}/chat/read` | Visible sequence watermark; atomically marks recipient messages and derived Feed rows read |
+| PUT | `/api/one/circles/{circle}/chat/preferences` | `muted` disables queued system pushes while preserving chat and Feed |
+| PUT | `/api/one/circles/{circle}/photo` | Current owner of an active ordinary circle saves/removes a normalized PNG/JPEG/WebP data URL; bounded private overview response |
+
+Transcript pages deduplicate identity photos in `senders` and cap their combined
+UTF-8 size at 2 MB, falling back to initials without dropping messages. The
+optional paired `receiptAfter` / `receiptThrough` range refreshes sender-only
+receipt metadata for the loaded window even when no new messages arrive.
+New messages persist the original non-sender recipient count; legacy audiences
+remain unknown. Blue double checks mean every original recipient acknowledged
+the message. Partial reads and unknown/empty audiences remain sent. Removed
+accounts cannot shrink the denominator. Receipt doorbells reach only senders
+whose current membership generation still authorizes that message.
+
+Chat and Members share a retained conversation: switching panes preserves
+drafts and uncertain retries. Sender avatars/names, automatically loaded inline
+images, an attachment preview and an in-app viewer use shared UI primitives.
+Visible foreground thumbnails own their decrypted blobs and revoke URLs when
+hidden or access is lost; downloads have two scheduler slots. Native physical
+requests remain awaited after logical cancellation. Open owned dialogs block
+read acknowledgements, as do unresolved incoming decryption failures, including
+after the rendered 300-message window trims older rows.
+
+Circle photos reuse the 256px profile picker but mutate the circle identity.
+The API verifies and decodes a single PNG, JPEG or WebP frame up to 512 by 512
+pixels and 300 KiB (410,000 encoded characters), bounds the request to 430,000
+bytes and never echoes rejected
+input. Private list/detail/overview projections carry the photo; public invite
+previews do not. Photo doorbells refresh circle state without creating Feed
+activity. List projections cap their combined photo bytes at 2 MB and retain
+all circles with a fallback icon; single-circle overview returns the full photo.
+Soft deletion clears the photo; account lifecycle erasure removes the
+owned circle. Photos are private circle metadata, separate from encrypted chat
+attachments. This bounded photo action remains separate from reviewed rename
+commands and their immutable command bindings.
+
+The new chat wire uses camelCase directly on all surfaces. Clients encrypt a
+fresh AES-256-GCM content key per message, wrap it to every recipient using the
+existing vault-synced P-256 recipient keys, and authenticate Circle, client
+message ID, sender, recipient and payload kind as additional data. Text, image
+bytes, filename and MIME metadata remain encrypted; Feed and pushes carry only
+Circle identifiers and generic activity. This reuses the existing authenticated
+key directory; it does not introduce key verification or a ratcheting protocol.
+
+Images are passive JPEG/PNG/WebP files up to 5 MiB and messages contain at most
+4,000 characters. Both API layers bound chat requests to 7,250,000 bytes.
+Validation and database errors never echo rejected payloads. Responses are
+private/no-store. Native long polling receives complete JSON, so it does not
+depend on streamed fetch through the native bridge. Five-second foreground
+polling repairs missing events; native lifecycle and browser visibility suspend
+work, with catch-up on resume. Busy doorbells coalesce at a 250 ms cadence with
+one trailing refresh; gaps beyond five pages continue immediately. Automatic
+state/message/wait/read budgets are 1,200 per minute per authenticated owner
+(four sessions at four refreshes per second, plus manual headroom). Sending
+retains 30/minute and 1,000/day; automatic image downloads allow 120/minute. These are
+bounded budgets, not an unlimited throughput or global latency guarantee.
+Native waits stay awaited after a pause because Capacitor cannot cancel the
+underlying request. Read doorbells expose only `readChanged` metadata and
+invalidate subset-read Feed projections; pre-read responses cannot restore
+cleared cache or clear unrelated unread activity.
+
+Identical retries return the existing message; altered payloads or membership
+generations reject that UUID. Membership and nonblocking key locks serialize
+send authorization without inverting the key-registration lock order. Message,
+recipient wraps, Feed rows and event doorbells commit together. Pushes use a
+bounded five-attempt lease with generic content; provider acceptance is not a
+recipient read receipt. Leaving suppresses old unread Feed activity and pushes;
+deleting a Circle erases its message/image store. Reset/full-account cleanup
+also erases authored messages and recipient-owned wraps/preferences.
+
+Migrations `265_circle_chat.sql` and `266_circle_chat_presentation.sql`, their rollbacks, the release manifest and UAT
+schema contract travel together. Deploy the migration before the updated
+backend, then the web/native bundle. The rollback removes chat and its derived
+Feed projections; restoring erased history requires a database backup.
+
+Core proofs: `tests/test_circle_chat.py` runs against the existing isolated
+PostgreSQL CI service and tests concurrent retry, membership-generation privacy,
+image authorization, key contention, cursor pagination, leases, mute, deletion,
+tombstones and migration replay. The existing encryption, native notification
+routing and Feed-renderer tests cover authenticated client encryption, recovery
+and safe destinations. Native simulator/device verification remains a separate
+release check; browser WebKit is not an iOS device test.
+
 Backend returns **snake_case**. Frontend transforms to **camelCase** in the service layer.
 
 ```
@@ -2274,3 +2432,40 @@ a nonexistent anchor; the parity document is now the canonical definition.
 - [Architecture](./architecture.md) -- System overview and tri-flow
 - [Personal Knowledge Model](../../../consent-protocol/docs/reference/personal-knowledge-model.md) -- Data storage endpoints
 - [Consent Protocol](../../../consent-protocol/docs/reference/consent-protocol.md) -- Token lifecycle
+
+### Connect directory request budgets
+
+Directory browsing (empty or whitespace query) and nonempty searches have
+separate daily budgets per caller: 3,000 per day for browsing and 500 per day for
+search. Both modes share the 60-per-minute ceiling. The existing visibility rules
+and 50-profile page bound are unchanged. Browsing pages the list the person
+already sees and is not a lookup by email or phone, so it carries the larger
+budget; it has to outlast a foregrounded client that refreshes the list on a timer
+(two pages a minute is 2,880 a day).
+
+Idle Connect repair polls refresh connections without issuing another directory
+search. Passive triggers (window focus, reconnect, returning to the app) reread the
+directory only when its last read is more than two minutes old; graph changes,
+mutations and explicit actions always refresh it. The client keeps the last
+browse first page for the session, paints it on a revisit, and keeps it on screen
+when a refresh is refused (HTTP 429), so people already shown are never replaced
+by an error. The People list is never padded with the person's own connections:
+it lists people they are not yet connected to. With nothing saved, a refused read
+shows a neutral "taking a moment" row and is retried quietly with growing pauses;
+there is no retry button for a rate limit. Only a real failure shows an
+unavailable row with a retry action.
+
+### Connect directory mutual connections
+
+Directory rows additionally return `mutualConnectionCount` and optional
+`mutualConnectionPreview` (`displayName`, `photoUrl`, `publicPersonRef`). Counts use distinct shared
+neighbors across active canonical connections, scoped to the returned page,
+excluding blocked relationships. A bounded batch lookup resolves shared peers
+through the canonical directory's live visibility and account checks, independent
+of the current page or search. Eligible previews show an avatar and name; the
+public person reference opens the existing profile route. If the selected peer
+is hidden or disabled, only the count is shown. No raw peer IDs or contact details
+are added. Existing
+masked email/phone visibility remains unchanged. The Next proxy and native HTTP
+transport forward these additive fields. Older servers omit them; clients omit
+the badge rather than inventing a mutual relationship. No migration is required.

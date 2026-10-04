@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import get_args, get_origin
 
 from hushh_mcp.one_voice.tools import registry
 from hushh_mcp.one_voice.tools.base import CircleRef, PersonRef, ToolPolicy
@@ -34,13 +35,25 @@ def test_tool_names_are_unique_and_session_tools_are_reserved():
     assert registry.SESSION_TOOL_NAMES <= declared
 
 
+def _is_entity_arg(annotation: object, ref: type) -> bool:
+    """The argument is the typed ref, or a list of it and nothing else.
+
+    Arity may vary -- a batch tool names several people in one argument -- but the
+    point of the assertion does not: the id always arrives as the typed ref, never
+    as a spoken name, and a list of something else is still a failure.
+    """
+    if annotation is ref:
+        return True
+    return get_origin(annotation) is list and get_args(annotation) == (ref,)
+
+
 def test_person_and_circle_arguments_are_canonical_ids_never_names():
     for tool in registry.all_tools():
         fields = tool.input_model.model_fields
         for arg in tool.person_args:
-            assert fields[arg].annotation is PersonRef, (tool.name, arg)
+            assert _is_entity_arg(fields[arg].annotation, PersonRef), (tool.name, arg)
         for arg in tool.circle_args:
-            assert fields[arg].annotation is CircleRef, (tool.name, arg)
+            assert _is_entity_arg(fields[arg].annotation, CircleRef), (tool.name, arg)
         # A mutation that names a person/circle must go through the typed ref.
         if tool.policy is not ToolPolicy.read:
             for name in fields:

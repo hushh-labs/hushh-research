@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertCircle, Check, FileText, Loader2, Mail, PenLine, Star, Undo2 } from "@/components/icons";
+import { AlertCircle, Check, FileText, Mail, PenLine, Undo2 } from "@/components/icons";
 import { useRef, type CSSProperties } from "react";
 import styles from "./mail-overview.module.css";
 import {
@@ -12,6 +12,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
+
+/**
+ * Ring with a single rotating arc. The track stays put and only the arc
+ * turns, so the motion reads as activity at a glance. The global
+ * `.animate-spin` rule keeps it turning even under Reduce Motion, which is the
+ * convention for every other loading indicator in the app.
+ */
+function ReceiptSyncSpinner() {
+  return (
+    <span role="status" aria-label="Fetching receipts" className="relative block size-6 shrink-0">
+      <span aria-hidden="true" className="absolute inset-0 rounded-full border-[2.5px] border-emerald-500/20" />
+      <span aria-hidden="true" className="absolute inset-0 animate-spin rounded-full border-[2.5px] border-transparent border-t-emerald-600 dark:border-t-emerald-400" />
+    </span>
+  );
+}
 
 /** The existing Mail identity, reused in the connected-account card. */
 function MailOverviewIcon() {
@@ -107,10 +122,6 @@ export function MailOverview({
     <section aria-label="Mail overview" className="w-full pb-4 pt-5 sm:pt-8 lg:pb-0 lg:pt-0">
       <div className="grid min-h-[232px] grid-cols-[minmax(0,1.45fr)_minmax(0,1fr)] items-center gap-1 pb-5 sm:min-h-[280px] sm:grid-cols-[1.2fr_1fr] sm:gap-8 sm:pb-8 lg:min-h-0 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:gap-6 lg:pb-2">
         <div className="relative z-10 min-w-0">
-          <span className="mb-3 inline-flex items-center gap-1.5 rounded-full border border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-surface)] px-3 py-1 text-xs font-semibold text-[color:var(--app-accent)]">
-            <Star aria-hidden="true" className="size-3.5" />
-            Agent One
-          </span>
           <h2 className="text-foreground [--foundation-title2-size:clamp(1.75rem,8.2vw,2.125rem)] [--foundation-title3-size:var(--foundation-title2-size)] [--foundation-title2-line:1.08] [--foundation-title3-line:1.08] [--foundation-title2-weight:800] [--foundation-title3-weight:800] sm:[--foundation-title2-size:44px]">
             Draft with<br /><span className="text-[color:var(--app-accent)]">One.</span>
           </h2>
@@ -151,7 +162,7 @@ export function MailOverview({
           title="Receipt sync"
           leading={<span aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-full ${receiptIssue ? "bg-destructive/10 text-destructive" : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"}`}>{receiptIssue ? <AlertCircle className="size-6" /> : <FileText className="size-6" />}</span>}
           description={<span className="block space-y-0.5"><span className="block text-[13px] leading-snug">{receiptDetail}</span>{receiptUpdated || receiptCount !== undefined ? <span className="block text-xs leading-snug text-muted-foreground/75">{[receiptCount !== undefined ? `${receiptCount} receipt${receiptCount === 1 ? "" : "s"}` : null, receiptUpdated].filter(Boolean).join(" · ")}</span> : null}</span>}
-          trailing={fetching ? <span role="status" aria-label="Fetching receipts"><Loader2 aria-hidden="true" className="size-5 animate-spin text-muted-foreground motion-reduce:animate-none" /></span> : undefined}
+          trailing={fetching ? <ReceiptSyncSpinner /> : undefined}
           testId="mail-receipt-sync"
           className={`!rounded-[20px] border ${receiptIssue ? "border-destructive/20 bg-destructive/[0.06] dark:bg-destructive/10" : "border-emerald-500/15 bg-emerald-500/[0.06] dark:bg-emerald-500/10"}`}
         />

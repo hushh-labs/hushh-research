@@ -7,6 +7,7 @@ import {
   AppPageContentRegion,
   AppPageHeaderRegion,
   AppPageShell,
+  type AppPageShellWidth,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
@@ -24,19 +25,20 @@ export function PkmSettingsShell({
   eyebrow,
   actions,
   innerClassName,
+  shellWidth = "reading",
+  titleRole = "page",
   titleVisuallyHidden = false,
   children,
 }: {
   title: string;
   description?: string;
   eyebrow?: string;
-  /**
-   * For a route whose top-bar trail already names it (Memory, Recently
-   * learned). The heading stays for assistive tech but is not drawn twice.
-   */
+  /** Keeps a semantic heading available without drawing it in a focused subroute. */
   titleVisuallyHidden?: boolean;
   actions?: ReactNode;
   innerClassName?: string;
+  shellWidth?: AppPageShellWidth;
+  titleRole?: "page" | "agent";
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -109,12 +111,13 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell as="div" width="reading">
+    <AppPageShell as="div" width={shellWidth}>
       <AppPageHeaderRegion>
         <div className={cn("w-full", innerClassName)}>
           <PageHeader
             eyebrow={eyebrow}
             title={title}
+            titleRole={titleRole}
             titleVisuallyHidden={titleVisuallyHidden}
             description={description}
             actions={actions}

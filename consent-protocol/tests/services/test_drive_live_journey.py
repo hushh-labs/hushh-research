@@ -2,7 +2,7 @@
 
 # ruff: noqa: F401, F811 -- shared isolated PostgreSQL fixtures
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -120,13 +120,18 @@ async def live_journey(sharing, monkeypatch):
         )
 
     async def create(purpose):
+        today = datetime.now(UTC).date()
         return await store.create_request(
             recipient=VerifiedGoogleRecipient(
                 "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
             ),
             owner_user_id="owner",
             client_request_id=str(uuid4()),
-            purpose=ShareRequestPurpose(purpose=purpose),
+            purpose=ShareRequestPurpose(
+                purpose=purpose,
+                periodStart=(today - timedelta(days=30)).isoformat(),
+                periodEnd=today.isoformat(),
+            ),
         )
 
     return store, preferences, service, create
@@ -228,6 +233,7 @@ async def test_owner_selected_files_bind_metadata_only_and_queue_viewer_grants(l
         owner_user_id="owner",
         client_request_id=str(uuid4()),
         purpose=ShareRequestPurpose(purpose="Last 6 months bank statement"),
+        owner_initiated=True,
     )
     request_id = created["requestId"]
     document_id = str(uuid4())
@@ -315,6 +321,7 @@ async def test_a_failed_owner_selection_does_not_alert_the_owner(live_journey):
         owner_user_id="owner",
         client_request_id=str(uuid4()),
         purpose=ShareRequestPurpose(purpose="Chris onboarding recordings"),
+        owner_initiated=True,
     )
 
     def reader_factory(*, user_id, require_access):

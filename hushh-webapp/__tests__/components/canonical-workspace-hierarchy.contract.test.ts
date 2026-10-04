@@ -19,13 +19,15 @@ describe("canonical workspace hierarchy", () => {
     expect(stack).not.toContain("<AppPageShell");
   });
 
-  it("lets the shared top shell own the Consent Center title and tabs", () => {
+  it("places the Consent Center title and tabs below the shared back bar", () => {
     const consent = read("components/consent/consent-center-page.tsx");
     const topShellTabs = read("lib/navigation/top-shell-tabs.ts");
 
-    expect(consent).toContain('<AppPageShell as="main" width="reading"');
+    expect(consent).toContain('<AppPageShell as="main" width="agent"');
     expect(consent).toContain("TOP_SHELL_TAB_REGISTRY.consent");
-    expect(consent).not.toContain("<PageHeader");
+    expect(consent).toContain('<PageHeader title="Consent Center" titleRole="agent" />');
+    expect(consent).toContain("<TopShellTabs tabSet={consentTabSet} />");
+    expect(topShellTabs).not.toContain("if (pathname === ROUTES.CONSENTS)");
     expect(topShellTabs).toContain('label: "Consent Center"');
     expect(topShellTabs).toContain('label: "Requests"');
     expect(topShellTabs).toContain('label: "Active"');
@@ -37,12 +39,18 @@ describe("canonical workspace hierarchy", () => {
     );
   });
 
-  it("keeps every Finance swipe panel inside the Profile reading gutter", () => {
+  it("matches Finance's header and tabs to the Location agent column", () => {
     const finance = read("components/kai/kai-market-hub-page.tsx");
 
-    expect(finance).toContain('width="reading"');
-    expect(finance).toContain('className="relative !px-0"');
-    expect(finance).toContain('panelInset="page"');
+    expect(finance).toContain('width="agent"');
+    expect(finance).toContain('className="relative"');
+    expect(finance).toContain('title="Finance"');
+    expect(finance).toContain('titleRole="agent"');
+    expect(finance).toContain(
+      'className="ms-[var(--page-inline-gutter-standard)]"',
+    );
+    expect(finance).toContain("<TopShellTabs");
+    expect(finance).toContain('panelInset="none"');
     expect(finance).not.toContain('style={{ "--one-gutter": "0px" }}');
   });
 

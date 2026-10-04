@@ -9,6 +9,7 @@ import { ProfilePage } from "@/components/profile/profile-workspace-page";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useVault } from "@/lib/vault/vault-context";
 import {
+  PROFILE_PANE_SHOWN_EVENT,
   canGoBackProfilePane,
   popProfilePaneLocation,
   profilePaneLocationKey,
@@ -36,6 +37,8 @@ const PROFILE_DETAIL_TITLES: Record<string, string> = {
   "trusted-devices": "Trusted devices",
   "gmail-connection": "Connection",
   "gmail-actions": "Actions",
+  terms: "Terms of Use",
+  privacy: "Privacy Policy",
 };
 
 /** Rows in the Profile home's "Your settings" group, for the shell. */
@@ -123,6 +126,11 @@ function ProfilePaneShell() {
  */
 function ProfilePaneBody({ location }: { location: ProfilePaneLocation }) {
   const firstFramePainted = useProfilePaneFirstFramePainted();
+  // Mounted once per open, inside the committed sheet content: the evidence a
+  // requested open is actually showing (voice settles on this, not the ask).
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(PROFILE_PANE_SHOWN_EVENT));
+  }, []);
   useEffect(() => {
     if (firstFramePainted) markProfilePane("hushh:profile-pane-content");
   }, [firstFramePainted]);
@@ -184,7 +192,9 @@ export const ProfilePane = memo(function ProfilePane({
                     ? "Security & privacy"
                     : location.panel === "referrals"
                       ? "Invite friends"
-                      : "Help & feedback"
+                      : location.panel === "legal"
+                        ? "Legal"
+                        : "Help & feedback"
     : "Profile";
   // A detail is named for what it is ("Trusted devices"), matching its entry
   // in the Profile stack; it used to read "Profile detail" for all of them.

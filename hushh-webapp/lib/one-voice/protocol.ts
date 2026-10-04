@@ -374,6 +374,9 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   // A dispatch asks the surface to do something; it reports no outcome, so it
   // must never render as a success even if it reaches a card.
   "mail_open_dispatched",
+  "draft_open_requested",
+  "draft_not_opened",
+  "draft_open_unconfirmed",
   "grant_created",
   "check_in_created",
   "sos_grants_created",
@@ -385,4 +388,6 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "not_pending",
   "consent_required",
   "setup_required",
+  // The same voice proposal is already waiting for an answer; nothing ran.
+  "confirmation_waiting",
 ]);

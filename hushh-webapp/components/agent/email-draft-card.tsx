@@ -8,6 +8,7 @@ import {
   EmailRichTextComposer,
   normalizeRichEmailText,
   richEmailHtmlFromMarkdown,
+  verbatimEmailHtmlFromText,
 } from "@/components/agent/email-rich-text";
 import {
   EmailDeliveryError,
@@ -34,6 +35,8 @@ export type SourceBoundEmailReplyAdapter = {
 type EmailDraftCardProps = {
   initialInstruction: string;
   initialDraft?: EmailDraft | null;
+  /** Preserve a person's dictated first-party body exactly until they edit it. */
+  verbatimInitialBody?: boolean;
   /** The person explicitly asked One to draft from a Gmail entry point. */
   autoDraft?: boolean;
   getAuth: () => Promise<{
@@ -74,9 +77,31 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+function deliveryFailure(cause: unknown, sendRequestStarted: boolean): EmailDeliveryError {
+  const unknown = () => new EmailDeliveryError(
+    "We could not confirm delivery. Check Sent Mail before trying again.",
+    502,
+    "EMAIL_ACTION_OUTCOME_UNKNOWN",
+  );
+  if (cause instanceof EmailDeliveryError) {
+    if (sendRequestStarted && (
+      cause.code === "EMAIL_ACTION_ALREADY_USED" ||
+      cause.code === "ACTION_NOT_SENDABLE" ||
+      !cause.code ||
+      (cause.status >= 500 && !["GMAIL_SEND_FAILED", "DELIVERY_FAILED"].includes(cause.code))
+    )) return unknown();
+    return cause;
+  }
+  // Once the Send request starts, a lost response may hide a successful send.
+  return sendRequestStarted
+    ? unknown()
+    : new EmailDeliveryError("Mail could not be prepared. Review it and try again.", 500);
+}
+
 export function EmailDraftCard({
   initialInstruction,
   initialDraft = null,
+  verbatimInitialBody = false,
   autoDraft = false,
   getAuth,
   onRequireVault,
@@ -91,14 +116,17 @@ export function EmailDraftCard({
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
-    const body = normalizeRichEmailText(
-      initialDraft?.body ?? (autoDraft ? "" : initialInstruction),
-    );
+    const sourceBody = initialDraft?.body ?? (autoDraft ? "" : initialInstruction);
+    const body = verbatimInitialBody && initialDraft
+      ? sourceBody
+      : normalizeRichEmailText(sourceBody);
     return {
       ...EMPTY_DRAFT,
       ...(initialDraft ?? {}),
       body,
-      htmlBody: richEmailHtmlFromMarkdown(body),
+      htmlBody: verbatimInitialBody && initialDraft
+        ? verbatimEmailHtmlFromText(body)
+        : richEmailHtmlFromMarkdown(body),
     };
   });
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
@@ -352,6 +380,7 @@ export function EmailDraftCard({
     const attemptId = onSendStarted?.(reviewedDraft) ?? null;
 
     void (async () => {
+      let sendRequestStarted = false;
       try {
         const auth = await getAuth();
         if (!auth) {
@@ -360,11 +389,14 @@ export function EmailDraftCard({
         }
         const idempotencyKey = attachmentIdempotencyKeyRef.current ?? newIdempotencyKey();
         const outcome = sourceBoundReply
-          ? await sourceBoundReply.send({
-              ...auth,
-              draft: reviewedDraft,
-              idempotencyKey,
-            })
+          ? await (async () => {
+              sendRequestStarted = true;
+              return sourceBoundReply.send({
+                ...auth,
+                draft: reviewedDraft,
+                idempotencyKey,
+              });
+            })()
           : await (async () => {
               const prepared = attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
                 ...auth,
@@ -377,6 +409,7 @@ export function EmailDraftCard({
                   500,
                 );
               }
+              sendRequestStarted = true;
               return EmailDeliveryService.send({
                 ...auth,
                 actionId: prepared.actionId,
@@ -393,15 +426,7 @@ export function EmailDraftCard({
         }
         onSent(attemptId);
       } catch (cause) {
-        onSendFailed?.(
-          cause instanceof EmailDeliveryError
-            ? cause
-            : new EmailDeliveryError(
-                "Mail could not be sent. Review it and try again.",
-                500,
-              ),
-          attemptId,
-        );
+        onSendFailed?.(deliveryFailure(cause, sendRequestStarted), attemptId);
       }
     })();
   };
@@ -607,6 +632,7 @@ export function EmailDraftCard({
               id={`${idPrefix}-message`}
               onChange={(value) => updateDraft("body", value)}
               showPreviewOnFirstContent={autoDraft}
+              verbatimText={verbatimInitialBody}
               value={draft.body}
             />
           </div>

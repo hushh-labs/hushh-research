@@ -45,6 +45,9 @@ firebase-debug.log
 .local-secrets/
 **/.local-secrets/
 node_modules/
+# Local temporary secrets
+/temp_secrets/
+
 
 consent-protocol/.DS_Store
 .DS_Store
@@ -139,6 +142,10 @@ Personal_Tasks/
 *.key
 *credentials*.json
 *secret*.json
+# Exact-path exception: the shared secret-span PATTERN contract holds regexes and
+# split synthetic fixtures, never a credential. gitleaks still scans it.
+!contracts/pkm/secret-patterns.v1.json
+!hushh-webapp/contracts/pkm/secret-patterns.v1.json
 
 # Private partner gateway handoff material
 deploy/mulesoft/

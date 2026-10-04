@@ -160,6 +160,31 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(
     assert run.state == {}
 
 
+async def test_chat_state_keeps_owner_name_as_an_expiring_reference(monkeypatch, owner_chat_key):
+    from starlette.requests import Request
+
+    from api.routes.one import agent_chat
+    from hushh_mcp.one_adk.agent_tree import STATE_OWNER_DISPLAY_NAME
+    from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+    from tests.test_agui_turn_timing import _input
+
+    monkeypatch.setattr(
+        agent_chat,
+        "require_vault_owner_token",
+        AsyncMock(return_value={"user_id": "owner", "token": "synthetic"}),
+    )
+    monkeypatch.setattr(
+        agent_chat, "_owner_display_name_for_turn", AsyncMock(return_value="Akshat Kumar")
+    )
+    request = Request({"type": "http", "headers": [(b"authorization", b"Bearer synthetic")]})
+
+    state = await agent_chat._extract_state(request, _input())
+
+    assert state[STATE_OWNER_DISPLAY_NAME].startswith("one_secret_ref:")
+    assert "Akshat Kumar" not in str(state)
+    assert resolve_request_secret(state[STATE_OWNER_DISPLAY_NAME]) == "Akshat Kumar"
+
+
 @pytest.mark.parametrize("unlocked", [True, False])
 async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(
     monkeypatch, unlocked, owner_chat_key

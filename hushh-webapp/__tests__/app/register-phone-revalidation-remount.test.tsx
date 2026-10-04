@@ -125,6 +125,7 @@ describe("the phone mandate page survives an auth re-validation", () => {
 
     const view = render(<PhoneMandatePageContent />);
     await screen.findByText("step: phone");
+    // The async admission can commit the DOM before its passive mount effect.
     await waitFor(() => expect(mountCount).toBe(1));
     fireEvent.click(screen.getByRole("button", { name: "Send code" }));
     await screen.findByText("step: code");

@@ -31,7 +31,11 @@ export const CONNECT_PAGE_CONTENT_CLASSNAME = "min-w-0";
  * tile's hover/focus border is cut at the same edge.
  */
 export const CONNECT_SWIPE_CLIP_GUARD_CLASSNAME = "-mx-2 w-[calc(100%+1rem)]";
-export const CONNECT_SWIPE_PANE_INSET_CLASSNAME = "px-2";
+// Inert panes still paint. The Connections sticky search has negative gutters
+// that otherwise cross into Circles. Clip only the inactive pane horizontally;
+// `clip` preserves the app scroll root and the active search's sticky behavior.
+export const CONNECT_SWIPE_PANE_INSET_CLASSNAME =
+  "px-2 [[role=tabpanel][aria-hidden=true]_&]:overflow-x-clip";
 
 /** Let identities use the room a responsive row gives them instead of cutting
  * meaningful names and masked contact details behind an ellipsis. */

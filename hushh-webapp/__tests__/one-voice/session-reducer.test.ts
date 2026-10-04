@@ -32,6 +32,16 @@ import {
 import { pendingActionFrame, readyFrame } from "./fixtures/scripted-server";
 
 describe("turn ownership", () => {
+  it("ignores navigation settlement for another call or an older input", () => {
+    const state = run([
+      server({ type: "transcript.input", turn_id: "old", text: "Open profile", final: true }),
+      server({ type: "tool.started", call_id: "profile", tool: "open_screen", args_public: {}, turn_id: "old" }),
+      server({ type: "transcript.input", turn_id: "new", text: "List connections", final: true }),
+    ], connected());
+    expect(reduceVoiceSession(state, { type: "navigation_settled", callId: "profile", turnId: "old", status: "opened" })).toBe(state);
+    expect(reduceVoiceSession(state, { type: "navigation_settled", callId: "other", turnId: "new", status: "failed" })).toBe(state);
+  });
+
   const input = (turn_id: string, text: string): ServerFrame => ({
     type: "transcript.input", turn_id, text, final: true,
   });
@@ -618,6 +628,33 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(selectSuccessReceipt(state)).toBeNull();
   });
 
+  it("navigation_dispatched reads neutral, not success, not pending; confirmation_waiting is never success", () => {
+    expect(toolResultTone("navigation_dispatched", true)).toBe("neutral");
+    expect(toolResultTone("navigation_dispatched", false)).toBe("failure");
+    // Screens gate success on this set; ui_settled decides the outcome.
+    expect(NOT_SUCCESS_STATUSES.has("navigation_dispatched")).toBe(true);
+    // Pending would hold the turn on a device step that never comes.
+    expect(isPendingStatus("navigation_dispatched")).toBe(false);
+    const waiting = run(
+      [
+        server(
+          toolResult({
+            tool: "send_message",
+            status: "confirmation_waiting",
+            result_public: {
+              status: "confirmation_waiting",
+              spoken_facts: ["That's already waiting for your answer."],
+            },
+          }),
+        ),
+      ],
+      connected(),
+    );
+    expect(NOT_SUCCESS_STATUSES.has("confirmation_waiting")).toBe(true);
+    expect(toolResultTone("confirmation_waiting", true)).toBe("failure");
+    expect(selectSuccessReceipt(waiting)).toBeNull();
+  });
+
   it("device Location switch tones: on/off succeed, already_* are neutral, pending and rejected fail", () => {
     expect(toolResultTone("on", true)).toBe("success");
     expect(toolResultTone("off", true)).toBe("success");
@@ -772,6 +809,40 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(
       run([server(pendingActionFrame())], picked).candidatePicker,
     ).toBeNull();
+  });
+
+  it("retires a spoken-confirmed candidate before a later provider turn prepares mail", () => {
+    const picker = {
+      type: "candidate_picker" as const,
+      kind: "person" as const,
+      question: "Is this who you mean?",
+      candidates: [{ user_id: "u-ankit", display_name: "Ankit", relationship: "connected" }],
+    };
+    const offered = run([server(picker)], connected());
+    const unrelated = run([server({
+      type: "entity_card", kind: "person", user_id: "u-other", display_name: "Other",
+    })], offered);
+    expect(unrelated.candidatePicker).not.toBeNull();
+
+    const confirmed = run([
+      server({ type: "transcript.input", turn_id: "yes-turn", text: "Yes", final: true }),
+      server({
+        type: "entity_card", kind: "person", user_id: "u-ankit",
+        display_name: "Ankit", turn_id: "yes-turn",
+      }),
+    ], unrelated);
+    expect(confirmed.candidatePicker).toBeNull();
+    expect(confirmed.entities.some((entity) => entity.user_id === "u-ankit")).toBe(true);
+
+    const prepared = run([
+      server({ type: "turn", state: "model_end", turn_id: "yes-turn" }),
+      server(pendingActionFrame({
+        tool: "send_mail", summary: "Draft an email to Ankit",
+        turn_id: "continuation-turn",
+      })),
+    ], confirmed);
+    expect(prepared.pendingAction?.tool).toBe("send_mail");
+    expect(prepared.phase).toBe("confirming");
   });
 
   it("(5) two pending actions in order: the newest is on screen; a stale resolution never clears it", () => {
@@ -1099,6 +1170,7 @@ describe("reduceVoiceSession: Save My Soul", () => {
   it("classifies the delivery, stop and roster statuses: only sos_sent and sos_stopped may succeed", () => {
     expect(toolResultTone("sos_sent", true)).toBe("success");
     expect(toolResultTone("sos_stopped", true)).toBe("success");
+    expect(toolResultTone("draft_open_unconfirmed", false)).toBe("neutral");
     for (const status of [
       "sos_partial",
       "sos_not_sent",

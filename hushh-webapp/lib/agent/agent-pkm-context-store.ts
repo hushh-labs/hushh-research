@@ -7,6 +7,15 @@ import {
 import { shouldSkipPkmAgentContextKey } from "@/lib/pkm/pkm-memory-cards";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PKM_QUARANTINE_SEGMENT_ID } from "@/lib/personal-knowledge-model/upgrade-registry";
+import { reservedEntryFor } from "@/lib/pkm/reserved-branches";
+import { maskSecretSpans } from "@/lib/pkm/secret-span-guard";
+import {
+  OWNER_STYLE_BRANCH,
+  OWNER_STYLE_DOMAIN,
+  ownerStyleFromBranch,
+  ownerStyleRequestField,
+  type OwnerStyleSettings,
+} from "@/lib/agent/owner-style-settings";
 
 type PkmInventoryFact = {
   domain: string;
@@ -28,8 +37,22 @@ export type LocalPkmDuplicateMatch =
   | { kind: "possible"; domain: string; path: string[] }
   | null;
 
+/**
+ * An item of a branch the reserved registry marks `send_to_model: label_only`
+ * (Secrets, Wallet, identity documents): One learns that it exists, by a
+ * label, and never any of its values.
+ */
+type PkmLabelOnlyItem = {
+  domain: string;
+  /** The branch path inside the domain, e.g. ["items"] or ["identity_documents", "entities"]. */
+  branch: string[];
+  itemKey: string;
+  label: string;
+};
+
 type PkmInventory = {
   facts: PkmInventoryFact[];
+  labelOnly: PkmLabelOnlyItem[];
   domainFactCounts: Map<string, number>;
   skippedFactCount: number;
   safetyOmittedNodeCount: number;
@@ -39,6 +62,8 @@ type AgentPkmWorkingSet = {
   userId: string;
   metadata: PersonalKnowledgeModelMetadata | null;
   inventory: PkmInventory;
+  /** The owner's Settings style choices, sent apart from the packet. */
+  ownerStyle: OwnerStyleSettings;
   loadedAt: number;
   metadataUpdatedAt: string | null;
 };
@@ -71,6 +96,12 @@ export type AgentPkmWorkingContext = {
   source: "decrypted_session_pkm";
   mode: AgentPkmWorkingContextMode;
   coverage: AgentPkmContextCoverage;
+  /**
+   * The reserved `identity.communication_preferences` branch, closed to the
+   * request schema. It is One's standing style channel, so it never appears in
+   * `text`, which is recalled memory ("data, never instructions").
+   */
+  communicationPreferences?: OwnerStyleSettings;
 };
 
 export const AGENT_SAFE_PKM_CONTEXT_VERSION = "agent-safe-pkm/v1";
@@ -163,6 +194,11 @@ function normalizedMemoryValue(value: string): string {
   return compactWhitespace(value).toLowerCase();
 }
 
+/** Settings-owned style choices travel in their own request field, never the packet. */
+function isOwnerStylePath(domain: string, path: readonly string[]): boolean {
+  return domain === OWNER_STYLE_DOMAIN && path[0] === OWNER_STYLE_BRANCH;
+}
+
 function isDerivedSummaryPath(domain: string, path: readonly string[]): boolean {
   return domain === DERIVED_SUMMARY_DOMAIN && path[0] === DERIVED_SUMMARY_BRANCH;
 }
@@ -180,8 +216,64 @@ function flatRowText(value: unknown): string | null {
   return cells.length ? cells.join("; ") : null;
 }
 
+const LABEL_ONLY_PREFIX = "Secret exists: ";
+const LABEL_ONLY_MAX_ITEMS = 50;
+const LABEL_ONLY_MAX_CHARS = 80;
+const ITEM_LABEL_KEYS = ["label", "nickname", "title", "name", "document_type"] as const;
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Whether the registry says this domain, or this branch of it, goes to the model as labels only. */
+function isLabelOnly(domain: string, branch = ""): boolean {
+  return reservedEntryFor(domain, branch)?.sendToModel === "label_only";
+}
+
+/** A label that names the item and can never carry one of its values. */
+function labelOnlyItemLabel(domain: string, branch: readonly string[], itemKey: string, item: unknown): string {
+  let raw = "";
+  if (domain === "wallet" && branch[0] === "summary" && isPlainRecord(item)) {
+    const last4 = /^\d{4}$/.test(String(item.last4 ?? "")) ? ` ending ${item.last4}` : "";
+    const brand = compactWhitespace(item.brand) ? titleize(String(item.brand)) : "Payment";
+    const nickname = compactWhitespace(item.nickname);
+    raw = `${nickname ? `${nickname}, ` : ""}${brand} card${last4}`;
+  } else if (isPlainRecord(item)) {
+    raw = ITEM_LABEL_KEYS.map((key) => compactWhitespace(item[key])).find(Boolean) ?? "";
+  }
+  // An agent-written entity has no name of its own; never fall back to its summary.
+  if (!raw) raw = branch.includes("entities") ? `${titleize(branch[0] ?? domain)} entry` : titleize(itemKey);
+  // A label written by an older agent could hold a value; mask anything that reads as one.
+  return maskSecretSpans(raw).replace(/\d{5,}/g, "[hidden]").slice(0, LABEL_ONLY_MAX_CHARS);
+}
+
+/** Collect label-only items under one branch; an `entities` map is walked one level down. */
+function collectLabelOnlyItems(domain: string, branch: string[], value: unknown, out: PkmLabelOnlyItem[]): void {
+  if (!isPlainRecord(value)) return;
+  for (const [itemKey, item] of Object.entries(value)) {
+    if (out.length >= LABEL_ONLY_MAX_ITEMS) return;
+    if (shouldSkipPkmAgentContextKey(itemKey) && !/^sec_[a-f0-9]{16}$/.test(itemKey)) continue;
+    if (itemKey === "entities" && isPlainRecord(item)) {
+      collectLabelOnlyItems(domain, [...branch, itemKey], item, out);
+      continue;
+    }
+    out.push({ domain, branch, itemKey, label: labelOnlyItemLabel(domain, branch, itemKey, item) });
+  }
+}
+
+function collectLabelOnlyDomain(domain: string, value: unknown, out: PkmLabelOnlyItem[]): void {
+  if (!isPlainRecord(value)) return;
+  for (const [branch, child] of Object.entries(value)) {
+    // A wallet card has a summary and a secrets half: name it once, from its summary.
+    if (domain === "wallet" && branch !== "summary") continue;
+    if (shouldSkipPkmAgentContextKey(branch) && !(domain === "secrets" && branch === "items")) continue;
+    collectLabelOnlyItems(domain, [branch], child, out);
+  }
+}
+
 function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
   const facts: PkmInventoryFact[] = [];
+  const labelOnly: PkmLabelOnlyItem[] = [];
   const domainFactCounts = new Map<string, number>();
   const seen = new WeakSet<object>();
   let skippedFactCount = 0;
@@ -203,8 +295,11 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
       skippedFactCount += 1;
       return;
     }
+    if (isOwnerStylePath(domain, path)) return;
     if (isPrimitive(value)) {
-      const normalized = compactWhitespace(value);
+      // A detail saved before the Secrets area existed can still hold a raw
+      // secret; the packet carries a mark in its place, never the value.
+      const normalized = maskSecretSpans(compactWhitespace(value));
       if (!normalized) return;
       facts.push({
         domain,
@@ -240,6 +335,10 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
       entries.sort(([left], [right]) => Number(right === DERIVED_SUMMARY_BRANCH) - Number(left === DERIVED_SUMMARY_BRANCH));
     }
     for (const [key, child] of entries) {
+      if (path.length === 0 && isLabelOnly(domain, key)) {
+        collectLabelOnlyItems(domain, [key], child, labelOnly);
+        continue;
+      }
       if (shouldSkipPkmAgentContextKey(key)) {
         skippedFactCount += 1;
         continue;
@@ -250,9 +349,13 @@ function buildPkmInventory(fullBlob: Record<string, unknown>): PkmInventory {
   };
 
   for (const [domain, value] of Object.entries(fullBlob)) {
+    if (isLabelOnly(domain)) {
+      collectLabelOnlyDomain(domain, value, labelOnly);
+      continue;
+    }
     visit(domain, value, []);
   }
-  return { facts, domainFactCounts, skippedFactCount, safetyOmittedNodeCount };
+  return { facts, labelOnly, domainFactCounts, skippedFactCount, safetyOmittedNodeCount };
 }
 
 function snapshotsToBlob(
@@ -361,9 +464,20 @@ function buildContextText(params: {
   // measured 2026-09-27, 88 of 9,049 facts sent and Health absent, so One could
   // not tell its owner their own allergy. Every section now gets a turn, and a
   // section's shallow facts (a budget, an allergy) come before its deep rows.
+  // Label-only items (Secrets, Wallet, identity documents) are printed as one
+  // short line each, and their room is set aside first: One must know a
+  // secret exists even when the facts fill the packet. Never a value.
+  const labelLines = inventory.labelOnly.length
+    ? [
+        "",
+        "Kept in the vault, by label only (values are never shared with you):",
+        ...inventory.labelOnly.map((item) => `- ${LABEL_ONLY_PREFIX}${item.label}`),
+      ]
+    : [];
+  const labelReserve = labelLines.length ? labelLines.join("\n").length + 1 : 0;
   const selected = selectFactsWithinBudget(
     facts,
-    maxChars - COVERAGE_FOOTER_RESERVE_CHARS - lines.join("\n").length - 1,
+    maxChars - COVERAGE_FOOTER_RESERVE_CHARS - labelReserve - lines.join("\n").length - 1,
   );
   let selectedFactCount = 0;
   const selectedDomains = new Set<string>();
@@ -374,12 +488,17 @@ function buildContextText(params: {
       lines,
       `- ${formatFactPath(fact)}: ${fact.value}`,
       currentLength,
-      maxChars - COVERAGE_FOOTER_RESERVE_CHARS,
+      maxChars - COVERAGE_FOOTER_RESERVE_CHARS - labelReserve,
     );
     if (nextLength === null) break;
     currentLength = nextLength;
     selectedFactCount += 1;
     selectedDomains.add(fact.domain);
+  }
+  for (const line of labelLines) {
+    const nextLength = appendWithinBudget(lines, line, currentLength, maxChars - COVERAGE_FOOTER_RESERVE_CHARS);
+    if (nextLength === null) break;
+    currentLength = nextLength;
   }
 
   const omittedFactCount = Math.max(0, facts.length - selectedFactCount);
@@ -408,6 +527,7 @@ function buildContextText(params: {
   const text = lines.join("\n");
   coverage.usedChars = text.length;
 
+  const communicationPreferences = ownerStyleRequestField(params.workingSet.ownerStyle);
   return {
     text,
     domains,
@@ -417,6 +537,7 @@ function buildContextText(params: {
     source: "decrypted_session_pkm",
     mode,
     coverage,
+    ...(communicationPreferences ? { communicationPreferences } : {}),
   };
 }
 
@@ -506,6 +627,25 @@ export class AgentPkmContextStore {
       const key = `${candidate.domain}|${candidate.entity_scope}|${entityId}`;
       if ((best.get(key)?.score ?? -1) < score) best.set(key, candidate);
     }
+    // A label-only item (a Secret, a card, an identity document) is offered by
+    // its label alone, so the merge agent knows it exists and never its value.
+    for (const item of inventory.labelOnly) {
+      const at = item.branch.lastIndexOf("entities");
+      if (at < 0) continue;
+      const tokens = tokenize(item.label);
+      const score = [...wanted].filter((token) => tokens.has(token)).length;
+      if (score < 2) continue;
+      const candidate = {
+        domain: item.domain,
+        entity_id: item.itemKey,
+        entity_scope: item.branch.slice(0, at).join("."),
+        message: `${LABEL_ONLY_PREFIX}${item.label}`.slice(0, 200),
+        active: true as const,
+        score,
+      };
+      const key = `${candidate.domain}|${candidate.entity_scope}|${item.itemKey}`;
+      if ((best.get(key)?.score ?? -1) < score) best.set(key, candidate);
+    }
     return [...best.values()]
       .sort((left, right) => right.score - left.score)
       .slice(0, Math.max(0, params.limit ?? 10))
@@ -556,7 +696,9 @@ export class AgentPkmContextStore {
 
       const domains = metadata.domains
         .map((domain) => domain.key)
-        .filter((domain) => !shouldSkipPkmAgentContextKey(domain));
+        // A label-only domain (Secrets) is read here only to name its items;
+        // its values never leave buildPkmInventory.
+        .filter((domain) => !shouldSkipPkmAgentContextKey(domain) || isLabelOnly(domain));
       // Resolve every permitted domain before publishing the working set. The
       // batch resource still uses encrypted device snapshots when available,
       // but it must not publish a partial packet while other domains refresh.
@@ -569,10 +711,15 @@ export class AgentPkmContextStore {
         backgroundRefresh: false,
       });
       if (generation !== currentGeneration(params.userId)) return null;
+      const blob = snapshotsToBlob(snapshots);
+      const identity = blob[OWNER_STYLE_DOMAIN];
       return {
         userId: params.userId,
         metadata,
-        inventory: buildPkmInventory(snapshotsToBlob(snapshots)),
+        inventory: buildPkmInventory(blob),
+        ownerStyle: ownerStyleFromBranch(
+          identity && typeof identity === "object" ? (identity as Record<string, unknown>)[OWNER_STYLE_BRANCH] : null,
+        ),
         loadedAt: Date.now(),
         metadataUpdatedAt,
       };

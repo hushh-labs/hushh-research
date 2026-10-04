@@ -103,6 +103,20 @@ export class WalletService {
   }
 }
 
+// Secrets vault: the fixture never stages a Secrets card offer, so nothing is
+// decrypted or filed. Inert, like the Wallet service, so the layout bundle
+// never pulls in the PKM, cache and API stack behind the real service.
+export class SecretsVaultService {
+  static async revealSecret(): Promise<string | null> {
+    record("secret-reveal");
+    return null;
+  }
+  static async markFiled(): Promise<boolean> {
+    record("secret-filed");
+    return false;
+  }
+}
+
 // next/navigation: search and page live in memory for the fixture.
 const params = new URLSearchParams();
 const router = {

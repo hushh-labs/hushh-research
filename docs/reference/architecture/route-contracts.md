@@ -100,7 +100,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/profile/gmail/oauth/return`
 - `/one/connect`
   - The Connections introduction offers Family, Finance, Investor/RIA, Business, Location, and SMS circle starters inside the existing card. Selecting an idea only previews it; an explicit Create action uses the existing circle service, then opens `?tab=circles&action=circle-detail&circleId=<id>` for the existing member-add flow. Ordinary starters are names using current `family`/`other` kinds, not new agent capabilities or permission grants. SMS uses the canonical system roster provisioning service, never an ordinary named-circle substitute.
-  - The existing Circles tab owns list fetching and realtime reconciliation; it relays session-scoped summaries to the introduction. Owned starter matches show Open circle; renamed/custom circles remain in the full list. New users can create an empty circle or find people, send a request, and add them after acceptance. This is the same shared web/Capacitor view; navigation and consent review are unchanged.
+  - The existing Circles tab owns list fetching and realtime reconciliation; it relays session-scoped summaries to the introduction. Trusted is provisioned as an empty, manually curated default Circle: accepting a connection never adds anyone to it. Owners add existing connections through the same Circle member flow used by named Circles. Owned starter matches show Open circle; renamed/custom circles remain in the full list. New users can create an empty circle or find people, send a request, and add them after acceptance. This is the same shared web/Capacitor view; navigation and consent review are unchanged.
   - The mobile introduction uses a compact radial layout and inline Create action. Browser contracts cover 375×812, 390×844, and 430×932 viewports with top safe-area and bottom-chrome allowances; very short viewports and enlarged text retain the shell's normal scrolling instead of clipping content. Entry motion uses the shared `motion-step-enter` treatment with staggered category reveals and respects reduced motion.
   - `?reviewPerson=<exact-person-id>` opens Connect's existing scope review after an authenticated directory-bounded lookup. Loading the route sends nothing. Incoming requests open their exact Consent Center review; outgoing requests remain pending. A Location prerequisite retains its original person and task until the owner returns with Continue and current Location eligibility is checked again. Closing the review consumes this query so the same target can be reopened.
 - `/one/connect/settings`
@@ -154,6 +154,16 @@ Detail entrypoints that require an identifier use query-backed static routes so 
 - `/one/profile/my-data/domain?key=<domain_key>`
 - `/one/profile/access/connection?id=<connection_id>`
 - `/one/profile/support/compose?kind=<support_kind>`
+
+Shared invitations keep their existing recipient entrypoints: `/circle/join?code=<code>`
+for a Circle and `/one/location/invite/<token>` for Invite to One. Both wait for
+auth restoration and show guests the shared three-screen `GuestPreview` before
+sign-in, retaining the original invitation as the login redirect. The native
+token transport `/circle/join?invite=<token>` uses the same invitation client.
+Opening or previewing an invitation does not claim it or grant sharing access.
+The hosted token route renders per request, with an inert build probe that
+prevents unseen tokens from receiving a static fallback; Capacitor retains a
+static fixture and skips the server request boundary.
 
 Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 

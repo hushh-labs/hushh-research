@@ -162,7 +162,8 @@ export function InviteToCircleFlow({
 
   const pendingVoiceInvite = useVoiceSessionSelector((state) =>
     state.pendingAction &&
-    state.pendingAction.tool === "add_circle_member" &&
+    (state.pendingAction.tool === "add_circle_member" ||
+      state.pendingAction.tool === "add_circle_members") &&
     state.pendingAction.resolvedStatus === null
       ? state.pendingAction
       : null,
@@ -263,6 +264,7 @@ export function InviteToCircleFlow({
       if (!isOkResult(result)) return;
       if (
         tool === "add_circle_member" ||
+        tool === "add_circle_members" ||
         tool === "cancel_circle_invite" ||
         tool === "respond_circle_invite" ||
         tool === "list_circle_invites" ||

@@ -20,6 +20,8 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 def _defer_code(error: BaseException) -> str:
+    if str(error) == "date_range_required":
+        return "date_range_required"
     if str(error) == "background_preparation_required":
         return "background_preparation_required"
     if str(error) == "trusted_request_unavailable":
@@ -57,10 +59,20 @@ class DriveTrustedAutoService:
         if request_id is None:
             return None
         require_current = self._authority(user_id, request_id)
+        dates_checked = False
 
         async def guarded():
+            nonlocal dates_checked
             try:
                 await require_current()
+                if not dates_checked:
+                    context = await self.sharing.request_bulk_context(
+                        user_id=user_id, request_id=request_id
+                    )
+                    purpose = context["purpose"]
+                    if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+                        raise DriveReadError("date_range_required")
+                    dates_checked = True
             except (DriveReadError, TimeoutError) as error:
                 await self.sharing.defer_trusted_search(
                     user_id=user_id, request_id=request_id, code=_defer_code(error)
@@ -95,6 +107,7 @@ class DriveTrustedAutoService:
                         user_id=user_id,
                         request_id=request_id,
                         authority_mode="trusted_auto",
+                        after_page=self.after_search_page,
                     )
                 else:
                     async with asyncio.timeout_at(deadline_at - 15):
@@ -102,6 +115,7 @@ class DriveTrustedAutoService:
                             user_id=user_id,
                             request_id=request_id,
                             authority_mode="trusted_auto",
+                            after_page=self.after_search_page,
                         )
                 outcomes["started"] += 1
                 # The durable search may have no committed rows yet. Wake its
@@ -120,6 +134,10 @@ class DriveTrustedAutoService:
             raise ValueError("invalid trusted batch bound")
         require_current = self._authority(user_id, request_id)
         await require_current()
+        context = await self.sharing.request_bulk_context(user_id=user_id, request_id=request_id)
+        purpose = context["purpose"]
+        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+            raise DriveReadError("date_range_required")
         request_bulk = DriveRequestBulkService(
             sharing=self.sharing,
             bulk=self.bulk,
@@ -188,12 +206,20 @@ class DriveTrustedAutoService:
             await self.wake("suggestions")
         return queued
 
-    async def after_search_slice(self, *, user_id: str, job_id: str) -> int:
+    async def after_search_page(self, *, user_id: str, job_id: str) -> int:
+        """Hand off one committed provider page before searching for more."""
+        # A provider page has at most 100 matches. Keep each immutable share
+        # at 25 files; sparse pages are available without waiting for the scan.
+        return await self.after_search_slice(user_id=user_id, job_id=job_id, max_batches=4)
+
+    async def after_search_slice(self, *, user_id: str, job_id: str, max_batches: int = 8) -> int:
         request_id = await self.sharing.trusted_request_for_job(user_id=user_id, job_id=job_id)
         if request_id is None:
             return 0
         try:
-            return await self.share_available(user_id=user_id, request_id=request_id)
+            return await self.share_available(
+                user_id=user_id, request_id=request_id, max_batches=max_batches
+            )
         except (DriveReadError, TimeoutError) as error:
             await self.sharing.defer_trusted_search(
                 user_id=user_id, request_id=request_id, code=_defer_code(error)

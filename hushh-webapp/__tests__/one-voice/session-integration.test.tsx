@@ -1,4 +1,4 @@
-import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -67,7 +67,8 @@ vi.mock("@/lib/utils/browser-navigation", () => ({
   requestInternalAppNavigation: (value: unknown) =>
     harness.navigate(value as never),
 }));
-vi.mock("@/lib/navigation/profile-pane", () => ({
+vi.mock("@/lib/navigation/profile-pane", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/navigation/profile-pane")>()),
   requestProfilePaneOpen: vi.fn(),
 }));
 vi.mock("@/lib/interaction/interaction-intent-coordinator", () => ({
@@ -102,6 +103,7 @@ import {
   VoiceSessionProvider,
   useVoiceSession,
 } from "@/components/one-voice/voice-session-provider";
+import { OneVoicePanel } from "@/components/one-voice/one-voice-panel";
 
 class FakeCapture {
   started = 0;
@@ -162,6 +164,23 @@ function Probe({ effects }: { effects?: VoiceToolEffectHandlers }) {
   return <output data-testid="phase">{session.state.phase}</output>;
 }
 
+function PanelProbe() {
+  const session = useVoiceSession();
+  return <OneVoicePanel state={session.state} controller={session} />;
+}
+
+function mockPendingCardGeometry() {
+  const rect = (top: number, bottom: number) => ({
+    x: 0, y: top, left: 0, top, right: 320, bottom,
+    width: 320, height: bottom - top, toJSON: () => ({}),
+  }) as DOMRect;
+  return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-testid="one-voice-panel"]')) return rect(50, 450);
+    if (this.matches('[data-pending-action-id]')) return rect(100, 260);
+    return rect(0, 0);
+  });
+}
+
 type Mounted = {
   server: ScriptedVoiceServer;
   capture: FakeCapture;
@@ -173,6 +192,7 @@ function mount(
   options: {
     effects?: VoiceToolEffectHandlers;
     enabled?: boolean;
+    showPanel?: boolean;
     /**
      * The test override for the client-step budget. `null` leaves it unset so
      * the provider falls back to the server's `timeout_s` and its own default.
@@ -209,6 +229,7 @@ function mount(
       }}
     >
       <Probe effects={options.effects} />
+      {options.showPanel ? <PanelProbe /> : null}
     </VoiceSessionProvider>,
   );
   return { server, capture, playback, unmount: view.unmount };
@@ -244,6 +265,7 @@ afterEach(() => {
   cleanup();
   controller = null;
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe("VoiceSessionProvider with a scripted relay", () => {
@@ -307,7 +329,8 @@ describe("VoiceSessionProvider with a scripted relay", () => {
   });
 
   it("acknowledges a card with pending_action.shown; confirm carries the receipt token", async () => {
-    const mounted = await startSession(mount());
+    mockPendingCardGeometry();
+    const mounted = await startSession(mount({ showPanel: true }));
     const { server } = mounted;
     const card = pendingActionFrame();
     await act(async () => {
@@ -318,12 +341,14 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     expect(controller!.state.pendingAction?.entities[0]?.display_name).toBe(
       "Priya",
     );
-    expect(server.frames("pending_action.shown")).toEqual([
+    expect(screen.getByTestId("one-voice-pending-action").getAttribute("data-pending-action-id"))
+      .toBe(card.pending_action_id);
+    await waitFor(() => expect(server.frames("pending_action.shown")).toEqual([
       {
         type: "pending_action.shown",
         pending_action_id: card.pending_action_id,
       },
-    ]);
+    ]));
     await act(async () => {
       await controller!.confirmPending({ consentVersion: null });
     });
@@ -337,6 +362,15 @@ describe("VoiceSessionProvider with a scripted relay", () => {
         consent_version: null,
       },
     ]);
+  });
+
+  it("does not acknowledge a pending action when no confirmation card is mounted", async () => {
+    const mounted = await startSession(mount());
+    await act(async () => {
+      mounted.server.push(pendingActionFrame());
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    });
+    expect(mounted.server.frames("pending_action.shown")).toHaveLength(0);
   });
 
   it("a second Confirm for the same card while the first is in flight sends nothing; the resolution unlocks the next card", async () => {
@@ -611,6 +645,7 @@ describe("VoiceSessionProvider with a scripted relay", () => {
   it("a generic directive with no screen runs the executor and settles; a screen that ignores it falls through", async () => {
     const mounted = await startSession(mount());
     const { server } = mounted;
+    window.history.replaceState(null, "", "/one/location?view=people");
     await act(async () => {
       server.push({
         type: "ui_directive",
@@ -622,16 +657,20 @@ describe("VoiceSessionProvider with a scripted relay", () => {
         },
       });
     });
+    await waitFor(() => expect(harness.navigate).toHaveBeenCalledWith({
+      href: "/one/location?view=circles&circle=c-9",
+      source: "voice",
+      transitionMode: "contextual",
+    }));
+    expect(server.frames("ui.settled")).toHaveLength(0);
+    await act(async () => {
+      window.history.pushState(null, "", "/one/location?view=circles&circle=c-9");
+    });
     await waitFor(() => expect(server.frames("ui.settled")).toHaveLength(1));
     expect(server.frames("ui.settled")[0]).toEqual({
       type: "ui.settled",
       directive_id: "d-1",
       status: "opened",
-    });
-    expect(harness.navigate).toHaveBeenCalledWith({
-      href: "/one/location?view=circles&circle=c-9",
-      source: "voice",
-      transitionMode: "contextual",
     });
     // A screen-owned kind nobody settles is reported ignored after the step budget, never run here.
     await act(async () => {
@@ -649,6 +688,40 @@ describe("VoiceSessionProvider with a scripted relay", () => {
       status: "ignored",
     });
     expect(harness.navigate).toHaveBeenCalledTimes(1);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it("starts the generic executor once when a screen ignores a pending directive", async () => {
+    const directives = await import("@/lib/one-voice/directives");
+    type Outcome = Awaited<ReturnType<typeof directives.executeDirective>>;
+    let complete!: (outcome: Outcome) => void;
+    const pending = new Promise<Outcome>((resolve) => { complete = resolve; });
+    const execute = vi.spyOn(directives, "executeDirective").mockReturnValue(pending);
+    const mounted = await startSession(mount({
+      effects: { onDirective: (_id, _kind, _payload, settle) => settle("ignored") },
+    }));
+    vi.useFakeTimers();
+    try {
+      await act(async () => {
+        mounted.server.push({
+          type: "ui_directive", directive_id: "single-takeover", kind: "navigate",
+          payload: { gateway_action_id: "location.open_settings" },
+        });
+      });
+      expect(execute).toHaveBeenCalledTimes(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(40); });
+      expect(execute).toHaveBeenCalledTimes(1);
+      expect(mounted.server.frames("ui.settled")).toHaveLength(0);
+      await act(async () => { complete({ handled: true, status: "opened" }); });
+      expect(mounted.server.frames("ui.settled")).toEqual([
+        { type: "ui.settled", directive_id: "single-takeover", status: "opened" },
+      ]);
+    } finally {
+      await act(async () => { complete({ handled: true, status: "failed" }); });
+      mounted.unmount();
+      vi.useRealTimers();
+      execute.mockRestore();
+    }
   });
 
   it("a screen that owns request_os_permission settles it; a screen that ignores navigate hands it to the executor", async () => {
@@ -677,6 +750,7 @@ describe("VoiceSessionProvider with a scripted relay", () => {
       directive_id: "d-3",
       status: "opened",
     });
+    window.history.replaceState(null, "", "/one/location?view=people");
     await act(async () => {
       server.push({
         type: "ui_directive",
@@ -685,6 +759,15 @@ describe("VoiceSessionProvider with a scripted relay", () => {
         payload: { gateway_action_id: "location.open_settings" },
       });
     });
+    await waitFor(() => expect(harness.navigate).toHaveBeenCalledWith({
+      href: "/one/location?action=settings",
+      source: "voice",
+      transitionMode: "contextual",
+    }));
+    expect(server.frames("ui.settled")).toHaveLength(1);
+    await act(async () => {
+      window.history.pushState(null, "", "/one/location?action=settings");
+    });
     await waitFor(() => expect(server.frames("ui.settled")).toHaveLength(2));
     expect(server.frames("ui.settled")[1]).toEqual({
       type: "ui.settled",
@@ -692,6 +775,53 @@ describe("VoiceSessionProvider with a scripted relay", () => {
       status: "opened",
     });
     expect(harness.navigate).toHaveBeenCalledTimes(1);
+    window.history.replaceState(null, "", "/");
+  });
+
+  it.each([
+    ["opened", true, false], ["opened", false, false], ["failed", true, false], ["failed", false, false],
+    ["opened", false, true],
+  ] as const)("settles the navigation card as %s, before result=%s, after model end=%s", async (status, beforeResult, afterModelEnd) => {
+    let settle: ((status: "opened" | "failed" | "ignored") => void) | undefined;
+    const { server } = await startSession(mount({
+      showPanel: true,
+      effects: { onDirective: (_id, _kind, _payload, report) => { settle = report; } },
+    }));
+    await act(async () => {
+      server.push({ type: "transcript.input", turn_id: "profile-turn", text: "Open their profile", final: true });
+      server.push({ type: "tool.started", call_id: "profile-call", turn_id: "profile-turn", tool: "open_screen", args_public: {} });
+      if (afterModelEnd) {
+        server.push({
+          type: "tool.result", call_id: "profile-call", turn_id: "profile-turn", tool: "open_screen", ok: true,
+          result_public: { status: "navigation_dispatched", spoken_facts: ["Opening their profile."] },
+        });
+        server.push({ type: "turn", state: "model_end", turn_id: "profile-turn" });
+      }
+      server.push({
+        type: "ui_directive", directive_id: "profile-directive", kind: "navigate", turn_id: "profile-turn",
+        payload: { call_id: "profile-call", gateway_action_id: "route.person_profile" },
+      });
+    });
+    expect(settle).toBeDefined();
+    if (beforeResult) await act(async () => { settle!(status); });
+    await act(async () => {
+      if (!afterModelEnd) server.push({
+        type: "tool.result", call_id: "profile-call", turn_id: "profile-turn", tool: "open_screen", ok: true,
+        result_public: { status: "navigation_dispatched", spoken_facts: ["Opening their profile."] },
+      });
+      server.push({ type: "turn", state: "model_end", turn_id: "profile-turn" });
+    });
+    if (!beforeResult) {
+      expect(screen.getByText("Opening…")).toBeTruthy();
+      await act(async () => { settle!(status); });
+    }
+    expect(server.frames("ui.settled")).toEqual([
+      { type: "ui.settled", directive_id: "profile-directive", status },
+    ]);
+    expect(screen.queryByText("Opening…")).toBeNull();
+    expect(screen.queryByText("Opening their profile.")).toBeNull();
+    if (status === "failed") expect(screen.getByText("I couldn't open that screen. Please try again.")).toBeTruthy();
+    expect(selectSuccessReceipt(controller!.state)).toBeNull();
   });
 
   it("stop sends end, closes, releases the lease and lands idle", async () => {

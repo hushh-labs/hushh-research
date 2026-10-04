@@ -253,6 +253,8 @@ def _browser_presentations() -> dict[str, dict[str, str]]:
 # ADK's confirmation envelope for a reviewed connector call. The browser names
 # it live; history restores the reviewed call's own row instead.
 _LIVE_ONLY_TOOLS = {"adk_request_confirmation"}
+# Reactions decorate live user bubbles and never become history activity.
+_SESSION_ONLY_PRESENTATION_TOOLS = {"react_to_message"}
 _GENERIC_LABELS = {"", "Agent step", "Connected tool", "Action", "Working on your request"}
 
 
@@ -262,12 +264,30 @@ def test_every_tool_one_can_call_has_a_specific_name_live_and_restored() -> None
     # roster without a name, live or restored, fails here.
     roster = _roster_tool_names()
     presentations = _browser_presentations()
-    assert roster - agent_chat._ACTIVITY_TOOLS == set()
+    assert roster - agent_chat._ACTIVITY_TOOLS == _SESSION_ONLY_PRESENTATION_TOOLS
     assert set(presentations) == agent_chat._ACTIVITY_TOOLS | _LIVE_ONLY_TOOLS
+    assert _SESSION_ONLY_PRESENTATION_TOOLS.isdisjoint(presentations)
     for tool, presentation in presentations.items():
         assert presentation["label"] not in _GENERIC_LABELS, tool
         assert presentation["message"] and presentation["activity"], tool
         assert presentation["activity"] not in _GENERIC_LABELS, tool
+
+
+@pytest.mark.asyncio
+async def test_reaction_metadata_never_becomes_restored_activity(monkeypatch) -> None:
+    history = await _history(
+        monkeypatch,
+        [
+            _text("user-reaction", "That made my day!", author="user"),
+            _call("reaction", "react_to_message", {"emoji": "💛"}),
+            _response("reaction", "react_to_message", {"status": "shown", "emoji": "💛"}),
+            _text("answer-reaction", "I'm glad to hear it."),
+        ],
+    )
+    assert [message["role"] for message in history["messages"]] == ["user", "assistant"]
+    assert history["messages"][-1]["content"] == "I'm glad to hear it."
+    assert all(message["metadata"] is None for message in history["messages"])
+    assert "react_to_message" not in json.dumps(history)
 
 
 @pytest.mark.asyncio

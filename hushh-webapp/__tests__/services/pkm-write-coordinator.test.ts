@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
 
 /* ---------- mocks (before any real imports) ---------- */
@@ -76,6 +76,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
+  PKM_QUARANTINE_SEGMENT_ID: "__quarantine_v1",
   CURRENT_PKM_CONTRACT_VERSION: "6.0.0",
   CURRENT_READABLE_PROJECTION_VERSION: "6.0.0",
   CURRENT_READABLE_SUMMARY_VERSION: 1,
@@ -83,7 +84,21 @@ vi.mock("@/lib/personal-knowledge-model/upgrade-contracts", () => ({
   currentDomainContractVersion: vi.fn(() => 2),
 }));
 
+const reservedMode = vi.hoisted(() => ({ value: null as "shadow" | "enforce" | null }));
+vi.mock("@/lib/pkm/reserved-branches", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/pkm/reserved-branches")>();
+  // Every case runs under the contract's own mode (enforce since Phase 2);
+  // the shadow block switches to the rollback value explicitly.
+  return {
+    ...actual,
+    get RESERVED_ENFORCEMENT_MODE() {
+      return reservedMode.value ?? actual.RESERVED_ENFORCEMENT_MODE;
+    },
+  };
+});
+
 import {
+  getReservedWouldRefuseShadowCount,
   PkmWriteCoordinator,
 } from "@/lib/services/pkm-write-coordinator";
 
@@ -399,6 +414,9 @@ describe("PkmWriteCoordinator", () => {
       await PkmWriteCoordinator.saveMergedDomain({
         ...BASE_PARAMS,
         domain: "financial",
+        // financial.* is reserved: under enforce only a catalogued Finance writer
+        // may change it, so this case uses one (the test label is uncatalogued).
+        confirmation: { ...BASE_PARAMS.confirmation, source: "kai_manage_portfolio_save" },
         build: () => ({
           domainData: {
             portfolio: { holdings: [{ symbol: "NEW" }] },
@@ -659,6 +677,177 @@ describe("PkmWriteCoordinator", () => {
       expect(result.saveState).toBe("failed");
       expect(result.message).toMatch(/sharing changed/i);
       expect(result.message).toMatch(/confirm again/i);
+    });
+  });
+  describe("reserved-branch shadow (contracts/pkm/reserved-branches.v1.json)", () => {
+    // The KYC reply writer holds an information-request capability; the device
+    // only checks that one is present, and the server verifies it.
+    const KYC_REPLY_AUTHORIZATION = {
+      schema_version: "one.kyc_reply_authorization.v1" as const,
+      information_request_id: "00000000-0000-4000-8000-000000000001",
+      token: `kycreplytoken_${"a".repeat(64)}`,
+      expires_at: "2099-01-01T00:00:00+00:00",
+    };
+    const smuggledWrite = (source: string) =>
+      PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        domain: "identity",
+        confirmation: {
+          confirmedByUser: true,
+          surface: "chat",
+          source,
+          ...(source === "agent_chat_kyc_owner_confirmed"
+            ? { kycReplyAuthorization: KYC_REPLY_AUTHORIZATION }
+            : {}),
+        },
+        build: () => ({
+          // The scope says agent_memory; the payload also rewrites a document.
+          domainData: {
+            agent_memory: { entities: { mem_1: { summary: "Prefers email" } } },
+            identity_documents: { passport_number: "SMUGGLED-B2" },
+          },
+          summary: { item_count: 1 },
+          scopePath: "agent_memory",
+        }),
+      });
+
+    beforeEach(() => {
+      reservedMode.value = "shadow";
+      stubNoUpgradeNeeded();
+      stubWriteContext({ domainData: { identity_documents: { passport_number: "STORED-A1" } } });
+      pkmStorePreparedDomainMock.mockResolvedValue({ success: true, conflict: false, dataVersion: 2, fullBlob: {} });
+    });
+    afterEach(() => {
+      reservedMode.value = null;
+    });
+
+    it("counts a memory agent's smuggled identity_documents change, logs no value, and still saves", async () => {
+      const debug = vi.spyOn(console, "debug").mockImplementation(() => {});
+      const before = getReservedWouldRefuseShadowCount();
+      const result = await smuggledWrite("agent_chat_owner_request");
+
+      expect(result.success).toBe(true);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      expect(getReservedWouldRefuseShadowCount() - before).toBe(1);
+      expect(debug).toHaveBeenCalledWith("[PkmWriteCoordinator] pkm.reserved_would_refuse", {
+        domain: "identity",
+        branch: "identity_documents",
+        writer: "agent_chat_owner_request",
+        reason: "memory_agent",
+      });
+      expect(JSON.stringify(debug.mock.calls)).not.toMatch(/SMUGGLED|STORED/);
+      debug.mockRestore();
+    });
+
+    it("does not count the same change from the writer the registry lists (negative control)", async () => {
+      const before = getReservedWouldRefuseShadowCount();
+      const result = await smuggledWrite("agent_chat_kyc_owner_confirmed");
+
+      expect(result.success).toBe(true);
+      expect(getReservedWouldRefuseShadowCount() - before).toBe(0);
+    });
+
+    describe("in enforce mode", () => {
+      beforeEach(() => {
+        reservedMode.value = "enforce";
+      });
+
+      it("saves a chat fact into the sibling while the app's branch sits beside it", async () => {
+        const result = await PkmWriteCoordinator.savePreparedDomain({
+          ...BASE_PARAMS,
+          domain: "identity",
+          confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_confirmed_card" },
+          build: () => ({
+            domainData: { agent_memory: { entities: { mem_2: { summary: "Prefers email" } } } },
+            summary: { item_count: 1 },
+            scopePath: "agent_memory",
+          }),
+        });
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("blocks a smuggled identity_documents change behind proposed_scope agent_memory", async () => {
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const result = await smuggledWrite("agent_chat_owner_request");
+
+        expect(result.success).toBe(false);
+        expect(result.saveState).toBe("blocked_reserved_branch");
+        expect(result.reservedRefusals).toEqual([
+          {
+            domain: "identity",
+            branch: "identity_documents",
+            writerId: "agent_chat_owner_request",
+            reason: "memory_agent",
+          },
+        ]);
+        // Nothing reached the network, and no stored or proposed value was logged.
+        expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+        expect(JSON.stringify(warn.mock.calls)).not.toMatch(/SMUGGLED|STORED/);
+        warn.mockRestore();
+      });
+
+      it("still saves the change from the listed writer holding its capability (negative control)", async () => {
+        const result = await smuggledWrite("agent_chat_kyc_owner_confirmed");
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
+
+      it("lands a resumable save job's commit in the sibling under its idempotency scope, and blocks one that touches the app's branch", async () => {
+        // Cross-lane: pkm-save-job.ts commits as the explicit-save memory agent
+        // with a per-step idempotency scope. Enforce mode must take that write
+        // into agent_memory and refuse it the moment it reaches saved_places.
+        stubWriteContext({ domainData: { saved_places: { home: { label: "Home" } } } });
+        const jobWrite = (domainData: Record<string, unknown>) =>
+          PkmWriteCoordinator.savePreparedDomain({
+            ...BASE_PARAMS,
+            domain: "location",
+            confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_request" },
+            idempotencyScope: "job_1:step_a:0",
+            build: () => ({ domainData, summary: { item_count: 1 }, scopePath: "agent_memory" }),
+          });
+
+        const sibling = await jobWrite({
+          saved_places: { home: { label: "Home" } },
+          agent_memory: { entities: { mem_3: { summary: "Gym near the office" } } },
+        });
+        expect(sibling.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+        const plan = (pkmStorePreparedDomainMock.mock.calls[0]?.[0] as { mutationPlan: { plan_id: string; writer_id: string } }).mutationPlan;
+        expect(plan.writer_id).toBe("agent_chat_owner_request");
+        expect(plan.plan_id).toMatch(/^pkm_plan_[0-9a-f]{32}$/);
+
+        const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+        const reserved = await jobWrite({
+          saved_places: { home: { label: "Home" }, gym: { label: "Gym" } },
+          agent_memory: { entities: { mem_3: { summary: "Gym near the office" } } },
+        });
+        expect(reserved.saveState).toBe("blocked_reserved_branch");
+        expect(reserved.reservedRefusals?.[0]).toMatchObject({ domain: "location", branch: "saved_places", reason: "memory_agent" });
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+        warn.mockRestore();
+      });
+
+      it("still saves a memory agent's write that leaves reserved branches untouched", async () => {
+        const result = await PkmWriteCoordinator.savePreparedDomain({
+          ...BASE_PARAMS,
+          domain: "identity",
+          confirmation: { confirmedByUser: true, surface: "chat", source: "agent_chat_owner_request" },
+          build: ({ currentDomainData }) => ({
+            domainData: {
+              ...currentDomainData,
+              agent_memory: { entities: { mem_1: { summary: "Prefers email" } } },
+            },
+            summary: { item_count: 1 },
+            scopePath: "agent_memory",
+          }),
+        });
+
+        expect(result.success).toBe(true);
+        expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

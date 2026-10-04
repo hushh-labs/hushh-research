@@ -59,7 +59,13 @@ import Link from "next/link";
  */
 
 import { useState, useSyncExternalStore } from "react";
-import { MoreVertical, Share2, Trash2, UserRound } from "@/components/icons";
+import {
+  MessageCircle,
+  MoreVertical,
+  Share2,
+  Trash2,
+  UserRound,
+} from "@/components/icons";
 
 import {
   AlertDialog,
@@ -208,6 +214,8 @@ export type CircleMemberActionsMenuProps = {
   secondaryLine?: string | null;
   /** Present when this member has a request profile: offers View profile. */
   profileHref?: string | null;
+  /** Present only for an accepted connection with a public person reference. */
+  messageHref?: string | null;
   canShare: boolean;
   canRemove: boolean;
   /** A write is already in flight on this Circle. */
@@ -236,6 +244,7 @@ export function CircleMemberActionsMenu({
   onShare,
   onRemove,
   profileHref,
+  messageHref,
 }: CircleMemberActionsMenuProps) {
   const asSheet = useSheetPresentation();
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -248,7 +257,7 @@ export function CircleMemberActionsMenu({
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmRemoveOpen, setConfirmRemoveOpen] = useState(false);
 
-  const hasMenu = canShare || canRemove;
+  const hasMenu = Boolean(messageHref) || canShare || canRemove;
   const menuLabel = `Actions for ${displayName}`;
 
   if (!hasMenu) {
@@ -372,7 +381,25 @@ export function CircleMemberActionsMenu({
                       View profile
                     </Link>
                   ) : null}
-                  {profileHref && (canShare || canRemove) ? (
+                  {profileHref && (messageHref || canShare || canRemove) ? (
+                    <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
+                  ) : null}
+                  {messageHref ? (
+                    <Link
+                      href={messageHref}
+                      role="menuitem"
+                      className={MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME}
+                      onClick={() => closeSheet()}
+                      data-testid="circle-member-message"
+                    >
+                      <MessageCircle
+                        className="h-5 w-5 shrink-0 text-[color:var(--app-secondary-label)]"
+                        aria-hidden="true"
+                      />
+                      Message
+                    </Link>
+                  ) : null}
+                  {messageHref && (canShare || canRemove) ? (
                     <div aria-hidden="true" className="ml-[52px] h-px bg-[color:var(--app-separator)]" />
                   ) : null}
                   {canShare ? (
@@ -467,6 +494,14 @@ export function CircleMemberActionsMenu({
               Actions for {displayName}
             </span>
           </DropdownMenuLabel>
+          {messageHref ? (
+            <DropdownMenuItem asChild className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}>
+              <Link href={messageHref} data-testid="circle-member-message">
+                <MessageCircle className="h-4 w-4 text-current" />
+                Message
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
           {canShare ? (
             <DropdownMenuItem
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}

@@ -19,6 +19,7 @@ from zoneinfo import ZoneInfo
 from hushh_mcp.services.drive_live_reader import MIME_CLAUSES, DriveLiveReader, _open_url
 from hushh_mcp.services.drive_long_range_listing import _term_pattern
 from hushh_mcp.services.drive_owner_search_store import DriveOwnerSearchStore
+from hushh_mcp.services.drive_sharing_contract import request_requires_explicit_dates
 from hushh_mcp.services.drive_telemetry import drive_logger, drive_operation
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
@@ -322,6 +323,10 @@ def compile_request_queries(
     now = now.astimezone(UTC)
     start = purpose.get("periodStart")
     end = purpose.get("periodEnd")
+    # Old queued requests can predate the create-time check. Never let a
+    # relative day/week request fall through to an unbounded search.
+    if request_requires_explicit_dates(purpose.get("purpose", "")) and (not start or not end):
+        raise DriveReadError("date_range_required")
     if start is None and end is None:
         request_text = purpose.get("purpose", "")
         month = _MONTH_WINDOW.search(request_text)
@@ -530,9 +535,10 @@ def _advance_query(checkpoint):
 
 
 class DriveOwnerSearchService:
-    def __init__(self, store=None, transport=None):
+    def __init__(self, store=None, transport=None, sharing=None):
         self.store = store or DriveOwnerSearchStore()
         self.transport = transport or GoogleDriveRestTransport()
+        self.sharing = sharing
 
     @staticmethod
     def _request(query, timezone):
@@ -627,10 +633,13 @@ class DriveOwnerSearchService:
         timezone="UTC",
         authority_mode="owner",
         requested_at: datetime | None = None,
+        after_page=None,
     ):
         """Start or resume the owner-approved request's durable metadata search."""
         if authority_mode not in {"owner", "trusted_auto"}:
             raise DriveReadError("invalid_argument")
+        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+            raise DriveReadError("date_range_required")
         await require_current()
         query = purpose["purpose"]
         request = self._request(query, timezone)
@@ -661,6 +670,9 @@ class DriveOwnerSearchService:
                 "request_subject_terms": plan.get("terms", []),
                 "request_exact_title": plan.get("exact_title"),
                 "request_notes": bool(re.search(r"\b(?:notes?|minutes)\b", query, re.I)),
+                "request_explicit_dates": bool(
+                    purpose.get("periodStart") and purpose.get("periodEnd")
+                ),
                 "requested_period": period,
                 "coverage_manifest": {
                     "corpora": ["user", "member_shared_drives"],
@@ -691,6 +703,7 @@ class DriveOwnerSearchService:
                 deadline_seconds=15,
                 initial_page_size=PAGE_SIZE,
                 require_current=require_current,
+                **({"after_page": after_page} if after_page is not None else {}),
             )
         await wake_drive_work("suggestions")
         return await self.status(
@@ -1006,6 +1019,29 @@ class DriveOwnerSearchService:
 
     async def _page(self, job, *, page_size_override=None):
         checkpoint = copy.deepcopy(job["checkpoint"])
+        if (
+            checkpoint.get("request_origin_id")
+            and checkpoint.get("request_explicit_dates") is not True
+        ):
+            if self.sharing is None:
+                from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+                self.sharing = DriveSharingStore(db=self.store.db)
+            context = await self.sharing.request_bulk_context(
+                user_id=job["user_id"], request_id=checkpoint["request_origin_id"]
+            )
+            purpose = context["purpose"]
+            if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+                raise DriveReadError("date_range_required")
+            period = checkpoint.get("requested_period")
+            if not isinstance(period, dict) or (
+                period.get("start") != purpose["periodStart"]
+                or period.get("end") != purpose["periodEnd"]
+            ):
+                raise DriveReadError("request_changed")
+            # Persist the proof with the next page so legacy dated jobs can
+            # continue without repeating this encrypted request read.
+            checkpoint["request_explicit_dates"] = True
         listing_read = getattr(self.transport, "read_owner_search_page", None)
         if listing_read is None:
             # Older injected transports implement the same listing call shape
@@ -1200,6 +1236,7 @@ class DriveOwnerSearchService:
         deadline_seconds=SLICE_SECONDS,
         initial_page_size=None,
         require_current=None,
+        after_page=None,
     ):
         if (
             type(max_pages) is not int
@@ -1216,6 +1253,7 @@ class DriveOwnerSearchService:
         pages = 0
         found = 0
         outcome = "failed"
+        handing_off = False
 
         def finish(status):
             nonlocal outcome
@@ -1267,10 +1305,34 @@ class DriveOwnerSearchService:
                     job["checkpoint"] = checkpoint
                     pages += 1
                     found = result["matched"]
+                    if after_page is not None and result["status"] in {"running", "completed"}:
+                        # commit_page has returned: no DB lock spans this
+                        # orchestration. Freeze/queue the committed matches
+                        # before another provider read can consume the slice.
+                        # Even an empty final page must flush/resume a batch.
+                        try:
+                            handing_off = True
+                            await after_page(user_id=user_id, job_id=job_id)
+                            handing_off = False
+                        except Exception:  # noqa: BLE001 - durable pages remain resumable
+                            logger.warning("drive_search.page_handoff status=deferred")
+                            state = (
+                                result["status"]
+                                if result["status"] != "running"
+                                else await self.store.release(job)
+                            )
+                            await wake_drive_work("suggestions")
+                            return finish(state)
                     if result["status"] != "running":
                         return finish(result["status"])
             return finish(await self.store.release(job))
         except TimeoutError:
+            if handing_off:
+                # An orchestration deadline is not a failed provider page.
+                # The checkpoint is durable; resume that same frozen batch.
+                state = await self.store.release(job)
+                await wake_drive_work("suggestions")
+                return finish(state)
             return finish(
                 await self.store.release(job, error="provider_unavailable", retryable=True)
             )

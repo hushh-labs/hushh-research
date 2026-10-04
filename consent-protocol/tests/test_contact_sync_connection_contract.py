@@ -24,7 +24,6 @@ from hushh_mcp.services.contact_sync_contract import (
     contact_sync_preference_state,
 )
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
-from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
 from hushh_mcp.services.ria_iam_service import RIAIAMPolicyError, RIAIAMService
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -225,10 +224,6 @@ class _ContactSyncService(ConnectionsService):
                 )
             return rows
         raise AssertionError(f"unexpected execute_many SQL: {sql}")
-
-    def _join_trusted_system_circles_bulk(self, *, pairs: list[tuple[str, str]]) -> None:
-        assert self.transaction_depth == 0
-        self.writes.append(("bulk_circle", tuple(pairs)))
 
 
 def _behavior_sync(
@@ -485,7 +480,8 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     assert "ORDER BY user_id" in source
     assert "FOR UPDATE" in source
     assert "activate_contact_sync_connections_bulk" in source
-    assert "_join_trusted_system_circles_bulk" in source
+    assert "_join_trusted_system_circles_bulk" not in source
+    assert "ensure_trusted_membership_for_pair" not in source
     assert '"authorization": "verified_phone_directory_match"' in source
     assert "CONTACT_SYNC_MATCH_POLICY_VERSION" in source
     assert 'existing_status == "revoked"' in source
@@ -532,7 +528,6 @@ def test_behavior_auto_connect_materializes_only_canonical_projections() -> None
                 },
             ),
         ),
-        ("bulk_circle", (("requester", "target"),)),
     ]
     assert service.graph_lock_user_ids == {"requester", "target"}
     assert not any("grant" in write for row in service.writes for write in row)
@@ -709,7 +704,6 @@ def test_behavior_mixed_hidden_active_and_new_consented_match_preserves_both() -
                 },
             ),
         ),
-        ("bulk_circle", (("requester", "target_0002"),)),
     ]
 
 
@@ -875,25 +869,17 @@ def test_behavior_one_thousand_matches_use_bounded_batch_seams() -> None:
     assert result["autoConnectedCount"] == 1000
     assert len(result["items"]) == 1000
     assert service.statement_count == 5
-    assert [write[0] for write in service.writes] == ["bulk_graph", "bulk_circle"]
+    assert [write[0] for write in service.writes] == ["bulk_graph"]
     assert len(service.graph_lock_user_ids) == 1001
     assert {"requester", "target_0001", "target_1000"} <= service.graph_lock_user_ids
     assert len(service.writes[0][2]) == 1000
-    assert len(service.writes[1][1]) == 1000
 
 
-def test_bulk_projection_helpers_have_constant_statement_counts() -> None:
+def test_bulk_connection_activation_has_constant_statement_counts() -> None:
     graph_source = inspect.getsource(ConnectionGraphService.activate_contact_sync_pairs)
-    circle_source = inspect.getsource(OneLocationCircleService.ensure_trusted_memberships_for_pairs)
 
     assert graph_source.count("conn.execute(") == 4
-    assert circle_source.count("conn.execute(") == 3
     assert "UNNEST" in graph_source
-    assert "UNNEST" in circle_source
-    assert "eligible_pairs AS" in circle_source
-    assert "connection.status = 'active'" in circle_source
-    assert "origin.status = 'active'" in circle_source
-    assert "origin.origin_kind <> 'named_circle'" in circle_source
     assert "contact_sync:" in graph_source
     assert "trusted_connections" in graph_source
     assert "connection_requests" in graph_source
@@ -902,7 +888,6 @@ def test_bulk_projection_helpers_have_constant_statement_counts() -> None:
     assert "WHERE connections.status = 'active'" in graph_source
     assert "RETURNING CASE" in graph_source
     assert "return activated_targets" in graph_source
-    assert "one_location_share_grants" not in circle_source
 
 
 def test_requester_phone_and_weighted_postgres_budget_are_fail_closed() -> None:

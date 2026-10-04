@@ -140,10 +140,15 @@ class DriveRequestBulkService:
                 )
         raise DriveReadError("invalid_argument")
 
-    async def start_search(self, *, user_id, request_id, timezone="UTC", authority_mode="owner"):
+    async def start_search(
+        self, *, user_id, request_id, timezone="UTC", authority_mode="owner", after_page=None
+    ):
         if authority_mode not in {"owner", "trusted_auto"}:
             raise DriveSharingError("invalid_argument")
         context = await self._context(user_id, request_id)
+        purpose = context["purpose"]
+        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+            raise DriveSharingError("date_range_required")
         # The requester authored words such as "yesterday". Freeze that
         # calendar context when the request is created, before a delayed worker
         # or an owner in a different timezone can reinterpret it.
@@ -190,6 +195,7 @@ class DriveRequestBulkService:
             requested_at=requested_at,
             require_current=self.require_owner,
             authority_mode=authority_mode,
+            **({"after_page": after_page} if after_page is not None else {}),
         )
 
     async def search_status(self, *, user_id, request_id):
@@ -243,6 +249,9 @@ class DriveRequestBulkService:
 
     async def prepare(self, *, user_id, request_id, excluded_positions=None, positions=None):
         context = await self._context(user_id, request_id)
+        purpose = context["purpose"]
+        if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+            raise DriveSharingError("date_range_required")
         if context["status"] not in {"pending", "review_ready"} or not context["searchStarted"]:
             raise DriveSharingError("request_changed")
         state = await self.search.store.by_client(user_id=user_id, client_request_id=request_id)

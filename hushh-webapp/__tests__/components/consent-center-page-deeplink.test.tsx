@@ -1170,17 +1170,25 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
   });
 
-  it("does not render a duplicate in-page tab switcher", async () => {
-    // The shared top shell now owns Consent Center tab navigation. Retaining a
-    // route-local switcher would create two selection authorities and allow a
-    // search query to leak across one of them.
+  it("renders one route-local Consent Center title and registered tab rail", async () => {
     mocks.search = "tab=pending&q=macy";
     mocks.listEntries.mockResolvedValue(emptyListResponse());
 
     render(<ConsentCenterPage />);
     await waitFor(() => expect(mocks.listEntries).toHaveBeenCalled());
 
-    expect(screen.queryByRole("button", { name: /Active Access/i })).toBeNull();
+    expect(
+      screen.getByRole("heading", { name: "Consent Center", level: 1 }),
+    ).toBeVisible();
+    const tabList = screen.getByRole("tablist", {
+      name: "Consent Center navigation",
+    });
+    expect(within(tabList).getAllByRole("tab").map((tab) => tab.textContent)).toEqual([
+      "Requests",
+      "Active",
+      "History",
+      "Connections",
+    ]);
   });
 
   it("does not auto-select the first row or open the detail panel after switching tabs", async () => {

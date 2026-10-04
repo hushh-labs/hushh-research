@@ -85,6 +85,28 @@ describe("ToolResultCard", () => {
     expect(document.querySelector("[data-sonner-toast]")).toBeNull();
   });
 
+  it("reads a successful voice navigation as Opening…, never as a failure", () => {
+    // Regression: every voice navigation card said "That didn't go through".
+    const { container } = render(
+      <ToolResultCard
+        result={{
+          status: "navigation_dispatched",
+          spoken_facts: ["Opening it now."],
+        }}
+        tool="open_screen"
+        ok
+      />,
+    );
+    const card = screen.getByTestId("one-voice-tool-result");
+    expect(card).toHaveAttribute("data-tone", "neutral");
+    expect(card).toHaveAttribute("role", "status");
+    expect(
+      screen.getByTestId("one-voice-tool-result-headline"),
+    ).toHaveTextContent("Opening…");
+    expect(container.textContent).not.toContain("didn't go through");
+    expect(container.textContent).not.toContain("Done");
+  });
+
   it("renders three distinct location rows and never says On without both facts", () => {
     const rows = locationStatusRows({
       status: "ok",
@@ -266,7 +288,18 @@ describe("ToolResultCard", () => {
     expect(toneForResult({ status: "ok" }, undefined)).toBe("neutral");
     expect(toneForResult({ status: "grant_created" }, true)).toBe("failure");
     expect(toneForResult({ status: "empty" }, true)).toBe("neutral");
+    expect(toneForResult({ status: "draft_open_unconfirmed" }, false)).toBe("neutral");
     expect(toneForResult({ status: "renamed" }, true)).toBe("success");
+    // A navigation request is neither done nor failed until ui_settled.
+    expect(toneForResult({ status: "navigation_dispatched" }, true)).toBe(
+      "neutral",
+    );
+    expect(
+      toneForResult({ status: "navigation_dispatched" }, undefined),
+    ).toBe("neutral");
+    expect(toneForResult({ status: "navigation_dispatched" }, false)).toBe(
+      "failure",
+    );
     // The pending tone is scoped to the armed Save My Soul alert only.
     expect(toneForResult({ status: "sos_grants_created" }, undefined)).toBe(
       "pending",

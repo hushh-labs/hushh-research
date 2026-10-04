@@ -252,11 +252,12 @@ Body section headings are not page headers. `SectionHeader` and `SettingsGroup` 
 
 Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero or duplicate agent selector. A registry-resolved customer mark may appear as the shared header's right-aligned action only when it identifies the record currently being managed; keep its asset path in the public CRM logo registry, not in route code. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
 
-Finance follows the Profile workspace geometry exactly: `AppPageShell` at the
-`reading` measure and one shared outer gutter. Market, Portfolio, and Analysis
-are query-selected content inside `/one/kai`; they do not get a wider dashboard
-canvas, another fixed header, or a route-local tab bar. The top shell owns the
-single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
+Finance follows the Location agent-workspace geometry: `AppPageShell` at the
+`agent` measure and one shared outer gutter. Market, Portfolio, and Analysis
+are query-selected content inside `/one/kai`; the route body owns one stable
+agent `PageHeader` followed by the registry-backed `TopShellTabs` rail. The
+fixed top shell keeps only navigation, and a tab may own only an assistive
+heading inside its swipe panel.
 
 Persistent top chrome is a plain, solid neutral surface in
 `components/app-ui/ambient-chrome-mask.tsx` that stops at the tab underline
@@ -271,10 +272,10 @@ Persistent chrome text and icons inherit the neutral theme foreground through
 weight. Use the registry's regular weight for Plus/X controls and duotone for
 capabilities and utility icons; do not add per-surface stroke overrides.
 
-The top shell’s Finance, Location, Consent Center, and public Explore tab sets
-use equal fixed tracks from the central registry. They remain visible and
-interactive above the ambient mask on every responsive surface; route bodies
-may supply only the paired pager, never another tab row.
+Location, Finance, Consent Center, and RIA route bodies render equal fixed
+tracks from the central registry below their module headers. The fixed top
+shell does not duplicate them; public Explore remains the fixed-shell tab set.
+Every paired pager consumes the same registry definition.
 
 `TopShellTabs` and `SegmentedTabs` keep distinct navigation semantics but share
 one Morphy visual anatomy: a quiet neutral rail, one moving solid selection
@@ -296,14 +297,14 @@ It keeps every pane mounted (`aria-hidden`, never unmounted) and reports
 selection in two stages — `onSelectionChange` fires immediately for the
 visible selection pill, `onSelectionCommit` fires after the drag settles for
 the URL or state write that should not sit in the pointer/scroll hot path.
-Use `panelInset="page"` when the surrounding shell has cancelled its own
-gutter (Finance/Location's full-bleed layout); use the default
-`panelInset="none"` when the shell already provides normal padding
-(Marketplace, Profile, Analysis, Consent Center). Do not build a new
+Use `panelInset="page"` only when a surrounding layout intentionally cancels
+its own gutter. Use `panelInset="none"` when the shared route shell already
+provides normal padding (Finance, Location, Marketplace, Profile, Analysis,
+and Consent Center). Do not build a new
 swipeable-pane implementation, and do not reach for the stock shadcn
 `components/ui/carousel` for tab content — `SwipeViews` is the only one with
 the tab-selection swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
-that the top shell's pill relies on.
+that the registered rail's pill relies on.
 
 Motion has one standard content-enter expression across One and every
 specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
@@ -311,8 +312,12 @@ specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
 GSAP route/async-mount hook owns automatic semantic mounts; `.motion-step-enter`
 is the matching declarative utility for controlled component and layout swaps.
 Do not create a second route-transition engine or shorten a component-local
-fallback into a separate motion language. High-churn rails and tables opt out
-of automatic enters and may animate a stable inner layout root only.
+fallback into a separate motion language. High-churn rails, tables and virtual
+lists opt out of automatic enters with `data-no-auto-fade="true"` on their
+owning container and may animate a stable layout root only. A
+virtualizer owns each row's positioning transform; page-enter must never tween
+or clear that transform when scrolling mounts a new row. Verify virtual lists
+with the page-enter observer active, including selection and scroll reversal.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
 

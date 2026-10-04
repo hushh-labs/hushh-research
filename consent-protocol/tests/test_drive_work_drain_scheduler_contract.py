@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "drive" / "setup_work_drain_scheduler.sh"
@@ -120,7 +122,7 @@ def test_scheduler_rejects_mismatched_fixed_job_stage_or_cadence_before_mutation
     assert "only configures the reviewed UAT Drive work-drain job" in result.stderr
 
 
-def test_uat_runtime_wires_the_exact_scheduler_identity_and_keeps_other_lanes_default_off():
+def test_runtime_wires_exact_scheduler_identity_and_gates_production_activation():
     cloudbuild = CLOUDBUILD.read_text(encoding="utf-8")
     uat = UAT_WORKFLOW.read_text(encoding="utf-8")
     production = PRODUCTION_WORKFLOW.read_text(encoding="utf-8")
@@ -149,7 +151,27 @@ def test_uat_runtime_wires_the_exact_scheduler_identity_and_keeps_other_lanes_de
         "drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
     ) in uat
     assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}" in uat
-    assert "_DRIVE_WORK_DRAIN_ENABLED=true" not in production
+    steps = yaml.safe_load(production)["jobs"]["deploy"]["steps"]
+    deploy = next(step["run"] for step in steps if step.get("id") == "deploy-backend")
+    for active in ("false", "true"):
+        script = deploy.replace("${{ github.event.inputs.enable_one_email_kyc }}", "false")
+        script = script.replace("${{ steps.drive-mode.outputs.active }}", active)
+        script = re.sub(r"\$\{\{.*?\}\}", "fixture", script)
+        result = subprocess.run(  # noqa: S603 - repo-authored shell with every cloud call intercepted
+            ["bash", "-c", "gcloud() { printf '%s\n' \"$@\"; };\n" + script],
+            env={**os.environ, "DRIVE_CANDIDATE_RUNTIME_SECRET": "fixture"},
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        assert ("_DRIVE_WORK_DRAIN_ENABLED=true" in result.stdout) == (active == "true")
+        if active == "true":
+            assert "_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda," in result.stdout
+            assert (
+                "_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="
+                "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,"
+            ) in result.stdout
+            assert "_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai" in result.stdout
 
 
 def test_worker_promotion_is_post_gate_attested_and_recoverable():
@@ -450,6 +472,7 @@ def test_worker_deploy_traffic_flags_match_service_state(
         """#!/usr/bin/env python3
 import json
 import os
+import re
 import signal
 import sys
 

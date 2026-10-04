@@ -36,29 +36,6 @@ _TRUSTED_MEMBERS_SQL = """
       FROM trusted_circle c
       JOIN one_location_circle_memberships m
         ON m.circle_id = c.id AND m.status = 'active' AND m.user_id <> :owner
-      UNION
-      -- The Trusted roster is a best-effort projection of the connection
-      -- graph. An accepted request can commit while that projection lags.
-      -- A membership of ANY status, including removed, blocks this fallback.
-      SELECT peer.user_id
-      FROM connections conn
-      JOIN connection_origins accepted_origin
-        ON accepted_origin.connection_id = conn.id
-       AND accepted_origin.status = 'active'
-       AND accepted_origin.origin_kind IN ('direct_request', 'legacy_invite')
-      CROSS JOIN LATERAL (
-        SELECT CASE WHEN conn.user_a_id = :owner THEN conn.user_b_id
-                    ELSE conn.user_a_id END AS user_id
-      ) peer
-      WHERE conn.status = 'active'
-        AND (conn.user_a_id = :owner OR conn.user_b_id = :owner)
-        AND peer.user_id <> :owner
-        AND NOT EXISTS (
-          SELECT 1 FROM one_location_circles c
-          JOIN one_location_circle_memberships m ON m.circle_id = c.id
-          WHERE c.owner_user_id = :owner AND c.system_kind = 'trusted'
-            AND m.user_id = peer.user_id
-        )
     )
     SELECT candidate.user_id,
       COALESCE(bool_or(o.origin_kind IN ('direct_request','legacy_invite')), false) AS accepted,
@@ -178,11 +155,11 @@ class DriveOwnerShareStore(ExternalConnectorLifecycleStore):
     async def trusted_recipients(self, *, user_id):
         """The owner's Trusted circle, split into who may receive a share and why not.
 
-        Trusted membership alone authorizes nothing: only people the owner
-        accepted by request or invite are eligible. An accepted connection
-        missing from the best-effort roster is included unless the member has
-        a membership row of any status (notably an explicit removal). Returns
-        eligible user ids (at most MAX_CIRCLE_RECIPIENTS) and closed reasons.
+        Trusted membership alone authorizes nothing: the recipient must both
+        be an active Trusted member and be someone the owner accepted by
+        request or invite. An accepted connection that the owner has not
+        manually added to Trusted is excluded. Returns eligible user ids (at
+        most MAX_CIRCLE_RECIPIENTS) and closed reasons.
         """
 
         def reason(row):

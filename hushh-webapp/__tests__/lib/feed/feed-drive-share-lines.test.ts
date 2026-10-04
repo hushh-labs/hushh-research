@@ -65,6 +65,20 @@ describe("Drive rows in the Feed", () => {
     ).toBe("Could not share all selected files");
   });
 
+  it("reports an empty Drive search without implying a permission failure", () => {
+    expect(
+      presentFeedItem(item("document_share_outcome", {
+        ...recipient,
+        user_facing_status: "no_files_shared",
+      })).description,
+    ).toBe("No files were shared");
+    expect(
+      presentFeedItem(item("document_share_outcome", {
+        user_facing_status: "no_match",
+      })).description,
+    ).toBe("No matching files found; nothing was shared");
+  });
+
   it("announces an approved share before it finishes, and a decline", () => {
     expect(
       presentFeedItem(

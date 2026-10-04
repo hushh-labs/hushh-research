@@ -23,12 +23,13 @@ describe("home shell contract", () => {
     expect(getKaiChromeState(ROUTES.CONNECT).hideCommandBar).toBe(false);
   });
 
-  it("keeps contextual Finance and Location tabs inside the shared top shell", () => {
-    // Location owns the same canonical tab registry inside its module header,
-    // rather than duplicating those tabs in the global top shell.
+  it("keeps contextual Finance and Location tabs inside their module headers", () => {
+    // Location and Finance own their canonical tab registries inside their
+    // module headers, rather than duplicating those tabs in the global top
+    // shell.
     expect(resolveTopShellMetrics(ROUTES.ONE_LOCATION).hasTabs).toBe(false);
-    expect(resolveTopShellMetrics(ROUTES.KAI_HOME).hasTabs).toBe(true);
-    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(true);
+    expect(resolveTopShellMetrics(ROUTES.KAI_HOME).hasTabs).toBe(false);
+    expect(resolveTopShellMetrics(ROUTES.KAI_ANALYSIS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics("/one/location?action=share").hasTabs).toBe(
       false,
     );

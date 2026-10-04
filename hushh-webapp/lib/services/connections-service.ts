@@ -29,6 +29,9 @@ export interface DirectoryPerson {
   maskedEmail?: string | null;
   maskedPhone?: string | null;
   relationship: ConnectionRelationship;
+  /** Absent until the backend supports shared-neighbor discovery. */
+  mutualConnectionCount?: number;
+  mutualConnectionPreview?: { displayName: string; photoUrl: string | null; publicPersonRef?: string | null } | null;
   /**
    * Whether this person holds an RIA profile verified far enough to carry a
    * capability. Server-annotated on the row rather than inferred from which tab

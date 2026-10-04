@@ -37,6 +37,11 @@ export type TopShellBreadcrumbConfig = {
   width?: "content" | "profile";
   align?: "start" | "center";
   /**
+   * Keep an agent-owned page heading out of the compact top bar even after a
+   * scroll observer offers a fallback chip.
+   */
+  suppressFallbackTitle?: boolean;
+  /**
    * Suppress the top-bar back button for this route while keeping the rest of
    * the breadcrumb/title chrome. Used by the onboarding entry screen: until the
    * user has explicitly skipped or continued into a step, there is no confirmed
@@ -86,11 +91,15 @@ export type TopShellTitleSlot<TTitle> =
  * (docs/reference/quality/app-surface-design-system.md).
  */
 export function resolveTopShellTitleSlot<TTitle>(
-  breadcrumb: Pick<TopShellBreadcrumbConfig, "items"> | null | undefined,
+  breadcrumb:
+    | Pick<TopShellBreadcrumbConfig, "items" | "suppressFallbackTitle">
+    | null
+    | undefined,
   fallbackTitle: TTitle | null,
 ): TopShellTitleSlot<TTitle> {
   const items = visibleTopShellBreadcrumbItems(breadcrumb?.items ?? []);
   if (items.length > 0) return { kind: "trail", items };
+  if (breadcrumb?.suppressFallbackTitle) return { kind: "none" };
   if (fallbackTitle) return { kind: "title", title: fallbackTitle };
   return { kind: "none" };
 }
@@ -172,6 +181,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
   if (panel === "gmail") return "Mail";
+  if (panel === "legal") return "Legal";
   if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
@@ -328,6 +338,25 @@ function resolveTopShellBreadcrumbInner(
   const resolvedConnectedSystemLabel =
     String(connectedSystemLabel || "").trim() || "CRM";
 
+  // Terms and Privacy are public pages inside the app shell. Sign-in is the
+  // only in-app screen that links to them (Profile reads them in place), so
+  // Back returns to sign-in; a signed-in person who lands here by address is
+  // forwarded home by sign-in itself. "Legal" names the same section Profile
+  // shows, and has no address of its own.
+  if (pathname === ROUTES.TERMS || pathname === ROUTES.PRIVACY) {
+    return {
+      backHref: ROUTES.LOGIN,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "Legal" },
+        {
+          label: pathname === ROUTES.TERMS ? "Terms of Use" : "Privacy Policy",
+        },
+      ],
+    };
+  }
+
   if (pathname === ROUTES.CONNECT_SETTINGS) {
     return {
       backHref: ROUTES.CONNECT,
@@ -359,10 +388,10 @@ function resolveTopShellBreadcrumbInner(
       backHref: ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: pathname === ROUTES.ONE_FILES ? "Files" : "Wallet" },
-      ],
+      suppressFallbackTitle: true,
+      // Wallet and Files each own their visible PageHeader, so keep the top
+      // shell focused on the back action instead of repeating the route name.
+      items: [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }
 
@@ -508,12 +537,11 @@ function resolveTopShellBreadcrumbInner(
       backHref: setupBackHref || ROUTES.ONE_HOME,
       width: "content",
       align: "center",
-      items: [
-        fromSetup
-          ? { label: "Set up", href: ROUTES.ONE_SETUP }
-          : { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Finance" },
-      ],
+      suppressFallbackTitle: true,
+      // Finance owns its page header and tab rail in the route body, matching
+      // Location. Preserve the authored back target while keeping the compact
+      // bar clear of a duplicate route title.
+      items: fromSetup ? [] : [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }
 
@@ -783,10 +811,9 @@ function resolveTopShellBreadcrumbInner(
       backHref,
       width: "profile",
       align: "center",
-      items: [
-        { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Consent Center" },
-      ],
+      suppressFallbackTitle: true,
+      // Consent Center draws its own agent header below this back action.
+      items: [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }
 
@@ -1024,7 +1051,10 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Memory" }],
+      suppressFallbackTitle: true,
+      // Memory owns the visible route title; the shell retains only the
+      // implicit One root so deterministic back navigation stays intact.
+      items: [{ label: "One", href: ROUTES.ONE_HOME }],
     };
   }
 

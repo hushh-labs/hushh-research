@@ -19,6 +19,8 @@ const orbitClass = "relative mx-auto size-[14rem] sm:size-[17rem]";
 const growthCardClass = "overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-6";
 const candidateGridClass = "mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2";
 const fixtureClasses = [
+  ...Array.from(fs.readFileSync(path.join(process.cwd(), "components/connect/circles/connect-circles-tab.tsx"), "utf8").matchAll(/className="([^"]+)"/g), (match) => match[1]),
+  "ml-auto inline-flex min-h-9 items-center justify-center rounded-full px-4 text-xs font-semibold",
   orbitClass,
   CONNECT_CIRCLE_GRID_CLASSNAME,
   CONNECT_CIRCLE_TILE_CLASSNAME,
@@ -106,7 +108,8 @@ test.beforeAll(async () => {
       <section class="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] px-[var(--surface-card-content-px)] py-4">
         <h2>Your circles</h2>
         <div data-test="grid" class="${CONNECT_CIRCLE_GRID_CLASSNAME}">
-        ${[1, 2, 3].map((i) => `<button data-test="tile" class="${CONNECT_CIRCLE_TILE_CLASSNAME}"><span class="flex w-full min-w-0 items-start justify-between gap-3"><span data-test="circle-preview" class="flex h-11 min-w-0 items-center"><span class="flex items-center -space-x-2">${[1, 2, 3, 4].map(() => `<span data-test="circle-avatar" class="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]"></span>`).join("")}</span>${i === 1 ? '<span class="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style="background:#ec3c40;color:white;font-size:8px">SMS</span>' : ""}</span><span aria-hidden="true">›</span></span><span class="ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">${i === 2 ? "Superlongunbrokencirclenameforfriendsandfamily" : "A very long circle name that needs room to wrap"}</span><span class="ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]">17 people</span></button>`).join("")}
+        ${[1, 2, 3].map((i) => `<button data-test="tile" class="${CONNECT_CIRCLE_TILE_CLASSNAME}"><span class="flex size-12 shrink-0 items-center justify-center rounded-2xl">${i === 1 ? "SMS" : "◎"}</span><span class="min-w-0 flex-1"><span class="block text-base font-semibold [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">${i === 2 ? "Superlongunbrokencirclenameforfriendsandfamily" : "A very long circle name that needs room to wrap"}</span><span class="ui-text-row-description mt-1 block text-[color:var(--app-secondary-label)]">17 people</span></span><span class="col-span-3 flex min-w-0 items-center sm:col-auto sm:ml-auto sm:w-40 sm:shrink-0 sm:justify-end"><span data-test="circle-preview" class="flex h-11 min-w-0 items-center"><span class="flex items-center -space-x-2">${[1, 2, 3, 4].map(() => `<span data-test="circle-avatar" class="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]"></span>`).join("")}</span></span></span><span class="col-start-3 row-start-1 size-5 shrink-0 text-[color:var(--app-secondary-label)] sm:col-auto">›</span></button>`).join("")}
+
         </div>
       </section>
       <section data-test="growth" class="${growthCardClass}">
@@ -118,7 +121,11 @@ test.beforeAll(async () => {
       <h2 data-test="pager-alignment">Connect</h2>
       <div data-test="pager" class="${cn("w-full min-h-0 overflow-hidden", CONNECT_SWIPE_CLIP_GUARD_CLASSNAME)}">
         <div data-test="pager-track" class="flex w-full min-h-0 transform-gpu">
-          <div class="flex-[0_0_100%] min-h-0 min-w-0 max-w-full"></div>
+          <div role="tabpanel" aria-hidden="true" class="flex-[0_0_100%] min-h-0 min-w-0 max-w-full">
+            <div class="${CONNECT_SWIPE_PANE_INSET_CLASSNAME}">
+              <div data-test="inactive-search" style="position:relative;z-index:10;margin-inline:-24px;height:54px;background:rgb(240,240,245)"></div>
+            </div>
+          </div>
           <div class="flex-[0_0_100%] min-h-0 min-w-0 max-w-full">
             <div class="${CONNECT_SWIPE_PANE_INSET_CLASSNAME}">
               <p data-test="pager-copy">Bring people together for the things you share.</p>
@@ -199,11 +206,7 @@ for (const width of widths) {
       expect(candidate.left).toBeGreaterThanOrEqual(geometry.growth.left - 1);
       expect(candidate.right).toBeLessThanOrEqual(geometry.growth.right + 1);
     }
-    if (width < 640) {
-      expect(geometry.tiles[0].bottom).toBeLessThanOrEqual(geometry.tiles[1].top);
-    } else {
-      expect(geometry.tiles[0].top).toBeCloseTo(geometry.tiles[1].top, 0);
-    }
+    expect(geometry.tiles[0].bottom).toBeLessThanOrEqual(geometry.tiles[1].top);
   });
 }
 
@@ -253,5 +256,24 @@ for (const width of [320, 390, 1440] as const) {
       expect(state.tileRight).toBeLessThanOrEqual(geometry.viewport.right - 4);
     }
     expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.clientWidth);
+  });
+}
+
+for (const width of [390, 1440]) {
+  test(`Inactive Connections search cannot paint over Circles at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl);
+    const overlaps = await page.evaluate(() => {
+      const pager = document.querySelector<HTMLElement>('[data-test="pager"]')!;
+      const track = document.querySelector<HTMLElement>('[data-test="pager-track"]')!;
+      track.style.transform = `translate3d(-${pager.clientWidth}px, 0, 0)`;
+      pager.scrollIntoView({ block: "center" });
+      const copy = document.querySelector<HTMLElement>('[data-test="pager-copy"]')!.getBoundingClientRect();
+      const search = document.querySelector<HTMLElement>('[data-test="inactive-search"]')!;
+      const searchBounds = search.getBoundingClientRect();
+      // Omit inert here so hit testing exposes the painted sibling overlap.
+      return document.elementFromPoint(copy.left + 4, searchBounds.top + 20) === search;
+    });
+    expect(overlaps).toBe(false);
   });
 }

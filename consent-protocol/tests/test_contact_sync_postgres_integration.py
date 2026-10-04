@@ -517,19 +517,18 @@ def test_disconnect_waiting_on_graph_lock_wins_over_older_sync_cutoff() -> None:
                 "phone_lookups": [_lookup("manish", "+919876500001")],
                 "matches": [{"lookup_id": "manish", "user_id": "manish"}],
             }
-            with patch.object(service, "_join_trusted_system_circles_bulk"):
-                assert (
-                    service.sync_contact_matches("owner", **args, sync_started_at=cutoff)[
-                        "suppressedCount"
-                    ]
-                    == 1
-                )
-                assert (
-                    service.sync_contact_matches(
-                        "owner", **args, sync_started_at=service.begin_contact_sync()
-                    )["autoConnectedCount"]
-                    == 1
-                )
+            assert (
+                service.sync_contact_matches("owner", **args, sync_started_at=cutoff)[
+                    "suppressedCount"
+                ]
+                == 1
+            )
+            assert (
+                service.sync_contact_matches(
+                    "owner", **args, sync_started_at=service.begin_contact_sync()
+                )["autoConnectedCount"]
+                == 1
+            )
     finally:
         engine.dispose()
         asyncio.run(_drop_schema(schema))
@@ -622,7 +621,6 @@ def test_legacy_disconnect_actor_schema_replays_into_owner_resync_on_postgres() 
             service = ConnectionsService()
             service._transaction_connection = connection
             with (
-                patch.object(service, "_join_trusted_system_circles_bulk"),
                 patch.object(service, "_cancel_pending_pair_requests"),
                 patch.object(service, "_revoke_pair_capabilities"),
                 patch.object(service, "_end_one_location_circle_memberships"),
@@ -722,7 +720,6 @@ def test_explicit_resync_disconnect_episodes_and_backfill_on_postgres() -> None:
             # the canonical disconnect, SQL locks, proofs, provenance and mirror
             # writes below execute the real production service on PostgreSQL.
             with (
-                patch.object(service, "_join_trusted_system_circles_bulk"),
                 patch.object(service, "_cancel_pending_pair_requests"),
                 patch.object(service, "_revoke_pair_capabilities"),
                 patch.object(service, "_end_one_location_circle_memberships") as teardown,

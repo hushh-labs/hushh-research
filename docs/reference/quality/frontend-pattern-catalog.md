@@ -134,7 +134,7 @@ Rules:
 
 1. Keep the signed-in primary bottom navigation constant and ordered: `Chat`, `One`, `Connect`, `Feed`, and `Search`. `Chat` is the canonical home route `/`; Search is a segment, never a detached control. The five equal-width segments use the shared bottom-chrome frame and remain centered at every breakpoint.
 2. Keep the bar compact and fixed. The voice-only agent control occupies a narrower content-sized slot in the same bottom surface; do not add a divider, inter-slot gap, route-local navigation, or empty Chat launcher.
-3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Those context tabs render only in the shared top shell. Profile remains the rightmost signed-in top-bar action.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Their route bodies render the central registry's tabs directly below the module heading, while the fixed top shell stays back/navigation-only. Profile remains the rightmost signed-in top-bar action.
 4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
 5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
 6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.

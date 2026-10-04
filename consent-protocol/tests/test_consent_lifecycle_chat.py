@@ -37,6 +37,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from google.adk.events import Event
+from google.genai import types
 
 from hushh_mcp.one_adk import action_tools
 from hushh_mcp.one_adk.action_tools import (
@@ -59,7 +61,9 @@ from hushh_mcp.one_adk.consent_continuation import (
     consent_continuation_instruction,
     consent_outcome_state_key,
 )
+from hushh_mcp.one_adk.queued_input import QUEUED_INPUT_KIND
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.services.client_connector_service import ClientConnectorService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleService,
@@ -68,7 +72,6 @@ from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjec
 from hushh_mcp.services.information_request_service import (
     InformationRequestService,
 )
-from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 
 STATE_USER_ID = action_tools._STATE_USER_ID
 STATE_CONSENT_TOKEN = action_tools._STATE_CONSENT_TOKEN
@@ -144,8 +147,8 @@ def _profile(profile: dict = PROFILE):
 def _connector(configured: bool = True):
     connector = {"connector_key_id": "ck_1"} if configured else None
     return patch.object(
-        OneEmailKycService,
-        "get_client_connector",
+        ClientConnectorService,
+        "get",
         new=AsyncMock(return_value={"configured": configured, "connector": connector}),
     )
 
@@ -1586,12 +1589,117 @@ async def test_document_request_keeps_its_purpose_after_choosing_between_two_rah
             item for item in ambiguous["candidates"] if item["displayName"] == "Rahul Verma"
         )
         context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = chosen["selectionHandle"]
-        ready = await action_tools.propose_document_request("Rahul", "bank statements", context)
+        missing = await action_tools.propose_document_request("Rahul", "bank statements", context)
+        context.user_content = SimpleNamespace(
+            role="user",
+            parts=[SimpleNamespace(text="Bank statements from 2026-09-01 to 2026-09-30")],
+        )
+        ready = await action_tools.propose_document_request(
+            "Rahul",
+            "bank statements",
+            context,
+            period_start="2026-09-01",
+            period_end="2026-09-30",
+        )
+    assert missing["status"] == "needs_clarification"
+    assert "start date and end date" in missing["message"]
     assert ready["status"] == "proposal_ready"
     assert ready["person"] == {"personRef": second_ref, "displayName": "Rahul Verma"}
     assert ready["purpose"]["purpose"] == "bank statements"
     assert "Ask as a question" in ready["nextStep"]
     assert "Only Request files needs a Google sign-in check" in ready["nextStep"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "purpose", ["last 3 days standup notes", "latest six months bank statements"]
+)
+async def test_relative_document_request_asks_for_exact_dates_before_proposal(purpose):
+    context = _ctx(_state())
+    relationship = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        relationship,
+    ):
+        missing = await action_tools.propose_document_request("Rahul", purpose, context)
+        model_dates = await action_tools.propose_document_request(
+            "Rahul",
+            purpose,
+            context,
+            period_start="2026-09-29",
+            period_end="2026-10-01",
+        )
+        context.user_content = SimpleNamespace(
+            role="user",
+            parts=[SimpleNamespace(text="Please use 2026-09-29 through 2026-10-01")],
+        )
+        ready = await action_tools.propose_document_request(
+            "Rahul",
+            purpose,
+            context,
+            period_start="2026-09-29",
+            period_end="2026-10-01",
+        )
+    assert missing["status"] == "needs_clarification"
+    assert "start date and end date" in missing["message"]
+    assert model_dates["status"] == "needs_clarification"
+    assert ready["status"] == "proposal_ready"
+    assert ready["purpose"]["periodStart"] == "2026-09-29"
+    assert ready["purpose"]["periodEnd"] == "2026-10-01"
+
+
+@pytest.mark.asyncio
+async def test_document_request_accepts_only_same_invocation_queued_user_dates():
+    context = _ctx(_state())
+    context.user_content = types.Content(
+        role="user", parts=[types.Part(text="Ask Rahul for last 3 days standup notes")]
+    )
+    context.invocation_id = "current-invocation"
+    dates = types.Content(role="user", parts=[types.Part(text="Use 2026-09-29 through 2026-10-01")])
+
+    def queued_event(*, invocation_id="current-invocation", kind=QUEUED_INPUT_KIND, author="user"):
+        return Event(
+            invocation_id=invocation_id,
+            author=author,
+            branch="",
+            content=dates,
+            custom_metadata={"kind": kind},
+        )
+
+    async def propose():
+        return await action_tools.propose_document_request(
+            "Rahul",
+            "last 3 days standup notes",
+            context,
+            period_start="2026-09-29",
+            period_end="2026-10-01",
+        )
+
+    relationship = patch(
+        "hushh_mcp.one_adk.action_tools.PersonProfileService.get_relationship_target",
+        new=lambda self, **kwargs: (kwargs["public_person_ref"], {"status": "connected"}),
+    )
+    with (
+        _auth(),
+        _connections({"displayName": "Rahul Sharma", "publicPersonRef": PERSON_REF}),
+        relationship,
+    ):
+        context.session.events = [queued_event(invocation_id="previous-invocation")]
+        assert (await propose())["status"] == "needs_clarification"
+        context.session.events = [queued_event(kind="other")]
+        assert (await propose())["status"] == "needs_clarification"
+        context.session.events = [queued_event(author="model")]
+        assert (await propose())["status"] == "needs_clarification"
+        context.session.events = [queued_event()]
+        ready = await propose()
+
+    assert ready["status"] == "proposal_ready"
+    assert ready["purpose"]["periodStart"] == "2026-09-29"
+    assert ready["purpose"]["periodEnd"] == "2026-10-01"
 
 
 @pytest.mark.asyncio

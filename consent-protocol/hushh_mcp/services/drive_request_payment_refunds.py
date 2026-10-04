@@ -27,7 +27,7 @@ _REFUND_CANDIDATES_SQL = """
       AND NOT o.delivery_confirmed_at_erasure) OR
       (r.payment_required=TRUE AND
        (o.reconciliation_required OR r.status IN
-         ('completed','partial','expired','cancelled','declined')
+         ('completed','partial','no_match','expired','cancelled','declined')
          OR r.expires_at<=clock_timestamp())
        AND NOT EXISTS (SELECT 1 FROM drive_bulk_share_effects e
       JOIN drive_bulk_shares b ON b.share_id=e.share_id

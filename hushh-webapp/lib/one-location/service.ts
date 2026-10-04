@@ -760,18 +760,10 @@ export class OneLocationService {
   }
 
   /**
-   * Find-or-create the Trusted Circle and top up its roster.
+   * Find or create the built-in Trusted Circle container.
    *
-   * The accept hook writes both sides of a NEW connection, so a pair that
-   * connects from here on needs nothing else. What it cannot do is account for
-   * the connections somebody already had: without this call, a person with
-   * forty of them sees no Trusted Circle at all until their next accept, and
-   * then sees one holding a single name under the words "Everyone you're
-   * connected to" -- which is worse than not showing it.
-   *
-   * So the list reconciles before it reads. Safe on every call: the reconcile
-   * adds only connections with no membership row of ANY status, so a removal
-   * stays removed.
+   * This provisions an empty, manually curated Circle only. It never reads
+   * Connections or changes a member roster.
    */
   static async ensureTrustedSystemCircle(params: {
     vaultOwnerToken: string;
@@ -874,6 +866,20 @@ export class OneLocationService {
       },
     );
     return normalizeCircleDetail(response.circle);
+  }
+
+  static async updateNamedCirclePhoto(params: {
+    vaultOwnerToken: string; circleId: string; photoUrl: string | null;
+  }): Promise<OneLocationCircleOverview> {
+    const response = await apiJson<{ circle: OneLocationCircleOverview }>(
+      `/api/one/circles/${encodeURIComponent(params.circleId)}/photo`, {
+        method: "PUT", headers: jsonAuthHeaders(params.vaultOwnerToken),
+        body: JSON.stringify({ photoUrl: params.photoUrl }), cache: "no-store",
+      });
+    if (!response.circle || response.circle.id !== params.circleId || response.circle.photoUrl !== params.photoUrl) {
+      throw new Error("Circle photo wasn't saved. Try again.");
+    }
+    return response.circle;
   }
 
   /** Command adapter for the same owning mutation endpoints used by taps.

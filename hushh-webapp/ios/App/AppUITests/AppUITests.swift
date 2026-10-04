@@ -24,6 +24,34 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    func testPhysicalDeviceAutomationCanNavigateSettingsWithoutResettingOne() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_UI_AUTOMATION_READINESS_ONLY"] == "true" else {
+            throw XCTSkip("Opt-in physical-device control check, not product acceptance")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("One must already be running; this probe must not cold-launch it")
+        }
+        // Probe the OS independently of a protected WebView. Only public
+        // Settings navigation is touched; no preference or credential changes.
+        let settings = XCUIApplication(bundleIdentifier: "com.apple.Preferences")
+        settings.activate()
+        let general = settings.staticTexts["General"]
+        for _ in 0..<6 {
+            if general.exists { break }
+            let back = settings.navigationBars.buttons.firstMatch
+            guard back.exists else { break }
+            back.tap()
+        }
+        XCTAssertTrue(general.waitForExistence(timeout: 10), "Public Settings controls are unavailable")
+        general.tap()
+        XCTAssertTrue(settings.navigationBars["General"].waitForExistence(timeout: 10),
+                      "Native tap did not navigate to General")
+        settings.navigationBars.buttons.firstMatch.tap()
+        app.activate()
+        print("NATIVE_UI_CONTROL_READY public_settings_navigation")
+    }
+
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {
         // Real device/session lane: no UITestMode, reviewer bootstrap, reset,
         // credentials, or account mutation. It exercises the installed local
@@ -35,6 +63,9 @@ final class AppUITests: XCTestCase {
         // Attach to the owner's already-open local session. A cold launch
         // intentionally locks the vault and would turn this into a reviewer
         // credential test rather than a live-device interaction check.
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Continuity requires One to be running; automation must not cold-launch it")
+        }
         app.activate()
 
         let webView = app.webViews.firstMatch

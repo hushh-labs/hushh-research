@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -428,16 +428,7 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("requires a vault before saving KYC identity information", () => {
-    const kycPrefaceSource = readFileSync(
-      join(
-        process.cwd(),
-        "components/onboarding/setup/kyc-identity-preface.tsx",
-      ),
-      "utf8",
-    );
-    expect(kycPrefaceSource).toContain("VaultUnlockDialog");
-
+  it("does not retain the retired mailbox KYC setup route", () => {
     const vaultFreeSetupSurfaces = [
       "app/one/setup/location/location-onboarding-setup-client.tsx",
     ];
@@ -455,18 +446,8 @@ describe("One setup hub terminal action contract", () => {
       ),
       "utf8",
     );
-    const kycRouteSource = readFileSync(
-      join(process.cwd(), "app/one/kyc/page.tsx"),
-      "utf8",
-    );
     expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
-    expect(kycRouteSource).toContain("<KycIdentityPreface");
-    const vaultGuard = kycPrefaceSource.indexOf("if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken)");
-    const save = kycPrefaceSource.indexOf("KycIdentityProfilePkmService.saveProfile");
-    expect(vaultGuard).toBeGreaterThanOrEqual(0);
-    expect(save).toBeGreaterThan(vaultGuard);
-    expect(kycPrefaceSource.slice(vaultGuard, save)).toContain("setVaultDialogOpen(true)");
-    expect(kycPrefaceSource.slice(vaultGuard, save)).toContain("return;");
+    expect(existsSync(join(process.cwd(), "app/one/kyc/page.tsx"))).toBe(false);
 
     const existingVaultOnlySurfaces = [
       "app/one/setup/kai/page.tsx",

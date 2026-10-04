@@ -16,7 +16,13 @@ from hushh_mcp.services.connector_feature_admission import (
 
 @pytest.fixture(autouse=True)
 def closed_by_default(monkeypatch):
-    for name in (*FEATURES.values(), "CONNECTOR_INTERNAL_OWNER_COHORT", "CONNECTOR_UAT_ALL_USERS"):
+    for name in (
+        *FEATURES.values(),
+        "CONNECTOR_INTERNAL_OWNER_COHORT",
+        "CONNECTOR_UAT_ALL_USERS",
+        "CONNECTOR_PRODUCTION_OWNER_COHORT",
+        "CONNECTOR_PRODUCTION_ALL_USERS",
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("ENVIRONMENT", "test")
 
@@ -132,3 +138,76 @@ def test_structured_hosted_runtime_hydrates_explicit_uat_all_users_mode():
     with patch.dict(os.environ, config, clear=True):
         runtime_settings.hydrate_runtime_environment()
         assert connector_feature_enabled("google_drive_connection", "new-firebase-uid")
+
+
+@pytest.mark.parametrize(
+    "feature",
+    [
+        "connections_panel_v2",
+        "google_drive_live",
+        "drive_document_indexing",
+        "drive_document_sharing",
+    ],
+)
+def test_production_drive_effects_require_separate_rollout_and_feature_flag(monkeypatch, feature):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv(FEATURES[feature], "true")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    assert not connector_feature_enabled(feature, "owner")
+
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_OWNER_COHORT", "owner,second-owner")
+    assert connector_feature_enabled(feature, "owner")
+    assert not connector_feature_enabled(feature, "another-owner")
+
+    monkeypatch.delenv(FEATURES[feature])
+    assert not connector_feature_enabled(feature, "owner")
+
+
+def test_production_all_users_is_explicit_and_conflicting_modes_fail_closed(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_ALL_USERS", "true")
+    assert connector_feature_enabled("drive_document_sharing", "new-firebase-uid")
+    assert not connector_feature_enabled("drive_document_sharing", "")
+    assert not connector_feature_enabled("drive_document_sharing", " padded ")
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_OWNER_COHORT", "owner")
+    assert not connector_feature_enabled("drive_document_sharing", "owner")
+    assert not connector_feature_enabled("drive_document_sharing", "new-firebase-uid")
+
+
+@pytest.mark.parametrize(
+    "cohort", ["*", "all", "owner,", ",owner", "owner,owner", "owner,other owner"]
+)
+def test_malformed_production_cohort_fails_closed(monkeypatch, cohort):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_OWNER_COHORT", cohort)
+    assert not connector_feature_enabled("drive_document_sharing", "owner")
+
+
+def test_production_rollout_does_not_open_unreviewed_features_or_uat(monkeypatch):
+    monkeypatch.setenv("CONNECTOR_PRODUCTION_ALL_USERS", "true")
+    monkeypatch.setenv("GMAIL_CHAT_READS", "true")
+    monkeypatch.setenv("DRIVE_DOCUMENT_SHARING", "true")
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    assert not connector_feature_enabled("unknown_feature", "owner")
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    assert not connector_feature_enabled("drive_document_sharing", "owner")
+
+
+def test_structured_runtime_hydrates_production_owner_admission():
+    config = {
+        "BACKEND_RUNTIME_CONFIG_JSON": json.dumps(
+            {
+                "environment": "production",
+                "drive_document_sharing": True,
+                "connector_production_owner_cohort": ["owner"],
+                "connector_production_all_users": False,
+            }
+        )
+    }
+    with patch.dict(os.environ, config, clear=True):
+        runtime_settings.hydrate_runtime_environment()
+        assert connector_feature_enabled("drive_document_sharing", "owner")
+        assert not connector_feature_enabled("drive_document_sharing", "another-owner")

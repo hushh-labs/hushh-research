@@ -313,7 +313,7 @@ export function PhoneMandatePageContent() {
   // redirect at the top of this component sends them to /login.
   if (!user) {
     return (
-      <HushhLoader label="Loading phone verification..." variant="fullscreen" />
+      <HushhLoader stage="phone" label="Loading phone verification..." />
     );
   }
 
@@ -336,7 +336,7 @@ export function PhoneMandatePageContent() {
   }
 
   if (admission?.userId !== user.uid || admission.status !== "ready") {
-    return <HushhLoader label="Checking phone requirement..." variant="fullscreen" />;
+    return <HushhLoader stage="phone" label="Checking phone requirement..." />;
   }
   const shell = (
     <main
@@ -478,7 +478,7 @@ export function PhoneMandatePageContent() {
 
 export default function RegisterPhonePage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense fallback={<HushhLoader stage="phone" label="Loading phone verification..." />}>
       <PhoneMandatePageContent />
     </Suspense>
   );

@@ -1,8 +1,9 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 262,
+  "expected_migration_version": 268,
   "migration_version_policy": "exact",
   "required_functions": [
+    "block_gmail_receipt_cache_writes",
     "project_calendar_mail_feed",
     "ensure_drive_share_management_context",
     "invalidate_selected_drive_documents",
@@ -36,7 +37,19 @@
     "refresh_account_deletion_guards_after_identity_ddl",
     "commit_pkm_domain_mutation_v5",
     "clear_location_presence_rating_visit",
-    "preserve_active_location_rating_visit"
+    "preserve_active_location_rating_visit",
+    "require_active_direct_message_connection",
+    "guard_direct_message_block_write",
+    "guard_direct_message_conversation_write",
+    "guard_direct_message_message_write",
+    "touch_direct_message_conversation",
+    "notify_direct_message_recipient",
+    "project_direct_message_feed_event",
+    "remove_direct_message_feed_event",
+    "circle_chat_membership_ended",
+    "circle_chat_recipient_deleted",
+    "circle_chat_circle_deleted",
+    "circle_photo_erased"
   ],
   "required_tables": {
     "account_deletion_tombstones": [
@@ -154,6 +167,37 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "circle_chat_messages": [
+      "original_recipient_count",
+      "id",
+      "sequence",
+      "circle_id",
+      "sender_user_id",
+      "client_message_id",
+      "ciphertext",
+      "iv",
+      "image_ciphertext",
+      "image_iv",
+      "request_digest",
+      "created_at"
+    ],
+    "circle_chat_preferences": [
+      "circle_id",
+      "user_id",
+      "muted"
+    ],
+    "circle_chat_recipients": [
+      "message_id",
+      "recipient_user_id",
+      "membership_joined_at",
+      "key_id",
+      "envelope",
+      "read_at",
+      "feed_event_id",
+      "push_status",
+      "push_attempts",
+      "push_due_at"
     ],
     "connected_documents": [
       "document_id",
@@ -413,6 +457,13 @@
       "lookup_count",
       "updated_at"
     ],
+    "conversations": [
+      "id",
+      "participant_a_user_id",
+      "participant_b_user_id",
+      "created_at",
+      "last_message_at"
+    ],
     "crm_encrypted_fields_recipient_keys": [
       "crm_id",
       "key_id",
@@ -582,6 +633,12 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "direct_message_blocks": [
+      "id",
+      "blocker_user_id",
+      "blocked_user_id",
+      "created_at"
     ],
     "document_chunks": [
       "document_id",
@@ -1318,6 +1375,16 @@
       "source_errors",
       "metadata"
     ],
+    "messages": [
+      "id",
+      "conversation_id",
+      "sender_user_id",
+      "content_ciphertext",
+      "content_iv",
+      "content_algorithm",
+      "created_at",
+      "read_at"
+    ],
     "one_action_directive_ledger": [
       "adk_app_name",
       "document_request_id",
@@ -1580,6 +1647,7 @@
       "metadata"
     ],
     "one_location_circles": [
+      "photo_url",
       "id",
       "owner_user_id",
       "name",

@@ -73,11 +73,13 @@ must not recreate shell chrome, safe-area math, an icon well, or a list row.
 ## Unified Mobile Header Guidelines
 
 The shared top shell owns navigation and the route declares its breadcrumb. Do
-not add a second Back control or repeat the title in a route-local hero. Use
-the lean shared `PageHeader` in the body only when it contributes distinct
-page context. Align it to the route's reading grid; center a focused flow only
-when that flow's layout contract calls for centering. Specialist icons use the
-shared squircle treatment, without a route-local glow or competing header.
+not add a second Back control. An agent root with a back-only shell (Location,
+Finance, Memory, or Consent Center) draws its one visible title as a body
+`PageHeader titleRole="agent"`, directly above its registered tab rail when it
+has one. Nested routes retain their compact trail title instead. Align an
+agent root to the agent grid; center a focused flow only when that flow's
+layout contract calls for centering. Specialist icons use the shared squircle
+treatment, without a route-local glow or competing header.
 See [Shell and navigation ownership](./app-surface-design-system.md#shell-and-navigation-ownership)
 and [Pixel Grid And Symmetry Contract](./app-surface-design-system.md#pixel-grid-and-symmetry-contract).
 
@@ -158,10 +160,11 @@ contract.
 
 ```text
 safe area
-┌ One / current workspace     workspace tabs                  alerts + Profile ┐
-│ Finance                     Market · Portfolio · Analysis                    │
-└──────────────────────────────────────────────────────────────────────────────┘
-                                     route content
+┌ back                                        alerts + Profile ┐
+└──────────────────────────────────────────────────────────────┘
+                           Finance
+                    Market · Portfolio · Analysis
+                             route content
                               voice-only control (narrow slot)
                               Chat · One · Connect · Feed · Search
 safe area
@@ -177,10 +180,11 @@ safe area
    There is no divider, nested material, or inter-slot gap; their transform,
    safe-area clearance, and fade are measured by the shared shell. Neither
    route nor component may add another boundary.
-4. Finance and RIA workspace tabs render only in the unified top shell. Their
-   labels, destinations, active query state, and visibility come from the
-   central route registry; route bodies and bottom navigation do not duplicate
-   them.
+4. Finance, Consent Center, Location, and RIA derive labels, destinations, and
+   active state from the central route registry. Their route bodies render the
+   registered `TopShellTabs` directly below the module header; the fixed shell
+   does not duplicate those rails. Public Explore remains a fixed-shell tab
+   set.
 5. The rightmost signed-in top-bar control is Profile. It uses the signed-in
    person's image when available and the same generic/initial fallback as the
    Profile route. Connect remains a route but is not shell chrome.
@@ -191,19 +195,19 @@ safe area
    never aligns to the wider page shell or viewport edge. The voice slot is
    narrower than the navigation frame while retaining a 44px hit target.
 8. Finance is one `/one/kai?tab=` workspace. Market, Portfolio, and Analysis
-   use the Profile reading measure and shared outer gutter; their content may
-   vary, but they must not introduce a wider dashboard canvas, a second fixed
-   header, or a route-local tab bar.
+   use the Location-aligned agent measure and shared outer gutter. Its stable
+   Finance header and registry-backed rail precede the pager; tab content may
+   vary but must not introduce a second title or a custom tab bar.
 
 ## List and Header Rules
 
 1. Every standard signed-in route uses the lean shared header; no route-local
    logo, hero, or duplicate title bar.
-2. Profile is the geometry reference for a primary workspace header: one
-   `AppPageShell` at the reading measure, one `AppPageHeaderRegion`, and one
-   primary `PageHeader` or profile identity header. Finance tab content may
-   render supporting section headings, but it must not create a competing
-   primary header above or beside the shared workspace header.
+2. Location is the geometry reference for an agent-root workspace header: one
+   `AppPageShell` at the agent measure, one `AppPageHeaderRegion`, and one
+   primary agent `PageHeader`. Finance, Memory, and Consent Center use the
+   same title hierarchy; tab content may render supporting section headings,
+   but it must not create a competing primary header.
 3. `SettingsGroup` and `SettingsRow` own responsive inset lists: icon well,
    separator, truncation, 44px+ tap target, trailing alignment, and mobile
    stacking. Connected Systems, Profile, and agent lists use the same model.

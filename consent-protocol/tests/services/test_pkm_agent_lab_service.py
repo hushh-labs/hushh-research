@@ -9,6 +9,15 @@ from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
+def _request(prompt: str) -> dict:
+    """The JSON request a memory-agent prompt ends with, after its worked examples."""
+
+    head, marker, body = prompt.rpartition("Request: ")
+    assert marker, "every memory-agent prompt ends with its JSON request"
+    assert "Rules:" not in head, "rules belong in the manifest instruction, not the prompt"
+    return json.loads(body)
+
+
 def _registry_choices():
     return [
         {
@@ -252,7 +261,6 @@ def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None
             "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
         },
         merge_decision={"target_domain": "__quarantine_v1", "merge_mode": "create_entity"},
-        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
         parsed_structure={
             "candidate_payload": {"preferences": {"note": "must not move to food"}},
             "structure_decision": {"target_domain": "__quarantine_v1"},
@@ -269,6 +277,66 @@ def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None
     assert preview["validation_hints"] == ["invalid_or_reserved_target_rejected"]
 
 
+@pytest.mark.parametrize("slug", ["agents", "mcp", "system"])
+def test_a_work_fact_named_after_a_protocol_namespace_is_kept_in_a_real_domain(slug) -> None:
+    """ "Our agents run on ADK" is work context, not a request for a protocol domain.
+
+    agents, mcp and system are reserved slugs, so a model that names the domain
+    after the subject used to get a terminal reject_reserved_target and the
+    fact was lost. It is now nested under that name in the intent's domain.
+    """
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="Our agents are orchestrated with Google ADK and speak A2A to each other.",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "profile_fact",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+        },
+        merge_decision={"target_domain": slug, "merge_mode": "create_entity"},
+        parsed_structure={
+            "candidate_payload": {"architecture": {"orchestration": "Google ADK with A2A"}},
+            "structure_decision": {"target_domain": slug},
+            "write_mode": "confirm_first",
+        },
+        fallback_target_domain="professional",
+        simulated_state=None,
+    )
+
+    assert preview["write_mode"] == "confirm_first"
+    assert preview["structure_decision"]["target_domain"] == "professional"
+    # Kept with its content; the existing scope rules may place it further.
+    assert "Google ADK with A2A" in json.dumps(preview["candidate_payload"])
+    assert "protocol_domain_name_remapped" in preview["validation_hints"]
+    assert "invalid_or_reserved_target_rejected" not in preview["validation_hints"]
+
+
+def test_a_storage_or_authority_namespace_is_still_refused() -> None:
+    # Negative control: vault and pkm name storage and authority, never a topic.
+    for slug in ("vault", "pkm", "consent"):
+        preview = PKMAgentLabService._normalize_structure_preview(
+            message="Keep this note.",
+            current_domains=["professional"],
+            registry_choices=_registry_choices(),
+            intent_frame={
+                "intent_class": "note",
+                "mutation_intent": "create",
+                "candidate_domain_choices": [{"domain_key": "professional", "recommended": True}],
+            },
+            merge_decision={"target_domain": slug, "merge_mode": "create_entity"},
+            parsed_structure={
+                "candidate_payload": {"notes": {"text": "Keep this note."}},
+                "structure_decision": {"target_domain": slug},
+                "write_mode": "confirm_first",
+            },
+            fallback_target_domain="professional",
+            simulated_state=None,
+        )
+        assert preview["structure_decision"]["action"] == "reject_reserved_target", slug
+        assert preview["write_mode"] == "do_not_save", slug
+
+
 def test_auto_save_lane_requires_high_confidence_and_non_destructive_intent() -> None:
     def preview_for(confidence: float) -> dict:
         return PKMAgentLabService._normalize_structure_preview(
@@ -282,7 +350,6 @@ def test_auto_save_lane_requires_high_confidence_and_non_destructive_intent() ->
                 "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
             },
             merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
-            financial_guard={"routing_decision": "non_financial_or_ephemeral"},
             parsed_structure={
                 "candidate_payload": {"preferences": {"drink": "espresso without sugar"}},
                 "structure_decision": {"target_domain": "food", "confidence": confidence},
@@ -499,7 +566,7 @@ async def test_direct_contract_uses_manifest_instruction_and_input_only_segmenta
         prompt = service._build_memory_segmentation_prompt(
             message=message, strict_small_model=strict
         )
-        assert json.loads(prompt) == {"message": message, "strict_small_model": strict}
+        assert _request(prompt) == {"message": message, "strict_small_model": strict}
         await service._run_agent_contract(
             manifest=service.memory_segmentation_manifest,
             prompt=prompt,
@@ -512,32 +579,74 @@ async def test_direct_contract_uses_manifest_instruction_and_input_only_segmenta
 
 
 def test_segmentation_fails_closed_and_keeps_only_exact_owner_quotes():
-    message = "Thanks for helping with the form. I avoid dairy and run every morning."
+    message = (
+        "## Work\n- **Role:** Staff engineer \u2014 platform\n"
+        "Thanks for helping with the form. I avoid dairy and run every morning.\n"
+        "- Information not known: team size"
+    )
 
     assert PKMAgentLabService._sanitize_segmented_messages(None, message=message) == []
-    assert PKMAgentLabService._sanitize_segmented_messages(
+    segments, not_memory, unmatched = PKMAgentLabService._sanitize_segmentation(
         {
             "segments": [
                 {
                     "source_text": "I avoid dairy",
+                    "context_quotes": [],
                     "confidence": 0.9,
                     "reason": "Dietary constraint.",
                 },
+                # Markdown cleaned and the dash normalized: still the owner's
+                # text, kept as the ORIGINAL span with its own characters.
+                {
+                    "source_text": "Role: Staff engineer - platform",
+                    "context_quotes": ["Work"],
+                    "confidence": 0.9,
+                    "reason": "Role.",
+                },
+                # Negative control: an invented clause matches nothing. It is
+                # dropped and counted; it does not discard the section.
                 {
                     "source_text": "The owner is an athlete",
+                    "context_quotes": [],
                     "confidence": 0.9,
                     "reason": "Invented.",
                 },
-            ]
+                # The same span selected twice is a duplicate, not a silent drop.
+                {
+                    "source_text": "I avoid dairy",
+                    "context_quotes": [],
+                    "confidence": 0.9,
+                    "reason": "Repeat.",
+                },
+            ],
+            "not_memory": [
+                {"quote": "- Information not known: team size", "reason": "disclaimer"},
+                {"quote": "A line that is not there", "reason": "disclaimer"},
+                {"quote": "I avoid dairy", "reason": "not_a_reason"},
+            ],
         },
         message=message,
-    ) == [
+    )
+    assert segments == [
         {
             "source_text": "I avoid dairy",
+            "context_quotes": [],
             "confidence": 0.9,
             "reason": "Dietary constraint.",
-        }
+        },
+        {
+            "source_text": "Role:** Staff engineer \u2014 platform",
+            "context_quotes": ["Work"],
+            "confidence": 0.9,
+            "reason": "Role.",
+        },
     ]
+    assert all(segment["source_text"] in message for segment in segments)
+    assert not_memory == [
+        {"quote": "I avoid dairy", "reason": "duplicate"},
+        {"quote": "- Information not known: team size", "reason": "disclaimer"},
+    ]
+    assert unmatched == 2
 
 
 def test_invalid_structure_write_mode_requires_review():
@@ -552,7 +661,6 @@ def test_invalid_structure_write_mode_requires_review():
             "candidate_domain_choices": [{"domain_key": "health", "recommended": True}],
         },
         merge_decision={"target_domain": "health", "merge_mode": "create_entity"},
-        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
         parsed_structure={
             "candidate_payload": {"dietary_constraints": {"dairy": "avoid"}},
             "structure_decision": {"target_domain": "health", "confidence": 0.9},
@@ -645,13 +753,6 @@ async def test_generate_structure_preview_replaces_non_financial_financial_paylo
         side_effect=[
             _single_segment("I like Chinese"),
             {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.95,
-                "reason": "Food preference, not finance.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
-            {
                 "save_class": "durable",
                 "intent_class": "preference",
                 "mutation_intent": "create",
@@ -707,7 +808,6 @@ async def test_generate_structure_preview_replaces_non_financial_financial_paylo
         current_domains=["financial"],
     )
 
-    assert result["routing_decision"] == "non_financial_or_ephemeral"
     assert result["intent_frame"]["intent_class"] == "preference"
     assert result["structure_decision"]["target_domain"] == "food"
     assert result["write_mode"] == "confirm_first"
@@ -715,7 +815,7 @@ async def test_generate_structure_preview_replaces_non_financial_financial_paylo
     assert "non_financial_payload_replaced" in result["validation_hints"]
     assert "user_stated_financial_memory" not in str(result["candidate_payload"])
     assert result["merge_decision"]["target_domain"] == "food"
-    assert run_agent_contract.await_count == 5
+    assert run_agent_contract.await_count == 4
     assert len(result["preview_cards"]) == 1
     assert all(
         entry["domain_key"] != "general"
@@ -735,13 +835,6 @@ async def test_generate_structure_preview_marks_ephemeral_reminder_do_not_save(m
     run_agent_contract = AsyncMock(
         side_effect=[
             _single_segment("Remind me to call mom on Sunday"),
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.89,
-                "reason": "Reminder-like request.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
             {
                 "save_class": "ephemeral",
                 "intent_class": "task_or_reminder",
@@ -797,14 +890,13 @@ async def test_generate_structure_preview_marks_ephemeral_reminder_do_not_save(m
         current_domains=[],
     )
 
-    assert result["routing_decision"] == "non_financial_or_ephemeral"
     assert result["intent_frame"]["save_class"] == "ephemeral"
     assert result["intent_frame"]["mutation_intent"] == "no_op"
     assert result["write_mode"] == "do_not_save"
     assert result["primary_json_path"] is None
     assert "ephemeral_request_not_saved" in result["validation_hints"]
     assert result["structure_decision"]["target_domain"] != "general"
-    assert run_agent_contract.await_count == 3
+    assert run_agent_contract.await_count == 2
     assert result["preview_summary"]["do_not_save_count"] == 1
     assert all(
         entry["domain_key"] != "general"
@@ -813,9 +905,14 @@ async def test_generate_structure_preview_marks_ephemeral_reminder_do_not_save(m
 
 
 @pytest.mark.asyncio
-async def test_generate_structure_preview_routes_financial_core_out_of_pkm(monkeypatch):
-    service = PKMAgentLabService()
+async def test_a_live_portfolio_command_is_never_memory(monkeypatch):
+    """The intent agent alone tells a command from a memory.
 
+    There used to be a Financial Guard stage ahead of it that keyword-routed
+    portfolio wording around every other agent. Now "optimize my portfolio" is
+    the intent agent's `command`: nothing is merged, structured or saved.
+    """
+    service = PKMAgentLabService()
     monkeypatch.setattr(
         service,
         "_load_domain_registry_choices",
@@ -823,12 +920,17 @@ async def test_generate_structure_preview_routes_financial_core_out_of_pkm(monke
     )
     run_agent_contract = AsyncMock(
         side_effect=[
-            _single_segment("I want a lower-volatility portfolio."),
+            _single_segment("Optimize my portfolio for lower volatility."),
             {
-                "routing_decision": "financial_core",
-                "confidence": 0.94,
-                "reason": "Portfolio action request.",
-                "source_agent": "financial_guard_agent",
+                # Deliberately inconsistent: a command is never durable.
+                "save_class": "durable",
+                "intent_class": "command",
+                "mutation_intent": "create",
+                "requires_confirmation": False,
+                "confirmation_reason": "",
+                "candidate_domain_choices": [{"domain_key": "financial", "recommended": True}],
+                "confidence": 0.95,
+                "source_agent": "memory_intent_agent",
                 "contract_version": 1,
             },
         ]
@@ -837,29 +939,36 @@ async def test_generate_structure_preview_routes_financial_core_out_of_pkm(monke
 
     result = await service.generate_structure_preview(
         user_id="user-3",
-        message="I want a lower-volatility portfolio.",
+        message="Optimize my portfolio for lower volatility.",
         current_domains=["financial"],
     )
 
-    assert result["routing_decision"] == "financial_core"
-    assert result["intent_frame"]["intent_class"] == "financial_event"
-    assert result["structure_decision"]["target_domain"] == "financial"
+    assert "routing_decision" not in result
+    assert result["intent_frame"]["intent_class"] == "command"
+    assert result["intent_frame"]["save_class"] == "ephemeral"
+    assert result["intent_frame"]["mutation_intent"] == "no_op"
     assert result["write_mode"] == "do_not_save"
-    assert result["primary_json_path"] is None
-    assert "routed_to_financial_core" in result["validation_hints"]
-    assert "events" in result["candidate_payload"]
+    assert result["merge_skipped"] is True
+    assert result["structure_skipped"] is True
+    # Segmentation and intent only: no guard stage, no merge, no structure.
     assert run_agent_contract.await_count == 2
+    assert [call.kwargs["manifest"].id for call in run_agent_contract.await_args_list] == [
+        "agent_memory_segmentation",
+        "agent_memory_intent",
+    ]
     assert result["preview_cards"][0]["write_mode"] == "do_not_save"
-    assert all(
-        entry["domain_key"] != "general"
-        for entry in result["intent_frame"]["candidate_domain_choices"]
-    )
 
 
 @pytest.mark.asyncio
-async def test_generate_structure_preview_normalizes_sanctioned_financial_memory(monkeypatch):
-    service = PKMAgentLabService()
+async def test_a_finance_preference_is_kept_in_finance_agent_memory(monkeypatch):
+    """A money preference is memory, filed in financial.agent_memory.
 
+    Negative control, the removed behaviour: with intent_class `preference`,
+    `financial_domain_requires_confirmation` moved the target away from
+    Finance (to the intent's first non-financial choice, or `professional`),
+    so "I prefer index funds" landed outside Finance.
+    """
+    service = PKMAgentLabService()
     monkeypatch.setattr(
         service,
         "_load_domain_registry_choices",
@@ -869,17 +978,24 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
         side_effect=[
             _single_segment("Remember that I prefer index funds"),
             {
-                "routing_decision": "sanctioned_financial_memory",
-                "confidence": 0.9,
-                "reason": "Stable financial preference.",
-                "source_agent": "financial_guard_agent",
+                "save_class": "durable",
+                "intent_class": "preference",
+                "mutation_intent": "create",
+                "requires_confirmation": False,
+                "confirmation_reason": "",
+                "candidate_domain_choices": [
+                    {"domain_key": "financial", "recommended": True},
+                    {"domain_key": "professional", "recommended": False},
+                ],
+                "confidence": 0.92,
+                "source_agent": "memory_intent_agent",
                 "contract_version": 1,
             },
             {
                 "merge_mode": "extend_entity",
                 "target_domain": "financial",
                 "target_entity_id": "mem_fin_pref",
-                "target_entity_path": "events.entities.mem_fin_pref",
+                "target_entity_path": "profile.preferences.mem_fin_pref",
                 "match_confidence": 0.91,
                 "match_reason": "Extend existing financial preference memory.",
                 "source_agent": "memory_merge_agent",
@@ -887,34 +1003,28 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
             },
             {
                 "candidate_payload": {
-                    "preferences": {
-                        "statements": [{"value": "Remember that I prefer index funds"}],
+                    "profile": {
+                        "preferences": {
+                            "entities": {
+                                "index_funds": {"summary": "Prefers index funds."},
+                            }
+                        }
                     }
                 },
                 "structure_decision": {
-                    "action": "create_domain",
-                    "target_domain": "food",
-                    "json_paths": [
-                        "preferences",
-                        "preferences.statements",
-                        "preferences.statements._items",
-                        "preferences.statements._items.value",
-                    ],
-                    "top_level_scope_paths": ["preferences"],
-                    "externalizable_paths": [
-                        "preferences",
-                        "preferences.statements",
-                        "preferences.statements._items",
-                        "preferences.statements._items.value",
-                    ],
+                    "action": "extend_domain",
+                    "target_domain": "financial",
+                    "json_paths": ["profile", "profile.preferences"],
+                    "top_level_scope_paths": ["profile"],
+                    "externalizable_paths": [],
                     "summary_projection": {},
                     "sensitivity_labels": {},
-                    "confidence": 0.66,
+                    "confidence": 0.9,
                     "source_agent": "pkm_structure_agent",
                     "contract_version": 1,
                 },
-                "write_mode": "can_save",
-                "target_entity_scope": "preferences.statements",
+                "write_mode": "confirm_first",
+                "target_entity_scope": "profile.preferences",
                 "validation_hints": [],
             },
         ]
@@ -927,24 +1037,74 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
         current_domains=["financial"],
     )
 
-    assert result["routing_decision"] == "sanctioned_financial_memory"
-    assert result["intent_frame"]["intent_class"] == "financial_event"
     assert result["structure_decision"]["target_domain"] == "financial"
+    assert list(result["candidate_payload"]) == ["agent_memory"]
+    assert "reserved_target_rerouted_to_sibling" in result["validation_hints"]
+    assert "financial_domain_requires_confirmation" in result["validation_hints"]
     assert result["write_mode"] == "confirm_first"
-    assert result["intent_frame"]["requires_confirmation"] is True
-    assert result["primary_json_path"] == "events"
-    assert "financial_target_normalized" in result["validation_hints"]
-    assert "financial_payload_normalized" in result["validation_hints"]
-    assert "events" in result["candidate_payload"]
-    assert result["merge_decision"]["merge_mode"] == "extend_entity"
     assert run_agent_contract.await_count == 4
+
+
+def _structure_contract_side_effect(
+    *,
+    message: str,
+    domain: str,
+    payload: dict,
+    reserved_offer: dict | None = None,
+) -> list:
+    structure = {
+        "candidate_payload": payload,
+        "structure_decision": {
+            "action": "extend_domain",
+            "target_domain": domain,
+            "json_paths": sorted(payload),
+            "top_level_scope_paths": sorted(payload),
+            "externalizable_paths": [],
+            "summary_projection": {},
+            "sensitivity_labels": {},
+            "confidence": 0.9,
+            "source_agent": "pkm_structure_agent",
+            "contract_version": 1,
+        },
+        "write_mode": "confirm_first",
+        "target_entity_scope": next(iter(payload), ""),
+        "validation_hints": [],
+    }
+    if reserved_offer is not None:
+        structure["reserved_offer"] = reserved_offer
+    return [
+        _single_segment(message),
+        {
+            "save_class": "durable",
+            "intent_class": "preference",
+            "mutation_intent": "create",
+            "requires_confirmation": False,
+            "confirmation_reason": "",
+            "candidate_domain_choices": [{"domain_key": domain, "recommended": True}],
+            "confidence": 0.9,
+            "source_agent": "memory_intent_agent",
+            "contract_version": 1,
+        },
+        {
+            "merge_mode": "create_entity",
+            "target_domain": domain,
+            "target_entity_id": "",
+            "target_entity_path": "",
+            "match_confidence": 0.9,
+            "match_reason": "New.",
+            "source_agent": "memory_merge_agent",
+            "contract_version": 1,
+        },
+        structure,
+    ]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("payload", "blocked"),
+    ("payload", "rerouted"),
     [
-        # The bank connection rebuilds linked_accounts whole on every refresh.
+        # The bank connection rebuilds linked_accounts whole on every refresh, and
+        # goals is the Finance app's too: both are kept in Finance's sibling.
         (
             {
                 "goals": {
@@ -954,10 +1114,10 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
             },
             True,
         ),
-        # Negative control: the same goal on its own is an ordinary finance memory.
+        # Negative control: a fact already filed in the sibling is left alone.
         (
             {
-                "goals": {
+                "agent_memory": {
                     "entities": {"emergency_fund": {"summary": "Keep six months in checking."}}
                 }
             },
@@ -966,7 +1126,7 @@ async def test_generate_structure_preview_normalizes_sanctioned_financial_memory
     ],
 )
 async def test_structure_preview_never_writes_a_source_managed_finance_branch(
-    monkeypatch, payload, blocked
+    monkeypatch, payload, rerouted
 ):
     service = PKMAgentLabService()
     monkeypatch.setattr(
@@ -979,61 +1139,197 @@ async def test_structure_preview_never_writes_a_source_managed_finance_branch(
         service,
         "_run_agent_contract",
         AsyncMock(
-            side_effect=[
-                _single_segment(message),
-                {
-                    "routing_decision": "sanctioned_financial_memory",
-                    "confidence": 0.9,
-                    "reason": "Durable financial goal.",
-                    "source_agent": "financial_guard_agent",
-                    "contract_version": 1,
-                },
-                {
-                    "merge_mode": "create_entity",
-                    "target_domain": "financial",
-                    "target_entity_id": "",
-                    "target_entity_path": "",
-                    "match_confidence": 0.9,
-                    "match_reason": "New goal.",
-                    "source_agent": "memory_merge_agent",
-                    "contract_version": 1,
-                },
-                {
-                    "candidate_payload": payload,
-                    "structure_decision": {
-                        "action": "extend_domain",
-                        "target_domain": "financial",
-                        "json_paths": sorted(payload),
-                        "top_level_scope_paths": sorted(payload),
-                        "externalizable_paths": [],
-                        "summary_projection": {},
-                        "sensitivity_labels": {},
-                        "confidence": 0.9,
-                        "source_agent": "pkm_structure_agent",
-                        "contract_version": 1,
-                    },
-                    "write_mode": "confirm_first",
-                    "target_entity_scope": "goals",
-                    "validation_hints": [],
-                },
-            ]
+            side_effect=_structure_contract_side_effect(
+                message=message,
+                domain="financial",
+                payload=payload,
+            )
         ),
     )
 
     result = await service.generate_structure_preview(
         # A distinct owner per case: the preview cache is bound to owner and message.
-        user_id=f"user-5-{blocked}",
+        user_id=f"user-5-{rerouted}",
         message=message,
         current_domains=["financial"],
     )
 
     assert result["structure_decision"]["target_domain"] == "financial"
-    assert ("source_managed_branch_blocked" in result["validation_hints"]) is blocked
-    if blocked:
-        assert result["write_mode"] == "do_not_save"
-    else:
-        assert result["write_mode"] != "do_not_save"
+    assert list(result["candidate_payload"]) == ["agent_memory"]
+    assert all(
+        path.split(".", 1)[0] == "agent_memory"
+        for path in result["structure_decision"]["json_paths"]
+    )
+    assert ("reserved_target_rerouted_to_sibling" in result["validation_hints"]) is rerouted
+    assert result["write_mode"] != "do_not_save"
     assert result["preview_cards"][0]["target_domain"] == "financial"
+
+
+@pytest.mark.asyncio
+async def test_a_ria_advisor_package_target_is_rerouted_to_ria_agent_memory(monkeypatch):
+    """The model aims at RIA Picks; the registry keeps the fact in ria.agent_memory.
+
+    Before Phase 1 this payload was written to ria.advisor_package as is (the
+    old guard looked only at Finance), or dropped as do_not_save when the domain
+    itself was reserved. Now it is kept, recorded, and offered to RIA Picks.
+    """
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "Add Northwind Capital to my advisor picks"
+    payload = {
+        "advisor_package": {
+            "entities": {"northwind": {"summary": "Northwind Capital is one of my picks."}}
+        }
+    }
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_structure_contract_side_effect(
+                message=message,
+                domain="ria",
+                payload=payload,
+                reserved_offer={"branch": "ria.advisor_package", "label": "Northwind Capital"},
+            )
+        ),
+    )
+    result = await service.generate_structure_preview(
+        user_id="user-ria-reroute", message=message, current_domains=["ria"]
+    )
+    card = result["preview_cards"][0]
+    assert card["target_domain"] == "ria"
+    assert list(card["candidate_payload"]) == ["agent_memory"]
+    assert card["candidate_payload"]["agent_memory"]["entities"]["northwind"]
+    assert card["write_mode"] != "do_not_save"
+    assert "reserved_target_rerouted_to_sibling" in card["validation_hints"]
+    assert card["drift_flags"]["reserved_target_rerouted_to_sibling"] is True
+    assert (
+        result["preview_summary"]["drift_flag_counts"]["reserved_target_rerouted_to_sibling"] == 1
+    )
+    assert card["reserved_offer"] == {
+        "domain": "ria",
+        "branch": "advisor_package",
+        "subject": "Northwind Capital",
+        "owner_feature": "ria",
+        "agent_memory_sibling": "ria.agent_memory",
+        "offer_action": {
+            "route_pattern": "/ria/picks",
+            "action_id": "route.ria_picks",
+            "label": "Add Northwind Capital in RIA Picks",
+        },
+        "registry_version": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_an_unreserved_branch_is_neither_rerouted_nor_offered(monkeypatch):
+    """Negative control for the re-route: ria.notes is no app's branch."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "I prefer advisors who explain fees up front"
+    payload = {"notes": {"entities": {"fees": {"summary": message}}}}
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_structure_contract_side_effect(
+                message=message, domain="ria", payload=payload
+            )
+        ),
+    )
+    result = await service.generate_structure_preview(
+        user_id="user-ria-notes", message=message, current_domains=["ria"]
+    )
+    card = result["preview_cards"][0]
+    assert list(card["candidate_payload"]) == ["notes"]
+    assert "reserved_target_rerouted_to_sibling" not in card["validation_hints"]
+    assert card["reserved_offer"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_identity_profile_target_is_kept_with_an_offer_to_open_mail_kyc(monkeypatch):
+    """The KYC tab of Mail commits identity_profile; chat keeps the fact and offers it.
+
+    Until 2026-10-02 the identity entries had no offer_action (the /one/kyc
+    screen was retired), so this card carried reserved_offer None: the fact was
+    kept but nothing pointed the owner at a screen that could commit it.
+    """
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "My legal name is Ada Lovelace"
+    payload = {
+        "identity_profile": {"entities": {"legal_name": {"summary": "Legal name is Ada Lovelace."}}}
+    }
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_structure_contract_side_effect(
+                message=message,
+                domain="identity",
+                payload=payload,
+                reserved_offer={"branch": "identity.identity_profile", "label": "legal name"},
+            )
+        ),
+    )
+    result = await service.generate_structure_preview(
+        user_id="user-identity-offer", message=message, current_domains=["identity"]
+    )
+    card = result["preview_cards"][0]
+    assert card["target_domain"] == "identity"
+    assert list(card["candidate_payload"]) == ["agent_memory"]
+    assert "reserved_target_rerouted_to_sibling" in card["validation_hints"]
+    assert card["reserved_offer"] == {
+        "domain": "identity",
+        "branch": "identity_profile",
+        "subject": "legal name",
+        "owner_feature": "kyc",
+        "agent_memory_sibling": "identity.agent_memory",
+        "offer_action": {
+            "route_pattern": "/one/gmail?workspace=kyc",
+            "action_id": "route.one_gmail_kyc",
+            "label": "Review legal name in Mail",
+        },
+        "registry_version": 1,
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_wallet_domain_target_is_kept_in_finance_memory_with_a_wallet_offer(monkeypatch):
+    """`wallet` fails domain validation (owner-managed); its sibling is financial."""
+    service = PKMAgentLabService()
+    monkeypatch.setattr(
+        service, "_load_domain_registry_choices", AsyncMock(return_value=_registry_choices())
+    )
+    message = "My travel card is the Amex Gold"
+    payload = {"cards": {"entities": {"amex_gold": {"summary": message}}}}
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(
+            side_effect=_structure_contract_side_effect(
+                message=message,
+                domain="wallet",
+                payload=payload,
+                reserved_offer={"branch": "wallet.cards", "label": "Amex Gold"},
+            )
+        ),
+    )
+    result = await service.generate_structure_preview(
+        user_id="user-wallet-reroute", message=message, current_domains=["financial"]
+    )
+    card = result["preview_cards"][0]
+    assert card["target_domain"] == "financial"
+    assert list(card["candidate_payload"]) == ["agent_memory"]
+    assert card["write_mode"] != "do_not_save"
+    assert card["reserved_offer"]["offer_action"]["label"] == "Add Amex Gold to Wallet"
+    assert card["reserved_offer"]["offer_action"]["route_pattern"] == "/one/wallet"
 
 
 @pytest.mark.asyncio
@@ -1048,13 +1344,6 @@ async def test_generate_structure_preview_defaults_primary_path_to_root_scope(mo
     run_agent_contract = AsyncMock(
         side_effect=[
             _single_segment("Cantonese menus are usually where I start"),
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.9,
-                "reason": "Broad durable preference.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
             {
                 "save_class": "durable",
                 "intent_class": "preference",
@@ -1123,7 +1412,7 @@ async def test_generate_structure_preview_defaults_primary_path_to_root_scope(mo
 
     assert result["primary_json_path"] == "preferences"
     assert "primary_path_defaulted_to_root_scope" in result["validation_hints"]
-    assert run_agent_contract.await_count == 5
+    assert run_agent_contract.await_count == 4
     assert result["preview_cards"][0]["primary_json_path"] == "preferences"
 
 
@@ -1141,13 +1430,6 @@ async def test_generate_structure_preview_corrects_canonical_seat_preference_not
     run_agent_contract = AsyncMock(
         side_effect=[
             _single_segment("Actually window seats work better now."),
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.94,
-                "reason": "Travel preference correction.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
             {
                 "save_class": "durable",
                 "intent_class": "correction",
@@ -1234,7 +1516,7 @@ async def test_generate_structure_preview_corrects_canonical_seat_preference_not
     assert "crud_payload_aligned_to_merge_target" in result["validation_hints"]
     assert result["drift_flags"]["changes_branch_blocked"] is True
     assert result["preview_cards"][0]["drift_flags"]["changes_branch_blocked"] is True
-    assert run_agent_contract.await_count == 5
+    assert run_agent_contract.await_count == 4
 
 
 @pytest.mark.asyncio
@@ -1249,13 +1531,6 @@ async def test_structure_preview_strips_internal_metadata_and_reports_drift(monk
     run_agent_contract = AsyncMock(
         side_effect=[
             _single_segment("I prefer quiet hotel rooms."),
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.94,
-                "reason": "Travel preference.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
             {
                 "save_class": "durable",
                 "intent_class": "preference",
@@ -1483,10 +1758,14 @@ CRUD_MATRIX_STATE = {
         (
             "Remember that I prefer index funds.",
             "financial",
-            "financial_event",
+            # The keyword fallback (only when the model failed) reads "prefer";
+            # there is no finance stage ahead of intent any more.
+            "preference",
             "create_entity",
             "can_save",
-            "events",
+            # Finance's branches are the Finance app's (reserved-branches.v1.json);
+            # a chat fact is kept in its agent_memory sibling.
+            "agent_memory",
         ),
         (
             "I prefer async written updates before meetings.",
@@ -1657,7 +1936,7 @@ CRUD_MATRIX_STATE = {
             "plan_or_goal",
             "create_entity",
             "can_save",
-            "goals",
+            "agent_memory",
         ),
     ],
 )
@@ -1721,13 +2000,6 @@ async def test_obvious_location_correction_recovers_from_model_no_op(monkeypatch
         AsyncMock(
             side_effect=[
                 _single_segment("Actually I live in New York City now."),
-                {
-                    "routing_decision": "non_financial_or_ephemeral",
-                    "confidence": 0.95,
-                    "reason": "Location update, not finance.",
-                    "source_agent": "financial_guard_agent",
-                    "contract_version": 1,
-                },
                 {
                     "save_class": "ephemeral",
                     "intent_class": "ambiguous",
@@ -1880,13 +2152,6 @@ async def test_generate_structure_preview_rejects_opaque_noise(monkeypatch):
         side_effect=[
             _single_segment("Q2FmZSB3YWtlIHVwIGhhc2ggcGF5bG9hZA=="),
             {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.99,
-                "reason": "Opaque input.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
-            },
-            {
                 "save_class": "durable",
                 "intent_class": "note",
                 "mutation_intent": "create",
@@ -1913,7 +2178,7 @@ async def test_generate_structure_preview_rejects_opaque_noise(monkeypatch):
     assert result["write_mode"] == "do_not_save"
     assert "nonsense_or_opaque_input" in result["validation_hints"]
     assert result["merge_decision"]["merge_mode"] == "no_op"
-    assert run_agent_contract.await_count == 3
+    assert run_agent_contract.await_count == 2
     assert result["preview_cards"][0]["write_mode"] == "do_not_save"
 
 
@@ -1944,13 +2209,6 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
                 "source_agent": "memory_segmentation_agent",
                 "contract_version": 1,
                 "has_more_candidates": False,
-            },
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.91,
-                "reason": "Routine memory.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
             },
             {
                 "save_class": "durable",
@@ -2018,13 +2276,6 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
                 "primary_json_path": "routines",
                 "target_entity_scope": "routines",
                 "validation_hints": [],
-            },
-            {
-                "routing_decision": "non_financial_or_ephemeral",
-                "confidence": 0.9,
-                "reason": "Food preference.",
-                "source_agent": "financial_guard_agent",
-                "contract_version": 1,
             },
             {
                 "save_class": "durable",
@@ -2151,7 +2402,6 @@ async def test_generate_structure_preview_keeps_eight_segment_imports(
         "_generate_single_structure_preview",
         AsyncMock(
             return_value={
-                "routing_decision": "non_financial_or_ephemeral",
                 "intent_frame": {"save_class": "durable", "intent_class": "preference"},
                 "merge_decision": {"merge_mode": "create_entity"},
                 "candidate_payload": {"preferences": {"value": "saved"}},
@@ -2197,7 +2447,6 @@ async def test_batch_reports_degradation_from_every_candidate(monkeypatch, faile
     async def preview(**kwargs):
         degraded = kwargs["message"] == messages[failed_index]
         return {
-            "routing_decision": "non_financial_or_ephemeral",
             "intent_frame": {"save_class": "durable", "intent_class": "profile_fact"},
             "merge_decision": {"merge_mode": "create_entity"},
             "candidate_payload": {"projects": {"summary": kwargs["message"]}},
@@ -2294,7 +2543,6 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
             "intent_used_fallback": True,
             "structure_used_fallback": True,
             "error": None,
-            "routing_decision": "non_financial_or_ephemeral",
             "intent_frame": {
                 "save_class": "durable",
                 "intent_class": "travel",
@@ -2386,8 +2634,19 @@ class TestSensitiveSecretRejection:
             S._contains_sensitive_secret("Passport number: X12345678 renew soon") == "government_id"
         )
         assert (
-            S._contains_sensitive_secret("routing number: 021000021 for payroll") == "bank_account"
+            S._contains_sensitive_secret("account number: 12345678901 for payroll")
+            == "bank_account"
         )
+
+    def test_public_identifiers_are_work_context_not_secrets(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        # A routing number is printed on every cheque and names a bank, not an
+        # account; env var NAMES and secret-store paths name a secret without
+        # holding it. All are saved as ordinary context (founder decision).
+        assert S._contains_sensitive_secret("routing number: 021000021 for payroll") is None
+        assert S._contains_sensitive_secret("Set STRIPE_SECRET_KEY in Secret Manager") is None
+        assert S._contains_sensitive_secret("api_key: ${OPENAI_API_KEY}") is None
 
     def test_ordinary_numbers_and_prose_pass(self):
         from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
@@ -2408,7 +2667,6 @@ class TestSensitiveSecretRejection:
             registry_choices=[],
             intent_frame={},
             merge_decision={"target_domain": "financial"},
-            financial_guard={},
             parsed_structure={"structure_decision": {"target_domain": "financial"}},
             fallback_target_domain="financial",
             simulated_state=None,
@@ -2431,34 +2689,39 @@ async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(m
         registry_choices=_registry_choices(),
         intent_frame={"save_class": "durable"},
         merge_decision={},
-        financial_guard={},
         simulated_state=None,
         strict_small_model=strict,
     )
     instruction = service.structure_manifest.system_instruction
+    kernel = pkm_agent_lab_module._REPO_ROOT / "hushh_mcp/agents/pkm_memory_kernel.v3.md"
+    kernel_text = kernel.read_text(encoding="utf-8").strip()
+    # One copy of every rule: the kernel once, inside the instruction, and
+    # neither the instruction nor the kernel restated in the prompt.
+    assert instruction.count(kernel_text) == 1
+    assert kernel_text not in prompt
     assert instruction not in prompt
-    assert service._kernel_prompt("PKM Structure Agent") not in prompt
     assert "Never invent domains, paths" not in instruction + prompt
     assert (
         "New domain and path names may organize only information actually supplied" in instruction
     )
     assert "Proposing structure does not authorize a write" in instruction
     assert "Never create a changes branch" in instruction
-    assert "merge_decision.target_entity_path" in prompt
-    assert "do not create replacement plaintext" in prompt
-    assert "write_mode=do_not_save" in prompt
-    assert "Never save reminders" in instruction
+    assert "merge_decision.target_entity_path" in instruction
+    assert "do not create replacement plaintext" in instruction
+    assert "your question is where it goes, never whether" in instruction
+    assert "Choose a place for everything the owner stated" in instruction
     assert "Export eligibility is not publication or consent" in instruction
     assert '"primary_json_path": "string"' in instruction
     assert "contract_version must be 1" in instruction
-    if not strict:
-        examples = [line.split(" -> ", 1)[1] for line in prompt.splitlines() if " -> {" in line]
-        assert len(examples) == 2
-        assert all(
-            json.loads(example)["structure_decision"]["contract_version"] == 1
-            for example in examples
-        )
-    assert "My synthetic project is Cedar Lantern." in prompt
+    examples = [line.split("Answer: ", 1)[1] for line in prompt.splitlines() if "Answer: " in line]
+    assert examples, "the structure agent receives its worked examples"
+    assert all(
+        json.loads(example)["structure_decision"]["contract_version"] == 1 for example in examples
+    )
+    request = _request(prompt)
+    assert request["message"] == "My synthetic project is Cedar Lantern."
+    # The instruction promises the reserved-branch table with every request.
+    assert ["location.saved_places", "location.agent_memory"] in request["reserved_branches"]
     agent = build_single_turn_agent(
         service.structure_manifest, output_schema=dict, model="gemini-3.7-flash"
     )
@@ -2487,7 +2750,6 @@ def test_structure_creation_keeps_current_persistence_contract():
             "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
         },
         merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
-        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
         parsed_structure={
             "candidate_payload": {"preferences": {"drink": "espresso without sugar"}},
             "structure_decision": {
@@ -2516,14 +2778,14 @@ def test_memory_prompts_do_not_reintroduce_keyword_only_mutation_cues(strict):
         message=source, current_domains=[], simulated_state=None, strict_small_model=strict
     )
     prompts = [
-        service._build_memory_intent_prompt(**common, registry_choices=[], financial_guard={}),
+        service._build_memory_intent_prompt(**common, registry_choices=[]),
         service._build_memory_merge_prompt(**common, intent_frame={}),
         service._build_structure_prompt(
-            **common, registry_choices=[], financial_guard={}, intent_frame={}, merge_decision={}
+            **common, registry_choices=[], intent_frame={}, merge_decision={}
         ),
     ]
     for prompt in prompts:
-        assert source in prompt
+        assert _request(prompt)["message"] == source
         assert "Corrections are signaled by:" not in prompt
         assert "Deletions are signaled by:" not in prompt
         assert "Refinements are signaled by:" not in prompt
@@ -2545,12 +2807,10 @@ async def test_compact_ontology_preserves_late_and_owner_defined_domains():
     assert len(keys) > 8
     assert keys == expected_keys
     assert {"social", "shopping", "travel", "z_owner_hobby"}.issubset(keys)
-    financial_guard = {"routing_decision": "non_financial_or_ephemeral"}
     memory_intent_prompt = service._build_memory_intent_prompt(
         message="I trust a familiar brand for everyday basics.",
         current_domains=[],
         registry_choices=choices,
-        financial_guard=financial_guard,
         simulated_state=None,
         strict_small_model=True,
     )
@@ -2560,22 +2820,12 @@ async def test_compact_ontology_preserves_late_and_owner_defined_domains():
         registry_choices=choices,
         intent_frame={},
         merge_decision={},
-        financial_guard=financial_guard,
-        simulated_state=None,
-        strict_small_model=True,
-    )
-    financial_guard_prompt = service._build_financial_guard_prompt(
-        message="I trust a familiar brand for everyday basics.",
-        current_domains=[],
-        registry_choices=choices,
         simulated_state=None,
         strict_small_model=True,
     )
 
-    encoded_keys = json.dumps(keys)
-    assert f"Soft ontology domain keys: {encoded_keys}" in memory_intent_prompt
-    assert f"Soft ontology domain keys: {encoded_keys}" in structure_prompt
-    assert f"Registry domain keys: {encoded_keys}" in financial_guard_prompt
+    assert _request(memory_intent_prompt)["domain_choices"] == keys
+    assert _request(structure_prompt)["domain_choices"] == keys
 
 
 def test_compact_ontology_removes_nonselectable_and_duplicate_domains():
@@ -2595,3 +2845,151 @@ def test_compact_ontology_removes_nonselectable_and_duplicate_domains():
         ]
     )
     assert keys == ["social", "shopping"]
+
+
+# A correction or deletion names its target among the owner's existing entities.
+# Until 2026-10-02 a word-overlap miss vetoed the model's target outright, and a
+# correction the model kept as a new entity was dropped.
+_SEAT_ENTITY = {
+    "domain": "travel",
+    "entity_id": "seat_preference",
+    "entity_scope": "preferences",
+    "summary": "I book aisle seats",
+}
+
+
+def _merge_for(mutation_intent: str, raw: dict, fallback_mode: str = "no_op") -> dict:
+    fallback = {
+        "merge_mode": fallback_mode,
+        "target_domain": "travel",
+        "target_entity_id": "",
+        "target_entity_path": "",
+        "match_confidence": 0.5,
+        "match_reason": "No stable prior target was available for correction or deletion.",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+    return PKMAgentLabService._sanitize_merge_decision(
+        raw={"target_domain": "travel", **raw},
+        fallback=fallback,
+        intent_frame={"mutation_intent": mutation_intent},
+        current_domains=["travel"],
+        existing_entities=[_SEAT_ENTITY],
+    )
+
+
+def test_a_target_the_model_names_and_the_owner_has_survives_a_word_match_miss() -> None:
+    decision = _merge_for(
+        "delete",
+        {
+            "merge_mode": "delete_entity",
+            "target_entity_id": "seat_preference",
+            "target_entity_path": "preferences.entities.seat_preference",
+        },
+    )
+
+    assert decision["merge_mode"] == "delete_entity"
+    assert decision["target_entity_path"] == "preferences.entities.seat_preference"
+
+
+def test_a_target_the_owner_does_not_have_is_never_written_to() -> None:
+    invented = {"target_entity_id": "ghost", "target_entity_path": "preferences.entities.ghost"}
+
+    deletion = _merge_for("delete", {"merge_mode": "delete_entity", **invented})
+    correction = _merge_for("correct", {"merge_mode": "correct_entity", **invented})
+
+    assert deletion["merge_mode"] == "no_op"
+    assert correction["merge_mode"] == "create_entity"
+    assert correction["target_entity_path"] == deletion["target_entity_path"] == ""
+
+
+def test_a_correction_the_model_keeps_as_new_is_no_longer_vetoed() -> None:
+    kept = _merge_for("correct", {"merge_mode": "create_entity"})
+    dropped = _merge_for("correct", {"merge_mode": "no_op"})
+
+    assert kept["merge_mode"] == "create_entity"
+    assert kept["target_entity_path"] == ""
+    # The model decides: a correction it judged empty is not forced into memory.
+    assert dropped["merge_mode"] == "no_op"
+
+
+def test_a_deletion_the_model_dropped_still_recovers_the_word_match() -> None:
+    decision = _merge_for("delete", {"merge_mode": "no_op"}, fallback_mode="delete_entity")
+
+    assert decision["merge_mode"] == "delete_entity"
+
+
+def _structure_drop(
+    *, save_class: str, merge_mode: str, message: str = "I am based in Lisbon."
+) -> dict:
+    return PKMAgentLabService._normalize_structure_preview(
+        message=message,
+        current_domains=["location"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "save_class": save_class,
+            "intent_class": "profile_fact",
+            "mutation_intent": "no_op" if merge_mode == "no_op" else "create",
+            "candidate_domain_choices": [{"domain_key": "location", "recommended": True}],
+        },
+        merge_decision={"target_domain": "location", "merge_mode": merge_mode},
+        parsed_structure={
+            "candidate_payload": {"home": {"entities": {"city": {"summary": message}}}},
+            "structure_decision": {"target_domain": "location"},
+            "write_mode": "do_not_save",
+        },
+        fallback_target_domain="location",
+        simulated_state=None,
+    )
+
+
+def test_a_structure_drop_of_a_kept_statement_becomes_a_review_card() -> None:
+    preview = _structure_drop(save_class="durable", merge_mode="create_entity")
+
+    assert preview["write_mode"] == "confirm_first"
+    assert "structure_drop_kept_for_review" in preview["validation_hints"]
+
+
+@pytest.mark.parametrize(
+    ("save_class", "merge_mode", "message"),
+    [
+        ("ephemeral", "create_entity", "I am based in Lisbon."),
+        ("durable", "no_op", "I am based in Lisbon."),
+        ("durable", "create_entity", "aGVsbG8gd29ybGQgdGhpcyBpcyBiYXNlNjQgZW5jb2RlZA=="),
+    ],
+)
+def test_upstream_and_deterministic_drops_still_stand(save_class, merge_mode, message) -> None:
+    preview = _structure_drop(save_class=save_class, merge_mode=merge_mode, message=message)
+
+    assert preview["write_mode"] == "do_not_save"
+    assert "structure_drop_kept_for_review" not in preview["validation_hints"]
+
+
+def test_a_reaffirmation_that_adds_words_extends_and_a_verbatim_repeat_stays_no_op() -> None:
+    fallback = {
+        "merge_mode": "extend_entity",
+        "target_domain": "travel",
+        "target_entity_id": "seat_preference",
+        "target_entity_path": "preferences.entities.seat_preference",
+        "match_confidence": 0.6,
+        "match_reason": "word match",
+        "source_agent": "memory_merge_agent",
+        "contract_version": 1,
+    }
+
+    def merge(message: str) -> dict:
+        return PKMAgentLabService._sanitize_merge_decision(
+            raw={"merge_mode": "no_op", "target_domain": "travel"},
+            fallback=fallback,
+            intent_frame={"mutation_intent": "extend"},
+            current_domains=["travel"],
+            existing_entities=[_SEAT_ENTITY],
+            message=message,
+        )
+
+    reaffirmed = merge("I still plan every trip around this: I book aisle seats.")
+    repeated = merge("I book aisle seats!")
+
+    assert reaffirmed["merge_mode"] == "extend_entity"
+    assert reaffirmed["target_entity_path"] == "preferences.entities.seat_preference"
+    assert repeated["merge_mode"] == "no_op"

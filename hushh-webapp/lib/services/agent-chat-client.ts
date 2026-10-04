@@ -1,5 +1,6 @@
 import { createAgentStreamLiveness } from "./agent-chat-liveness";
 import { ApiService } from "@/lib/services/api-service";
+import { assertNoUnguardedSecrets } from "@/lib/pkm/secret-span-guard";
 import { serverNow } from "@/lib/agent/server-clock";
 import { projectCustomConnectorTurnConfigurations, type CustomConnectorConfiguration } from "@/lib/connections/custom-connector-schema";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
@@ -14,6 +15,7 @@ import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
+import { REACTION_TOOL_NAME, parseMessageReaction, type MessageReactionResult } from "@/lib/agent/agent-message-reaction";
 import { FOLLOW_UP_TOOL_NAME, parseFollowUpSuggestions } from "@/lib/agent/follow-up-suggestions";
 import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
 import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
@@ -51,6 +53,7 @@ import {
   parseAgentToolResultExperience,
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
+import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 
 export type AgentChatMessage = {
   id: string;
@@ -238,6 +241,7 @@ export type AgentChatStreamHandlers = {
   /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
   onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
   /** 2-3 next questions One wrote with this answer; only for the latest answer, never stored. */
+  onMessageReaction?: (result: MessageReactionResult) => void;
   onFollowUpSuggestions?: (suggestions: string[]) => void;
   /** Owner-only count progress from a server AG-UI activity; never inferred from time. */
   onDriveBatchProgress?: (progress: DriveBatchProgress, eventId?: string) => void;
@@ -683,6 +687,11 @@ const SERVER_TOOL_PRESENTATION: Record<
     message: "Updating your preferred model.",
     activity: "Updating your model",
   },
+  propose_style_settings: {
+    label: "Writing style",
+    message: "Preparing a writing style change for you to review in Settings.",
+    activity: "Preparing a style change",
+  },
   calendar_summary: {
     label: "Google Calendar",
     message: "Summarizing your calendar.",
@@ -898,7 +907,7 @@ export function parseRestoredTurnActivity(descriptor: unknown): RestoredActivity
     const id = typeof step?.id === "string" ? step.id.trim().slice(0, 128) : "";
     const toolName = typeof step?.tool === "string" ? step.tool : "";
     const rawStatus = step?.status;
-    if (!step || !id || !toolName || toolName === FOLLOW_UP_TOOL_NAME) return [];
+    if (!step || !id || !toolName || (toolName === FOLLOW_UP_TOOL_NAME || toolName === REACTION_TOOL_NAME)) return [];
     const mcp = /^mcp_[0-9a-f]{40}$/.test(toolName);
     const presentation = workspaceToolPresentation(toolName, step.provider) ??
       SERVER_TOOL_PRESENTATION[toolName];
@@ -1106,6 +1115,11 @@ export async function streamAgentChat(input: {
   vaultKey: string;
   loadConnectorConfigurations?: () => Promise<CustomConnectorConfiguration[]>;
   pkmContext?: string;
+  /**
+   * The owner's Settings style choices (reserved `identity.communication_preferences`),
+   * sent apart from `pkmContext` so One reads them as standing style, never as recalled data.
+   */
+  communicationPreferences?: OwnerStyleSettings;
   personSelectionHandle?: string;
   /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
   gmailInformationRequestWorkflowId?: string;
@@ -1137,7 +1151,13 @@ export async function streamAgentChat(input: {
    */
   detached: boolean;
 }> {
+  // Last line before the wire. The composer already kept every secret in
+  // Secrets and left only its placeholder (lib/pkm/secret-span-guard.ts);
+  // a turn that still carries a raw one is refused before any request exists.
+  assertNoUnguardedSecrets([input.message, ...(input.attachments ?? []).map((attachment) => attachment.text)]);
   const timezone = resolveBrowserTimeZone();
+  // Closed to the server's schema here, so a stale branch never refuses the turn.
+  const communicationPreferences = ownerStyleRequestField(input.communicationPreferences);
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
   const mcpOwner = snapshotValidatedAuthSessionOwner();
@@ -1296,6 +1316,7 @@ export async function streamAgentChat(input: {
     agent.abortRun();
   };
   const toolNames = new Map<string, string>();
+  let reactionShown = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
   const mcpReviews = new Map<string, McpCallReviewReference>();
@@ -1360,6 +1381,7 @@ export async function streamAgentChat(input: {
               timezone,
               turnLocation,
               pkmContext: input.pkmContext,
+              communicationPreferences,
               personSelectionHandle: input.personSelectionHandle,
               gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -1413,7 +1435,7 @@ export async function streamAgentChat(input: {
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
       // Follow-ups are chips under the answer, not a step the person waits on.
-      if (event.toolCallName === FOLLOW_UP_TOOL_NAME) return;
+      if (event.toolCallName === FOLLOW_UP_TOOL_NAME || event.toolCallName === REACTION_TOOL_NAME) return;
       if (event.toolCallName === "adk_request_confirmation") confirmationArgs.set(event.toolCallId, "");
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
@@ -1426,7 +1448,7 @@ export async function streamAgentChat(input: {
       else confirmationArgs.set(event.toolCallId, next);
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      if (toolCallName === FOLLOW_UP_TOOL_NAME) return;
+      if (toolCallName === FOLLOW_UP_TOOL_NAME || toolCallName === REACTION_TOOL_NAME) return;
       if (toolCallName === "adk_request_confirmation") {
         const streamed = confirmationArgs.get(event.toolCallId);
         confirmationArgs.delete(event.toolCallId);
@@ -1466,6 +1488,14 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (toolName === REACTION_TOOL_NAME) {
+        const result = parseMessageReaction(event.content);
+        if (result && !reactionShown) {
+          reactionShown = true;
+          handlers.onMessageReaction?.(result);
+        }
+        return;
+      }
       if (toolName === FOLLOW_UP_TOOL_NAME) {
         // Only the server's `shown` result renders; its text never enters
         // generic tool payloads, diagnostics, or logs.
@@ -1791,7 +1821,7 @@ export async function streamAgentChat(input: {
                   tools, context: [],
                   forwardedProps: {
                     ...await connectorProjection(),
-                    timezone, turnLocation, pkmContext: input.pkmContext,
+                    timezone, turnLocation, pkmContext: input.pkmContext, communicationPreferences,
                     personSelectionHandle: input.personSelectionHandle,
                     gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
                     ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -1891,6 +1921,7 @@ export async function streamAgentChat(input: {
         timezone,
         turnLocation,
         pkmContext: input.pkmContext,
+        communicationPreferences,
         personSelectionHandle: input.personSelectionHandle,
         gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         ...(input.driveSearchSelection ? { driveSearchSelection: input.driveSearchSelection } : {}),
@@ -2031,11 +2062,14 @@ export function createQueuedInputPorts(getVaultOwnerToken: () => string | null):
   const base = (conversationId: string) =>
     `/api/one/agent-chat/runs/${encodeURIComponent(conversationId)}`;
   return {
-    enqueue: async (conversationId, clientMessageId, text) =>
-      parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
+    enqueue: async (conversationId, clientMessageId, text) => {
+      // The same last line as streamAgentChat: a raw secret never leaves.
+      assertNoUnguardedSecrets([text]);
+      return parseQueuedInputStatus((await call(`${base(conversationId)}/queue`, {
         method: "POST",
         body: JSON.stringify({ client_message_id: clientMessageId, text }),
-      })).status),
+      })).status);
+    },
     withdraw: async (conversationId, clientMessageId) =>
       parseQueuedInputStatus((await call(
         `${base(conversationId)}/queue/${encodeURIComponent(clientMessageId)}`,

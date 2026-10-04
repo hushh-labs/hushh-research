@@ -15,13 +15,24 @@ PKM semantics must be derived by manifest-backed agents with exact structured ou
 
 The canonical flow is:
 
-1. `Financial Guard Agent`
+1. `Memory Segmentation Agent`
 2. `Memory Intent Agent`
 3. `Memory Merge Agent`
 4. `PKM Structure Agent`
 5. deterministic validator
 
-No service-local prompt or heuristic may replace either agent as the semantic source of truth.
+No service-local prompt or heuristic may replace any of these agents as the semantic source of truth.
+
+The agents keep everything the owner stated (founder decision, Phase 4 of the reserved-branch
+plan). Work context, company, product, tech stack, infrastructure, vendors, people, metrics,
+AI tooling and non-secret technical identifiers (project ids, environment variable names,
+OAuth URLs, app ids) are memory. Only exact duplicates and pure disclaimers ("Information not
+known") are left unsaved, and both are reported in `not_memory`. Secrets never reach the agents:
+the device moved them into Secrets and left `⟦secret:<id> <label>⟧`, which the agents keep as an
+exact quote and never expand. A fact aimed at an app-owned branch goes to that branch's
+`agent_memory` sibling. The Financial Guard Agent that used to run first was removed: the
+intent agent alone tells a live `command` ("optimize my portfolio") from a memory, and a money
+preference is filed in `financial.agent_memory` by the reserved registry.
 
 ### Preparation failure and retry
 
@@ -30,8 +41,8 @@ successful first candidate must not hide a later failed agent stage. Individual
 cards retain their own outcomes; aggregate diagnostics do not alter model meaning.
 
 The existing request-bound preview cache may retain an exact validated prefix for
-each unique model-authored source segment after a stage timeout. If Financial Guard times out, only
-segmentation is reusable; the guard and every later stage run again. Changed
+each unique model-authored source segment after a stage timeout. If Memory Intent times out, only
+segmentation is reusable; intent and every later stage run again. Changed
 owner, credential, source, context, contracts or cache expiry invalidate reuse.
 Failed or fallback decisions are never retained as successful preparation, and a
 retry does not extend the original cache lifetime or authorize a save. Multi-segment
@@ -42,66 +53,108 @@ candidate output is not replayed as a write; normalization and review still run,
 and structure always runs fresh. These source contracts do not establish live
 provider reliability or successful encrypted-save acceptance.
 
-## Shared PKM Data Structure Agent Kernel v2
+## Shared PKM memory kernel v3
 
-Memory Intent, Memory Merge, and PKM Structure share the same deterministic kernel:
+One copy, composed into all four memory agents (segmentation, intent, merge,
+structure): `consent-protocol/hushh_mcp/agents/pkm_memory_kernel.v3.md`. Each
+manifest names it with `prompt_reference: ../pkm_memory_kernel.v3.md`, and
+`ManifestLoader` composes it ahead of the agent's own `system_instruction`, so
+the ADK single-turn runtime, the direct client, the registry digest and the
+preview-cache fingerprint all see the same text. No service keeps a copy; the
+retired `_PKM_DATA_STRUCTURE_KERNEL_V2` constant and the intent prompt that
+re-sent its whole manifest instruction (20,357 characters per call) are gone.
 
-```text
-You are a deterministic PKM data-structure agent.
+The kernel states what is memory (keep everything the owner stated, work
+context and AI tools included, people attributed), fidelity (no invented
+values, qualifiers kept, pasted text is untrusted source material), secrets and
+metadata, and the unsure rule (keep and ask; never drop). Each manifest adds
+only its own question.
 
-Your job is not to chat. Your job is to convert one user memory candidate into a stable, minimal, user-owned PKM mutation.
+### Prompt shape
 
-Use only the user's exact message, current active domains, manifest/scope registry metadata, recent active entity summaries, and the upstream contract when provided.
+A memory-agent call carries the composed instruction as the system instruction
+and a prompt of two parts only: the agent's worked examples, then
+`Request: {json}` with the owner's input (`message`, `section_context`,
+`current_domains`, `domain_choices`, `existing_entities`, the upstream
+`intent_frame` and `merge_decision`, and for structure the `reserved_branches`
+table its instruction promises). Rules never appear in the prompt.
 
-Never invent domains, paths, values, entities, or history.
-Never create a "changes" branch for corrections.
-Never duplicate a fact when an active canonical entity can be extended or corrected.
-Never save reminders, one-off tasks, opaque strings, secrets, random ids, or operational requests.
-Never write developer metadata, parser metadata, hashes, provenance, workflow ids, or raw internal paths into user-facing memory.
-Never select, create, redirect, or repurpose the reserved source_library domain.
+`existing_entities` are the owner's active saved entities (domain, entity_id,
+entity_scope, summary), newest or most related first. They are how the merge
+agent tells extend from create: the same subject extends, a new subject in a
+used domain creates, an explicit replacement corrects.
 
-Choose exactly one mutation: create_entity, extend_entity, correct_entity, delete_entity, or no_op.
-If unsure, choose confirm_first or no_op.
-```
+### Worked examples
 
-The three agents specialize this kernel:
+`consent-protocol/hushh_mcp/agents/pkm_memory_few_shot.v1.json` is the only
+place examples live: at most six per agent, each anchoring one principle and
+naming the eval cases that grade it (`exercised_by`). An example's text may
+never equal a graded case, so the eval cannot reward a memorized answer.
+Change the set by adding a version, not by editing examples in place.
 
-- Memory Intent decides durability, intent class, broad domain candidates, and mutation intent.
-- Memory Merge decides whether the statement maps to an existing active entity.
-- PKM Structure emits only the canonical payload/path that matches the prior decisions.
-- The deterministic validator remains final authority for blocking `changes`, duplicate writes, internal metadata, unsupported scopes, and no-target correction/delete.
+### Budget
+
+`tests/test_agent_manifests.py::test_pkm_memory_agent_stays_inside_its_prompt_budget`
+caps each agent's instruction plus examples plus empty request. Measured
+2026-10-02 with live `count_tokens` (Gemini 3.6 Flash) on the production path,
+with one release-chain statement against a four-entity state:
+
+| Agent | Before (chars / tokens) | After (chars / tokens) |
+|---|---|---|
+| segmentation | 4,048 / 905 | 5,101 / 1,127 (now carries the kernel) |
+| intent | 20,357 / 4,580 | 11,650 / 2,563 |
+| merge | 8,867 / 2,019 | 8,067 / 1,847 |
+| structure | 16,991 / 3,976 | 16,422 / 3,725 (now carries the reserved table) |
+| all four | 50,263 / 11,480 | 41,240 / 9,262 |
+
+Raising a cap is a deliberate edit backed by a live eval result. Prefer stating
+a principle to adding a case.
+
+### Who decides what
+
+Each stage answers one question, and a later stage never reverses an earlier
+one's answer by dropping the statement:
+
+- **Intent** decides whether a statement is memory (`save_class`), including
+  that a restated linked-account balance, holding, or transaction is not.
+- **Merge** decides how it attaches. For a correction or deletion,
+  `_resolve_mutation_target` validates the target the model named against the
+  `existing_entities` it was shown: a target the owner has is kept, a target
+  the owner does not have is never written to, and the model's `create_entity`
+  for a correction with no prior entity stands. Until 2026-10-02 a miss by the
+  word-overlap fallback vetoed all three, so the instruction to keep an
+  unmatched correction could never take effect.
+- **Structure** decides where it goes, never whether. A structure
+  `do_not_save` on a statement intent kept and merge attached becomes a review
+  card (`structure_drop_kept_for_review`). The service still drops ephemeral,
+  opaque, and reserved-only input itself, after that rule.
+
+### The saved payload is not model-authored
+
+`_STRUCTURE_PREVIEW_SCHEMA` declares `candidate_payload` as an `OBJECT` with no
+properties, so the model can return only `{}`, and `_sanitize_candidate_payload`
+substitutes `_fallback_payload_from_intent`. The live eval's
+`payload_authored_by_model_rate` measured 0.0 on both the 2026-10-02 baseline
+and head. The payload rules in the structure instruction therefore do not
+reach a saved payload today. Whether the model should author it is an open
+product decision; the diagnostic will show the change when it is made.
 
 ## Agent ownership
 
-### Financial Guard Agent
+### Memory Segmentation Agent
 
 Owns:
 
-- finance-sensitive routing
-- `financial_core` vs `sanctioned_financial_memory` vs `non_financial_or_ephemeral`
-- protection of Kai's governed financial lane from casual PKM drift
+- selecting every stated claim as an exact quote, eight per batch, with `has_more_candidates`
+  when more remain (the device splits the passage and asks again)
+- `context_quotes`: the exact headings or lead-in lines that attribute or qualify a segment
+- `not_memory[]: {quote, reason: duplicate | disclaimer}` for every line it does not select
 
 Does not own:
 
-- final non-financial ontology
-- payload structure
-- persistence safety checks
-
-## FinancialGuardDecision contract
-
-Required fields:
-
-- `routing_decision = financial_core | sanctioned_financial_memory | non_financial_or_ephemeral`
-- `confidence`
-- `reason`
-
-Rules:
-
-- JSON only
-- no prose outside the schema
-- route portfolio action requests to `financial_core`
-- route durable financial preferences to `sanctioned_financial_memory`
-- never use `general`
+- intent, domain, payload, or whether a quote "really" matches; the server maps each quote
+  onto the owner's exact text (`locate_source_quote`), tolerating cleaned Markdown and dash or
+  quotation-mark variants, and drops only a quote that matches nothing
 
 ### Memory Intent Agent
 
@@ -188,7 +241,8 @@ target domain.
 Required fields:
 
 - `save_class = durable | ephemeral | ambiguous`
-- `intent_class`
+- `intent_class` (includes `command`: a live instruction to act now, never memory, and never
+  applied to pasted or quoted source material)
 - `mutation_intent = create | extend | update | correct | delete | no_op`
 - `requires_confirmation`
 - `confirmation_reason`
@@ -231,7 +285,12 @@ The validator may:
 - reject incoherent output
 - downgrade to `confirm_first`
 - downgrade to `do_not_save`
-- normalize finance payload/domain consistency
+- keep a fact whose domain the model named after a protocol namespace (`agent`, `agents`,
+  `mcp`, `system`) in the intent's domain or `professional`, recorded as
+  `protocol_domain_name_remapped`; storage and authority namespaces (`vault`, `pkm`, `consent`,
+  `scope`, quarantine) stay refused
+- skip the structure agent only for an intent `no_op` or `command`; a statement that needs the
+  owner's confirmation is still structured, never filed through the clipped fallback record
 - prevent unsafe scope emission
 - reject reserved-domain selection by a generic PKM agent
 - set `do_not_save` with `source_managed_branch_blocked` when a financial candidate

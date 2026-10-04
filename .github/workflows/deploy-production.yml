@@ -32,6 +32,15 @@ on:
         options:
           - "false"
           - "true"
+      drive_live_mode:
+        description: "Preserve current Drive state; explicitly enable after provider verification or disable with rollback"
+        required: true
+        default: preserve
+        type: choice
+        options:
+          - preserve
+          - enable
+          - disable
       backend_image_source:
         description: "Backend image: build-from-source (rebuild at this SHA, today's path) or promote-from-uat (copy the exact digest UAT verified for this SHA; needs the IAM in deploy/iam/README.md)"
         required: true
@@ -77,6 +86,9 @@ env:
   UAT_GCP_PROJECT_ID: hushh-pda-uat
   UAT_BACKEND_IMAGE_REPOSITORY: gcr.io/hushh-pda-uat/consent-protocol
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
+  # run_attempt changes on a workflow rerun; a rerun must never rewrite the
+  # :latest config of a candidate revision already serving from this run ID.
+  DRIVE_CANDIDATE_RUNTIME_SECRET: BACKEND_RUNTIME_CONFIG_JSON_DRIVE_${{ github.run_id }}_${{ github.run_attempt }}
 
 # One global group: the account deletion fence, migration, and activation
 # must never interleave between two production dispatches, even for different
@@ -132,12 +144,40 @@ jobs:
           # The deployment SHA may predate this verifier; always use main's.
           cp scripts/ci/resolve-uat-verified-image.py \
             "${RUNNER_TEMP}/release-tools/resolve-uat-verified-image.py"
+          # Release gates come from current main even when the exact UAT image
+          # is older than this workflow's production voice enablement.
+          cp deploy/backend.cloudbuild.yaml \
+            "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml"
+          cp scripts/ci/assert_one_voice_live_probe.py \
+            "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py"
+          # Orchestration must remain current when rolling back to an older image.
+          mkdir -p "${RUNNER_TEMP}/release-tools/drive"
+          for tool in resolve_prod_release_mode.py verify_prod_prerequisites.py \
+            deploy_worker_service_prod.sh setup_work_drain_scheduler_prod.sh \
+            work_drain_scheduler_snapshot_prod.py restore_prod_after_release_failure.sh; do
+            cp "deploy/drive/${tool}" "${RUNNER_TEMP}/release-tools/drive/${tool}"
+          done
+          cp scripts/ops/sync_backend_runtime_secrets.py \
+            "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py"
+          git log -1 --diff-filter=A --format=%H -- \
+            consent-protocol/hushh_mcp/services/drive_prod_registry_provisioning.py \
+            > "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit"
+          cp scripts/ci/verify-prod-places-readiness.py \
+            "${RUNNER_TEMP}/release-tools/verify-prod-places-readiness.py"
 
       - name: Checkout deployment SHA
         shell: bash
         run: |
           set -euo pipefail
           git checkout --detach "${{ github.event.inputs.sha }}"
+          cp "${RUNNER_TEMP}/release-tools/backend.cloudbuild.yaml" \
+            deploy/backend.cloudbuild.yaml
+          cp "${RUNNER_TEMP}/release-tools/assert_one_voice_live_probe.py" \
+            scripts/ci/assert_one_voice_live_probe.py
+          mkdir -p deploy/drive
+          cp "${RUNNER_TEMP}/release-tools/drive/"* deploy/drive/
+          cp "${RUNNER_TEMP}/release-tools/sync_backend_runtime_secrets.py" \
+            scripts/ops/sync_backend_runtime_secrets.py
 
       - name: Report production deploy lane
         run: |
@@ -244,6 +284,46 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
+      - name: Resolve production Drive release mode from serving backend
+        id: drive-mode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ steps.predeploy-state.outputs.backend_revision }}" ]; then
+            gcloud run revisions describe "${{ steps.predeploy-state.outputs.backend_revision }}" \
+              --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/prod-drive-serving-backend.json
+          else
+            printf '{}\n' > /tmp/prod-drive-serving-backend.json
+          fi
+          python3 deploy/drive/resolve_prod_release_mode.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --mode "${{ github.event.inputs.drive_live_mode }}" \
+            --backend-deploy "${{ steps.scope.outputs.deploy_backend }}" \
+            --previous-revision "${{ steps.predeploy-state.outputs.backend_revision }}" \
+            --revision-json /tmp/prod-drive-serving-backend.json \
+            --target-sha "${{ github.event.inputs.sha }}" \
+            --required-ancestor "$(cat "${RUNNER_TEMP}/release-tools/prod-drive-feature-commit")" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Verify production Drive prerequisites before mutation
+        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          DRIVE_OAUTH_VERIFIED: ${{ vars.GOOGLE_DRIVE_OAUTH_PROD_VERIFIED || 'false' }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.scope.outputs.deploy_backend }}" != true ]; then
+            echo "Production Drive activation requires backend deployment" >&2
+            exit 1
+          fi
+          if [ "${DRIVE_OAUTH_VERIFIED}" != true ]; then
+            echo "Production Drive OAuth client scopes and exact callbacks require operator attestation" >&2
+            exit 1
+          fi
+          python3 deploy/drive/verify_prod_prerequisites.py \
+            --project "${{ env.GCP_PROJECT_ID }}" --oauth-attested
+
       # promote-from-uat preflight. Runs before the secret sync, backup, fence
       # and migrations so a missing UAT release or missing IAM stops the run
       # before it changes anything. Evidence chain, all of which must agree:
@@ -334,7 +414,58 @@ jobs:
           python-version: "3.13"
           protocol-dir: ./consent-protocol
 
+      - name: Install Cloud SQL Auth Proxy
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Attest production Drive database before secret sync
+        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ENVIRONMENT=production
+          export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+          export CLOUDSQL_INSTANCE_CONNECTION_NAME="${{ env.PROD_CLOUDSQL_INSTANCE }}"
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+          cloud-sql-proxy --address 127.0.0.1 --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-drive-attest.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+          python3 - <<'PY'
+          import socket
+          import time
+
+          for _ in range(80):
+              with socket.socket() as sock:
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Production Drive DB attestation proxy did not bind")
+          PY
+          export DB_HOST=127.0.0.1 DB_PORT=6544 DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER DB_PASSWORD
+          "${{ env.PROTOCOL_PYTHON }}" consent-protocol/scripts/ops/reconcile_google_drive_prod_connector.py --attest-target
+
+      - name: Verify production Places prerequisites
+        if: steps.scope.outputs.deploy_backend == 'true' && vars.ONE_PLACES_DIRECTORY_ENABLED_PROD != 'false'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "${RUNNER_TEMP}/release-tools/verify-prod-places-readiness.py" \
+            --project "${GCP_PROJECT_ID}"
+
       - name: Sync canonical hosted runtime secrets
+        if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -360,14 +491,32 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --connections-panel-v2 "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-connection "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-live "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-picker "${{ steps.drive-mode.outputs.active }}" \
+            --drive-document-indexing "${{ steps.drive-mode.outputs.active }}" \
+            --drive-document-sharing "${{ steps.drive-mode.outputs.active }}" \
+            --google-drive-chat-reads "${{ steps.drive-mode.outputs.active }}" \
+            --connector-production-all-users "${{ steps.drive-mode.outputs.active }}" \
+            --production-drive-candidate-secret "${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}" \
             --one-location-read-only-state-enabled "false" \
+            --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
             --hushh-tech-client-enabled "false" \
             --hushh-tech-allowed-consent-scopes "" \
             --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
             --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
+            --advisors-api-base-url "${{ vars.ADVISORS_API_BASE_URL || 'https://brokercheck.35.253.255.106.sslip.io' }}" \
+            --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
+            --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_PROD || 'true' }}" \
             > /tmp/prod-runtime-secret-sync.json
 
+      - name: Sync frontend hosted runtime secrets
+        if: steps.scope.outputs.deploy_frontend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment production \
@@ -503,16 +652,6 @@ jobs:
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
           echo "image_source=${BACKEND_IMAGE_SOURCE}" >> "$GITHUB_OUTPUT"
 
-      - name: Install Cloud SQL Auth Proxy
-        if: steps.scope.outputs.deploy_backend == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          curl -fsSL \
-            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
-            -o /usr/local/bin/cloud-sql-proxy
-          chmod +x /usr/local/bin/cloud-sql-proxy
-
       - name: Install fail-closed account deletion release fence
         id: install-account-deletion-fence
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -644,6 +783,15 @@ jobs:
               --release-environment production \
               --migration-mode replay
           )
+          if [ "${{ steps.drive-mode.outputs.active }}" = true ]; then
+            export ENVIRONMENT=production
+            export GOOGLE_CLOUD_PROJECT="${{ env.GCP_PROJECT_ID }}"
+            (
+              cd consent-protocol
+              "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py --activate
+              "${{ env.PROTOCOL_PYTHON }}" scripts/ops/reconcile_google_drive_prod_connector.py
+            )
+          fi
           psql --no-psqlrc \
             --file deploy/account-deletion/verify_release_boundary.sql \
             | tee /tmp/prod-account-deletion-boundary.log
@@ -725,6 +873,10 @@ jobs:
             echo "Production One Email KYC is blocked until mailbox-watch ownership, Scheduler renewal, and encrypted-at-rest draft storage are complete."
             exit 1
           fi
+          DRIVE_SUBSTITUTIONS=",_BACKEND_RUNTIME_CONFIG_JSON_SECRET=${DRIVE_CANDIDATE_RUNTIME_SECRET}"
+          if [ "${{ steps.drive-mode.outputs.active }}" = "true" ]; then
+            DRIVE_SUBSTITUTIONS+=",_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID,_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET,_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY,_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY,_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1,_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1,_DRIVE_WORK_DRAIN_ENABLED=true,_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda,_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com,_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://api.hushh.ai"
+          fi
           # Same sizing as UAT: two gunicorn workers plus the E5 query leaf
           # outgrow the 1Gi default, and an out-of-memory kill drops every
           # chat stream on the instance mid-turn (measured 2026-09-27).
@@ -734,7 +886,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_CPU=2,_CLOUD_RUN_MEMORY=4Gi,_CLOUD_RUN_CONCURRENCY=20,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash,_ONE_VOICE_LIVE_ENABLED=false,_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio,_VERTEX_LIVE_LOCATION=us-central1,_GENAI_PROJECT_ID=hushh-vertex-personal54,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com,_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }},_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_CPU=2,_CLOUD_RUN_MEMORY=4Gi,_CLOUD_RUN_CONCURRENCY=20,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.6-flash,_ONE_VOICE_LIVE_ENABLED=true,_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio,_VERTEX_LIVE_LOCATION=us-central1,_GENAI_PROJECT_ID=hushh-vertex-personal54,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com,_DRIVE_REQUEST_PAYMENTS_ENABLED=${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }},_STRIPE_SECRET_KEY_SECRET=STRIPE_SECRET_KEY,_STRIPE_WEBHOOK_SECRET_SECRET=STRIPE_WEBHOOK_SECRET${DRIVE_SUBSTITUTIONS}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -797,6 +949,8 @@ jobs:
           BACKEND_CANDIDATE_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url }}
           EXPECTED_SHA: ${{ github.event.inputs.sha }}
           EXPECTED_IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
+          DRIVE_CANDIDATE_RUNTIME_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
         run: |
           set -euo pipefail
           gcloud run revisions describe "${BACKEND_REVISION}" \
@@ -824,6 +978,16 @@ jobs:
               for item in (container.get("env") or [])
               if isinstance(item, dict) and "value" in item
           }
+          secret_refs = {
+              str(item.get("name") or ""): str(
+                  ((item.get("valueFrom") or {}).get("secretKeyRef") or {}).get("name") or ""
+              )
+              for container in containers
+              if isinstance(container, dict)
+              for item in (container.get("env") or [])
+              if isinstance(item, dict)
+          }
+          expected_runtime_secret = os.environ["DRIVE_CANDIDATE_RUNTIME_SECRET"]
           ready = any(
               condition.get("type") == "Ready" and str(condition.get("status")).lower() == "true"
               for condition in ((revision.get("status") or {}).get("conditions") or [])
@@ -842,6 +1006,8 @@ jobs:
               "env_environment": env.get("HUSHH_DEPLOY_ENV") == "production",
               "env_source": env.get("HUSHH_DEPLOY_SOURCE") == "deploy-production",
               "env_run": env.get("HUSHH_DEPLOY_RUN_ID") == os.environ["GITHUB_RUN_ID"],
+              "isolated_runtime_config": secret_refs.get("BACKEND_RUNTIME_CONFIG_JSON")
+              == expected_runtime_secret,
           }
           report = {
               "status": "ready" if all(checks.values()) else "blocked",
@@ -1056,12 +1222,30 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" \
             2>&1 | tee /tmp/prod-connected-systems.log
 
+      - name: Deploy and attest private production Drive worker
+        id: deploy-drive-worker
+        if: steps.drive-mode.outputs.active == 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success' && steps.verify-connected-systems.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DEPLOY_SHA: ${{ github.event.inputs.sha }}
+          CLOUDSQL_INSTANCE: ${{ env.PROD_CLOUDSQL_INSTANCE }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.run_attempt }}
+          DRIVE_RUNTIME_CONFIG_SECRET: ${{ env.DRIVE_CANDIDATE_RUNTIME_SECRET }}
+          ENABLE_PRODUCTION_DRIVE_LIVE: "true"
+          DRIVE_REQUEST_PAYMENTS_PROD_ENABLED: ${{ vars.DRIVE_REQUEST_PAYMENTS_PROD_ENABLED || 'false' }}
+        run: |
+          set -euo pipefail
+          bash deploy/drive/deploy_worker_service_prod.sh
+
       # New revisions are deployed with --no-traffic (see _CLOUD_RUN_NO_TRAFFIC=true
       # above), so promotion is an explicit, reversible step: shift 100% to the
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
-        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success')
+        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success') && (steps.scope.outputs.deploy_backend != 'true' || steps.drive-mode.outputs.active != 'true' || steps.deploy-drive-worker.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -1078,6 +1262,25 @@ jobs:
               --region="${{ env.GCP_REGION }}" \
               --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
           fi
+
+      - name: Quarantine production Drive jobs after disabling live Drive
+        id: pause-drive-worker
+        if: steps.drive-mode.outputs.active != 'true' && steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Never pause jobs while the previous live-Drive backend still serves.
+          # Save exact fixed-job state so a failed health gate can restore it.
+          snapshot=/tmp/prod-drive-scheduler-before-disable.json
+          worker_origin="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          python3 deploy/drive/work_drain_scheduler_snapshot_prod.py capture \
+            --snapshot "${snapshot}" --worker-origin "${worker_origin}"
+          echo "snapshot=${snapshot}" >> "${GITHUB_OUTPUT}"
+          echo "worker_origin=${worker_origin}" >> "${GITHUB_OUTPUT}"
+          python3 deploy/drive/work_drain_scheduler_snapshot_prod.py quarantine
 
       - name: Verify production backend deployment provenance
         id: verify-backend-provenance
@@ -1175,6 +1378,10 @@ jobs:
           ACCOUNT_SESSION_CONTRACT_OUTCOME: ${{ steps.health-account-session-contract.outcome }}
           PARITY_OUTCOME: ${{ steps.verify-parity.outcome }}
           CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}
+          DRIVE_ENABLED: ${{ steps.drive-mode.outputs.active }}
+          DRIVE_WORKER_OUTCOME: ${{ steps.deploy-drive-worker.outcome }}
+          DRIVE_PAUSE_OUTCOME: ${{ steps.pause-drive-worker.outcome }}
+          DRIVE_PAUSE_SNAPSHOT: ${{ steps.pause-drive-worker.outputs.snapshot }}
           PROMOTE_OUTCOME: ${{ steps.promote-traffic.outcome }}
           BACKEND_PROVENANCE_OUTCOME: ${{ steps.verify-backend-provenance.outcome }}
           FRONTEND_PROVENANCE_OUTCOME: ${{ steps.verify-frontend-provenance.outcome }}
@@ -1188,6 +1395,8 @@ jobs:
           account_session_contract_failed=false
           parity_failed=false
           connected_systems_failed=false
+          drive_worker_failed=false
+          drive_pause_failed=false
           promote_failed=false
           backend_provenance_failed=false
           frontend_provenance_failed=false
@@ -1228,6 +1437,16 @@ jobs:
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$CONNECTED_SYSTEMS_OUTCOME" != "success" ]; then
             connected_systems_failed=true
           fi
+          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PARITY_OUTCOME" = "success" ] \
+             && [ "$CONNECTED_SYSTEMS_OUTCOME" = "success" ]; then
+            if [ "$DRIVE_ENABLED" = "true" ] && [ "$DRIVE_WORKER_OUTCOME" != "success" ]; then
+              drive_worker_failed=true
+            fi
+            if [ "$DRIVE_ENABLED" != "true" ] && [ "$DRIVE_PAUSE_OUTCOME" != "success" ]; then
+              drive_pause_failed=true
+              backend_failure=true
+            fi
+          fi
           if [ "$PROMOTE_OUTCOME" = "failure" ]; then
             promote_failed=true
             # A multi-service promotion can fail after one service has already
@@ -1264,12 +1483,18 @@ jobs:
           if [ "$upstream_failed" = "true" ] \
              || [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
              || [ "$parity_failed" = "true" ] || [ "$connected_systems_failed" = "true" ] \
+             || [ "$drive_worker_failed" = "true" ] || [ "$drive_pause_failed" = "true" ] \
              || [ "$promote_failed" = "true" ] \
              || [ "$backend_provenance_failed" = "true" ] \
              || [ "$frontend_provenance_failed" = "true" ] \
              || [ "$passkey_associations_failed" = "true" ] \
              || [ "$account_session_contract_failed" = "true" ]; then
             release_failed=true
+          fi
+          # Once this release paused a previously serving Drive job, a later
+          # failure must restore the paired backend before restoring those jobs.
+          if [ "$release_failed" = "true" ] && [ -n "$DRIVE_PAUSE_SNAPSHOT" ]; then
+            backend_failure=true
           fi
 
           {
@@ -1279,6 +1504,8 @@ jobs:
             echo "account_session_contract_failed=$account_session_contract_failed"
             echo "parity_failed=$parity_failed"
             echo "connected_systems_failed=$connected_systems_failed"
+            echo "drive_worker_failed=$drive_worker_failed"
+            echo "drive_pause_failed=$drive_pause_failed"
             echo "promote_failed=$promote_failed"
             echo "backend_provenance_failed=$backend_provenance_failed"
             echo "frontend_provenance_failed=$frontend_provenance_failed"
@@ -1390,6 +1617,26 @@ jobs:
           set -euo pipefail
           echo "Frontend runtime health gate failed; reverting traffic to predeploy revision ${{ steps.predeploy-state.outputs.frontend_revision }}"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
+
+      - name: Restore production Drive worker after paired release failure
+        id: rollback-drive-worker
+        if: always() && steps.classify.outputs.release_failed == 'true' && steps.deploy-drive-worker.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash deploy/drive/restore_prod_after_release_failure.sh \
+            "${{ steps.deploy-drive-worker.outputs.previous_revision }}" \
+            "${{ steps.deploy-drive-worker.outputs.worker_url }}"
+
+      - name: Restore production Drive jobs after disabled release failure
+        id: rollback-paused-drive-worker
+        if: always() && steps.classify.outputs.release_failed == 'true' && steps.pause-drive-worker.outputs.snapshot != '' && steps.rollback-backend.outcome == 'success'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 deploy/drive/work_drain_scheduler_snapshot_prod.py restore \
+            --snapshot "${{ steps.pause-drive-worker.outputs.snapshot }}" \
+            --worker-origin "${{ steps.pause-drive-worker.outputs.worker_origin }}"
 
       - name: Activate tombstone-aware account deletion
         id: activate-account-deletion
@@ -1687,6 +1934,12 @@ jobs:
                 ROLLBACK_PROVEN=false
               fi
             fi
+            if [ "${{ steps.pause-drive-worker.outputs.snapshot }}" != "" ]; then
+              ROLLBACK_REQUIRED=true
+              if [ "${{ steps.rollback-paused-drive-worker.outcome }}" != "success" ]; then
+                ROLLBACK_PROVEN=false
+              fi
+            fi
             if [ "$ROLLBACK_REQUIRED" = "true" ] && [ "$ROLLBACK_PROVEN" = "true" ]; then
               STATUS="rolled_back"
             fi
@@ -1733,6 +1986,7 @@ jobs:
               "rollback": {
                   "backend": "${{ steps.rollback-backend.outcome }}",
                   "frontend": "${{ steps.rollback-frontend.outcome }}",
+                  "drive_jobs": "${{ steps.rollback-paused-drive-worker.outcome }}",
               },
           }
           Path("/tmp/prod-release-status.json").write_text(

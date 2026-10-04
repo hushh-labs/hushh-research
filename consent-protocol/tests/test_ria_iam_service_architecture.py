@@ -2076,6 +2076,8 @@ def test_directory_search_never_emits_pick_thesis_fields(monkeypatch):
             "maskedEmail": None,
             "maskedPhone": None,
             "relationship": "none",
+            "mutualConnectionCount": 0,
+            "mutualConnectionPreview": None,
             "isRia": True,
         }
     ]

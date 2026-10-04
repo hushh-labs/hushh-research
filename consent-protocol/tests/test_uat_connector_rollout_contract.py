@@ -12,6 +12,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "scripts/ops/sync_backend_runtime_secrets.py"
 WORKFLOW = ROOT / ".github/workflows/deploy-uat.yml"
+CANDIDATE_SECRET_NAME = "BACKEND_RUNTIME_CONFIG_JSON_DRIVE_123_1"
 
 
 def _module():
@@ -23,13 +24,27 @@ def _module():
     return module
 
 
-def _args(*, environment="uat", cohort="", all_users="false", **flags):
+def _args(
+    *,
+    environment="uat",
+    cohort="",
+    all_users="false",
+    prod_cohort="",
+    prod_all_users="false",
+    candidate_secret="",
+    project=None,
+    **flags,
+):
     values = {name: "false" for name in _module().CONNECTOR_ROLLOUT_FLAGS}
     values.update(flags)
     return Namespace(
+        project=project or ("hushh-pda" if environment == "production" else "hushh-pda-uat"),
         environment=environment,
         connector_internal_owner_cohort=cohort,
         connector_uat_all_users=all_users,
+        connector_production_owner_cohort=prod_cohort,
+        connector_production_all_users=prod_all_users,
+        production_drive_candidate_secret=candidate_secret,
         **values,
     )
 
@@ -57,7 +72,7 @@ def test_explicit_all_users_mode_accepts_enabled_uat_features():
 
 
 def test_enabled_feature_requires_a_cohort_or_all_users_mode():
-    with pytest.raises(ValueError, match="require a UAT cohort or all-users mode"):
+    with pytest.raises(ValueError, match="require a lane-specific cohort or all-users mode"):
         _module()._validate_connector_rollout(_args(gmail_chat_reads="true"))
 
 
@@ -72,6 +87,99 @@ def test_hosted_connector_rollout_is_limited_to_uat(environment):
         )
     with pytest.raises(ValueError, match="limited to UAT"):
         module._validate_connector_rollout(_args(environment=environment, all_users="true"))
+
+
+def test_production_drive_requires_explicit_production_audience():
+    module = _module()
+    module._validate_connector_rollout(
+        _args(
+            environment="production",
+            prod_all_users="true",
+            candidate_secret=CANDIDATE_SECRET_NAME,
+            google_drive_live="true",
+        )
+    )
+    with pytest.raises(ValueError, match="per-release candidate secret"):
+        module._validate_connector_rollout(
+            _args(
+                environment="production",
+                prod_all_users="true",
+                candidate_secret=CANDIDATE_SECRET_NAME.removesuffix("_1"),
+                google_drive_live="true",
+            )
+        )
+    with pytest.raises(ValueError, match="production project"):
+        module._validate_connector_rollout(
+            _args(
+                environment="production",
+                project="hushh-pda-uat",
+                prod_all_users="true",
+                candidate_secret=CANDIDATE_SECRET_NAME,
+                google_drive_live="true",
+            )
+        )
+    with pytest.raises(ValueError, match="lane-specific cohort or all-users"):
+        module._validate_connector_rollout(
+            _args(
+                environment="production",
+                candidate_secret=CANDIDATE_SECRET_NAME,
+                google_drive_live="true",
+            )
+        )
+    with pytest.raises(ValueError, match="limited to production"):
+        module._validate_connector_rollout(
+            _args(environment="uat", prod_all_users="true", google_drive_live="true")
+        )
+    with pytest.raises(ValueError, match="cannot be combined"):
+        module._validate_connector_rollout(
+            _args(
+                environment="production",
+                prod_all_users="true",
+                prod_cohort="owner-a",
+                candidate_secret=CANDIDATE_SECRET_NAME,
+                google_drive_live="true",
+            )
+        )
+
+
+def test_production_candidate_config_never_opens_canonical_serving_secret():
+    module = _module()
+    args = _args(
+        environment="production",
+        prod_all_users="true",
+        candidate_secret=CANDIDATE_SECRET_NAME,
+        google_drive_live="true",
+        drive_document_sharing="true",
+    )
+    canonical, candidate = module._split_production_drive_candidate_config(
+        args,
+        {
+            "google_drive_live": "true",
+            "drive_document_sharing": "true",
+            "connector_production_all_users": "true",
+            "environment": "production",
+        },
+    )
+    assert candidate and candidate["google_drive_live"] == "true"
+    assert candidate["connector_production_all_users"] == "true"
+    assert canonical is None
+    disabled_args = _args(environment="production")
+    canonical, candidate = module._split_production_drive_candidate_config(
+        disabled_args, {"google_drive_live": "false", "environment": "production"}
+    )
+    assert canonical == {"google_drive_live": "false", "environment": "production"}
+    assert candidate is None
+    disabled_args.production_drive_candidate_secret = CANDIDATE_SECRET_NAME
+    canonical, candidate = module._split_production_drive_candidate_config(
+        disabled_args,
+        {"google_drive_live": "false", "environment": "production"},
+    )
+    assert canonical is None
+    assert candidate == {"google_drive_live": "false", "environment": "production"}
+    with pytest.raises(ValueError, match="per-release candidate secret"):
+        module._validate_connector_rollout(
+            _args(environment="production", candidate_secret="unreviewed-secret")  # noqa: S106
+        )
 
 
 def test_all_users_mode_cannot_be_combined_with_cohort():

@@ -32,6 +32,7 @@ from hushh_mcp.one_adk.adk_session_repository import (
 )
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+from hushh_mcp.one_adk.message_reactions import without_message_reactions
 from hushh_mcp.services.chat_key import (
     CHAT_CIPHERTEXT_LIKE,
     ChatCipher,
@@ -189,7 +190,9 @@ class EncryptedAdkSessionService(BaseSessionService):
             ) from None
 
     def _encode(self, session: Session) -> dict[str, str]:
-        session = _without_invocation_state(durable_external_read_projection(session))
+        session = _without_invocation_state(
+            without_message_reactions(durable_external_read_projection(session))
+        )
         try:
             plain = session.model_dump_json(by_alias=True)
         except PydanticSerializationError as exc:

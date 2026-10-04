@@ -100,8 +100,7 @@ export async function prepareCircleMembership(input: {
     });
     if (
       circle.id !== original.circleId ||
-      !circle.viewerCapabilities?.canInviteMembers ||
-      circle.systemKind === "trusted"
+      !circle.viewerCapabilities?.canInviteMembers
     )
       return review(
         "You can no longer add people to this circle. Review its membership.",
@@ -177,8 +176,7 @@ export async function prepareCircleMembership(input: {
   const circle = await input.ports.overview(circleId);
   if (
     circle.id !== circleId ||
-    !circle.viewerCapabilities?.canInviteMembers ||
-    circle.systemKind === "trusted"
+    !circle.viewerCapabilities?.canInviteMembers
   )
     return {
       status: "blocked",

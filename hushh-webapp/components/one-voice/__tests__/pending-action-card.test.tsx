@@ -433,6 +433,12 @@ describe("PendingActionCard", () => {
   it("derives the resolved label from the result status only for Save My Soul", () => {
     expect(
       resolvedLabel({
+        resolvedStatus: "failed",
+        resolvedResult: { status: "draft_open_unconfirmed" },
+      }),
+    ).toEqual({ label: "Draft may be open · review it before sending", kind: "neutral" });
+    expect(
+      resolvedLabel({
         resolvedStatus: "executed",
         resolvedResult: { status: "sos_grants_created" },
       }),

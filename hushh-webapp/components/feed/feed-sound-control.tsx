@@ -168,7 +168,7 @@ export function FeedSoundControl({
           onClick={toggle}
           className="min-h-11 gap-2 rounded-full px-3 text-[12px] text-[color:var(--app-secondary-label)]"
         >
-          {enabled ? <Volume2 className="h-4 w-4" aria-hidden /> : <VolumeX className="h-4 w-4" aria-hidden />}
+          {enabled ? <Volume2 className="mr-2 h-4 w-4 shrink-0" aria-hidden /> : <VolumeX className="mr-2 h-4 w-4 shrink-0" aria-hidden />}
           <span>{label}</span>
         </Button>
       </div>

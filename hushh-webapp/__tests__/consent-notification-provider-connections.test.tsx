@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => {
     onConnectionGraphMutated: vi.fn(),
     onOneLocationStateMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
+    dispatchDirectMessagesUpdated: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
     navigation: { pathname: "/settings", search: "" },
@@ -100,6 +101,10 @@ vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
+vi.mock("@/lib/direct-messages/direct-message-events", () => ({
+  dispatchDirectMessagesUpdated: mocks.dispatchDirectMessagesUpdated,
+}));
+
 import {
   ConsentNotificationProvider,
   usePendingConsentCount,
@@ -129,6 +134,7 @@ async function renderProvider() {
   mocks.onConsentMutated.mockClear();
   mocks.onConnectionGraphMutated.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();
+  mocks.dispatchDirectMessagesUpdated.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
 }
 
@@ -203,6 +209,17 @@ function dispatchDocumentShare(data: Record<string, string>) {
   return detail;
 }
 
+function dispatchDirectMessage(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data: { type: "direct_message", ...data } };
+  act(() => {
+    window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+  });
+  return detail;
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -222,6 +239,27 @@ beforeEach(() => {
 });
 
 describe("connection-request Feed-first foreground policy", () => {
+  it("refreshes the recipient Feed and inbox for a direct-message doorbell without a popup", async () => {
+    await renderProvider();
+
+    const detail = dispatchDirectMessage({
+      user_id: "recipient-user",
+      conversation_id: "11111111-2222-4333-8444-555555555555",
+      message_id: "direct-message:22222222-2222-4333-8444-555555555555",
+      content: "hi",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchDirectMessagesUpdated).toHaveBeenCalledWith({
+      userId: "recipient-user",
+      conversationId: "11111111-2222-4333-8444-555555555555",
+      messageId: "direct-message:22222222-2222-4333-8444-555555555555",
+      source: "fcm",
+    });
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledWith("arrived");
+    expect(detail.accepted).toBe(true);
+  });
+
   it.each([
     { platform: "web", native: false },
     { platform: "ios", native: true },

@@ -327,7 +327,7 @@ function AccountPhoneMandateGuard({
   }, [currentRoute, pathname, router, shouldRedirect]);
 
   if (loading) {
-    return <HushhLoader label="Checking session..." />;
+    return <HushhLoader stage="session" label="Checking session..." />;
   }
 
   if (sessionVerificationRequired) {
@@ -359,11 +359,13 @@ function AccountPhoneMandateGuard({
   // instead; once the host is known the normal mandate policy applies.
   if (!hostnameResolved ||
       (!setupResolved && hasVault !== true && (hasVault === null || backendPhoneVerified === null))) {
-    return <HushhLoader label="Checking phone requirement..." />;
+    return <HushhLoader stage="phone" label="Checking phone requirement..." />;
   }
 
   if (shouldRedirect && !isPhoneMandatePath(pathname)) {
-    return <HushhLoader label="Opening phone verification..." />;
+    return (
+      <HushhLoader stage="phone" label="Opening phone verification..." holdThroughNavigation />
+    );
   }
 
   return <>{children}</>;

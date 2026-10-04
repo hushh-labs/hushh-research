@@ -19,6 +19,7 @@ import {
   Link2,
   Loader2,
   LogOut,
+  MessageCircle,
   Pencil,
   Share2,
   Trash2,
@@ -44,6 +45,7 @@ import {
   hrefForLocationAction,
   hrefForLocationView,
 } from "@/lib/location/screen-ids";
+import { buildDirectMessageRoute } from "@/lib/navigation/routes";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   CARD_SURFACE,
@@ -104,6 +106,10 @@ const PENDING_TOOLS = new Set([
   "rename_circle",
   "set_circle_kind",
   "add_circle_member",
+  // The batch add writes the same roster, so an open batch card must block
+  // this screen's own Add control exactly as a single-add card does. Without it
+  // the person can tap Add while a card for the same circle is still waiting.
+  "add_circle_members",
 ]);
 
 function isOkResult(result: ToolResultPublic | null | undefined): boolean {
@@ -734,6 +740,21 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
                             : ""}
                         </p>
                       </div>
+                      {!self &&
+                      member.relationship === "connected" &&
+                      member.publicPersonRef ? (
+                        <Button asChild size="sm" variant="outline">
+                          <Link
+                            href={buildDirectMessageRoute({
+                              personRef: member.publicPersonRef,
+                            })}
+                            aria-label={`Message ${member.displayName}`}
+                          >
+                            <MessageCircle className="h-4 w-4" aria-hidden />
+                            Message
+                          </Link>
+                        </Button>
+                      ) : null}
                       {canManage && !self && member.role !== "owner" ? (
                         <Button
                           size="icon-lg"

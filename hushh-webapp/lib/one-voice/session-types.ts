@@ -43,6 +43,8 @@ export type ToolTimelineItem = {
   argsSummary: string;
   result?: ToolResultPublic;
   ok?: boolean;
+  navigationOutcome?: "opened" | "failed" | "ignored";
+  navigationSuperseded?: boolean;
 };
 
 export type PendingActionView = PendingActionPublic & {
@@ -113,6 +115,7 @@ export type VoiceSessionState = {
 };
 
 export type VoiceSessionEvent =
+  | { type: "navigation_settled"; callId: string; turnId?: string | null; status: "opened" | "failed" | "ignored" }
   | { type: "server"; frame: ServerFrame; now: number }
   | { type: "connecting"; conversationId: string }
   | { type: "closed"; code: number; reason: string; now: number }

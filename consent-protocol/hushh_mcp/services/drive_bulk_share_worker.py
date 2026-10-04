@@ -35,7 +35,53 @@ from hushh_mcp.services.push_notifications import send_user_data_push
 MAX_EFFECTS_PER_SLICE = 400
 MAX_CONCURRENCY = 8
 _START_INTERVAL = 0.18  # <= roughly five effects/second before provider backoff
+_REFRESH_JOIN_DELAYS = (0.2, 0.4, 0.8)
 logger = drive_logger("drive_bulk_share")
+
+
+def _refresh_pending(error: BaseException) -> bool:
+    return (
+        isinstance(error, DriveOAuthError)
+        and error.status_code == 409
+        and str(error) == "refresh_in_progress"
+    )
+
+
+def _failure_code(error: BaseException) -> str:
+    """Only fixed classifications enter logs; never raw provider exceptions."""
+    code = str(error)
+    return (
+        code
+        if code
+        in {
+            "refresh_in_progress",
+            "provider_unavailable",
+            "permission_provider_unavailable",
+            "permission_response_invalid",
+            "permission_outcome_unknown",
+            "permission_rejected",
+            "permission_target_unavailable",
+            "source_changed",
+            "source_not_shareable",
+            "recipient_changed",
+            "recipient_verification_unavailable",
+            "connection_changed",
+            "connection_unavailable",
+            "reconnect_required",
+            "grant_rejected",
+            "identity_not_verified",
+            "bulk_changed",
+            "payment_required",
+            "sharing_unavailable",
+            "background_preparation_required",
+            "permission_catalog_incomplete",
+            "permission_catalog_changed",
+            "permission_catalog_too_large",
+        }
+        else "timeout"
+        if isinstance(error, TimeoutError)
+        else "unavailable"
+    )
 
 
 class DriveBulkShareWorker:
@@ -76,13 +122,29 @@ class DriveBulkShareWorker:
     def _speed_up(self):
         self._interval = max(_START_INTERVAL, self._interval * 0.98)
 
-    async def _credential(self, job):
-        row, credentials = await self.oauth.current_credential(
-            user_id=job["user_id"], required_profile="live"
-        )
-        if row["connection_generation"] != job["generation"]:
-            raise DriveSharingError("connection_changed")
-        return credentials
+    async def _credential(self, job, *, reconcile=False):
+        # Parallel files share one owner credential. Losing the refresh lease
+        # is normal contention, not a failed file. Briefly join the committed
+        # refresh; prolonged contention returns to the durable retry schedule.
+        for attempt in range(len(_REFRESH_JOIN_DELAYS) + 1):
+            if attempt:
+                await asyncio.sleep(_REFRESH_JOIN_DELAYS[attempt - 1])
+                if reconcile:
+                    await self.store.require_reconciliation_current(job)
+                else:
+                    await self.store.require_current(job)
+            try:
+                row, credentials = await self.oauth.current_credential(
+                    user_id=job["user_id"], required_profile="live"
+                )
+            except DriveOAuthError as error:
+                if not _refresh_pending(error) or attempt == len(_REFRESH_JOIN_DELAYS):
+                    raise
+                continue
+            if row["connection_generation"] != job["generation"]:
+                raise DriveSharingError("connection_changed")
+            return credentials
+        raise AssertionError("unreachable refresh retry")
 
     async def _settle_receipt(self, job, *, state, receipt):
         # A known Google success must be durably recorded if a brief database
@@ -98,7 +160,7 @@ class DriveBulkShareWorker:
 
     async def _reconcile(self, job):
         try:
-            credentials = await self._credential(job)
+            credentials = await self._credential(job, reconcile=True)
             snapshot = await self.adapter.list_permissions(
                 file_id=job["file"]["id"],
                 access_token=credentials["accessToken"],
@@ -132,10 +194,12 @@ class DriveBulkShareWorker:
     async def _grant(self, job):
         dispatched = False
         provider_succeeded = False
+        stage = "recipient"
         try:
             recipient = job["recipient"]
             file = job["file"]
             await self.verify_recipient(recipient)
+            stage = "credential"
             credentials = await self._credential(job)
             args = {
                 "file_id": file["id"],
@@ -144,6 +208,7 @@ class DriveBulkShareWorker:
             }
             if file.get("resourceKey"):
                 args["resource_key"] = file["resourceKey"]
+            stage = "inspect"
             await self.adapter.inspect_shareable(
                 **args,
                 expected_version="1",
@@ -155,10 +220,13 @@ class DriveBulkShareWorker:
                 start_time="1970-01-01T00:00:00Z",
                 end_time="9999-12-31T23:59:59Z",
             )
+            stage = "permissions"
             before = await self.adapter.list_permissions(**args)
+            stage = "recipient"
             await self.verify_recipient(recipient)
             existing = existing_individual_permission(before, email=recipient["email"])
             if existing is not None:
+                stage = "receipt"
                 await self._settle_receipt(
                     job,
                     state="preexisting",
@@ -171,14 +239,17 @@ class DriveBulkShareWorker:
                 self._speed_up()
                 return "preexisting"
             # No network await between durable dispatch marker and POST.
+            stage = "dispatch"
             await self.store.mark_dispatching(job)
             dispatched = True
+            stage = "create"
             created = await self.adapter.create_reader(
                 **args,
                 verified_email=recipient["email"],
                 send_notification_email=False,
             )
             provider_succeeded = True
+            stage = "receipt"
             await self._settle_receipt(
                 job,
                 state="succeeded",
@@ -207,6 +278,7 @@ class DriveBulkShareWorker:
                 or isinstance(error, TimeoutError)
                 or isinstance(error, DriveOAuthError)
                 and error.status_code >= 500
+                or _refresh_pending(error)
                 or code in {"recipient_verification_unavailable", "connection_unavailable"}
             )
             if isinstance(error, DrivePermissionError) and error.retryable:
@@ -230,6 +302,15 @@ class DriveBulkShareWorker:
                 else "permission_rejected"
                 if code == "permission_rejected"
                 else "provider_unavailable"
+            )
+            logger.warning(
+                "drive_bulk_share.effect_failure stage=%s code=%s dispatched=%s "
+                "retryable=%s uncertain=%s",
+                stage,
+                _failure_code(error),
+                dispatched,
+                retryable and not uncertain,
+                uncertain,
             )
             return await self.store.release(
                 job,

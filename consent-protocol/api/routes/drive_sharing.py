@@ -332,6 +332,7 @@ def _error(error):
         "search_incomplete": (409, "This Drive search is incomplete. Narrow or restart it."),
         "search_not_found": (404, "This Drive search is unavailable."),
         "no_recipients": (409, "No one in your Trusted circle can receive these files yet."),
+        "date_range_required": (422, "Choose exact start and end dates before requesting files."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"

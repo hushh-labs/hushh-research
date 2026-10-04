@@ -7,7 +7,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace: mocks.replace }
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: mocks.owner }, loading: false }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-owner-token", ownerTokenStatus: "ready" }) }));
 vi.mock("@/components/vault/vault-lock-guard", () => ({ VaultLockGuard: ({ children }: { children: React.ReactNode }) => mocks.locked ? <div>Unlock vault</div> : children }));
-vi.mock("@/lib/profile/drive-oauth-popup", () => ({ hasDrivePopupMarker: () => false }));
+vi.mock("@/lib/profile/drive-oauth-popup", () => ({ isDrivePopupReturn: () => false }));
 vi.mock("@/lib/agent/drive-oauth-chat-recovery", () => ({
   readDriveChatRecoveryHandoff: () => ({ reason: "web_full_page", ownerUserId: "owner", attemptId: "a".repeat(43), returnTo: mocks.returnTo, customConnector: { connectorId: "custom_" + "a".repeat(32), revision: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa" } }),
   markDriveChatRecoveryReturned: mocks.markReturned,
@@ -37,8 +37,11 @@ it("exchanges once in StrictMode, strips callback URL and saves only through vau
   expect(document.body.textContent).not.toContain("synthetic-code");
   expect(document.body.textContent).not.toContain("privateSyntheticResult");
   expect(mocks.replace).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("button", { name: "Return to Chat" }));
+  // A sign-in started in chat returns to Connectors in the Profile pane over
+  // the chat, never to a dedicated Connectors screen.
+  fireEvent.click(screen.getByRole("button", { name: "Return to Connectors" }));
   expect(mocks.replace).toHaveBeenCalledTimes(1);
+  expect(mocks.replace).toHaveBeenCalledWith("/?profile_pane=1&profile_panel=connectors");
 });
 
 it("does not exchange under a different signed-in owner", async () => {
@@ -86,7 +89,7 @@ it("does not replay completion after lock during refresh and preserves the saved
   expect(screen.getByText("Unlock vault")).toBeTruthy();
   mocks.locked = false; mocks.current = true;
   view.rerender(<Page />);
-  await screen.findByText("Sign-in saved in your vault. Refresh tools in Chat.");
+  await screen.findByText("Sign-in saved in your vault. Refresh tools in Connectors.");
   settle();
   expect(mocks.complete).toHaveBeenCalledOnce();
   expect(mocks.save).toHaveBeenCalledOnce();

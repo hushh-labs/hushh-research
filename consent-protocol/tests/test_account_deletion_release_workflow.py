@@ -614,9 +614,11 @@ def test_production_no_longer_hard_blocks_migration_201() -> None:
 def test_production_release_orders_image_fence_schema_runtime_and_activation() -> None:
     names = [str(step.get("name") or "") for step in _production_steps()]
     expected_order = [
+        # The proxy is installed early for read-only Drive database attestation.
+        # Backup, image, fence and migration authority retain their order.
+        "Install Cloud SQL Auth Proxy",
         "Pre-deploy Cloud SQL backup posture gate",
         "Build and pin backend image before lifecycle migration",
-        "Install Cloud SQL Auth Proxy",
         "Install fail-closed account deletion release fence",
         "Apply production DB migrations behind account deletion fence",
         "Migration governance and DB drift gate",

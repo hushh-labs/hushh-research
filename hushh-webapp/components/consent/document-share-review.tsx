@@ -112,6 +112,8 @@ const STATUS_LABELS: Record<string, string> = {
   expired: "Request expired",
   completed: "Sharing results",
   partial: "Sharing incomplete",
+  no_match: "No matching files found",
+  no_files_shared: "No files were shared",
   management_only: "Manage recorded access",
 };
 const ACTIVITY_LABELS: Record<Exclude<Activity, "idle" | "finding_files">, string> = {
@@ -151,6 +153,7 @@ const ISSUE_COPY: Record<DriveBulkReasonCode, { reason: string; action: string }
   connection_changed: { reason: "The Drive connection changed.", action: "Reconnect Drive before making a new request." },
   stopped: { reason: "Sharing was stopped.", action: "These files were not shared." },
   sharing_unavailable: { reason: "Sharing is disabled.", action: "Enable Drive sharing before making a new request." },
+  date_range_required: { reason: "This request needs exact dates.", action: "Make a new request with a start and end date." },
   retry_limit: { reason: "Google Drive could not finish after several attempts.", action: "Make a new request to try again." },
   provider_unavailable: { reason: "Google Drive could not finish sharing.", action: "Try again when Google Drive is available." },
   permission_rejected: { reason: "Google Drive denied sharing.", action: "Check the file's sharing permissions in Google Drive." },
@@ -161,6 +164,7 @@ const ISSUE_COPY: Record<DriveBulkReasonCode, { reason: string; action: string }
 
 function issueText(reason: DriveBulkReasonCode, recipient: boolean): string {
   if (recipient) {
+    if (reason === "date_range_required") return "This request needs exact dates. Make a new request with a start and end date.";
     if (reason === "source_not_shareable") return "The owner's Google account lacks sharing permission. Ask them to contact the file owner or shared drive manager.";
     if (reason === "permission_rejected") return "Google Drive denied sharing. The owner can check the file's sharing permissions.";
     if (reason === "permission_outcome_unknown" || reason === "permission_catalog_incomplete")
@@ -242,6 +246,8 @@ function errorCopy(cause: unknown): string {
     return "Connect with this person first, then retry.";
   if (code === "reconnect_required" || code === "connection_changed")
     return "Reconnect Drive in Connections, then retry.";
+  if (code === "date_range_required")
+    return "Ask the requester to send a new request with exact start and end dates.";
   return "Refresh to try again.";
 }
 
@@ -258,6 +264,7 @@ function isAutomaticSharingActive(review: SharingReview | undefined): boolean {
 /** The private agent is still looking for files for this incoming request. */
 function isFinding(snapshot: Snapshot | null): boolean {
   const review = snapshot?.review;
+  if (review?.preparationError === "date_range_required") return false;
   if (isDurableReview(review))
     return !!review && !review.bulkShare &&
       (!review.search || ["queued", "running"].includes(review.search.status));
@@ -426,7 +433,7 @@ function UnlockedDocumentReview({
             guard();
             searchStartFailed.current = true;
             setError(cause instanceof DriveSharingError &&
-              ["reconnect_required", "connection_changed"].includes(cause.code)
+              ["reconnect_required", "connection_changed", "date_range_required"].includes(cause.code)
               ? errorCopy(cause) : "Couldn't start the full search. Try again.");
             return { status, review };
           }
@@ -898,8 +905,13 @@ function UnlockedDocumentReview({
     );
   };
 
-  const durableStatus = automaticSharing
-    ? review?.preparationError === "background_preparation_required"
+  const durableStatus = snapshot?.status.direction === "incoming" &&
+    snapshot.status.status === "no_match"
+    ? "No matching files found"
+    : automaticSharing
+    ? review?.preparationError === "date_range_required"
+      ? "Exact dates needed"
+      : review?.preparationError === "background_preparation_required"
       ? "Background Drive access needed"
       : bulkShare && ["queued", "running"].includes(bulkShare.status)
         ? "Sharing matching files"
@@ -1031,14 +1043,16 @@ function UnlockedDocumentReview({
           <Fact label="Share with" value={review.recipientEmail} />
           <Fact label="Access" value="Viewer, until removed" />
         </dl>
-        {review.preparationError === "background_preparation_required" ? <div className="space-y-3">
+        {review.preparationError === "date_range_required" ? (
+          <BodyText>This request needs exact start and end dates. Ask the requester to send a new request with both dates.</BodyText>
+        ) : review.preparationError === "background_preparation_required" ? <div className="space-y-3">
           <BodyText>Background Drive access is off. This request is paused and will resume automatically when you turn it on.</BodyText>
           <HelperText>One may read relevant files and send excerpts to Gemini while you&apos;re away. You can turn this off again in Connections. The requester sees an original file only after Google Drive confirms access.</HelperText>
           <Button size="prominent" disabled={locked} onClick={enableBackground}>Enable background Drive access</Button>
         </div> : <HelperText>
           Matching files are found and shared automatically. You can close this window; the requester sees each original only after Google Drive confirms access.
         </HelperText>}
-        {search ? <HelperText>{search.matched.toLocaleString()} matching files found so far
+        {search && review.preparationError !== "date_range_required" ? <HelperText>{search.matched.toLocaleString()} matching files found so far
           {search.status === "running" ? " · search continues" : ""}</HelperText> : null}
         {review.aggregateCounts || bulkShare ? <div className="space-y-3">
           <OutcomeSummary counts={review.aggregateCounts ?? bulkShare!.counts} issues={bulkShare?.issues} />

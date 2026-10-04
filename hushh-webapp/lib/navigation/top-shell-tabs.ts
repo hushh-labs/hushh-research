@@ -4,11 +4,7 @@ export interface TopShellTab {
   href: string;
 }
 
-import {
-  buildKaiMarketRoute,
-  KAI_MARKET_PATH,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   activeRiaRouteTabFromPath,
   RIA_ROUTE_TABS,
@@ -227,43 +223,12 @@ function resolveSelection(
 }
 
 /**
- * Resolves the one route-owned contextual tab group for the shared top shell.
- * Location and Connect are intentionally excluded here: their hubs render the
- * same registered tabs directly under their module headers so the local module
+ * Resolves the contextual tab group that remains in the fixed top shell.
+ * Location, Connect, Finance, Consent Center, and RIA render their registered
+ * tabs in their route bodies beneath their module headers so the local
  * hierarchy stays intact while retaining shared tab/swipe state.
  */
 export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
-  const { pathname, searchParams } = splitRouteKey(routeKey);
-
-  if (pathname === KAI_MARKET_PATH) {
-    const definition = TOP_SHELL_TAB_REGISTRY.finance;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-    };
-  }
-
-  if (pathname === ROUTES.CONSENTS) {
-    const definition = TOP_SHELL_TAB_REGISTRY.consent;
-    return {
-      ...definition,
-      activeValue: resolveRegisteredTopShellTabValue(
-        definition,
-        searchParams.get(definition.queryParam),
-      ),
-      tabs: definition.tabs.map((tab) => ({
-        ...tab,
-        href: buildConsentCenterTabRoute(
-          tab.value as ConsentCenterTab,
-          searchParams,
-        ),
-      })),
-    };
-  }
-
   return resolvePublicKnowledgeTopShellTabSet(routeKey);
 }
 

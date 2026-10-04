@@ -1,3 +1,5 @@
+import argparse
+import importlib.util
 import json
 from contextlib import contextmanager
 from pathlib import Path
@@ -153,6 +155,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["account_deleted"] is True
     assert result["details"]["external_connectors"] is True
     assert result["details"]["drive_private_data"] is True
+    assert result["details"]["one_kyc_workflows"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["contact_sync_lookup_budgets"] is True
@@ -179,6 +182,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert result["details"]["one_referral_attributions"] is True
     assert result["details"]["one_referral_codes"] is True
     assert result["details"]["feed_events"] is True
+    for table in ["circle_chat_messages", "circle_chat_recipients", "circle_chat_preferences"]:
+        assert result["details"][table] is True
     assert result["details"]["account_deletion_tombstone"] is True
     assert result["details"]["firebase_cleanup_intent_count"] == 1
 
@@ -203,6 +208,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM account_legal_acceptances",
         "DELETE FROM kai_gmail_receipts",
         "DELETE FROM kai_gmail_sync_runs",
+        "DELETE FROM one_kyc_workflows",
         "DELETE FROM kai_gmail_connections",
         "DELETE FROM kai_analyze_runs",
         "DELETE FROM consent_export_refresh_jobs",
@@ -241,7 +247,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM advisor_investor_relationships",
         "DELETE FROM marketplace_investor_actions",
         "DELETE FROM marketplace_public_profiles",
-        "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_auto_approve_preferences",
         "DELETE FROM one_location_visibility_exclusions",
         "DELETE FROM one_location_visibility_preferences",
@@ -822,6 +827,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["account_reset"] is True
     assert result["details"]["external_connectors"] is True
     assert result["details"]["drive_private_data"] is True
+    assert result["details"]["one_kyc_workflows"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["one_location_map_preferences"] is True
@@ -841,6 +847,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     # Personal data is cleared.
     cleared_fragments = [
         "DELETE FROM kai_gmail_receipts",
+        "DELETE FROM one_kyc_workflows",
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",
         "DELETE FROM connected_system_intents",
@@ -858,7 +865,6 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM trusted_device_audit_events",
         "DELETE FROM trusted_devices",
         "DELETE FROM consent_audit",
-        "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_auto_approve_preferences",
         "DELETE FROM one_location_map_preferences",
         "DELETE FROM one_location_network_connections",
@@ -1497,6 +1503,134 @@ async def test_failed_erasure_never_releases_provider_grants(monkeypatch):
 
     assert result["success"] is False
     release.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uat_backend_erasure_preserves_external_authorities(monkeypatch):
+    from hushh_mcp.services.hushh_tech_uat_database_attestation import (
+        UAT_DATABASE_NAME,
+        UAT_DATABASE_ROLE,
+        UAT_INSTANCE,
+        UAT_POSTGRES_MAJOR_VERSION,
+        UAT_POSTGRES_SYSTEM_IDENTIFIER,
+    )
+
+    monkeypatch.setenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", UAT_INSTANCE)
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "local")
+    service = _erasure_ready_service(monkeypatch)
+    conn = MagicMock()
+    conn.execute.return_value.rowcount = 1
+    identity = {
+        "database_name": UAT_DATABASE_NAME,
+        "database_role": UAT_DATABASE_ROLE,
+        "server_version_num": UAT_POSTGRES_MAJOR_VERSION * 10_000,
+        "system_identifier": UAT_POSTGRES_SYSTEM_IDENTIFIER,
+    }
+    conn.execute.return_value.mappings.return_value.first.return_value = identity
+    release = AsyncMock()
+    snapshot = MagicMock()
+    pending = MagicMock()
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.release_provider_grants_after_erasure", release
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.snapshot_provider_credentials_in_transaction",
+        snapshot,
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.AccountDeletionLifecycleService."
+        "record_pending_many_in_transaction",
+        pending,
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service.erase_uat_backend_account("user_delete_123")
+
+    assert result["success"] is True
+    assert result["details"]["firebase_cleanup_intent_count"] == 0
+    assert result["details"]["provider_grant_release"] == {"status": "preserved_backend_only"}
+    executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM vault_keys" in executed
+    assert "DELETE FROM agent_chat_conversations" in executed
+    assert result["details"]["one_kyc_workflows"] is True
+    assert "DELETE FROM one_kyc_workflows WHERE user_id = :user_id" in executed
+    assert "uat_backend_only_erasure" in executed
+    pending.assert_not_called()
+    snapshot.assert_not_called()
+    release.assert_not_awaited()
+
+    # A valid-looking UAT env pointing at a different connected cluster is
+    # refused before the tombstone, deletes, or provider side effects.
+    conn.reset_mock()
+    conn.execute.return_value.mappings.return_value.first.return_value = {
+        **identity,
+        "system_identifier": "different-cluster",
+    }
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        wrong_database = await service.erase_uat_backend_account("user_delete_123")
+    assert wrong_database["success"] is False
+    assert conn.execute.call_count == 1
+    pending.assert_not_called()
+    snapshot.assert_not_called()
+    release.assert_not_awaited()
+
+    # Production runtime and a non-UAT DB both refuse before opening a transaction.
+    for variable, value in (
+        ("ENVIRONMENT", "production"),
+        ("APP_RUNTIME_PROFILE", "production"),
+        ("CLOUDSQL_INSTANCE_CONNECTION_NAME", "production-project:region:instance"),
+    ):
+        with monkeypatch.context() as scope:
+            scope.setenv(variable, value)
+            with patch("hushh_mcp.services.account_service.get_db_connection") as db:
+                with pytest.raises(ValueError, match="requires_uat_database"):
+                    await service.erase_uat_backend_account("user_delete_123")
+                db.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_uat_erasure_helper_refuses_email_linked_shadow_owner(monkeypatch):
+    from firebase_admin import auth
+
+    from api.utils import firebase_admin as firebase_admin_module
+
+    spec = importlib.util.spec_from_file_location(
+        "uat_reset_helper",
+        REPO_ROOT / ".codex/skills/kai-test-account-reset/scripts/reset_kai_test_account.py",
+    )
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    conn = AsyncMock()
+    erase = AsyncMock(return_value=[])
+    monkeypatch.setattr(helper, "_load_env", lambda: None)
+    monkeypatch.setattr(helper, "_connect", AsyncMock(return_value=conn))
+    discovery = AsyncMock(return_value=(["actual_owner", "contact_shadow"], []))
+    monkeypatch.setattr(helper, "_discover_user_ids", discovery)
+    monkeypatch.setattr(helper, "_discover_dynamic_link_columns", AsyncMock(return_value={}))
+    monkeypatch.setattr(helper, "_count_linked_rows", AsyncMock(return_value=[]))
+    monkeypatch.setattr(helper, "_run_account_service_delete", erase)
+    monkeypatch.setattr(firebase_admin_module, "ensure_firebase_auth_admin", lambda: (True, None))
+    monkeypatch.setattr(firebase_admin_module, "get_firebase_auth_app", lambda: None)
+    monkeypatch.setattr(
+        auth, "get_user_by_email", lambda *_args, **_kwargs: MagicMock(uid="actual_owner")
+    )
+    args = argparse.Namespace(
+        email="owner@example.test",
+        user_id=[],
+        include_counts=False,
+        execute=True,
+        confirm_email="owner@example.test",
+    )
+
+    with pytest.raises(RuntimeError, match="owner_binding_ambiguous"):
+        await helper.run(args)
+    erase.assert_not_awaited()
+    conn.close.assert_awaited_once()
+
+    discovery.return_value = (["actual_owner"], [])
+    await helper.run(args)
+    erase.assert_awaited_once_with(["actual_owner"])
 
 
 @pytest.mark.asyncio

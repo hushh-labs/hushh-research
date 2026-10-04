@@ -13,7 +13,8 @@ export type ProfilePanel =
   | "security"
   | "referrals"
   | "support"
-  | "gmail";
+  | "gmail"
+  | "legal";
 
 export type ProfileDetail =
   | `domain:${string}`
@@ -31,7 +32,11 @@ export type ProfileDetail =
   | "gmail-connection"
   | "gmail-actions"
   | "support-routing"
-  | `support-compose:${SupportMessageKind}`;
+  | `support-compose:${SupportMessageKind}`
+  | LegalDocumentDetail;
+
+/** A legal document read in place inside Profile's Legal section. */
+export type LegalDocumentDetail = "terms" | "privacy";
 
 export type ProfileRouteState = {
   panel: ProfilePanel | null;
@@ -69,7 +74,8 @@ export function normalizeProfilePanel(
     value === "security" ||
     value === "referrals" ||
     value === "support" ||
-    value === "gmail"
+    value === "gmail" ||
+    value === "legal"
   ) {
     return value;
   }
@@ -173,6 +179,9 @@ export function normalizeProfileDetail(
     return detail;
   }
   if (panel === "support" && detail === "support-routing") {
+    return detail;
+  }
+  if (panel === "legal" && (detail === "terms" || detail === "privacy")) {
     return detail;
   }
   if (panel === "support" && detail.startsWith("support-compose:")) {
@@ -370,6 +379,17 @@ export function buildProfileRoute(params?: {
 
   if (panel === "referrals") {
     return appendQuery(ROUTES.PROFILE_REFERRALS, {}, params?.searchParams);
+  }
+
+  // Legal has no section route of its own. The Profile address carries it,
+  // and that address opens the Profile pane on the document. The public
+  // /terms and /privacy pages stay the signed-out and store-listing addresses.
+  if (panel === "legal") {
+    return appendQuery(
+      ROUTES.PROFILE,
+      { panel: "legal", detail },
+      params?.searchParams,
+    );
   }
 
   if (panel === "support") {

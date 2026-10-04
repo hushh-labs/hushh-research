@@ -16,6 +16,7 @@ import {
   StreamUnavailable,
   parseDriveQueryView,
   validDocumentRequestPeriod,
+  validDocumentRequestTerms,
   validDriveQuery,
 } from "@/lib/services/drive-sharing-service";
 import { DriveRequestPaymentService } from "@/lib/services/drive-request-payment-service";
@@ -152,6 +153,10 @@ describe("saved-search bulk sharing boundary", () => {
       issues: [{ reasonCode: "source_not_shareable", count: 1 }] }));
     expect(await DriveSharingService.delivery("vault", requestId, guard)).toMatchObject({ bulkStatus: "partial", counts,
       issues: [{ reasonCode: "source_not_shareable", count: 1 }] });
+    fetcher.mockResolvedValueOnce(reply({ ...view, status: "partial", canApprove: false, counts,
+      issues: [{ reasonCode: "date_range_required", count: 1 }] }));
+    expect((await DriveSharingService.bulkShareStatus("vault", documentId, guard)).issues)
+      .toEqual([{ reasonCode: "date_range_required", count: 1 }]);
   });
 
   it.each([
@@ -297,7 +302,7 @@ describe("private sharing transport", () => {
     const draft = {
       ownerPersonRef: documentId,
       clientRequestId: requestId,
-      purpose: { purpose: "Statements", periodStart: null, periodEnd: null },
+      purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
     };
     await expect(
       DriveSharingService.create("vault", "firebase", draft, guard),
@@ -329,6 +334,14 @@ describe("private sharing transport", () => {
   ])("validates the complete calendar period %s/%s", (start, end, expected) => {
     expect(validDocumentRequestPeriod(start, end)).toBe(expected);
   });
+  it("requires explicit dates for every file request", () => {
+    expect(validDocumentRequestTerms("last 3 days standup notes", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("previous two business days statements", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("this week standup notes", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("last 3 days standup notes", "2026-09-29", "2026-10-01")).toBe(true);
+    expect(validDocumentRequestTerms("Tax return", null, null)).toBe(false);
+    expect(validDocumentRequestTerms("Tax return", "2026-01-01", "2026-12-31")).toBe(true);
+  });
   it("rejects invalid request purposes before dispatch and late creation results after locking", async () => {
     const draft = {
       ownerPersonRef: documentId,
@@ -337,6 +350,13 @@ describe("private sharing transport", () => {
     };
     await expect(
       DriveSharingService.create("vault", "firebase", draft, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+    await expect(
+      DriveSharingService.create("vault", "firebase", {
+        ...draft,
+        purpose: { purpose: "last 3 days standup notes", periodStart: null, periodEnd: null },
+      }, guard),
     ).rejects.toMatchObject({ code: "invalid_argument" });
     expect(fetcher).not.toHaveBeenCalled();
     let current = true;
@@ -348,7 +368,7 @@ describe("private sharing transport", () => {
       DriveSharingService.create(
         "vault",
         "firebase",
-        { ...draft, purpose: { ...draft.purpose, purpose: "Statements" } },
+        { ...draft, purpose: { purpose: "Statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" } },
         () => {
           if (!current) throw new DriveSharingError("session_changed");
         },
@@ -387,6 +407,7 @@ describe("private sharing transport", () => {
       "source_changed",
       "preparation_unavailable",
       "trust_revoked",
+      "date_range_required",
     ]) {
       fetcher.mockResolvedValueOnce(
         reply({ ...rawReview(), coverage: null, preparationError: code }),

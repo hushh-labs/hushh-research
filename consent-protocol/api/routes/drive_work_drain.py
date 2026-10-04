@@ -39,16 +39,19 @@ _UAT_SCHEDULER_AUDIENCES = frozenset(
         "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",
     }
 )
+_PRODUCTION_SCHEDULER_PROJECT_ID = "hushh-pda"
+_PRODUCTION_SCHEDULER_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda.iam.gserviceaccount.com"
+_PRODUCTION_SCHEDULER_AUDIENCES = frozenset({"https://api.hushh.ai"})
 _DRAIN_DEADLINE_SECONDS = 205
 _DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing"})
 _MAX_DRAIN_BODY_BYTES = 64
 
 
 def _drain_enabled() -> bool:
-    """Keep the operational route unavailable unless UAT enables it explicitly."""
+    """Keep the operational route unavailable unless this worker enables it."""
     environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
     return (
-        environment in {"uat", "test", "local", "development"}
+        environment in {"production", "uat", "test", "local", "development"}
         and str(os.getenv("DRIVE_WORK_DRAIN_ENABLED") or "").strip().lower() == "true"
         and str(os.getenv("DRIVE_WORKER_MODE") or "").strip().lower() == "true"
     )
@@ -56,6 +59,17 @@ def _drain_enabled() -> bool:
 
 def _configuration() -> tuple[str, str, str]:
     """Return audited scheduler identity configuration without accepting a wildcard."""
+    environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
+    if environment == "production":
+        expected_project = _PRODUCTION_SCHEDULER_PROJECT_ID
+        expected_service_account = _PRODUCTION_SCHEDULER_SERVICE_ACCOUNT
+        expected_audiences = _PRODUCTION_SCHEDULER_AUDIENCES
+    elif environment in {"uat", "test", "local", "development"}:
+        expected_project = _UAT_SCHEDULER_PROJECT_ID
+        expected_service_account = _UAT_SCHEDULER_SERVICE_ACCOUNT
+        expected_audiences = _UAT_SCHEDULER_AUDIENCES
+    else:
+        raise RuntimeError("Drive work drain scheduler configuration is unavailable")
     audience = str(os.getenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE") or "").strip()
     project_id = str(os.getenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID") or "").strip()
     service_account = (
@@ -64,12 +78,12 @@ def _configuration() -> tuple[str, str, str]:
     if (
         not audience
         or len(audience) > 2048
-        or audience not in _UAT_SCHEDULER_AUDIENCES
-        or project_id != _UAT_SCHEDULER_PROJECT_ID
+        or audience not in expected_audiences
+        or project_id != expected_project
         or not _SCHEDULER_PROJECT_RE.fullmatch(project_id)
         or not service_account
         or len(service_account) > 320
-        or service_account != _UAT_SCHEDULER_SERVICE_ACCOUNT
+        or service_account != expected_service_account
         or not service_account.endswith(f"@{project_id}.iam.gserviceaccount.com")
     ):
         raise RuntimeError("Drive work drain scheduler configuration is unavailable")

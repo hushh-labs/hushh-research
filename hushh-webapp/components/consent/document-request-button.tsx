@@ -113,6 +113,7 @@ function UnlockedRequestButton({
   const draftTerms = draft
     ? { purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd }
     : null;
+  const draftNeedsDates = Boolean(draftTerms && (!draftTerms.periodStart || !draftTerms.periodEnd));
   const files = useFileRequest({
     userId,
     personRef,
@@ -272,6 +273,11 @@ function UnlockedRequestButton({
         </BodyText>
         <HelperText>Request files: {FILE_REQUEST_HELPER}</HelperText>
         <HelperText>Ask as a question: {ASK_HELPER}</HelperText>
+        {draftNeedsDates ? (
+          <HelperText role="status">
+            Choose exact start and end dates with your private agent before sending this request.
+          </HelperText>
+        ) : null}
         {tooLong ? (
           <HelperText role="status">This question is too long to send.</HelperText>
         ) : null}
@@ -291,7 +297,7 @@ function UnlockedRequestButton({
             <Button
               size="standard"
               variant="none"
-              disabled={!valid || busy}
+              disabled={!valid || busy || draftNeedsDates}
               onClick={() => void send()}
             >
               {phase === "sending" ? "Sending…" : "Ask as a question"}

@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 
 import {
   CircleDetailFlow,
@@ -2315,6 +2316,17 @@ describe("named Circle flows", () => {
   });
 });
 
+it("withholds circle photo editing when owner authority is absent or lost", async () => {
+  const save = vi.fn();
+  const view = render(<CirclePhotoEditor circleId="first" photoUrl={null} canEdit onUpdate={save} />);
+  fireEvent.click(screen.getByRole("button", { name: "Change circle photo" }));
+  await screen.findByRole("dialog", { name: "Circle photo" });
+  view.rerender(<CirclePhotoEditor circleId="first" photoUrl={null} canEdit={false} onUpdate={save} />);
+  expect(screen.queryByRole("button", { name: "Change circle photo" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Circle photo" })).not.toBeInTheDocument();
+  expect(save).not.toHaveBeenCalled();
+});
+
 describe("a Trusted Circle offers no control that cannot work", () => {
   function trustedCircle(): OneLocationCircleDetail {
     return {
@@ -2377,10 +2389,9 @@ describe("a Trusted Circle offers no control that cannot work", () => {
     expect(screen.queryByText(/choose who is in it/i)).toBeNull();
   });
 
-  it("offers no Remove on its roster, because disconnecting is the way out", async () => {
-    // `_end_membership` refuses a removal here with
-    // LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION: membership is derived from
-    // the connection, so a removal would be undone by the next reconcile.
+  it("offers the same member actions as an ordinary Circle", async () => {
+    // Trusted membership is now an ordinary explicit membership: removing it
+    // does not remove the underlying connection.
     const onLoad = vi.fn(async () => trustedCircle());
     render(
       <CircleDetailFlow circleId="trusted-circle" {...detailProps(onLoad)} />,
@@ -2388,9 +2399,8 @@ describe("a Trusted Circle offers no control that cannot work", () => {
 
     await screen.findByText("Asha");
     expect(
-      screen.queryByRole("button", { name: /Remove from Circle/i }),
-    ).toBeNull();
-    expect(screen.queryByText(/Remove Asha\?/i)).toBeNull();
+      screen.getByRole("button", { name: "Actions for Asha" }),
+    ).toBeTruthy();
   });
 
   it("still lets an ordinary Circle's owner remove a member", async () => {
@@ -2701,13 +2711,11 @@ describe("a Circle with only the current user stays compact", () => {
       kind: "other",
       role: "owner",
       memberCount: 1,
-      memberLimit: systemKind === "trusted" ? null : 100,
+      memberLimit: 100,
       isSystem: systemKind === "sms",
       systemKind,
       viewerCapabilities: {
-        // What the server actually sends: Trusted's roster is derived, so
-        // nobody may add to it by hand -- `is_owner and not is_trusted`.
-        canInviteMembers: systemKind === "trusted" ? false : canInvite,
+        canInviteMembers: canInvite,
         canViewInviteCode: systemKind === null,
         canRotateInviteCode: systemKind === null,
         canManageCircle: true,
@@ -2754,19 +2762,6 @@ describe("a Circle with only the current user stays compact", () => {
     expect(screen.getAllByRole("button", { name: /Add people/i })).toHaveLength(
       1,
     );
-    expect(
-      screen.queryByTestId("one-location-circle-empty-find-people"),
-    ).toBeNull();
-  });
-
-  it("does not show manual add controls when the Circle fills itself", async () => {
-    // Trusted's roster follows the connection, so there is nothing to add by
-    // hand -- the way to fill it is to connect with somebody.
-    const onLoad = vi.fn(async () => emptyCircle("trusted"));
-    render(<CircleDetailFlow circleId="circle-1" {...detailProps(onLoad)} />);
-
-    expect(await screen.findByText("Trusted")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Add people/i })).toBeNull();
     expect(
       screen.queryByTestId("one-location-circle-empty-find-people"),
     ).toBeNull();

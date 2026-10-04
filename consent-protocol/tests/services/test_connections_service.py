@@ -1,3 +1,4 @@
+import inspect
 import json
 from contextlib import nullcontext
 from datetime import datetime, timezone
@@ -1964,6 +1965,8 @@ def test_search_directory_delegates_pagination_to_eligible_directory_query():
                 "maskedPhone": "******4455",
                 "maskedEmail": "c***a@example.com",
                 "relationship": "none",
+                "mutualConnectionCount": 0,
+                "mutualConnectionPreview": None,
                 "isRia": False,
             }
         ],
@@ -2450,12 +2453,12 @@ def test_circle_cleanup_runs_after_the_connection_is_revoked():
 
 
 def test_disconnect_takes_graph_gate_before_locking_the_connection_row():
-    """Disconnect and contact-sync projection must use one lock order.
+    """Disconnect and contact sync must use one lock order.
 
     Contact sync takes the per-user advisory gate before locking canonical
     connection rows. Disconnect must do the same or the two transactions can
-    cross: projection waits on the row while disconnect waits on the gate,
-    leaving either a deadlock retry or a stale Trusted-Circle projection.
+    cross: contact sync waits on the row while disconnect waits on the gate,
+    leaving either a deadlock retry or a stale connection row.
     """
     import inspect
 
@@ -3073,68 +3076,18 @@ def test_every_connections_writer_lets_the_database_order_the_pair():
     assert "self._canonical_pair(user_id, peer_user_id)" not in service_source
 
 
-def test_accepting_puts_both_people_in_each_others_trusted_circle(monkeypatch):
-    """The Circle is a projection of the connection, recorded in the same
-    transaction so the two are never seen apart."""
+def test_accepting_a_connection_does_not_project_it_into_trusted_circle():
+    """A connection and a Circle membership are separate user choices."""
 
     from hushh_mcp.services import connections_service as module
 
-    calls: list[dict] = []
+    source = inspect.getsource(module.ConnectionsService.accept_request)
+    module_source = inspect.getsource(module)
 
-    def _capture(conn, *, user_a_id, user_b_id, source="connection"):
-        calls.append({"a": user_a_id, "b": user_b_id, "source": source})
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    monkeypatch.setattr(
-        OneLocationCircleService,
-        "ensure_trusted_membership_for_pair",
-        staticmethod(_capture),
-    )
-    del module
-
-    svc = _svc()
-    svc._transaction_connection = object()
-    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
-
-    assert calls == [{"a": "user-a", "b": "user-b", "source": "connection"}]
-
-
-def test_a_failed_trusted_join_does_not_refuse_the_connection(monkeypatch):
-    """Accepting is a consent transition; the roster is a view of it.
-
-    A view that fails must not roll back a consent that succeeded. It can only
-    ever lag -- Trusted is excluded from every location-eligibility query -- and
-    the owner's next bootstrap reconciles it.
-    """
-
-    from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
-
-    def _boom(conn, *, user_a_id, user_b_id, source="connection"):
-        raise RuntimeError("circle service is down")
-
-    monkeypatch.setattr(
-        OneLocationCircleService,
-        "ensure_trusted_membership_for_pair",
-        staticmethod(_boom),
-    )
-
-    svc = _svc()
-    svc._transaction_connection = object()
-
-    # No raise. That is the assertion.
-    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
-
-
-def test_the_trusted_join_is_skipped_rather_than_guessed_without_a_transaction():
-    # Behind the lightweight test doubles there is no connection to run on.
-    # Skipping is right here and wrong for the disconnect path, which logs a
-    # warning instead: a missing membership grants nothing and self-heals, a
-    # missing teardown leaves a live location path open.
-    svc = _svc()
-    svc._transaction_connection = None
-
-    svc._join_trusted_system_circles(user_a_id="user-a", user_b_id="user-b")
+    assert "one_location_circle_memberships" not in source
+    assert "OneLocationCircleService" not in source
+    assert "_join_trusted_system_circles" not in module_source
+    assert "ensure_trusted_membership_for_pair" not in module_source
 
 
 def test_get_voice_preferences_defaults_share_scopes_off_when_no_row():
@@ -3221,3 +3174,57 @@ def test_get_last_request_scope_handles_is_empty_for_a_first_time_recipient():
         )
 
     assert handles == {"requestedScopeHandles": [], "offeredScopeHandles": []}
+
+
+def test_directory_mutual_preview_uses_eligible_profile_outside_current_page():
+    svc = _svc()
+    svc._directory_lookup = lambda _: [
+        {"userId": "candidate", "displayName": "Candidate", "maskedEmail": "c***@example.com"},
+        {"userId": "peer", "displayName": "Peer", "photoUrl": "https://example.com/avatar.png"},
+    ]
+    svc._verified_ria_user_ids = lambda _: set()
+    svc._public_person_refs = lambda _: {}
+    preview_calls = []
+
+    def profiles(owner, ids):
+        preview_calls.append((owner, ids))
+        return [
+            {
+                "userId": "peer",
+                "displayName": "Peer",
+                "photoUrl": "https://example.com/avatar.png",
+                "publicPersonRef": "person_peer",
+            }
+        ]
+
+    svc._directory_profiles = profiles
+    queries = []
+
+    def read(sql, params):
+        queries.append((sql, params))
+        if "WITH viewer_peers AS" in sql:
+            return [{"candidate_id": "candidate", "mutual_count": 2, "preview_user_id": "peer"}]
+        return []
+
+    svc._execute_many = read
+    items = svc.search_directory("owner")["items"]
+    assert items[0]["mutualConnectionCount"] == 2
+    assert items[0]["mutualConnectionPreview"] == {
+        "displayName": "Peer",
+        "photoUrl": "https://example.com/avatar.png",
+        "publicPersonRef": "person_peer",
+    }
+    assert items[0]["email"] is None
+    assert items[0]["maskedEmail"] == "c***@example.com"
+    assert items[1]["mutualConnectionCount"] == 0
+    svc._directory_lookup = lambda _: [{"userId": "candidate", "displayName": "Candidate"}]
+    item = svc.search_directory("owner")["items"][0]
+    assert item["mutualConnectionCount"] == 2
+    assert item["mutualConnectionPreview"]["publicPersonRef"] == "person_peer"
+    assert preview_calls[-1] == ("owner", ["peer"])
+    # A hidden or disabled mutual keeps its count but never exposes identity.
+    svc._directory_profiles = lambda owner, ids: []
+    item = svc.search_directory("owner")["items"][0]
+    assert item["mutualConnectionCount"] == 2
+    assert item["mutualConnectionPreview"] is None
+    assert queries[-1][1] == {"user_id": "owner", "page_user_ids": ["candidate"]}

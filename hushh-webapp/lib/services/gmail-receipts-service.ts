@@ -93,6 +93,10 @@ export interface GmailConnectionStatus {
   status_refreshed_at?: string | null;
   needs_reauth?: boolean | null;
   receipt_counts?: Record<string, number | null> | null;
+  /** Legacy server receipt rows remain readable while new receipt writes are cut over. */
+  receipt_storage_mode?: "legacy_read_only";
+  receipt_sync_available?: boolean;
+  receipt_storage_message?: string;
   google_email?: string | null;
   google_sub?: string | null;
   scope_csv: string;

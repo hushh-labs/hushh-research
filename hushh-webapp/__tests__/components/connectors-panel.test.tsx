@@ -277,6 +277,36 @@ describe("supported connector catalog", () => {
     expect(screen.queryByRole("button", { name: "Cancel sign-in" })).not.toBeInTheDocument();
   });
 
+  it("navigates to Google when the server clock is ahead of the Windows device", async () => {
+    state.overview.mockResolvedValue({
+      connectors: [{ ...catalogItem, connectorId: "google_drive", available: true }],
+      features: { connections_panel_v2: true, google_drive_connection: true },
+    });
+    const popup = {
+      closed: false,
+      close: vi.fn(),
+      document: { title: "", body: { textContent: "" } },
+      location: { replace: vi.fn() },
+    } as unknown as Window;
+    vi.spyOn(window, "open").mockReturnValue(popup);
+    state.startOAuthConnect.mockResolvedValue({
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=synthetic",
+      attemptId: "synthetic-attempt-id",
+      connectorId: "google_drive",
+      // The server grants ten minutes, but its clock is 30 seconds ahead.
+      expiresAt: new Date(Date.now() + 10 * 60_000 + 30_000).toISOString(),
+    });
+
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Google Drive" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
+
+    await waitFor(() => expect(popup.location.replace).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Drive could not finish this action. Check the connection and try again.")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel sign-in" }));
+    expect(popup.close).toHaveBeenCalled();
+  });
+
   it("omits unsupported catalog placeholders even when the registry returns them", async () => {
     state.overview.mockResolvedValue(overview([
       { ...catalogItem, connectorId: "notion", displayName: "Notion" },

@@ -23,6 +23,8 @@ type RichEmailComposerProps = {
   id: string;
   value: string;
   disabled?: boolean;
+  /** Show first-party dictation without treating punctuation as Markdown. */
+  verbatimText?: boolean;
   showPreviewOnFirstContent?: boolean;
   onChange: (value: string) => void;
 };
@@ -299,6 +301,15 @@ export function richEmailHtmlFromMarkdown(value: string): string {
     .join("");
 }
 
+/** HTML companion for dictation: preserve its words, spaces, and line breaks. */
+export function verbatimEmailHtmlFromText(value: string): string {
+  const lines = value.replace(/\r\n?/g, "\n").split("\n");
+  return `<p>${lines.map((line) => escapeHtml(line)
+    .replaceAll(" ", "&nbsp;")
+    .replaceAll("\t", "&nbsp;&nbsp;&nbsp;&nbsp;"))
+    .join("<br>")}</p>`;
+}
+
 export function EmailRichTextPreview({
   value,
   className,
@@ -473,12 +484,14 @@ export function EmailRichTextComposer({
   id,
   value,
   disabled = false,
+  verbatimText = false,
   onChange,
 }: RichEmailComposerProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const [linkUrl, setLinkUrl] = useState("");
   const isInternalChangeRef = useRef(false);
   const lastHtmlRef = useRef("");
+  const initialVerbatimValueRef = useRef(verbatimText ? value : null);
 
   // Seed editor HTML on mount or when value changes externally (e.g. AI draft generation)
   useEffect(() => {
@@ -488,15 +501,17 @@ export function EmailRichTextComposer({
     }
     if (!editorRef.current) return;
 
-    const targetHtml = value.trim().startsWith("<") && value.includes(">")
-      ? value
-      : richEmailHtmlFromMarkdown(value);
+    const targetHtml = initialVerbatimValueRef.current !== null && value === initialVerbatimValueRef.current
+      ? verbatimEmailHtmlFromText(value)
+      : value.trim().startsWith("<") && value.includes(">")
+        ? value
+        : richEmailHtmlFromMarkdown(value);
 
     if (editorRef.current.innerHTML !== targetHtml) {
       editorRef.current.innerHTML = targetHtml || "<p><br></p>";
       lastHtmlRef.current = editorRef.current.innerHTML;
     }
-  }, [value]);
+  }, [value, verbatimText]);
 
   const emitChange = () => {
     if (!editorRef.current) return;

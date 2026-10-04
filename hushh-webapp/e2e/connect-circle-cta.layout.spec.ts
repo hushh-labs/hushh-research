@@ -536,6 +536,7 @@ const ROW_CANDIDATES = [
   "w-full",
   "grid-cols-1",
   "grid-cols-[minmax(0,1fr)_auto]",
+  "grid-cols-[minmax(0,1fr)_fit-content(58%)]",
   "sm:grid-cols-[minmax(0,1fr)_auto]",
   "items-center",
   "sm:items-center",
@@ -544,9 +545,16 @@ const ROW_CANDIDATES = [
   "gap-y-1",
   "sm:gap-y-0",
   "min-h-[56px]",
+  "min-h-[72px]",
   "px-4",
   "py-2.5",
   "min-w-0",
+  "h-10",
+  "w-10",
+  "gap-3",
+  "gap-1",
+  "whitespace-normal",
+  "[overflow-wrap:anywhere]",
   "flex-1",
   "truncate",
   "block",
@@ -561,6 +569,15 @@ const ROW_CANDIDATES = [
   "shrink-0",
   "h-11",
   "min-h-11",
+  "h-8",
+  "w-11",
+  "min-w-11",
+  "rounded-full",
+  "border",
+  "border-current",
+  "bg-transparent",
+  "p-0",
+  "px-3",
   "rounded-2xl",
   "px-2.5",
   "px-0",
@@ -592,10 +609,11 @@ const rowsBody = `
     <button data-testid="stacked-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
   </div>
 </div>
-<div data-testid="inline" class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 min-h-[56px] px-4 py-2.5">
-  <div class="min-w-0 flex-1"><span data-testid="inline-title" class="block min-w-0 truncate">Abdul Rashid</span></div>
-  <div class="flex shrink-0 items-center justify-end">
-    <button data-testid="inline-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
+<div data-testid="inline" class="grid w-full grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-3 min-h-[72px] px-4 py-2.5">
+  <div class="flex min-w-0 items-center gap-3"><span class="h-10 w-10 shrink-0 rounded-full"></span><span data-testid="inline-title" class="block min-w-0 whitespace-normal [overflow-wrap:anywhere]">Ankit Kumar Singh</span></div>
+  <div class="flex shrink-0 items-center justify-end gap-1 whitespace-nowrap">
+    <button data-testid="inline-action" class="inline-flex h-11 min-h-11 shrink-0 items-center justify-center rounded-full bg-transparent p-0"><span data-testid="message-outline" class="inline-flex h-8 items-center rounded-full border border-current px-3">Message</span></button>
+    <button data-testid="inline-trash" aria-label="Remove connection" class="inline-flex h-11 min-h-11 w-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-transparent p-0"><svg width="16" height="16" viewBox="0 0 16 16"><path d="M3 4h10M6 4V2h4v2m2 0-.5 10h-7L4 4" /></svg></button>
   </div>
 </div>
 <div data-testid="cancel-row" class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 min-h-[56px] px-4 py-2.5">
@@ -613,7 +631,7 @@ const rowsBody = `
 
 test.describe("Connect list rows", () => {
   for (const width of PHONE_WIDTHS) {
-    test(`a connection keeps its action on one line at ${width}px`, async ({
+    test(`a connection keeps Message and removal on one line at ${width}px`, async ({
       page,
     }) => {
       await page.setViewportSize({ width, height: 844 });
@@ -632,6 +650,8 @@ test.describe("Connect list rows", () => {
       const stackedAction = await boxOf(page, '[data-testid="stacked-action"]');
       const inlineTitle = await boxOf(page, '[data-testid="inline-title"]');
       const inlineAction = await boxOf(page, '[data-testid="inline-action"]');
+      const inlineTrash = await boxOf(page, '[data-testid="inline-trash"]');
+      const messageOutline = await boxOf(page, '[data-testid="message-outline"]');
 
       // The bug, reproduced: with `stackTrailingOnMobile` the action starts
       // below the name's baseline -- a second line, on every iPhone.
@@ -640,15 +660,21 @@ test.describe("Connect list rows", () => {
         "stackTrailingOnMobile genuinely stacks below sm:",
       ).toBeGreaterThanOrEqual(stackedTitle.bottom);
 
-      // The geometry the list uses now: one line, action pinned right.
+      // The current list shows Message and an icon-only remove action inline.
       expect(
         inlineAction.top,
-        "the shipped row keeps the action beside the name",
+        "the shipped row keeps Message beside the name",
       ).toBeLessThan(inlineTitle.bottom);
-      expect(inlineAction.right).toBeGreaterThan(inlineTitle.right);
-      expect(inlineAction.right).toBeLessThanOrEqual(
+      expect(inlineTrash.top).toBeLessThan(inlineTitle.bottom);
+      expect(inlineAction.left).toBeGreaterThanOrEqual(inlineTitle.right);
+      expect(inlineAction.right).toBeLessThanOrEqual(inlineTrash.left + 0.5);
+      expect(inlineTrash.right).toBeLessThanOrEqual(
         width - PAGE_PADDING_PX + 1,
       );
+      expect(inlineAction.height).toBeGreaterThanOrEqual(44);
+      expect(inlineTrash.height).toBeGreaterThanOrEqual(44);
+      expect(messageOutline.height).toBeLessThan(inlineAction.height);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     });
   }
 

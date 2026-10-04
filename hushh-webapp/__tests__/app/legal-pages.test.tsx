@@ -167,9 +167,13 @@ describe("Privacy Policy and Terms of Use pages", () => {
     expect(auth).toContain("LegalAcceptanceService.recordSignInAcceptance(");
   });
 
-  it("are reachable from Profile", () => {
+  // Profile reads them in place in its Legal section; it never leaves the
+  // pane for the public page (founder, 2026-10-02).
+  it("are read in place from Profile, never by leaving for the public page", () => {
     const profile = read("components/profile/profile-workspace-page.tsx");
-    expect(profile).toContain("router.push(ROUTES.PRIVACY)");
-    expect(profile).toContain("router.push(ROUTES.TERMS)");
+    expect(profile).toContain("<ProfileLegalRows");
+    expect(profile).toContain('{ panel: "legal", detail: document }');
+    expect(profile).not.toContain("router.push(ROUTES.PRIVACY)");
+    expect(profile).not.toContain("router.push(ROUTES.TERMS)");
   });
 });

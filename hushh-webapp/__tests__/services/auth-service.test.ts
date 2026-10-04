@@ -599,6 +599,31 @@ describe("AuthService.restoreNativeSession", () => {
     await expect(restoredUser?.getIdToken()).resolves.toBe(keychainToken);
   });
 
+  it.each(["google.com", "apple.com"])(
+    "preserves linked %s identity instead of the native SDK's generic firebase provider",
+    async (providerId) => {
+      vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({
+        user: {
+          uid: "native-provider-user",
+          email: "owner@example.test",
+          providerId: "firebase",
+          // Native Firebase includes its internal provider before linked ones.
+          providerData: [{ providerId: "firebase" }, { providerId }],
+        },
+      } as any);
+      vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+        token: createIdToken(60 * 60, "native-provider-user"),
+      } as any);
+
+      const restoredUser = await AuthService.restoreNativeSession();
+
+      expect(restoredUser?.uid).toBe("native-provider-user");
+      expect(restoredUser?.providerData[0]?.providerId).toBe(providerId);
+      expect(FirebaseAuthentication.signInWithGoogle).not.toHaveBeenCalled();
+      expect(HushhAuth.signOut).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses a live native token provider for restored users instead of a frozen launch token", async () => {
     const launchToken = createIdToken(60 * 60, "ios-google-user");
     const freshToken = createIdToken(2 * 60 * 60, "ios-google-user");

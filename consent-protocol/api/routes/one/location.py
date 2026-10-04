@@ -1362,21 +1362,11 @@ def ensure_trusted_system_circle_route(
     summary_only: bool = Query(default=False, alias="summaryOnly"),
     token_data: dict = Depends(require_vault_owner_token),
 ):
-    """Find-or-create the caller's Trusted Circle and top up its roster.
+    """Find or create the caller's empty, manually curated Trusted Circle.
 
-    Trusted is a projection of the accepted-connection graph (#5458): everyone
-    you are connected to is in it, and the way out of it is to disconnect.
-
-    Called on bootstrap, so find-or-create rather than create. The reconcile
-    inside adds every connection with no membership row of ANY status, which is
-    what makes a removal stick instead of being undone on the next login, and
-    what heals a membership missed while an older revision was serving.
-
-    Vault-owner token, like the SMS route beside it: the reconcile reads the
-    caller's whole connection graph, which is exactly the material the vault
-    gate exists to protect. It is a projection and nothing more -- Trusted
-    membership grants no location authority, and every shared-Circle
-    eligibility query excludes it explicitly.
+    This endpoint only provisions the default Circle and its owner membership.
+    It does not inspect Connections and never adds, restores, or reconciles a
+    member. Existing Trusted memberships remain unchanged.
     """
 
     del request

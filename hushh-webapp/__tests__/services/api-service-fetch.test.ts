@@ -515,7 +515,7 @@ describe("ApiService.apiFetch", () => {
           : {}),
       });
       expect(capacitorMocks.request.mock.calls[0]?.[0]).toEqual(
-        expect.objectContaining({ readTimeout: expected }),
+        expect.objectContaining({ connectTimeout: expected, readTimeout: expected }),
       );
     } finally {
       if (previousBackendUrl === undefined) {
@@ -524,6 +524,28 @@ describe("ApiService.apiFetch", () => {
         process.env.NEXT_PUBLIC_BACKEND_URL = previousBackendUrl;
       }
     }
+  });
+
+  it.each([
+    ["ios", "/api/one/connections/directory?page=1", 60_000],
+    ["android", "/api/one/connections/directory?page=1", 60_000],
+    ["ios", "/api/ria/onboarding/verify", 90_000],
+    ["android", "/api/ria/onboarding/verify", 90_000],
+    ["android", "/api/connectors/google_drive/searches", 180_000],
+  ] as const)("preserves the response budget on %s for %s", async (platform, path, timeout) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue(platform);
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { items: [] },
+    });
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    await ApiService.apiFetch(path);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(expect.objectContaining({
+      connectTimeout: platform === "ios" ? timeout : 15_000,
+      readTimeout: timeout,
+    }));
   });
 
   it("retries native Firebase requests with a forced fresh token on 401", async () => {
@@ -1331,6 +1353,32 @@ describe("ApiService.apiFetch", () => {
     } finally {
       window.removeEventListener("vault-lock-requested", onLock);
     }
+  });
+
+  it.each([
+    ["adb_reverse", "localhost", "localhost"],
+    ["adb_reverse", "127.0.0.1", "127.0.0.1"],
+    ["", "localhost", "10.0.2.2"],
+    ["", "127.0.0.1", "10.0.2.2"],
+    ["adb_reverse", "api.example.test", "api.example.test"],
+  ])("routes Android backend requests using %s (%s → %s)", async (mode, host, expectedHost) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    capacitorMocks.getPlatform.mockReturnValue("android");
+    vi.stubEnv("BACKEND_URL", "");
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", `http://${host}:8000`);
+    vi.stubEnv("NEXT_PUBLIC_ANDROID_LOCAL_BACKEND_MODE", mode);
+    capacitorMocks.request.mockResolvedValueOnce({
+      status: 200,
+      headers: { "content-type": "application/json" },
+      data: { active: true },
+    });
+
+    const response = await ApiService.getAccountSessionStatus("synthetic-token");
+
+    expect(response.status).toBe(200);
+    expect(capacitorMocks.request).toHaveBeenCalledWith(
+      expect.objectContaining({ url: `http://${expectedHost}:8000/api/account/session-status` }),
+    );
   });
 
   it("uses IPv4 loopback for local iOS simulator backend requests", async () => {

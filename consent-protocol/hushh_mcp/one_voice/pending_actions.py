@@ -4,7 +4,8 @@ A mutation tool with a ``confirm_*`` policy never executes on the model's
 say-so. It creates a pending row; the client renders a card; the row is
 executed only after the person confirms -- by voice (only after the card was
 shown) or by tap (a hashed single-use receipt token). One open pending action
-per conversation; a newer one cancels the older. Args hold canonical ids only.
+per conversation; a newer one cancels the older. Public args hold canonical ids;
+short-lived first-party mail dictation is sealed and purged on resolution.
 """
 
 from __future__ import annotations
@@ -21,6 +22,10 @@ from typing import Any
 from db.db_client import DatabaseExecutionError, get_db
 
 PENDING_TTL_SECONDS = 120
+# A missing device report must never leave a durable "opening draft" receipt.
+# The live step has 25 seconds plus five seconds of grace; the database's lazy
+# recovery allows a further five seconds for step dispatch and clock skew.
+MAIL_DRAFT_STEP_RECOVERY_SECONDS = 35
 TIERS = ("voice", "tap")
 ORIGIN_TURN_KEY = "_one_voice_origin_turn_id"
 
@@ -149,10 +154,40 @@ class PendingActionStore:
         await self._execute(
             """
             UPDATE one_voice_pending_actions
-            SET status = 'expired', resolved_at = NOW()
+            SET status = 'expired', resolved_at = NOW(),
+                args = CASE WHEN tool_name = 'send_mail' THEN args - '_sealed_args' ELSE args END
             WHERE user_id = :user_id AND status = 'pending' AND expires_at < NOW()
             """,
             {"user_id": user_id},
+        )
+        # A process can die after the confirmation CAS and before the handler
+        # resolves the row. No session will resume that confirmed action, so
+        # remove its sealed dictation once the confirmation has expired.
+        await self._execute(
+            """
+            UPDATE one_voice_pending_actions
+            SET status = 'failed', resolved_at = NOW(),
+                result = jsonb_build_object(
+                    'status', 'draft_open_unconfirmed', 'needs', NULL
+                ),
+                args = args - '_sealed_args'
+            WHERE user_id = :user_id AND tool_name = 'send_mail'
+              AND status = 'confirmed' AND expires_at < NOW()
+            """,
+            {"user_id": user_id},
+        )
+        await self._execute(
+            """
+            UPDATE one_voice_pending_actions
+            SET status = 'failed',
+                result = jsonb_build_object(
+                    'status', 'draft_open_unconfirmed', 'needs', NULL
+                )
+            WHERE user_id = :user_id AND tool_name = 'send_mail'
+              AND status = 'executed' AND result->>'status' = 'draft_open_requested'
+              AND resolved_at < NOW() - make_interval(secs => :ttl)
+            """,
+            {"user_id": user_id, "ttl": MAIL_DRAFT_STEP_RECOVERY_SECONDS},
         )
 
     async def cancel_open(
@@ -161,7 +196,8 @@ class PendingActionStore:
         rows = await self._execute(
             """
             UPDATE one_voice_pending_actions
-            SET status = 'cancelled', resolved_at = NOW()
+            SET status = 'cancelled', resolved_at = NOW(),
+                args = CASE WHEN tool_name = 'send_mail' THEN args - '_sealed_args' ELSE args END
             WHERE user_id = :user_id
               AND conversation_id = CAST(:conversation_id AS UUID)
               AND status = 'pending'
@@ -323,7 +359,8 @@ class PendingActionStore:
         row = await self._one(
             f"""
             UPDATE one_voice_pending_actions
-            SET status = :status, resolved_at = NOW(), result = CAST(:result AS JSONB)
+            SET status = :status, resolved_at = NOW(), result = CAST(:result AS JSONB),
+                args = CASE WHEN tool_name = 'send_mail' THEN args - '_sealed_args' ELSE args END
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id AND status = 'confirmed'
             RETURNING {_COLUMNS}
             """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.
@@ -336,11 +373,53 @@ class PendingActionStore:
         )
         return PendingAction.from_row(row) if row else None
 
+    async def settle_mail_draft_step(
+        self,
+        *,
+        user_id: str,
+        pending_action_id: str,
+        opened: bool,
+        uncertain: bool = False,
+    ) -> PendingAction | None:
+        """Replace the interim receipt only after the review card reports mount.
+
+        The draft itself is never copied into the durable result column.
+        """
+        status = "executed" if opened else "failed"
+        result = {
+            "status": (
+                "draft_opened"
+                if opened
+                else "draft_open_unconfirmed"
+                if uncertain
+                else "draft_not_opened"
+            ),
+            "needs": None,
+        }
+        row = await self._one(
+            f"""
+            UPDATE one_voice_pending_actions
+            SET status = :status, result = CAST(:result AS JSONB)
+            WHERE id = CAST(:id AS UUID) AND user_id = :user_id
+              AND tool_name = 'send_mail' AND status = 'executed'
+              AND result->>'status' = 'draft_open_requested'
+            RETURNING {_COLUMNS}
+            """,  # nosec B608 - static fragments and bound values only.
+            {
+                "id": pending_action_id,
+                "user_id": user_id,
+                "status": status,
+                "result": json.dumps(result, separators=(",", ":")),
+            },
+        )
+        return PendingAction.from_row(row) if row else None
+
     async def cancel(self, *, user_id: str, pending_action_id: str) -> PendingAction | None:
         row = await self._one(
             f"""
             UPDATE one_voice_pending_actions
-            SET status = 'cancelled', resolved_at = NOW()
+            SET status = 'cancelled', resolved_at = NOW(),
+                args = CASE WHEN tool_name = 'send_mail' THEN args - '_sealed_args' ELSE args END
             WHERE id = CAST(:id AS UUID) AND user_id = :user_id AND status = 'pending'
             RETURNING {_COLUMNS}
             """,  # nosec B608 - static column/assignment fragments; every value is a bound parameter.

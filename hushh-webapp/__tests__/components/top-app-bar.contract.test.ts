@@ -323,16 +323,18 @@ describe("Top app bar responsive contract", () => {
     expect(scrolledTitles).not.toContain("FolderSearch");
   });
 
-  it("keeps Memory in the top bar and gives Mail a visible agent heading", () => {
-    // Memory keeps its heading for assistive tech; the bar's trail is drawn.
-    expect(read("app/one/pkm/page.tsx")).toMatch(
-      /<PkmSettingsShell\s+title="Memory"\s+titleVisuallyHidden/,
+  it("keeps Memory's visible heading in its agent-width page body", () => {
+    expect(read("app/one/pkm/page.tsx")).toContain(
+      '<PkmSettingsShell title="Memory" titleRole="agent" shellWidth="agent">',
     );
     expect(read("app/one/pkm/recent/page.tsx")).toMatch(
       /<PkmSettingsShell\s+title="Recently learned"\s+titleVisuallyHidden/,
     );
     expect(read("components/profile/pkm-settings-shell.tsx")).toContain(
       "titleVisuallyHidden={titleVisuallyHidden}",
+    );
+    expect(read("components/profile/pkm-settings-shell.tsx")).toContain(
+      "titleRole={titleRole}",
     );
     const gmailSource = read("components/gmail/gmail-receipts-page.tsx");
     expect(gmailSource).toContain(

@@ -58,9 +58,14 @@ function luhnFix(base) {
 function attachNetworkLog(page) {
   const log = [];
   const chatTools = [];
+  // Whether a synthetic card number ever rode a chat request. Computed in
+  // memory and kept as a boolean; the request body itself is never stored.
+  const heldInChatBody = new Set();
+  const watchedValues = ["4111 1111 1111 1111", "4111111111111111"];
   page.on("request", (request) => {
     // Evidence for chat parity: which client tools the app offered the model.
     if (new URL(request.url()).pathname !== "/api/one/agent-chat" || request.method() !== "POST") return;
+    for (const value of watchedValues) if ((request.postData() || "").includes(value)) heldInChatBody.add(value);
     try {
       const body = JSON.parse(request.postData() || "{}");
       const names = (body.tools || []).map((tool) => tool?.name).filter(Boolean);
@@ -82,6 +87,7 @@ function attachNetworkLog(page) {
     since(ts, pathPrefix) { return log.filter((e) => e.at >= ts && e.path.startsWith(pathPrefix)); },
     all() { return log; },
     lastChatTools() { return chatTools.at(-1) || null; },
+    cardNumberReachedChat() { return heldInChatBody.size > 0; },
   };
 }
 
@@ -378,16 +384,16 @@ try {
     return { note: reply.slice(0, 120).replace(/\s+/g, " ") };
   });
 
-  await step("paste guard (prompt path): a pasted PAN never reaches /api/one/agent-chat", async () => {
-    const before = Date.now();
+  await step("secret guard (prompt path): a typed card number is kept in Secrets and never reaches /api/one/agent-chat", async () => {
+    // Since the Secrets area (2026-10-01) the number is saved to the reviewer's
+    // reserved `secrets` domain (one item; a repeat run reuses it) and only its
+    // placeholder is sent. The guard runs before any request is built.
     await sendPrompt(page, `save this card please 4111 1111 1111 1111 exp 04/30`);
-    await page.waitForFunction(() => document.body.innerText.includes("blocked on this device"), {}, { timeout: 30_000 });
+    await page.getByTestId("secret-capture-card").last().waitFor({ state: "visible", timeout: 30_000 });
     await page.waitForTimeout(1_500);
-    // Only a model turn counts (POST to the chat endpoint itself); history refreshes are GETs.
-    const chatCalls = net.since(before, "/api/one/agent-chat").filter((e) => e.method === "POST" && e.path === "/api/one/agent-chat");
-    if (chatCalls.length) throw new Error(`agent-chat was called: ${JSON.stringify(chatCalls)}`);
-    const formVisible = await page.getByTestId("secure-card-add-form").last().isVisible().catch(() => false);
-    if (!formVisible) throw new Error("secure add form was not offered after the block");
+    if (net.cardNumberReachedChat()) throw new Error("the card number reached /api/one/agent-chat");
+    const offerVisible = await page.getByTestId("secret-offer").last().isVisible().catch(() => false);
+    if (!offerVisible) throw new Error("the Add this card to Wallet offer was not shown");
   });
 
   await step("no internal runtime error text leaked into the chat surface", async () => {

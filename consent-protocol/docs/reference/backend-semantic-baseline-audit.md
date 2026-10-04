@@ -19,8 +19,7 @@ Status values:
 
 | Surface | Owner | Current classification path | Agent-only compliant | Deterministic by design | Status | Action required | Target phase |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Financial routing guard | `financial_guard/agent.yaml` + `pkm_agent_lab_service.py` | `Financial Guard Agent -> validator guardrails` | Yes | Validator only | `canonical` | Keep finance routing agent-first and prevent casual prompt drift into governed finance | `sanity -> full` |
-| PKM preview and structure | PKM agents + `pkm_agent_lab_service.py` | `Financial Guard Agent -> Memory Intent Agent -> Memory Merge Agent -> PKM Structure Agent -> validator` | Yes | Validator only | `canonical` | Keep hardening prompts, ontology, merge semantics, and live eval | `sanity -> full` |
+| PKM preview and structure | PKM agents + `pkm_agent_lab_service.py` | `Memory Segmentation Agent -> Memory Intent Agent (memory vs command) -> Memory Merge Agent -> PKM Structure Agent -> validator` | Yes | Validator only | `canonical` | Keep hardening prompts, ontology, merge semantics, and live eval | `sanity -> full` |
 | PKM persistence | `personal_knowledge_model_service.py` | Deterministic persistence, encryption, manifests, scopes, index writes | N/A | Yes | `deterministic_support` | Keep deterministic; do not move semantics into this layer | steady-state |
 | Domain registry | `domain_registry_service.py` | Transitional reference data only | N/A | Yes | `mixed_transitional` | Do not use as runtime semantic source for PKM classification or scope derivation; converge runtime decisions on PKM manifests and index metadata | phase 1 cleanup |
 | Consent scopes and token validation | `scope_generator.py`, `scope_helpers.py`, `token.py` | Deterministic scope derivation and authorization | N/A | Yes | `deterministic_support` | Keep deterministic; remove semantic leakage from legacy naming over time | later cleanup |

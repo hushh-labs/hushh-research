@@ -17,7 +17,10 @@ describe("runCalendarDirective", () => {
     const result = await runCalendarDirective(
       {
         kind: "action",
-        payload: { type: "calendar.execute_proposal", proposalId: "gcal_example" },
+        payload: {
+          type: "calendar.execute_proposal",
+          proposalId: "gcal_example",
+        },
       },
       "HCT:test",
       "user-1",
@@ -31,8 +34,29 @@ describe("runCalendarDirective", () => {
     expect(result).toMatchObject({
       delegate_agent_id: "agent_calendar",
       status: "completed",
-      detail: "Scheduled Planning.",
+      detail: "Scheduled Planning. Google Meet is being added to the Calendar invite.",
     });
+  });
+
+  it("reports the Meet link only after Calendar returns it", async () => {
+    vi.mocked(GoogleCalendarService.executeProposal).mockResolvedValue({
+      action: "create",
+      event: {
+        id: "event-1",
+        title: "Planning",
+        conference_url: "https://meet.google.com/abc-defg-hij",
+      },
+    });
+
+    const result = await runCalendarDirective(
+      { kind: "action", payload: { type: "calendar.execute_proposal", proposalId: "gcal_example" } },
+      "HCT:test",
+      "user-1",
+    );
+
+    expect(result.detail).toBe(
+      "Scheduled Planning with a Google Meet link. It is ready in the Calendar invite.",
+    );
   });
 
   it("rejects directives that are not a server-persisted calendar proposal", async () => {

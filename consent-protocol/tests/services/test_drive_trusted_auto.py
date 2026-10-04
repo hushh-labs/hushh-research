@@ -2,7 +2,7 @@
 
 # ruff: noqa: F401, F811 -- isolated PostgreSQL fixtures imported from their owners
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -36,13 +36,18 @@ from tests.services.test_drive_sharing_store import (
 
 
 async def _request(sharing, *, owner_initiated=False):
+    today = datetime.now(UTC).date()
     return await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
             "recipient", "1234567", "b@example.invalid", datetime.now(UTC)
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
-        purpose=ShareRequestPurpose(purpose="Standup notes from last 3 months"),
+        purpose=ShareRequestPurpose(
+            purpose="Standup notes from last 3 months",
+            periodStart=(today - timedelta(days=90)).isoformat(),
+            periodEnd=today.isoformat(),
+        ),
         owner_initiated=owner_initiated,
     )
 
@@ -190,6 +195,27 @@ async def test_background_off_requires_one_setup_event_and_resumes_on_enable(req
         "recipientUserId"
     ] == "recipient"
     assert {item["request_id"] for item in await sharing.due_trusted_searches()} == {request_id}
+
+
+@pytest.mark.asyncio
+async def test_missing_dates_are_visible_and_park_trusted_search(request_bulk, sharing):
+    _membership(sharing, "active")
+    request_id = (await _request(sharing))["requestId"]
+
+    await sharing.defer_trusted_search(
+        user_id="owner", request_id=request_id, code="date_range_required"
+    )
+
+    review = await sharing.owner_review(user_id="owner", request_id=request_id)
+    assert review["preparationError"] == "date_range_required"
+    assert request_id not in {item["request_id"] for item in await sharing.due_trusted_searches()}
+    with sharing.db.engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT preparation_next_at=expires_at FROM drive_share_requests WHERE request_id=:request"
+            ),
+            {"request": request_id},
+        ).scalar_one()
 
 
 @pytest.mark.asyncio
@@ -496,7 +522,19 @@ async def test_bounded_auto_batches_continue_past_first_twenty_five(monkeypatch)
         pending_request_reviews=AsyncMock(return_value=[]),
         refresh_request=AsyncMock(),
     )
-    sharing = SimpleNamespace(db=object(), trusted_request_authority=AsyncMock(return_value={}))
+    sharing = SimpleNamespace(
+        db=object(),
+        trusted_request_authority=AsyncMock(return_value={}),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "purpose": {
+                    "purpose": "Standup notes from last 3 months",
+                    "periodStart": "2026-06-29",
+                    "periodEnd": "2026-09-29",
+                }
+            }
+        ),
+    )
     monkeypatch.setattr(module, "DriveRequestBulkService", FakeRequestBulk)
     monkeypatch.setattr(module, "DriveBulkShareService", FakeBulkService)
     payment = SimpleNamespace(
@@ -550,7 +588,19 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
         unclaimed_positions=positions,
         refresh_request=AsyncMock(),
     )
-    sharing = SimpleNamespace(db=object(), trusted_request_authority=AsyncMock(return_value={}))
+    sharing = SimpleNamespace(
+        db=object(),
+        trusted_request_authority=AsyncMock(return_value={}),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "purpose": {
+                    "purpose": "Standup notes from last 3 months",
+                    "periodStart": "2026-06-29",
+                    "periodEnd": "2026-09-29",
+                }
+            }
+        ),
+    )
     payment = SimpleNamespace(
         ensure_payment_for_frozen_batch=AsyncMock(
             side_effect=[{"status": "awaiting_payment"}, {"status": "paid"}]
@@ -568,6 +618,81 @@ async def test_frozen_auto_review_waits_for_payment_and_resumes_same_batch(monke
     assert await service.share_available(user_id="owner", request_id=request_id) == 1
     approved.assert_awaited_once()
     assert approved.await_args.kwargs["share_id"] == review["shareId"]
+
+
+@pytest.mark.asyncio
+async def test_legacy_undated_auto_request_does_not_approve_frozen_batches():
+    pending = AsyncMock(return_value=[{"shareId": str(uuid4())}])
+    sharing = SimpleNamespace(
+        trusted_request_authority=AsyncMock(return_value={}),
+        request_bulk_context=AsyncMock(
+            return_value={"purpose": {"purpose": "last 3 days standup notes"}}
+        ),
+    )
+    service = DriveTrustedAutoService(
+        sharing=sharing,
+        bulk=SimpleNamespace(pending_request_reviews=pending),
+        payment=object(),
+        wake=AsyncMock(),
+    )
+    with pytest.raises(DriveReadError, match="date_range_required"):
+        await service.share_available(user_id="owner", request_id=str(uuid4()))
+    pending.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_undated_trusted_search_surfaces_date_clarification(monkeypatch):
+    from hushh_mcp.services import drive_trusted_auto_service as module
+
+    class UndatedSearch:
+        def __init__(self, **kwargs):
+            pass
+
+        async def start_search(self, **kwargs):
+            raise DriveReadError("date_range_required")
+
+    request_id = str(uuid4())
+    sharing = SimpleNamespace(
+        db=object(),
+        due_trusted_searches=AsyncMock(
+            return_value=[{"user_id": "owner", "request_id": request_id}]
+        ),
+        trusted_request_authority=AsyncMock(return_value={}),
+        defer_trusted_search=AsyncMock(),
+    )
+    monkeypatch.setattr(module, "DriveRequestBulkService", UndatedSearch)
+
+    outcome = await DriveTrustedAutoService(
+        sharing=sharing, bulk=object(), wake=AsyncMock()
+    ).start_pending()
+
+    assert outcome == {"started": 0, "deferred": 1}
+    sharing.defer_trusted_search.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, code="date_range_required"
+    )
+
+
+@pytest.mark.asyncio
+async def test_legacy_queued_search_requires_dates_before_provider_read():
+    request_id = str(uuid4())
+    job_id = str(uuid4())
+    sharing = SimpleNamespace(
+        trusted_request_for_job=AsyncMock(return_value=request_id),
+        trusted_request_authority=AsyncMock(return_value={}),
+        request_bulk_context=AsyncMock(
+            return_value={"purpose": {"purpose": "last 3 days standup notes"}}
+        ),
+        defer_trusted_search=AsyncMock(),
+    )
+    authority = await DriveTrustedAutoService(
+        sharing=sharing, bulk=object(), payment=object(), wake=AsyncMock()
+    ).search_authority_for_job(user_id="owner", job_id=job_id)
+
+    with pytest.raises(DriveReadError, match="date_range_required"):
+        await authority()
+    sharing.defer_trusted_search.assert_awaited_once_with(
+        user_id="owner", request_id=request_id, code="date_range_required"
+    )
 
 
 @pytest.mark.asyncio
@@ -637,3 +762,157 @@ async def test_search_service_fences_revocation_before_provider_page(revocation,
         store.pause_for_background.assert_awaited_once_with(job)
     else:
         store.release.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("page_sizes", [(25, 25, 7), (2, 0, 0), (0, 0, 0)])
+async def test_committed_request_pages_reach_payment_and_sharing_before_next_page(
+    monkeypatch, page_sizes
+):
+    from hushh_mcp.services import drive_trusted_auto_service as module
+
+    request_id, job_id = str(uuid4()), str(uuid4())
+    committed, pending, frozen, approved = [], [], [], []
+    paid = False
+    terminal = False
+    calls = 0
+    authority = AsyncMock()
+
+    class RequestBulk:
+        def __init__(self, **kwargs):
+            self.require_owner = kwargs["require_owner"]
+
+        async def prepare(self, *, positions, **kwargs):
+            await self.require_owner()
+            assert 1 <= len(positions) <= 25
+            review = {"shareId": str(uuid4()), "revision": 0, "reviewDigest": "exact-batch"}
+            frozen.append(list(positions))
+            pending.append(review)
+            return review
+
+    class BulkService:
+        def __init__(self, **kwargs):
+            self.require_owner = kwargs["require_owner"]
+
+        async def approve(self, *, share_id, **kwargs):
+            await self.require_owner()
+            assert paid
+            approved.append(share_id)
+            pending[:] = [item for item in pending if item["shareId"] != share_id]
+
+    async def positions(*, limit, **kwargs):
+        claimed = {position for batch in frozen for position in batch}
+        return [position for position in committed if position not in claimed][:limit]
+
+    async def payment_state(**kwargs):
+        assert frozen
+        return {"status": "paid" if paid else "awaiting_payment"}
+
+    sharing = SimpleNamespace(
+        db=object(),
+        trusted_request_authority=authority,
+        trusted_request_for_job=AsyncMock(return_value=request_id),
+        request_bulk_context=AsyncMock(
+            return_value={
+                "purpose": {
+                    "purpose": "financial documents",
+                    "periodStart": "2026-07-01",
+                    "periodEnd": "2026-09-30",
+                }
+            }
+        ),
+        defer_trusted_search=AsyncMock(),
+    )
+    bulk = SimpleNamespace(
+        pending_request_reviews=AsyncMock(side_effect=lambda **kwargs: list(pending)),
+        unclaimed_positions=positions,
+        refresh_request=AsyncMock(),
+    )
+    payment = SimpleNamespace(ensure_payment_for_frozen_batch=AsyncMock(side_effect=payment_state))
+    auto = DriveTrustedAutoService(sharing=sharing, bulk=bulk, payment=payment, wake=AsyncMock())
+    monkeypatch.setattr(module, "DriveRequestBulkService", RequestBulk)
+    monkeypatch.setattr(module, "DriveBulkShareService", BulkService)
+    checkpoint = {"request_origin_id": request_id, "authority_mode": "trusted_auto"}
+    job = {"user_id": "owner", "job_id": job_id, "checkpoint": checkpoint}
+
+    async def read_page(*args, **kwargs):
+        nonlocal calls, paid
+        if calls == 1 and page_sizes[0]:
+            # The next provider page could block for minutes. The first page
+            # must already have its immutable payment-ready batch, without a
+            # permission approval before the signed-payment state changes.
+            assert [len(batch) for batch in frozen] == [page_sizes[0]]
+            assert not approved and payment.ensure_payment_for_frozen_batch.await_count == 1
+            assert not terminal
+            paid = True
+        if calls == 2 and page_sizes[1]:
+            assert len(approved) == 2 and not terminal
+        size = page_sizes[calls]
+        calls += 1
+        return checkpoint, [{} for _ in range(size)], False, calls == len(page_sizes)
+
+    async def commit_page(job, *, files, done, **kwargs):
+        nonlocal terminal
+        committed.extend(range(len(committed) + 1, len(committed) + len(files) + 1))
+        terminal = done
+        return {"status": "completed" if done else "running", "matched": len(committed)}
+
+    store = SimpleNamespace(
+        claim=AsyncMock(return_value=job),
+        require_current=AsyncMock(),
+        commit_page=commit_page,
+        release=AsyncMock(return_value="queued"),
+    )
+    scanner = DriveOwnerSearchService(store=store, transport=SimpleNamespace())
+    scanner._page = read_page
+    assert (
+        await scanner.run_one(
+            user_id="owner",
+            job_id=job_id,
+            max_pages=3,
+            require_current=authority,
+            after_page=auto.after_search_page,
+        )
+        == "completed"
+    )
+    assert [len(batch) for batch in frozen] == [size for size in page_sizes if size]
+    assert len(approved) == len(frozen)
+    assert len({position for batch in frozen for position in batch}) == sum(page_sizes)
+    assert terminal
+    if not any(page_sizes):
+        payment.ensure_payment_for_frozen_batch.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_payment_wake_resumes_committed_batches_before_slow_search(monkeypatch):
+    from hushh_mcp.services import drive_owner_search_worker as module
+
+    order = []
+
+    async def continue_batches(**kwargs):
+        order.append("resume_paid_batch")
+
+    async def provider_slice(**kwargs):
+        assert order[0] == "resume_paid_batch"
+        assert kwargs["after_page"] is auto.after_search_page
+        order.append("provider_read")
+        return "queued"
+
+    auto = SimpleNamespace(
+        continue_batches=continue_batches,
+        start_pending=AsyncMock(return_value={"started": 0, "deferred": 0}),
+        search_authority_for_job=AsyncMock(return_value=AsyncMock()),
+        after_search_page=AsyncMock(),
+        after_search_slice=AsyncMock(),
+    )
+    service = SimpleNamespace(
+        store=SimpleNamespace(
+            due=AsyncMock(return_value=[{"user_id": "owner", "job_id": str(uuid4())}]),
+            status=AsyncMock(return_value={"errorCode": None}),
+        ),
+        run_one=provider_slice,
+    )
+    monkeypatch.setattr(module, "wake_drive_work", AsyncMock())
+    result = await DriveOwnerSearchWorker(service, trusted_auto=auto).run()
+    assert order[:2] == ["resume_paid_batch", "provider_read"]
+    assert result["outcomes"]["queued"] == 1

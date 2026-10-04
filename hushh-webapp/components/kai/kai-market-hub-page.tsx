@@ -5,8 +5,11 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
+  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
+import { PageHeader } from "@/components/app-ui/page-sections";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
 import { KaiFlow, type FlowState } from "@/components/kai/kai-flow";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -98,14 +101,14 @@ export function KaiMarketHubPage() {
 
   if (authLoading || !user) return null;
 
-  // Finance is a One workspace, not a dashboard canvas. Match Profile's
-  // reading measure and let the shared shell own the only outer gutter.
+  // Finance is a One workspace, not a dashboard canvas. Match Location's
+  // agent column and let the shared shell own the only outer gutter.
   return (
     <AppPageShell
       as="div"
       fitContent
-      width="reading"
-      className="relative !px-0"
+      width="agent"
+      className="relative"
       data-finance-workspace="true"
       nativeTest={{
         routeId: KAI_MARKET_PATH,
@@ -114,6 +117,19 @@ export function KaiMarketHubPage() {
         dataState: flowState === "checking" ? "loading" : "loaded",
       }}
     >
+      <AppPageHeaderRegion
+        className="space-y-3.5 sm:space-y-3.5"
+        data-finance-workspace-header="true"
+      >
+        <PageHeader
+          title="Finance"
+          titleRole="agent"
+          className="ms-[var(--page-inline-gutter-standard)]"
+        />
+        <TopShellTabs
+          tabSet={{ ...FINANCE_TAB_DEFINITION, activeValue: visibleTab }}
+        />
+      </AppPageHeaderRegion>
       <SwipeViews
         tabSetId={FINANCE_TAB_DEFINITION.id}
         activeValue={visibleTab}
@@ -122,8 +138,9 @@ export function KaiMarketHubPage() {
         onSelectionCommit={(value) => setActiveTab(value as PortfolioTab)}
         heightMode="active"
         holdHeightDuringTransition={false}
-        panelInset="page"
+        panelInset="none"
         viewportMinHeight="fill"
+        className="mt-3.5 sm:mt-3.5"
       >
         <div className="w-full">
           <AppPageContentRegion>

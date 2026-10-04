@@ -206,7 +206,7 @@ The canonical blocker for that broader surface is:
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
 2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, and UAT lanes
 3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
-4. a missing or unproven comparison base fails closed to the full PKM/reviewer plan
+4. a missing or unproven comparison base fails closed to the deterministic PKM/reviewer plan, never to implicit paid model calls
 5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
 
 Every selected plan is written as a `*-verification-plan` workflow artifact and
@@ -214,6 +214,18 @@ includes the changed files, each lane's `required`/`skipped` state, and its
 reason. This is evidence only: authority checks, migrations, deployment
 provenance, runtime health, and directly affected frontend/backend checks remain
 mandatory regardless of the expensive-lane selection.
+
+Live Gemini/Vertex candidate checks are opt-in, not ordinary CI gates. UAT
+dispatches default `run_live_model_checks=false`; explicitly setting it to
+`true` selects candidate-model readiness and synthetic PKM evaluation for a
+backend deployment. Direct backend Cloud Builds (including production) default
+`_VERIFY_MANAGED_VERTEX_RUNTIME=false`; an operator may explicitly set it to
+`true`. Local PKM evaluation similarly requires
+`PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`. Omitted evaluation is **skipped**, not a
+model-quality pass. Mocked provider contracts, model configuration checks,
+zero-loss preservation/rollback, authorization, schema, provenance and runtime
+health remain mandatory. This does not disable the application's own voice
+readiness or model calls caused by an explicitly exercised product journey.
 
 ## When CI Runs
 

@@ -44,7 +44,7 @@ DOCUMENT_SHARE_NOTIFICATION_COPY = {
         "Open One for your document request update.",
     ),
     "document_share_decided": ("Drive sharing update", "Open One to see the latest."),
-    "document_share_outcome": ("Drive sharing finished", "Open One to see the shared files."),
+    "document_share_outcome": ("Drive request update", "Open One to see the result."),
     "document_share_revoked": ("Drive access changed", "Open One to see what changed."),
     "document_share_revocation_outcome": ("Drive access changed", "Open One to see what changed."),
     "document_share_question": (

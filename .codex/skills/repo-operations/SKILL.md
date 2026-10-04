@@ -65,7 +65,7 @@ bootstrap does not authorize bypassing approval on subsequent updates.
 
 1. Record current branch/worktree state and preserve the user's development branch before branch, CI, deploy, PR, hotfix, or validation work.
 2. Prefer live verification over assumptions for GitHub, CI, deploy, ruleset, and runtime state.
-3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state.
+3. Use `./bin/hushh` as the canonical repo command surface and `gh` for live repository state. Before declaring local GCP authentication blocked, check CLI and ADC independently under the authentication fallback in `admin-release-sop.md`.
 4. For merge or deploy work, follow `admin-release-sop.md` as the single state machine; verify pre-PR, DCO, current head SHA, required gates, queue state, landed SHA, post-merge smoke, and requested environment separately.
 5. For core workflow chains, monitor until terminal success or a concrete blocker; queued or in-progress authority runs mean the task is not done.
 6. For merge/deploy requests, keep merge-to-main and deploy-to-UAT as separate operator cadences.

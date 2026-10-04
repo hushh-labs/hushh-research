@@ -204,13 +204,13 @@ it("reviews every paginated deletion member and rejects changed or truncated ros
   ).rejects.toThrow("incomplete");
 });
 
-it("preserves role, system-circle and current-membership prerequisites", async () => {
+it("preserves role and current-membership prerequisites", async () => {
   expect(
     await prepareCircleManagement({
       ...base,
       overview: async () => ({ ...circle(), systemKind: "trusted" }),
     }),
-  ).toMatchObject({ status: "blocked" });
+  ).toMatchObject({ status: "ready", binding: { circleId: "goa" } });
   expect(
     await prepareCircleManagement({ ...base, action: "location.leave_circle" }),
   ).toMatchObject({ status: "blocked" });

@@ -96,6 +96,30 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
             "SELECT * FROM drive_request_payment_orders WHERE request_id=:request",
             {"request": request["request_id"]},
         )
+        if request["status"] == "pending" and request["expires_at"] > datetime.now(UTC):
+            from hushh_mcp.services.drive_sharing_store import DriveSharingStore
+
+            purpose = DriveSharingStore(db=self.db)._open_request(request).get("purpose", {})
+            if not (purpose.get("periodStart") and purpose.get("periodEnd")):
+                # Keep paid/refunded state visible for reconciliation, while
+                # withholding new checkout and payment-ready authority.
+                if existing is not None and existing["status"] == "paid":
+                    if not existing["reconciliation_required"]:
+                        connection.execute(
+                            text("""UPDATE drive_request_payment_orders
+                          SET reconciliation_required=TRUE,
+                            reconciliation_reason='authority_changed',
+                            reconciliation_at=clock_timestamp(),
+                            updated_at=clock_timestamp()
+                          WHERE request_id=:request AND status='paid'
+                            AND reconciliation_required=FALSE"""),
+                            {"request": request["request_id"]},
+                        )
+                        existing = {**existing, "reconciliation_required": True}
+                    return request, existing, False
+                if existing is not None and existing["status"] == "refunded":
+                    return request, existing, False
+                raise DriveSharingError("date_range_required")
         if existing is not None:
             notified = False
             if (
@@ -190,14 +214,14 @@ class DriveRequestPaymentStore(ExternalConnectorLifecycleStore):
                 connection, user_id=request["user_id"], request_id=request_id, share_id=None
             )
             if order is None and (
-                request["status"] in {"cancelled", "declined", "expired"}
+                request["status"] in {"cancelled", "declined", "expired", "no_match"}
                 or request["expires_at"] <= datetime.now(UTC)
             ):
                 status = "expired"
             elif order is None:
                 status = "preparing"
             elif order["status"] not in {"paid", "refunded"} and (
-                request["status"] in {"cancelled", "declined", "expired"}
+                request["status"] in {"cancelled", "declined", "expired", "no_match"}
                 or request["expires_at"] <= datetime.now(UTC)
             ):
                 status = "expired"

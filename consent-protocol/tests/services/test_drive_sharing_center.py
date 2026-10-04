@@ -274,6 +274,22 @@ async def test_requester_can_reopen_payment_from_consent_center(sharing):
 
 
 @pytest.mark.asyncio
+async def test_zero_match_history_uses_neutral_recipient_state(sharing):
+    created = await request(sharing)
+    with sharing.db.engine.begin() as connection:
+        connection.execute(
+            text("UPDATE drive_share_requests SET status='no_match' WHERE request_id=:request_id"),
+            {"request_id": created["requestId"]},
+        )
+    projection = DriveSharingCenterContributor(db=sharing.db)
+    owner = await projection.page("owner", bucket="history", limit=20)
+    recipient = await projection.page("recipient", bucket="history", limit=20)
+    assert owner["items"][0]["status"] == "no_match"
+    assert recipient["items"][0]["status"] == "no_files_shared"
+    assert recipient["items"][0]["metadata"]["state"] == "no_files_shared"
+
+
+@pytest.mark.asyncio
 async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeypatch):
     for _ in range(61):
         await request(sharing)

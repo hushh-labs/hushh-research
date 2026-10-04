@@ -1,7 +1,8 @@
-"""Mail tools: answer the owner's questions about their own inbox.
+"""Mail tools: read the owner's inbox and open a reviewed compose card.
 
-Read only. Nothing here archives, labels, marks read, trashes, drafts or
-sends; those stay on the typed-chat surface behind their own confirmation.
+No voice tool archives, labels, marks read, trashes, saves drafts, or sends.
+``send_mail`` only proposes a first-party draft after spoken confirmation;
+the existing owner's card owns every provider write.
 
 The read itself is not implemented here. It belongs to
 ``email_delegated_read``, which runs a planner that sees the person's request
@@ -32,13 +33,18 @@ as a fact about the person's mailbox, so every number One says comes from
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import hmac
 import logging
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from hushh_mcp.one_voice.config import OneVoiceMailAdmission
 from hushh_mcp.one_voice.tools.base import (
+    PersonRef,
+    Prepared,
     Rejected,
     ToolContext,
     ToolInput,
@@ -46,8 +52,11 @@ from hushh_mcp.one_voice.tools.base import (
     ToolResult,
     ToolSpec,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, normalize_draft
 from hushh_mcp.services.gmail_receipts_service import get_gmail_receipts_service
 
 logger = logging.getLogger(__name__)
@@ -618,6 +627,164 @@ async def _get_mail_access(ctx: ToolContext, args: MailAccessInput) -> ToolResul
     )
 
 
+class SendMailInput(ToolInput):
+    recipient: PersonRef = Field(
+        description="Canonical person from resolve_person and confirm_person."
+    )
+    subject: str = Field(
+        default="",
+        max_length=256,
+        description="Subject the owner dictated; leave empty if they gave none.",
+    )
+    message: str = Field(
+        min_length=1,
+        max_length=4000,
+        description="The owner's dictated email message, preserved exactly; never invent it.",
+    )
+
+    @field_validator("subject")
+    @classmethod
+    def subject_is_one_line(cls, value: str) -> str:
+        if "\r" in value or "\n" in value:
+            raise ValueError("subject must be one line")
+        return value
+
+    @field_validator("message")
+    @classmethod
+    def message_has_words(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message must not be blank")
+        return value
+
+
+class SendMailResult(ToolResult):
+    status: Literal["draft_open_requested"] = "draft_open_requested"
+    needs: Literal["client_step"] = "client_step"
+    client_step: dict[str, Any]
+
+    def model_public(self) -> dict[str, Any]:
+        # The address and full draft go only to the owner's review card. The
+        # operational Live model receives a bounded first-party speech receipt.
+        return {
+            "status": self.status,
+            "needs": self.needs,
+            "spoken_facts": list(self.spoken_facts),
+        }
+
+
+def _mail_connection(ctx: ToolContext, recipient_id: str) -> dict[str, Any] | None:
+    connections = ctx.service("connections", ConnectionsService)
+    rows = connections.list_connections(ctx.user_id)
+    return next(
+        (row for row in rows or [] if str(row.get("userId") or "") == recipient_id),
+        None,
+    )
+
+
+def _email_binding(ctx: ToolContext, recipient_id: str, address: str) -> str:
+    secret = get_core_security_settings().app_signing_key
+    if not secret:
+        raise ValueError("voice mail binding key is unavailable")
+    material = (
+        f"one-voice-send-mail-v1:{ctx.user_id}:{ctx.conversation_id}:{recipient_id}:{address}"
+    )
+    return hmac.new(secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _recipient_email(
+    row: dict[str, Any] | None, subject: str, message: str
+) -> tuple[str, str] | None:
+    if row is None:
+        return None
+    raw = str(row.get("email") or "").strip()
+    if not raw:
+        return None
+    try:
+        normalized = normalize_draft({"to": raw, "subject": subject, "body": message})
+    except GmailDeliveryError:
+        return None
+    if len(normalized.to) != 1:
+        return None
+    return normalized.to[0], normalized.subject
+
+
+def _no_recipient_email(name: str) -> Rejected:
+    return Rejected(
+        reason_code="person_has_no_email",
+        spoken_facts=[f"I don't have an email address for {name}, so I can't draft this."],
+    )
+
+
+async def _prepare_send_mail(ctx: ToolContext, args: SendMailInput) -> Prepared | ToolResult:
+    person = ctx.entities.person(args.recipient.user_id)
+    if person is None or person.relationship != "connected":
+        return Rejected(
+            reason_code="recipient_not_connected",
+            spoken_facts=["I can draft only to a confirmed connection with an email address."],
+        )
+    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    address = _recipient_email(row, args.subject, args.message)
+    if address is None:
+        return _no_recipient_email(person.display_name)
+    to_email, _subject = address
+    return Prepared(
+        summary=f"draft an email to {person.display_name}",
+        # An HMAC pins the confirmed recipient without retaining their address
+        # in the long-lived pending-action row.
+        snapshot={
+            "recipient_user_id": args.recipient.user_id,
+            "email_binding": _email_binding(ctx, args.recipient.user_id, to_email),
+        },
+    )
+
+
+async def _send_mail(ctx: ToolContext, args: SendMailInput) -> ToolResult:
+    person = ctx.entities.person(args.recipient.user_id)
+    prepared = ctx.prepared or {}
+    if (
+        person is None
+        or person.relationship != "connected"
+        or prepared.get("recipient_user_id") != args.recipient.user_id
+    ):
+        return Rejected(
+            reason_code="recipient_changed",
+            spoken_facts=["That connection changed. I didn't open a draft; please ask again."],
+        )
+    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    address = _recipient_email(row, args.subject, args.message)
+    if address is None:
+        return _no_recipient_email(person.display_name)
+    to_email, subject = address
+    if not hmac.compare_digest(
+        str(prepared.get("email_binding") or ""),
+        _email_binding(ctx, args.recipient.user_id, to_email),
+    ):
+        return Rejected(
+            reason_code="recipient_changed",
+            spoken_facts=["That email address changed. I didn't open a draft; please ask again."],
+        )
+    preview = " ".join(args.message.split())
+    if len(preview) > 180:
+        preview = preview[:180].rstrip() + "…"
+    facts = [f"I prepared an email draft to {person.display_name}."]
+    if subject:
+        facts.append(f"Subject: {subject}.")
+    facts.append(f"Body starts: {preview}.")
+    facts.append("I'm opening it for your review. Tap Send only after checking it.")
+    return SendMailResult(
+        spoken_facts=facts,
+        client_step={
+            "kind": "open_mail_draft",
+            "draft": {
+                "to": to_email,
+                "to_name": person.display_name,
+                "subject": subject,
+                "body": args.message,
+            },
+        },
+    )
+
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="get_mail_access",
@@ -668,5 +835,26 @@ TOOLS: tuple[ToolSpec, ...] = (
             "when they want to know what a message says rather than to see it."
         ),
         handler=_open_mail,
+    ),
+    ToolSpec(
+        name="send_mail",
+        gateway_action_id="email.chat.turn",
+        policy=ToolPolicy.confirm_voice,
+        input_model=SendMailInput,
+        output_model=SendMailResult,
+        description=(
+            "Prepare an email the owner dictates to a confirmed person. "
+            "Use when they ask to send, write, or draft mail to a person by name. "
+            "First resolve_person and confirm_person; pass only that canonical "
+            "PersonRef as recipient. Preserve their dictated message in message "
+            "and never invent an address, subject, or body. This tool opens an "
+            "editable review card after spoken confirmation; it never sends. "
+            "Only the owner's tap on Send in that card can deliver the email."
+        ),
+        handler=_send_mail,
+        person_args=("recipient",),
+        private_args=("subject", "message"),
+        prepare=_prepare_send_mail,
+        device_step=True,
     ),
 )

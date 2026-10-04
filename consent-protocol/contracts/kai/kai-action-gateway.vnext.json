@@ -7,7 +7,6 @@
     "hushh-webapp/app/one/connect/page.voice-action-contract.json",
     "hushh-webapp/app/one/gmail/page.voice-action-contract.json",
     "hushh-webapp/app/one/kai/analysis/page.voice-action-contract.json",
-    "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
     "hushh-webapp/app/one/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/page.voice-action-contract.json",
     "hushh-webapp/app/one/profile/page.voice-action-contract.json",
@@ -160,41 +159,6 @@
             "investor"
           ]
         }
-      },
-      "orchestration": {
-        "instruction_id": null,
-        "context_policy": null,
-        "trust_boundary": null,
-        "delegation_policy": null
-      }
-    },
-    {
-      "schema_version": "kai.local_action_contract.v1",
-      "surface_id": "one_kyc",
-      "surface_title": "KYC",
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "contract_file": "hushh-webapp/app/one/kyc/page.voice-action-contract.json",
-      "defaults": {
-        "reachability": {
-          "routes": [
-            "/one/kyc"
-          ],
-          "screens": [
-            "one_kyc"
-          ],
-          "active_personas": [
-            "investor"
-          ],
-          "navigation_prerequisites": [
-            "user must be signed in"
-          ]
-        },
-        "speaker_persona": "kyc",
-        "delegate_agent_id": "agent_kyc"
       },
       "orchestration": {
         "instruction_id": null,
@@ -3325,6 +3289,114 @@
       }
     },
     {
+      "action_id": "route.one_gmail_kyc",
+      "surface_id": "gmail",
+      "label": "Open Mail KYC",
+      "aliases": [
+        "open kyc",
+        "open mail kyc",
+        "manage my identity details"
+      ],
+      "search_keywords": [
+        "kyc",
+        "identity",
+        "mail kyc"
+      ],
+      "meaning": "Opens Mail directly on its KYC tab, where identity details for KYC replies are managed. Shows the connect entry when Gmail is not connected.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/gmail?workspace=kyc"
+        ],
+        "screens": [
+          "gmail"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "navigate to Gmail surface on its KYC tab if route is currently outside Gmail scope"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/gmail?workspace=kyc"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/one/gmail/gmail-page-client.tsx",
+        "components/gmail/gmail-receipts-page.tsx",
+        "components/gmail/mail-kyc-connect-entry.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/gmail?workspace=kyc"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_gmail_kyc",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_gmail_kyc",
+            "label": "Open Mail KYC",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/gmail?workspace=kyc",
+              "screen": "gmail"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.gmail.connect",
       "surface_id": "gmail",
       "label": "Connect Gmail",
@@ -4181,773 +4253,6 @@
         },
         "cancellation_contract": {
           "cancellable": true,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "route.one_kyc",
-      "surface_id": "one_kyc",
-      "label": "Open KYC",
-      "aliases": [
-        "open kyc",
-        "open email",
-        "open email helper",
-        "show email requests",
-        "show requests"
-      ],
-      "search_keywords": [
-        "email",
-        "one",
-        "request"
-      ],
-      "meaning": "Navigates to One's approval-gated request review.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required",
-        "vault_unlocked"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/kyc"
-      },
-      "control_ids": [
-        "one-kyc-open",
-        "top_agent_section_email"
-      ],
-      "state_exposure": [
-        "workflow list metadata only"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.route.one_kyc",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "route.one_kyc",
-            "label": "Open KYC",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/one/kyc",
-              "screen": "one_kyc"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.aliases.manage",
-      "surface_id": "one_kyc",
-      "label": "Manage verified addresses",
-      "aliases": [
-        "manage verified addresses",
-        "manage verified emails",
-        "add email address",
-        "show matching emails"
-      ],
-      "search_keywords": [
-        "email",
-        "address",
-        "match"
-      ],
-      "meaning": "Opens the verified address panel used to match incoming requests.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Requires opening the local verified address panel in /one/kyc."
-      },
-      "control_ids": [
-        "one-kyc-aliases"
-      ],
-      "state_exposure": [
-        "verified address count",
-        "pending address count"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.aliases.manage",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.aliases.manage",
-            "label": "Manage verified addresses",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.workflow.sync_status",
-      "surface_id": "one_kyc",
-      "label": "Sync request status",
-      "aliases": [
-        "sync email",
-        "refresh request status"
-      ],
-      "search_keywords": [
-        "email",
-        "sync",
-        "consent"
-      ],
-      "meaning": "Refreshes the selected request status after consent approval.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Requires selected workflow context from /one/kyc."
-      },
-      "control_ids": [
-        "one-kyc-sync-status"
-      ],
-      "state_exposure": [
-        "workflow status metadata"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.workflow.sync_status",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.workflow.sync_status",
-            "label": "Sync request status",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.draft.review",
-      "surface_id": "one_kyc",
-      "label": "Review response draft",
-      "aliases": [
-        "review email draft",
-        "show email draft"
-      ],
-      "search_keywords": [
-        "email",
-        "draft",
-        "review"
-      ],
-      "meaning": "Reads or focuses the current approval-gated response draft.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Requires selected workflow context and user-visible draft state."
-      },
-      "control_ids": [
-        "one-kyc-draft-review"
-      ],
-      "state_exposure": [
-        "approved draft body"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.draft.review",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.draft.review",
-            "label": "Review response draft",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.draft.request_redraft",
-      "surface_id": "one_kyc",
-      "label": "Request response revision",
-      "aliases": [
-        "redraft email",
-        "revise email draft"
-      ],
-      "search_keywords": [
-        "email",
-        "redraft",
-        "revise"
-      ],
-      "meaning": "Requests a new response draft revision from typed or spoken user instructions.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required",
-        "vault_unlocked"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "wired",
-        "path": "local_handler",
-        "target": "one_kyc_redraft"
-      },
-      "control_ids": [
-        "one-kyc-redraft"
-      ],
-      "state_exposure": [
-        "approved draft body",
-        "redraft instructions"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "The mounted action reports its browser-observed outcome."
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.draft.request_redraft",
-        "required_inputs": [
-          {
-            "name": "instruction",
-            "prompt": "How should I revise the current response draft?",
-            "required": true,
-            "slot": "instruction"
-          }
-        ],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.draft.request_redraft",
-            "label": "Request response revision",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.draft.approve_send",
-      "surface_id": "one_kyc",
-      "label": "Approve response",
-      "aliases": [
-        "approve email send",
-        "send email reply"
-      ],
-      "search_keywords": [
-        "email",
-        "send",
-        "approve"
-      ],
-      "meaning": "Sends the response draft only after explicit user approval.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required",
-        "explicit_confirmation_required"
-      ],
-      "risk_level": "high",
-      "execution_policy": "manual_only",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Voice must not send a response until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
-      },
-      "control_ids": [
-        "one-kyc-approve-send"
-      ],
-      "state_exposure": [
-        "approved draft body",
-        "send status"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.draft.approve_send",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.draft.approve_send",
-            "label": "Approve response",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
-      "action_id": "kyc.draft.reject",
-      "surface_id": "one_kyc",
-      "label": "Reject response draft",
-      "aliases": [
-        "reject email draft",
-        "block email request"
-      ],
-      "search_keywords": [
-        "email",
-        "reject",
-        "block"
-      ],
-      "meaning": "Rejects the current response draft and blocks the workflow.",
-      "speaker_persona": "kyc",
-      "delegate_agent_id": "agent_kyc",
-      "reachability": {
-        "routes": [
-          "/one/kyc"
-        ],
-        "screens": [
-          "one_kyc"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [
-          "user must be signed in"
-        ],
-        "active_personas": [
-          "investor"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_required"
-      ],
-      "risk_level": "medium",
-      "execution_policy": "confirm_required",
-      "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
-      "siri_vault_locked_fallback_action_id": null,
-      "execution_target": {
-        "status": "unwired",
-        "reason": "Requires selected workflow context from /one/kyc."
-      },
-      "control_ids": [
-        "one-kyc-reject"
-      ],
-      "state_exposure": [
-        "workflow status metadata"
-      ],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "docs/reference/architecture/one-email-kyc.md",
-        "docs/reference/architecture/frontend-native-surface-map.md"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /one/kyc"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.kyc.draft.reject",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "kyc.draft.reject",
-            "label": "Reject response draft",
-            "failure_behavior": "stop"
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
           "cancel_action_id": null
         },
         "result_contract": {
@@ -18428,6 +17733,115 @@
             "action_id": "people.profile.manage_consent",
             "label": "Manage consent",
             "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.person_profile",
+      "surface_id": "one_person_profile",
+      "label": "Open a person's profile",
+      "aliases": [
+        "open their profile",
+        "show their profile"
+      ],
+      "search_keywords": [
+        "profile",
+        "person",
+        "people"
+      ],
+      "meaning": "Navigates to the profile of one person already confirmed by name. It changes nothing, and it needs that person's profile reference, never a guessed one.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "The person must be confirmed by name first."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/people/[personRef]",
+        "params": {
+          "requires_person_ref": true
+        }
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "hushh-webapp/components/connections/person-profile-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /people/[personRef]"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.person_profile",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.person_profile",
+            "label": "Open a person's profile",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/people/[personRef]",
+              "screen": "one_person_profile"
+            }
           }
         ],
         "progress_contract": {

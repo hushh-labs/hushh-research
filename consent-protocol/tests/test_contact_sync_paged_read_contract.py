@@ -123,14 +123,13 @@ def test_eligible_page_filters_and_orders_before_its_bound():
     assert "ORDER BY normalized_name, user_id, connection_id" in sql
 
 
-def test_trusted_summary_mode_never_calls_complete_circle_detail():
+def test_trusted_summary_mode_provisions_without_populating_a_roster():
     source = inspect.getsource(OneLocationCircleService.ensure_trusted_system_circle)
-    reconcile = inspect.getsource(OneLocationCircleService._reconcile_trusted_members)
     assert "if summary_only:" in source
     assert "get_circle_overview" in source
     assert source.index("if summary_only:") < source.index("return self.get_circle(")
-    assert "SELECT COUNT(*)::BIGINT AS added_count FROM inserted" in reconcile
-    assert "RETURNING user_id" not in reconcile
+    assert "FROM connections" not in source
+    assert "one_location_circle_memberships" not in source
 
 
 def test_circle_overview_and_member_page_are_distinct_from_complete_detail():

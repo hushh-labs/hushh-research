@@ -5,10 +5,11 @@
 import asyncio
 import base64
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import text
@@ -86,6 +87,7 @@ async def sharing(documents, monkeypatch):
             "256_drive_request_bulk_search.sql",
             "259_drive_progressive_request_batches.sql",
             "262_drive_request_payments.sql",
+            "263_drive_request_no_match.sql",
         ):
             # Raw SQL preserves JSON colons; double percent signs for psycopg2's
             # parameter parser while retaining PostgreSQL format() placeholders.
@@ -109,13 +111,18 @@ async def request(sharing, client_id=None):
 
 @pytest.mark.asyncio
 async def test_request_keeps_requester_calendar_context_encrypted(sharing):
+    yesterday = (datetime.now(ZoneInfo("Asia/Kolkata")).date() - timedelta(days=1)).isoformat()
     created = await sharing.create_request(
         recipient=VerifiedGoogleRecipient(
             "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
-        purpose=ShareRequestPurpose(purpose="Notes from yesterday's onboarding call"),
+        purpose=ShareRequestPurpose(
+            purpose="Notes from yesterday's onboarding call",
+            periodStart=yesterday,
+            periodEnd=yesterday,
+        ),
         request_time_zone="Asia/Kolkata",
     )
 
@@ -190,6 +197,9 @@ def rows(sharing, table):
         "drive_share_reviews",
         "drive_share_events",
         "drive_share_permission_operations",
+        "drive_request_payment_orders",
+        "drive_request_payment_obligations",
+        "drive_request_payment_refunds",
         "one_action_directive_ledger",
     }
     with sharing.db.engine.connect() as connection:
@@ -235,7 +245,11 @@ async def test_request_accepts_a_connected_recipient_without_their_drive_connect
         ),
         owner_user_id="owner",
         client_request_id=str(uuid4()),
-        purpose=ShareRequestPurpose(purpose="Share an exact Drive file"),
+        purpose=ShareRequestPurpose(
+            purpose="Share an exact Drive file",
+            periodStart="2026-09-01",
+            periodEnd="2026-09-30",
+        ),
     )
 
     assert created["requestId"]

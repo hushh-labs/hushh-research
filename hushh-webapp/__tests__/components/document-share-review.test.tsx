@@ -443,6 +443,35 @@ describe("exact-file document review", () => {
     expect(screen.getByRole("button", { name: "Decline" })).toBeVisible();
   });
 
+  it("shows a completed empty search as no matching files", async () => {
+    state.status.mockResolvedValue({ ...initial(), status: "no_match" });
+    state.delivery.mockResolvedValue({ status: "no_match", files: [], sharedCount: 0 });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching files found");
+    expect(screen.queryByText("Sharing incomplete")).toBeNull();
+    expect(state.review).not.toHaveBeenCalled();
+  });
+
+  it("shows the no-match outcome after a manual progressive search", async () => {
+    state.status.mockResolvedValue({ ...pending(), status: "no_match" });
+    state.review.mockResolvedValue(partial({
+      status: "no_match", durableAvailable: true, progressiveAllowed: true,
+      search: durableSearch({ status: "completed", matched: 0 }),
+    }));
+    state.delivery.mockResolvedValue({ status: "no_match", files: [], sharedCount: 0 });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("No matching files found");
+    expect(screen.getByRole("status")).not.toHaveTextContent("0 files found");
+  });
+
+  it("tells the requester only that no files were shared", async () => {
+    state.status.mockResolvedValue({ ...initial(), direction: "outgoing", status: "no_files_shared" });
+    state.delivery.mockResolvedValue({ status: "no_files_shared", files: [], sharedCount: 0 });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(await screen.findByRole("status")).toHaveTextContent("No files were shared");
+    expect(screen.queryByText("No matching files found")).toBeNull();
+  });
+
   it("tells A when matching files couldn't be read", async () => {
     state.review.mockResolvedValue({
       ...review(),
@@ -820,6 +849,16 @@ describe("exact-file document review", () => {
       expect(screen.getByRole("status")).toHaveTextContent("Background Drive access needed");
       expect(screen.getByRole("button", { name: "Enable background Drive access" })).toBeVisible();
       expect(screen.queryByText("Matching files are found and shared automatically.", { exact: false })).toBeNull();
+    });
+
+    it("explains an older undated automatic request without retrying its search", async () => {
+      state.status.mockResolvedValue(pending());
+      state.review.mockResolvedValue(partial({ durableAvailable: true, trustedAuto: true,
+        search: null, bulkShare: null, preparationError: "date_range_required" }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByRole("status")).toHaveTextContent("Exact dates needed");
+      expect(screen.getByText("This request needs exact start and end dates. Ask the requester to send a new request with both dates.")).toBeVisible();
+      expect(state.startRequestSearch).not.toHaveBeenCalled();
     });
 
     it("shows all confirmed automatic sharing outcomes instead of only the latest batch", async () => {
@@ -1239,6 +1278,22 @@ describe("exact-file document review", () => {
       expect(screen.queryByText("Unshared original")).toBeNull();
       expect(screen.queryByText(/0 failed/)).toBeNull();
       if (bulkStatus === "running") expect(screen.getByRole("status")).toHaveTextContent("71 files available; more may arrive");
+    });
+
+    it("explains when an old undated relative request was stopped before sharing", async () => {
+      state.status.mockResolvedValue({ ...initial(), status: "partial" });
+      state.delivery.mockResolvedValue({ status: "partial", files: [], bulkShareId,
+        fileCount: 1, sharedCount: 0 });
+      state.review.mockResolvedValue(partial({ durableAvailable: true,
+        search: durableSearch({ status: "completed", matched: 1 }),
+        bulkShare: durableBulk({ status: "partial", fileCount: 1, canApprove: false,
+          counts: { total: 1, processed: 1, shared: 0, alreadyShared: 0,
+            skipped: 1, failed: 0, needsReview: 0, unknown: 0, pending: 0 },
+          issues: [{ reasonCode: "date_range_required", count: 1 }] }),
+      }));
+      render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+      expect(await screen.findByText(/This request needs exact dates/)).toBeVisible();
+      expect(screen.getByText(/Make a new request with a start and end date/)).toBeVisible();
     });
 
     it.each(["pending", "unknown"])("keeps a stopped owner share current until its %s receipt settles", async outcome => {

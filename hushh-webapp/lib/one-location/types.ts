@@ -356,11 +356,7 @@ export type OneLocationCircleViewerCapabilities = {
   canManageCircle: boolean;
   /** False for a system Circle: everything else an owner may do still applies. */
   canDeleteCircle?: boolean;
-  /** Stated by the server rather than inferred from "not the owner".
-   *
-   *  A system Circle's owner was offered a Leave that `_end_membership`
-   *  refuses every time, and a Trusted Circle cannot be left by anybody: its
-   *  roster IS the connection graph, so the way out is to disconnect. */
+  /** Stated by the server rather than inferred from "not the owner". */
   canLeaveCircle?: boolean;
   canModerateInvites: boolean;
 };
@@ -368,14 +364,11 @@ export type OneLocationCircleViewerCapabilities = {
 export type OneLocationCircleSummary = {
   id: string;
   name: string;
+  photoUrl?: string | null;
   kind: OneLocationCircleKind;
   role: OneLocationCircleRole;
   memberCount: number;
-  /** `null` where the product does not impose one.
-   *
-   *  A Trusted Circle mirrors the connection graph and connections are not
-   *  capped, so the server reports no ceiling for it rather than the number it
-   *  happens to store. */
+  /** `null` is retained for compatibility with older server responses. */
   memberLimit: number | null;
   /**
    * Provisioned and depended on by the product (today: the SMS/Emergency

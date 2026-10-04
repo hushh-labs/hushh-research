@@ -82,6 +82,19 @@ describe("/api/one/[...path] proxy", () => {
     expect(response.headers.get("cache-control")).toBe("private, no-store");
   });
 
+  it("forwards a circle wait disconnect to the upstream and retains its timeout", async () => {
+    const controller = new AbortController();
+    const upstream = vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response('{"latestSequence":0,"changed":false}', { headers: { "Content-Type": "application/json" } }));
+    const timeout = vi.spyOn(AbortSignal, "timeout");
+    const request = new NextRequest("http://localhost:3000/api/one/circles/00000000-0000-4000-8000-000000000001/chat/wait", { signal: controller.signal });
+    await route.GET(request, { params: Promise.resolve({ path: ["circles", "00000000-0000-4000-8000-000000000001", "chat", "wait"] }) });
+    const signal = (upstream.mock.calls[0]![1] as RequestInit).signal!;
+    expect(signal.aborted).toBe(false);
+    expect(timeout).toHaveBeenCalledWith(45_000);
+    controller.abort();
+    expect(signal.aborted).toBe(true);
+  });
+
   it("forwards PUT, so a settings write is not refused by the proxy", async () => {
     // The model preference write is a PUT. The proxy exported GET, POST, PATCH
     // and DELETE, so Next.js answered 405 before the request ever reached

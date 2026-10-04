@@ -157,7 +157,6 @@ class TestTheAdoptionIsActuallyWiredIn:
                 "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
             },
             merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
-            financial_guard={"routing_decision": "non_financial_or_ephemeral"},
             parsed_structure={
                 "candidate_payload": {"preferences": {"tone": "short and declarative"}},
                 "structure_decision": structure_decision,

@@ -220,3 +220,47 @@ def test_suggestions_are_bounded_single_line_and_distinct():
         ["  Find\na  slot ", "find a slot", long, 7, "Draft a reply", "Show more", "Fourth"]
     ) == ["Find a slot", "Draft a reply", "Show more"]
     assert normalize_follow_ups("Find a slot") == []
+
+
+async def test_reaction_tool_continues_answer_through_real_agui():
+    from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+
+    reaction = types.Part(
+        function_call=types.FunctionCall(name=REACTION_TOOL_NAME, args={"emoji": "💛"})
+    )
+    model, events, _ = await _run_turn([[reaction], [types.Part(text=ANSWER)]])
+    names = {
+        event.tool_call_id: event.tool_call_name
+        for event in events
+        if event.type == EventType.TOOL_CALL_START
+    }
+    results = [
+        json.loads(event.content)
+        for event in events
+        if event.type == EventType.TOOL_CALL_RESULT
+        and names.get(event.tool_call_id) == REACTION_TOOL_NAME
+    ]
+    assert results == [{"status": "shown", "emoji": "💛"}]
+    assert model.calls == 2  # No skip_summarization: the normal answer continues.
+    assert _text(events) == ANSWER
+
+
+def test_reaction_is_typed_only_once_and_queued_target_is_server_owned():
+    from types import SimpleNamespace
+
+    from hushh_mcp.one_adk.message_reactions import react_to_message, reaction_instruction
+
+    context = SimpleNamespace(state={STATE_EXECUTION_SURFACE: "voice"}, session=None)
+    assert reaction_instruction(context.state.get) == ""
+    assert react_to_message("💛", context) == {"status": "ignored"}
+    context.state[STATE_EXECUTION_SURFACE] = "typed_chat"
+    context.session = SimpleNamespace(
+        events=[SimpleNamespace(author="user", custom_metadata={"clientMessageId": "queued-123"})]
+    )
+    assert react_to_message("💛💛", context) == {"status": "ignored"}
+    assert react_to_message("💛", context) == {
+        "status": "shown",
+        "emoji": "💛",
+        "clientMessageId": "queued-123",
+    }
+    assert react_to_message("🎉", context) == {"status": "ignored"}

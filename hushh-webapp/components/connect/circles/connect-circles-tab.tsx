@@ -10,12 +10,17 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { Briefcase, ChevronRight, Heart, MapPin, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
-import { InviteCodeRowIcon, PeopleRowIcon } from "@/components/icons/agents";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Briefcase, ChevronRight, Heart, KeyRound, MapPin, Plus, ShieldCheck, TrendingUp, UsersRound, Wallet } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader } from "@/components/app-ui/surfaces";
+import { SurfaceCard } from "@/components/app-ui/surfaces";
 import { SectionTitle, RowDescription } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -25,6 +30,8 @@ import {
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
+import { CircleChat } from "@/components/connect/circles/circle-chat";
+import { CircleAvatar } from "@/components/connect/circles/circle-photo-editor";
 import type { ConnectCirclesSnapshot } from "@/components/connect/circle-discovery";
 import {
   CONNECT_CIRCLE_GRID_CLASSNAME,
@@ -104,7 +111,7 @@ import {
 const SYSTEM_CIRCLE_COPY = {
   trusted: {
     title: "Trusted",
-    description: "Everyone you're connected to",
+    description: "People you add yourself",
   },
   sms: {
     title: "SMS Circle",
@@ -230,7 +237,7 @@ function SmsCircleMainIcon() {
 function circleVisual(circle: OneLocationCircleSummary) {
   const kind = systemKindOf(circle);
   if (kind === "trusted") return { Icon: ShieldCheck, tone: "text-[color:var(--app-accent)] bg-[color:var(--app-accent-ring)]" };
-  if (kind === "sms") return { Icon: SmsCircleMainIcon, tone: "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]" };
+  if (kind === "sms") return { Icon: SmsCircleMainIcon, tone: "bg-orange-50 text-orange-600 dark:bg-orange-950/40 dark:text-orange-300" };
   const name = circle.name.trim().toLowerCase();
   if (name === "family" || name === "family circle") return { Icon: Heart, tone: "text-rose-700 bg-rose-50 dark:text-rose-300 dark:bg-rose-950/40" };
   if (name === "finance" || name === "finance circle") return { Icon: Wallet, tone: "text-amber-700 bg-amber-50 dark:text-amber-300 dark:bg-amber-950/40" };
@@ -243,7 +250,7 @@ function circleVisual(circle: OneLocationCircleSummary) {
 /**
  * The second line.
  *
- * A member count, and for a product-managed Circle the rule that fills it.
+ * A member count, and for the SMS Circle the delivery rule it carries.
  * Never the `kind` -- "Family" was removed from this row once already, because
  * the Circle onboarding creates is filed under Family by default and the
  * person was never asked, so the row opened by naming a category they had not
@@ -258,9 +265,8 @@ export function circleRowDescription(circle: OneLocationCircleSummary): string {
   const owns = circle.role === "owner";
   const people = count === 1 ? "1 person" : `${count} people`;
 
-  // Trusted is owner-scoped by the server, so the only viewer who can reach
-  // this line is its owner. Guarded anyway: "Everyone you're connected to" on
-  // somebody else's roster would be a false statement about the reader.
+  // Trusted is provisioned for its owner. Its members are manually curated,
+  // so the description is no longer inferred from the connection graph.
   if (kind === "trusted" && owns) {
     return count <= 1
       ? SYSTEM_CIRCLE_COPY.trusted.description
@@ -313,6 +319,8 @@ export function ConnectCirclesTab({
   onRequestConnection,
   onCancelConnectionRequest,
   refreshToken = 0,
+  createDialogOpen = false,
+  onCreateDialogOpenChange,
 }: {
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
@@ -340,6 +348,8 @@ export function ConnectCirclesTab({
    *  relationship -- a sent request, an accepted invite -- so the list and the
    *  open roster re-read instead of waiting for a manual refresh. */
   refreshToken?: number;
+  createDialogOpen?: boolean;
+  onCreateDialogOpenChange?: (open: boolean) => void;
 }) {
   // The context directly, not `useVault()`. That hook throws outside a
   // provider, and this tab must degrade to "circles are unavailable" rather
@@ -366,8 +376,8 @@ export function ConnectCirclesTab({
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
   const [detailReloadToken, setDetailReloadToken] = useState(0);
-  /** Which vault session has already had its Trusted Circle reconciled. */
-  const reconciledForTokenRef = useRef<string | null>(null);
+  /** Which vault session has already provisioned its empty Trusted Circle. */
+  const provisionedForTokenRef = useRef<string | null>(null);
 
   const action = readConnectCircleAction(
     searchParams.get(CONNECT_CIRCLE_ACTION_PARAM),
@@ -375,6 +385,14 @@ export function ConnectCirclesTab({
   const circleIdParam = String(
     searchParams.get(CONNECT_CIRCLE_ID_PARAM) || "",
   ).trim();
+  const chatSession = useMemo(() => currentUserId && vaultOwnerToken && vault?.vaultKey && circleIdParam
+    ? { userId: currentUserId, circleId: circleIdParam, vaultOwnerToken, vaultKey: vault.vaultKey } : null,
+    [currentUserId, vaultOwnerToken, vault?.vaultKey, circleIdParam]);
+  const consumeChatIntent = useCallback(() => {
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("circleChat");
+    router.replace(`${ROUTES.CONNECT}?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
   const joinCode =
     String(searchParams.get(CIRCLE_JOIN_CODE_PARAM) || "").trim() || undefined;
   const trackedSurfaceRef = useRef<string | null>(null);
@@ -412,39 +430,21 @@ export function ConnectCirclesTab({
     // the native beacon claim the surface was still fetching.
     if (circles.length === 0) setLoading(true);
     setError(null);
-    // Reconcile, then read.
-    //
-    // The accept hook writes both sides of a NEW connection, so a pair that
-    // connects from here on needs nothing else. It cannot account for the
-    // connections a person already had -- without this, somebody with forty of
-    // them opens this tab to no Trusted Circle at all, and after their next
-    // accept to one holding a single name under the words "Everyone you're
-    // connected to", which is worse than not showing it.
-    //
-    // A reconcile that fails must not cost the list: the Circles they already
-    // have are still worth showing, and the next open tries again.
-    // Reconciled once per unlocked session, not once per bump.
-    //
-    // This is a write that opens a transaction over the caller's whole
-    // accepted-connection graph, and it sits on a 6-per-minute limiter. Ten
-    // things bump the token -- a create, a join, a rename, an add, a remove, a
-    // sent request, a cancel, an inbound notification -- so a busy minute
-    // spent the budget on re-deriving a roster that had not changed. The list
-    // still re-reads every time; only the reconcile is held.
-    // An automated reviewer session must not start this ambient write; the list
-    // read below still runs.
-    const alreadyReconciled =
-      reconciledForTokenRef.current === vaultOwnerToken ||
+    // Provision the empty Trusted container once per unlocked session, then
+    // read normally. This does not look at Connections or change membership;
+    // the manual picker is the only way a person enters Trusted.
+    const alreadyProvisioned =
+      provisionedForTokenRef.current === vaultOwnerToken ||
       shouldSkipReviewerBackgroundWritesForAutomation();
-    const reconcile = alreadyReconciled
+    const provision = alreadyProvisioned
       ? Promise.resolve()
       : OneLocationService.ensureTrustedSystemCircle({
           vaultOwnerToken,
           summaryOnly: true,
         }).then(() => {
-          reconciledForTokenRef.current = vaultOwnerToken;
+          provisionedForTokenRef.current = vaultOwnerToken;
         });
-    void reconcile
+    void provision
       .catch(() => undefined)
       .then(() => OneLocationService.listCircles(vaultOwnerToken))
       .then((next) => {
@@ -512,6 +512,7 @@ export function ConnectCirclesTab({
     ) => {
       const params = new URLSearchParams(searchParams.toString());
       params.set(CONNECT_SURFACE_PARAM, "circles");
+      params.delete("circleChat");
       for (const [key, value] of [
         [CONNECT_CIRCLE_ACTION_PARAM, next.action],
         [CONNECT_CIRCLE_ID_PARAM, next.circleId],
@@ -656,8 +657,11 @@ export function ConnectCirclesTab({
     [],
   );
 
-  if (vaultOwnerToken && actions && action === "create-circle") {
-    return (
+  if (
+    createDialogOpen ||
+    (vaultOwnerToken && actions && action === "create-circle")
+  ) {
+    const form = actions ? (
       <CreateCircleFlow
         busy={busy}
         onSubmit={async (name, kind) => {
@@ -667,13 +671,42 @@ export function ConnectCirclesTab({
             result: "success",
             circle_kind: kind,
           });
-          // `replace`, so back from the new Circle returns to the list rather
-          // than to the form that just succeeded.
-          go({ action: "circle-detail", circleId: circle.id }, "replace");
+          // Modal creation pushes details so Back returns to its launch page.
+          // The full-page flow replaces the form that just succeeded.
+          go(
+            { action: "circle-detail", circleId: circle.id },
+            createDialogOpen ? "push" : "replace",
+          );
+          onCreateDialogOpenChange?.(false);
           announceCircleMutation("location_circle_created", circle.id);
         }}
       />
+    ) : (
+      <p className="text-sm text-[color:var(--app-secondary-label)]">
+        Unlock One to create a Circle.
+      </p>
     );
+    return createDialogOpen ? (
+      <Dialog
+        modal
+        open
+        onOpenChange={(open) => {
+          if (!busy) onCreateDialogOpenChange?.(open);
+        }}
+      >
+        <DialogContent
+          showCloseButton={!busy}
+          srDescription="Name your Circle and choose its type. You can add people next."
+          onEscapeKeyDown={(event) => { if (busy) event.preventDefault(); }}
+          onInteractOutside={(event) => { if (busy) event.preventDefault(); }}
+        >
+          <DialogHeader>
+            <DialogTitle>Create a Circle</DialogTitle>
+          </DialogHeader>
+          {form}
+        </DialogContent>
+      </Dialog>
+    ) : form;
   }
 
   if (vaultOwnerToken && actions && action === "join-circle") {
@@ -710,6 +743,12 @@ export function ConnectCirclesTab({
     return (
       <CircleDetailFlow
         livingCircleExperience
+        chatIntent={searchParams.get("circleChat") === "1"}
+        renderChat={chatSession ? (circle, { active, readingBlocked }) => <CircleChat
+          key={`${chatSession.userId}:${chatSession.circleId}:${chatSession.vaultOwnerToken}`}
+          session={chatSession} circleName={circle.name} initialOpen active={active} readingBlocked={readingBlocked} collapsible={false}
+          onOpenIntentConsumed={searchParams.get("circleChat") === "1" ? consumeChatIntent : undefined}
+        /> : undefined}
         // A signal, not a `key`. Remounting would re-read the roster but also
         // close an open add-people sheet, clear a half-typed search and drop
         // the selection -- and a notification can arrive at any moment.
@@ -727,6 +766,12 @@ export function ConnectCirclesTab({
           );
           announceCircleMutation("location_circle_renamed", circleId);
           return renamed;
+        }}
+        onPhotoUpdate={async (circleId, photoUrl) => {
+          const updated = await withBusy(() => actions.updatePhoto(circleId, photoUrl));
+          announceCircleMutation("location_circle_photo_updated", circleId);
+          toast.success(photoUrl ? "Circle photo updated." : "Circle photo removed.");
+          return updated;
         }}
         onGenerateCode={(circleId, rotate) =>
           withBusy(() => actions.generateCode(circleId, rotate))
@@ -846,6 +891,7 @@ export function ConnectCirclesTab({
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
     const kind = systemKindOf(circle);
     const { Icon, tone } = circleVisual(circle);
+    const canInviteToEmptyCircle = circle.role === "owner" && circle.memberCount <= 1 && kind !== "trusted";
     const testId = kind
       ? `connect-circle-${kind}`
       : circle.role === "owner"
@@ -867,27 +913,54 @@ export function ConnectCirclesTab({
         data-testid={testId}
         aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
       >
-        <span className="flex w-full min-w-0 items-center justify-between gap-2">
-          <span aria-hidden="true" className={`flex size-10 shrink-0 items-center justify-center rounded-full ${tone}`}>
-            <Icon className="size-5" />
+        {circle.photoUrl && !kind ? <CircleAvatar photoUrl={circle.photoUrl} /> : <span aria-hidden="true" className={`flex size-12 shrink-0 items-center justify-center rounded-2xl border border-current/10 ${tone}`}>
+          <Icon className="size-6" />
+        </span>}
+        <span className="min-w-0 flex-1">
+          <span className="block text-base font-semibold [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
+            {title}
           </span>
-          <span className="ml-auto min-w-0 scale-90 origin-right sm:scale-100">
+          <span className="ui-text-row-description mt-1 block text-[color:var(--app-secondary-label)]">
+            {circleRowDescription(circle)}
+          </span>
+        </span>
+        {!canInviteToEmptyCircle ? (
+          <span className="col-span-3 flex min-w-0 items-center sm:col-auto sm:ml-auto sm:w-40 sm:shrink-0 sm:justify-end">
             <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
+
           </span>
-          <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
-        </span>
-        <span className="ui-text-card-title mt-3 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
-          {title}
-        </span>
-        <span className="ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]">
-          {circleRowDescription(circle)}
-        </span>
+        ) : null}
+        {canInviteToEmptyCircle ? (
+          <span aria-hidden="true" data-testid="connect-circle-empty-add" className="col-start-3 row-start-1 inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] text-[color:var(--app-secondary-label)] sm:col-auto">
+            <Plus className="size-5" />
+          </span>
+        ) : (
+          <ChevronRight aria-hidden="true" className="col-start-3 row-start-1 size-5 shrink-0 justify-self-end text-[color:var(--app-secondary-label)] sm:col-auto" />
+        )}
       </button>
     );
   };
 
   return (
-    <div className="space-y-4 sm:space-y-5" data-testid="connect-circles-tab">
+    <div className="space-y-8" data-testid="connect-circles-tab">
+      {vaultOwnerToken && !showingStarter ? (
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
+          <div>
+            <SectionTitle as="h2">Your circles</SectionTitle>
+            <RowDescription className="mt-1">Bring people together for the things you share.</RowDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Button type="button" variant="none" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full !border !border-[color:var(--app-card-border-standard)] !bg-[color:var(--app-card-surface-default-solid)]" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
+              <KeyRound aria-hidden="true" className="mr-2 size-4" />
+              Join with code
+            </Button>
+            <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!min-h-11 !rounded-full" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+              <Plus aria-hidden="true" className="mr-2 size-4" />
+              Create circle
+            </Button>
+          </div>
+        </div>
+      ) : null}
       {vaultOwnerToken === null ? (
         <SettingsGroup title="Your circles">
           {/* Whose screen this actually is.
@@ -950,7 +1023,7 @@ export function ConnectCirclesTab({
               <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
                 <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)]" onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
                   <Plus aria-hidden="true" className="mr-1.5 size-4" />
-                  New circle
+                  Create circle
                 </Button>
                 <Button type="button" variant="blue" effect="fade" size="standard" showRipple={false} className="!h-11 !rounded-[var(--app-card-radius-compact)] !bg-[color:var(--app-secondary-surface)]" onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
                   Find people
@@ -963,65 +1036,29 @@ export function ConnectCirclesTab({
           ) : null}
           {owned.length ? (
             <section data-testid="connect-circle-group-owned">
-              <SurfaceCard>
-                <SurfaceCardHeader className="space-y-1 pb-4">
-                  <SectionTitle as="h2">Your circles</SectionTitle>
-                  <RowDescription>Bring people together for the things you share.</RowDescription>
-                </SurfaceCardHeader>
-                <SurfaceCardContent>
-                  <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                    {owned.map(renderCircleRow)}
-                  </div>
-                </SurfaceCardContent>
+              <SurfaceCard className="!overflow-hidden !p-0">
+                <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                  {owned.map(renderCircleRow)}
+                </div>
               </SurfaceCard>
             </section>
           ) : null}
           {joined.length ? (
             <section data-testid="connect-circle-group-joined">
-              <SurfaceCard>
-                <SurfaceCardHeader className="pb-4">
-                  <SectionTitle as="h2">Joined circles</SectionTitle>
-                </SurfaceCardHeader>
-                <SurfaceCardContent>
-                  <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                    {joined.map(renderCircleRow)}
-                  </div>
-                </SurfaceCardContent>
+              <div className="mb-4">
+                <SectionTitle as="h2">Joined circles</SectionTitle>
+                <RowDescription className="mt-1">Circles created by others that you are part of.</RowDescription>
+              </div>
+              <SurfaceCard className="!overflow-hidden !p-0">
+                <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                  {joined.map(renderCircleRow)}
+                </div>
               </SurfaceCard>
             </section>
           ) : null}
         </>
       )}
 
-      {/* Its own group, below the list, so it does not move as the list grows
-          -- and 56px rows rather than the 16px header links Location uses,
-          which shift with the heading when it wraps. */}
-      {vaultOwnerToken && !showingStarter ? (
-        <SettingsGroup separatorInset>
-          <SettingsRow
-            icon={PeopleRowIcon}
-            iconTone="capability"
-            title="New circle"
-            description="Create a group for your connections."
-            density="compact"
-            textOverflow="truncate"
-            chevron
-            onClick={() => go({ action: "create-circle" })}
-            testId="connect-circle-create"
-          />
-          <SettingsRow
-            icon={InviteCodeRowIcon}
-            iconTone="capability"
-            title="Join with code"
-            description="Enter a shared 12-character code."
-            density="compact"
-            textOverflow="truncate"
-            chevron
-            onClick={() => go({ action: "join-circle" })}
-            testId="connect-circle-join"
-          />
-        </SettingsGroup>
-      ) : null}
     </div>
   );
 }

@@ -184,7 +184,7 @@ class DriveSharingStore(DriveDocumentStore):
 
     @staticmethod
     def _summary(row, *, recipient=False):
-        # No matches, counts, filenames or private failure details for B.
+        # No filenames, counts or private failure details for B.
         state = row["status"]
         if state in {"pending", "preparing", "review_ready"} and row["expires_at"] <= datetime.now(
             UTC
@@ -192,6 +192,8 @@ class DriveSharingStore(DriveDocumentStore):
             state = "expired"
         if recipient and state in {"preparing", "review_ready"}:
             state = "pending"
+        if recipient and state == "no_match":
+            state = "no_files_shared"
         return {"requestId": str(row["request_id"]), "status": state, "revision": row["revision"]}
 
     @staticmethod
@@ -384,6 +386,7 @@ class DriveSharingStore(DriveDocumentStore):
     async def defer_trusted_search(self, *, user_id: str, request_id: str, code: str) -> None:
         """Make missing background authority visible and avoid a hot retry loop."""
         if code not in {
+            "date_range_required",
             "background_preparation_required",
             "preparation_unavailable",
             "trusted_relationship_changed",
@@ -433,7 +436,9 @@ class DriveSharingStore(DriveDocumentStore):
             )
             attempts = row["preparation_attempts"] + int(code == "preparation_unavailable")
             terminal = code == "preparation_unavailable" and attempts >= 3
-            if code == "background_preparation_required":
+            if code == "date_range_required":
+                visible_code = "date_range_required"
+            elif code == "background_preparation_required":
                 visible_code = (
                     ("trusted_auto_active" if has_job else "trusted_auto_queued")
                     if background_ready
@@ -450,7 +455,8 @@ class DriveSharingStore(DriveDocumentStore):
                 """UPDATE drive_share_requests
                   SET preparation_error_code=:code,
                     preparation_attempts=:attempts,
-                    preparation_next_at=CASE WHEN :ready THEN clock_timestamp()
+                    preparation_next_at=CASE WHEN :needs_dates THEN expires_at
+                      WHEN :ready THEN clock_timestamp()
                       ELSE clock_timestamp()+INTERVAL '5 minutes' END,
                     bulk_search_started_at=CASE WHEN :has_job THEN bulk_search_started_at ELSE NULL END,
                     updated_at=clock_timestamp()
@@ -461,9 +467,11 @@ class DriveSharingStore(DriveDocumentStore):
                     "attempts": attempts,
                     "has_job": has_job,
                     "ready": background_ready,
+                    "needs_dates": code == "date_range_required",
                 },
             )
             if visible_code in {
+                "date_range_required",
                 "background_preparation_required",
                 "preparation_unavailable",
                 "trusted_relationship_changed",
@@ -483,7 +491,7 @@ class DriveSharingStore(DriveDocumentStore):
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if row["expires_at"] <= now or row["status"] in {"cancelled", "declined", "expired"}:
                 raise DriveSharingError("request_unavailable")
-            if start and row["status"] in {"approved", "completed", "partial"}:
+            if start and row["status"] in {"approved", "completed", "partial", "no_match"}:
                 raise DriveSharingError("request_changed")
             if start and row["bulk_search_started_at"] is None:
                 row = self._row(
@@ -531,6 +539,8 @@ class DriveSharingStore(DriveDocumentStore):
         owner_initiated: A shares files A chose from B's question. Background
         preparation never runs for it and A is not notified of A's own action.
         """
+        if not owner_initiated and (purpose.periodStart is None or purpose.periodEnd is None):
+            raise DriveSharingError("date_range_required")
         self._sharing_admission(recipient.user_id)
         self._sharing_admission(owner_user_id)
         age = (datetime.now(UTC) - recipient.verified_at).total_seconds()
@@ -1560,7 +1570,15 @@ class DriveSharingStore(DriveDocumentStore):
                     current_connection["verified_policy_hash"] == LIVE_POLICY_HASH
                     and row["preparation_next_at"] < row["expires_at"]
                     and row["status"]
-                    in {"pending", "preparing", "review_ready", "approved", "completed", "partial"}
+                    in {
+                        "pending",
+                        "preparing",
+                        "review_ready",
+                        "approved",
+                        "completed",
+                        "partial",
+                        "no_match",
+                    }
                 ),
             }
             if review and row["bulk_search_started_at"] is None:

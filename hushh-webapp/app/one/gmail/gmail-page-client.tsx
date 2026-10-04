@@ -7,7 +7,7 @@ import { RouteLoadingState } from "@/components/app-ui/route-loading-state";
 import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import { GmailWorkspaceSkeleton } from "@/components/gmail/gmail-workspace-skeleton";
 import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
-import { ROUTES } from "@/lib/navigation/routes";
+import { gmailDeepLinkWorkspace, ROUTES } from "@/lib/navigation/routes";
 import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 
 /**
@@ -19,11 +19,10 @@ export default function OneGmailPageClient() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const enabled = isOneCapabilityEnabled("gmail");
-  const requestedWorkspace = searchParams.get("workspace");
-  const feedWorkspace =
-    requestedWorkspace === "kyc" || requestedWorkspace === "receipts"
-      ? requestedWorkspace
-      : undefined;
+  // A Feed item or a Memory/chat offer opens one tab directly
+  // (`/one/gmail?workspace=kyc`). Only the tab name rides in the URL; any
+  // prefill for it is handed over in memory.
+  const feedWorkspace = gmailDeepLinkWorkspace(searchParams.get("workspace"));
 
   useEffect(() => {
     if (!enabled) router.replace(ROUTES.ONE_HOME);

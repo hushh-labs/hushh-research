@@ -80,35 +80,41 @@ describe("AgentHistorySidebar", () => {
     // Regression: the list sends `last_message_at` as epoch seconds. Parsing
     // it as a date string gave NaN, so every chat grouped as "Older" and no
     // row showed its time.
-    const seconds = (Date.now() - 19 * 60_000) / 1000;
-    render(
-      <AgentHistorySidebar
-        conversations={[{ ...conversations[0], created_at: null, updated_at: seconds, last_message_at: seconds }]}
-        activeConversationId="conv_1"
-        mode="desktop"
-        onCreateNew={vi.fn()}
-        onSelectConversation={vi.fn()}
-        onRenameConversation={vi.fn()}
-        onDeleteConversation={vi.fn()}
-      />,
-    );
-    const today = screen.getByRole("list", { name: "Today conversations" });
-    expect(within(today).getByText("19m")).toBeInTheDocument();
-    expect(screen.queryByRole("list", { name: "Older conversations" })).not.toBeInTheDocument();
-    // Desktop reveals the age and the actions control together on hover or
-    // focus (founder direction, 2026-09-29), and holds them while the menu is open.
-    const age = within(today).getByText("19m");
-    const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
-    // Keep both widths reserved so hover, focus, and an open menu do not
-    // shift the title while the controls appear.
-    for (const element of [age, actions.parentElement!]) {
-      expect(element).toHaveClass("opacity-0");
-      expect(element).toHaveClass("group-hover:opacity-100");
-      expect(element).toHaveClass("group-focus-within:opacity-100");
-      expect(element).toHaveClass("group-has-[[data-state=open]]:opacity-100");
-      expect(element).toHaveClass("motion-reduce:transition-none");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-29T12:30:00.000Z"));
+    try {
+      const seconds = (Date.now() - 19 * 60_000) / 1000;
+      render(
+        <AgentHistorySidebar
+          conversations={[{ ...conversations[0], created_at: null, updated_at: seconds, last_message_at: seconds }]}
+          activeConversationId="conv_1"
+          mode="desktop"
+          onCreateNew={vi.fn()}
+          onSelectConversation={vi.fn()}
+          onRenameConversation={vi.fn()}
+          onDeleteConversation={vi.fn()}
+        />,
+      );
+      const today = screen.getByRole("list", { name: "Today conversations" });
+      expect(within(today).getByText("19m")).toBeInTheDocument();
+      expect(screen.queryByRole("list", { name: "Older conversations" })).not.toBeInTheDocument();
+      // Desktop reveals the age and the actions control together on hover or
+      // focus (founder direction, 2026-09-29), and holds them while the menu is open.
+      const age = within(today).getByText("19m");
+      const actions = within(today).getByRole("button", { name: "Open actions for What needs a reply today?" });
+      // Keep both widths reserved so hover, focus, and an open menu do not
+      // shift the title while the controls appear.
+      for (const element of [age, actions.parentElement!]) {
+        expect(element).toHaveClass("opacity-0");
+        expect(element).toHaveClass("group-hover:opacity-100");
+        expect(element).toHaveClass("group-focus-within:opacity-100");
+        expect(element).toHaveClass("group-has-[[data-state=open]]:opacity-100");
+        expect(element).toHaveClass("motion-reduce:transition-none");
+      }
+      expect(actions.parentElement).toHaveClass("w-8", "shrink-0");
+    } finally {
+      vi.useRealTimers();
     }
-    expect(actions.parentElement).toHaveClass("w-8", "shrink-0");
   });
 
   it("keeps a row's age and actions visible on touch", () => {

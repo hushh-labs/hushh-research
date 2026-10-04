@@ -259,6 +259,82 @@ async def test_tap_receipt_is_hashed_single_use_and_expiry_is_db_clock(db):
     assert (await store.get(user_id="owner", pending_action_id=row.id)).status == "expired"
 
 
+async def test_mail_draft_interim_receipt_recovers_lazily_after_missing_client_report(db):
+    conversations = ConversationStore(db=db)
+    await conversations.open(
+        user_id="owner", conversation_id=CONV, model_id="m", model_location="l"
+    )
+    store = PendingActionStore(db=db)
+    row, _ = await store.create(
+        user_id="owner",
+        conversation_id=CONV,
+        tool_name="send_mail",
+        gateway_action_id="email.chat.turn",
+        tier="voice",
+        args={"recipient": {"user_id": "recipient"}, "_sealed_args": "v1:fixture"},
+        summary="draft an email",
+    )
+    await store.mark_shown(user_id="owner", pending_action_id=row.id)
+    await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
+    await store.resolve(
+        user_id="owner",
+        pending_action_id=row.id,
+        status="executed",
+        result={"status": "draft_open_requested", "needs": "client_step"},
+    )
+    current = await store.get(user_id="owner", pending_action_id=row.id)
+    assert current.status == "executed"
+    assert current.result["status"] == "draft_open_requested"
+    assert "_sealed_args" not in current.args
+
+    db.execute_raw(
+        "UPDATE one_voice_pending_actions SET resolved_at = NOW() - interval '40 seconds' "
+        "WHERE id = CAST(:id AS UUID)",
+        {"id": row.id},
+    )
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    recovered = await store.get(user_id="owner", pending_action_id=row.id)
+    assert recovered.status == "failed"
+    assert recovered.result == {"status": "draft_open_unconfirmed", "needs": None}
+
+
+async def test_expired_confirmed_mail_draft_scrubs_sealed_args_after_crash(db):
+    conversations = ConversationStore(db=db)
+    await conversations.open(
+        user_id="owner", conversation_id=CONV, model_id="m", model_location="l"
+    )
+    store = PendingActionStore(db=db)
+    row, _ = await store.create(
+        user_id="owner",
+        conversation_id=CONV,
+        tool_name="send_mail",
+        gateway_action_id="email.chat.turn",
+        tier="voice",
+        args={"recipient": {"user_id": "recipient"}, "_sealed_args": "v1:fixture-ciphertext"},
+        summary="draft an email",
+    )
+    await store.mark_shown(user_id="owner", pending_action_id=row.id)
+    confirmed = await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
+    assert confirmed.status == "confirmed"
+    assert "_sealed_args" in confirmed.args
+
+    db.execute_raw(
+        "UPDATE one_voice_pending_actions SET expires_at = NOW() - interval '1 second' "
+        "WHERE id = CAST(:id AS UUID)",
+        {"id": row.id},
+    )
+    # Recovery is owner-scoped; a different actor's activity cannot settle it.
+    assert await store.list_open(user_id="other", conversation_id=CONV) == []
+    assert (await store.get(user_id="owner", pending_action_id=row.id)).status == "confirmed"
+
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    recovered = await store.get(user_id="owner", pending_action_id=row.id)
+    assert recovered.status == "failed"
+    assert recovered.result == {"status": "draft_open_unconfirmed", "needs": None}
+    assert recovered.resolved_at is not None
+    assert recovered.args == {"recipient": {"user_id": "recipient"}}
+
+
 async def test_conversation_ownership_and_counters(db):
     store = ConversationStore(db=db)
     first = await store.open(

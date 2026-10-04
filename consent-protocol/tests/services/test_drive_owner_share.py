@@ -461,21 +461,21 @@ async def test_no_eligible_person_searches_nothing(circle):
     live.run_live_query.assert_not_awaited()
 
 
-async def test_accepted_connection_missing_from_trusted_projection_can_receive(circle):
-    # The connection commits even if its best-effort Trusted membership write
-    # fails. The owner must still be able to review and share with that person.
+async def test_accepted_connection_missing_from_trusted_membership_cannot_receive(circle):
+    # A connection is not a Trusted-Circle membership. The owner must add the
+    # person explicitly before this Circle audience can include them.
     with circle.db.engine.begin() as connection:
         connection.execute(
             text("DELETE FROM one_location_circle_memberships WHERE user_id='recipient'")
         )
     live = chat()
     view = await prepare_circle(circle_service(circle, live))
-    assert view["status"] == "ready"
-    assert [person["name"] for person in view["recipients"]] == ["Bo"]
-    live.run_live_query.assert_awaited_once()
+    assert view["status"] == "no_recipients"
+    assert view["recipients"] == []
+    live.run_live_query.assert_not_awaited()
 
 
-async def test_explicitly_removed_trusted_member_is_not_readded_by_fallback(circle):
+async def test_removed_trusted_member_cannot_receive(circle):
     with circle.db.engine.begin() as connection:
         connection.execute(
             text(

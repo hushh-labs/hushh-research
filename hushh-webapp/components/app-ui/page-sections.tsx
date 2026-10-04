@@ -212,9 +212,8 @@ export function PageHeader({
   title: ReactNode;
   /**
    * Keep the heading for assistive tech and page structure but do not draw
-   * it, for a surface whose shell already names it on screen (Finance: the
-   * bar says "Finance" and the tab says "Market"; a visible "Market" H1 under
-   * the "Market" tab slid away with every swipe).
+   * it, for a focused surface whose visible parent heading already provides
+   * the page context.
    */
   titleVisuallyHidden?: boolean;
   description?: ReactNode;

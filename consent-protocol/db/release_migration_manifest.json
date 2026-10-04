@@ -234,7 +234,13 @@
     "259_drive_progressive_request_batches.sql",
     "260_consent_outcome_delivery.sql",
     "261_drive_background_default_on.sql",
-    "262_drive_request_payments.sql"
+    "262_drive_request_payments.sql",
+    "263_drive_request_no_match.sql",
+    "264_direct_messages.sql",
+    "265_circle_chat.sql",
+    "266_circle_chat_presentation.sql",
+    "267_gmail_receipt_cache_read_only_cutover.sql",
+    "268_direct_message_feed_projection.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -488,6 +494,11 @@
     "259_drive_progressive_request_batches.sql": "rollback/259_drive_progressive_request_batches.rollback.sql",
     "260_consent_outcome_delivery.sql": "rollback/260_consent_outcome_delivery.rollback.sql",
     "261_drive_background_default_on.sql": "rollback/261_drive_background_default_on.rollback.sql",
-    "262_drive_request_payments.sql": "rollback/262_drive_request_payments.rollback.sql"
+    "262_drive_request_payments.sql": "rollback/262_drive_request_payments.rollback.sql",
+    "263_drive_request_no_match.sql": "rollback/263_drive_request_no_match.rollback.sql",
+    "265_circle_chat.sql": "rollback/265_circle_chat.rollback.sql",
+    "266_circle_chat_presentation.sql": "rollback/266_circle_chat_presentation.rollback.sql",
+    "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
+    "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql"
   }
 }

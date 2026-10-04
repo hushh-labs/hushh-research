@@ -247,22 +247,25 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
     assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
     assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
-    # The managed-Vertex candidate job stays conservative for direct builds,
-    # while UAT must honor the same changed-SHA selector that governs the
-    # candidate evaluator lane. An unrelated release must not fail because an
-    # unselected advisory probe happened to be unavailable.
-    assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "true"' in backend_build
+    # Neither changed paths nor direct builds implicitly authorize paid calls.
+    # UAT honors the explicit opt-in through the canonical verification plan.
+    assert '_VERIFY_MANAGED_VERTEX_RUNTIME: "false"' in backend_build
     assert 'case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in' in backend_build
     assert "true) ;;" in backend_build
     assert "false)" in backend_build
     assert 'echo "_VERIFY_MANAGED_VERTEX_RUNTIME must be true or false." >&2' in backend_build
     assert (
-        "Skipping managed Vertex candidate probe: not selected by the verification plan."
+        "Skipping managed Vertex candidate probe: live model checks were not requested."
         in backend_build
     )
     assert "verify_managed_vertex_runtime=false" in uat_workflow
     assert "steps.verification-plan.outputs.pkm_evaluator_runs" in uat_workflow
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
+    workflow = yaml.safe_load(uat_workflow)
+    # PyYAML's YAML 1.1 loader treats the workflow `on` key as True.
+    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]
+    assert dispatch["inputs"]["run_live_model_checks"]["default"] is False
+    assert '--run-live-model-checks "${{ inputs.run_live_model_checks' in uat_workflow
 
 
 def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
@@ -348,10 +351,10 @@ def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> Non
     assert "resolve_fleet_model_name" in sources[3]
 
 
-def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> None:
+def test_one_voice_live_env_contract_is_explicit_and_enabled_in_production() -> None:
     """One Live Voice runs on Vertex ADC only, behind one flag, with an exact model pin.
 
-    Every lane carries the three names. Production ships with the flag off.
+    Every lane carries the three names. Production enables the same live path as UAT.
     The pinned id must be the registry's native-realtime entry, so the deploy
     substitution and the registry can never disagree.
     """
@@ -370,8 +373,13 @@ def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> Non
     assert '_ONE_VOICE_LIVE_ENABLED: "false"' in backend_build
     assert '_VERTEX_LIVE_MODEL_ID: ""' in backend_build
     assert '_VERTEX_LIVE_LOCATION: ""' in backend_build
-    assert "_ONE_VOICE_LIVE_ENABLED=false" in production_workflow
+    assert "_ONE_VOICE_LIVE_ENABLED=true" in production_workflow
     assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
+    assert (
+        '[[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]'
+        in backend_build
+    )
+    assert "python3 scripts/ci/assert_one_voice_live_probe.py" in backend_build
 
     import re
 

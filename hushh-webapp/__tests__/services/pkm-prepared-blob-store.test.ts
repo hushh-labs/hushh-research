@@ -477,6 +477,43 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
     expect(typeof payload.summary.upgraded_at).toBe("string");
   });
 
+  it("lets a chat save into the sibling through while the domain's app branches sit beside it", async () => {
+    // Regression for the enforce flip: a merged save's structure decision lists
+    // EVERY branch of the domain. The light check judged those paths, so a chat
+    // fact for location.agent_memory read as a write to saved_places and threw.
+    transport.native = false;
+    const apiFetchSpy = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
+      new Response(JSON.stringify({ success: true, data_version: 3 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    );
+    const store = (proposedScope: string) =>
+      PersonalKnowledgeModelService.storeDomainData({
+        userId: "user-1",
+        domain: "location",
+        encryptedBlob: { ciphertext: "cipher", iv: "iv", tag: "tag" },
+        summary: {},
+        structureDecision: {
+          top_level_scope_paths: ["agent_memory", "saved_places"],
+          json_paths: ["agent_memory", "agent_memory.entities", "saved_places", "saved_places.locations"],
+        },
+        mutationPlan: {
+          proposed_scope: proposedScope,
+          writer_id: "agent_chat_owner_confirmed_card",
+          confirmation_receipt: { authorization_mode: "owner_confirmed" },
+        } as unknown as Parameters<typeof PersonalKnowledgeModelService.storeDomainData>[0]["mutationPlan"],
+        vaultOwnerToken: "vault-owner-token",
+      });
+
+    await expect(store("agent_memory")).resolves.toMatchObject({ success: true });
+    expect(apiFetchSpy).toHaveBeenCalledTimes(1);
+    // Negative control: the same writer declaring the app's branch is blocked
+    // before the network.
+    await expect(store("saved_places")).rejects.toMatchObject({ name: "ReservedBranchWriteBlocked" });
+    expect(apiFetchSpy).toHaveBeenCalledTimes(1);
+  });
+
   it("forwards sync checkpoint metadata in the normalized PKM store payload", async () => {
     const apiFetchSpy = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(
       new Response(

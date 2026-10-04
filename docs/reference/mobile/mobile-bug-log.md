@@ -346,3 +346,13 @@ Onboarding + agent chat + profile use the luxury palette: onyx `#0A0908`, champa
 - **Symptom:** after someone accepted your request, Connect → My connections did not change until you pulled or tapped refresh.
 - **Root cause:** the only live signal on native is the `connection_request_resolved` push. The consent SSE fallback is web-only. With notifications off or not yet granted, a dev-signed build, or a delayed APNs delivery, nothing told the mounted screen to reconcile.
 - **Fix:** `useOutgoingRequestResolutionWatch` (`lib/connections/`) reads pending outgoing request ids every 5 s. It runs only while a request is pending and the app is visibly active. Any change calls the page's existing `reconcileConnectionSurfaces`. Push stays the primary path. Test: `__tests__/app/connect/page-client.test.tsx`, "shows an accepted sent request without a push or manual refresh".
+
+### B60 — Launch screen and app-switcher cover showed a tiny old "S" app mark (iOS + Android splash)
+- **Symptom:** after B58, the app-switcher card and cold-launch splash showed a small old gradient "S" icon (about 22 pt) on a blank screen instead of the 🤫 hussh mark used in onboarding and the web icon.
+- **Root cause:** B58 reused the `Splash` asset, which was never updated during the rebrand. All six 2732 px PNGs had a ~70 px legacy mark.
+- **Fix:** regenerated `Assets.xcassets/Splash.imageset/*` with the Apple Color Emoji 🤫, ink-centered at ~390 px (~120 pt on a 3x iPhone with aspect-fill). The light variant uses `#FFFFFF` and the dark variant keeps `#111111`. Android `res/drawable*/splash.png` (all 26 densities and orientations) got the same mark at ~37.5% of the short edge (~120 dp), with each file's size and background preserved. The launch storyboard, privacy cover code and Android theme are unchanged.
+
+### B61 — Launch screen and app-switcher 🤫 mark was too large (iOS + Android splash)
+- **Symptom:** after B60 the 🤫 mark filled about a third of the app-switcher card (~120 pt) and read as oversized next to the rest of the app.
+- **Root cause:** B60 sized the mark at ~390 px on the 2732 px canvas (~37.5% of the short edge on Android) to replace the tiny legacy "S"; that overshot.
+- **Fix:** halved the mark about its own center in all six `Assets.xcassets/Splash.imageset/*` PNGs (ink 385x403 -> 194x202 px, ~60 pt on a 3x iPhone) and in all 26 Android `res/drawable*/splash.png` files (~18.75% of the short edge, ~60 dp). Canvas size, color mode and background (`#FFFFFF` light, `#111111` iOS dark, `#151515` Android night) are unchanged, and the existing artwork was resampled rather than re-rendered. Storyboard, privacy cover and Android theme are untouched.

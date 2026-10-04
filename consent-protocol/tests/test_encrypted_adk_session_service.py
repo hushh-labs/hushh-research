@@ -657,3 +657,50 @@ async def test_stale_temp_state_is_reported_once_per_legacy_row_and_never_for_a_
     records = _stale_temp_records(caplog)
     assert [record.levelname for record in records] == ["INFO", "DEBUG", "DEBUG"]
     assert all(record.getMessage().endswith("count=1") for record in records)
+
+
+def test_reactions_never_enter_sealed_history_but_live_tool_results_remain():
+    from hushh_mcp.one_adk.message_reactions import REACTION_TOOL_NAME
+
+    service = EncryptedAdkSessionService(static_chat_cipher())
+    call = types.Part(
+        function_call=types.FunctionCall(name=REACTION_TOOL_NAME, args={"emoji": "💛"})
+    )
+    result = types.Part.from_function_response(
+        name=REACTION_TOOL_NAME, response={"status": "shown", "emoji": "💛"}
+    )
+    session = Session(
+        id="reaction-test",
+        app_name="hussh_one",
+        user_id="owner-1",
+        state={"temp:message_reaction_shown": True},
+        events=[
+            Event(
+                author="one",
+                content=types.Content(role="model", parts=[types.Part(text="Your answer"), call]),
+            ),
+            Event(
+                author="one",
+                content=types.Content(role="user", parts=[result]),
+                actions=EventActions(state_delta={"temp:message_reaction_shown": True}),
+            ),
+        ],
+    )
+    encoded = service._encode(session)
+    decoded = _decode_as(
+        service,
+        session,
+        {
+            "payload_ciphertext": encoded["ciphertext"],
+            "payload_iv": encoded["iv"],
+            "payload_tag": encoded["tag"],
+            "payload_algorithm": encoded["algorithm"],
+        },
+    )
+    durable = decoded.model_dump_json()
+    assert REACTION_TOOL_NAME not in durable
+    assert "💛" not in durable
+    assert "message_reaction_shown" not in durable
+    assert "Your answer" in durable
+    assert session.events[0].content.parts[1].function_call.name == REACTION_TOOL_NAME
+    assert session.events[1].content.parts[0].function_response.response["emoji"] == "💛"

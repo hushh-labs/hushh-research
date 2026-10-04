@@ -753,6 +753,28 @@ describe("AG-UI Agent One client", () => {
     ] } })).toEqual([]);
   });
 
+  it("routes a shown reaction once and never exposes it in activity or restored history", async () => {
+    const onMessageReaction = vi.fn();
+    const onToolStart = vi.fn();
+    const onToolWaiting = vi.fn();
+    const onToolResult = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "reaction", toolCallName: "react_to_message" } });
+      subscriber.onToolCallEndEvent({ event: { toolCallId: "reaction" }, toolCallName: "react_to_message", toolCallArgs: { emoji: "💛" } });
+      for (const result of [{status: "ignored"}, {status: "shown", emoji: "💛💛"},
+        {status: "shown", emoji: "💛"}, {status: "shown", emoji: "🎉"}]) {
+        subscriber.onToolCallResultEvent({ event: { toolCallId: "reaction", content: JSON.stringify(result) } });
+      }
+    };
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY, userId: "u1", message: "A difficult day",
+      vaultOwnerToken: "fixture", handlers: { onMessageReaction, onToolStart, onToolWaiting, onToolResult } });
+    expect(onMessageReaction).toHaveBeenCalledExactlyOnceWith({ reaction: {emoji: "💛", actor: "agent"} });
+    expect([onToolStart, onToolWaiting, onToolResult].map(spy => spy.mock.calls.length)).toEqual([0, 0, 0]);
+    expect(parseRestoredTurnActivity({ activityType: "one.turn_activity.v1", content: { steps: [
+      {id: "reaction", tool: "react_to_message", status: "done"},
+    ]}})).toEqual([]);
+  });
+
   it.each([
     { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
     { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },
@@ -1004,6 +1026,27 @@ describe("AG-UI Agent One client", () => {
     expect(mockTransport.runAgent.mock.calls[0]?.[0]).toMatchObject({
       forwardedProps: expect.objectContaining({ pkmContext }),
     });
+  });
+
+  it("sends the owner's Settings style choices in their own field, closed to the server schema", async () => {
+    await streamAgentChat({ vaultKey: TEST_VAULT_KEY,
+      userId: "user-1",
+      message: "Hi",
+      conversationId: "thread-1",
+      vaultOwnerToken: "owner-token",
+      pkmContext: "Private-agent PKM context (agent-safe-pkm/v1):",
+      communicationPreferences: {
+        preferred_name: "Kay\u0007",
+        tone: "loud" as never,
+        avoid_em_dashes: true,
+        owner_style_note: "x".repeat(281),
+      },
+      handlers: {},
+    });
+    const forwarded = mockTransport.runAgent.mock.calls[0]?.[0].forwardedProps;
+    // Control characters stripped; an unknown tone and an oversized note are dropped, never clipped.
+    expect(forwarded.communicationPreferences).toEqual({ preferred_name: "Kay", avoid_em_dashes: true });
+    expect(forwarded.pkmContext).not.toContain("Kay");
   });
 
   it("carries a pending mail draft only on a turn that has one", async () => {

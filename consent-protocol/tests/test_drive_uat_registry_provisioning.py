@@ -11,6 +11,18 @@ from typing import Any
 
 import pytest
 
+from hushh_mcp.services.drive_prod_registry_provisioning import (
+    PROD_PROJECT_ID,
+    DriveProdRegistryProvisioner,
+    DriveProdRegistryProvisioningError,
+    assert_google_drive_prod_registry_target,
+)
+from hushh_mcp.services.drive_prod_registry_provisioning import (
+    REGISTERED_REDIRECT_URIS as PROD_REDIRECT_URIS,
+)
+from hushh_mcp.services.drive_prod_registry_provisioning import (
+    _canonical_row as _prod_canonical_row,
+)
 from hushh_mcp.services.drive_uat_registry_provisioning import (
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
@@ -24,6 +36,12 @@ from hushh_mcp.services.drive_uat_registry_provisioning import (
     assert_google_drive_uat_registry_target,
 )
 from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
+from hushh_mcp.services.hushh_prod_database_attestation import (
+    PROD_DATABASE_NAME,
+    PROD_DATABASE_ROLE,
+    PROD_INSTANCE,
+    PROD_POSTGRES_SYSTEM_IDENTIFIER,
+)
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_NAME,
     UAT_DATABASE_ROLE,
@@ -299,3 +317,128 @@ def test_cli_failure_does_not_echo_environment_values(monkeypatch, capsys):
     }
     assert secret_marker not in captured.out
     assert secret_marker not in captured.err
+
+
+def _set_prod_target(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("GCP_PROJECT_ID", PROD_PROJECT_ID)
+    monkeypatch.setenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", PROD_INSTANCE)
+
+
+def _prod_identity(**overrides: Any) -> dict[str, Any]:
+    value = {
+        "database_name": PROD_DATABASE_NAME,
+        "database_role": PROD_DATABASE_ROLE,
+        "server_version_num": 150018,
+        "system_identifier": PROD_POSTGRES_SYSTEM_IDENTIFIER,
+    }
+    value.update(overrides)
+    return value
+
+
+def _prod_service(connection: _RegistryConnection) -> DriveProdRegistryProvisioner:
+    return DriveProdRegistryProvisioner(db=SimpleNamespace(engine=_Engine(connection)))
+
+
+def test_prod_target_rejects_uat_and_conflicting_markers(monkeypatch):
+    _set_prod_target(monkeypatch)
+    assert_google_drive_prod_registry_target()
+    with pytest.raises(DriveProdRegistryProvisioningError, match="production-only"):
+        assert_google_drive_prod_registry_target(
+            environment={
+                "ENVIRONMENT": "production",
+                "HUSSH_RELEASE_ENVIRONMENT": "uat",
+                "GCP_PROJECT_ID": PROD_PROJECT_ID,
+                "CLOUDSQL_INSTANCE_CONNECTION_NAME": PROD_INSTANCE,
+            }
+        )
+    with pytest.raises(DriveProdRegistryProvisioningError, match="hushh-vault-db"):
+        assert_google_drive_prod_registry_target(
+            environment={
+                "ENVIRONMENT": "production",
+                "GCP_PROJECT_ID": PROD_PROJECT_ID,
+                "CLOUDSQL_INSTANCE_CONNECTION_NAME": UAT_INSTANCE,
+            }
+        )
+    with pytest.raises(DriveProdRegistryProvisioningError, match="marker is empty"):
+        assert_google_drive_prod_registry_target(
+            environment={
+                "ENVIRONMENT": "production",
+                "GCP_PROJECT_ID": "",
+                "GOOGLE_CLOUD_PROJECT": PROD_PROJECT_ID,
+                "CLOUDSQL_INSTANCE_CONNECTION_NAME": PROD_INSTANCE,
+            }
+        )
+
+
+def test_prod_activation_attests_database_before_write(monkeypatch):
+    _set_prod_target(monkeypatch)
+    connection = _RegistryConnection(identity=_prod_identity(system_identifier="wrong"))
+    with pytest.raises(DriveProdRegistryProvisioningError, match="attested"):
+        _prod_service(connection).activate()
+    assert connection.mutation_count == 0
+    assert len(connection.sql) == 1
+    assert "FROM pg_control_system()" in connection.sql[0]
+
+
+def test_prod_target_attestation_is_read_only_and_needs_no_registry_row(monkeypatch):
+    _set_prod_target(monkeypatch)
+    connection = _RegistryConnection(identity=_prod_identity())
+    assert _prod_service(connection).attest_target() == {
+        "connectorId": "google_drive",
+        "status": "target_attested",
+    }
+    assert connection.mutation_count == 0
+    assert len(connection.sql) == 1
+    assert "FROM pg_control_system()" in connection.sql[0]
+
+
+def test_prod_activation_uses_only_fixed_production_policy(monkeypatch):
+    _set_prod_target(monkeypatch)
+    connection = _RegistryConnection(identity=_prod_identity())
+    result = _prod_service(connection).activate()
+    assert result["status"] == "activated"
+    assert result["policyHash"] == LIVE_POLICY_HASH
+    assert connection.row is not None
+    assert connection.row["registered_redirect_uris"] == list(PROD_REDIRECT_URIS)
+    assert connection.row["created_by"] == "ops_google_drive_prod_registry"
+    assert all("uat." not in uri for uri in PROD_REDIRECT_URIS)
+    assert all("prod." not in uri for uri in PROD_REDIRECT_URIS)
+    assert connection.mutation_count == 1
+
+
+def test_prod_activation_refuses_uat_row_and_verify_is_read_only(monkeypatch):
+    _set_prod_target(monkeypatch)
+    uat_row = _canonical_active_row()
+    connection = _RegistryConnection(row=uat_row, identity=_prod_identity())
+    with pytest.raises(DriveProdRegistryProvisioningError, match="drifted"):
+        _prod_service(connection).activate()
+    assert connection.mutation_count == 0
+
+    prod_row = {
+        **_prod_canonical_row(),
+        "registered_redirect_uris": list(PROD_REDIRECT_URIS),
+        "is_active": True,
+    }
+    connection = _RegistryConnection(row=prod_row, identity=_prod_identity())
+    assert _prod_service(connection).verify()["status"] == "verified"
+    assert connection.mutation_count == 0
+    assert all("FOR UPDATE" not in sql for sql in connection.sql)
+
+
+def test_prod_cli_redacts_environment_errors(monkeypatch, capsys):
+    _set_prod_target(monkeypatch)
+    path = ROOT / "scripts" / "ops" / "reconcile_google_drive_prod_connector.py"
+    spec = importlib.util.spec_from_file_location("drive_prod_registry_reconciler", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    marker = "never-print-prod-drive-marker"
+    monkeypatch.setenv("GCP_PROJECT_ID", marker)
+    assert module.main([]) == 1
+    captured = capsys.readouterr()
+    assert json.loads(captured.err) == {
+        "status": "error",
+        "code": "drive_registry_unavailable",
+    }
+    assert marker not in captured.out + captured.err

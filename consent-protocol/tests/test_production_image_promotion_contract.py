@@ -211,6 +211,17 @@ def test_preflight_runs_before_production_is_changed() -> None:
     )
 
 
+def test_voice_release_gate_survives_checkout_of_older_uat_sha() -> None:
+    preserve = str(_step("Preserve current release tooling")["run"])
+    checkout = str(_step("Checkout deployment SHA")["run"])
+    deploy = str(_step("Deploy backend using Cloud Build")["run"])
+    for path in ("deploy/backend.cloudbuild.yaml", "scripts/ci/assert_one_voice_live_probe.py"):
+        assert f"cp {path} " in preserve
+        assert checkout.index("git checkout --detach") < checkout.index(path)
+    assert "--config=deploy/backend.cloudbuild.yaml" in deploy
+    assert "_SKIP_IMAGE_BUILD=true" in deploy
+
+
 def _git(repo: Path, *args: str) -> str:
     return subprocess.run(  # noqa: S603 - fixed git arguments in a pytest scratch repo
         ["git", *args],  # noqa: S607 - git from PATH, as the workflow runner uses it

@@ -243,9 +243,9 @@ steps:
     waitFor: ["-"]
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
-  # alongside pod publication, before deployment, when the
-  # change-aware verification plan selects it. Direct backend builds retain the
-  # conservative default of running this probe.
+  # alongside pod publication, before deployment, when the operator explicitly
+  # opts in. Direct backend builds do not make paid model calls by default;
+  # schema, authority, provenance and health gates still run.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
     args:
@@ -255,7 +255,7 @@ steps:
         case "${_VERIFY_MANAGED_VERTEX_RUNTIME}" in
           true) ;;
           false)
-            echo "Skipping managed Vertex candidate probe: not selected by the verification plan."
+            echo "Skipping managed Vertex candidate probe: live model checks were not requested."
             exit 0
             ;;
           *)
@@ -298,7 +298,8 @@ steps:
           --quiet
         execute_status=$?
         set -e
-        if [[ "${execute_status}" -eq 0 ]]; then
+        if [[ "${execute_status}" -eq 0 ]] \
+           && [[ "${_DEPLOY_ENV}" != "production" || "${_ONE_VOICE_LIVE_ENABLED}" != "true" ]]; then
           echo "Managed Vertex candidate probe passed."
           exit 0
         fi
@@ -357,6 +358,19 @@ steps:
         PY
         )"
 
+        # A successful release must prove that production's enabled One Voice
+        # can open its pinned Live session before the candidate gets traffic.
+        # The general provider-outage advisory still applies to other probes.
+        if [[ "${_DEPLOY_ENV}" == "production" && "${_ONE_VOICE_LIVE_ENABLED}" == "true" ]]; then
+          printf '%s\n' "${probe_line}" | python3 scripts/ci/assert_one_voice_live_probe.py \
+            --model "${_VERTEX_LIVE_MODEL_ID}" \
+            --location "${_VERTEX_LIVE_LOCATION}"
+        fi
+        if [[ "${execute_status}" -eq 0 ]]; then
+          echo "Managed Vertex candidate probe passed."
+          exit 0
+        fi
+
         if [[ "${classification}" == "provider_unavailable" ]]; then
           echo "::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::"
           echo "WARNING  Managed Vertex is UNAVAILABLE (provider-side)."
@@ -397,8 +411,7 @@ steps:
       - "_DRIVE_SECRET_SETTINGS=oauth_id=${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET},oauth_secret=${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET},picker_key=${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET},connector_key=${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET},document_key=${_DRIVE_DOCUMENT_KEY_V1_SECRET},sharing_key=${_DRIVE_SHARING_KEY_V1_SECRET},stripe_secret=${_STRIPE_SECRET_KEY_SECRET},stripe_webhook=${_STRIPE_WEBHOOK_SECRET_SECRET}"
       - "_HUBSPOT_OAUTH_SECRET_SETTINGS=id=${_HUBSPOT_OAUTH_CLIENT_ID_SECRET},secret=${_HUBSPOT_OAUTH_CLIENT_SECRET_SECRET}"
       - "_DRIVE_WORK_DRAIN_SETTINGS=enabled=${_DRIVE_WORK_DRAIN_ENABLED},project=${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID},service_account=${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL},audience=${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE},payments_enabled=${_DRIVE_REQUEST_PAYMENTS_ENABLED}"
-      - "_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${_ACCOUNT_DELETION_CLEANUP_AUDIENCE}"
-      - "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
+      - "_ACCOUNT_DELETION_CLEANUP_SETTINGS=audience=${_ACCOUNT_DELETION_CLEANUP_AUDIENCE},service_account=${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
       - "_APP_FRONTEND_ORIGIN_SECRET=${_APP_FRONTEND_ORIGIN_SECRET}"
       - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
       - "_APP_SIGNING_KEY_SECRET=${_APP_SIGNING_KEY_SECRET}"
@@ -412,6 +425,7 @@ steps:
       - "_DEPLOY_ENV=${_DEPLOY_ENV}"
       - "_DEPLOY_SHA=${_DEPLOY_SHA}"
       - "_DEPLOY_SOURCE=${_DEPLOY_SOURCE}"
+      - "_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET=${_DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET}"
       - "_FINNHUB_API_KEY_SECRET=${_FINNHUB_API_KEY_SECRET}"
       - "_FIREBASE_ADMIN_CREDENTIALS_SECRET=${_FIREBASE_ADMIN_CREDENTIALS_SECRET}"
       - "_GENAI_PROJECT_ID=${_GENAI_PROJECT_ID}"
@@ -559,6 +573,7 @@ substitutions:
   _OMNIGATEWAY_EXT_CRM_CLIENT_ID_SECRET: OMNIGATEWAY_EXT_CRM_CLIENT_ID
   _OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_SECRET: OMNIGATEWAY_EXT_CRM_CLIENT_SECRET
   _HUSHH_DEVELOPER_TOKEN_SECRET: ""
+  _DIRECT_MESSAGE_ENCRYPTION_KEY_V1_SECRET: ""
   _HUSHH_TECH_LAUNCH_PEPPER_SECRET: ""
   _RATE_LIMIT_STORAGE_URI_SECRET: ""
   _HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET: ""
@@ -656,7 +671,7 @@ substitutions:
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
-  _VERIFY_MANAGED_VERTEX_RUNTIME: "true"
+  _VERIFY_MANAGED_VERTEX_RUNTIME: "false"
   _IMAGE_TAG: v2.1.0
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual

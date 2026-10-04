@@ -67,7 +67,8 @@ CREATE TABLE connections (
 CREATE TABLE connection_requests (
   requester_user_id TEXT NOT NULL,
   addressee_user_id TEXT NOT NULL,
-  status TEXT NOT NULL
+  status TEXT NOT NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE TABLE trusted_connections (
   owner_user_id TEXT NOT NULL,
@@ -210,18 +211,28 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
     _person(connection, "trusted-no-vault", "Tess Trusted", vault=None, trusted_by_owner=True)
     _person(connection, "trusts-me", "Uma Reverse", vault=None)
     _trusted(connection, "trusts-me", OWNER)
-    # Opt-outs are unchanged: a stranger's hides them, and only a trusted edge
-    # from the viewer overrides it. A plain connection never did.
+    # An opt-out hides a person from strangers. A trusted edge from the viewer
+    # or an active connection to them lifts it: "My connections" already lists
+    # that person, so a search that cannot find them contradicts the screen.
+    # Circle and contact-sync connections never mirrored a trusted edge, so the
+    # connection itself has to be enough (Abdul Rashid on UAT, 2026-10-03).
     _person(connection, "opted-out", "Olive Optout", discoverable=False)
     _person(connection, "trusted-hidden", "Hana Hidden", discoverable=False, trusted_by_owner=True)
     _person(connection, "connected-hidden", "Cody Hidden", discoverable=False)
     _connected(connection, "connected-hidden")
+    # Negative control: a resolved connection is history, so the opt-out wins.
+    _person(connection, "revoked-hidden", "Rhea Hidden", discoverable=False)
+    _connected(connection, "revoked-hidden", status="revoked")
+    # Negative control: an unanswered request is not a connection either.
+    _person(connection, "asked-hidden", "Asa Hidden", discoverable=False, vault="active")
+    _requested(connection, OWNER, "asked-hidden")
     service = _Directory(connection)
 
     listed = service.search_directory_candidates(owner_user_id=OWNER, limit=50)
 
     assert [item["userId"] for item in listed["items"]] == [
         "active",
+        "connected-hidden",
         "connected",
         "trusted-hidden",
         "asked-me",
@@ -245,10 +256,12 @@ def test_directory_hides_only_strangers_without_an_active_vault_on_postgres(
             "asked-me",
             "opted-out",
             "connected-hidden",
+            "revoked-hidden",
+            "asked-hidden",
         )
         if service.is_directory_candidate(owner_user_id=OWNER, candidate_user_id=uid)
     }
-    assert visible == {"active", "connected", "asked-them", "asked-me"}
+    assert visible == {"active", "connected", "asked-them", "asked-me", "connected-hidden"}
 
 
 @pytest.mark.parametrize("query", ["", "member"])
@@ -289,3 +302,102 @@ def test_directory_pages_stay_full_with_no_vault_rows_interleaved_on_postgres(
     assert len(expected) == 115
     assert pages == [(20, True)] * 5 + [(15, False)]
     assert seen == expected
+
+
+def test_mutuals_use_active_edges_in_both_directions_and_exclude_blocks(connection):
+    from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+
+    edges = [
+        ("a-peer", "owner", "active"),
+        ("owner", "z-peer", "active"),
+        ("a-peer", "candidate", "active"),
+        ("candidate", "z-peer", "active"),
+        ("candidate", "revoked-peer", "active"),
+        ("owner", "revoked-peer", "revoked"),
+        ("a-peer", "outside-page", "active"),
+    ]
+    for a, b, status in edges:
+        connection.execute(
+            text("INSERT INTO connections VALUES (:a, :b, :status)"),
+            {"a": a, "b": b, "status": status},
+        )
+    params = {"user_id": "owner", "page_user_ids": ["candidate", "a-peer", "owner", "zero"]}
+    rows = connection.execute(text(MUTUAL_CONNECTIONS_SQL), params).mappings().all()
+    assert [dict(row) for row in rows] == [
+        {"candidate_id": "candidate", "mutual_count": 2, "preview_user_id": "a-peer"}
+    ]
+    connection.execute(
+        text(
+            "INSERT INTO connection_requests VALUES ('candidate', 'a-peer', 'rejected', CAST(:metadata AS JSONB))"
+        ),
+        {"metadata": '{"blocked_by":"a-peer"}'},
+    )
+    rows = connection.execute(text(MUTUAL_CONNECTIONS_SQL), params).mappings().all()
+    assert [dict(row) for row in rows] == [
+        {"candidate_id": "candidate", "mutual_count": 1, "preview_user_id": "z-peer"}
+    ]
+    connection.execute(
+        text(
+            "UPDATE connections SET status='revoked' WHERE user_a_id='owner' AND user_b_id='z-peer'"
+        )
+    )
+    assert connection.execute(text(MUTUAL_CONNECTIONS_SQL), params).mappings().all() == []
+
+
+@pytest.mark.parametrize(
+    ("viewer_status", "candidate_status", "expected_count"),
+    [
+        (None, "active", 0),
+        ("active", None, 0),
+        ("revoked", "active", 0),
+        ("active", "revoked", 0),
+        ("active", "active", 1),
+    ],
+)
+def test_mutual_requires_both_active_connections(
+    connection, viewer_status, candidate_status, expected_count
+):
+    from hushh_mcp.services.connection_mutuals import MUTUAL_CONNECTIONS_SQL
+
+    for person, status in [("owner", viewer_status), ("candidate", candidate_status)]:
+        if status is not None:
+            connection.execute(
+                text("INSERT INTO connections VALUES (:person, 'peer', :status)"),
+                {"person": person, "status": status},
+            )
+        else:
+            connection.execute(
+                text(
+                    "INSERT INTO connection_requests VALUES (:person, 'peer', 'pending', '{}'::jsonb)"
+                ),
+                {"person": person},
+            )
+    rows = (
+        connection.execute(
+            text(MUTUAL_CONNECTIONS_SQL),
+            {"user_id": "owner", "page_user_ids": ["candidate"]},
+        )
+        .mappings()
+        .all()
+    )
+    assert sum(row["mutual_count"] for row in rows) == expected_count
+    if expected_count:
+        assert rows[0]["preview_user_id"] == "peer"
+
+
+def test_bounded_directory_profile_lookup_keeps_visibility_and_empty_list_boundary(connection):
+    _person(connection, OWNER, "Owner")
+    _person(connection, "visible", "Visible Peer")
+    _person(connection, "hidden", "Hidden Peer", discoverable=False)
+    _person(connection, "outside", "Outside Selection")
+    service = _Directory(connection)
+    result = service.search_directory_candidates(
+        owner_user_id=OWNER,
+        candidate_user_ids=["visible", "hidden"],
+        limit=50,
+    )
+    assert [item["userId"] for item in result["items"]] == ["visible"]
+    assert (
+        service.search_directory_candidates(owner_user_id=OWNER, candidate_user_ids=[])["items"]
+        == []
+    )

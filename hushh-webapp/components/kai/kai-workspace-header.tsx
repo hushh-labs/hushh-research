@@ -8,12 +8,10 @@ type KaiWorkspace = "market" | "portfolio" | "analysis";
 /**
  * The sole primary-header composition for the query-tabbed Kai workspace.
  * Each tab supplies only its copy/actions; the Profile-aligned region and
- * divider remain shared. Finance intentionally has no feature icon here:
- * the shell tabs already identify the active workspace, and for the same
- * reason the title is not drawn (it stays in the document): the bar reads
- * "Finance" and the tab reads "Market", so a large "Market" under them was
- * the third name for one screen, and it lives in the swipe panel, so it slid
- * away with every tab change. The Consent Center has never drawn one.
+ * divider remain shared. The route-level Finance header and tab rail own the
+ * stable workspace identity. These per-panel headings remain assistive-only:
+ * a visible Market/Portfolio/Analysis heading would duplicate the active tab
+ * and slide away with every panel change.
  */
 export function KaiWorkspaceHeader({
   workspace,

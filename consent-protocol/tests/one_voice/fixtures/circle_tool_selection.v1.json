@@ -13,6 +13,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -34,6 +35,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -55,6 +57,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -76,6 +79,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -97,6 +101,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -118,6 +123,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -139,6 +145,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -160,6 +167,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -181,6 +189,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -202,6 +211,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -223,6 +233,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -244,6 +255,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -265,6 +277,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -286,6 +299,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -307,6 +321,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -328,6 +343,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -349,6 +365,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -370,6 +387,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -393,6 +411,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -416,6 +435,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -439,6 +459,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -462,6 +483,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -485,6 +507,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -508,6 +531,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -532,6 +556,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -555,6 +580,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -578,6 +604,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -599,6 +626,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -620,6 +648,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -641,6 +670,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -662,6 +692,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -684,6 +715,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -705,6 +737,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -726,6 +759,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -747,6 +781,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -768,6 +803,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -789,6 +825,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -810,6 +847,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -831,6 +869,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -852,6 +891,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -874,6 +914,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -896,6 +937,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -918,6 +960,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -940,6 +983,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -962,6 +1006,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -984,6 +1029,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1006,6 +1052,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1028,6 +1075,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1050,6 +1098,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1072,6 +1121,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1094,6 +1144,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1116,6 +1167,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1137,6 +1189,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1158,6 +1211,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1179,6 +1233,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1200,6 +1255,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1221,6 +1277,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1242,6 +1299,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1263,6 +1321,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1284,6 +1343,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1305,6 +1365,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1327,6 +1388,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1349,6 +1411,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1371,6 +1434,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1393,6 +1457,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1415,6 +1480,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -1436,6 +1502,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1457,6 +1524,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1478,6 +1546,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1499,6 +1568,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1520,6 +1590,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1541,6 +1612,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1562,6 +1634,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1583,6 +1656,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1605,6 +1679,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1627,6 +1702,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1649,6 +1725,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -1671,6 +1748,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "leave_circle",
@@ -2120,6 +2198,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2144,6 +2223,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2168,6 +2248,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2192,6 +2273,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2216,6 +2298,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2240,6 +2323,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2264,6 +2348,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2288,6 +2373,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2312,6 +2398,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2336,6 +2423,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2359,6 +2447,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2382,6 +2471,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2405,6 +2495,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2428,6 +2519,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2451,6 +2543,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2474,6 +2567,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2497,6 +2591,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2520,6 +2615,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "delete_circle",
@@ -2542,6 +2638,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2563,6 +2660,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2584,6 +2682,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2605,6 +2704,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2626,6 +2726,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2647,6 +2748,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2668,6 +2770,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2689,6 +2792,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2710,6 +2814,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2731,6 +2836,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2753,6 +2859,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2775,6 +2882,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2797,6 +2905,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2819,6 +2928,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2841,6 +2951,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "delete_circle",
         "invite_person",
@@ -2862,6 +2973,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2883,6 +2995,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2904,6 +3017,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2925,6 +3039,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2946,6 +3061,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2967,6 +3083,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -2988,6 +3105,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3009,6 +3127,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3030,6 +3149,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3051,6 +3171,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3073,6 +3194,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3095,6 +3217,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3117,6 +3240,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3139,6 +3263,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3161,6 +3286,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle",
         "invite_person",
         "leave_circle",
@@ -3182,6 +3308,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
@@ -3205,6 +3332,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
@@ -3228,6 +3356,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
@@ -3251,6 +3380,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
@@ -3274,6 +3404,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle",
         "create_circle_invite_link",
@@ -3297,6 +3428,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle_invite_link",
         "delete_circle",
@@ -3320,6 +3452,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle_invite_link",
         "delete_circle",
@@ -3343,6 +3476,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle_invite_link",
         "delete_circle",
@@ -3366,6 +3500,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle_invite_link",
         "delete_circle",
@@ -3388,6 +3523,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_connection_request",
         "create_circle_invite_link",
         "delete_circle",
@@ -3412,6 +3548,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "decline_connection_request",
         "delete_circle",
@@ -3435,6 +3572,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "decline_connection_request",
         "delete_circle",
@@ -3459,6 +3597,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "decline_connection_request",
         "delete_circle",
@@ -3483,6 +3622,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "decline_connection_request",
         "delete_circle",
@@ -3507,6 +3647,7 @@
       "forbidden_tools": [
         "accept_connection_request",
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "decline_connection_request",
         "delete_circle",
@@ -3552,6 +3693,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "delete_circle",
         "leave_circle",
         "remove_circle_member"
@@ -3678,6 +3820,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "cancel_pending_action",
         "delete_circle",
         "leave_circle",
@@ -3698,6 +3841,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "confirm_pending_action",
         "create_circle",
         "delete_circle",
@@ -3722,6 +3866,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "delete_circle",
         "leave_circle",
         "remove_circle_member"
@@ -3770,6 +3915,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "invite_person",
@@ -3795,6 +3941,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "create_circle_invite_link",
         "delete_circle",
         "leave_circle",
@@ -3840,6 +3987,7 @@
       ],
       "forbidden_tools": [
         "add_circle_member",
+        "add_circle_members",
         "delete_circle",
         "leave_circle",
         "remove_circle_member"
@@ -3882,6 +4030,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -3909,6 +4058,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -3937,6 +4087,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -3964,6 +4115,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -3992,6 +4144,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4019,6 +4172,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4047,6 +4201,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4074,6 +4229,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4102,6 +4258,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4129,6 +4286,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4157,6 +4315,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4184,6 +4343,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4212,6 +4372,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4239,6 +4400,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4267,6 +4429,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4294,6 +4457,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4322,6 +4486,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4349,6 +4514,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4377,6 +4543,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4404,6 +4571,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4432,6 +4600,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4459,6 +4628,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4487,6 +4657,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4514,6 +4685,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4542,6 +4714,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4569,6 +4742,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4597,6 +4771,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4624,6 +4799,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4652,6 +4828,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4679,6 +4856,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4707,6 +4885,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4734,6 +4913,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4762,6 +4942,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4789,6 +4970,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4817,6 +4999,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4844,6 +5027,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4872,6 +5056,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4899,6 +5084,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4927,6 +5113,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -4954,6 +5141,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -4982,6 +5170,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5009,6 +5198,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5037,6 +5227,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5064,6 +5255,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5092,6 +5284,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5119,6 +5312,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5147,6 +5341,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5174,6 +5369,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5202,6 +5398,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5229,6 +5426,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5257,6 +5455,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5284,6 +5483,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5312,6 +5512,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5339,6 +5540,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",
@@ -5367,6 +5569,7 @@
         "accept_connection_request",
         "accept_location_setup_consent",
         "add_circle_member",
+        "add_circle_members",
         "add_emergency_contact",
         "advance_location_setup",
         "cancel_circle_invite",
@@ -5394,6 +5597,7 @@
         "respond_request",
         "resume_device_location_updates",
         "revoke_public_link",
+        "send_mail",
         "set_auto_approve",
         "set_circle_kind",
         "set_contact_discoverable",

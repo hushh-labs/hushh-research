@@ -4592,6 +4592,7 @@ class OneLocationAgentService:
         page: int = 1,
         limit: int = 20,
         candidate_user_id: str | None = None,
+        candidate_user_ids: list[str] | None = None,
         audience: str = "all",
     ) -> dict[str, Any]:
         """Search existing Connect profiles before pagination.
@@ -4613,10 +4614,16 @@ class OneLocationAgentService:
         otherwise make every half-registered account searchable, while people
         someone already knows stay reachable exactly as before.
 
-        Explicit opt-outs are unchanged: a person who set
+        Explicit opt-outs still hide a person who set
         ``marketplace_public_profiles.is_discoverable = FALSE`` or the
-        contact-sync opt-out is hidden unless the viewer holds a trusted edge
-        to them. Vault, relationship and auth eligibility are all applied
+        contact-sync opt-out from strangers. They never hide someone the viewer
+        is already connected to: an active ``connections`` edge (or a trusted
+        edge) lifts the opt-out, because "My connections" already lists that
+        person by name and photo and a search that cannot find them says
+        "no one matches" about someone on the same screen. The trusted edge
+        alone was not a safe proxy: Circle and contact-sync connections never
+        mirrored one, so on UAT roughly half of all connection pairs had none.
+        Vault, relationship and auth eligibility are all applied
         before the logical page is cut, so ineligible rows cannot create empty
         pages or misleading ``hasMore`` values. ``candidate_user_id`` lookups
         use this same statement, so they answer the same way.
@@ -4673,6 +4680,16 @@ class OneLocationAgentService:
         identifier_search = bool(exact_email or exact_phone)
         needle = " ".join(raw_query.translate(_DIRECTORY_SEPARATOR_FOLD).split())
         target = (candidate_user_id or "").strip() or None
+        targets = (
+            None
+            if candidate_user_ids is None
+            else sorted({uid.strip() for uid in candidate_user_ids if uid.strip()})
+        )
+        if targets == []:
+            return {"items": [], "page": page, "hasMore": False}
+        if targets is not None and len(targets) > 100:
+            raise ValueError("Directory profile lookup is limited to 100 people")
+
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
         requested_audience = (audience or "all").strip().lower()
@@ -4802,6 +4819,8 @@ class OneLocationAgentService:
                   )
                 )
                 AND (:candidate_user_id IS NULL OR profile.user_id = :candidate_user_id)
+                AND (CAST(:candidate_user_ids AS TEXT[]) IS NULL
+                     OR profile.user_id = ANY(CAST(:candidate_user_ids AS TEXT[])))
                 AND (
                   EXISTS (
                     SELECT 1
@@ -4809,6 +4828,17 @@ class OneLocationAgentService:
                     WHERE tc.status = 'active'
                       AND tc.owner_user_id = :owner_user_id
                       AND tc.trusted_user_id = profile.user_id
+                  )
+                  OR EXISTS (
+                    -- An opt-out hides a person from strangers, not from the
+                    -- people who are already connected to them.
+                    SELECT 1
+                    FROM connections known
+                    WHERE known.status = 'active'
+                      AND (
+                        (known.user_a_id = :owner_user_id AND known.user_b_id = profile.user_id)
+                        OR (known.user_b_id = :owner_user_id AND known.user_a_id = profile.user_id)
+                      )
                   )
                   OR (
                     marketplace.is_discoverable IS DISTINCT FROM FALSE
@@ -4879,6 +4909,7 @@ class OneLocationAgentService:
         params: dict[str, Any] = {
             "owner_user_id": owner_user_id,
             "candidate_user_id": target,
+            "candidate_user_ids": targets,
             "contact_sync_contract_version": CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
             "technical_uuid_pattern": UUID_LIKE_LABEL_PATTERN,
             "opaque_label_min_length": OPAQUE_LABEL_MIN_LENGTH,

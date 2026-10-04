@@ -41,6 +41,17 @@ LEGACY_TRUST_SCOPE = "exact_files_same_request_purpose"
 MAX_FILES = 25
 MAX_ENVELOPE_BYTES = 128 * 1024
 _EMAIL = re.compile(r'[^@\s<>"(),;:\\]+@[^@\s<>"(),;:\\]+\.[^@\s<>"(),;:\\]+\Z')
+_RELATIVE_DAY_OR_WEEK = re.compile(
+    r"\b(?:last|past|previous|recent|this)\s+"
+    r"(?:[a-z0-9-]+\s+)?(?:calendar\s+|business\s+|working\s+)?"
+    r"(?:days?|weeks?)\b",
+    re.I,
+)
+
+
+def request_requires_explicit_dates(purpose: str) -> bool:
+    """A relative day/week phrase must not become an unbounded file request."""
+    return isinstance(purpose, str) and bool(_RELATIVE_DAY_OR_WEEK.search(purpose))
 
 
 class DriveSharingError(DriveReadError):

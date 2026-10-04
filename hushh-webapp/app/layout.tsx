@@ -1,4 +1,5 @@
 import { NetworkStatusBanner } from "@/components/system/network-status-banner";
+import { BootSurface } from "@/components/app-ui/boot-surface";
 import { JsonLd } from "@/components/seo/json-ld";
 import { ThemeProvider } from "@/components/theme-provider";
 import { buildOrganizationGraph } from "@/lib/seo/structured-data";
@@ -163,6 +164,10 @@ export default function RootLayout({
         className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          {/* One boot surface for the whole cold-start sequence. Outside
+              every Suspense boundary, so it is in each route's static HTML
+              and continues the native splash from the first frame. */}
+          <BootSurface />
           <RootLayoutClient fontClasses="">
             <NetworkStatusBanner />
             {children}

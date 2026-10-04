@@ -22,9 +22,13 @@ SESSION_TOOL_DECLARATIONS: tuple[dict[str, Any], ...] = (
     {
         "name": "confirm_pending_action",
         "description": (
-            "Confirm the one pending action after the person clearly said yes. "
-            "Only valid once the confirmation card has been shown; actions that need a tap "
-            "return tap_required and the person must tap Confirm on the card."
+            "After the person clearly says yes to a known voice-tier pending action, "
+            "call this with its pending_action_id from confirmation_required or confirmation_waiting; "
+            "reading or describing the card does not confirm it. "
+            "Never call the original tool again to confirm; that only proposes it again. "
+            "Only valid once its card has been shown: card_not_shown means the card is not "
+            "on screen yet, so wait and confirm the same pending_action_id. Actions that need "
+            "a tap return tap_required and the person must tap Confirm on the card."
         ),
         "parameters_json_schema": {
             "type": "object",
@@ -45,7 +49,10 @@ SESSION_TOOL_DECLARATIONS: tuple[dict[str, Any], ...] = (
     },
     {
         "name": "get_pending_action",
-        "description": "Read the current pending action, if any, before narrating what is waiting for confirmation.",
+        "description": (
+            "Read what is pending only when the person asks or the pending ID was lost. "
+            "This does not confirm anything. If it returns none, no confirmation card is waiting."
+        ),
         "parameters_json_schema": {
             "type": "object",
             "properties": {},

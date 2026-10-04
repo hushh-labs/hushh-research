@@ -18,7 +18,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
-from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
+from hushh_mcp.services.drive_sharing_contract import (
+    DriveSharingCipher,
+    DriveSharingError,
+)
 from hushh_mcp.services.google_drive_adapter import FILE_ID, DriveReadError
 
 _TERMINAL = frozenset(
@@ -39,6 +42,7 @@ _SAFE_REASONS = frozenset(
         "permission_rejected",
         "permission_outcome_unknown",
         "permission_catalog_incomplete",
+        "date_range_required",
         "unavailable",
     }
 )
@@ -47,6 +51,13 @@ _SAFE_REASONS = frozenset(
 def safe_bulk_reason(value):
     """Release only public reason codes, never provider bodies or diagnostics."""
     return value if value in _SAFE_REASONS else "unavailable"
+
+
+def _request_missing_dates(private):
+    purpose = private.get("purpose")
+    if not isinstance(purpose, dict):
+        return True
+    return not (purpose.get("periodStart") and purpose.get("periodEnd"))
 
 
 def bulk_outcome_summary(
@@ -249,20 +260,12 @@ class DriveBulkShareStore(DriveLivePreferences):
                   WHERE conn.status='active'
                     AND ((conn.user_a_id=:owner AND conn.user_b_id=:recipient)
                       OR (conn.user_b_id=:owner AND conn.user_a_id=:recipient))
-                    AND (
-                      EXISTS(
-                        SELECT 1 FROM one_location_circles c
-                        JOIN one_location_circle_memberships m ON m.circle_id=c.id
-                        WHERE c.owner_user_id=:owner AND c.system_kind='trusted'
-                          AND c.status='active' AND m.user_id=:recipient
-                          AND m.status='active'
-                      )
-                      OR NOT EXISTS(
-                        SELECT 1 FROM one_location_circles c
-                        JOIN one_location_circle_memberships m ON m.circle_id=c.id
-                        WHERE c.owner_user_id=:owner AND c.system_kind='trusted'
-                          AND m.user_id=:recipient
-                      )
+                    AND EXISTS(
+                      SELECT 1 FROM one_location_circles c
+                      JOIN one_location_circle_memberships m ON m.circle_id=c.id
+                      WHERE c.owner_user_id=:owner AND c.system_kind='trusted'
+                        AND c.status='active' AND m.user_id=:recipient
+                        AND m.status='active'
                     )
                 )
                 """),
@@ -285,7 +288,7 @@ class DriveBulkShareStore(DriveLivePreferences):
             ).scalar_one()
         )
 
-    def _share_recipient_current(self, connection, share, owner, recipient):
+    def _share_recipient_current(self, connection, share, owner, recipient, *, for_retry=False):
         if share["origin_request_id"] is None:
             return self._recipient_current(connection, owner, recipient)
         request = self._row(
@@ -300,8 +303,11 @@ class DriveBulkShareStore(DriveLivePreferences):
         allowed_status = (
             share["progressive_batch"] is True
             and share["approved_at"] is not None
-            and request["status"] == "pending"
-        ) or (not share["progressive_batch"] and request["status"] == "approved")
+            and request["status"] in ({"pending", "partial"} if for_retry else {"pending"})
+        ) or (
+            not share["progressive_batch"]
+            and request["status"] == ("partial" if for_retry else "approved")
+        )
         if not allowed_status:
             return False
         private = self._open(
@@ -310,6 +316,8 @@ class DriveBulkShareStore(DriveLivePreferences):
             resource_id=str(share["origin_request_id"]),
             purpose="request",
         )
+        if _request_missing_dates(private):
+            return False
         approval_source = share["approval_source"]
         if approval_source == "trusted_auto":
             # The request marker only records eligibility at creation. The
@@ -472,11 +480,23 @@ class DriveBulkShareStore(DriveLivePreferences):
             )
             retry_origin_current = bool(
                 origin
-                and origin["status"] == ("pending" if row["progressive_batch"] else "partial")
+                and origin["status"]
+                in ({"pending", "partial"} if row["progressive_batch"] else {"partial"})
                 and origin["revision"] == row["origin_request_revision"]
                 and origin["expires_at"] > datetime.now(UTC)
             )
         recipients = self._recipients(connection, row)
+        if retryable_count and row["origin_request_id"] is not None:
+            try:
+                self._require_paid_for_origin(connection, row["origin_request_id"])
+            except DriveSharingError:
+                retry_origin_current = False
+            retry_origin_current = retry_origin_current and all(
+                self._share_recipient_current(
+                    connection, row, row["user_id"], item["user_id"], for_retry=True
+                )
+                for item in recipients
+            )
         notice_states = dict(
             connection.execute(
                 text(
@@ -1348,6 +1368,14 @@ class DriveBulkShareStore(DriveLivePreferences):
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
                 ):
                     raise DriveSharingError("request_changed")
+                private = self._open(
+                    origin["request_envelope"],
+                    user_id=user_id,
+                    resource_id=str(origin["request_id"]),
+                    purpose="request",
+                )
+                if _request_missing_dates(private):
+                    raise DriveSharingError("date_range_required")
                 self._require_paid_for_origin(connection, origin["request_id"])
                 search = self._row(
                     connection,
@@ -1404,12 +1432,6 @@ class DriveBulkShareStore(DriveLivePreferences):
                     or origin["preparation_error_code"] == "manual_search_active"
                 ):
                     raise DriveSharingError("trusted_request_unavailable")
-                private = self._open(
-                    origin["request_envelope"],
-                    user_id=user_id,
-                    resource_id=str(origin["request_id"]),
-                    purpose="request",
-                )
                 if private.get("trusted_auto") is not True:
                     raise DriveSharingError("trusted_request_unavailable")
                 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
@@ -1512,16 +1534,20 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 if (
                     origin is None
-                    or origin["status"] != ("pending" if row["progressive_batch"] else "partial")
+                    or origin["status"]
+                    not in ({"pending", "partial"} if row["progressive_batch"] else {"partial"})
                     or origin["revision"] != row["origin_request_revision"]
                     or origin["expires_at"]
                     <= connection.execute(text("SELECT clock_timestamp()")).scalar_one()
                 ):
                     raise DriveSharingError("request_changed")
+                self._require_paid_for_origin(connection, origin["request_id"])
             recipients = self._recipients(connection, row)
             if len(recipients) != row["recipient_count"] or any(
                 not (
-                    self._request_recipient_current(connection, user_id, item["user_id"])
+                    self._share_recipient_current(
+                        connection, row, user_id, item["user_id"], for_retry=True
+                    )
                     if origin is not None
                     else self._recipient_current(connection, user_id, item["user_id"])
                 )
@@ -1532,6 +1558,15 @@ class DriveBulkShareStore(DriveLivePreferences):
                 len(recipients) != 1 or recipients[0]["user_id"] != origin["recipient_user_id"]
             ):
                 raise DriveSharingError("recipient_changed")
+            if origin is not None and row["progressive_batch"] and origin["status"] == "partial":
+                # Reuse the frozen approval. Its revision also binds sibling
+                # batches and the search checkpoint; recovery must not rotate it.
+                connection.execute(
+                    text("""UPDATE drive_share_requests
+                    SET status='pending',updated_at=clock_timestamp()
+                    WHERE request_id=:request"""),
+                    {"request": origin["request_id"]},
+                )
             changed = connection.execute(
                 text("""UPDATE drive_bulk_share_effects
             SET state='queued',safe_error_code=NULL,attempts=0,next_at=clock_timestamp(),
@@ -1822,7 +1857,15 @@ class DriveBulkShareStore(DriveLivePreferences):
             states.get(state, 0)
             for state in ("failed", "skipped", "present_unattributed", "absent")
         )
-        outcome = "completed" if successes and not errors else "partial"
+        # An empty, completed search never selected a file or attempted a
+        # Google permission. Do not report it as a failed partial share.
+        outcome = (
+            "no_match"
+            if source["matched"] == 0 and not successes and not errors
+            else "completed"
+            if successes and not errors
+            else "partial"
+        )
         updated = self._row(
             connection,
             """UPDATE drive_share_requests
@@ -1831,6 +1874,15 @@ class DriveBulkShareStore(DriveLivePreferences):
             {"status": outcome, "request": request_id},
         )
         if updated:
+            # Outcome revisions deduplicate notifications, not grant authority.
+            # Preserve the request/search/batch revision while giving each real
+            # terminal transition (including recovery) a fresh Feed/outbox event.
+            outcome_revision = connection.execute(
+                text("""SELECT GREATEST(:revision,COALESCE(MAX(revision)+1,:revision))
+                FROM drive_share_events
+                WHERE request_id=:request AND event_type='document_share_outcome'"""),
+                {"request": request_id, "revision": updated["revision"]},
+            ).scalar_one()
             for audience in (updated["user_id"], updated["recipient_user_id"]):
                 connection.execute(
                     text("""INSERT INTO drive_share_events(
@@ -1841,7 +1893,7 @@ class DriveBulkShareStore(DriveLivePreferences):
                         "id": str(uuid4()),
                         "request": request_id,
                         "user": audience,
-                        "revision": updated["revision"],
+                        "revision": outcome_revision,
                     },
                 )
 
@@ -1977,6 +2029,30 @@ class DriveBulkShareStore(DriveLivePreferences):
                 )
                 self._finalize(connection, share)
                 return None
+            if effect["state"] == "queued" and row["origin_request_id"] is not None:
+                origin = self._row(
+                    connection,
+                    """SELECT request_envelope FROM drive_share_requests
+                    WHERE request_id=:request AND user_id=:owner""",
+                    {"request": row["origin_request_id"], "owner": user_id},
+                )
+                if origin is not None and _request_missing_dates(
+                    self._open(
+                        origin["request_envelope"],
+                        user_id=user_id,
+                        resource_id=str(row["origin_request_id"]),
+                        purpose="request",
+                    )
+                ):
+                    connection.execute(
+                        text("""UPDATE drive_bulk_share_effects SET state='skipped',
+                        safe_error_code='date_range_required',updated_at=clock_timestamp()
+                        WHERE share_id=:share AND position=:position
+                          AND recipient_user_id=:recipient"""),
+                        {"share": share, "position": position, "recipient": recipient_user_id},
+                    )
+                    self._finalize(connection, share)
+                    return None
             if effect["state"] == "queued" and not self._share_recipient_current(
                 connection, row, user_id, recipient_user_id
             ):

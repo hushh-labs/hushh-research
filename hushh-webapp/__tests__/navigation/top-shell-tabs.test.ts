@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildConsentCenterTabRoute,
   resolvePublicKnowledgeTopShellTabSet,
   resolveRiaRouteTabSet,
   resolveTopShellTabSet,
@@ -18,18 +19,10 @@ describe("top shell contextual tabs", () => {
     expect(resolveTopShellTabSet("/one/location/map")).toBeNull();
   });
 
-  it("uses route state as the selection authority for Finance", () => {
-    expect(resolveTopShellTabSet("/one/kai")).toMatchObject({
-      label: "Finance",
-      activeValue: "market",
-    });
-    expect(resolveTopShellTabSet("/one/kai?tab=analysis")).toMatchObject({
-      activeValue: "analysis",
-    });
-    expect(resolveTopShellTabSet("/one/kai/?tab=portfolio")).toMatchObject({
-      id: "finance",
-      activeValue: "portfolio",
-    });
+  it("keeps Finance tabs below its route-owned header", () => {
+    expect(resolveTopShellTabSet("/one/kai")).toBeNull();
+    expect(resolveTopShellTabSet("/one/kai?tab=analysis")).toBeNull();
+    expect(resolveTopShellTabSet("/one/kai/?tab=portfolio")).toBeNull();
     expect(resolveTopShellTabSet("/one/kai/portfolio/holdings")).toBeNull();
     expect(resolveTopShellTabSet("/one/kai/portfolio/allocation")).toBeNull();
     expect(resolveTopShellTabSet("/one/kai/portfolio/performance")).toBeNull();
@@ -37,34 +30,30 @@ describe("top shell contextual tabs", () => {
     expect(
       resolveTopShellRouteProfile("/one/kai/?tab=analysis").model,
     ).toMatchObject({
-      mode: "bar-with-tabs",
-      tabs: { id: "finance", activeValue: "analysis" },
+      mode: "bar",
     });
   });
 
-  it("moves Consent Center state into the shared top shell", () => {
-    const tabs = resolveTopShellTabSet(
-      "/one/consent?tab=history&q=tax&page=3&requestId=req_123&from=%2Fone",
-    );
-
-    expect(tabs).toMatchObject({
-      id: "consent",
-      label: "Consent Center",
-      activeValue: "history",
-    });
-    expect(tabs?.tabs.find((tab) => tab.value === "active")?.href).toBe(
+  it("keeps Consent Center tabs below its route-owned header", () => {
+    expect(
+      resolveTopShellTabSet(
+        "/one/consent?tab=history&q=tax&page=3&requestId=req_123&from=%2Fone",
+      ),
+    ).toBeNull();
+    expect(
+      buildConsentCenterTabRoute(
+        "active",
+        new URLSearchParams("tab=history&q=tax&page=3&requestId=req_123&from=%2Fone"),
+      ),
+    ).toBe(
       "/one/consent?tab=active&from=%2Fone",
     );
     expect(
       resolveTopShellRouteProfile("/one/consent?tab=connections").model,
     ).toMatchObject({
-      mode: "bar-with-tabs",
-      tabs: { id: "consent", activeValue: "connections" },
+      mode: "bar",
     });
-    expect(resolveTopShellTabSet("/one/consent/?tab=active")).toMatchObject({
-      id: "consent",
-      activeValue: "active",
-    });
+    expect(resolveTopShellTabSet("/one/consent/?tab=active")).toBeNull();
   });
 
   it("keeps RIA workspace tabs below the page header instead of in the fixed top shell", () => {
@@ -164,8 +153,8 @@ describe("top shell contextual tabs", () => {
     ["/one/profile", "bar"],
     ["/one/location?action=share", "bar"],
     ["/one/location?view=people", "bar"],
-    ["/one/kai?tab=analysis", "bar-with-tabs"],
-    ["/one/consent?tab=history", "bar-with-tabs"],
+    ["/one/kai?tab=analysis", "bar"],
+    ["/one/consent?tab=history", "bar"],
     ["/ria/picks", "bar"],
   ] as const)("resolves %s as %s", (routeKey, expectedMode) => {
     const profile = resolveTopShellRouteProfile(routeKey);

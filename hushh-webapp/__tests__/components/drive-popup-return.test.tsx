@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   },
   complete: vi.fn(),
   notify: vi.fn(),
+  fullPageRendered: false,
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => mocks.auth }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -17,6 +18,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: () => {
+    if (mocks.fullPageRendered) return <div>Full-page OAuth return</div>;
     throw new Error("Popup must not mount legacy vault guard");
   },
 }));
@@ -33,9 +35,33 @@ vi.mock("@/lib/profile/drive-oauth-popup", async (original) => ({
 }));
 import Callback from "@/app/one/profile/connectors/oauth/return/page";
 
+const DRIVE_POPUP_ATTEMPT_KEY = "one_drive_popup_attempt_v1";
+const SIGNED_STATE = `synthetic-attempt-id.${"a".repeat(64)}`;
+
 describe("Drive popup completion", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.fullPageRendered = false;
+    if (typeof window.localStorage?.setItem !== "function") {
+      const store = new Map<string, string>();
+      Object.defineProperty(window, "localStorage", {
+        configurable: true,
+        value: {
+          get length() {
+            return store.size;
+          },
+          clear: () => store.clear(),
+          getItem: (key: string) => store.get(key) ?? null,
+          key: (index: number) => Array.from(store.keys())[index] ?? null,
+          removeItem: (key: string) => {
+            store.delete(key);
+          },
+          setItem: (key: string, value: string) => {
+            store.set(key, value);
+          },
+        },
+      });
+    }
     mocks.auth = {
       user: { uid: "owner-a", getIdToken: async () => "firebase-only" },
       loading: false,
@@ -44,9 +70,9 @@ describe("Drive popup completion", () => {
       connectorId: "google_drive",
       status: "verifying",
     });
-    // eslint-disable-next-line no-restricted-globals -- Synthetic redacted attempt marker; no tokens or codes.
-    sessionStorage.setItem(
-      "one_drive_popup_attempt_v1",
+    // Synthetic redacted attempt marker; no tokens or codes.
+    window.localStorage.setItem(
+      DRIVE_POPUP_ATTEMPT_KEY,
       JSON.stringify({
         connectorId: "google_drive",
         attemptId: "synthetic-attempt-id",
@@ -56,7 +82,7 @@ describe("Drive popup completion", () => {
     window.history.replaceState(
       null,
       "",
-      "/one/profile/connectors/oauth/return?code=secret-code&state=signed-state",
+      `/one/profile/connectors/oauth/return?code=secret-code&state=${SIGNED_STATE}`,
     );
     vi.spyOn(window, "close").mockImplementation(() => {});
   });
@@ -65,6 +91,7 @@ describe("Drive popup completion", () => {
     vi.restoreAllMocks();
     // eslint-disable-next-line no-restricted-globals -- Clear the synthetic test marker between cases.
     sessionStorage.clear();
+    window.localStorage.clear();
   });
   it("uses Firebase identity, scrubs URL, and settles once in Strict Mode", async () => {
     render(
@@ -76,13 +103,13 @@ describe("Drive popup completion", () => {
     expect(mocks.complete).toHaveBeenCalledExactlyOnceWith({
       idToken: "firebase-only",
       code: "secret-code",
-      state: "signed-state",
+      state: SIGNED_STATE,
       attemptId: "synthetic-attempt-id",
     });
     expect(mocks.notify).toHaveBeenCalledOnce();
     expect(window.location.search).toBe("");
     expect(document.body.textContent).not.toMatch(
-      /secret-code|signed-state|firebase-only/,
+      /secret-code|synthetic-attempt-id|firebase-only/,
     );
   });
   it("cannot dispatch stale completion after sign-out during token resolution", async () => {
@@ -143,17 +170,43 @@ describe("Drive popup completion", () => {
     expect(mocks.notify).toHaveBeenCalledOnce();
   });
   it("never renders provider errors or treats expired attempts as success", async () => {
-    // eslint-disable-next-line no-restricted-globals -- Synthetic expired attempt marker; no tokens or codes.
-    sessionStorage.setItem(
-      "one_drive_popup_attempt_v1",
+    // Synthetic expired attempt marker; no tokens or codes.
+    window.localStorage.setItem(
+      DRIVE_POPUP_ATTEMPT_KEY,
       JSON.stringify({
         connectorId: "google_drive",
         attemptId: "synthetic-attempt-id",
         expiresAt: 1,
       }),
     );
+    mocks.fullPageRendered = true;
     render(<Callback />);
-    await screen.findByText(/Authorization was not completed/);
+    await screen.findByText("Full-page OAuth return");
     expect(mocks.complete).not.toHaveBeenCalled();
+  });
+  it("routes a different full-page attempt past a stale Drive popup marker", async () => {
+    mocks.fullPageRendered = true;
+    const otherAttemptId = "other-valid-attempt";
+    window.sessionStorage.setItem(
+      "one_drive_chat_recovery_handoff_v1",
+      JSON.stringify({
+        version: 1,
+        ownerUserId: "owner-a",
+        attemptId: otherAttemptId,
+        reason: "web_full_page",
+        expiresAt: Date.now() + 60_000,
+        returnTo: "connector_settings",
+      }),
+    );
+    window.history.replaceState(
+      null,
+      "",
+      `/one/profile/connectors/oauth/return?code=secret-code&state=${otherAttemptId}.${"b".repeat(64)}`,
+    );
+    render(<Callback />);
+    await screen.findByText("Full-page OAuth return");
+    expect(mocks.complete).not.toHaveBeenCalled();
+    expect(mocks.notify).not.toHaveBeenCalled();
+    expect(window.location.search).toBe("");
   });
 });

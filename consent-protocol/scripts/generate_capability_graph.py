@@ -442,6 +442,16 @@ def _workflow_change_is_additive(
     new = deepcopy(_semantic_node(graph, semantic_id))
     if not old or not new or _node_version(old) != _node_version(new):
         return False
+    # These digests fingerprint the wider capability catalog rather than this
+    # workflow's behavior. A catalog-only refresh must not require a workflow
+    # migration when every executable workflow field remains unchanged.
+    old_without_digests = deepcopy(old)
+    new_without_digests = deepcopy(new)
+    for workflow in (old_without_digests, new_without_digests):
+        workflow.get("plan", {}).pop("knowledge_package_digest", None)
+        workflow.get("knowledge_package", {}).pop("source_digest", None)
+    if old != new and old_without_digests == new_without_digests:
+        return True
     # New command schemas may add a client completion recipe while legacy
     # durable workflow cursors stay identical. Each referenced action retains
     # its own independently versioned admission and settlement contract.
@@ -777,7 +787,11 @@ def _merged_workflow_predecessor_refs(base_ref: str | None = None) -> tuple[str,
     return ()
 
 
-def _merge_workflow_predecessor(graph: dict[str, Any], predecessor: dict[str, Any]) -> None:
+def _merge_workflow_predecessor(
+    graph: dict[str, Any],
+    predecessor: dict[str, Any],
+    deprecations: tuple[dict[str, Any], ...] = (),
+) -> None:
     """Preserve a merged branch's history only after proving its workflow semantics."""
 
     current = _workflow_by_id(graph)
@@ -789,6 +803,13 @@ def _merge_workflow_predecessor(graph: dict[str, Any], predecessor: dict[str, An
         equal = _semantic_index({"workflows": [old]}) == _semantic_index(
             {"workflows": [new] if new else []}
         )
+        retired = not equal and _semantic_change_has_deprecation(
+            predecessor, graph, semantic_id, deprecations
+        )
+        if retired:
+            # The exact deprecation record rejects active runs on the old graph.
+            # Do not merge that predecessor into current compatibility.
+            continue
         if not equal and not _workflow_change_is_additive(predecessor, graph, semantic_id):
             raise RuntimeError(f"Workflow predecessor is not compatible: {workflow_id}")
         entry = entries[workflow_id]
@@ -868,7 +889,11 @@ def build_payload(
         )
     )
     for ref in predecessors:
-        _merge_workflow_predecessor(graph, _read_workflow_predecessor(ref))
+        _merge_workflow_predecessor(
+            graph,
+            _read_workflow_predecessor(ref),
+            deprecations,
+        )
     return graph
 
 

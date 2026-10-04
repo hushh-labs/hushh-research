@@ -168,6 +168,78 @@
       ]
     },
     {
+      "circle_args": [
+        "circle"
+      ],
+      "description": "Add two or more confirmed people to one confirmed circle in a single step, with one confirmation for the whole group. Use this when the person names several people at once; use add_circle_member when they name one. The same rule applies to each person as for a single add: only an existing connection joins, and anyone else is skipped with their own reason (already_member, invite_pending, connection_pending_outgoing, connection_pending_incoming, not_eligible, not_connected, left_recently). Skipping is not inviting: this never sends a connection request to anybody. The result says who joined and who did not, so some people can join while others are skipped. Every argument is a canonical id, never a name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.add_to_circle",
+      "name": "add_circle_members",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "One circle, and the several people to add to it.\n\nTwo or more on purpose: one person is ``add_circle_member``, and keeping the\ntwo arities disjoint means the model never has to choose between two tools\nthat would both fit the same request.",
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          },
+          "people": {
+            "items": {
+              "additionalProperties": false,
+              "description": "A canonical person reference. Only ids, never names.",
+              "properties": {
+                "user_id": {
+                  "description": "Canonical user id from resolve_person/confirm_person.",
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "title": "User Id",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "user_id"
+              ],
+              "type": "object"
+            },
+            "maxItems": 20,
+            "minItems": 2,
+            "title": "People",
+            "type": "array"
+          }
+        },
+        "required": [
+          "circle",
+          "people"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "people"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "added",
+        "none_added",
+        "partially_added"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
       "circle_args": [],
       "description": "Add a confirmed person to the emergency contacts who receive future Save My Soul alerts. Takes a canonical person id only (resolve and confirm the person first). The person must be a connection with a verified phone who has finished Location setup; otherwise the result says which of those is missing. Adding never sends an alert, and never adds a whole circle.",
       "firebase_plane": false,
@@ -1436,7 +1508,7 @@
     },
     {
       "circle_args": [],
-      "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'.",
+      "description": "Open a screen in the app. Navigation only; it changes nothing. Use it for 'show my map', 'open Location settings', 'show my people', 'open my profile', 'open Save My Soul', 'start location setup'. 'Open Priya's profile' is person_profile with the confirmed user_id; 'profile' is your own profile.",
       "firebase_plane": false,
       "gateway_action_id": "route.one_location",
       "name": "open_screen",
@@ -1481,7 +1553,8 @@
               "connections",
               "profile",
               "profile_privacy",
-              "profile_voice_preferences"
+              "profile_voice_preferences",
+              "person_profile"
             ],
             "title": "Screen",
             "type": "string"
@@ -2205,6 +2278,63 @@
       "ui_refresh": [
         "location_links"
       ]
+    },
+    {
+      "circle_args": [],
+      "description": "Prepare an email the owner dictates to a confirmed person. Use when they ask to send, write, or draft mail to a person by name. First resolve_person and confirm_person; pass only that canonical PersonRef as recipient. Preserve their dictated message in message and never invent an address, subject, or body. This tool opens an editable review card after spoken confirmation; it never sends. Only the owner's tap on Send in that card can deliver the email.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "send_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "description": "The owner's dictated email message, preserved exactly; never invent it.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "recipient": {
+            "additionalProperties": false,
+            "description": "Canonical person from resolve_person and confirm_person.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "subject": {
+            "default": "",
+            "description": "Subject the owner dictated; leave empty if they gave none.",
+            "maxLength": 256,
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipient",
+          "message"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "recipient"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "draft_open_requested"
+      ],
+      "tier": "voice",
+      "ui_refresh": []
     },
     {
       "circle_args": [],

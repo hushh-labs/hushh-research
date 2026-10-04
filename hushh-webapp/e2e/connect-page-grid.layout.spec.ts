@@ -9,39 +9,9 @@ import {
   stripAppFontFaces,
 } from "./fixtures/product-font";
 
-/**
- * The Connect page on its grid, and still while it loads.
- *
- * Renders the production page (`app/connect/page-client.tsx`) with an inert
- * network that answers on timers, so it loads the way it does for a person:
- * the page, then the connections list, then the circles read.
- *
- * 1. Grid. Founder, 2026-09-29: "the border and padding for the my
- *    connections can be removed on the connect page, it can be grid
- *    symmetrical". "My connections" sat in its own bordered, filled pill, 13px
- *    in from the column every other section starts on, and both section
- *    headings sat 4px in from it. Every section's leading edge (the hero
- *    card, the tab rail, both headings, both lists, the search field) now
- *    shares the page's content column, and the trailing controls end on its
- *    right edge.
- *
- * 2. Stillness. Founder, same day: "when the connect page loads the 'Your
- *    Trusted Circle' written bounces up and down the div around it". The
- *    hero's footer row grew twice as the page loaded (16px of loading copy,
- *    then 28px of avatars, then the 44px Trusted Circle link once circles
- *    answered), pushing everything under it; the card also slid 8px up as it
- *    mounted; and on a single-column layout the tour's description changed
- *    height every three seconds. The block, and the section under it, now
- *    hold one geometry from the first frame to settled, and the layout-shift
- *    score over that window is zero.
- *
- * Both run light and dark, and the grid again with its labels widened,
- * because CI's Linux fonts set about 1.5px wider than a Mac.
- * Set CONNECT_GRID_SHOT_DIR to also capture screenshots.
- */
+/** Production Connect page against synthetic identity/network boundaries. */
 
 const WIDTHS = [320, 375, 393, 430, 768, 1440] as const;
-const EDGE_TOLERANCE_PX = 0.5;
 
 const STUBBED = [
   "next/navigation",
@@ -194,243 +164,71 @@ async function settle(page: Page, width: number) {
     .toBe(0);
 }
 
-type Box = { left: number; right: number; top: number; bottom: number };
-type Grid = {
-  column: { left: number; right: number };
-  leading: Record<string, number>;
-  spans: Record<string, Box>;
-  trailing: Record<string, number>;
-  rows: Array<{ name: string; leadingInset: number; trailingInset: number }>;
-};
-
-function measureGrid(page: Page): Promise<Grid> {
-  return page.evaluate(() => {
-    const box = (element: Element | null | undefined): Box | null => {
-      if (!element) return null;
-      const r = element.getBoundingClientRect();
-      return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
-    };
-    const must = (selector: string, root: ParentNode = document) => {
-      const element = root.querySelector(selector);
-      if (!element) throw new Error(`missing ${selector}`);
-      return element;
-    };
-    // The visible ink of an inline control: its first text-bearing element.
-    const ink = (element: Element) => {
-      const range = document.createRange();
-      range.selectNodeContents(element);
-      const r = range.getBoundingClientRect();
-      return { left: r.left, right: r.right };
-    };
-    const shell = must("[data-connect-page]") as HTMLElement;
-    const shellBox = shell.getBoundingClientRect();
-    const style = getComputedStyle(shell);
-    const column = {
-      left: shellBox.left + Number.parseFloat(style.paddingLeft),
-      right: shellBox.right - Number.parseFloat(style.paddingRight),
-    };
-    const myGroup = must("[data-testid='connect-my-connections-group']");
-    const directoryGroup = must("[data-testid='connect-directory-group']");
-    const myToggle = must("[data-testid='connect-my-connections-toggle']");
-    const directoryToggle = must("[aria-label^='Current directory']");
-    const refresh = must("[aria-label='Refresh contacts']");
-    const sync = document.querySelector("[aria-label='Sync contacts']");
-    const rows = [...myGroup.querySelectorAll("[data-voice-label]")].map((row) => {
-      const rowBox = row.getBoundingClientRect();
-      const avatar = row.querySelector("[data-slot='avatar']") ?? row.querySelector("span");
-      const trailing = row.querySelector("button[aria-label^='Remove']");
-      return {
-        name: row.getAttribute("data-voice-label") ?? "",
-        leadingInset: avatar!.getBoundingClientRect().left - rowBox.left,
-        trailingInset: rowBox.right - trailing!.getBoundingClientRect().right,
-      };
-    });
-    return {
-      column,
-      leading: {
-        "My connections heading": ink(myToggle.querySelector("span")!).left,
-        "People heading": ink(directoryToggle.querySelector("span")!).left,
-      },
-      spans: {
-        "tab rail": box(must("[data-testid='connect-sticky-header'] [role='tablist']"))!,
-        "Circles card": box(must("[data-testid='connect-living-connections']"))!,
-        "My connections list": box(must("[data-slot='settings-group-shell']", myGroup))!,
-        "search field": box(must("[data-testid='connect-search-row'] input"))!,
-        "People list": box(must("[data-slot='settings-group-shell']", directoryGroup))!,
-      },
-      trailing: {
-        "refresh control": refresh.getBoundingClientRect().right,
-        ...(sync ? { "Sync contacts control": sync.getBoundingClientRect().right } : {}),
-      },
-      rows,
-    };
-  });
-}
-
-function assertGrid(grid: Grid, label: string) {
-  const { column } = grid;
-  for (const [name, left] of Object.entries(grid.leading))
-    expect.soft(Math.abs(left - column.left), `${label}: ${name} starts at ${left.toFixed(2)}, column at ${column.left.toFixed(2)}`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-  for (const [name, span] of Object.entries(grid.spans)) {
-    expect.soft(Math.abs(span.left - column.left), `${label}: ${name} left ${span.left.toFixed(2)} vs column ${column.left.toFixed(2)}`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    expect.soft(Math.abs(span.right - column.right), `${label}: ${name} right ${span.right.toFixed(2)} vs column ${column.right.toFixed(2)}`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-  }
-  for (const [name, right] of Object.entries(grid.trailing))
-    expect.soft(Math.abs(right - column.right), `${label}: ${name} ends at ${right.toFixed(2)}, column at ${column.right.toFixed(2)}`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-  expect(grid.rows.length, `${label}: connection rows`).toBe(6);
-  for (const row of grid.rows) {
-    expect.soft(Math.abs(row.leadingInset - row.trailingInset), `${label}: ${row.name} insets ${row.leadingInset.toFixed(2)} / ${row.trailingInset.toFixed(2)}`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-    // On the 4pt grid.
-    expect.soft(row.leadingInset % 4, `${label}: ${row.name} inset ${row.leadingInset} on the 4pt grid`).toBeLessThanOrEqual(EDGE_TOLERANCE_PX);
-  }
-}
-
-for (const dark of [false, true])
-  for (const width of WIDTHS)
-    test(`Connect sections share one column at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
+for (const dark of [false, true]) {
+  for (const width of WIDTHS) {
+    test(`Stitch Connect cards preserve actions at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
       await open(page, width, dark);
       await settle(page, width);
-      const label = `${width}px ${dark ? "dark" : "light"}`;
-      const grid = await measureGrid(page);
-      assertGrid(grid, label);
-
-      // Bare heading: no border, fill or padding box of its own.
-      const heading = await page
-        .getByTestId("connect-my-connections-toggle")
-        .evaluate((element) => {
-          const style = getComputedStyle(element);
-          return {
-            border: style.borderTopWidth,
-            background: style.backgroundColor,
-            paddingLeft: style.paddingLeft,
-          };
-        });
-      expect.soft(heading, `${label}: My connections heading is bare`).toEqual({
-        border: "0px",
-        background: "rgba(0, 0, 0, 0)",
-        paddingLeft: "0px",
-      });
-
-      const shotDir = process.env.CONNECT_GRID_SHOT_DIR;
-      if (shotDir && width === 393) {
-        fs.mkdirSync(shotDir, { recursive: true });
-        const theme = dark ? "dark" : "light";
-        await page.screenshot({ path: path.join(shotDir, `connect-${width}-${theme}-top.png`), animations: "disabled" });
-        await page.getByTestId("connect-my-connections-group").evaluate((element) => {
-          const root = document.querySelector("[data-app-scroll-root]")!;
-          root.scrollTop += element.getBoundingClientRect().top - 260;
-        });
-        await page.screenshot({ path: path.join(shotDir, `connect-${width}-${theme}-sections.png`), animations: "disabled" });
-        fs.writeFileSync(path.join(shotDir, `connect-${width}-${theme}-grid.json`), JSON.stringify(grid, null, 2));
-      }
-
-      // The tour swaps the description every three seconds; the card keeps
-      // one height across all six so nothing under it moves.
-      const heights = new Set<number>();
-      for (const name of ["Family", "Finance", "Investor", "Business", "Location", "SMS"]) {
-        await page.getByRole("button", { name: new RegExp(`^Explore ${name} Circle`) }).click();
-        heights.add(await page.getByTestId("connect-living-connections").evaluate((element) => Math.round(element.getBoundingClientRect().height * 10) / 10));
-      }
-      expect.soft([...heights], `${label}: card height across the tour`).toHaveLength(1);
-
-      await page.addStyleTag({
-        content: "[data-connect-page] span,[data-connect-page] button{letter-spacing:0.3px}",
-      });
-      assertGrid(await measureGrid(page), `${label} widened`);
+      const cards = page.getByTestId("directory-person-card");
+      await expect(cards).toHaveCount(3);
+      await expect(cards.first()).toContainText("p***0@example.com");
+      await expect(cards.first().getByText("Alex Chen", { exact: true })).toHaveCount(0);
+      await expect(cards.first()).toContainText("2 mutual connections");
+      const mutual = cards.first().getByRole("button", { name: "Open mutual connection Alex Chen's profile" });
+      await mutual.click();
+      await expect(page.locator("body")).toHaveAttribute("data-last-navigation", /^\/people\/person_alex\?/);
+      await expect(cards.nth(1).getByTestId("mutual-connection")).toHaveCount(0);
+      await page.getByRole("button", { name: "Create your own circle" }).click();
+      const createDialog = page.getByRole("dialog", { name: "Create a Circle" });
+      await expect(createDialog).toBeVisible();
+      await expect(createDialog.getByRole("textbox")).toBeVisible();
+      const createBounds = await createDialog.boundingBox();
+      expect(createBounds).not.toBeNull();
+      expect(Math.abs(createBounds!.x + createBounds!.width / 2 - width / 2)).toBeLessThan(2);
+      expect(createBounds!.x).toBeGreaterThanOrEqual(0);
+      expect(createBounds!.x + createBounds!.width).toBeLessThanOrEqual(width);
+      await createDialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(createDialog).toHaveCount(0);
+      const messageButtons = page.getByRole("button", { name: /^Message / });
+      await expect(messageButtons).toHaveCount(6);
+      await expect(messageButtons.first()).toBeEnabled();
+      await messageButtons.first().click();
+      await expect(page.locator("body")).toHaveAttribute(
+        "data-last-navigation",
+        "/one/messages?person=person_0",
+      );
+      const geometry = await cards.evaluateAll((nodes) => nodes.map((node) => {
+        const r = node.getBoundingClientRect();
+        return { left: r.left, top: r.top, right: r.right, width: r.width };
+      }));
+      expect(geometry.every((r) => r.left >= 0 && r.right <= width)).toBe(true);
+      if (width >= 768) expect(new Set(geometry.map((r) => r.top)).size).toBe(1);
+      else if (width >= 360) expect(geometry[0].top).toBe(geometry[1].top);
+      else expect(geometry[1].top).toBeGreaterThan(geometry[0].top);
+      await page.getByRole("button", { name: /Remove connection with Alex Chen/ }).click();
+      const dialog = page.getByRole("alertdialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeVisible();
+      const bounds = await dialog.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(Math.abs(bounds!.x + bounds!.width / 2 - width / 2)).toBeLessThan(2);
+      await page.getByRole("button", { name: "Cancel", exact: true }).click();
+      await page.getByTestId("connect-my-connections-toggle").click();
+      await expect(page.locator("#connect-my-connections-panel")).toBeHidden();
+      await page.getByTestId("connect-my-connections-toggle").click();
+      await expect(page.locator("#connect-my-connections-panel")).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1)).toBe(true);
       expect(errors).toEqual([]);
-    });
-
-/**
- * Samples, every frame from before React's first commit until settled, where
- * the Circles card, its footer row, the Trusted Circle link and the heading
- * under the card are; and collects every layout-shift entry.
- */
-function installLoadRecorder() {
-  type Sample = { t: number; v: string };
-  const w = window as unknown as {
-    __samples: Sample[];
-    __shifts: Array<{ value: number; sources: string[] }>;
-    __stop: boolean;
-  };
-  w.__samples = [];
-  w.__shifts = [];
-  w.__stop = false;
-  new PerformanceObserver((list) => {
-    for (const entry of list.getEntries() as Array<PerformanceEntry & { value: number; sources?: Array<{ node?: Node }> }>)
-      w.__shifts.push({
-        value: entry.value,
-        sources: (entry.sources ?? []).map((source) => {
-          const node = source.node as Element | undefined;
-          return node?.getAttribute?.("data-testid") ?? node?.nodeName ?? "?";
-        }),
-      });
-  }).observe({ type: "layout-shift", buffered: true });
-  const round = (n: number) => Math.round(n * 10) / 10;
-  const rect = (element: Element | null) => {
-    if (!element || !(element as HTMLElement).offsetParent) return null;
-    const r = element.getBoundingClientRect();
-    return [round(r.top), round(r.height), round(r.left)];
-  };
-  const tick = () => {
-    const card = document.querySelector("[data-testid='connect-living-connections']");
-    const value = JSON.stringify({
-      card: rect(card),
-      footer: rect(document.querySelector("[data-circle-discovery-footer]")),
-      trusted: rect(document.querySelector("[data-circle-discovery-trusted]")),
-      below: rect(document.querySelector("[data-testid='connect-my-connections-toggle']")),
-    });
-    const samples = w.__samples;
-    if (card && (!samples.length || samples[samples.length - 1].v !== value))
-      samples.push({ t: Math.round(performance.now()), v: value });
-    if (!w.__stop) requestAnimationFrame(tick);
-  };
-  requestAnimationFrame(tick);
-}
-
-for (const width of [393, 700, 768, 1440] as const)
-  for (const dark of [false, true])
-    test(`Circles card and Your Trusted Circle hold still while Connect loads at ${width}px ${dark ? "dark" : "light"}`, async ({ page }) => {
-      await page.emulateMedia({ reducedMotion: "no-preference" });
-      // Connections answer first, circles later: the order a person sees.
-      await open(page, width, dark, { connectionsMs: 700, circlesMs: 1500, directoryMs: 300 }, installLoadRecorder);
-      await settle(page, width);
-      const recorded = await page.evaluate(() => {
-        const w = window as unknown as { __samples: Array<{ t: number; v: string }>; __shifts: Array<{ value: number; sources: string[] }>; __stop: boolean };
-        w.__stop = true;
-        return { samples: w.__samples, shifts: w.__shifts };
-      });
-      const frames = recorded.samples.map((sample) => ({ t: sample.t, ...JSON.parse(sample.v) }));
-      expect(frames.length, "the card rendered").toBeGreaterThan(0);
-      const first = frames[0];
-      const settled = frames[frames.length - 1];
-      const label = `${width}px ${dark ? "dark" : "light"}`;
-      const score = recorded.shifts.reduce((sum, shift) => sum + shift.value, 0);
       const shotDir = process.env.CONNECT_GRID_SHOT_DIR;
-      if (shotDir) {
+      if (shotDir && (width === 393 || width === 1440)) {
         fs.mkdirSync(shotDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(shotDir, `connect-load-${width}-${dark ? "dark" : "light"}.json`),
-          JSON.stringify({ layoutShiftScore: score, shifts: recorded.shifts, frames }, null, 2),
-        );
+        await page.locator("[data-app-scroll-root]").evaluate((node) => { node.scrollTop = 0; });
+        await page.screenshot({ path: path.join(shotDir, `connect-${width}-${dark ? "dark" : "light"}-top.png`) });
+        await cards.first().scrollIntoViewIfNeeded();
+        await page.screenshot({ path: path.join(shotDir, `connect-${width}-${dark ? "dark" : "light"}-people.png`) });
       }
-      // One geometry from the first frame the card exists to settled. `top`,
-      // `height` and `left` per part; getBoundingClientRect includes
-      // transforms, so an entrance slide counts as movement too.
-      for (const part of ["card", "footer", "below"] as const) {
-        const moved = frames.filter((frame) => JSON.stringify(frame[part]) !== JSON.stringify(first[part]));
-        expect.soft(moved.map((frame) => `${frame.t}ms ${JSON.stringify(frame[part])}`), `${label}: ${part} moved from ${JSON.stringify(first[part])}`).toEqual([]);
-      }
-      if (width >= 640) {
-        // The link arrives when circles answer and never moves after that.
-        const shown = frames.filter((frame) => frame.trusted);
-        expect(shown.length, `${label}: Trusted Circle link shown`).toBeGreaterThan(0);
-        expect.soft([...new Set(shown.map((frame) => JSON.stringify(frame.trusted)))], `${label}: Trusted Circle link moved`).toHaveLength(1);
-        // It lives inside the reserved row, never taller than it.
-        expect.soft(settled.trusted[1]).toBeLessThanOrEqual(settled.footer[1]);
-      }
-      expect.soft(score, `${label}: layout shift ${JSON.stringify(recorded.shifts)}`).toBe(0);
-
     });
+  }
+}
