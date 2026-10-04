@@ -1842,7 +1842,7 @@
         "app_page_shell": false,
         "page_header": false,
         "settings_ui": false,
-        "shared_loader": false,
+        "shared_loader": true,
         "back_button_pattern": "shared-shell"
       },
       "voice_action_contract_file": "app/login/page.voice-action-contract.json",
@@ -3034,6 +3034,7 @@
         "profile.gmail.connect",
         "profile.gmail.disconnect",
         "profile.gmail.sync_now",
+        "route.one_gmail_kyc",
         "route.profile_receipts"
       ],
       "api_dependencies": [],
@@ -3980,137 +3981,6 @@
       "thread_and_consent_contract": null
     },
     {
-      "route": "/one/kyc",
-      "page_file": "app/one/kyc/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/kyc/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.one.kyc",
-          "purpose": "Help the person understand and use the kyc screen through its generated controls.",
-          "screen": "one_kyc",
-          "entry_cue": "You can say “Open KYC” to use the primary control on this screen.",
-          "proactivity": "on_entry",
-          "primary_action_id": "route.one_kyc",
-          "happy_path_action_ids": [
-            "route.one_kyc"
-          ],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/one/kyc",
-          "return_policy": "stay",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/one/kyc",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fkyc",
-        "expectedMarker": "native-route-one-kyc",
-        "expectedRoute": "/one/kyc",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": true,
-        "page_header": true,
-        "settings_ui": true,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": "app/one/kyc/page.voice-action-contract.json",
-      "voice_action_contract_ids": [
-        "kyc.aliases.manage",
-        "kyc.draft.approve_send",
-        "kyc.draft.reject",
-        "kyc.draft.request_redraft",
-        "kyc.draft.review",
-        "kyc.workflow.sync_status",
-        "route.one_kyc"
-      ],
-      "api_dependencies": [
-        {
-          "service_file": "lib/services/one-kyc-service.ts",
-          "service_methods": [
-            "listWorkflows",
-            "refreshWorkflow",
-            "selectScopes",
-            "getWorkflowConsentExports",
-            "sendApprovedReply",
-            "rejectDraft",
-            "redraft",
-            "writebackComplete",
-            "getClientConnector",
-            "registerClientConnector"
-          ],
-          "nextjs_api_route": "/api/one/{path*}",
-          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
-          "backend_endpoint_family": "/one/kyc/*",
-          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
-        },
-        {
-          "service_file": "lib/services/account-service.ts",
-          "service_methods": [
-            "listEmailAliases",
-            "startEmailAliasVerification",
-            "confirmEmailAliasVerification"
-          ],
-          "nextjs_api_route": "/api/account/{path*}",
-          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
-          "backend_endpoint_family": "/account/*",
-          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native"
-        },
-        {
-          "service_file": "lib/services/kyc-pkm-write-service.ts",
-          "service_methods": [
-            "writeWorkflowArtifact"
-          ],
-          "nextjs_api_route": "/api/pkm/{path*}",
-          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
-          "backend_endpoint_family": "/pkm/*",
-          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services"
-        }
-      ],
-      "native_plugin_dependencies": [
-        {
-          "js_name": "HushhVault",
-          "reason": "Vault unlock and client-held KYC connector key material stay outside the Next.js server."
-        },
-        {
-          "js_name": "HushhConsent",
-          "reason": "Consent status and export authorization must preserve the native consent boundary."
-        }
-      ],
-      "thread_and_consent_contract": {
-        "original_thread_required": true,
-        "approved_send_requires_workflow_scopes": true,
-        "approved_body_transport": "transient send-approved-reply request only",
-        "local_plaintext_cleanup": "drop local draft/export payloads after terminal or non-ready workflow states"
-      }
-    },
-    {
       "route": "/one/location",
       "page_file": "app/one/location/page.tsx",
       "physical_page_exists": true,
@@ -4743,6 +4613,59 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/messages",
+      "page_file": "app/one/messages/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/direct-messages/direct-messages-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "ConnectionPersonAvatar",
+          "Button"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.messages",
+          "purpose": "Read and send private one-to-one messages with accepted connections.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain that messaging requires an active connection and retain the current conversation.",
+            "cancelled": "Respect the cancellation and retain the current conversation.",
+            "failed": "Acknowledge the message failure and offer a safe retry.",
+            "timeout": "Retain the conversation and offer one safe retry.",
+            "callback_error": "Keep the message screen open and explain that the update could not be verified.",
+            "route_mismatch": "Use only the verified private message route and its generated controls."
+          },
+          "completion_boundary": "A send completes only after the server accepts the message for the active connection.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Do not infer a connection or reveal another person's message history."
+        }
+      },
+      "native": null,
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/pkm",
       "page_file": "app/one/pkm/page.tsx",
       "physical_page_exists": true,
@@ -5302,14 +5225,10 @@
       "page_file": "app/one/profile/connectors/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "app/one/profile/connectors/page.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion"
-        ],
+        "mode": "redirect",
+        "exemption_reason": "Compatibility redirect into the Connectors section of the Profile pane (/one?profile_pane=1&profile_panel=connectors); Connectors is never a page of its own.",
+        "shell_verification_file": null,
+        "shell_verification_includes": [],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -5338,15 +5257,8 @@
       },
       "native": {
         "route": "/one/profile/connectors",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/connectors",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
+        "classification": "excluded-compatibility-redirect",
+        "reason": "Compatibility redirect into Connectors in the Profile pane on /one. Connectors is a Profile section, so the pane carries the parity obligation, not this address."
       },
       "shell": {
         "app_page_shell": false,
@@ -5367,7 +5279,7 @@
       "physical_page_exists": true,
       "route_contract": {
         "mode": "redirect",
-        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to the chat sidebar's MCP connections panel.",
+        "exemption_reason": "OAuth callback completes an external connector's authorization and returns to Connectors in the Profile pane.",
         "shell_verification_file": null,
         "shell_verification_includes": [],
         "interaction_layer_policy": {
@@ -7901,8 +7813,8 @@
         "route": "/one/setup/email",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Femail",
-        "expectedMarker": "native-route-one-kyc",
-        "expectedRoute": "/one/kyc",
+        "expectedMarker": "native-route-one-setup-email",
+        "expectedRoute": "/one/setup/email",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -8568,7 +8480,8 @@
         "people.profile.connect",
         "people.profile.manage_consent",
         "people.profile.remove_connection",
-        "people.profile.review_information_request"
+        "people.profile.review_information_request",
+        "route.person_profile"
       ],
       "api_dependencies": [
         {
@@ -8759,10 +8672,16 @@
       "page_file": "app/privacy/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Public Privacy Policy page (Google OAuth consent screen and app store privacy URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/legal/legal-document-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "LegalReader"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -9918,10 +9837,16 @@
       "page_file": "app/terms/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "hidden",
-        "exemption_reason": "Public Terms of Use page (Google OAuth consent screen and app store terms URL) intentionally bypasses the signed-in app shell so it renders without signing in or installing the app.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/legal/legal-document-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "LegalReader"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
@@ -10020,5 +9945,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "78824e62703f0d6a2d59e2a53869c9ddea633c43b1f11c9d12e5a79a6c573725"
+  "content_sha256": "46c8d044b13055fa78002e19b8d9961e59163ba527ee73bdee80c3755339cc76"
 }

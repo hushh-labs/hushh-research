@@ -201,39 +201,6 @@
       }
     },
     {
-      "id": "agent_financial_guard",
-      "parent": "agent_one",
-      "rollout": {
-        "kill_switch": null,
-        "rollback": "Disable the agent and restore the prior manifest.",
-        "strategy": "off"
-      },
-      "runtime": {
-        "adk_mode": "single_turn",
-        "factory": null,
-        "kind": "adk",
-        "transport": [
-          "in_process"
-        ]
-      },
-      "status": "experimental",
-      "surfaces": {
-        "a2a": false,
-        "android": false,
-        "chat": false,
-        "ios": false,
-        "mcp": false,
-        "not_applicable_reason": null,
-        "voice": false,
-        "web": false
-      },
-      "wiring": {
-        "a2a_scope": null,
-        "in_process_dispatch": false,
-        "one_specialist_tool": null
-      }
-    },
-    {
       "id": "agent_kai",
       "parent": "agent_one",
       "rollout": {
@@ -743,6 +710,18 @@
       "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "circle_chat_messages",
+        "circle_chat_recipients",
+        "circle_chat_preferences"
+      ],
+      "id": "circle_member_chat",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated Circle chat service: membership-scoped keyset reads, ciphertext/image writes, member key envelopes, unread acknowledgements, mute preferences and durable generic push leases."
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [
         "connected_system_audit_events"
@@ -837,6 +816,27 @@
       "lifecycle_status": "current",
       "owner": "mcp-developer-surface",
       "primary_access_path": "developer app registration, token issuance, and MCP/developer API access"
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "messages"
+      ],
+      "id": "direct_message_encrypted_content",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread-count/read-receipt updates, and transactionally committed recipient doorbells from the Direct Messages service."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "conversations",
+        "direct_message_blocks"
+      ],
+      "id": "direct_message_relationship_state",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Firebase-authenticated Direct Messages service and /api/one/messages routes. Conversation creation and message insertion lock and verify only the canonical active connections pair; they never infer eligibility from Circle membership, trusted_connections, or a connection origin. Read paths remain participant-scoped after a connection ends."
     },
     {
       "data_class": "reference",
@@ -1174,9 +1174,9 @@
         "kai_receipt_memory_artifacts"
       ],
       "id": "kai_gmail_receipts_provider_cache",
-      "lifecycle_status": "current",
+      "lifecycle_status": "current_read_only_cutover",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services"
+      "primary_access_path": "Read-only legacy receipt history during the private on-device Gmail cutover. New receipt sync and preview writes are blocked in the API and database."
     },
     {
       "data_class": "reference",
@@ -1729,7 +1729,6 @@
     {
       "agent_ids": [
         "agent_kai",
-        "agent_financial_guard",
         "agent_portfolio_import"
       ],
       "evidence_lanes": [
@@ -3036,6 +3035,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "route.one_gmail_kyc",
           "route.profile_receipts"
         ],
         "delegate_agent_ids": [],
@@ -3482,77 +3482,6 @@
       "alias": null,
       "api_dependencies": [
         {
-          "backend_endpoint_family": "/one/kyc/*",
-          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
-          "nextjs_api_route": "/api/one/{path*}",
-          "nextjs_proxy_file": "app/api/one/[...path]/route.ts",
-          "service_file": "lib/services/one-kyc-service.ts",
-          "service_methods": [
-            "listWorkflows",
-            "refreshWorkflow",
-            "selectScopes",
-            "getWorkflowConsentExports",
-            "sendApprovedReply",
-            "rejectDraft",
-            "redraft",
-            "writebackComplete",
-            "getClientConnector",
-            "registerClientConnector"
-          ]
-        },
-        {
-          "backend_endpoint_family": "/account/*",
-          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch on native",
-          "nextjs_api_route": "/api/account/{path*}",
-          "nextjs_proxy_file": "app/api/account/[...path]/route.ts",
-          "service_file": "lib/services/account-service.ts",
-          "service_methods": [
-            "listEmailAliases",
-            "startEmailAliasVerification",
-            "confirmEmailAliasVerification"
-          ]
-        },
-        {
-          "backend_endpoint_family": "/pkm/*",
-          "native_transport": "CapacitorHttp direct backend plus client vault/PKM services",
-          "nextjs_api_route": "/api/pkm/{path*}",
-          "nextjs_proxy_file": "app/api/pkm/[...path]/route.ts",
-          "service_file": "lib/services/kyc-pkm-write-service.ts",
-          "service_methods": [
-            "writeWorkflowArtifact"
-          ]
-        }
-      ],
-      "cache": {
-        "policy": "secure-resource",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "pkm_projection",
-          "consent_list"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-one-kyc",
-      "page_file": "app/one/kyc/page.tsx",
-      "pathname": "/one/kyc",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [
-          "kyc.draft.request_redraft",
-          "route.one_kyc"
-        ],
-        "delegate_agent_ids": [
-          "agent_kyc"
-        ],
-        "playbook_id": "route.one.kyc"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [
-        {
           "backend_endpoint_family": "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
           "native_transport": "CapacitorHttp direct backend via the shared One Location service",
           "nextjs_api_route": "/api/one/{path*}",
@@ -3921,6 +3850,29 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/messages/page.tsx",
+      "pathname": "/one/messages",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.messages"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
         "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
           "unknown"
@@ -4176,18 +4128,18 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "none",
+        "refresh_trigger": "none",
         "resource_classes": [
           "unknown"
         ]
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-profile",
+      "native_surface_id": null,
       "page_file": "app/one/profile/connectors/page.tsx",
       "pathname": "/one/profile/connectors",
-      "route_mode": "standard",
+      "route_mode": "redirect",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -5185,7 +5137,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": "native-route-one-kyc",
+      "native_surface_id": "native-route-one-setup-email",
       "page_file": "app/one/setup/email/page.tsx",
       "pathname": "/one/setup/email",
       "route_mode": "standard",
@@ -5451,7 +5403,8 @@
           "people.profile.connect",
           "people.profile.manage_consent",
           "people.profile.remove_connection",
-          "people.profile.review_information_request"
+          "people.profile.review_information_request",
+          "route.person_profile"
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.people.person_profile"
@@ -5544,7 +5497,7 @@
       "native_surface_id": null,
       "page_file": "app/privacy/page.tsx",
       "pathname": "/privacy",
-      "route_mode": "hidden",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -6033,7 +5986,7 @@
       "native_surface_id": null,
       "page_file": "app/terms/page.tsx",
       "pathname": "/terms",
-      "route_mode": "hidden",
+      "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
         "action_ids": [],
@@ -6099,28 +6052,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
-    "action_gateway": "3a39beaae71b30f4217756d824b0975af64727847d29d305ad50a7e85773cf47",
-    "agent_registry": "e57cb50c746e8474a16316934cefd298ba241f8b71aee5e60165886edaa0c03b",
-    "cache_manifest": "f50ab6ab4eadb6f1c80a5e7e38a8d3390c4e6c675c078d32fbd9993f1137f629",
-    "data_plane": "4f61db7ace66e3b07f53124d4226094f88fe6ef851e8d76300b9abd724bf4624",
+    "action_gateway": "1f5d04a5da49f167d7848b793406c8f0cb300e6f16909b169ee00b9dfa0e67e7",
+    "agent_registry": "590850b9e33799b7466bdfcf6f7eb09798c91028d4c2fbf8552ab0aeda6d0485",
+    "cache_manifest": "e1e54c98ad7f359b92517b65f01444dcc0bb876a09dbece17644da38c57cf2da",
+    "data_plane": "7a565eef45a719679ae99d2af5cfed759f3e83b8991095dfde98365614adcd36",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
-    "one_specialist_tools": "036a954ef4db4c2418e16856f3426528c6331adeb84e8481c07f449c39dc5891",
-    "route_index": "37b7c1a286fa79fcf52802b1595ba6df58cddb9259a397f7d443b066d372c6a6",
-    "route_layout": "44f457a034584200fc9bb2eeee6c27de70aa08acbc84f083eb13eee8af5932ac",
-    "surface_map": "1e2fce41174a340e9bd928efa80a1d51ef49e0b7a599bacdf74e8e828a75618d",
-    "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
+    "one_specialist_tools": "db1a56bfbe51b3672a418f3bdfe707f0c4b61d8ba706c7adcfea7e91b81ab336",
+    "route_index": "77ff2062f394612e7cc3d4238ff72aa4978d6ad22b07de42fafe3cc89577caa3",
+    "route_layout": "66839360b7ccfd4d10473348f6d9c2ececa3567d50ed54536bdeda52a515004a",
+    "surface_map": "c82669b0804d4d1b6d18b41909c503b3b25a56ff533e52a3c30312d40559ee0b",
+    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 232,
-    "agents": 20,
+    "actions": 227,
+    "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,
     "one_specialist_tools": 6,
     "physical_routes": 148,
     "semantic_routes": 14,
-    "table_families": 90
+    "table_families": 93
   }
 }
