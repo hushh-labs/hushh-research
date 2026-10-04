@@ -128,9 +128,10 @@ async def _source_image() -> str:
     from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
 
     try:
-        return release_source(await _approved_image())
+        source: str = release_source(await _approved_image())
     except AzureSetupRefused as exc:
         raise _refuse(503, exc.code, str(exc)) from exc
+    return source
 
 
 async def _approved_image() -> str:
