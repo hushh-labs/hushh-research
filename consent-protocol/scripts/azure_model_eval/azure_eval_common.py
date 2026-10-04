@@ -305,6 +305,7 @@ def run_meta(deployment: str) -> dict:
     return {
         "deployment": deployment,
         "reasoning_setting": REASONING,
+        "hussh_pod_mode_env": os.environ.get("HUSSH_POD_MODE"),
         "credential": CREDENTIAL,
         "code_sha": CODE_SHA,
         "in_azure": bool(os.environ.get("IDENTITY_ENDPOINT")),
