@@ -160,20 +160,13 @@ async function newJob(now = Date.now()): Promise<PkmSaveJob> {
   return createPkmSaveJob({ userId: USER, message: SOURCE, currentDomains: [], assistantMessageId: "message-1", now });
 }
 
-/** Same schema as the service, so opening it here never leaves a store-less database. */
+/** The service's schema (version 2), so opening it here never leaves a store-less database. */
 function openSecureCache(): IDBOpenDBRequest {
-  // Version 2 adds the local-first onboarding stores; mirror them all.
   const request = indexedDB.open("hushh-secure-resource-cache", 2);
   request.onupgradeneeded = () => {
-    const db = request.result;
-    if (!db.objectStoreNames.contains("resource_cache")) {
-      db.createObjectStore("resource_cache", { keyPath: "key" }).createIndex("userId", "userId", { unique: false });
-    }
-    if (!db.objectStoreNames.contains("local_device_keys")) {
-      db.createObjectStore("local_device_keys", { keyPath: "userId" });
-    }
-    if (!db.objectStoreNames.contains("onboarding_buffer")) {
-      db.createObjectStore("onboarding_buffer", { keyPath: "key" }).createIndex("userId", "userId", { unique: false });
+    for (const [name, keyPath] of [["resource_cache", "key"], ["local_device_keys", "userId"], ["onboarding_buffer", "key"]] as const) {
+      const store = request.result.createObjectStore(name, { keyPath });
+      if (keyPath === "key") store.createIndex("userId", "userId", { unique: false });
     }
   };
   return request;

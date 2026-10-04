@@ -14846,7 +14846,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/services/pkm-save-job.test.ts",
       "symbol": null,
-      "value": 850
+      "value": 853
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18717,7 +18717,8 @@
       "reason": "main and the ADK branch carry no size ratchet, so their code enters as new findings; budgets are unchanged. The two Azure-side files were already over budget and grew by merged deploy settings and the popup sign-in work.",
       "dev_lane_wiring_delta": {
         "consent-protocol/hushh_mcp/runtime_settings.py": "1201 to 1207: five Azure keys in the runtime env map",
-        "scripts/ops/sync_backend_runtime_secrets.py": "660 to 683: the dev-only Azure lane table, its helper and a shared origin check"
+        "scripts/ops/sync_backend_runtime_secrets.py": "660 to 683: the dev-only Azure lane table, its helper and a shared origin check",
+        "hushh-webapp/__tests__/services/pkm-save-job.test.ts": "850 to 853: the secure-cache helper mirrors this branch's schema version 2 (three stores), not version 1"
       }
     }
   },
