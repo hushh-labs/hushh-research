@@ -282,8 +282,7 @@ subject itself must be a real user mailbox.
 
 ## One Email KYC
 
-`one@hushh.ai` is the inbound mailbox for One-led email workflows. The roadmap
-and rollout gates live in [One Email KYC](../../../docs/reference/architecture/one-email-kyc.md).
+The legacy One-led mailbox-KYC workflow is retired.
 The repo now includes metadata-only Gmail Pub/Sub intake, watch renewal,
 workflow state, scoped KYC consent requests, `/one/kyc`, and approval-gated
 same-thread send. Hosted current-state still requires Pub/Sub subscription,

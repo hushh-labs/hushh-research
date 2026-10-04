@@ -2,6 +2,7 @@
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
 import logging
+import os
 from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal
@@ -19,6 +20,12 @@ from hushh_mcp.services.account_deletion_provider_cleanup import (
     snapshot_provider_credentials_in_transaction,
 )
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.hushh_tech_uat_database_attestation import (
+    UAT_DATABASE_ATTESTATION_SQL,
+    UAT_INSTANCE,
+    is_attested_hushh_tech_uat_database,
+    parse_connected_database_identity,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +107,33 @@ class AccountService:
             "agent_chat_conversations": text(
                 "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
             ),
+            # Direct-message history is participant-bound, not a `user_id`
+            # table.  Erase child ciphertext before its pair conversation so
+            # both sides' copies disappear during an account purge/reset.
+            "messages": text(
+                """
+                DELETE FROM messages
+                WHERE conversation_id IN (
+                  SELECT id FROM conversations
+                  WHERE participant_a_user_id = :user_id
+                     OR participant_b_user_id = :user_id
+                )
+                """
+            ),
+            "conversations": text(
+                """
+                DELETE FROM conversations
+                WHERE participant_a_user_id = :user_id
+                   OR participant_b_user_id = :user_id
+                """
+            ),
+            "direct_message_blocks": text(
+                """
+                DELETE FROM direct_message_blocks
+                WHERE blocker_user_id = :user_id
+                   OR blocked_user_id = :user_id
+                """
+            ),
             "consent_export_refresh_jobs": text(
                 "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
             ),
@@ -180,6 +214,7 @@ class AccountService:
             ),
             "kai_gmail_receipts": text("DELETE FROM kai_gmail_receipts WHERE user_id = :user_id"),
             "kai_gmail_sync_runs": text("DELETE FROM kai_gmail_sync_runs WHERE user_id = :user_id"),
+            "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
             "marketplace_public_profiles": text(
                 "DELETE FROM marketplace_public_profiles WHERE user_id = :user_id"
             ),
@@ -274,7 +309,6 @@ class AccountService:
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
             ),
-            "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
             "one_location_access_requests": text(
                 """
                 DELETE FROM one_location_access_requests
@@ -570,6 +604,15 @@ class AccountService:
                 """
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "circle_chat_messages": text(
+                "DELETE FROM circle_chat_messages WHERE sender_user_id = :user_id"
+            ),
+            "circle_chat_recipients": text(
+                "DELETE FROM circle_chat_recipients WHERE recipient_user_id = :user_id"
+            ),
+            "circle_chat_preferences": text(
+                "DELETE FROM circle_chat_preferences WHERE user_id = :user_id"
+            ),
             "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
             "byoc_setup_jobs": text("DELETE FROM byoc_setup_jobs WHERE user_id = :user_id"),
             "pod_lifecycle_events": text(
@@ -672,17 +715,6 @@ class AccountService:
                 WHERE user_id = :user_id
                 ORDER BY issued_at DESC
                 LIMIT 500
-                """
-            ),
-            "one_kyc_workflows": text(
-                """
-                SELECT workflow_id, user_id, status, gmail_thread_id, sender_email,
-                       counterparty_label, required_fields, requested_scope,
-                       consent_request_id, draft_status, last_error_code,
-                       created_at, updated_at
-                FROM one_kyc_workflows
-                WHERE user_id = :user_id
-                ORDER BY created_at DESC
                 """
             ),
             "verified_email_aliases": text(
@@ -1381,8 +1413,13 @@ class AccountService:
                 "one_action_directive_ledger",
                 "agent_chat_messages",
                 "agent_chat_conversations",
+                "messages",
+                "conversations",
+                "direct_message_blocks",
                 "kai_gmail_receipts",
                 "kai_gmail_sync_runs",
+                # Retired intake still has historical mail records to erase.
+                "one_kyc_workflows",
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
                 "kai_analyze_runs",
@@ -1535,8 +1572,6 @@ class AccountService:
         results["internal_access_events"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="user_push_tokens", params=params)
         results["push_tokens"] = True
-        self._delete_user_rows_if_table_exists(conn, table_name="one_kyc_workflows", params=params)
-        results["one_kyc_workflows"] = True
         self._delete_owned_named_circles(
             conn,
             user_id=user_id,
@@ -1571,6 +1606,9 @@ class AccountService:
             "one_location_recipient_keys",
             # Feed is a derived projection. Clear it after every source table so
             # present or future source-cleanup fan-out cannot recreate a row.
+            "circle_chat_messages",
+            "circle_chat_recipients",
+            "circle_chat_preferences",
             "feed_events",
         ):
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
@@ -1704,12 +1742,28 @@ class AccountService:
                 "details": results,
             }
 
+    async def erase_uat_backend_account(self, user_id: str) -> Dict[str, Any]:
+        """Maintainer-only erasure; not exposed by any account HTTP route.
+
+        Firebase and provider grants may be shared with production. Erase the
+        UAT-owned records and retain its resurrection barrier, but never
+        delete, quarantine, or revoke those external authorities.
+        """
+        return await self._delete_full_account(user_id, requested_target="both", backend_only=True)
+
     async def _delete_full_account(
         self,
         user_id: str,
         *,
         requested_target: DeleteAccountTarget,
+        backend_only: bool = False,
     ) -> Dict[str, Any]:
+        if backend_only and (
+            os.getenv("ENVIRONMENT", "").strip().lower() == "production"
+            or os.getenv("APP_RUNTIME_PROFILE", "").strip().lower() == "production"
+            or os.getenv("CLOUDSQL_INSTANCE_CONNECTION_NAME", "") != UAT_INSTANCE
+        ):
+            raise ValueError("backend_only_erasure_requires_uat_database")
         logger.warning("🚨 FULL ACCOUNT DELETION requested for %s", user_id)
         results = {
             "actor_identity_cache": False,
@@ -1731,11 +1785,15 @@ class AccountService:
             "pkm_domain_revision_segments": False,
             "pkm_domain_revisions": False,
             "world_model_index_v2": False,
+            "messages": False,
+            "conversations": False,
+            "direct_message_blocks": False,
             "kai_analyze_runs": False,
             "kai_run_state": False,
             "kai_gmail_connections": False,
             "kai_gmail_receipts": False,
             "kai_gmail_sync_runs": False,
+            "one_kyc_workflows": False,
             "kai_receipt_memory_artifacts": False,
             "consent_exports": False,
             "consent_export_refresh_jobs": False,
@@ -1767,7 +1825,6 @@ class AccountService:
             "pkm_credit_subscriptions": False,
             "pkm_owner_payout_accounts": False,
             "marketplace_opportunity_signals": False,
-            "one_kyc_workflows": False,
             "one_referral_risk_reviews": False,
             "one_referral_events": False,
             "one_referral_relationships": False,
@@ -1806,6 +1863,9 @@ class AccountService:
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
             "feed_events": False,
+            "circle_chat_messages": False,
+            "circle_chat_recipients": False,
+            "circle_chat_preferences": False,
             "runtime_persona_state": False,
             "ria_pick_legacy_retirements": False,
             "developer_oauth_tokens": False,
@@ -1825,6 +1885,12 @@ class AccountService:
         provider_credentials = ProviderCredentialSnapshot(user_id=user_id)
         try:
             with get_db_connection() as conn:
+                if backend_only:
+                    row = conn.execute(text(UAT_DATABASE_ATTESTATION_SQL)).mappings().first()
+                    if not row or not is_attested_hushh_tech_uat_database(
+                        parse_connected_database_identity(row)
+                    ):
+                        raise ValueError("backend_erasure_connected_database_not_uat")
                 params = {"user_id": user_id}
                 # The authenticated account UID is the only identity this
                 # full-erasure authority may tombstone. Phone-orphan cleanup
@@ -1835,12 +1901,18 @@ class AccountService:
                     conn,
                     user_ids=all_cleanup_user_ids,
                 )
-                cleanup_user_ids = (
-                    AccountDeletionLifecycleService.record_pending_many_in_transaction(
-                        conn,
-                        user_ids=all_cleanup_user_ids,
+                if backend_only:
+                    AccountDeletionLifecycleService.record_backend_only_erasure_in_transaction(
+                        conn, user_id=user_id
                     )
-                )
+                    cleanup_user_ids = ()
+                else:
+                    cleanup_user_ids = (
+                        AccountDeletionLifecycleService.record_pending_many_in_transaction(
+                            conn,
+                            user_ids=all_cleanup_user_ids,
+                        )
+                    )
                 results["account_deletion_tombstone"] = True
                 results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
                 self._delete_personal_agent_state(
@@ -1850,11 +1922,12 @@ class AccountService:
                 )
                 # Copy encrypted provider credentials before their rows go, so
                 # the grants can be released at the provider after commit.
-                provider_credentials = snapshot_provider_credentials_in_transaction(
-                    conn,
-                    user_id=user_id,
-                    table_exists=lambda table_name: self._table_exists(conn, table_name),
-                )
+                if not backend_only:
+                    provider_credentials = snapshot_provider_credentials_in_transaction(
+                        conn,
+                        user_id=user_id,
+                        table_exists=lambda table_name: self._table_exists(conn, table_name),
+                    )
                 self._clear_external_connector_data(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
@@ -1862,8 +1935,13 @@ class AccountService:
                         "one_action_directive_ledger",
                         "agent_chat_messages",
                         "agent_chat_conversations",
+                        "messages",
+                        "conversations",
+                        "direct_message_blocks",
                         "kai_gmail_receipts",
                         "kai_gmail_sync_runs",
+                        # Erase before actor_profiles can orphan the legacy rows.
+                        "one_kyc_workflows",
                         "kai_gmail_connections",
                         "kai_receipt_memory_artifacts",
                         "kai_analyze_runs",
@@ -2037,12 +2115,6 @@ class AccountService:
                     conn, table_name="user_push_tokens", params=params
                 )
                 results["push_tokens"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn,
-                    table_name="one_kyc_workflows",
-                    params=params,
-                )
-                results["one_kyc_workflows"] = True
                 self._delete_owned_named_circles(
                     conn,
                     user_id=user_id,
@@ -2086,6 +2158,9 @@ class AccountService:
                     "one_location_recipient_keys",
                     "one_wallet_cards",
                     # Last derived-data cleanup, before the identity/vault spine.
+                    "circle_chat_messages",
+                    "circle_chat_recipients",
+                    "circle_chat_preferences",
                     "feed_events",
                 ):
                     self._delete_user_rows_if_table_exists(
@@ -2153,8 +2228,10 @@ class AccountService:
 
         # Outside the erasure try-block on purpose: the deletion has committed,
         # and releasing provider grants is bounded best effort that never raises.
-        results["provider_grant_release"] = await release_provider_grants_after_erasure(
-            provider_credentials
+        results["provider_grant_release"] = (
+            {"status": "preserved_backend_only"}
+            if backend_only
+            else await release_provider_grants_after_erasure(provider_credentials)
         )
         return {
             "success": True,
@@ -2312,7 +2389,6 @@ class AccountService:
             "investor_marketplace_profile": False,
             "consent_audit": False,
             "internal_access_events": False,
-            "one_kyc_workflows": False,
             "actor_profile": False,
             "runtime_persona_state": False,
         }
@@ -2424,12 +2500,6 @@ class AccountService:
                     params,
                 )
                 results["internal_access_events"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn,
-                    table_name="one_kyc_workflows",
-                    params=params,
-                )
-                results["one_kyc_workflows"] = True
                 conn.execute(
                     text(
                         """

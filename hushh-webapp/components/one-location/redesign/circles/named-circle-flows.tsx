@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
 import { trackEvent } from "@/lib/observability/client";
@@ -53,7 +53,11 @@ import {
 } from "@/components/one-location/redesign/tokens";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
+import {
+  buildDirectMessageRoute,
+  buildPersonProfileRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   CIRCLE_NAME_INPUT_CLASSNAME,
   CIRCLE_NAME_ROW_CLASSNAME,
@@ -78,6 +82,7 @@ import {
 import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
 import {
   CIRCLE_SHEET_BODY_CLASSNAME,
+  CIRCLE_SHEET_CTA_CLASSNAME,
   CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
   CIRCLE_SHEET_HEADER_CLASSNAME,
   CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME,
@@ -108,6 +113,8 @@ import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
+import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
@@ -681,7 +688,6 @@ export function CreateCircleFlow({
           onFocus={() => setNameFocused(true)}
           onBlur={() => {
             setNameFocused(false);
-            if (nameMissing) setNameRequirementActive(true);
           }}
           onChange={(event) => {
             const next = event.target.value;
@@ -1289,6 +1295,13 @@ function CircleMemberRow({
                 })
               : null
           }
+          messageHref={
+            relationship === "connected" && member.publicPersonRef
+              ? buildDirectMessageRoute({
+                  personRef: member.publicPersonRef,
+                })
+              : null
+          }
           initials={circleInitials(member.displayName)}
           photoUrl={member.photoUrl}
           verified={Boolean(member.isRia)}
@@ -1329,8 +1342,14 @@ export function CircleDetailFlow({
   onDelete,
   onProceedToSms,
   livingCircleExperience = false,
+  renderChat,
+  chatIntent = false,
+  onPhotoUpdate,
 }: {
   circleId: string;
+  renderChat?: (circle: OneLocationCircleOverview, options: { active: boolean; readingBlocked: boolean }) => ReactNode;
+  chatIntent?: boolean;
+  onPhotoUpdate?: (circleId: string, photoUrl: string | null) => Promise<OneLocationCircleOverview>;
   currentUserId: string | null;
   busy: boolean;
   onBack: () => void;
@@ -1405,6 +1424,9 @@ export function CircleDetailFlow({
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   >(null);
+  const [detailView, setDetailView] = useState("chat");
+  useEffect(() => { setDetailView("chat"); }, [circleId]);
+  useEffect(() => { if (chatIntent) setDetailView("chat"); }, [chatIntent]);
   const [memberRows, setMemberRows] = useState<OneLocationCircleMember[]>([]);
   const [orbitMembers, setOrbitMembers] = useState<OneLocationCircleMember[]>([]);
   const [memberPage, setMemberPage] = useState(1);
@@ -1418,6 +1440,7 @@ export function CircleDetailFlow({
   const [circleName, setCircleName] = useState("");
   const [peopleSheetOpen, setPeopleSheetOpen] = useState(false);
   const [renameSheetOpen, setRenameSheetOpen] = useState(false);
+  const [photoSheetOpen, setPhotoSheetOpen] = useState(false);
   const [inviteCodeSheetOpen, setInviteCodeSheetOpen] = useState(false);
   const [replaceCodeConfirmOpen, setReplaceCodeConfirmOpen] = useState(false);
   const [codeCopied, setCodeCopied] = useState(false);
@@ -1550,6 +1573,7 @@ export function CircleDetailFlow({
 
   const circle = loadedCircle?.id === circleId ? loadedCircle : null;
   const isOwner = circle?.role === "owner";
+  const hasChat = Boolean(livingCircleExperience && renderChat && circle && !circle.isSystem && circle.systemKind == null);
   // Stated by the server rather than inferred here.
   //
   // "Owner" and "not the emergency one" stopped being the right test when
@@ -2059,7 +2083,7 @@ export function CircleDetailFlow({
     // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
     // heading margin, so the one gap on the page that mattered least -- the
     // one above "Members" -- was also the largest.
-    <div className="space-y-5" data-testid="one-location-circle-detail-flow">
+    <Tabs value={hasChat ? detailView : "members"} onValueChange={setDetailView} className="gap-5" data-testid="one-location-circle-detail-flow">
       {!circle ? (
         <TaskFlowHeader title="Circle" description="Loading Circle…" />
       ) : null}
@@ -2089,10 +2113,16 @@ export function CircleDetailFlow({
       {circle ? (
         <>
           <div className={CIRCLE_DETAIL_HEADER_CLASSNAME}>
+            {hasChat ? <CirclePhotoEditor key={`${currentUserId}:${circle.id}`} circleId={circle.id} photoUrl={circle.photoUrl ?? null}
+              onOpenChange={setPhotoSheetOpen}
+              canEdit={Boolean(isOwner && onPhotoUpdate)} onUpdate={onPhotoUpdate ? async (photoUrl) => {
+                const updated = await onPhotoUpdate(circle.id, photoUrl);
+                setCircle((current) => current?.id === updated.id ? { ...current, photoUrl: updated.photoUrl } : current);
+              } : undefined} /> : null}
             <div className={CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}>
               <TaskFlowHeader
                 title={circle.name}
-                description={visibleMemberSummary}
+                description={hasChat ? `${visibleMemberCount} ${visibleMemberCount === 1 ? "member" : "members"}` : visibleMemberSummary}
               />
             </div>
             {isOwner && circle.systemKind !== "trusted" ? (
@@ -2112,12 +2142,32 @@ export function CircleDetailFlow({
             ) : null}
           </div>
 
+          {hasChat ? <>
+            <TabsList variant="line" aria-label="Circle views" className="min-h-11 w-fit justify-start border-b border-border/70">
+              <TabsTrigger value="chat" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Chat</TabsTrigger>
+              <TabsTrigger value="members" className="min-h-11 min-w-24 flex-none after:!bottom-0 data-[state=active]:!text-[color:var(--app-accent)] after:bg-[color:var(--app-accent)]">Members</TabsTrigger>
+            </TabsList>
+            <TabsContent value="chat" forceMount hidden={detailView !== "chat"} className="space-y-4">
+              {renderChat?.(circle, { active: detailView === "chat", readingBlocked: photoSheetOpen || renameSheetOpen || inviteCodeSheetOpen || peopleSheetOpen || replaceCodeConfirmOpen })}
+              <button type="button" onClick={() => setDetailView("members")} className="flex min-h-16 w-full min-w-0 items-center gap-3 rounded-[var(--app-card-radius-standard)] border border-border bg-card px-3 py-3 text-sm focus-visible:outline-2 focus-visible:outline-ring sm:px-5" aria-label="View circle members">
+                <span aria-hidden="true" className="flex shrink-0 -space-x-2">
+                  {orbitMembers.slice(0, 4).map((member) => <ConnectionPersonAvatar key={member.userId} photoUrl={member.photoUrl} label={member.displayName} size="comfortable" className="!size-8 ring-2 ring-card" />)}
+                  {visibleMemberCount > 4 ? <span className="flex size-8 items-center justify-center rounded-full bg-muted text-xs ring-2 ring-card">+{visibleMemberCount - 4}</span> : null}
+                </span>
+                <span className="min-w-0 flex-1 text-left text-muted-foreground">{visibleMemberCount} {visibleMemberCount === 1 ? "member" : "members"}</span>
+                <span className="shrink-0 font-medium text-[color:var(--app-accent)]">View members</span>
+              </button>
+            </TabsContent>
+          </> : null}
+          <TabsContent value="members" forceMount hidden={hasChat && detailView !== "members"} className="space-y-5">
           {livingCircleExperience ? (
             <LivingCirclePanel
               key={circle.id}
               circleName={circle.name}
               members={orbitMembers}
               memberCount={visibleMemberCount}
+              groupPhotoUrl={hasChat ? circle.photoUrl ?? null : undefined}
+              showGroupIdentity={hasChat}
               canInvite={canInviteMembers}
               candidates={eligibleConnections}
               availableCount={peopleTotalCount}
@@ -2126,7 +2176,7 @@ export function CircleDetailFlow({
               error={peopleLoadError}
               addingUserId={quickAddingUserId}
               onAdd={(userId) => void quickAddConnection(userId)}
-              onRemove={(userId) => void removeMember(userId)}
+              onRemove={isOwner ? (userId) => void removeMember(userId) : undefined}
               searchQuery={peopleSearch}
               onSearchChange={setPeopleSearch}
               hasMore={peopleHasMore}
@@ -2366,27 +2416,33 @@ export function CircleDetailFlow({
                     <FlowActionGroup
                       stacked
                       secondary={
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="standard"
-                          onClick={() => setInviteCodeSheetOpen(false)}
-                        >
-                          Cancel
-                        </Button>
+                        <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="prominent"
+                            className="w-full justify-center"
+                            onClick={() => setInviteCodeSheetOpen(false)}
+                          >
+                            Cancel
+                          </Button>
+                        </div>
                       }
                       primary={
-                        <Button
-                          type="button"
-                          size="prominent"
-                          disabled={busy}
-                          isLoading={busy}
-                          onClick={() =>
-                            void generateCode(inviteCodeNeedsOwnerRotation)
-                          }
-                        >
-                          Create code
-                        </Button>
+                        <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
+                          <Button
+                            type="button"
+                            size="prominent"
+                            className="w-full justify-center"
+                            disabled={busy}
+                            isLoading={busy}
+                            onClick={() =>
+                              void generateCode(inviteCodeNeedsOwnerRotation)
+                            }
+                          >
+                            Create code
+                          </Button>
+                        </div>
                       }
                     />
                   </div>
@@ -2940,12 +2996,13 @@ export function CircleDetailFlow({
               </AlertDialog>
             </div>
           ) : null}
+          </TabsContent>
         </>
       ) : !loadError ? (
         <div className="flex min-h-40 items-center justify-center rounded-[var(--app-card-radius-standard,24px)] bg-muted/35">
           <ShieldCheck className="h-8 w-8 animate-pulse text-muted-foreground" />
         </div>
       ) : null}
-    </div>
+    </Tabs>
   );
 }

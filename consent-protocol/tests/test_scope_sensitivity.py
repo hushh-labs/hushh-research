@@ -67,6 +67,8 @@ BUNDLE = "0f0e0d0c-0b0a-4908-8706-050403020100"
         "attr.runtime_secrets.*",
         "attr.profile.api_keys",
         "attr.accounts.passwords",
+        # The Secrets area: every item, even by its masked label.
+        "attr.secrets.items.sec_00000000000000ab",
     ],
 )
 def test_the_founders_five_categories_are_sensitive(scope: str) -> None:
@@ -119,7 +121,8 @@ def test_the_field_rule_matches_its_shared_truth_table() -> None:
     wrong = [
         case
         for case in contract["cases"]
-        if (field_sensitivity(case["key"], case["value"]) == "sensitive") != case["sensitive"]
+        if (field_sensitivity(case["key"], case["value"], domain=case.get("domain")) == "sensitive")
+        != case["sensitive"]
     ]
     assert contract["cases"] and wrong == []
 

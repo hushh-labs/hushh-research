@@ -4,6 +4,7 @@ import {
   CURRENT_PKM_CONTRACT_VERSION,
   CURRENT_READABLE_SUMMARY_VERSION,
   CURRENT_READABLE_PROJECTION_VERSION,
+  PKM_QUARANTINE_SEGMENT_ID,
   currentDomainContractVersion,
 } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { humanizeMemoryPath } from "@/lib/pkm/humanize-segment";
@@ -236,10 +237,16 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
  * `linked_accounts`, the readable view of the same records, is opaque for a
  * second reason: manifest paths are plaintext on the server, and walking it
  * would publish which kinds of account a person holds.
+ *
+ * `__quarantine_v1` is opaque for the same reason and one more: its keys are
+ * the pointers an upgrade could not place, and the server refuses an upgrade
+ * whose quarantine has an exposable path or a scope
+ * (`pkm_quarantine_must_be_private`, migration 098).
  */
 const VAULT_PRIVATE_BRANCHES: ReadonlySet<string> = new Set([
   ...PLAID_VAULT_RECORD_BRANCHES,
   LINKED_ACCOUNTS_BRANCH,
+  PKM_QUARANTINE_SEGMENT_ID,
 ]);
 
 /**

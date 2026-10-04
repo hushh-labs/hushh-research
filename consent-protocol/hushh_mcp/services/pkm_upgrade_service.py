@@ -15,6 +15,7 @@ from hushh_mcp.services.domain_contracts import (
     CURRENT_READABLE_PROJECTION_VERSION,
     CURRENT_READABLE_SUMMARY_VERSION,
     current_domain_contract_version,
+    needs_reserved_branch_migration,
 )
 from hushh_mcp.services.personal_knowledge_model_service import (
     PersonalKnowledgeModelIndex,
@@ -383,7 +384,16 @@ class PkmUpgradeService:
         domain_manifests: dict[str, dict] | None = None,
         index: PersonalKnowledgeModelIndex | None = None,
         manifest_headers: list[dict[str, Any]] | None = None,
+        legacy_client: bool = False,
     ) -> dict[str, Any]:
+        """Upgrade status for ``user_id`` as ``legacy_client`` should see it.
+
+        A legacy client (no ``x-hushh-client-version`` on the upgrade routes)
+        predates the reserved-branch relocation. It is never offered an upgrade
+        whose only reason is the missing relocation marker: its upgrade would
+        be a copy that never stamps the marker, so it would run on every
+        entry without moving anything.
+        """
         index = resolved_index or index or await self.pkm_service.get_index_v2(user_id)
         manifests_by_domain = {
             self._clean_text(row.get("domain")): dict(row)
@@ -480,8 +490,12 @@ class PkmUpgradeService:
                 CURRENT_READABLE_PROJECTION_VERSION
             ):
                 future_reasons.append("future_readable_projection_version")
+            needs_reserved_migration = not legacy_client and needs_reserved_branch_migration(
+                domain, summary_projection
+            )
             needs_upgrade = (
-                current_domain_version < target_domain_version
+                needs_reserved_migration
+                or current_domain_version < target_domain_version
                 or current_readable_version < target_readable_version
                 or self._semantic_version(current_pkm_contract_version)
                 < self._semantic_version(CURRENT_PKM_CONTRACT_VERSION)
@@ -591,6 +605,8 @@ class PkmUpgradeService:
         self,
         user_id: str,
         status_payload: dict[str, Any],
+        *,
+        legacy_client: bool = False,
     ) -> dict[str, Any]:
         upgradable_domains = status_payload.get("upgradable_domains") or []
         if upgradable_domains:
@@ -626,7 +642,7 @@ class PkmUpgradeService:
                 user_id,
             )
             return status_payload
-        return await self.build_status(user_id)
+        return await self.build_status(user_id, legacy_client=legacy_client)
 
     async def start_or_resume_run(
         self,
@@ -634,8 +650,9 @@ class PkmUpgradeService:
         *,
         initiated_by: str = "unlock_warm",
         mode: str = "real",
+        legacy_client: bool = False,
     ) -> dict[str, Any]:
-        status_payload = await self.build_status(user_id)
+        status_payload = await self.build_status(user_id, legacy_client=legacy_client)
         if status_payload.get("upgrade_status") == "client_update_required":
             return status_payload
         latest_run = status_payload.get("run")
@@ -653,12 +670,14 @@ class PkmUpgradeService:
                         "p_step_rows": JsonParam([]),
                     },
                 )
-            return await self.build_status(user_id)
+            return await self.build_status(user_id, legacy_client=legacy_client)
 
         upgradable_domains = status_payload.get("upgradable_domains") or []
         if not upgradable_domains:
             if mode == "real":
-                return await self._maybe_reconcile_current_index(user_id, status_payload)
+                return await self._maybe_reconcile_current_index(
+                    user_id, status_payload, legacy_client=legacy_client
+                )
             return status_payload
 
         if mode != "real":
@@ -687,7 +706,7 @@ class PkmUpgradeService:
                 "p_step_rows": JsonParam(step_rows),
             },
         )
-        return await self.build_status(user_id)
+        return await self.build_status(user_id, legacy_client=legacy_client)
 
     async def mark_run_status(
         self,
@@ -730,13 +749,14 @@ class PkmUpgradeService:
         domain: str,
         source_content_revision: int,
         source_manifest_revision: int,
+        legacy_client: bool = False,
     ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
         if runs[0].get("user_id") != user_id:
             raise PermissionError("PKM upgrade run is not owned by authenticated user.")
-        status_payload = await self.build_status(user_id)
+        status_payload = await self.build_status(user_id, legacy_client=legacy_client)
         domain_state = next(
             (
                 entry
@@ -859,7 +879,9 @@ class PkmUpgradeService:
         updated_step = payload if isinstance(payload, dict) else None
         return updated_step
 
-    async def complete_run(self, run_id: str, *, user_id: str) -> dict[str, Any] | None:
+    async def complete_run(
+        self, run_id: str, *, user_id: str, legacy_client: bool = False
+    ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
             return None
@@ -884,7 +906,7 @@ class PkmUpgradeService:
         index.model_version = CURRENT_PKM_MODEL_VERSION
         index.last_upgraded_at = now
         await self.pkm_service.upsert_index_v2(index)
-        return await self.build_status(run["user_id"])
+        return await self.build_status(run["user_id"], legacy_client=legacy_client)
 
     async def fail_run(
         self,
@@ -893,6 +915,7 @@ class PkmUpgradeService:
         user_id: str,
         last_error: str | None = None,
         error_context: dict[str, Any] | None = None,
+        legacy_client: bool = False,
     ) -> dict[str, Any] | None:
         runs = await self._list_runs_for_run_id(run_id)
         if not runs:
@@ -935,7 +958,7 @@ class PkmUpgradeService:
             status="failed",
             last_error=last_error,
         )
-        return await self.build_status(runs[0]["user_id"])
+        return await self.build_status(runs[0]["user_id"], legacy_client=legacy_client)
 
 
 _pkm_upgrade_service: PkmUpgradeService | None = None

@@ -602,6 +602,19 @@ export async function executeAgentGatewayAction(
   }
 
   if (action.execution_target.path === "route") {
+    // A template segment (`/people/[personRef]`) needs an entity this runtime
+    // does not have; pushing it literally opens a broken or wrong screen.
+    if (/\[[^\]]+\]/.test(action.execution_target.target)) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Say who, and I'll open it.",
+        reason: "route_needs_entity",
+      });
+    }
     input.router.push(action.execution_target.target);
     return buildResult({
       status: "started",

@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
 import { AuthStep } from "@/components/onboarding/AuthStep";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import {
   AUTH_SESSION_NOTICE_QUERY_PARAM,
@@ -70,7 +71,9 @@ export default function LoginPage() {
         authState="anonymous"
         dataState="loaded"
       />
-      <Suspense fallback={null}>
+      {/* Hold the boot surface on the redirect that brought the person here,
+          so the frame before AuthStep mounts is not an empty one. */}
+      <Suspense fallback={<HushhLoader stage="redirect" label="Opening sign in..." />}>
         <LoginContent />
       </Suspense>
     </>

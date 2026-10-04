@@ -57,6 +57,8 @@ that file for the full record; this table is the index.
 | --- | --- | --- | --- |
 | `actor_identity_state` | `personal_metadata` | `iam-consent-governance` | 5 tables |
 | `agent_chat_encrypted_memory` | `personal_encrypted` | `backend-agents-operons` | 2 tables |
+| `direct_message_relationship_state` | `personal_metadata` | `iam-consent-governance` | 2 tables |
+| `direct_message_encrypted_content` | `personal_encrypted` | `iam-consent-governance` | 1 table |
 | `consent_authority_audit` | `audit_regulated` | `iam-consent-governance` | 3 tables |
 | `consent_export_workflows` | `workflow_state` | `iam-consent-governance` | 2 tables |
 | `developer_access` | `audit_regulated` | `mcp-developer-surface` | `developer_*` |
@@ -205,6 +207,30 @@ unless the delta is exactly the declared UAT overlay).
 - `nav_setup_completed_at` (`bigint`)
 - `nav_setup_skipped_at` (`bigint`)
 - `setup_state_updated_at` (`bigint`)
+
+### `conversations` and `direct_message_blocks`
+
+- `conversations`: `id`, canonical `participant_a_user_id` /
+  `participant_b_user_id`, `created_at`, and `last_message_at`.
+- `direct_message_blocks`: directed `blocker_user_id` /
+  `blocked_user_id`, opaque `id`, and `created_at`.
+- Both are relationship metadata. The active canonical `connections` pair and
+  either directed block are checked in a locking database trigger before a new
+  conversation or message write. Circle membership is not queried.
+
+### `messages`
+
+- `id` (`uuid`)
+- `conversation_id` (`uuid`)
+- `sender_user_id` (`text`)
+- `content_ciphertext` (`text`)
+- `content_iv` (`text`)
+- `content_algorithm` (`text`)
+- `created_at` / `read_at` (`timestamp with time zone`)
+
+Message text is AES-256-GCM ciphertext under the server-managed direct-message
+key; the ciphertext field includes the authentication tag. Conversation history
+remains visible but no new message can be written after disconnect or block.
 
 ## Core Application Functions Observed
 

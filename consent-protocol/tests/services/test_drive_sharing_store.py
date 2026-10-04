@@ -197,6 +197,9 @@ def rows(sharing, table):
         "drive_share_reviews",
         "drive_share_events",
         "drive_share_permission_operations",
+        "drive_request_payment_orders",
+        "drive_request_payment_obligations",
+        "drive_request_payment_refunds",
         "one_action_directive_ledger",
     }
     with sharing.db.engine.connect() as connection:

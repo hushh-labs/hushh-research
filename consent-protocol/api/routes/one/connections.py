@@ -8,7 +8,7 @@ from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field, validator
 
 from api.middleware import require_firebase_auth
-from api.middlewares.rate_limit import RateLimits, limiter
+from api.middlewares.rate_limit import RateLimits, get_rate_limit_key, limiter
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.directory_identity_service import DirectoryIdentityUnavailableError
@@ -88,8 +88,25 @@ class ContactSyncBody(BaseModel):
         return lookups
 
 
+def _directory_daily_budget_key(request: Request) -> str:
+    # Refreshing the visible directory must not consume deliberate search's
+    # daily allowance. Both modes remain bounded, with one shared minute cap.
+    mode = "search" if request.query_params.get("query", "").strip() else "browse"
+    return f"{get_rate_limit_key(request)}:directory:{mode}"
+
+
+def _directory_daily_limit(key: str) -> str:
+    # slowapi passes the bucket key built above, so the budget follows the mode.
+    if key.endswith(":directory:browse"):
+        return RateLimits.ONE_CONNECT_DIRECTORY_BROWSE_DAILY
+    return RateLimits.ONE_CONNECT_DIRECTORY_READ_DAILY
+
+
 @router.get("/connections/directory")
-@limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ_DAILY)
+@limiter.limit(
+    _directory_daily_limit,
+    key_func=_directory_daily_budget_key,
+)
 @limiter.limit(RateLimits.ONE_CONNECT_DIRECTORY_READ)
 def connections_directory(
     request: Request,

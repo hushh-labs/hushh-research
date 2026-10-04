@@ -8,6 +8,7 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import { FeedService } from "@/lib/services/feed-service";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -51,6 +52,22 @@ describe("FeedService", () => {
 
     const [, init] = mockApiFetch.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(String(init.body))).toEqual({ up_to_id: watermark });
+  });
+
+  it("does not let pre-read list/count responses repopulate a cleared Feed snapshot", async () => {
+    const pending: Array<(response: Response) => void> = [];
+    mockApiFetch.mockImplementation(() => new Promise<Response>((resolve) => pending.push(resolve)));
+    const oldList = FeedService.list({ idToken: "token", userId: "user-1", force: true });
+    const oldCount = FeedService.unreadCount({ idToken: "token", userId: "user-1", force: true });
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    bumpFeedInvalidationEpoch("user-1");
+    mockApiFetch.mockResolvedValue(jsonResponse({ items: [], next_cursor: null, unread_count: 1 }));
+    await FeedService.list({ idToken: "token", userId: "user-1", force: true });
+    pending[0](jsonResponse({ items: [], next_cursor: null, unread_count: 3 }));
+    pending[1](jsonResponse({ unread_count: 3 }));
+    await Promise.all([oldList, oldCount]);
+    expect(cache.get(CACHE_KEYS.FEED_UNREAD_COUNT("user-1"))).toBe(1);
+    expect(cache.get(CACHE_KEYS.FEED_LIST("user-1"))).toMatchObject({ unread_count: 1 });
   });
 
   it("surfaces the backend's safe structured outage message", async () => {

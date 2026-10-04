@@ -186,6 +186,37 @@ class TestManifestLoaderLoad:
         finally:
             os.unlink(path)
 
+    def test_prompt_reference_composes_one_shared_instruction(self, tmp_path):
+        # The shared PKM kernel lives once and is composed at load time, so the
+        # runtime, the registry digest and the cache fingerprint all see it and
+        # no service keeps a copy.
+        import yaml
+
+        agents = tmp_path / "agents"
+        (agents / "child").mkdir(parents=True)
+        (agents / "kernel.md").write_text("Shared rule.\n", encoding="utf-8")
+        data = {**_VALID_DICT, "prompt_reference": "../kernel.md", "system_instruction": "Own."}
+        path = agents / "child" / "agent.yaml"
+        path.write_text(yaml.dump(data), encoding="utf-8")
+        manifest = ManifestLoader.load(str(path))
+        assert manifest.system_instruction == "Shared rule.\n\nOwn."
+        assert manifest.prompt_reference == "../kernel.md"
+
+    def test_prompt_reference_outside_the_agents_tree_is_refused(self, tmp_path):
+        # Negative control for the containment check: the same composition with
+        # a path that climbs out of the agents tree must not read the file.
+        import yaml
+
+        (tmp_path / "secret.md").write_text("Not an instruction.", encoding="utf-8")
+        (tmp_path / "agents" / "child").mkdir(parents=True)
+        data = {**_VALID_DICT, "prompt_reference": "../../secret.md"}
+        path = tmp_path / "agents" / "child" / "agent.yaml"
+        path.write_text(yaml.dump(data), encoding="utf-8")
+        with pytest.raises(ValueError, match="must be a file inside"):
+            ManifestLoader.load(str(path))
+        with pytest.raises(ValueError, match="needs a manifest file"):
+            ManifestLoader.load_from_dict({**_VALID_DICT, "prompt_reference": "kernel.md"})
+
 
 # ===========================================================================
 # AgentManifest.tool_py_funcs

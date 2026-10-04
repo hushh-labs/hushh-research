@@ -57,7 +57,7 @@ const connections = () =>
     (displayName, index) => ({
       connectionId: `connection-${index}`,
       userId: `user-${index}`,
-      publicPersonRef: null,
+      publicPersonRef: `person_${index}`,
       displayName,
       photoUrl: null,
       createdAt: "2026-09-28T12:00:00Z",

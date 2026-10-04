@@ -564,10 +564,16 @@ describe("Finance in Memory, from a Plaid sandbox link", () => {
     const titles = checking.entries.flatMap((entry) => (entry.kind === "leaf" ? [entry.card.title] : []));
     expect(titles.some((title) => title.startsWith("Your name is"))).toBe(false);
     // The bank connection rebuilds this on every refresh: Memory offers no edit
-    // or forget that would silently come back. An ordinary memory still can.
+    // or forget that would silently come back. An ordinary memory still can:
+    // under the reserved-branch policy that is the financial.agent_memory
+    // sibling, while any other financial branch is owned by Finance.
     expect(checking.entries.every((entry) => entry.kind !== "leaf" || entry.card.editable === false)).toBe(true);
-    const own = memoryLevel({ ...financial, goals: { emergency_fund: "Six months" } } as FinancialDomain, ["goals"]);
+    const own = memoryLevel({ ...financial, agent_memory: { emergency_fund: "Six months" } } as FinancialDomain, ["agent_memory"]);
     expect(own.entries.map((entry) => entry.kind === "leaf" && entry.card.editable)).toEqual([true]);
+    const reserved = memoryLevel({ ...financial, goals: { emergency_fund: "Six months" } } as FinancialDomain, ["goals"]);
+    expect(
+      reserved.entries.map((entry) => entry.kind === "leaf" && [entry.card.editable, entry.card.reservedOwner?.ownerFeature]),
+    ).toEqual([[false, "finance"]]);
 
     const ira = openGroup(financial, ["Linked Accounts", "Investments", "Tartan Bank", "Accounts", "Plaid IRA \u2022\u20225555", "Holdings"]);
     expect(ira.entries.map((entry) => entry.kind === "group" && entry.label)).toEqual(["U S Dollar", "Achillion Pharmaceuticals Inc."]);

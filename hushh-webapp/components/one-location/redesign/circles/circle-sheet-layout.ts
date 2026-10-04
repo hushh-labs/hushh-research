@@ -68,6 +68,15 @@ export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-1 text-left sm:pt-4";
 export const CIRCLE_SHEET_BODY_CLASSNAME = "mt-1 space-y-4";
 
 /**
+ * The footprint of a sheet's decision buttons: the 244 x 50 "Chat with One"
+ * takes on the Email Agent overview (`max-w-[244px]` with `size="prominent"`).
+ * Create code and Cancel stretched edge to edge on a phone, so the two read as
+ * different controls from the one every other screen uses for its main action.
+ * Centered, and capped by the sheet's own width when that is narrower.
+ */
+export const CIRCLE_SHEET_CTA_CLASSNAME = "mx-auto w-full max-w-[244px]";
+
+/**
  * A sheet body that OWNS the remaining height and scrolls inside it -- the
  * shape Add people needs, so its "Add N people" button stays on screen while
  * the roster moves under it.

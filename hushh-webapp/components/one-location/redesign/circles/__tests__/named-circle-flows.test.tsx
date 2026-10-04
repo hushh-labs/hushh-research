@@ -9,6 +9,7 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import { CirclePhotoEditor } from "@/components/connect/circles/circle-photo-editor";
 
 import {
   CircleDetailFlow,
@@ -2313,6 +2314,17 @@ describe("named Circle flows", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Leave circle/i })).toBeNull();
   });
+});
+
+it("withholds circle photo editing when owner authority is absent or lost", async () => {
+  const save = vi.fn();
+  const view = render(<CirclePhotoEditor circleId="first" photoUrl={null} canEdit onUpdate={save} />);
+  fireEvent.click(screen.getByRole("button", { name: "Change circle photo" }));
+  await screen.findByRole("dialog", { name: "Circle photo" });
+  view.rerender(<CirclePhotoEditor circleId="first" photoUrl={null} canEdit={false} onUpdate={save} />);
+  expect(screen.queryByRole("button", { name: "Change circle photo" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("dialog", { name: "Circle photo" })).not.toBeInTheDocument();
+  expect(save).not.toHaveBeenCalled();
 });
 
 describe("a Trusted Circle offers no control that cannot work", () => {

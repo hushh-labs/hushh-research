@@ -44,6 +44,7 @@ NOT_OK_STATUSES = frozenset(
         "rejected",
         "unsupported",
         "confirmation_required",
+        "confirmation_waiting",
         "firebase_proof_required",
         "scope_review_required",
         "draft_open_requested",

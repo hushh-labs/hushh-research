@@ -27,9 +27,13 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
+import { bumpFeedInvalidationEpoch } from "@/lib/cache/feed-invalidation-epoch";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 
 describe("useFeedUnreadCount account isolation", () => {
   beforeEach(() => {
+    CacheService.getInstance().clear();
     mocks.user = null;
     mocks.unreadCount.mockReset();
     mocks.liveRefresh = null;
@@ -157,5 +161,23 @@ describe("useFeedUnreadCount account isolation", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("retires an older recount after an external subset read and preserves unrelated unread", async () => {
+    let settleOld!: (count: number) => void;
+    mocks.unreadCount.mockImplementationOnce(() => new Promise<number>((resolve) => { settleOld = resolve; }))
+      .mockResolvedValue(1);
+    mocks.user = { uid: "user-a", getIdToken: async () => "token-a" };
+    const { result } = renderHook(() => useFeedUnreadCount());
+    await waitFor(() => expect(settleOld).toBeDefined());
+    CacheService.getInstance().set(CACHE_KEYS.FEED_UNREAD_COUNT("user-a"), 3);
+    act(() => {
+      bumpFeedInvalidationEpoch("user-a");
+      CacheService.getInstance().invalidate(CACHE_KEYS.FEED_UNREAD_COUNT("user-a"));
+      dispatchFeedStateChanged("action");
+    });
+    await waitFor(() => expect(result.current).toBe(1));
+    await act(async () => settleOld(3));
+    expect(result.current).toBe(1);
   });
 });

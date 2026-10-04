@@ -1,6 +1,12 @@
 "use client";
 
-import { AlertTriangle, CalendarClock } from "@/components/icons";
+import {
+  AlertTriangle,
+  CalendarClock,
+  CameraIcon,
+  MapPinIcon,
+  UsersThreeIcon,
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 
@@ -19,6 +25,7 @@ export type AgentCalendarProposalCardProps = {
   attendees: string[];
   location: string | null;
   sendUpdates: boolean;
+  googleMeet?: boolean;
   conflicts: CalendarProposalConflict[];
   confirmLabel: string;
   busy?: boolean;
@@ -49,7 +56,10 @@ function formatTimeOnly(value: string | null): string {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
+  return date.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 /** "Sat, Sep 20, 3:00 PM – 3:30 PM"; falls back to just the start when there's no end. */
@@ -61,9 +71,7 @@ function formatRange(startAt: string | null, endAt: string | null): string {
 }
 
 function attendeeSummary(attendees: string[]): string {
-  if (attendees.length === 0) return "";
-  if (attendees.length <= 3) return attendees.join(", ");
-  return `${attendees.slice(0, 3).join(", ")} +${attendees.length - 3} more`;
+  return attendees.join(", ");
 }
 
 /**
@@ -84,6 +92,7 @@ export function AgentCalendarProposalCard({
   attendees,
   location,
   sendUpdates,
+  googleMeet = false,
   conflicts,
   confirmLabel,
   busy,
@@ -99,16 +108,16 @@ export function AgentCalendarProposalCard({
       data-testid="agent-calendar-proposal-card"
       className={
         isCancel
-          ? "rounded-2xl border border-destructive/25 bg-destructive/5 p-4"
-          : "rounded-2xl border border-[color:var(--app-card-border-standard)] bg-muted/50 p-4"
+          ? "w-full rounded-[var(--app-card-radius-compact)] bg-destructive/5 p-4 sm:p-5"
+          : "w-full rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-compact)] p-4 sm:p-5"
       }
     >
       <div className="flex items-start gap-3">
         <div
           className={
             isCancel
-              ? "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive"
-              : "grid h-9 w-9 shrink-0 place-items-center rounded-full bg-foreground/5 text-foreground/70"
+              ? "grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-destructive/10 text-destructive"
+              : "grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
           }
         >
           {isCancel ? (
@@ -117,68 +126,103 @@ export function AgentCalendarProposalCard({
             <CalendarClock className="h-4 w-4" aria-hidden="true" />
           )}
         </div>
-        <div className="min-w-0 flex-1 space-y-1">
-          <p className="text-xs text-muted-foreground">
-            {VERB_LABEL[action]} on your calendar
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {isCancel
+              ? "Ready to cancel"
+              : `Ready to ${VERB_LABEL[action].toLowerCase()}`}
           </p>
-          <p className="truncate text-sm font-semibold text-foreground">
+          <p className="mt-1 break-words text-base font-semibold text-foreground">
             {title || "Untitled event"}
           </p>
-          {range ? <p className="text-sm text-foreground/80">{range}</p> : null}
-          {location ? (
-            <p className="truncate text-xs text-muted-foreground">{location}</p>
-          ) : null}
-          {attendeeText ? (
-            <p className="truncate text-xs text-muted-foreground">
-              {attendees.length === 1 ? "Attendee: " : "Attendees: "}
-              {attendeeText}
-            </p>
-          ) : null}
-          <p className="text-xs text-muted-foreground">
-            {sendUpdates
-              ? attendees.length > 0
-                ? "Attendees will be notified."
-                : "No attendees to notify."
-              : "Attendees will not be notified."}
-          </p>
-          {conflicts.length > 0 ? (
-            <div className="mt-2 rounded-lg border border-destructive/20 bg-destructive/5 px-2.5 py-2">
-              <p className="text-xs font-medium text-destructive">
-                Conflicts with {conflicts.length === 1 ? "an existing event" : "existing events"}:
-              </p>
-              <ul className="mt-1 space-y-0.5">
-                {conflicts.map((conflict, index) => (
-                  <li
-                    key={`${conflict.title ?? "conflict"}-${index}`}
-                    className="truncate text-xs text-destructive/90"
-                  >
-                    {conflict.title || "Untitled event"}
-                    {conflict.startAt ? ` · ${formatDateTime(conflict.startAt)}` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
+          {range ? (
+            <p className="mt-1 text-sm text-foreground/75">{range}</p>
           ) : null}
         </div>
       </div>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          data-testid="agent-calendar-proposal-confirm"
-          size="sm"
-          variant={isCancel ? "destructive" : "default"}
-          disabled={busy}
-          onClick={onConfirm}
-        >
-          {busy ? "Working…" : confirmLabel}
-        </Button>
+
+      <div className="mt-4 space-y-2 border-t border-[color:var(--app-separator)] pt-3 text-sm">
+        {googleMeet ? (
+          <div className="flex items-start gap-2.5 text-foreground">
+            <CameraIcon className="mt-0.5 size-4 shrink-0 text-[color:var(--app-accent)]" />
+            <p>
+              <span className="font-semibold">Google Meet link will be included</span>
+              <span className="text-muted-foreground">
+                {" "}
+                · created and shared in the Calendar invite after scheduling
+              </span>
+            </p>
+          </div>
+        ) : null}
+        {attendeeText ? (
+          <div className="flex items-start gap-2.5 text-foreground">
+            <UsersThreeIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <p className="break-words text-muted-foreground">
+              {attendees.length === 1 ? "Guest: " : "Guests: "}
+              {attendeeText}
+              {sendUpdates
+                ? " · invite will be emailed"
+                : " · invite will not be emailed"}
+            </p>
+          </div>
+        ) : null}
+        {location ? (
+          <div className="flex items-start gap-2.5 text-muted-foreground">
+            <MapPinIcon className="mt-0.5 size-4 shrink-0" />
+            <p className="break-words">{location}</p>
+          </div>
+        ) : null}
+        {!attendeeText ? (
+          <p className="text-muted-foreground">
+            {sendUpdates
+              ? "No guests to notify."
+              : "Guests will not be notified."}
+          </p>
+        ) : null}
+      </div>
+
+      {conflicts.length > 0 ? (
+        <div className="mt-4 rounded-xl bg-destructive/10 px-3 py-3">
+          <p className="text-sm font-semibold text-destructive">
+            Conflicts with{" "}
+            {conflicts.length === 1 ? "an existing event" : "existing events"}
+          </p>
+          <ul className="mt-1.5 space-y-1">
+            {conflicts.map((conflict, index) => (
+              <li
+                key={`${conflict.title ?? "conflict"}-${index}`}
+                className="break-words text-sm text-destructive/90"
+              >
+                {conflict.title || "Untitled event"}
+                {conflict.startAt
+                  ? ` · ${formatDateTime(conflict.startAt)}`
+                  : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      <div className="mt-5 flex flex-col gap-2 sm:flex-row sm:justify-end">
         <Button
           data-testid="agent-calendar-proposal-cancel"
-          size="sm"
-          variant="ghost"
+          size="standard"
+          variant="secondary"
           disabled={busy}
+          className="w-full sm:w-auto"
           onClick={onCancel}
         >
           Not now
+        </Button>
+        <Button
+          data-testid="agent-calendar-proposal-confirm"
+          size="standard"
+          variant={isCancel ? "destructive" : "default"}
+          disabled={busy}
+          className="w-full sm:w-auto"
+          onClick={onConfirm}
+        >
+          {busy ? "Working…" : confirmLabel}
         </Button>
       </div>
     </div>

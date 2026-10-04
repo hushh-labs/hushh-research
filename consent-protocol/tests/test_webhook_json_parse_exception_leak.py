@@ -1,7 +1,7 @@
 """
 Webhook JSON parse error detail-leak tests (CWE-209).
 
-Verifies that when the one_email and gmail webhook endpoints receive a
+Verifies that when the Gmail webhook endpoint receives a
 malformed JSON body, the raw Python exception text (e.g. JSONDecodeError with
 line/column offsets or partial payload content) is not forwarded to the caller.
 
@@ -22,24 +22,18 @@ from fastapi.testclient import TestClient
 MALFORMED_BODY = b"{this is not valid json: true,}"
 
 # (real mounted path, expected opaque error code)
-_WEBHOOK_CASES = [
-    ("/api/one/email/webhook", "ONE_EMAIL_WEBHOOK_INVALID_JSON"),
-    ("/api/kai/gmail/webhook", "GMAIL_WEBHOOK_INVALID_JSON"),
-]
+_WEBHOOK_CASES = [("/api/kai/gmail/webhook", "GMAIL_WEBHOOK_INVALID_JSON")]
 
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
     """Test app with the real webhook routers mounted at their product paths."""
     from api.routes.kai import gmail
-    from api.routes.one import email
 
     app = FastAPI()
     # The gmail router is mounted under the /api/kai prefix in production
-    # (api/routes/kai/__init__.py); email.router already carries its /api/one
-    # prefix. Reproduce the production mount points here.
+    # (api/routes/kai/__init__.py). Reproduce the production mount point here.
     app.include_router(gmail.router, prefix="/api/kai")
-    app.include_router(email.router)
     return TestClient(app, raise_server_exceptions=False)
 
 

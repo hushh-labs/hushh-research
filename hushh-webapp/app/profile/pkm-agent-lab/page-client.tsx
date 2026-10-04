@@ -128,7 +128,6 @@ type AgentLabResponse = {
   agent_name: string;
   model: string;
   used_fallback: boolean;
-  routing_decision?: string;
   error?: string | null;
   intent_frame?: AgentLabIntentFrame;
   merge_decision?: Record<string, unknown>;

@@ -55,6 +55,9 @@ def _is_user_state_event_type(event_type: str) -> bool:
         "connection_request_resolved",
         "connection_removed",
         "connection_graph_changed",
+        # Direct-message payloads are metadata-only doorbells.  Message
+        # content remains in the participant-scoped encrypted read API.
+        "direct_message",
     }
 
 

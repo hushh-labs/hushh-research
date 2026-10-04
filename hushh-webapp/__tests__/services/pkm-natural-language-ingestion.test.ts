@@ -18,44 +18,9 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
 
 import {
   ingestNaturalLanguagePkm,
-  isExplicitKycIdentitySaveRequest,
   isUnresolvedSourceBlock,
   prepareNaturalLanguagePkm,
 } from "@/lib/pkm/pkm-natural-language-ingestion";
-
-describe("isExplicitKycIdentitySaveRequest", () => {
-  it("recognizes an owner instruction to save a supplied KYC field", () => {
-    expect(
-      isExplicitKycIdentitySaveRequest("Please store my Aadhaar number in my PKM."),
-    ).toBe(true);
-    expect(
-      isExplicitKycIdentitySaveRequest("Save my college roll no to my vault."),
-    ).toBe(true);
-  });
-
-  it("never sends a long multi-section document to the one-call KYC writer", () => {
-    // Production 2026-09-29: a 17,120 character context transfer that asked to
-    // be saved and mentioned a passport went to the KYC writer as ONE call and
-    // came back as three identity cards; fourteen sections were never read.
-    const document = [
-      "Please save all of this to my memory.",
-      "## Identity",
-      "- Preferred name: Sam (synthetic)",
-      "## Immigration",
-      "- Holds a passport from Example Country; work visa renewal due next year",
-      "## Housing",
-      "- Rents an apartment in Synthetic City",
-    ].join("\n");
-    expect(isExplicitKycIdentitySaveRequest(document)).toBe(false);
-    expect(isExplicitKycIdentitySaveRequest(`Save my passport number to my memory. ${"x".repeat(1_300)}`)).toBe(false);
-    expect(isExplicitKycIdentitySaveRequest("Save my passport number X0000000 to my memory.")).toBe(true);
-  });
-
-  it("does not treat ordinary chat or a KYC mention alone as save authorization", () => {
-    expect(isExplicitKycIdentitySaveRequest("My address changed recently.")).toBe(false);
-    expect(isExplicitKycIdentitySaveRequest("Remember that I prefer short replies.")).toBe(false);
-  });
-});
 
 describe("ingestNaturalLanguagePkm", () => {
   beforeEach(() => {

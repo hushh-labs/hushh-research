@@ -251,6 +251,11 @@ class PkmMutationPlanV2(BaseModel):
         default="pkm_structure_agent", pattern=_MACHINE_PROVENANCE_ID_PATTERN
     )
     source_revision: int = Field(default=0, ge=0, le=10_000_000)
+    # The vault-write protocol level of the client that built this plan. It
+    # rides on the plan because the plan reaches the server whole from every
+    # surface (web proxy, iOS and Android plugins). Absent means a client from
+    # before the reserved-branch registry; see min_client_version there.
+    client_version: str | None = Field(default=None, pattern=r"^\d{1,6}\.\d{1,6}\.\d{1,6}$")
     confirmation_receipt: PkmConfirmationReceiptV2
 
     @model_validator(mode="after")

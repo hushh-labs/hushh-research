@@ -343,7 +343,13 @@ def test_calendar_proposal_requires_timezone_and_confirmation_record(
 
     assert result["confirmation_required"] is True
     assert result["proposal_id"].startswith("gcal_")
-    assert any("INSERT INTO google_calendar_action_proposals" in sql for sql, _ in db.calls)
+    request_id = result["plan"]["conference_request_id"]
+    assert request_id.startswith("meet_")
+    proposal_write = next(
+        params for sql, params in db.calls if "INSERT INTO google_calendar_action_proposals" in sql
+    )
+    assert proposal_write is not None
+    assert json.loads(str(proposal_write["payload_json"]))["conference_request_id"] == request_id
 
 
 def test_calendar_proposal_requires_management_access_before_persisting() -> None:
@@ -501,6 +507,120 @@ def test_calendar_execute_rejects_conflicts_that_changed_after_review(
         asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
 
 
+def test_calendar_create_requests_google_meet_and_emails_the_invite(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = {
+        "title": "Client call",
+        "start_at": "2026-08-11T04:30:00Z",
+        "end_at": "2026-08-11T05:00:00Z",
+        "time_zone": "Asia/Kolkata",
+        "attendees": ["person@example.com"],
+        "description": "",
+        "location": "",
+        "send_updates": True,
+        "conflicts": [],
+        "conference_request_id": "meet_persisted_request",
+    }
+
+    class _ClaimDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
+            self.calls.append((sql, params))
+            if "RETURNING action" in sql:
+                return SimpleNamespace(
+                    data=[{"action": "create", "payload_json": plan, "expected_event_etag": None}]
+                )
+            return SimpleNamespace(data=[])
+
+    service = GoogleCalendarService(db=_ClaimDb(), connections=_Connections())
+    requests: list[dict[str, object]] = []
+
+    async def created(**kwargs: object) -> dict[str, object]:
+        requests.append(kwargs)
+        return {
+            "id": "google-event-id",
+            "summary": "Client call",
+            "conferenceData": {
+                "entryPoints": [
+                    {
+                        "entryPointType": "video",
+                        "uri": "https://meet.google.com/abc-defg-hij",
+                    }
+                ],
+                "createRequest": {"status": {"statusCode": "success"}},
+            },
+        }
+
+    monkeypatch.setattr(service, "_find_conflicts", _no_conflicts)
+    monkeypatch.setattr(service, "_request", created)
+    result = asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+
+    assert requests == [
+        {
+            "user_id": "user-1",
+            "method": "POST",
+            "path": "/calendars/primary/events",
+            "access": "manage",
+            "params": {"sendUpdates": "all", "conferenceDataVersion": 1},
+            "payload": {
+                "summary": "Client call",
+                "description": None,
+                "location": None,
+                "start": {"dateTime": "2026-08-11T04:30:00Z", "timeZone": "Asia/Kolkata"},
+                "end": {"dateTime": "2026-08-11T05:00:00Z", "timeZone": "Asia/Kolkata"},
+                "attendees": [{"email": "person@example.com"}],
+                "conferenceData": {
+                    "createRequest": {
+                        "requestId": "meet_persisted_request",
+                        "conferenceSolutionKey": {"type": "hangoutsMeet"},
+                    }
+                },
+            },
+        }
+    ]
+    assert result["event"]["conference_url"] == "https://meet.google.com/abc-defg-hij"
+    assert result["event"]["conference_status"] == "success"
+
+
+def test_calendar_create_legacy_proposal_generates_a_meet_request_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    plan = {
+        "title": "Client call",
+        "start_at": "2026-08-11T04:30:00Z",
+        "end_at": "2026-08-11T05:00:00Z",
+        "time_zone": "Asia/Kolkata",
+        "attendees": [],
+        "description": "",
+        "location": "",
+        "send_updates": True,
+        "conflicts": [],
+    }
+
+    class _ClaimDb(_Db):
+        def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
+            self.calls.append((sql, params))
+            if "RETURNING action" in sql:
+                return SimpleNamespace(
+                    data=[{"action": "create", "payload_json": plan, "expected_event_etag": None}]
+                )
+            return SimpleNamespace(data=[])
+
+    service = GoogleCalendarService(db=_ClaimDb(), connections=_Connections())
+    requests: list[dict[str, object]] = []
+
+    async def created(**kwargs: object) -> dict[str, object]:
+        requests.append(kwargs)
+        return {"id": "google-event-id", "summary": "Client call"}
+
+    monkeypatch.setattr(service, "_find_conflicts", _no_conflicts)
+    monkeypatch.setattr(service, "_request", created)
+    asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_legacy"))
+
+    request_id = requests[0]["payload"]["conferenceData"]["createRequest"]["requestId"]
+    assert request_id == "meet_legacy_legacy"
+
+
 @pytest.mark.parametrize("cleanup_fails", [False, True])
 def test_calendar_execute_records_confirmed_outcome_for_feed(
     monkeypatch: pytest.MonkeyPatch,
@@ -530,6 +650,7 @@ def test_calendar_execute_records_confirmed_outcome_for_feed(
                                 "location": "",
                                 "send_updates": False,
                                 "conflicts": [],
+                                "conference_request_id": "meet_feed_event",
                             },
                             "expected_event_etag": None,
                         }

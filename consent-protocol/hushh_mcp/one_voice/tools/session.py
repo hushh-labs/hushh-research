@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Literal
 
 from pydantic import Field
@@ -41,7 +42,12 @@ OPENABLE_SCREENS: dict[str, str] = {
     "profile": "route.profile",
     "profile_privacy": "route.profile_privacy",
     "profile_voice_preferences": "route.voice_settings",
+    "person_profile": "route.person_profile",
 }
+
+# The signed-in person's own profile screens. Someone else's profile is
+# person_profile; a user_id here is refused, never silently redirected.
+_OWNER_ONLY_SCREENS = frozenset({"profile", "profile_privacy", "profile_voice_preferences"})
 
 ScreenId = Literal[
     "location_home",
@@ -67,6 +73,7 @@ ScreenId = Literal[
     "profile",
     "profile_privacy",
     "profile_voice_preferences",
+    "person_profile",
 ]
 
 
@@ -83,14 +90,55 @@ class OpenScreenResult(ToolResult):
     gateway_action_id: str | None = None
     circle_id: str | None = None
     user_id: str | None = None
+    public_person_ref: str | None = None
+
+
+def _profile_ref(value: str | None) -> str | None:
+    """The person's public profile ref in canonical UUID form, or None."""
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(str(value)))
+    except ValueError:
+        return None
 
 
 async def open_screen(ctx: ToolContext, args: OpenScreenInput) -> ToolResult:
     action_id = OPENABLE_SCREENS.get(args.screen)
     if action_id is None:
         return Rejected(reason_code="unknown_screen", spoken_facts=["I can't open that screen."])
-    if args.user_id and ctx.entities.person(args.user_id) is None:
+    if args.screen in _OWNER_ONLY_SCREENS and args.user_id and args.user_id != ctx.user_id:
+        return Rejected(
+            reason_code="owner_only_screen",
+            spoken_facts=[
+                f"{args.screen} is the person's own profile. To open someone else's "
+                "profile, use person_profile with their confirmed user_id."
+            ],
+        )
+    if args.screen == "person_profile" and not args.user_id:
+        return Rejected(
+            reason_code="person_required",
+            needs="repeat_name",
+            spoken_facts=["Whose profile? Say their name."],
+        )
+    person = ctx.entities.person(args.user_id) if args.user_id else None
+    if args.user_id and person is None:
         return Rejected(reason_code="person_not_confirmed", needs="disambiguation")
+    if args.screen == "person_profile":
+        ref = _profile_ref(person.public_person_ref if person is not None else None)
+        if ref is None:
+            return Rejected(
+                reason_code="no_profile_ref",
+                spoken_facts=["I can't open their profile from here."],
+            )
+        return OpenScreenResult(
+            status="navigation_dispatched",
+            screen=args.screen,
+            gateway_action_id=action_id,
+            user_id=args.user_id,
+            public_person_ref=ref,
+            spoken_facts=["Opening their profile."],
+        )
     if args.circle_id and ctx.entities.circle(args.circle_id) is None:
         return Rejected(reason_code="circle_not_confirmed", needs="disambiguation")
     return OpenScreenResult(
@@ -113,7 +161,8 @@ TOOLS: tuple[ToolSpec, ...] = (
         description=(
             "Open a screen in the app. Navigation only; it changes nothing. Use it for "
             "'show my map', 'open Location settings', 'show my people', 'open my profile', "
-            "'open Save My Soul', 'start location setup'."
+            "'open Save My Soul', 'start location setup'. 'Open Priya's profile' is "
+            "person_profile with the confirmed user_id; 'profile' is your own profile."
         ),
         handler=open_screen,
     ),

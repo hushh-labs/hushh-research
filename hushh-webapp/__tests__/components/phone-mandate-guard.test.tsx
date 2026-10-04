@@ -106,6 +106,15 @@ vi.mock("@/lib/services/cache-service", () => ({
   },
 }));
 
+
+/**
+ * A waiting guard holds the one boot surface on a stage instead of painting
+ * its own loader; its precise internal detail stays on `data-boot-detail`.
+ */
+function bootHold(detail: string): Element | null {
+  return document.querySelector(`[data-boot-detail="${detail}"]`);
+}
+
 describe("PhoneMandateGuard", () => {
   beforeEach(() => {
     vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
@@ -213,9 +222,7 @@ describe("PhoneMandateGuard", () => {
     );
 
     expect(screen.getByText("profile content")).toBeTruthy();
-    expect(
-      screen.queryByText("Checking phone requirement..."),
-    ).toBeNull();
+    expect(bootHold("Checking phone requirement...")).toBeNull();
     expect(checkVaultMock).not.toHaveBeenCalled();
     expect(refreshCurrentUserIdentityMock).not.toHaveBeenCalled();
     expect(bootstrapStateMock).not.toHaveBeenCalled();
@@ -268,7 +275,7 @@ describe("PhoneMandateGuard", () => {
       </PhoneMandateGuard>,
     );
 
-    expect(screen.getByText("Checking phone requirement...")).toBeTruthy();
+    expect(bootHold("Checking phone requirement...")).toHaveAttribute("data-boot-stage", "phone");
 
     getCachedBootstrapStateMock.mockReturnValue({
       hasVault: true,
@@ -400,7 +407,7 @@ describe("PhoneMandateGuard", () => {
       </PhoneMandateGuard>,
     );
 
-    expect(screen.getByText("Checking phone requirement...")).toBeTruthy();
+    expect(bootHold("Checking phone requirement...")).toHaveAttribute("data-boot-stage", "phone");
     expect(replace).not.toHaveBeenCalled();
     expect(bootstrapStateMock).not.toHaveBeenCalled();
     expect(checkVaultMock).not.toHaveBeenCalled();
@@ -472,7 +479,9 @@ describe("PhoneMandateGuard", () => {
     authValue.loading = true;
     getCachedBootstrapStateMock.mockReturnValue({ hasVault: false, phoneVerified: false });
     render(<PhoneMandateGuard><div>home content</div></PhoneMandateGuard>);
-    await screen.findByText("Checking session...");
+    await waitFor(() =>
+      expect(bootHold("Checking session...")).toHaveAttribute("data-boot-stage", "session"),
+    );
     expect(replace).not.toHaveBeenCalled();
   });
 

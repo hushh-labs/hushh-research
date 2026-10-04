@@ -1,4 +1,5 @@
 "use client";
+import { dispatchCircleChatChanged } from "@/lib/circle-chat/events";
 
 /**
  * Consent Notification Provider
@@ -57,6 +58,7 @@ import {
   isDocumentShareNotificationCandidate,
 } from "@/lib/consent/document-share-consent";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchDirectMessagesUpdated } from "@/lib/direct-messages/direct-message-events";
 import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { subscribeToRemoteOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
@@ -1694,6 +1696,22 @@ export function ConsentNotificationProvider({
       // Preference changes are silent sync doorbells for the owner's other
       // sessions. They are not Feed activity and carry no preference value;
       // mounted consumers repair from their authenticated resources.
+      if ((msgType === "location_circle_message" || msgType === "location_circle_chat_read" || msgType === "location_circle_chat_receipts") && user?.uid) {
+        const circleId = String(data.circle_id || "").trim();
+        if (data.user_id === user.uid && /^[0-9a-f-]{36}$/i.test(circleId)) {
+          dispatchCircleChatChanged(user.uid, circleId);
+          if (msgType === "location_circle_chat_read") CacheSyncService.onFeedExternalReadChanged(user.uid);
+          if (msgType !== "location_circle_chat_receipts") dispatchFeedStateChanged(msgType === "location_circle_chat_read" ? "action" : "arrived");
+        }
+        return;
+      }
+      if (msgType === "location_circle_photo_updated" && user?.uid && data.user_id === user.uid) {
+        const circleId = String(data.circle_id || "").trim();
+        if (/^[0-9a-f-]{36}$/i.test(circleId)) CacheSyncService.onOneLocationStateMutated(user.uid, ["circles"], {
+          notificationType: msgType, circleId, eventId: String(data.message_id || "").trim() || undefined,
+        });
+        return;
+      }
       if (msgType === "location_settings_changed" && user?.uid) {
         const setting = String(data.setting || "").trim();
         CacheSyncService.onOneLocationStateMutated(
@@ -1720,6 +1738,24 @@ export function ConsentNotificationProvider({
             messageId: data.message_id,
           });
         }
+        return;
+      }
+
+      if (msgType === "direct_message" && user?.uid) {
+        // The push is only a metadata doorbell. The inbox/chat owner performs
+        // an authenticated reread, so no message body crosses the FCM boundary.
+        // The same committed message now has a recipient-only Feed projection;
+        // refresh it without changing the push's visible notification behavior.
+        dispatchDirectMessagesUpdated({
+          userId: user.uid,
+          conversationId:
+            String(data.conversation_id || data.conversationId || "").trim() ||
+            null,
+          messageId:
+            String(data.message_id || data.messageId || "").trim() || null,
+          source: "fcm",
+        });
+        dispatchFeedStateChanged("arrived");
         return;
       }
 

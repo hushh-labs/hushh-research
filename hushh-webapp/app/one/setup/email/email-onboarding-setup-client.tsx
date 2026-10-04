@@ -225,6 +225,17 @@ export function EmailOnboardingSetupClient() {
       as="main"
       width="reading"
       className="space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]"
+      nativeTest={{
+        routeId: "/one/setup/email",
+        marker: "native-route-one-setup-email",
+        authState: "authenticated",
+        dataState:
+          loadState === "loading"
+            ? "loading"
+            : loadState === "error"
+              ? "unavailable-valid"
+              : "loaded",
+      }}
     >
       <AppPageHeaderRegion>
         <PageHeader

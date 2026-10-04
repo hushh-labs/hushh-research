@@ -44,6 +44,7 @@ from hushh_mcp.runtime_settings import (
     get_core_security_settings,
     get_optional_gmail_oauth_token_key,
 )
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.gmail_cache_retention import (
     GMAIL_TERMINAL_RUN_RETENTION_DAYS,
 )
@@ -58,6 +59,12 @@ from hushh_mcp.services.gmail_nudges import (
     looks_like_meeting,
     parse_ics_event,
 )
+from hushh_mcp.services.gmail_receipt_cutover import (
+    GMAIL_RECEIPT_CUTOVER_MESSAGE,
+    receipt_storage_status,
+    receipt_storage_writes_enabled,
+    require_receipt_storage_write,
+)
 from hushh_mcp.services.kyc_debug_log import message_ref as kyc_message_ref
 from hushh_mcp.services.kyc_debug_log import trace as trace_kyc_debug
 
@@ -67,6 +74,7 @@ _GOOGLE_OAUTH_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105
 _GOOGLE_OAUTH_REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 _GMAIL_PROFILE_URL = "https://gmail.googleapis.com/gmail/v1/users/me/profile"
+_GOOGLE_USERINFO_URL = "https://openidconnect.googleapis.com/v1/userinfo"
 _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
@@ -1251,6 +1259,46 @@ class GmailReceiptsService:
             return {}
         return parsed if isinstance(parsed, dict) else {}
 
+    def _verified_profile_display_name(self, id_token: str | None) -> str:
+        """Return a Google profile name only after signature/audience verification."""
+
+        token = _clean_text(id_token)
+        if not token:
+            return ""
+        try:
+            claims = google_id_token.verify_oauth2_token(
+                token,
+                GoogleAuthRequest(),
+                audience=self._oauth_client_id(),
+            )
+            if (
+                not isinstance(claims, dict)
+                or not _clean_text(claims.get("sub"))
+                or claims.get("email_verified") is not True
+            ):
+                return ""
+            return ActorIdentityService.validate_display_name(_clean_text(claims.get("name")))
+        except Exception:  # noqa: BLE001 - profile enrichment must not block a durable connect
+            return ""
+
+    async def _seed_verified_google_display_name(self, *, user_id: str, id_token: str) -> None:
+        if not _clean_text(id_token):
+            return
+        display_name = await asyncio.to_thread(self._verified_profile_display_name, id_token)
+        await self._fill_missing_google_display_name(user_id=user_id, display_name=display_name)
+
+    async def _fill_missing_google_display_name(self, *, user_id: str, display_name: str) -> None:
+        if not display_name:
+            return
+        try:
+            await ActorIdentityService().fill_missing_display_name(
+                user_id=user_id,
+                display_name=display_name,
+                source="google_gmail_profile",
+            )
+        except Exception:  # noqa: BLE001 - identity enrichment is non-critical
+            logger.warning("gmail.connect.identity_enrichment_failed user_id=%s", user_id)
+
     def _fetch_connection_row(self, *, user_id: str) -> dict[str, Any] | None:
         result = self.db.execute_raw(
             """
@@ -1619,6 +1667,7 @@ class GmailReceiptsService:
             "last_notification_at": row.get("last_notification_at") if row else None,
             "needs_reauth": connection_state == "needs_reauth",
             "receipt_counts": {"total": receipt_total},
+            **receipt_storage_status(),
         }
 
     async def complete_connect(
@@ -1884,6 +1933,12 @@ class GmailReceiptsService:
         for canceled_run in canceled_runs.data or []:
             self._cancel_local_sync_task(_clean_text(canceled_run.get("run_id")))
 
+        # Gmail already requests OpenID profile scope.  Historically its name
+        # claim was discarded. Fill only a blank account identity from a
+        # signature- and audience-verified token; never replace a chosen name
+        # or write this provider value into encrypted PKM.
+        await self._seed_verified_google_display_name(user_id=user_id, id_token=id_token)
+
         # Persist the first scan before replying to Google. The worker may be
         # accelerated in-process, but the sync-run row is the recovery source
         # of truth after a Cloud Run request ends or an instance restarts.
@@ -1975,26 +2030,42 @@ class GmailReceiptsService:
         profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
         google_email = _clean_text(profile.get("emailAddress")) or None
         history_id = _history_id_text(profile.get("historyId"))
-        if google_email is None and history_id is None:
-            return
+        if google_email is not None or history_id is not None:
+            await self._execute_raw_async(
+                """
+                UPDATE kai_gmail_connections
+                SET google_email = COALESCE(:google_email, google_email),
+                    history_id = COALESCE(:history_id, history_id),
+                    status_refreshed_at = NOW(),
+                    updated_at = NOW()
+                WHERE user_id = :user_id
+                  AND status = 'connected'
+                  AND revoked = FALSE
+                """,
+                {
+                    "user_id": user_id,
+                    "google_email": google_email,
+                    "history_id": history_id,
+                },
+            )
+        # Existing connections predate profile-name enrichment.  The OpenID
+        # userinfo response is authenticated by the owner-bound access token;
+        # use it only to fill a blank local account label and never retain it
+        # in the Gmail connector tables.
+        try:
+            userinfo = await self._http_get_json(_GOOGLE_USERINFO_URL, token=access_token)
+            if isinstance(userinfo, dict) and _to_bool(userinfo.get("email_verified"), False):
+                await self._fill_missing_google_display_name(
+                    user_id=user_id,
+                    display_name=_clean_text(userinfo.get("name")),
+                )
+        except Exception:  # noqa: BLE001 - profile metadata must not affect Gmail access
+            logger.info("gmail.connect.userinfo_enrichment_unavailable user_id=%s", user_id)
 
-        await self._execute_raw_async(
-            """
-            UPDATE kai_gmail_connections
-            SET google_email = COALESCE(:google_email, google_email),
-                history_id = COALESCE(:history_id, history_id),
-                status_refreshed_at = NOW(),
-                updated_at = NOW()
-            WHERE user_id = :user_id
-              AND status = 'connected'
-              AND revoked = FALSE
-            """,
-            {
-                "user_id": user_id,
-                "google_email": google_email,
-                "history_id": history_id,
-            },
-        )
+    async def refresh_owner_identity_profile(self, *, user_id: str) -> None:
+        """Best-effort legacy identity enrichment from the active Gmail grant."""
+
+        await self._refresh_connection_profile(user_id=user_id)
 
     async def _record_connect_queue_failure(self, *, user_id: str, error: Exception) -> None:
         logger.warning("gmail.connect.queue_failed user_id=%s reason=%s", user_id, error)
@@ -3326,6 +3397,8 @@ class GmailReceiptsService:
     async def _upsert_receipt(
         self, *, user_id: str, candidate: ReceiptCandidate, extracted: dict[str, Any]
     ) -> bool:
+        if not receipt_storage_writes_enabled():
+            require_receipt_storage_write()
         result = await self._execute_raw_async(
             """
             WITH upserted AS (
@@ -3880,6 +3953,17 @@ class GmailReceiptsService:
         window_start_at: datetime | None = None,
         window_end_at: datetime | None = None,
     ) -> dict[str, Any]:
+        # The legacy cache is intentionally read-only during the device-owned
+        # Gmail cutover. Return a typed non-acceptance before touching OAuth,
+        # Gmail, or the database so no new provider-derived row can be created.
+        if not receipt_storage_writes_enabled():
+            return {
+                "accepted": False,
+                "reason": "receipt_storage_migration",
+                "message": GMAIL_RECEIPT_CUTOVER_MESSAGE,
+                "run": None,
+            }
+
         if not self.is_configured():
             raise GmailApiError("Gmail OAuth is not configured", status_code=503)
         self._token_key()
@@ -4033,6 +4117,29 @@ class GmailReceiptsService:
         }
 
     async def _run_sync_worker(self, *, run_id: str, user_id: str) -> None:
+        # A queued worker from an older process must be harmless after the
+        # cutover migration. This changes only terminal workflow metadata and
+        # never reads Gmail or writes a receipt row.
+        if not receipt_storage_writes_enabled():
+            await self._execute_raw_async(
+                """
+                UPDATE kai_gmail_sync_runs
+                SET status = 'canceled',
+                    error_message = :error_message,
+                    completed_at = COALESCE(completed_at, NOW()),
+                    updated_at = NOW()
+                WHERE run_id = :run_id
+                  AND user_id = :user_id
+                  AND status IN ('queued', 'running')
+                """,
+                {
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "error_message": GMAIL_RECEIPT_CUTOVER_MESSAGE,
+                },
+            )
+            return
+
         started_at = _utcnow()
         listed_count = 0
         filtered_count = 0

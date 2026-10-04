@@ -89,7 +89,8 @@ describe("Agent One chat workspace wiring contract", () => {
     expect(source).toContain("onOpenConnectors={!isPuppySurface");
     expect(source).toContain("openConnectorSurface(undefined, trigger)");
     expect(source).not.toContain("connectionsAvailable");
-    expect(source).toContain("initialConnector={connectorPanelInitialConnector}");
+    // The catalog is Connectors in the Profile pane, opened over the chat.
+    expect(source).toContain("profileConnectorsLocation(");
   });
 
   it("keeps slow history warming out of the canonical chat interaction path", () => {
@@ -101,7 +102,7 @@ describe("Agent One chat workspace wiring contract", () => {
 
     const runTurnGuard = source.slice(
       source.indexOf("if (!text.trim()"),
-      source.indexOf("// Pre-model paste guard"),
+      source.indexOf("// Last line before the model"),
     );
     expect(runTurnGuard).not.toContain("isLoadingHistory");
 
@@ -145,8 +146,8 @@ describe("Agent One proactive Calendar cards wiring contract", () => {
 });
 
 // The in-chat, agent-initiated Calendar directive stays explicit and governed,
-// but uses the shared confirmation surface. This keeps one interaction model
-// for specialist actions and avoids reintroducing the retired proactive cards.
+// and mounts a calendar-specific confirmation card only for the persisted
+// proposal. Connection authorization remains on the shared surface.
 describe("Agent One in-chat Calendar directive cards wiring contract", () => {
   it("keeps Calendar directive parsing bounded to explicit action payloads", () => {
     const parserStart = source.indexOf(
@@ -165,10 +166,11 @@ describe("Agent One in-chat Calendar directive cards wiring contract", () => {
 
   const normalized = source.replace(/\s+/g, " ");
 
-  it("renders one generic governed confirmation surface for Calendar directives", () => {
-    expect(normalized).toContain(
-      'pendingSpecialistDirective.delegateAgentId === "agent_calendar" ? ( <SpecialistDirectiveCard',
-    );
+  it("renders the structured card only for an explicit Calendar proposal", () => {
+    expect(normalized).toContain('type === "calendar.execute_proposal"');
+    expect(normalized).toContain("<AgentCalendarProposalCard");
+    expect(normalized).toContain("googleMeet={payload.googleMeet === true}");
+    expect(normalized).toContain("<SpecialistDirectiveCard");
   });
 
   it("keeps Calendar connection confirmation in place on the shared OAuth path", () => {

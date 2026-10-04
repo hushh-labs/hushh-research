@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildPkmMemoryCardsFromNode,
   buildPkmMemorySnapshot,
   deletePkmDomainValue,
   pkmMemoryRowLabels,
@@ -321,5 +322,33 @@ describe("global card budget fairness", () => {
     expect(snapshot.cards.length).toBeLessThanOrEqual(8);
     expect(domains.has("wallet")).toBe(true);
     expect(domains.size).toBe(4);
+  });
+});
+
+describe("Memory policy for app-owned branches (reserved-branches.v1.json)", () => {
+  const cardsAt = (domain: string, value: unknown) =>
+    buildPkmMemoryCardsFromNode({
+      domain,
+      domainTitle: domain,
+      value,
+      sourceLabel: "Saved memory",
+      updatedAt: null,
+      pathSegments: [],
+    });
+
+  it("makes an item in a reserved branch read-only and names the app that owns it", () => {
+    const [card] = cardsAt("location", { saved_places: { home: { label: "Home" } } });
+    expect(card?.editable).toBe(false);
+    expect(card?.reservedOwner).toEqual({
+      ownerFeature: "location",
+      appName: "Location",
+      routePattern: "/one/location",
+    });
+  });
+
+  it("keeps an item in the agent_memory sibling editable (negative control)", () => {
+    const [card] = cardsAt("location", { agent_memory: { entities: { mem_1: { summary: "Near the lake" } } } });
+    expect(card?.editable).toBe(true);
+    expect(card?.reservedOwner).toBeNull();
   });
 });

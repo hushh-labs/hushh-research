@@ -3,6 +3,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import hushh_mcp.services.feed_service as feed_service_module
+from hushh_mcp.services.direct_messages_service import DirectMessagesError
 from hushh_mcp.services.feed_service import (
     POSTGRES_BIGINT_MAX,
     FeedService,
@@ -85,6 +87,10 @@ class _QueuedDb:
         self.raw_calls.append((sql, params))
         data = self.raw_results.pop(0) if self.raw_results else []
         return SimpleNamespace(data=data)
+
+
+_DIRECT_MESSAGE_ID = "11111111-1111-4111-8111-111111111111"
+_DIRECT_MESSAGE_CONVERSATION_ID = "22222222-2222-4222-8222-222222222222"
 
 
 def test_source_backed_feed_event_uses_idempotent_projection_insert() -> None:
@@ -234,6 +240,154 @@ def test_recipient_share_outcome_hides_owner_zero_match_result() -> None:
     )
     assert recipient["metadata"]["user_facing_status"] == "no_files_shared"
     assert owner["metadata"]["user_facing_status"] == "no_match"
+
+
+def test_direct_message_feed_body_is_only_a_recipient_scoped_transient_preview(
+    monkeypatch,
+) -> None:
+    class _Cipher:
+        def open(self, row: dict) -> str:
+            assert row["id"] == _DIRECT_MESSAGE_ID
+            assert row["sender_user_id"] == "sender-user"
+            return "  hi\nthere  "
+
+    monkeypatch.setattr(feed_service_module, "DirectMessageCipher", lambda: _Cipher())
+    list_query = _Query(
+        data=[
+            {
+                "id": 10,
+                "source_domain": "connections",
+                "event_type": "direct_message_received",
+                "actor_label": None,
+                "metadata": {},
+                "source_row_id": _DIRECT_MESSAGE_ID,
+                "read_at": None,
+                "created_at": "2026-10-04T10:00:00Z",
+            }
+        ]
+    )
+    count_query = _Query(count=1)
+    service = FeedService()
+    service._durable_counterpart_photos = lambda *_: {}
+    service._db = _QueuedDb(
+        list_query,
+        count_query,
+        raw_results=[
+            [
+                {
+                    "source_row_id": _DIRECT_MESSAGE_ID,
+                    "id": _DIRECT_MESSAGE_ID,
+                    "conversation_id": _DIRECT_MESSAGE_CONVERSATION_ID,
+                    "sender_user_id": "sender-user",
+                    "content_ciphertext": "opaque",
+                    "content_iv": "opaque",
+                    "content_algorithm": "aes-256-gcm-aad-v1",
+                    "user_id": "sender-user",
+                    "display_name": "Rohan",
+                    "email": "rohan@example.test",
+                }
+            ]
+        ],
+    )
+
+    result = service.list_feed("recipient-user", limit=20)
+
+    assert result["items"] == [
+        {
+            "id": "10",
+            "source_domain": "connections",
+            "event_type": "direct_message_received",
+            "actor_label": None,
+            "metadata": {
+                "counterpart_label": "Rohan",
+                "direct_message_conversation_id": _DIRECT_MESSAGE_CONVERSATION_ID,
+                "message_preview": "hi there",
+            },
+            "read": False,
+            "created_at": "2026-10-04T10:00:00Z",
+        }
+    ]
+    # The Feed row itself remains plaintext-free; only the authenticated DTO
+    # acquires the result of opening the message envelope.
+    assert list_query.data[0]["metadata"] == {}
+    sql, params = service._db.raw_calls[0]
+    assert "feed.user_id = :viewer_user_id" in sql
+    assert "conversation.participant_a_user_id = message.sender_user_id" in sql
+    assert "conversation.participant_b_user_id = message.sender_user_id" in sql
+    assert params == {
+        "viewer_user_id": "recipient-user",
+        "message_ids_json": f'["{_DIRECT_MESSAGE_ID}"]',
+    }
+
+
+def test_direct_message_feed_never_promotes_persisted_body_or_route_metadata() -> None:
+    item = FeedService._to_item(
+        {
+            "id": 11,
+            "event_type": "direct_message_received",
+            "metadata": {
+                "message_preview": "must not come from feed storage",
+                "direct_message_conversation_id": _DIRECT_MESSAGE_CONVERSATION_ID,
+                "content": "hi",
+                "ciphertext": "opaque",
+            },
+        }
+    )
+
+    assert item["metadata"] == {}
+
+
+def test_unavailable_direct_message_body_keeps_a_generic_feed_item(monkeypatch) -> None:
+    class _UnavailableCipher:
+        def open(self, _row: dict) -> str:
+            raise DirectMessagesError(
+                "DIRECT_MESSAGE_CONTENT_UNAVAILABLE",
+                "unavailable",
+                status_code=503,
+            )
+
+    monkeypatch.setattr(
+        feed_service_module,
+        "DirectMessageCipher",
+        lambda: _UnavailableCipher(),
+    )
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "source_row_id": _DIRECT_MESSAGE_ID,
+                    "conversation_id": _DIRECT_MESSAGE_CONVERSATION_ID,
+                    "sender_user_id": "sender-user",
+                    "content_ciphertext": "opaque",
+                    "content_iv": "opaque",
+                    "content_algorithm": "aes-256-gcm-aad-v1",
+                    "user_id": "sender-user",
+                    "display_name": "Rohan",
+                }
+            ]
+        ]
+    )
+
+    enriched = service._with_direct_message_previews(
+        "recipient-user",
+        [
+            {
+                "id": 10,
+                "source_domain": "connections",
+                "event_type": "direct_message_received",
+                "metadata": {},
+                "source_row_id": _DIRECT_MESSAGE_ID,
+            }
+        ],
+    )
+
+    item = FeedService._to_item(enriched[0])
+    assert item["metadata"] == {
+        "counterpart_label": "Rohan",
+        "direct_message_conversation_id": _DIRECT_MESSAGE_CONVERSATION_ID,
+    }
+    assert "message_preview" not in item["metadata"]
 
 
 def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:

@@ -46,10 +46,12 @@ gcloud run jobs create "$job_name" \
   --task-timeout 45m \
   --set-env-vars "^|^ENVIRONMENT=uat|HUSHH_DEPLOY_ENV=uat|HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu" \
   --command python \
-  --args "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json" \
+  --args "scripts/eval_pkm_structure_agent.py,--phase,release_chain_24,--skip-shadow,--reps,3,--enforce-gates,--fail-fast,--json-out,/tmp/pkm-structure-agent-eval.json" \
   --quiet
 
-echo "Running synthetic candidate PKM upgrade evaluator..."
+# Three repetitions: --enforce-gates fails a run whose variance is unmeasured
+# (n < 3) or whose gated rates spread by more than 0.10 across repetitions.
+echo "Running synthetic candidate PKM upgrade evaluator (n=3)..."
 gcloud run jobs execute "$job_name" \
   --project "$GCP_PROJECT_ID" \
   --region "$GCP_REGION" \

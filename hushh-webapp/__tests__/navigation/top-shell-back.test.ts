@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
+import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
 import {
   navigateTopShellBack,
   resolveTopShellBackAction,
@@ -104,5 +106,23 @@ describe("top shell back action", () => {
     expect(
       resolveTopShellBackAction({ pathname: "/one/location/map" }),
     ).toMatchObject({ href: "/one/location", transitionMode: "full" });
+  });
+
+  // Terms and Privacy used to bypass the app shell with a hand-made back chip.
+  // They sit in the core shell now: its top bar, its Back, its breadcrumb.
+  it.each([
+    ["/terms", "Terms of Use"],
+    ["/privacy", "Privacy Policy"],
+  ])("gives %s the core top bar, with Back to sign-in", (pathname, title) => {
+    expect(resolveTopShellRouteProfile(pathname).id).toBe("standard");
+    expect(resolveTopShellBreadcrumb(pathname)?.items).toEqual([
+      { label: "Legal" },
+      { label: title },
+    ]);
+    expect(resolveTopShellBackAction({ pathname })).toEqual({
+      href: "/login",
+      mode: "push",
+      transitionMode: "full",
+    });
   });
 });

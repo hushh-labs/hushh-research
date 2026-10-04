@@ -156,8 +156,10 @@ def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
     ).read_text()
 
     assert "PKM_UPGRADE_PROTECTED_UAT=1" in workflow
-    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" in workflow
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" not in workflow
     assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED" in gate
+    assert "Protected UAT requires a local structure-agent evaluation" not in gate
+    assert "Skipping live structure-agent evaluation: not explicitly requested." in gate
     assert "Verify candidate PKM evaluator in Cloud Run" in workflow
     assert "Resolve UAT verification plan" in workflow
     assert "resolve-uat-verification-plan.py" in workflow

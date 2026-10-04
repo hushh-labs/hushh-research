@@ -26,6 +26,7 @@ from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.gmail_cache_retention import (
     GMAIL_PREVIEW_RETENTION_DAYS,
 )
+from hushh_mcp.services.gmail_receipt_cutover import require_receipt_storage_write
 
 logger = logging.getLogger(__name__)
 
@@ -1355,6 +1356,10 @@ class ReceiptMemoryPreviewService:
         force_refresh: bool = False,
         consent_token: str = "",
     ) -> dict[str, Any]:
+        # Creating a new artifact would persist provider-derived shopping
+        # information on the server. Existing artifacts may be read through
+        # their explicit endpoint until expiry, but no new preview is created.
+        require_receipt_storage_write()
         projection = await self.projection_service.build_projection(user_id=user_id)
         source = _json_object(projection.get("source"))
         watermark_hash = _clean_text(source.get("source_watermark_hash"))

@@ -86,7 +86,11 @@ import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { isNative } from "@/lib/capacitor/platform";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { buildPersonProfileRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildDirectMessageRoute,
+  buildPersonProfileRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import {
   CONNECT_CIRCLE_ACTION_PARAM,
   CONNECT_CIRCLE_ID_PARAM,
@@ -100,6 +104,13 @@ import {
   type ConnectSurface,
 } from "@/lib/navigation/connect-routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  DIRECTORY_PASSIVE_REFRESH_AFTER_MS,
+  directoryRetryDelayMs,
+  isDirectoryRateLimited,
+  readSavedDirectoryFirstPage,
+  saveDirectoryFirstPage,
+} from "@/lib/connect/directory-first-page-cache";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import {
   CACHE_KEYS,
@@ -611,7 +622,21 @@ export default function ConnectPageClient() {
   }, [query]);
   const debouncedQuery = useDebouncedValue(query, 300);
 
-  const [people, setPeople] = useState<DirectoryPerson[]>([]);
+  // The last People list this session showed, painted at once and replaced by
+  // the refresh below. It also stays on screen when that refresh is refused, so
+  // people already known are never swapped for an error. Browse only: a typed
+  // search is a different result set.
+  const [people, setPeople] = useState<DirectoryPerson[]>(() =>
+    query.trim()
+      ? []
+      : (readSavedDirectoryFirstPage(user?.uid, "all")?.items ?? []),
+  );
+  const peopleCountRef = useRef(people.length);
+  peopleCountRef.current = people.length;
+  // When the directory was last read, for any reason. Passive triggers (focus,
+  // reconnect) reread only once this is old enough; see
+  // `DIRECTORY_PASSIVE_REFRESH_AFTER_MS`.
+  const lastDirectoryReadAtRef = useRef(0);
   // The last first page this session saw, painted on the first render and
   // replaced by the refresh below. Until either exists the list is unknown,
   // not empty: it opened on "My connections (0) · No connections yet" and
@@ -653,6 +678,7 @@ export default function ConnectPageClient() {
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
   const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
   const connectionReconcileQueuedRef = useRef(false);
+  const directoryReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const suppressNextLocalGraphEventRef = useRef(false);
   const [outgoingRequestIds, setOutgoingRequestIds] = useState<
@@ -666,6 +692,11 @@ export default function ConnectPageClient() {
   const [directoryRetryNonce, setDirectoryRetryNonce] = useState(0);
   const pageSize = DEFAULT_PAGE_SIZE;
   const [error, setError] = useState<string | null>(null);
+  const [errorRateLimited, setErrorRateLimited] = useState(false);
+  // The last browse read of the first page was refused, so a quiet retry is
+  // owed (see the effect below).
+  const [directoryRefused, setDirectoryRefused] = useState(false);
+  const directoryRetryAttemptRef = useRef(0);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
@@ -901,8 +932,15 @@ export default function ConnectPageClient() {
   );
 
   const reconcileConnectionSurfaces = useCallback(
-    ({ ensureAfterCurrent = false }: { ensureAfterCurrent?: boolean } = {}) => {
+    ({
+      ensureAfterCurrent = false,
+      refreshDirectory = true,
+    }: {
+      ensureAfterCurrent?: boolean;
+      refreshDirectory?: boolean;
+    } = {}) => {
       if (!user) return Promise.resolve();
+      if (refreshDirectory) directoryReconcileQueuedRef.current = true;
       const active = connectionReconcileInFlightRef.current;
       if (active) {
         if (ensureAfterCurrent) connectionReconcileQueuedRef.current = true;
@@ -918,7 +956,10 @@ export default function ConnectPageClient() {
             }),
             loadOutgoingRequestIds(),
           ]);
-          setDirectoryRefreshNonce((nonce) => nonce + 1);
+          if (directoryReconcileQueuedRef.current) {
+            directoryReconcileQueuedRef.current = false;
+            setDirectoryRefreshNonce((nonce) => nonce + 1);
+          }
           setCircleRefreshToken((token) => token + 1);
         } while (connectionReconcileQueuedRef.current);
       };
@@ -1030,11 +1071,17 @@ export default function ConnectPageClient() {
       }
       void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
     });
+    const directoryIsDueForPassiveRefresh = () =>
+      Date.now() - lastDirectoryReadAtRef.current >=
+      DIRECTORY_PASSIVE_REFRESH_AFTER_MS;
     const refreshWhenActive = (ensureAfterCurrent = false) => {
       if (document.visibilityState === "hidden") return;
       if (connectionReconcileInFlightRef.current) {
         if (ensureAfterCurrent) {
-          void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+          void reconcileConnectionSurfaces({
+            ensureAfterCurrent: true,
+            refreshDirectory: directoryIsDueForPassiveRefresh(),
+          });
         }
         return;
       }
@@ -1046,7 +1093,14 @@ export default function ConnectPageClient() {
         return;
       }
       lastForegroundReconcileAtRef.current = now;
-      void reconcileConnectionSurfaces({ ensureAfterCurrent });
+      void reconcileConnectionSurfaces({
+        ensureAfterCurrent,
+        // Coming back to the screen repairs the connections list, which is
+        // cheap. The directory is reread only if it has gone stale, so a
+        // person switching windows does not spend the directory's request
+        // budget on every return.
+        refreshDirectory: directoryIsDueForPassiveRefresh(),
+      });
     };
     const refreshOnFocus = () => refreshWhenActive();
     const refreshOnOnline = () => refreshWhenActive(true);
@@ -1078,7 +1132,13 @@ export default function ConnectPageClient() {
     // while Connect remains visible, since FCM and SSE are best-effort.
     const timer = window.setInterval(() => {
       if (document.visibilityState === "visible") {
-        void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+        // Idle repair reads must not spend the person's directory search
+        // allowance. Mutations, push, focus and outgoing-resolution events
+        // still refresh the directory through the normal reconciliation path.
+        void reconcileConnectionSurfaces({
+          ensureAfterCurrent: true,
+          refreshDirectory: false,
+        });
       }
     }, 60_000);
     return () => window.clearInterval(timer);
@@ -1208,10 +1268,18 @@ export default function ConnectPageClient() {
     // arrive. A different owner, audience, or search must clear stale results.
     if (renderedDirectoryScopeKey !== directoryScopeKey) {
       setRenderedDirectoryScopeKey(directoryScopeKey);
-      setPeople([]);
+      // The saved list for the new audience, when there is one; otherwise
+      // empty, so rows from the old audience never sit under the new heading.
+      setPeople(
+        trimmedQuery
+          ? []
+          : (readSavedDirectoryFirstPage(user?.uid, directoryAudience)?.items ??
+              []),
+      );
     }
     setHasMore(false);
     setError(null);
+    setErrorRateLimited(false);
     setLoading(true);
   }
 
@@ -1224,6 +1292,9 @@ export default function ConnectPageClient() {
         if (currentPage <= 1) setHasMore(false);
         setLoading(true);
         setError(null);
+        setErrorRateLimited(false);
+        setDirectoryRefused(false);
+        lastDirectoryReadAtRef.current = Date.now();
         const idToken = await user.getIdToken();
         const page = await ConnectionsService.searchDirectory({
           idToken,
@@ -1248,6 +1319,12 @@ export default function ConnectPageClient() {
                 ],
           );
           setHasMore(page.hasMore && page.items.length > 0);
+          if (currentPage === 1) {
+            directoryRetryAttemptRef.current = 0;
+            if (!trimmedQuery) {
+              saveDirectoryFirstPage(user.uid, directoryAudience, page);
+            }
+          }
           // Selections deliberately survive this. They used to be pruned to
           // whoever the new page happened to show, on the reasoning that a
           // count the reader cannot see is a promise the surface can't account
@@ -1258,12 +1335,30 @@ export default function ConnectPageClient() {
           // before anything is sent, so nothing is promised unseen.
         }
       } catch (loadError) {
-        if (!cancelled)
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "Failed to load people",
-          );
+        if (!cancelled) {
+          // A refused or failed refresh of a list that is already on screen
+          // changes nothing the person can see: the people they were shown are
+          // still the best answer, and an error row (or a retry button to
+          // press again and again) would only take them away. Only a list with
+          // nothing to show, or a later page that did not arrive, reports it.
+          const keepsKnownPeople =
+            currentPage === 1 && peopleCountRef.current > 0;
+          const rateLimited = isDirectoryRateLimited(loadError);
+          // A refused browse read is retried quietly, whatever is on screen.
+          if (currentPage === 1 && !trimmedQuery && rateLimited) {
+            setDirectoryRefused(true);
+          }
+          if (!keepsKnownPeople) {
+            setErrorRateLimited(rateLimited);
+            setError(
+              rateLimited
+                ? "We'll keep trying and show everyone here as soon as they're ready."
+                : loadError instanceof Error
+                  ? loadError.message
+                  : "Failed to load people",
+            );
+          }
+        }
       } finally {
         if (!cancelled) {
           directoryRequestPendingRef.current = false;
@@ -1291,6 +1386,21 @@ export default function ConnectPageClient() {
     surface,
     tab,
   ]);
+
+  // A rate limit is not something the person can fix by pressing a button, so
+  // there is no button: the read is retried on its own, with growing pauses,
+  // until it succeeds.
+  useEffect(() => {
+    if (!directoryRefused) return;
+    const timer = window.setTimeout(
+      () => {
+        directoryRetryAttemptRef.current += 1;
+        setDirectoryRetryNonce((nonce) => nonce + 1);
+      },
+      directoryRetryDelayMs(directoryRetryAttemptRef.current),
+    );
+    return () => window.clearTimeout(timer);
+  }, [directoryRefused]);
 
   const selectSurface = useCallback(
     (next: ConnectSurface) => {
@@ -2879,7 +2989,7 @@ export default function ConnectPageClient() {
       as="main"
       data-connect-page=""
       fitContent
-      width="reading"
+      width={circleFlowAction === "circle-detail" ? "agent" : "reading"}
       className="relative isolate"
       nativeTest={{
         routeId: "/one/connect",
@@ -2915,7 +3025,7 @@ export default function ConnectPageClient() {
       <SettingsPresentationProvider density="compact">
         {isFocusedCircleTask ? (
           <AppPageContentRegion className={CONNECT_PAGE_CONTENT_CLASSNAME}>
-            <div className="mx-auto w-full max-w-[560px]">
+            <div className={cn("mx-auto w-full", circleFlowAction !== "circle-detail" && "max-w-[560px]")}>
               <ConnectCirclesTab
                 onStateChange={setCirclesState}
                 currentUserId={user?.uid ?? null}
@@ -3203,18 +3313,26 @@ export default function ConnectPageClient() {
                                         CONNECT_ROW_TRAILING_CLASSNAME,
                                       )}
                                     >
-                                      <Button
-                                        type="button"
-                                        variant="none"
-                                        effect="fade"
-                                        size="compact"
-                                        disabled
-                                        title="Messaging is coming soon"
-                                        aria-label={`Message ${connection.displayName || "connection"} (coming soon)`}
-                                        className="!border !border-[color:var(--app-accent)] !bg-transparent !px-3 !text-[color:var(--app-accent)] disabled:!opacity-100"
-                                      >
-                                        Message
-                                      </Button>
+                                      {connection.publicPersonRef ? (
+                                        <Button
+                                          type="button"
+                                          variant="none"
+                                          effect="fade"
+                                          size="compact"
+                                          aria-label={`Message ${connection.displayName || connection.userId}`}
+                                          className="!border !border-[color:var(--app-accent)] !bg-transparent !px-3 !text-[color:var(--app-accent)]"
+                                          onClick={(event) => {
+                                            event.stopPropagation();
+                                            router.push(
+                                              buildDirectMessageRoute({
+                                                personRef: connection.publicPersonRef,
+                                              }),
+                                            );
+                                          }}
+                                        >
+                                          Message
+                                        </Button>
+                                      ) : null}
                                       <Button
                                         type="button"
                                         variant="none"
@@ -3441,27 +3559,35 @@ export default function ConnectPageClient() {
                               ) : error && people.length === 0 ? (
                                 <SettingsRow
                                   title={
-                                    isAdvisorTab
-                                      ? "Advisors are unavailable"
-                                      : "People are unavailable"
+                                    errorRateLimited
+                                      ? isAdvisorTab
+                                        ? "Advisors are taking a moment"
+                                        : "People are taking a moment"
+                                      : isAdvisorTab
+                                        ? "Advisors are unavailable"
+                                        : "People are unavailable"
                                   }
                                   description={error}
                                   trailing={
-                                    <Button
-                                      type="button"
-                                      variant="none"
-                                      effect="fade"
-                                      size="compact"
-                                      className={
-                                        CONNECT_INLINE_BUTTON_CLASSNAME
-                                      }
-                                      onClick={loadNextDirectoryBatch}
-                                    >
-                                      Try again
-                                    </Button>
+                                    errorRateLimited ? undefined : (
+                                      <Button
+                                        type="button"
+                                        variant="none"
+                                        effect="fade"
+                                        size="compact"
+                                        className={
+                                          CONNECT_INLINE_BUTTON_CLASSNAME
+                                        }
+                                        onClick={loadNextDirectoryBatch}
+                                      >
+                                        Try again
+                                      </Button>
+                                    )
                                   }
                                   density="compact"
-                                  tone="destructive"
+                                  tone={
+                                    errorRateLimited ? "default" : "destructive"
+                                  }
                                 />
                               ) : people.length === 0 ? (
                                 // Tested against the list that is actually rendered below,
