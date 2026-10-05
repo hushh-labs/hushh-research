@@ -138,6 +138,14 @@ it("captures the Needs you rows", () => {
           }} />
         ))}
       </SettingsGroup>
+      <SettingsGroup title="Agent outcomes" separatorInset>
+        {["drive_share_unconfirmed", "drive_bulk_partial", "mail_mailbox_failed", "calendar_action_failed", "connector_reconnect_required"].map((eventType, index) => (
+          <FeedRow key={eventType} onOpen={() => {}} item={{
+            id: String(index + 20), source_domain: "connected_systems", event_type: eventType,
+            actor_label: "Sample app", metadata: {}, read: false, created_at: "2026-08-17T02:34:00Z",
+          }} />
+        ))}
+      </SettingsGroup>
     </SettingsPresentationProvider>,
   );
   writeFileSync(

@@ -55,6 +55,14 @@ import {
   waitForOAuthPopup,
   type DrivePopupAttempt,
 } from "@/lib/profile/drive-oauth-popup";
+import {
+  clearCuratedPopupAttempt,
+  createCuratedPopupAttempt,
+  navigateCuratedOAuthPopup,
+  openCuratedOAuthPopup,
+  waitForCuratedPopup,
+  type CuratedPopupAttempt,
+} from "@/lib/profile/curated-connector-popup";
 import { connectCalendarInPlace } from "@/lib/connections/google-connect-in-place";
 import { OAUTH_WINDOW_BLOCKED_COPY } from "@/lib/connections/oauth-window";
 import {
@@ -70,7 +78,6 @@ import {
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import {
-  saveCuratedConnectorSettingsHandoff,
   type DriveChatRecoveryReason,
 } from "@/lib/agent/drive-oauth-chat-recovery";
 import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
@@ -106,8 +113,6 @@ type Props = {
   onClearRecovery?: () => Promise<void>;
 };
 const touch = "min-h-11 min-w-11 whitespace-normal";
-// Operator-registered OAuth connectors that sign in through the generic flow.
-const CURATED_OAUTH_CONNECTORS: ReadonlySet<string> = new Set(["hubspot"]);
 const labels: Record<string, string> = {
   not_connected: "Not connected",
   revoked: "Not connected",
@@ -381,6 +386,7 @@ function OwnerConnectorsPanel({
   const [liveBackgroundError, setLiveBackgroundError] = useState(false);
   const [liveBackgroundRead, retryLiveBackground] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [catalogLoadFailed, setCatalogLoadFailed] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
   const [mailMessage, setMailMessage] = useState("");
@@ -395,6 +401,7 @@ function OwnerConnectorsPanel({
   const [calendarMessage, setCalendarMessage] = useState("");
   const [curatedBusy, setCuratedBusy] = useState(false);
   const [curatedMessage, setCuratedMessage] = useState("");
+  const [curatedPopupPending, setCuratedPopupPending] = useState(false);
   // Coming back from the provider's consent page with Back can restore this page
   // from the bfcache with the in-flight flag still set; nothing is in flight then.
   useEffect(() => {
@@ -451,11 +458,36 @@ function OwnerConnectorsPanel({
   const currentToken = useRef(vaultOwnerToken);
   const curatedRequest = useRef(0);
   const curatedDisconnectId = useRef<string | null>(null);
+  // The in-session curated sign-in: `session` ends it with the owner session,
+  // `cancel` is the person's own Cancel sign-in.
+  const curatedPopupSession = useRef<AbortController | null>(null);
+  const curatedPopupCancel = useRef<AbortController | null>(null);
+  // Two taps in one frame both read the same `curatedBusy`; each would open a
+  // window and leave an orphan attempt. This lock is synchronous.
+  const curatedLock = useRef(false);
+  // The connector the open sign-in window belongs to, so only its detail view
+  // offers Cancel.
+  const [curatedPopupFor, setCuratedPopupFor] = useState<string | null>(null);
+  const latestOverview = useRef<ConnectorOverview | null>(null);
+  const ownerUid = user?.uid;
+  useEffect(
+    () => () => curatedPopupSession.current?.abort(),
+    [ownerUid],
+  );
   useLayoutEffect(() => {
     if (currentToken.current !== vaultOwnerToken) {
       // A renewed owner token retires the old async request. The catalog is
       // re-read below with the new token; do not leave an old row spinning.
+      // The one exception is a sign-in the person is completing at the provider:
+      // the vault renews its owner token shortly before expiry, and that must not
+      // close their window. Only locking the vault (no token) or a different
+      // owner ends it; its own refresh reads the current token when it settles.
+      if (curatedPopupSession.current && vaultOwnerToken) {
+        currentToken.current = vaultOwnerToken;
+        return;
+      }
       curatedRequest.current++;
+      curatedPopupSession.current?.abort();
       const id = curatedDisconnectId.current;
       if (id) {
         changesInFlight.current.delete(`curated:${id}`);
@@ -540,6 +572,7 @@ function OwnerConnectorsPanel({
     }
     const request = ++overviewRead.current;
     setStatusChecked(false);
+    setCatalogLoadFailed(false);
     setLoading(true);
     onCatalogStateChange?.("loading");
     try {
@@ -550,7 +583,9 @@ function OwnerConnectorsPanel({
         request !== overviewRead.current
       )
         return false;
+      latestOverview.current = result;
       setOverview(result);
+      setCatalogLoadFailed(false);
       setStatusChecked(true);
       onCatalogStateChange?.("loaded");
       return true;
@@ -559,10 +594,12 @@ function OwnerConnectorsPanel({
         !signal?.aborted &&
         currentToken.current === token &&
         request === overviewRead.current
-      )
+      ) {
+        setCatalogLoadFailed(true);
         setDriveMessage(
           "Could not check Drive. Retry before starting another connection.",
         );
+      }
       if (!signal?.aborted && currentToken.current === token && request === overviewRead.current) {
         onCatalogStateChange?.("unavailable-valid");
       }
@@ -1541,13 +1578,13 @@ function OwnerConnectorsPanel({
   };
   const curatedRolloutEnabled = overview?.features.curated_mcp_connectors === true;
   const connectCurated = (connectorId: string, name: string) => {
-    if (!vaultOwnerToken || !user?.uid || curatedBusy) return;
+    if (!vaultOwnerToken || !user?.uid || curatedBusy || curatedLock.current) return;
     const connector = overview?.connectors.find((item) => item.connectorId === connectorId);
     if (
       !connector ||
-      !CURATED_OAUTH_CONNECTORS.has(connectorId) ||
+      connector.curatedOAuth !== true ||
       !curatedRolloutEnabled ||
-      connector.available === false
+      connector.available !== true
     ) {
       setCuratedMessage(name + " is unavailable here.");
       return;
@@ -1556,38 +1593,98 @@ function OwnerConnectorsPanel({
       setCuratedMessage(`Connect ${name} on the web. It works here once connected.`);
       return;
     }
-    const ownerId = user.uid;
+    curatedLock.current = true;
+    // Open the sign-in window synchronously in the click, before any awaited
+    // work, so the browser keeps the user gesture. This window never navigates
+    // on this path, so the memory-only vault key and the chat survive.
+    const popup = openCuratedOAuthPopup();
+    if (!popup) {
+      // Both a popup and a tab were refused. Like Mail, Calendar and Drive, stay
+      // here: a full-page redirect would reload the app and re-lock the vault.
+      curatedLock.current = false;
+      setCuratedMessage(OAUTH_WINDOW_BLOCKED_COPY);
+      return;
+    }
     const token = vaultOwnerToken;
     const signal = controller.current?.signal;
     const request = ++curatedRequest.current;
     setCuratedBusy(true);
     setCuratedMessage("");
-    void ExternalConnectorService.startOAuthConnect({
-      vaultOwnerToken: token,
-      connectorId,
-      redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
-      flow: "web",
-    })
-      .then((start) => {
-        if (signal?.aborted || currentToken.current !== token || curatedRequest.current !== request) return;
-        const authorizeUrl = new URL(start.authorizeUrl);
-        if (
-          authorizeUrl.protocol !== "https:" ||
-          !start.attemptId ||
-          start.connectorId !== connectorId
-        ) throw new Error("invalid_start");
-        saveCuratedConnectorSettingsHandoff({
-          ownerUserId: ownerId,
-          attemptId: start.attemptId,
-          curatedConnector: { connectorId },
-        });
-        window.location.assign(authorizeUrl.href);
-      })
-      .catch(() => {
-        if (signal?.aborted || curatedRequest.current !== request) return;
-        setCuratedMessage(`Could not start ${name}. Try again.`);
-        setCuratedBusy(false);
-      });
+    const session = new AbortController();
+    const attemptCancel = new AbortController();
+    curatedPopupSession.current = session;
+    curatedPopupCancel.current = attemptCancel;
+    setCuratedPopupPending(true);
+    setCuratedPopupFor(connectorId);
+    const endSession = () => session.abort();
+    const close = () => popup.close();
+    signal?.addEventListener("abort", endSession, { once: true });
+    attemptCancel.signal.addEventListener("abort", endSession, { once: true });
+    session.signal.addEventListener("abort", close, { once: true });
+    if (signal?.aborted) endSession();
+    void (async () => {
+      let attempt: CuratedPopupAttempt | null = null;
+      // A renewed owner token does not end the sign-in (see the token effect);
+      // locking the vault, a new owner, unmounting or Cancel does.
+      const current = () => !session.signal.aborted && curatedRequest.current === request;
+      try {
+        let start: Awaited<ReturnType<typeof ExternalConnectorService.startOAuthConnect>>;
+        try {
+          start = await ExternalConnectorService.startOAuthConnect({
+            vaultOwnerToken: token,
+            connectorId,
+            redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
+            flow: "web",
+            signal: session.signal,
+          });
+        } catch {
+          if (attemptCancel.signal.aborted) {
+            if (!signal?.aborted && curatedRequest.current === request) setCuratedMessage("Sign-in cancelled.");
+            return;
+          }
+          if (!current()) return;
+          setCuratedMessage(`Could not start ${name}. Try again.`);
+          return;
+        }
+        if (!current()) return;
+        if (!start.attemptId || start.connectorId !== connectorId) throw new Error("invalid_start");
+        attempt = createCuratedPopupAttempt(connectorId, start.attemptId);
+        navigateCuratedOAuthPopup(popup, attempt, start.authorizeUrl);
+        await waitForCuratedPopup(popup, attempt, session.signal, attemptCancel.signal);
+        if (attemptCancel.signal.aborted) {
+          if (!signal?.aborted && curatedRequest.current === request) setCuratedMessage("Sign-in cancelled.");
+          return;
+        }
+        // The popup's outcome is advisory: re-read the owner-authenticated
+        // status and report what the server says, not what a message claimed.
+        if (current() && (await refresh(session.signal))) {
+          const status = latestOverview.current?.connectors.find(
+            (item) => item.connectorId === connectorId,
+          )?.status;
+          setCuratedMessage(
+            status === "connected" ? `${name} connected.` : "Sign-in did not finish. Try again.",
+          );
+        }
+      } catch {
+        if (current()) setCuratedMessage(`Could not start ${name}. Try again.`);
+      } finally {
+        if (attempt) clearCuratedPopupAttempt(attempt);
+        signal?.removeEventListener("abort", endSession);
+        attemptCancel.signal.removeEventListener("abort", endSession);
+        session.signal.removeEventListener("abort", close);
+        popup.close();
+        if (curatedPopupSession.current === session) curatedPopupSession.current = null;
+        if (curatedPopupCancel.current === attemptCancel) {
+          curatedPopupCancel.current = null;
+          if (!signal?.aborted) {
+            setCuratedPopupPending(false);
+            setCuratedPopupFor(null);
+          }
+        }
+        if (curatedRequest.current === request && !signal?.aborted) setCuratedBusy(false);
+        curatedLock.current = false;
+      }
+    })();
   };
   const confirmAction = () => {
     const target = confirm;
@@ -1600,8 +1697,9 @@ function OwnerConnectorsPanel({
       const token = vaultOwnerToken;
       const signal = controller.current?.signal;
       if (
-        !overview?.connectors.some((item) => item.connectorId === connectorId) ||
-        !CURATED_OAUTH_CONNECTORS.has(connectorId) ||
+        !overview?.connectors.some(
+          (item) => item.connectorId === connectorId && item.curatedOAuth === true,
+        ) ||
         !token || !signal || signal.aborted || curatedBusy
       ) return;
       changesInFlight.current.add(target);
@@ -1776,6 +1874,30 @@ function OwnerConnectorsPanel({
           : driveBusy;
   const mailConnected = Boolean(gmail.status?.connected && !gmail.status?.needs_reauth);
   const driveConnected = ["connected", "verifying"].includes(drive?.status ?? "");
+  const calendarNeedsReconnect = calendar.status?.status === "needs_reauth";
+  const calendarStatusLabel = calendar.error
+    ? "Status unavailable"
+    : !calendar.loaded
+      ? "Checking Calendar connection…"
+      : calendar.connected
+        ? "Connected"
+        : calendarNeedsReconnect
+          ? "Reconnect needed"
+          : "Not connected";
+  const calendarDescription = calendar.error
+    ? "We couldn’t check your calendar connection."
+    : !calendar.loaded
+      ? "Checking your calendar connection."
+      : calendar.connected
+        ? calendar.status?.access_level === "manage"
+          ? "Your private agent can help schedule meetings. You approve every change."
+          : "Your private agent can check your availability."
+        : calendarNeedsReconnect
+          ? "Reconnect to keep planning around your schedule."
+          : "Plan around your schedule.";
+  const calendarConnectLabel = calendarNeedsReconnect
+    ? "Reconnect Calendar"
+    : "Connect Calendar";
   const showConnector = (id: string) => {
     setConfirm(null);
     setActiveConnector(id);
@@ -1839,11 +1961,13 @@ function OwnerConnectorsPanel({
         ? "Status unavailable"
         : !calendar.loaded
           ? "Checking connection…"
-          : calendar.status?.status === "needs_reauth"
-            ? "Sign-in needed"
-            : undefined,
+          : calendar.connected
+            ? "Connected"
+            : calendarNeedsReconnect
+              ? "Reconnect needed"
+              : "Plan around your schedule.",
       action: !calendar.loaded || calendar.error ? undefined : {
-        label: calendar.connected ? "Disconnect Calendar" : "Connect Calendar",
+        label: calendar.connected ? "Disconnect Calendar" : calendarConnectLabel,
         onClick: () => {
           if (calendar.connected) {
             askToDisconnect("calendar", "calendar", true);
@@ -1873,21 +1997,32 @@ function OwnerConnectorsPanel({
     },
     ...(overview?.connectors ?? [])
       .filter((item, index, items) => {
-        if (["notion", "google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId)) return false;
+        if (["google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId)) return false;
         if (items.findIndex((candidate) => candidate.connectorId === item.connectorId) !== index) return false;
+        // A reviewed manifest may request a card before its runtime row is
+        // actionable. It is still rendered, but can never grant OAuth itself.
+        if (item.catalogCard === true) return true;
         // A curated connector shows when it can accept a new grant, or while
         // an existing owner grant still needs a Disconnect/recovery path.
-        if (CURATED_OAUTH_CONNECTORS.has(item.connectorId)) {
+        if (item.curatedOAuth === true) {
           const hasExistingGrant = !["not_connected", "revoked"].includes(item.status);
-          return (curatedRolloutEnabled && item.available !== false) || hasExistingGrant;
+          return (curatedRolloutEnabled && item.available === true) || hasExistingGrant;
         }
         return true;
       })
       .map((item): ConnectorListEntry => {
         const storedGrant = !["not_connected", "revoked"].includes(item.status);
-        const curated = CURATED_OAUTH_CONNECTORS.has(item.connectorId);
+        const curated = item.curatedOAuth === true;
         const canStartCurated =
-          curated && curatedRolloutEnabled && item.available !== false;
+          curated && curatedRolloutEnabled && item.available === true;
+        const catalogStateLabel =
+          item.catalogState === "setup_pending"
+            ? "Setup pending"
+            : item.catalogState === "discovery_pending"
+              ? "Discovery pending"
+              : item.catalogState === "unavailable"
+                ? "Unavailable"
+                : undefined;
         // A curated connection stuck before verification cannot be used by Kai,
         // so it reads as needing sign-in rather than as connected.
         const signInNeeded =
@@ -1896,13 +2031,14 @@ function OwnerConnectorsPanel({
           id: item.connectorId,
           name: item.displayName,
           detail:
-            signInNeeded && canStartCurated
+            catalogStateLabel ??
+            (signInNeeded && canStartCurated
               ? "Sign-in needed"
               : curated && storedGrant && !canStartCurated
                 ? "Unavailable"
-                : undefined,
+                : undefined),
           connected: curated ? item.status === "connected" : storedGrant,
-          onOpen: storedGrant || curated ? () => showConnector(item.connectorId) : undefined,
+          onOpen: storedGrant || canStartCurated ? () => showConnector(item.connectorId) : undefined,
           pending: disconnecting[item.connectorId] ? "disconnect" : undefined,
           failure: disconnectFailures[item.connectorId],
           action: !curated
@@ -1913,15 +2049,19 @@ function OwnerConnectorsPanel({
                   onClick: () => {
                     showConnector(item.connectorId);
                     connectCurated(item.connectorId, item.displayName);
-                  },
-                  disabled: curatedBusy || loading,
-                }
-              : {
+                },
+                disabled: curatedBusy || loading,
+              }
+              : storedGrant
+                ? {
                   label: `Disconnect ${item.displayName}`,
                   onClick: () => askToDisconnect(item.connectorId, `curated:${item.connectorId}`, true),
                   disabled: curatedBusy,
-                },
-          trailingText: !storedGrant && !curated ? labels[item.status] : undefined,
+                }
+                : undefined,
+          trailingText:
+            catalogStateLabel ??
+            (!storedGrant && !curated ? labels[item.status] : undefined),
         };
       }),
   ];
@@ -1942,9 +2082,9 @@ function OwnerConnectorsPanel({
   );
   const canStartSelectedCurated = Boolean(
     selectedCatalog &&
-      CURATED_OAUTH_CONNECTORS.has(selectedCatalog.connectorId) &&
+      selectedCatalog.curatedOAuth === true &&
       curatedRolloutEnabled &&
-      selectedCatalog.available !== false,
+      selectedCatalog.available === true,
   );
 
   const inProfile = surface === "profile";
@@ -1952,6 +2092,26 @@ function OwnerConnectorsPanel({
     ["Connected", connectedEntries],
     ["Available", availableEntries],
   ] as const;
+  const catalogState = !overview && loading ? (
+    <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+      Loading connector catalog…
+    </p>
+  ) : catalogLoadFailed ? (
+    <div className="flex items-center justify-between gap-3 rounded-xl bg-foreground/10 px-3 py-2">
+      <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
+        Connector catalog unavailable. Try again.
+      </p>
+      <Button
+        size="compact"
+        variant="ghost"
+        className={touch}
+        onClick={() => void refresh(controller.current?.signal)}
+        disabled={loading}
+      >
+        Retry connector catalog
+      </Button>
+    </div>
+  ) : null;
   return (
     <div
       ref={panelRootRef}
@@ -2008,6 +2168,7 @@ function OwnerConnectorsPanel({
           </p>
         ) : !activeConnector && inProfile ? (
           <>
+            {catalogState}
             {listSections.map(([heading, items]) =>
               items.length === 0 ? null : (
                 <SettingsGroup key={heading} title={heading} testId={`profile-connectors-${heading.toLowerCase()}`}>
@@ -2035,6 +2196,7 @@ function OwnerConnectorsPanel({
                 className="min-h-11 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
               />
             </label>
+            {catalogState}
             {listSections.map(([heading, items]) =>
               query && items.length === 0 ? null : (
                 <section key={heading} aria-label={heading} className="space-y-2">
@@ -2483,16 +2645,83 @@ function OwnerConnectorsPanel({
               )}
             </section>}
             {activeConnector === "calendar" && (
-              <section className="space-y-3 rounded-xl border border-border p-3" aria-label="Calendar details">
-                <p role="status" className="text-sm">{calendar.error ? "Status unavailable" : calendar.connected ? "Connected" : calendar.status?.status === "needs_reauth" ? "Sign-in needed" : "Not connected"}</p>
-                {calendar.connected ? (
-                  <Button size="compact" variant="outline" disabled={calendarBusy} onClick={() => setConfirm("calendar")}>Disconnect Calendar</Button>
-                ) : (
-                  <Button size="compact" disabled={calendarBusy} onClick={() => connectCalendar()}>Connect Calendar</Button>
-                )}
-                {calendarPopupPending && <Button size="compact" variant="outline" onClick={() => calendarPopupCancel.current?.abort()}>Cancel sign-in</Button>}
-                {calendar.error ? <Button size="compact" variant="ghost" onClick={() => calendar.refresh()}>Retry</Button> : null}
-                {calendarBusy || calendarMessage ? <p role="status" aria-live="polite" className="text-sm text-muted-foreground">{calendarPopupPending ? "Finish signing in with Google in the window that opened." : calendarBusy ? "Updating Calendar…" : calendarMessage}</p> : null}
+              <section
+                aria-label="Calendar details"
+                className="space-y-6 rounded-3xl border border-border bg-foreground/[0.04] p-5 sm:p-6"
+              >
+                <div className="space-y-1.5">
+                  <h3 className="text-xl font-semibold tracking-tight">
+                    Google Calendar
+                  </h3>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {calendarDescription}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  <p role="status" className="text-lg font-medium">
+                    {calendarStatusLabel}
+                  </p>
+                  {calendar.connected ? (
+                    <Button
+                      className={touch}
+                      size="compact"
+                      variant="outline"
+                      disabled={calendarBusy}
+                      onClick={() => setConfirm("calendar")}
+                    >
+                      Disconnect Calendar
+                    </Button>
+                  ) : (
+                    <Button
+                      className={`${touch} h-12 px-6 text-base font-semibold`}
+                      disabled={calendarBusy}
+                      onClick={() => connectCalendar()}
+                    >
+                      {calendarConnectLabel}
+                    </Button>
+                  )}
+                  {!calendar.error && !calendar.connected && !calendarNeedsReconnect ? (
+                    <p className="text-sm text-muted-foreground">
+                      Private by default. Disconnect anytime.
+                    </p>
+                  ) : calendar.connected ? (
+                    <p className="text-sm text-muted-foreground">
+                      Disconnect anytime.
+                    </p>
+                  ) : null}
+                  {calendarPopupPending && (
+                    <Button
+                      size="compact"
+                      variant="outline"
+                      onClick={() => calendarPopupCancel.current?.abort()}
+                    >
+                      Cancel sign-in
+                    </Button>
+                  )}
+                  {calendar.error ? (
+                    <Button
+                      size="compact"
+                      variant="ghost"
+                      onClick={() => calendar.refresh()}
+                    >
+                      Retry
+                    </Button>
+                  ) : null}
+                  {calendarBusy || calendarMessage ? (
+                    <p
+                      role="status"
+                      aria-live="polite"
+                      className="text-sm text-muted-foreground"
+                    >
+                      {calendarPopupPending
+                        ? "Finish signing in with Google in the window that opened."
+                        : calendarBusy
+                          ? "Updating Calendar…"
+                          : calendarMessage}
+                    </p>
+                  ) : null}
+                </div>
               </section>
             )}
             {activeConnector === "plaid" && (
@@ -2525,16 +2754,16 @@ function OwnerConnectorsPanel({
                 <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
                 {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
                 <p role="status" className="text-sm">
-                  {CURATED_OAUTH_CONNECTORS.has(selectedCatalog.connectorId) &&
+                  {selectedCatalog.curatedOAuth === true &&
                   !canStartSelectedCurated &&
                   !["not_connected", "revoked"].includes(selectedCatalog.status)
                     ? "Unavailable"
-                    : CURATED_OAUTH_CONNECTORS.has(selectedCatalog.connectorId) &&
+                    : selectedCatalog.curatedOAuth === true &&
                         selectedCatalog.status === "verifying"
                       ? "Sign-in needed"
                     : (labels[selectedCatalog.status] ?? "Status unavailable")}
                 </p>
-                {CURATED_OAUTH_CONNECTORS.has(selectedCatalog.connectorId) ? (
+                {selectedCatalog.curatedOAuth === true ? (
                   <>
                     <div className="flex flex-wrap gap-2">
                       {canStartSelectedCurated &&
@@ -2545,6 +2774,11 @@ function OwnerConnectorsPanel({
                           onClick={() => connectCurated(selectedCatalog.connectorId, selectedCatalog.displayName)}
                         >
                           {["needs_reauth", "verifying"].includes(selectedCatalog.status) ? "Reconnect" : "Connect"}
+                        </Button>
+                      ) : null}
+                      {curatedPopupPending && curatedPopupFor === selectedCatalog.connectorId ? (
+                        <Button className={touch} variant="outline" onClick={() => curatedPopupCancel.current?.abort()}>
+                          Cancel sign-in
                         </Button>
                       ) : null}
                       {!["not_connected", "revoked"].includes(selectedCatalog.status) ? (

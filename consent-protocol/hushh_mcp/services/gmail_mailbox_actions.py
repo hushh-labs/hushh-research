@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, get_args
@@ -32,6 +33,7 @@ from hushh_mcp.services.gmail_receipts_service import (
 )
 
 MailboxAction = Literal["archive", "add_label", "remove_label", "mark_read", "mark_unread", "trash"]
+logger = logging.getLogger(__name__)
 MAILBOX_ACTIONS: frozenset[str] = frozenset(get_args(MailboxAction))
 LABEL_ACTIONS = frozenset({"add_label", "remove_label"})
 _BASE = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -184,11 +186,22 @@ class GmailMailboxActions:
                 {"proposal_id": proposal_id, "user_id": user_id},
             )
             raise
-        await self._sql(
-            """DELETE FROM gmail_mailbox_action_proposals
-               WHERE proposal_id = :proposal_id AND user_id = :user_id""",
-            {"proposal_id": proposal_id, "user_id": user_id},
-        )
+        # A receipt/cleanup outage must not turn provider success into a
+        # retryable write. The consumed proposal remains unavailable until TTL.
+        try:
+            await self._sql(
+                """UPDATE gmail_mailbox_action_proposals SET status = 'executed'
+                   WHERE proposal_id = :proposal_id AND user_id = :user_id
+                     AND status = 'executing'""",
+                {"proposal_id": proposal_id, "user_id": user_id},
+            )
+            await self._sql(
+                """DELETE FROM gmail_mailbox_action_proposals
+                   WHERE proposal_id = :proposal_id AND user_id = :user_id""",
+                {"proposal_id": proposal_id, "user_id": user_id},
+            )
+        except Exception:
+            logger.warning("gmail_mailbox_receipt_cleanup_failed")
         return {"status": "executed", "action": proposal["action"], "count": len(message_ids)}
 
     async def _apply(

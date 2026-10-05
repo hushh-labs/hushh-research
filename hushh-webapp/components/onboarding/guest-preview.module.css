@@ -129,10 +129,8 @@
   box-shadow: var(--app-card-shadow-standard);
 }
 .brandMark {
-  font-family:
-    "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 5rem;
-  line-height: 1;
+  width: 5rem;
+  height: 5rem;
 }
 .circle {
   --circle-ink: var(--agent-icon-profile-fg);
@@ -574,7 +572,8 @@
     padding: 0.625rem 0.875rem;
   }
   .brandMark {
-    font-size: 3.75rem;
+    width: 3.75rem;
+    height: 3.75rem;
   }
   .brandCenter {
     width: 30%;
@@ -665,7 +664,8 @@
     width: 30%;
   }
   .brandMark {
-    font-size: 3rem;
+    width: 3rem;
+    height: 3rem;
   }
   .circle {
     width: 5.75rem;

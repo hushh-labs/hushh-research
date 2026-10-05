@@ -2130,7 +2130,12 @@ describe("OneLocationAgentPage", () => {
     const primary = await screen.findByTestId("one-location-now-primary");
     expect(
       within(primary).getByRole("button", { name: "Share location" }),
-    ).toBeTruthy();
+    ).toHaveClass(
+      "h-[50px]",
+      "min-h-[50px]",
+      "w-full",
+      "max-w-[244px]",
+    );
     expect(within(primary).getByText("You're not sharing")).toBeTruthy();
     expect(
       within(primary).getByText("Choose a Circle or contact."),
@@ -5643,12 +5648,18 @@ describe("OneLocationAgentPage", () => {
       name: /Create link/i,
     });
     expect(createLinkButton).toHaveClass(
-      "self-start",
-      "w-fit",
-      "min-w-[9rem]",
+      "h-[50px]",
+      "min-h-[50px]",
+      "w-full",
+      "rounded-full",
     );
     expect(createLinkButton.className).not.toContain("mx-auto");
-    expect(createLinkButton.className).not.toContain("w-full");
+    expect(createLinkButton.parentElement).toHaveClass(
+      "mx-auto",
+      "w-full",
+      "max-w-[244px]",
+      "items-stretch",
+    );
     expect(screen.getByText("Temporary link")).toBeTruthy();
     expect(
       screen.getByText(
@@ -5658,11 +5669,18 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByText("Duration")).toBeTruthy();
     const durationSelect = screen.getByRole("combobox", { name: "Duration" });
     expect(durationSelect).toBeTruthy();
-    expect(durationSelect.parentElement).toHaveClass(
-      "w-full",
+    expect(durationSelect.parentElement).toHaveClass("w-full");
+    expect(durationSelect.parentElement?.className).not.toContain(
       "max-w-[260px]",
     );
-    expect(durationSelect.parentElement?.className).not.toContain("mx-auto");
+    const createLinkSummaryRow = screen
+      .getByText("Create a temporary link")
+      .closest('[data-testid="settings-row"]');
+    expect(createLinkSummaryRow).toHaveClass("after:hidden");
+    expect(createLinkSummaryRow?.parentElement).toHaveAttribute(
+      "data-inset-separators",
+      "true",
+    );
     expect(screen.queryByText("Active links")).toBeNull();
     expect(screen.queryByText("Link stays live for")).toBeNull();
     // The paragraph that used to sit under the heading is gone.
@@ -9656,7 +9674,16 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByRole("button", { name: /^Create link$/i })).toBeNull();
     expect(screen.queryByText("Duration")).toBeNull();
     // Ending it stays reachable -- that is the only exit.
-    expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
+    const revoke = screen.getByRole("button", { name: /Revoke link/i });
+    expect(revoke.parentElement).not.toHaveClass("border-t");
+    const liveLinkGroup = screen.getByTestId(
+      "one-location-links-temporary-link",
+    );
+    const liveLinkRows = liveLinkGroup.querySelector(
+      '[data-ui-role="grouped-card"] > div',
+    );
+    expect(liveLinkRows).toHaveClass("divide-y-0");
+    expect(liveLinkRows).not.toHaveAttribute("data-inset-separators");
   });
 
   it("removes revoked link actions even when refreshing the workspace fails", async () => {

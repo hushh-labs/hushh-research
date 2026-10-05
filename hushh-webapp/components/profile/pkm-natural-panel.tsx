@@ -10,6 +10,8 @@ import {
 import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 import { PkmMemoryRow } from "@/components/profile/pkm-memory-row";
+import { LocationMemoryView } from "@/components/profile/location-memory-view";
+import { buildLocationMemoryPresentation, findLocationMemoryFieldForCard, resolveLocationMemoryField } from "@/lib/profile/location-memory-presentation";
 import { ROUTES } from "@/lib/navigation/routes";
 import { PkmMemoryLevel } from "@/components/profile/pkm-memory-level";
 import {
@@ -87,11 +89,14 @@ import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { useVault } from "@/lib/vault/vault-context";
 
 type DomainDetailState = {
+  session?: MemoryReadSession;
   manifest: DomainManifest | null;
   data: Record<string, unknown> | null;
   loading: boolean;
   error: boolean;
 };
+
+type MemoryReadSession = symbol;
 
 type MemoryWorkspaceTab = "browse" | "add" | "sharing";
 const MEMORY_WORKSPACE_TABS = [
@@ -161,15 +166,25 @@ function CaptureCardDescription({
 export function PkmNaturalPanel({
   refreshToken = 0,
   view = "home",
+  locationMemoryId = null,
 }: {
   refreshToken?: number;
   onOpenExplorer?: () => void;
   /** "recent" renders the full Recently learned list on its own route. */
-  view?: "home" | "recent";
+  view?: "home" | "recent" | "location" | "location-detail";
+  locationMemoryId?: string | null;
 } = {}) {
   const router = useRouter();
   const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt } = useVault();
+  const locationView = view === "location" || view === "location-detail";
+  // Cache tags change with authority, without retaining copies of vault keys.
+  const memoryReadSession = useMemo(() => Symbol(
+    user?.uid && vaultKey && vaultOwnerToken && isVaultUnlocked ? "authorized-memory-session" : "unavailable-memory-session",
+  ), [user?.uid, vaultKey, vaultOwnerToken, isVaultUnlocked]);
+  const memoryReadSessionRef = useRef(memoryReadSession);
+  memoryReadSessionRef.current = memoryReadSession;
+  const locationSnapshot = useRef<{ session: MemoryReadSession; data: Record<string, unknown> } | null>(null);
   useReviewerPkmProof({ userId: user?.uid ?? null, authLoading, sessionVerificationRequired,
     isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt });
   const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
@@ -195,20 +210,40 @@ export function PkmNaturalPanel({
   }, []);
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
-  const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
+  const [metadataState, setMetadataState] = useState<{ session: MemoryReadSession; metadata: PersonalKnowledgeModelMetadata | null } | null>(null);
+  const metadata = metadataState?.session === memoryReadSession ? metadataState.metadata : null;
+  const setMetadata = useCallback((nextMetadata: PersonalKnowledgeModelMetadata | null) => {
+    if (memoryReadSessionRef.current === memoryReadSession) setMetadataState({ session: memoryReadSession, metadata: nextMetadata });
+  }, [memoryReadSession]);
   const [activeGrants, setActiveGrants] = useState<ConsentCenterEntry[]>([]);
   const [sharingResolved, setSharingResolved] = useState(false);
   const [bootstrapLoading, setBootstrapLoading] = useState(true);
   const [bootstrapError, setBootstrapError] = useState(false);
   const [refreshNonce, setRefreshNonce] = useState(0);
-  const [selectedDomainKey, setSelectedDomainKey] = useState<string | null>(null);
+  const [localDomainKey, setSelectedDomainKey] = useState<string | null>(null);
+  const selectedDomainKey = locationView ? "location" : localDomainKey;
   const [pathStack, setPathStack] = useState<PkmPathSegment[]>([]);
-  const [selectedCard, setSelectedCard] = useState<PkmMemoryCard | null>(null);
+  const [localSelectedCard, setSelectedCard] = useState<PkmMemoryCard | null>(null);
   const [domainDetail, setDomainDetail] = useState<DomainDetailState>(EMPTY_DOMAIN_DETAIL);
+  const canBrowseLocation = metadata?.domains.some((domain) => domain.key === "location" && isConsumerBrowsablePkmDomain(domain)) ?? false;
+  const locationPresentation = useMemo(() => buildLocationMemoryPresentation({
+    data: canBrowseLocation && domainDetail.session === memoryReadSession ? domainDetail.data : null,
+  }), [canBrowseLocation, domainDetail, memoryReadSession]);
+  const locationField = view === "location-detail" ? resolveLocationMemoryField(locationPresentation, locationMemoryId) : null;
+  const selectedCard = locationView ? locationField?.card ?? null : localSelectedCard;
   const [memoryCardsNonce, setMemoryCardsNonce] = useState(0);
-  const [memoryActionId, setMemoryActionId] = useState<string | null>(null);
+  const [memoryActionState, setMemoryActionState] = useState<{ session: MemoryReadSession; id: string | null } | null>(null);
+  const memoryActionId = memoryActionState?.session === memoryReadSession ? memoryActionState.id : null;
+  const setMemoryActionId = useCallback((id: string | null) => {
+    if (memoryReadSessionRef.current === memoryReadSession) setMemoryActionState({ session: memoryReadSession, id });
+  }, [memoryReadSession]);
   const [memoryActionError, setMemoryActionError] = useState<string | null>(null);
-  const [sharingImpacts, setSharingImpacts] = useState<Record<string, PkmMutationSharingImpact>>({});
+  const [sharingImpactState, setSharingImpactState] = useState<{ session: MemoryReadSession; values: Record<string, PkmMutationSharingImpact> }>({ session: memoryReadSession, values: {} });
+  const sharingImpacts = sharingImpactState.session === memoryReadSession ? sharingImpactState.values : {};
+  const setSharingImpacts = useCallback((update: Record<string, PkmMutationSharingImpact> | ((current: Record<string, PkmMutationSharingImpact>) => Record<string, PkmMutationSharingImpact>)) => {
+    if (memoryReadSessionRef.current !== memoryReadSession) return;
+    setSharingImpactState((current) => ({ session: memoryReadSession, values: typeof update === "function" ? update(current.session === memoryReadSession ? current.values : {}) : update }));
+  }, [memoryReadSession]);
   const [sharingImpactError, setSharingImpactError] = useState<string | null>(null);
   const [sharingImpactRefreshNonce, setSharingImpactRefreshNonce] = useState(0);
   const [autoSavePolicy, setAutoSavePolicy] = useState<AgentPkmAutoSavePolicy>(
@@ -334,8 +369,16 @@ export function PkmNaturalPanel({
   const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
-  const [selectedCardManifest, setSelectedCardManifest] = useState<DomainManifest | null>(null);
-  const [memorySharingActionId, setMemorySharingActionId] = useState<string | null>(null);
+  const [cardManifestState, setCardManifestState] = useState<{ session: MemoryReadSession; manifest: DomainManifest | null } | null>(null);
+  const selectedCardManifest = cardManifestState?.session === memoryReadSession ? cardManifestState.manifest : null;
+  const setSelectedCardManifest = useCallback((manifest: DomainManifest | null) => {
+    if (memoryReadSessionRef.current === memoryReadSession) setCardManifestState({ session: memoryReadSession, manifest });
+  }, [memoryReadSession]);
+  const [memorySharingActionState, setMemorySharingActionState] = useState<{ session: MemoryReadSession; id: string | null } | null>(null);
+  const memorySharingActionId = memorySharingActionState?.session === memoryReadSession ? memorySharingActionState.id : null;
+  const setMemorySharingActionId = useCallback((id: string | null) => {
+    if (memoryReadSessionRef.current === memoryReadSession) setMemorySharingActionState({ session: memoryReadSession, id });
+  }, [memoryReadSession]);
   const [memorySharingError, setMemorySharingError] = useState<string | null>(null);
   const [homeSearchQuery, setHomeSearchQuery] = useState("");
   const [memoryCards, setMemoryCards] = useState<PkmMemoryCard[]>([]);
@@ -407,6 +450,7 @@ export function PkmNaturalPanel({
     };
   }, [
     authLoading,
+    setMetadata,
     isVaultUnlocked,
     pkmChangeRevision,
     refreshNonce,
@@ -531,13 +575,17 @@ export function PkmNaturalPanel({
           ? "unavailable-valid"
           : metadata === null
             ? "loading"
+            : view === "location-detail" && !locationField
+              ? "unavailable-valid"
+              : locationView && locationPresentation.sections.length === 0
+                ? "empty-valid"
             : visibleMetadataDomains.length === 0
               ? "empty-valid"
               : "loaded";
   const nativeBeacon = (
     <NativeTestBeacon
-      routeId={view === "recent" ? ROUTES.PKM_RECENT : ROUTES.PKM}
-      marker={view === "recent" ? "native-route-pkm-recent" : "native-route-pkm"}
+      routeId={view === "location-detail" ? ROUTES.PKM_LOCATION_DETAIL : view === "location" ? ROUTES.PKM_LOCATION : view === "recent" ? ROUTES.PKM_RECENT : ROUTES.PKM}
+      marker={view === "location-detail" ? "native-route-pkm-location-detail" : view === "location" ? "native-route-pkm-location" : view === "recent" ? "native-route-pkm-recent" : "native-route-pkm"}
       authState={user ? "authenticated" : authLoading ? "pending" : "anonymous"}
       dataState={nativeDataState}
       errorCode={nativeDataState === "error" ? "pkm_memory_unavailable" : null}
@@ -584,6 +632,7 @@ export function PkmNaturalPanel({
     };
   }, [
     domainMemoryCards,
+    setSharingImpacts,
     selectedMetadataDomain,
     sharingImpactRefreshNonce,
     user,
@@ -623,6 +672,7 @@ export function PkmNaturalPanel({
         if (cancelled) return;
 
         setDomainDetail({
+          session: memoryReadSession,
           manifest,
           data: domainData,
           loading: false,
@@ -630,7 +680,7 @@ export function PkmNaturalPanel({
         });
       } catch {
         if (!cancelled) {
-          setDomainDetail({ ...EMPTY_DOMAIN_DETAIL, error: true });
+          setDomainDetail({ ...EMPTY_DOMAIN_DETAIL, session: memoryReadSession, error: true });
         }
       }
     }
@@ -641,6 +691,7 @@ export function PkmNaturalPanel({
     };
   }, [
     isVaultUnlocked,
+    memoryReadSession,
     memoryCardsNonce,
     pkmChangeRevision,
     selectedMetadataDomain,
@@ -685,6 +736,7 @@ export function PkmNaturalPanel({
   useEffect(() => {
     let cancelled = false;
     if (
+      locationView ||
       workspaceTab !== "browse" ||
       !user ||
       !isVaultUnlocked ||
@@ -697,6 +749,7 @@ export function PkmNaturalPanel({
     setMemoryCardsLoadError(false);
     const loadedDomains: Record<string, Record<string, unknown>> = {};
     const updateCards = () => {
+      locationSnapshot.current = loadedDomains.location ? { session: memoryReadSession, data: loadedDomains.location } : null;
       const snapshot = buildPkmMemorySnapshot({
         metadata,
         fullBlob: loadedDomains,
@@ -738,6 +791,8 @@ export function PkmNaturalPanel({
       cancelled = true;
     };
   }, [
+    locationView,
+    memoryReadSession,
     isVaultUnlocked,
     memoryCardsNonce,
     metadata,
@@ -762,9 +817,11 @@ export function PkmNaturalPanel({
         scopePath: cardScopePath(card),
         vaultOwnerToken,
       });
+      if (memoryReadSessionRef.current !== memoryReadSession) return null;
       setSharingImpacts((current) => ({ ...current, [key]: impact }));
       return impact;
     } catch {
+      if (memoryReadSessionRef.current !== memoryReadSession) return null;
       setSharingImpactError("Current sharing couldn’t be verified. Refresh before changing details.");
       return null;
     }
@@ -777,7 +834,7 @@ export function PkmNaturalPanel({
   useEffect(() => {
     if (selectedCard) void ensureSharingImpact(selectedCard);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedCard?.id]);
+  }, [selectedCard?.id, memoryReadSession]);
 
   // A memory opened straight from search or "Recently learned" has no selected
   // category, so its domain manifest — the source of the per-scope share bundle
@@ -802,7 +859,7 @@ export function PkmNaturalPanel({
     return () => {
       cancelled = true;
     };
-  }, [pkmChangeRevision, refreshNonce, selectedCard, user, vaultOwnerToken]);
+  }, [pkmChangeRevision, refreshNonce, selectedCard, setSelectedCardManifest, user, vaultOwnerToken]);
 
   async function persistMemoryCardChange(params: {
     card: PkmMemoryCard;
@@ -833,18 +890,27 @@ export function PkmNaturalPanel({
           sharingImpact,
         },
         build: ({ currentDomainData }) => {
+          // Routed links identify the entity, not its old array position.
+          // Resolve again against the coordinator's fresh domain before writing.
+          const currentField = view === "location-detail" ? resolveLocationMemoryField(
+            buildLocationMemoryPresentation({ data: currentDomainData }), locationMemoryId,
+          ) : null;
+          if (view === "location-detail" && (!currentField || currentField.card.valueFingerprint !== params.card.valueFingerprint)) {
+            throw new Error("This detail has changed. Open Location memory again before updating it.");
+          }
+          const targetCard = currentField?.card ?? params.card;
           persistedDomainData =
             params.action === "edited"
               ? updatePkmDomainValue({
                   domainData: currentDomainData,
-                  pathSegments: params.card.pathSegments,
+                  pathSegments: targetCard.pathSegments,
                   previousValue: params.card.value,
                   nextValue: params.nextValue || "",
                   expectedValueFingerprint: params.card.valueFingerprint,
                 })
               : deletePkmDomainValue({
                   domainData: currentDomainData,
-                  pathSegments: params.card.pathSegments,
+                  pathSegments: targetCard.pathSegments,
                   expectedValueFingerprint: params.card.valueFingerprint,
                 });
           return {
@@ -868,6 +934,7 @@ export function PkmNaturalPanel({
       if (!result.success || !persistedDomainData) {
         throw new Error(result.message || "This saved detail couldn’t be updated.");
       }
+      if (memoryReadSessionRef.current !== memoryReadSession) return;
       // The encrypted write is the mutation boundary. Record it before the
       // best-effort metadata refresh so a transient read failure cannot turn
       // one confirmed write into contradictory success + error outcomes.
@@ -875,10 +942,11 @@ export function PkmNaturalPanel({
       clearAgentPkmContext(user.uid);
       let metadataRefreshFailed = false;
       try {
-        setMetadata(
-          await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
-        );
+        const refreshedMetadata = await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken);
+        if (memoryReadSessionRef.current !== memoryReadSession) return;
+        setMetadata(refreshedMetadata);
       } catch {
+        if (memoryReadSessionRef.current !== memoryReadSession) return;
         metadataRefreshFailed = true;
         setMemoryActionError(
           "Memory was updated, but the latest summary could not refresh. Refresh the page to see it."
@@ -887,8 +955,10 @@ export function PkmNaturalPanel({
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
       if (!metadataRefreshFailed) setSelectedCard(null);
+      if (locationView && !metadataRefreshFailed) router.replace(ROUTES.PKM_LOCATION);
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
+      if (memoryReadSessionRef.current !== memoryReadSession) return;
       trackMemoryOutcome(operationOwnerId, params.action === "edited" ? "detail_edited" : "detail_deleted", "error");
       setMemoryActionError(
         error instanceof Error ? error.message : "This saved detail couldn’t be updated."
@@ -1295,6 +1365,7 @@ export function PkmNaturalPanel({
         error: "Sharing choices changed elsewhere. Refresh and try again.",
       });
       const result = await operation;
+      if (memoryReadSessionRef.current !== memoryReadSession) return;
       if (result.manifest) setSelectedCardManifest(result.manifest);
       // Turning a scope private revokes matching active grants server-side, so
       // re-verify this memory's recipients instead of trusting a stale "Shared".
@@ -1305,8 +1376,10 @@ export function PkmNaturalPanel({
           scopePath: cardScopePath(card),
           vaultOwnerToken,
         });
+        if (memoryReadSessionRef.current !== memoryReadSession) return;
         setSharingImpacts((current) => ({ ...current, [cardImpactKey(card)]: impact }));
       } catch {
+        if (memoryReadSessionRef.current !== memoryReadSession) return;
         setSharingImpacts((current) => {
           const next = { ...current };
           delete next[cardImpactKey(card)];
@@ -1318,11 +1391,12 @@ export function PkmNaturalPanel({
       }
       setRefreshNonce((value) => value + 1);
     } catch {
+      if (memoryReadSessionRef.current !== memoryReadSession) return;
       setMemorySharingError(
         "Sharing choices couldn’t be updated. Refresh and try again.",
       );
     } finally {
-      setMemorySharingActionId(null);
+      if (memoryReadSessionRef.current === memoryReadSession) setMemorySharingActionId(null);
     }
   }
 
@@ -1338,6 +1412,13 @@ export function PkmNaturalPanel({
   const recentMemories = browsableCards.slice(0, RECENT_MEMORIES_LIMIT);
 
   function openMemory(card: PkmMemoryCard) {
+    if (card.domain === "location") {
+      const snapshot = locationSnapshot.current;
+      const presentation = buildLocationMemoryPresentation({ data: snapshot?.session === memoryReadSession ? snapshot.data : null });
+      const field = findLocationMemoryFieldForCard(presentation, card);
+      router.push(field?.selector ? `${ROUTES.PKM_LOCATION_DETAIL}?memory=${field.selector}` : ROUTES.PKM_LOCATION);
+      return;
+    }
     setSelectedCard(card);
     setMemoryActionError(null);
   }
@@ -1348,7 +1429,7 @@ export function PkmNaturalPanel({
         key={domain.key}
         title={domain.title}
         description={`${domain.count} ${domain.count === 1 ? "memory" : "memories"}`}
-        onClick={() => setSelectedDomainKey(domain.key)}
+        onClick={() => domain.key === "location" ? router.push(ROUTES.PKM_LOCATION) : setSelectedDomainKey(domain.key)}
         chevron
         ariaLabel={`Open category: ${domain.title}`}
         testId={`memory-category-${domain.key}`}
@@ -1378,7 +1459,7 @@ export function PkmNaturalPanel({
     );
   }
 
-  if (!user) {
+  if (!user || (locationView && sessionVerificationRequired)) {
     return (
       <>{nativeBeacon}<SurfaceInset className="space-y-2 px-4 py-4 text-sm text-muted-foreground">
         <div className="flex items-center gap-2 font-semibold text-foreground">
@@ -1402,12 +1483,46 @@ export function PkmNaturalPanel({
     );
   }
 
+  const locationLoading = bootstrapLoading || (!metadata && !bootstrapError) || domainDetail.loading || (Boolean(selectedMetadataDomain) && domainDetail.session !== memoryReadSession);
+  if (locationView && (view === "location" || !selectedCard)) {
+    const missingDetail = view === "location-detail" && !locationLoading && !bootstrapError && !domainDetail.error;
+    return (
+      <>
+        {nativeBeacon}
+        {missingDetail ? (
+          <SurfaceInset className="space-y-3 p-4" data-pkm-location-view="true">
+            <p>This detail is no longer available.</p>
+            <Button variant="muted" size="sm" onClick={() => router.replace(ROUTES.PKM_LOCATION)}>
+              Open Location memory
+            </Button>
+          </SurfaceInset>
+        ) : (
+          <LocationMemoryView
+            presentation={locationPresentation}
+            loading={locationLoading}
+            error={bootstrapError || domainDetail.error}
+            onRetry={() => {
+              setRefreshNonce((value) => value + 1);
+              setMemoryCardsNonce((value) => value + 1);
+            }}
+            onOpen={(field) => router.push(`${ROUTES.PKM_LOCATION_DETAIL}?memory=${field.selector}`)}
+          />
+        )}
+      </>
+    );
+  }
+
   if (selectedCard) {
     return (
       <>
         {nativeBeacon}
         <PkmMemoryDetail
+          key={locationView ? locationMemoryId : selectedCard.id}
           card={selectedCard}
+          displayLabel={locationField?.label}
+          displayValue={locationField?.value}
+          displayContext={locationField?.context}
+          hideBack={locationView}
           sharingState={memorySharingState(selectedCard)}
           sharingPosture={memorySharingPosture(selectedCard)}
           sharingBusy={memorySharingActionId === cardImpactKey(selectedCard)}
@@ -1417,6 +1532,7 @@ export function PkmNaturalPanel({
           deleting={memoryActionId === `${selectedCard.id}:deleted`}
           actionError={memoryActionError}
           onBack={() => {
+            if (locationView) router.push(ROUTES.PKM_LOCATION);
             setSelectedCard(null);
             setMemoryActionError(null);
             setMemorySharingError(null);

@@ -10,14 +10,14 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 142,
-    "physical_page_count": 141,
-    "route_contract_count": 142,
-    "surface_map_count": 142,
+    "total_screens": 144,
+    "physical_page_count": 143,
+    "route_contract_count": 144,
+    "surface_map_count": 144,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 47,
-      "vault-backed": 55,
+      "vault-backed": 57,
       "hidden flow": 19,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -3026,6 +3026,96 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/pkm/location",
+      "page_file": "app/one/pkm/location/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm%2Flocation",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/pkm/location/detail",
+      "page_file": "app/one/pkm/location/detail/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm%2Flocation%2Fdetail",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6376,5 +6466,5 @@
       ]
     }
   ],
-  "content_sha256": "9fb5af36d8ca4f20d81c6c02e28fbaa66cc0c61645e9dee94ceb6ecf2c8ff94e"
+  "content_sha256": "229b1c4dca38d88100122ee17de4a6ead6b254e2484b407836c7d1cd27991e01"
 }

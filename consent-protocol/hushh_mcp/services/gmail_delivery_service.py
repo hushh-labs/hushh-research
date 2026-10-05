@@ -91,11 +91,21 @@ def _is_email_agent_intro_instruction(instruction: str) -> bool:
     return any(phrase in normalized for phrase in _EMAIL_AGENT_INTRO_PHRASES)
 
 
-@dataclass(frozen=True)
 class GmailDeliveryError(RuntimeError):
-    code: str
-    message: str
-    status_code: int = 400
+    """An authored refusal that is safe to show the owner, with its HTTP status.
+
+    A plain exception on purpose, not a frozen dataclass. Python assigns
+    ``__traceback__`` to an exception as it leaves a ``@contextmanager`` block
+    (and ``add_note`` assigns ``__notes__``); a frozen ``__setattr__`` turns that
+    into ``FrozenInstanceError``, so every refusal raised inside the delivery
+    latency span reached the browser as a 503 instead of its own code.
+    """
+
+    def __init__(self, code: str, message: str, status_code: int = 400) -> None:
+        super().__init__(code, message, status_code)
+        self.code = code
+        self.message = message
+        self.status_code = status_code
 
     def __str__(self) -> str:
         return self.message
@@ -890,7 +900,15 @@ class GmailDeliveryService:
                     headers={"Authorization": f"Bearer {access_token}"},
                     json=send_payload,
                 )
+            if response.status_code >= 500:
+                # A 5xx after the POST is ambiguous: Gmail may have delivered
+                # the message before failing. A reviewed resend could send a
+                # duplicate, so surface only the non-retryable unknown outcome.
+                await self._set_outcome_unknown(action_id=action_id, error_code="provider_5xx")
+                return {"action_id": action_id, "state": "outcome_unknown", "outcome_unknown": True}
             if response.status_code >= 400:
+                # Gmail rejected the request (4xx, including 429): nothing was
+                # sent, so the owner may safely review and send again.
                 await self._set_terminal(
                     action_id=action_id, state="failed", error_code="gmail_send_failed"
                 )
@@ -1028,6 +1046,30 @@ class GmailDeliveryService:
                 message_id,
                 thread_id,
             )
+
+
+async def get_owner_send_action(*, user_id: str, action_id: str) -> dict[str, Any] | None:
+    """One owner's send action as the ledger recorded it, or None.
+
+    The voice relay asks this after a review card reports that its Send
+    finished: the report names an action, and this row -- never the report --
+    says what happened to it. Metadata only; there is no envelope here to return.
+    """
+    action_id = _text(action_id)
+    if not action_id or not _text(user_id):
+        return None
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT state, created_at, gmail_thread_id, safe_error_code
+            FROM gmail_owner_send_actions
+            WHERE action_id = $1 AND user_id = $2
+            """,
+            action_id,
+            user_id,
+        )
+    return dict(row) if row is not None else None
 
 
 _gmail_delivery_service: GmailDeliveryService | None = None

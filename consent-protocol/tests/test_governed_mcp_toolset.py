@@ -1711,6 +1711,10 @@ async def test_curated_allowlist_change_retires_a_running_toolset_without_reconn
 async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricted(
     registry_harness, monkeypatch
 ):
+    # A connector with no manifest falls back to its row (narrowing only).
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    monkeypatch.setattr(module, "get_manifest", lambda _connector_id: None)
     row = dict(
         status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
     )
@@ -1723,6 +1727,9 @@ async def test_curated_oauth_without_an_allowlist_leaves_the_catalog_unrestricte
 
 
 async def test_curated_oauth_empty_allowlist_admits_no_tools(registry_harness, monkeypatch):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    monkeypatch.setattr(module, "get_manifest", lambda _connector_id: None)
     row = dict(
         status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
     )
@@ -1736,6 +1743,26 @@ async def test_curated_oauth_empty_allowlist_admits_no_tools(registry_harness, m
     resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
     assert resolved.catalog_policy is not None
     assert resolved.catalog_policy([{"name": "search_crm_objects"}]) == []
+
+
+async def test_a_manifest_allowlist_wins_over_an_edited_registry_row(registry_harness, monkeypatch):
+    """The row is operator-writable; only the reviewed manifest decides which
+    tools chat may offer, so neither an emptied nor a widened row changes it."""
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    definition, _, _ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    from hushh_mcp.services.external_connector_curated_oauth import curated_policy_hash
+
+    catalog = [{"name": "search_crm_objects"}, {"name": "create_landing_page"}]
+    for edited in ([], ["create_landing_page", "search_crm_objects"]):
+        definition.capability_policy = {"version": 1, "chat": "reviewed", "tools": edited}
+        row["verified_policy_hash"] = curated_policy_hash(definition)
+        resolved = await resolve_registered_connection(registry_harness.context, "hubspot")
+        assert resolved.catalog_policy is not None
+        assert resolved.catalog_policy(catalog) == [{"name": "search_crm_objects"}]
 
 
 # --- per-step MCP budget knob ------------------------------------------------

@@ -114,6 +114,8 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/calendar`
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/pkm/recent`
+- `/one/pkm/location` — readable saved places, visits and Location memory details
+- `/one/pkm/location/detail?memory=<opaque-selector>` — existing actions for a current Location memory field; Back returns to Location memory
 - `/one/gmail`
 - `/one/email`
 - `/one/kyc`

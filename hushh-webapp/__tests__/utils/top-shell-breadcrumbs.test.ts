@@ -1136,6 +1136,8 @@ describe("top shell title slot", () => {
     // Profile > Memory swapped its trail for a "Profile" chip.
     ["/one/profile/my-data", "", ["Profile", "Memory"]],
     ["/one/pkm/recent", "", ["Memory", "Recently learned"]],
+    ["/one/pkm/location", "", ["Memory", "Location"]],
+    ["/one/pkm/location/detail", "memory=0123456789abcdef", ["Location", "Detail"]],
     // Every other nested route that used to carry a scroll chip.
     ["/one/connected-systems", "", ["Connected Systems"]],
     ["/one/consent", "", "none"],

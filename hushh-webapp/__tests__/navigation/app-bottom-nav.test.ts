@@ -72,6 +72,8 @@ describe("app bottom navigation", () => {
       "guardian",
     );
     expect(resolveOneActiveNav(ROUTES.PKM)).toBe("pkm");
+    expect(resolveOneActiveNav(ROUTES.PKM_LOCATION)).toBe("pkm");
+    expect(resolveOneActiveNav(`${ROUTES.PKM_LOCATION_DETAIL}?memory=0123456789abcdef`)).toBe("pkm");
     expect(resolveOneActiveNav(ROUTES.ONE_MARKETPLACE)).toBe("marketplace");
     expect(resolveOneActiveNav(ROUTES.CONNECTED_SYSTEMS)).toBe("connected");
     expect(resolveOneActiveNav(ROUTES.ONE_FEED)).toBe("feed");

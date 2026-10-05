@@ -44,6 +44,7 @@ import {
 } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { getGsap } from "@/lib/morphy-ux/gsap";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import {
   ensureMorphyGsapReady,
   getMorphyEaseName,
@@ -415,13 +416,11 @@ function CircleStory() {
         />
         <div className={styles.brandCenter} data-preview-center>
           <div className={styles.brandTile} data-preview-intro>
-            <span
+            <HushhMark
               className={styles.brandMark}
-              role="img"
-              aria-label="Hussh One"
-            >
-              🤫
-            </span>
+              alt="Hussh One"
+              priority
+            />
           </div>
         </div>
         {CIRCLES.map((item, position) => {

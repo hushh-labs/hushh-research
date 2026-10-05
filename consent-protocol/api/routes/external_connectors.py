@@ -31,6 +31,7 @@ from hushh_mcp.runtime_settings import get_app_runtime_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.chat_key import CHAT_KEY_ERRORS
 from hushh_mcp.services.connector_feature_admission import connector_features
+from hushh_mcp.services.curated_connector_manifest import all_catalog_entries, get_manifest
 from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
 from hushh_mcp.services.external_connector_credentials_service import (
@@ -141,6 +142,17 @@ class ConnectorSummary(BaseModel):
     lastErrorCode: Optional[str] = None
     available: bool = True
     registrationKind: Literal["curated", "private"] = "curated"
+    # Server-derived, presentation only: true for an operator-registered OAuth
+    # provider that has a reviewed manifest. Start and complete re-validate the
+    # manifest pins themselves; nothing here is trusted from the client.
+    curatedOAuth: bool = False
+    # A reviewed configuration-derived card. This is presentation-only: OAuth
+    # start and completion still obtain and validate the live registry row.
+    catalogCard: bool = False
+    # `setup_pending` has no exact active runtime row, `discovery_pending` is
+    # registration-only, and `unavailable` passed neither the feature nor
+    # runtime availability check. A null value is ready for Connect.
+    catalogState: Literal["setup_pending", "discovery_pending", "unavailable"] | None = None
 
 
 class ConnectorsResponse(BaseModel):
@@ -772,6 +784,103 @@ def _oauth_error(error: Exception) -> HTTPException:
     return HTTPException(status_code=getattr(error, "status_code", 503), detail=str(error))
 
 
+def _curated_oauth_flag(connector: Any) -> bool:
+    return (
+        is_curated_oauth_connector(connector) and get_manifest(connector.connector_id) is not None
+    )
+
+
+def _manifest_row_is_pinned(connector: Any) -> bool:
+    """Whether a registry row is an exact reviewed runtime configuration.
+
+    The adapter repeats this check before it exchanges or refreshes any token.
+    Keeping the catalog check read-only lets the UI describe setup truth without
+    treating its response as an authorization decision.
+    """
+    connector_id = str(getattr(connector, "connector_id", ""))
+    manifest = get_manifest(connector_id)
+    return bool(
+        manifest is not None
+        and is_curated_oauth_connector(connector)
+        and (
+            getattr(connector, "mcp_endpoint", None),
+            getattr(connector, "oauth_authorize_url", None),
+            getattr(connector, "oauth_token_url", None),
+            tuple(getattr(connector, "oauth_scopes", ()) or ()),
+            getattr(connector, "oauth_client_id_env", None),
+            getattr(connector, "oauth_client_secret_env", None),
+        )
+        == manifest.pin()
+        and tuple(getattr(connector, "registered_redirect_uris", ()) or ())
+        in manifest.redirect_uris.values()
+    )
+
+
+def _is_dead_catalog_card(item: ConnectorSummary) -> bool:
+    """A card the owner can do nothing with, so it is not sent at all.
+
+    The catalog says it is not ready (setup pending, discovery pending, or
+    unavailable) and there is no stored grant to disconnect or recover. A
+    half-set-up provider stays out of the product until it is actually usable;
+    a stored grant always keeps its card, so an owner can still Disconnect.
+    """
+    return item.catalogState is not None and item.status in {"not_connected", "revoked"}
+
+
+def _owner_status_fields(status: dict[str, Any] | None) -> dict[str, Any]:
+    status = status or {}
+    return {
+        "status": status.get("status", "not_connected"),
+        "accountLabel": status.get("accountLabel"),
+        "connectedAt": status.get("connectedAt"),
+        "validationState": status.get("validationState", "unverified"),
+        "profile": status.get("profile"),
+        "revocationOutcome": status.get("revocationOutcome", "not_attempted"),
+        "lastErrorCode": status.get("lastErrorCode"),
+    }
+
+
+def _catalog_summary(
+    entry: Any,
+    *,
+    status: dict[str, Any] | None = None,
+    available: bool = False,
+    curated_oauth: bool = False,
+    catalog_state: Literal["setup_pending", "discovery_pending", "unavailable"] | None,
+) -> ConnectorSummary:
+    """Build a reviewed catalog card without exposing a provider contract."""
+    return ConnectorSummary(
+        connectorId=entry.connector_id,
+        displayName=entry.display_name,
+        description=entry.description,
+        authStyle="oauth",
+        registrationKind="curated",
+        curatedOAuth=curated_oauth,
+        catalogCard=True,
+        catalogState=catalog_state,
+        available=available,
+        **_owner_status_fields(status),
+    )
+
+
+def _registry_summary(
+    connector: Any,
+    *,
+    status: dict[str, Any] | None,
+    available: bool,
+) -> ConnectorSummary:
+    return ConnectorSummary(
+        connectorId=connector.connector_id,
+        displayName=connector.display_name,
+        description=connector.description,
+        authStyle=connector.auth_style,
+        registrationKind="private" if connector.owner_user_id else "curated",
+        curatedOAuth=_curated_oauth_flag(connector),
+        available=available,
+        **_owner_status_fields(status),
+    )
+
+
 @router.get("", response_model=ConnectorsResponse)
 async def list_connectors(token_data: dict = Depends(require_vault_owner_token)):
     user_id = _user_id(token_data)
@@ -782,6 +891,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     # retired private-registration table projection. Do not require migration
     # 243 or resurrect server-readable custom configuration to render Settings.
     connectors = await registry.list_active_connectors()
+    catalog_entries = all_catalog_entries()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
     # A deactivated connector cannot accept a new grant or execute, but a
     # stored owner grant must remain visible long enough to be disconnected.
@@ -795,42 +905,62 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
             item.connector_id, user_id=user_id
         )
         for item in connectors
-        if is_curated_oauth_connector(item)
+        if _curated_oauth_flag(item)
     }
     drive_available = (
         await get_external_connector_oauth_service().drive().connection_available()
         if any(item.connector_id == "google_drive" for item in connectors)
         else False
     )
-    result = ConnectorsResponse(
-        features=connector_features(user_id),
-        connectors=[
-            ConnectorSummary(
-                connectorId=connector.connector_id,
-                displayName=connector.display_name,
-                description=connector.description,
-                authStyle=connector.auth_style,
-                registrationKind="private" if connector.owner_user_id else "curated",
-                status=statuses.get(connector.connector_id, {}).get("status", "not_connected"),
-                accountLabel=statuses.get(connector.connector_id, {}).get("accountLabel"),
-                connectedAt=statuses.get(connector.connector_id, {}).get("connectedAt"),
-                validationState=statuses.get(connector.connector_id, {}).get(
-                    "validationState", "unverified"
-                ),
-                profile=statuses.get(connector.connector_id, {}).get("profile"),
-                revocationOutcome=statuses.get(connector.connector_id, {}).get(
-                    "revocationOutcome", "not_attempted"
-                ),
-                lastErrorCode=statuses.get(connector.connector_id, {}).get("lastErrorCode"),
-                available=(
-                    drive_available
-                    if connector.connector_id == "google_drive"
-                    else curated_available.get(connector.connector_id, True)
+    result_connectors: list[ConnectorSummary] = []
+    active_catalog_ids: set[str] = set()
+    for connector in connectors:
+        catalog_entry = catalog_entries.get(connector.connector_id)
+        if catalog_entry is None:
+            result_connectors.append(
+                _registry_summary(
+                    connector,
+                    status=statuses.get(connector.connector_id),
+                    available=(
+                        drive_available
+                        if connector.connector_id == "google_drive"
+                        else (
+                            curated_available.get(connector.connector_id, False)
+                            if is_curated_oauth_connector(connector)
+                            else True
+                        )
+                    ),
+                )
+            )
+            continue
+
+        active_catalog_ids.add(connector.connector_id)
+        # A registration-only contract remains a card, not a runtime provider,
+        # even if an operator writes a similarly named registry row.
+        if catalog_entry.catalog_state == "discovery_pending":
+            result_connectors.append(
+                _catalog_summary(catalog_entry, catalog_state="discovery_pending")
+            )
+            continue
+
+        pinned = _manifest_row_is_pinned(connector)
+        curated_oauth = _curated_oauth_flag(connector)
+        available = curated_available.get(connector.connector_id, False) if pinned else False
+        result_connectors.append(
+            _catalog_summary(
+                catalog_entry,
+                # Preserve a stale grant's Disconnect recovery path, but a
+                # pin mismatch never enables Connect.
+                status=statuses.get(connector.connector_id) if curated_oauth else None,
+                available=available,
+                curated_oauth=curated_oauth,
+                catalog_state=(
+                    None if pinned and available else "unavailable" if pinned else "setup_pending"
                 ),
             )
-            for connector in connectors
-        ],
-    )
+        )
+
+    result = ConnectorsResponse(features=connector_features(user_id), connectors=result_connectors)
     # Deactivation stops new execution, not owner recovery. The registry may
     # disappear from the active catalog while this owner still has a grant.
     if "google_drive" in statuses and not any(
@@ -843,42 +973,57 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
                 displayName="Drive",
                 description="Selected files only",
                 authStyle="oauth",
-                status=status["status"],
-                accountLabel=status.get("accountLabel"),
-                connectedAt=status.get("connectedAt"),
-                validationState=status.get("validationState", "unverified"),
-                profile=status.get("profile"),
-                revocationOutcome=status.get("revocationOutcome", "not_attempted"),
-                lastErrorCode=status.get("lastErrorCode"),
                 available=False,
+                **_owner_status_fields(status),
             )
         )
+
     active_connector_ids = {item.connector_id for item in connectors}
+    inactive_by_id = {
+        item.connector_id: item
+        for item in inactive_curated
+        if item.connector_id not in active_connector_ids
+    }
+    for connector_id, catalog_entry in catalog_entries.items():
+        if connector_id in active_catalog_ids:
+            continue
+        if catalog_entry.catalog_state == "discovery_pending":
+            result.connectors.append(
+                _catalog_summary(catalog_entry, catalog_state="discovery_pending")
+            )
+            continue
+        inactive = inactive_by_id.get(connector_id)
+        status = statuses.get(connector_id)
+        if (
+            inactive is not None
+            and _curated_oauth_flag(inactive)
+            and status is not None
+            and status.get("status") not in {"not_connected", "revoked"}
+        ):
+            pinned = _manifest_row_is_pinned(inactive)
+            result.connectors.append(
+                _catalog_summary(
+                    catalog_entry,
+                    status=status,
+                    curated_oauth=True,
+                    catalog_state="unavailable" if pinned else "setup_pending",
+                )
+            )
+            continue
+        result.connectors.append(_catalog_summary(catalog_entry, catalog_state="setup_pending"))
+
     for connector in inactive_curated:
-        if connector.connector_id in active_connector_ids or not is_curated_oauth_connector(
-            connector
+        if (
+            connector.connector_id in active_connector_ids
+            or connector.connector_id in catalog_entries
+            or not is_curated_oauth_connector(connector)
         ):
             continue
         status = statuses.get(connector.connector_id)
         if not status or status.get("status") in {"not_connected", "revoked"}:
             continue
-        result.connectors.append(
-            ConnectorSummary(
-                connectorId=connector.connector_id,
-                displayName=connector.display_name,
-                description=connector.description,
-                authStyle=connector.auth_style,
-                registrationKind="curated",
-                status=status["status"],
-                accountLabel=status.get("accountLabel"),
-                connectedAt=status.get("connectedAt"),
-                validationState=status.get("validationState", "unverified"),
-                profile=status.get("profile"),
-                revocationOutcome=status.get("revocationOutcome", "not_attempted"),
-                lastErrorCode=status.get("lastErrorCode"),
-                available=False,
-            )
-        )
+        result.connectors.append(_registry_summary(connector, status=status, available=False))
+    result.connectors = [item for item in result.connectors if not _is_dead_catalog_card(item)]
     return result
 
 
@@ -965,19 +1110,23 @@ async def complete_oauth_connect(
 async def complete_web_popup(
     body: CompleteWebOAuthRequest, user_id: str = Depends(require_firebase_auth)
 ):
-    # Only Drive's v2 path accepts this exception. It atomically claims an
-    # unexpired attempt previously created by this owner using Vault Owner auth.
-    # No opener token is copied into the popup or persisted in attempt state.
+    # Drive and operator-owned curated connectors accept this exception: both
+    # adapters atomically claim an unexpired attempt previously created by this
+    # same owner using Vault Owner auth, and seal credentials server-side with
+    # no vault-derived key. Every other connector (the legacy generic exchange)
+    # is refused here and stays vault-only. No opener token is copied into the
+    # popup or persisted in attempt state.
     try:
         oauth = get_external_connector_oauth_service()
         if oauth._verify_state(body.state) != body.attemptId:
             raise DriveOAuthError("attempt_unavailable", status_code=409)
-        return await oauth.drive().complete(
+        return await oauth.complete_web_popup(
             state=body.state, code=body.code, expected_user_id=user_id
         )
     except (
         ExternalConnectorOAuthError,
         DriveOAuthError,
+        CuratedConnectorOAuthError,
         ConnectorLifecycleError,
         ExternalConnectorCredentialError,
     ) as error:

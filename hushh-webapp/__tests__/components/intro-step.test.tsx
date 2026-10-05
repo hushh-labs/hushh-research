@@ -173,6 +173,8 @@ describe("IntroStep voice contract", () => {
     Element.prototype.scrollIntoView = vi.fn();
     const onLogin = vi.fn();
     render(<IntroStep onLogin={onLogin} />);
+    expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
+    expect(screen.queryByText("🤫")).not.toBeInTheDocument();
     expect(
       screen.getByRole("heading", { name: "Your people, closer." }),
     ).toBeInTheDocument();

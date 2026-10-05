@@ -1015,18 +1015,14 @@ async def test_verify_does_not_mark_verified_when_the_server_rejects_the_token(
 # --- committed descriptor <-> reviewed runtime pin ---------------------------
 
 
-def test_committed_hubspot_descriptor_matches_its_runtime_pin():
-    """The registry row applied from the committed descriptor must satisfy the
-    code pin, otherwise HubSpot silently reads as unavailable."""
-    from pathlib import Path
+def test_committed_hubspot_manifest_yields_a_row_that_satisfies_its_own_pin():
+    """The registry row applied from the committed manifest must satisfy the
+    manifest pin, otherwise HubSpot silently reads as unavailable."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
 
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "external_mcp_connectors"
-        / "hubspot.uat.json"
-    )
-    descriptor = json.loads(path.read_text(encoding="utf-8"))
+    manifest = get_manifest("hubspot")
+    assert manifest is not None
+    descriptor = manifest.to_descriptor("uat")
     row = ExternalMcpConnectorDefinition.from_row(
         {
             "connector_id": descriptor["connectorId"],
@@ -1053,7 +1049,17 @@ def test_committed_hubspot_descriptor_matches_its_runtime_pin():
         row.oauth_scopes,
         row.oauth_client_id_env,
         row.oauth_client_secret_env,
-    ) == oauth._CURATED_OAUTH_RUNTIME_PINS["hubspot"]
+    ) == manifest.pin()
+    # The shipped HubSpot pin is unchanged from the reviewed original, so no
+    # existing connection is invalidated by moving it onto a manifest.
+    assert manifest.pin() == (
+        "https://mcp.hubspot.com/",
+        "https://mcp.hubspot.com/oauth/authorize/user",
+        "https://mcp.hubspot.com/oauth/v3/token",
+        (),
+        "HUBSPOT_OAUTH_CLIENT_ID",
+        "HUBSPOT_OAUTH_CLIENT_SECRET",
+    )
 
 
 # --- refresh robustness (review findings) ------------------------------------
@@ -1260,19 +1266,14 @@ def test_hubspot_free_reads_are_pinned_and_are_only_reads():
 
 
 def test_pinned_free_reads_are_all_in_the_committed_tool_allowlist():
-    """A pinned read the descriptor does not expose could never run; catch drift."""
-    from pathlib import Path
+    """A pinned read the manifest does not expose could never run; catch drift."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
 
-    path = (
-        Path(__file__).resolve().parents[2]
-        / "config"
-        / "external_mcp_connectors"
-        / "hubspot.uat.json"
-    )
-    allowlist = set(json.loads(path.read_text(encoding="utf-8"))["toolAllowlist"])
-    assert oauth.curated_free_read_tools("hubspot") <= allowlist
+    manifest = get_manifest("hubspot")
+    assert manifest is not None
+    assert oauth.curated_free_read_tools("hubspot") <= set(manifest.tool_allowlist)
 
 
 def test_an_unlisted_provider_has_no_free_reads():
-    assert oauth.curated_free_read_tools("notion") == frozenset()
+    assert oauth.curated_free_read_tools("no_such_provider") == frozenset()
     assert oauth.curated_free_read_tools("") == frozenset()

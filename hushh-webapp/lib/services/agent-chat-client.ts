@@ -217,6 +217,8 @@ export type AgentChatStreamHandlers = {
   /** Ephemeral native review: never append its references or receipt to history/debug events. */
   onMcpReview?: (review: {
     reference: McpCallReviewReference;
+    /** Opaque live Activity ids for the native call and its confirmation step. */
+    activityIds?: readonly string[];
     conversationId: string;
     /** Derived chat key header value; the review reads this owner's sealed conversation. */
     chatKey: string;
@@ -1348,7 +1350,11 @@ export async function streamAgentChat(input: {
   let reactionShown = false;
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
-  const mcpReviews = new Map<string, McpCallReviewReference>();
+  const mcpReviews = new Map<string, {
+    reference: McpCallReviewReference;
+    /** The original MCP call plus the native confirmation activity, if present. */
+    activityIds: readonly string[];
+  }>();
   // The server streams each native confirmation's projected arguments. A
   // MESSAGES_SNAPSHOT can already hold the same call, and the AG-UI client then
   // appends the streamed delta onto the snapshot's copy, which no longer parses.
@@ -1486,7 +1492,18 @@ export async function streamAgentChat(input: {
         }
         const review = parseMcpCallReview(nativeArgs);
         if (review) {
-          mcpReviews.set(event.toolCallId, review);
+          const original = asRecord(nativeArgs.originalFunctionCall);
+          const originalCallId = typeof original?.id === "string" &&
+            original.id.length > 0 && original.id.length <= 256
+            ? original.id
+            : null;
+          mcpReviews.set(event.toolCallId, {
+            reference: review,
+            activityIds: Array.from(new Set([
+              event.toolCallId,
+              ...(originalCallId ? [originalCallId] : []),
+            ])),
+          });
           // Publish only after RUN_FINISHED supplies the native interrupt id.
           // Neither pending handles nor private review details enter generic diagnostics.
           return;
@@ -1810,33 +1827,34 @@ export async function streamAgentChat(input: {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
         }
-        for (const [callId, reference] of mcpReviews) {
+        for (const [callId, review] of mcpReviews) {
           const interruptId = interruptsByToolCall.get(callId);
           if (!interruptId || publishedMcpReviews.has(callId)) continue;
           publishedMcpReviews.add(callId);
           let attempted = false;
           handlers.onMcpReview?.({
-            reference,
+            reference: review.reference,
+            activityIds: review.activityIds,
             conversationId: threadId,
             chatKey,
             isCurrent: mcpSessionCurrent,
             loadConfiguration: input.loadConnectorConfigurations ? async () => {
               const projection = await connectorProjection();
-              const configuration = projection.mcpConfigurations?.find(item => item.connectorId === reference.connectorId);
-              if (reference.connectorId.startsWith("custom_") && !configuration) {
+              const configuration = projection.mcpConfigurations?.find(item => item.connectorId === review.reference.connectorId);
+              if (review.reference.connectorId.startsWith("custom_") && !configuration) {
                 throw new Error("This connector was removed. Prepare a new request.");
               }
               return configuration;
             } : undefined,
             resume: async (approval, signal) => {
-              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= serverNow()) {
+              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(review.reference.expiresAt) <= serverNow()) {
                 throw new Error("This connector review expired or was already used.");
               }
               if (approval && (
-                approval.directiveId !== reference.directiveId ||
-                approval.connectorId !== reference.connectorId ||
-                approval.toolName !== reference.toolName ||
-                approval.pendingHandle !== reference.pendingHandle ||
+                approval.directiveId !== review.reference.directiveId ||
+                approval.connectorId !== review.reference.connectorId ||
+                approval.toolName !== review.reference.toolName ||
+                approval.pendingHandle !== review.reference.pendingHandle ||
                 !/^[A-Za-z0-9_-]{32,128}$/.test(approval.receipt)
               )) throw new Error("This confirmation does not match the connector review.");
               // A lost acknowledgement must not cause an automatic second mutation.

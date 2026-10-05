@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from email import message_from_bytes
 from email.policy import default
 from types import SimpleNamespace
@@ -15,8 +17,10 @@ from hushh_mcp.services.gmail_delivery_service import (
     _EMAIL_AGENT_INTRO_BODY,
     GmailDeliveryError,
     GmailDeliveryService,
+    GmailReplyContext,
     _is_email_agent_intro_instruction,
     _message_for,
+    get_owner_send_action,
     normalize_draft,
 )
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
@@ -483,6 +487,8 @@ async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(
     )
     assert "To: recipient@example.com" in rendered
     assert "From:" not in rendered
+    # A fresh compose is never threaded into an existing conversation.
+    assert set(calls[0][1]["json"]) == {"raw"}
 
 
 @pytest.mark.asyncio
@@ -623,6 +629,227 @@ async def test_provider_transport_failure_becomes_outcome_unknown_without_retry(
         for query, args in conn.calls
         if "UPDATE gmail_owner_send_actions" in query and args
     )
+
+
+def _status_send_harness(
+    monkeypatch,
+    status_code: int,
+    *,
+    later_state: str,
+    reply_context: GmailReplyContext | None = None,
+    provider_payload: dict[str, object] | None = None,
+):
+    """One prepared action whose Gmail send POST answers with ``status_code``.
+
+    ``provider_payload`` is the JSON body Gmail answers with, when it has one.
+    """
+    module = _signing_key(monkeypatch)
+    posts: list[object] = []
+
+    class _Response:
+        content = b"" if provider_payload is None else b"provider-response"
+
+        def __init__(self):
+            self.status_code = status_code
+
+        @staticmethod
+        def json():
+            return provider_payload
+
+    class _StatusClient:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, *args, **kwargs):
+            posts.append(kwargs.get("json"))
+            return _Response()
+
+    gmail = _Gmail()
+    gmail.get_send_access_token = AsyncMock(return_value="token")
+    service = GmailDeliveryService(gmail_service=gmail)
+    envelope_hmac = service._envelope_hmac(
+        normalize_draft(_envelope()), reply_context=reply_context
+    )
+    conn = _ActionConn(
+        [
+            {
+                "action_id": "action",
+                "state": "prepared",
+                "expires_at": "later",
+                "sent_at": None,
+                "envelope_hmac": envelope_hmac,
+            },
+            {"action_id": "action", "state": "sending", "expires_at": "later", "sent_at": None},
+            # What a second execute of the same action reads after the first.
+            {
+                "action_id": "action",
+                "state": later_state,
+                "expires_at": "later",
+                "sent_at": None,
+                "envelope_hmac": envelope_hmac,
+            },
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    monkeypatch.setattr(module.httpx, "AsyncClient", _StatusClient)
+    return service, conn, posts
+
+
+def _recorded_states(conn) -> list[str]:
+    return [
+        args[1]
+        for query, args in conn.calls
+        if "UPDATE gmail_owner_send_actions" in query and "SET state = $2" in query
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [500, 502, 503])
+async def test_gmail_5xx_after_send_post_is_outcome_unknown_and_never_resent(
+    monkeypatch, status_code
+):
+    # Gmail may have delivered the message before answering 5xx, so the
+    # action must become the non-retryable unknown outcome, not a failure
+    # the owner is invited to send again.
+    service, conn, posts = _status_send_harness(
+        monkeypatch, status_code, later_state="outcome_unknown"
+    )
+
+    result = await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+
+    assert result == {"action_id": "action", "state": "outcome_unknown", "outcome_unknown": True}
+    assert _recorded_states(conn) == ["outcome_unknown"]
+    assert len(posts) == 1
+
+    with pytest.raises(GmailDeliveryError) as second:
+        await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+    assert second.value.code == "ACTION_NOT_SENDABLE"
+    assert len(posts) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [400, 429])
+async def test_gmail_4xx_send_rejection_stays_a_definite_failure(monkeypatch, status_code):
+    # Negative control: Gmail refused the request, nothing was delivered, and
+    # the owner may review the draft and send it again.
+    service, conn, posts = _status_send_harness(monkeypatch, status_code, later_state="failed")
+
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.execute(user_id="owner", action_id="action", draft_payload=_envelope())
+
+    assert error.value.code == "GMAIL_SEND_FAILED"
+    assert _recorded_states(conn) == ["failed"]
+    assert len(posts) == 1
+
+
+_REPLY = GmailReplyContext(
+    thread_id="thread-1",
+    in_reply_to="<source@example.com>",
+    references="<root@example.com> <source@example.com>",
+)
+
+
+def _terminal_writes(conn) -> list[tuple[object, ...]]:
+    """(state, safe_error_code, gmail_thread_id) of each terminal ledger write."""
+    return [
+        (args[1], args[2], args[4])
+        for query, args in conn.calls
+        if "UPDATE gmail_owner_send_actions" in query and "SET state = $2" in query
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("provider_payload", "state", "safe_error_code"),
+    [
+        pytest.param(
+            {"id": "gmail-message-1", "threadId": "thread-1"}, "sent", None, id="kept-thread"
+        ),
+        pytest.param(
+            {"id": "gmail-message-1", "threadId": "thread-2"},
+            "outcome_unknown",
+            "reply_thread_mismatch",
+            id="other-thread",
+        ),
+        pytest.param(
+            {"id": "gmail-message-1"},
+            "outcome_unknown",
+            "reply_thread_mismatch",
+            id="no-thread",
+        ),
+    ],
+)
+async def test_reply_send_is_threaded_and_reported_sent_only_inside_its_thread(
+    monkeypatch, provider_payload, state, safe_error_code
+):
+    service, conn, posts = _status_send_harness(
+        monkeypatch,
+        200,
+        later_state=state,
+        reply_context=_REPLY,
+        provider_payload=provider_payload,
+    )
+
+    result = await service.execute(
+        user_id="owner", action_id="action", draft_payload=_envelope(), reply_context=_REPLY
+    )
+
+    # Gmail accepted the POST every time. A reply it did not confirm inside the
+    # reviewed thread is never "sent", and is not an error inviting a resend.
+    assert result == {"action_id": "action", "state": state, "outcome_unknown": state != "sent"}
+    assert len(posts) == 1
+    assert posts[0]["threadId"] == "thread-1"
+    message = message_from_bytes(
+        base64.urlsafe_b64decode(posts[0]["raw"].encode("ascii")), policy=default
+    )
+    assert message["In-Reply-To"] == "<source@example.com>"
+    assert message["References"] == "<root@example.com> <source@example.com>"
+    # The row the voice relay re-reads: a sent reply names its thread, and an
+    # unconfirmed one carries the code it reports as "thread unconfirmed".
+    assert _terminal_writes(conn) == [(state, safe_error_code, provider_payload.get("threadId"))]
+
+
+@pytest.mark.asyncio
+async def test_owner_send_action_is_read_only_through_its_owner(monkeypatch):
+    from hushh_mcp.services import gmail_delivery_service as module
+
+    row = {
+        "state": "sent",
+        "created_at": datetime(2026, 10, 5, tzinfo=timezone.utc),
+        "gmail_thread_id": "thread-1",
+        "safe_error_code": None,
+    }
+    conn = _ActionConn([row])
+    pool_requests: list[None] = []
+
+    async def _get_pool():
+        pool_requests.append(None)
+        return _Pool(conn)
+
+    monkeypatch.setattr(module, "get_pool", _get_pool)
+
+    assert await get_owner_send_action(user_id="owner", action_id="action") == row
+    assert await get_owner_send_action(user_id="owner", action_id="unknown") is None
+    for user_id, action_id in (("", "action"), (" ", "action"), ("owner", ""), ("owner", " ")):
+        assert await get_owner_send_action(user_id=user_id, action_id=action_id) is None
+    # A blank owner or action never reaches the ledger.
+    assert len(pool_requests) == 2
+
+    query, args = conn.calls[0]
+    assert "WHERE action_id = $1 AND user_id = $2" in " ".join(query.split())
+    assert args == ("action", "owner")
+    assert conn.calls[1][1] == ("unknown", "owner")
+    # What the relay's outcome is decided from: state, freshness, thread, failure code.
+    selected = set(re.findall(r"\w+", query.split("FROM")[0]))
+    assert {"state", "created_at", "gmail_thread_id", "safe_error_code"} <= selected
 
 
 @pytest.mark.asyncio
