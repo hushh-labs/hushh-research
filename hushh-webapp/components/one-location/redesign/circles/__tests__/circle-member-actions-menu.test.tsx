@@ -33,6 +33,8 @@ import {
   CircleMemberActionsMenu,
   MEMBER_ACTIONS_MENU_CONTEXT_TESTID,
   MEMBER_ACTIONS_MENU_TESTID,
+  MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
+  MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME,
   MEMBER_ACTIONS_SHEET_QUERY,
   MEMBER_ACTIONS_SHEET_TESTID,
   memberRemoveConfirmDescription,
@@ -127,6 +129,18 @@ describe("CircleMemberActionsMenu on a phone", () => {
     expect(
       within(sheet).getByRole("menuitem", { name: /Remove from Circle/i }),
     ).toBeInTheDocument();
+
+    const actionMenu = within(sheet).getByRole("menu", { name: triggerName });
+    expect(actionMenu).toHaveClass("w-full", "max-w-[244px]");
+    expect(MEMBER_ACTIONS_SHEET_CTA_CLASSNAME).toContain("max-w-[244px]");
+    expect(MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME).toContain("min-h-[50px]");
+    const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+    expect(cancel).toHaveClass("h-[50px]", "w-full", "justify-center");
+    expect(cancel.parentElement).toHaveClass(
+      "mx-auto",
+      "w-full",
+      "max-w-[244px]",
+    );
   });
 
   it("shares with the member and closes the sheet", async () => {
@@ -169,7 +183,17 @@ describe("CircleMemberActionsMenu on a phone", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("alertdialog")).toBeNull();
 
-    fireEvent.click(within(sheet).getByRole("button", { name: "Remove" }));
+    const remove = within(sheet).getByRole("button", { name: "Remove" });
+    const cancel = within(sheet).getByRole("button", { name: "Cancel" });
+    expect(remove).toHaveClass(
+      "h-[50px]",
+      "bg-destructive",
+      "text-[color:var(--destructive-foreground)]",
+    );
+    expect(cancel).toHaveClass("h-[50px]");
+    expect(remove.parentElement).toHaveClass("max-w-[244px]");
+
+    fireEvent.click(remove);
     await waitFor(() => expect(onRemove).toHaveBeenCalledTimes(1));
   });
 

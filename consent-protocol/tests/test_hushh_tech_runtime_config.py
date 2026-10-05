@@ -156,3 +156,60 @@ def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
         "RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
         in (Path(__file__).resolve().parents[2] / "deploy/frontend.cloudbuild.yaml").read_text()
     )
+
+
+def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monkeypatch):
+    """The reply switch must survive the deploy hop, and only where it is asked for.
+
+    Hosted lanes set only BACKEND_RUNTIME_CONFIG_JSON, regenerated on every
+    deploy. A key the generator emits but the runtime map forgets would leave
+    reply dark in UAT while the deploy said it was on; a generator default of
+    on would ship it to every lane that never asked.
+    """
+    from hushh_mcp.one_voice.config import voice_mail_reply_enabled
+
+    module = _module()
+    args = argparse.Namespace(
+        **{
+            key: ""
+            for key in (
+                "environment project db_host db_port db_name db_unix_socket "
+                "cloudsql_instance_connection_name consent_sse_enabled sync_remote_enabled "
+                "developer_api_enabled remote_mcp_enabled cors_allowed_origins "
+                "obs_data_stale_ratio_threshold passkey_allowed_rp_ids plaid_env "
+                "plaid_client_name plaid_country_codes plaid_webhook_url plaid_redirect_path "
+                "plaid_redirect_uri plaid_tx_history_days one_location_read_only_state_enabled "
+                "one_location_nearby_presence_mode one_location_nearby_presence_cohort "
+                "consent_center_summary_v2_enabled db_bulk_batching_enabled "
+                "hushh_trusted_device_enabled hushh_trusted_device_uat_allowlist "
+                "advisors_api_base_url insurance_agents_api_base_url nws_nearby_api_base_url "
+                "nws_nearby_v4_api_base_url one_places_directory_enabled"
+            ).split()
+        }
+    )
+    args.environment = "uat"
+    args.project = "hushh-pda-uat"
+    assert module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"] == "false"
+
+    args.one_voice_mail_reply_enabled = "true"
+    generated = module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"]
+    assert generated == "true"
+
+    monkeypatch.delenv("ONE_VOICE_MAIL_REPLY_ENABLED", raising=False)
+    assert voice_mail_reply_enabled() is False
+    monkeypatch.setenv(
+        "BACKEND_RUNTIME_CONFIG_JSON", json.dumps({"one_voice_mail_reply_enabled": generated})
+    )
+    runtime_settings.hydrate_runtime_environment()
+    assert voice_mail_reply_enabled() is True
+
+
+def test_production_workflow_pins_voice_mail_reply_off():
+    root = Path(__file__).resolve().parents[2]
+    production = (root / ".github/workflows/deploy-production.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    assert '--one-voice-mail-reply-enabled "false"' in production
+    assert (
+        "--one-voice-mail-reply-enabled \"${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}\""
+        in uat
+    )

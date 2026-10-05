@@ -19,6 +19,7 @@
 export * from "./sidebar-menu-button";
 export * from "./icon";
 export * from "./brand-mark";
+export * from "./hushh-mark";
 export * from "./icon-chip";
 export * from "./feature-rail";
 export * from "./onboarding-feature-list";

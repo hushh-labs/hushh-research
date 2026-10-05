@@ -151,6 +151,31 @@ describe("WalletWorkspace at scale", () => {
     expect(screen.queryByLabelText("Nickname")).toBeNull();
   });
 
+  it("renders the Wallet hero and keeps its CTA wired to the existing add-card flow", async () => {
+    serviceMock.listCardSummaries.mockResolvedValue([]);
+    render(<WalletWorkspace />);
+
+    expect(await screen.findByTestId("one-wallet-empty")).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { level: 2, name: "All your cards. In one place." }),
+    ).toBeTruthy();
+    expect(screen.getByText("All your cards.")).toBeTruthy();
+    expect(screen.getByText("In one place.")).toBeTruthy();
+    expect(screen.getByTestId("one-wallet-empty-display-title").classList).toContain(
+      "ui-text-page-title",
+    );
+    expect(
+      screen.getByText("Cards you add are encrypted on this device and kept in your vault."),
+    ).toBeTruthy();
+    expect(screen.queryByText("Encrypted in your vault. Shared only with your consent.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add a Card" }));
+    expect(await screen.findByTestId("secure-card-add-form")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(await screen.findByTestId("one-wallet-empty")).toBeTruthy();
+  });
+
   it("renders the requested page from the URL", async () => {
     navigationMock.search = "page=3";
     render(<WalletWorkspace />);

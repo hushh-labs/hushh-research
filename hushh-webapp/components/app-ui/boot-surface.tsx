@@ -27,6 +27,7 @@ import {
   startBootSurface,
   useBootSurfaceState,
 } from "@/lib/boot/boot-surface-store";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 
 /**
  * The one boot surface.
@@ -39,7 +40,7 @@ import {
  * screen.
  *
  * Geometry: the mark is centred on the viewport, exactly where the iOS launch
- * screen draws it (`Splash.imageset`: a centred 🤫 whose height is 14.75% of
+ * screen draws it (`Splash.imageset`: a centred Hussh mark whose height is 14.75% of
  * the screen under aspect-fill), so the native splash hands over with no
  * visible change. The text block hangs below the mark at a fixed offset; a
  * longer or wider line grows downward and can never move the mark.
@@ -150,7 +151,7 @@ export function BootScene({
       <div className="boot-mark" data-boot-mark="" aria-hidden="true">
         <span className="boot-mark-ring" />
         <span className="boot-mark-ring boot-mark-ring-late" />
-        <span className="boot-mark-glyph">🤫</span>
+        <HushhMark className="boot-mark-glyph" priority />
       </div>
       <div className="boot-copy" data-boot-copy="">
         <p id={titleId} className="boot-title" data-boot-title="">

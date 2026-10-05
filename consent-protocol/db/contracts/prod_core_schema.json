@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 271,
+  "expected_migration_version": 272,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -49,7 +49,10 @@
     "circle_chat_membership_ended",
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
-    "circle_photo_erased"
+    "circle_photo_erased",
+    "project_agent_outcome_feed",
+    "feed_from_agent_outcome",
+    "feed_from_bulk_share_outcome"
   ],
   "required_tables": {
     "account_deletion_tombstones": [

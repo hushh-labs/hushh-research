@@ -25,6 +25,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { reservedOwnerGlyph } from "@/components/agent/reserved-offer-rows";
@@ -76,6 +77,10 @@ export function PkmMemoryDetail({
   onSave,
   onForget,
   onOpenOwner,
+  displayLabel,
+  displayValue,
+  displayContext,
+  hideBack = false,
 }: {
   card: PkmMemoryCard;
   sharingState: MemorySharingState;
@@ -93,13 +98,21 @@ export function PkmMemoryDetail({
   onForget: () => void;
   /** Opens the app screen that owns a reserved item (memory_screen_policy). */
   onOpenOwner?: (routePattern: string) => void;
+  displayLabel?: string;
+  displayValue?: string;
+  displayContext?: string;
+  hideBack?: boolean;
 }) {
   const reservedOwner = card.reservedOwner ?? null;
-  const { primary, secondary } = pkmMemoryRowLabels(card);
+  const labels = pkmMemoryRowLabels(card);
+  const primary = displayLabel ?? labels.primary;
+  const secondary = displayValue ?? labels.secondary;
+  const fullValue = displayValue ?? card.value;
+  const Editor = /[\r\n]/.test(fullValue) ? Textarea : Input;
   const [editOpen, setEditOpen] = useState(false);
   const [forgetOpen, setForgetOpen] = useState(false);
   const [sharingOpen, setSharingOpen] = useState(false);
-  const [editValue, setEditValue] = useState(card.value);
+  const [editValue, setEditValue] = useState(fullValue);
   const busy = saving || deleting;
 
   useEffect(() => {
@@ -107,8 +120,8 @@ export function PkmMemoryDetail({
   }, [saving, actionError]);
 
   useEffect(() => {
-    setEditValue(card.value);
-  }, [card.id, card.value]);
+    setEditValue(fullValue);
+  }, [card.id, fullValue]);
 
   // A new memory starts with its own sharing sheet closed.
   useEffect(() => {
@@ -122,22 +135,23 @@ export function PkmMemoryDetail({
   }
 
   return (
-    <div className="space-y-7" data-pkm-detail-panel="true" data-pkm-memory-detail="true">
-      <button
+    <div className="space-y-7" data-pkm-detail-panel="true" data-pkm-memory-detail="true" data-pkm-location-view={displayValue !== undefined ? "true" : undefined}>
+      {!hideBack ? <button
         type="button"
         onClick={onBack}
         className="-ml-1 inline-flex min-h-11 items-center gap-1 text-[15px] font-normal text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronLeft className="h-4 w-4" aria-hidden />
         Memory
-      </button>
+      </button> : null}
 
       <div className="space-y-2">
+        {displayContext ? <p className="text-[13px] leading-5 text-muted-foreground">{displayContext}</p> : null}
         <h2 className="text-[26px] font-semibold leading-tight tracking-tight text-foreground">
           {primary}
         </h2>
         {secondary ? (
-          <p className="text-[15px] leading-7 text-muted-foreground">{secondary}</p>
+          <p className="whitespace-pre-wrap break-words text-[15px] leading-7 text-muted-foreground">{secondary}</p>
         ) : null}
       </div>
 
@@ -184,7 +198,7 @@ export function PkmMemoryDetail({
           title="Edit"
           disabled={!canMutate || busy}
           onClick={() => {
-            setEditValue(card.value);
+            setEditValue(fullValue);
             setEditOpen(true);
           }}
         />
@@ -223,7 +237,7 @@ export function PkmMemoryDetail({
             <DialogTitle>Edit Memory</DialogTitle>
           </DialogHeader>
           <p className="text-sm font-medium text-foreground">{primary}</p>
-          <Input
+          <Editor
             value={editValue}
             onChange={(event) => setEditValue(event.target.value)}
             aria-label={`New value for ${primary}`}
@@ -243,7 +257,7 @@ export function PkmMemoryDetail({
             <Button
               type="button"
               effect="fade"
-              disabled={saving || !editValue.trim() || editValue === card.value}
+              disabled={saving || !editValue.trim() || editValue === fullValue}
               onClick={() => onSave(editValue)}
             >
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}

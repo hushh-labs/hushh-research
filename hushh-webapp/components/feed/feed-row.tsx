@@ -44,6 +44,7 @@ export const FeedRow = memo(function FeedRow({
         ) : (
           <span
             aria-hidden
+            data-slot="feed-domain-icon"
             className="inline-flex size-10 items-center justify-center rounded-full bg-muted text-muted-foreground"
           >
             <Icon className="size-[18px]" />

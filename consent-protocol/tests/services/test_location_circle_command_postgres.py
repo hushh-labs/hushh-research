@@ -494,3 +494,130 @@ async def test_expiry_while_acceptance_waits_for_profile_rolls_back_membership_a
     assert db.execute_raw("SELECT effect_receipt FROM one_action_directive_ledger").data == [
         {"effect_receipt": None}
     ]
+
+
+def _all_connections_fixture(db, monkeypatch):
+    sms_schema(db)
+    # The same adjacent tables `circle_fixture` exposes: adding a member writes
+    # connection origins, which retire pending requests and scope proposals.
+    db.execute_raw("""
+        ALTER TABLE connection_requests ADD COLUMN id UUID PRIMARY KEY DEFAULT gen_random_uuid();
+        CREATE TABLE connection_scope_proposals(id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          connection_request_id UUID NOT NULL REFERENCES connection_requests(id), status TEXT NOT NULL DEFAULT 'pending',
+          expires_at TIMESTAMPTZ NOT NULL,resolved_at TIMESTAMPTZ);
+        CREATE TABLE connection_scope_proposal_events(id BIGSERIAL PRIMARY KEY,
+          connection_scope_proposal_id UUID NOT NULL REFERENCES connection_scope_proposals(id),
+          event_type TEXT NOT NULL,actor_user_id TEXT,reason TEXT);
+    """)
+    migrations = Path(__file__).resolve().parents[2] / "db/migrations"
+    for name in (
+        "138_circle_member_connection_origin.sql",
+        "158_one_location_circle_member_limit_100.sql",
+        "159_one_location_circle_invite_max_uses_100.sql",
+    ):
+        db.execute_raw((migrations / name).read_text())
+    submitted: list[dict] = []
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, **kwargs: submitted.append(kwargs),
+    )
+    service = OneLocationCircleService(db=db, hmac_key="synthetic-circle-key")
+    with db.engine.begin() as conn:
+        circle_id = service.create_circle_in_transaction(conn, owner_user_id="owner", name="Family")
+    return service, circle_id, submitted
+
+
+def _connect_to_owner(db, user_id: str, *, profile: bool = True) -> None:
+    if profile:
+        db.execute_raw("INSERT INTO actor_profiles(user_id) VALUES(:user)", {"user": user_id})
+    db.execute_raw(
+        "INSERT INTO actor_identity_cache(user_id, display_name) VALUES(:user, :name)",
+        {"user": user_id, "name": user_id.title()},
+    )
+    db.execute_raw(
+        """WITH pair AS (
+             INSERT INTO connections(user_a_id,user_b_id,status,source)
+             VALUES('owner',:user,'active','request') RETURNING id)
+           INSERT INTO connection_origins(connection_id,origin_kind,origin_key)
+           SELECT id,'direct_request','direct_request' FROM pair""",
+        {"user": user_id},
+    )
+
+
+def _active_members(db, circle_id: str) -> set[str]:
+    rows = db.execute_raw(
+        """SELECT user_id FROM one_location_circle_memberships
+           WHERE circle_id=CAST(:circle AS UUID) AND status='active'""",
+        {"circle": circle_id},
+    ).data
+    return {row["user_id"] for row in rows}
+
+
+def test_adding_all_connections_is_exact_and_all_or_nothing_in_real_sql(db, monkeypatch):
+    """The voice "add all my connections" path against real SQL: the read-only
+    plan classes each connection the way the write will treat them, and an
+    audience larger than one twenty-person request is written in ONE
+    transaction -- a refusal in the second chunk rolls back the first."""
+    service, circle_id, submitted = _all_connections_fixture(db, monkeypatch)
+    friends = [f"friend-{index:02d}" for index in range(22)]
+    for user_id in (*friends, "member-a", "left-b", "cooling-c"):
+        _connect_to_owner(db, user_id)
+    _connect_to_owner(db, "unready-d", profile=False)
+    db.execute_raw(
+        """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status,ended_at)
+           VALUES(CAST(:circle AS UUID),'member-a','member','active',NULL),
+                 (CAST(:circle AS UUID),'left-b','member','left',NOW())""",
+        {"circle": circle_id},
+    )
+    db.execute_raw(
+        """INSERT INTO one_location_circle_member_invites(
+             circle_id,inviter_user_id,invitee_user_id,status,expires_at,updated_at,responded_at)
+           VALUES(CAST(:circle AS UUID),'owner','cooling-c','declined',
+                  NOW()+INTERVAL '1 day',NOW(),NOW())""",
+        {"circle": circle_id},
+    )
+
+    plan = service.plan_direct_connection_adds(actor_user_id="owner", circle_id=circle_id)
+
+    assert {row["userId"]: row["status"] for row in plan["connections"]} == {
+        # The schema fixture's own connection, with a live origin.
+        "other": "addable",
+        **dict.fromkeys(friends, "addable"),
+        "member-a": "member",
+        "left-b": "left_recently",
+        "cooling-c": "invite_cooldown",
+        "unready-d": "not_ready",
+    }
+    assert plan["circle"]["memberLimit"] == 100
+    assert plan["circle"]["reservedCount"] == len(_active_members(db, circle_id))
+
+    # Negative control: "unready-d" sorts into the second chunk, after twenty
+    # memberships were already written in the first. Nobody may stay added.
+    with pytest.raises(OneLocationCircleError) as refused:
+        service.add_direct_connections(
+            actor_user_id="owner", circle_id=circle_id, user_ids=[*friends, "unready-d"]
+        )
+    assert refused.value.code == "LOCATION_CIRCLE_INVITEE_NOT_READY"
+    assert _active_members(db, circle_id) == {"owner", "member-a"}
+    assert submitted == []
+
+    added = service.add_direct_connections(
+        actor_user_id="owner", circle_id=circle_id, user_ids=[*reversed(friends), "member-a"]
+    )
+
+    assert sorted(added["addedUserIds"]) == friends
+    assert added["skippedReasons"] == {"member-a": "already_member"}
+    assert _active_members(db, circle_id) == {"owner", "member-a", *friends}
+    assert len(submitted) == 1
+    assert sorted(submitted[0]["added_user_ids"]) == friends
+    assert submitted[0]["circle_name"] == "Family"
+
+    # A replay adds nobody twice: every chunk is already in, which is an answer.
+    again = service.add_direct_connections(
+        actor_user_id="owner", circle_id=circle_id, user_ids=friends
+    )
+    assert again["addedUserIds"] == []
+    assert set(again["skippedReasons"]) == set(friends)
+    assert set(again["skippedReasons"].values()) == {"already_member"}
+    assert len(submitted) == 1

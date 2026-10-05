@@ -88,13 +88,40 @@ describe("native MCP review card", () => {
     expect(screen.queryByText("Synthetic exact phrase")).toBeNull();
   });
 
+  it("settles Activity as unavailable when confirmation fails before a receipt", async () => {
+    const review = makeReview();
+    const onActivityOutcome = vi.fn();
+    vi.mocked(ExternalConnectorService.confirmMcpCall)
+      .mockRejectedValueOnce(new Error("private backend failure"));
+    render(<McpCallReviewCard
+      review={review}
+      vaultOwnerToken="synthetic"
+      onDismiss={vi.fn()}
+      onActivityOutcome={onActivityOutcome}
+    />);
+    await screen.findByText("Synthetic exact phrase");
+    fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+    await waitFor(() => expect(onActivityOutcome).toHaveBeenCalledWith("unavailable"));
+    expect(onActivityOutcome).toHaveBeenCalledTimes(1);
+    expect(review.resume).not.toHaveBeenCalled();
+    expect(await screen.findByText(/no longer available/)).toBeTruthy();
+    expect(document.body.textContent).not.toContain("private backend failure");
+  });
+
   it("retains an honest unknown outcome and never offers an automatic retry", async () => {
     const review = makeReview();
+    const onActivityOutcome = vi.fn();
     vi.mocked(review.resume).mockRejectedValueOnce(new Error("private provider failure"));
-    render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
+    render(<McpCallReviewCard
+      review={review}
+      vaultOwnerToken="synthetic"
+      onDismiss={vi.fn()}
+      onActivityOutcome={onActivityOutcome}
+    />);
     await screen.findByText("Synthetic exact phrase");
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
     expect(await screen.findByText(/Check the connector before trying again/)).toBeTruthy();
+    expect(onActivityOutcome).toHaveBeenCalledWith("unknown");
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(document.body.textContent).not.toContain("private provider failure");
     expect(review.resume).toHaveBeenCalledTimes(1);

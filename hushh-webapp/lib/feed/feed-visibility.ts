@@ -15,6 +15,8 @@ export function isFeedItemHidden(
   return (
     item.source_domain === "connected_systems" &&
     !eventType.startsWith("document_share_") &&
+    !eventType.startsWith("drive_") &&
+    !eventType.startsWith("connector_") &&
     !eventType.startsWith("calendar_") &&
     !eventType.startsWith("mail_") &&
     !crmEnabled

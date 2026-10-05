@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/
 
 import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { OneArcIllustration } from "@/components/onboarding/OneArcIllustration";
@@ -429,11 +430,15 @@ export function PhoneMandatePageContent() {
         <div className={cn("flex w-full flex-none flex-col items-center gap-5 px-2 text-center", styles.flowStack)}>
           <div className={cn("flex w-full flex-col items-center gap-3", styles.flowHeading)}>
             {verificationStep === "code" ? (
-              <span role="img" aria-label="Hushh" className={styles.codeIcon}>🤫</span>
+              <span className={styles.codeIcon}>
+                <HushhMark alt="Hussh" className={styles.codeMark} />
+              </span>
             ) : (
               <div className={styles.existingBurst}><OneArcIllustration /></div>
             )}
-            <span className={styles.hushhVisual} aria-hidden="true">🤫</span>
+            <span className={styles.hushhVisual} aria-hidden="true">
+              <HushhMark className={styles.hushhVisualMark} />
+            </span>
 
             <h1
               role="heading"

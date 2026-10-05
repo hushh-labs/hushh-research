@@ -468,6 +468,8 @@ function isPkmEpochRoute(route) {
   return (
     route === "/one/pkm" ||
     route === "/one/pkm/recent" ||
+    route === "/one/pkm/location" ||
+    route === "/one/pkm/location/detail" ||
     route === "/one/profile/my-data" ||
     route === "/one/wallet"
   );

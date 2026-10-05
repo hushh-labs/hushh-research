@@ -5,6 +5,7 @@ import {
   NOT_SUCCESS_STATUSES,
   type ServerFrame,
   type ToolResultFrame,
+  type ToolResultPublic,
 } from "@/lib/one-voice/protocol";
 import {
   SOS_CLOSED_UNVERIFIED_FACT,
@@ -454,6 +455,110 @@ describe("reduceVoiceSession: answer ownership", () => {
     expect(state.pendingAction?.resolvedStatus).toBe("executed");
     expect(state.lastResult).toBeNull();
   });
+
+  // Rows the server offered under a revision: the list "the second one" and
+  // "reply to it" are spoken about.
+  const OFFERED_MAIL: ToolResultPublic = {
+    status: "ok",
+    spoken_facts: ["I read your 2 newest messages."],
+    items: [
+      { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+      { source_ref: "mail:2", subject: "March invoice", sender: "Acme" },
+    ],
+    coverage: { unit: "messages", returned: 2, scope: "newest" },
+    offer_revision: 7,
+    conversation_id: "11111111-2222-4333-8444-555555555555",
+  };
+
+  it("keeps an offered mail list on screen across the next question until that question answers", () => {
+    // Regression: the new input cleared the slot, so a spoken "open the second
+    // one" arrived with no list left on screen to open.
+    const read = run(
+      [
+        server({ type: "transcript.input", text: "What's in my inbox?", final: true, turn_id: "read" }),
+        server(toolResult({ call_id: "read-call", tool: "read_mail", turn_id: "read", status: "ok", result_public: OFFERED_MAIL })),
+      ],
+      connected(),
+    );
+    expect(read.lastResult).toBe(OFFERED_MAIL);
+
+    const asked = run(
+      [server({ type: "transcript.input", text: "Open the second one", final: true, turn_id: "open" })],
+      read,
+    );
+    expect(asked.activeInputTurnId).toBe("open");
+    expect(asked.lastResult).toBe(OFFERED_MAIL);
+
+    // Opening dispatches; it does not answer. It joins the timeline but never
+    // takes the slot from the list it opens a row of.
+    const dispatched = run(
+      [
+        server(toolResult({
+          call_id: "open-call",
+          tool: "open_mail",
+          turn_id: "open",
+          status: "mail_open_dispatched",
+          result_public: {
+            status: "mail_open_dispatched",
+            spoken_facts: ["Opening it."],
+            ordinal: 2,
+            offer_revision: 7,
+            conversation_id: "11111111-2222-4333-8444-555555555555",
+          },
+        })),
+      ],
+      asked,
+    );
+    expect(dispatched.toolTimeline.at(-1)?.result?.status).toBe("mail_open_dispatched");
+    expect(dispatched.lastResult).toBe(OFFERED_MAIL);
+
+    // Still the list while the next question is being answered...
+    const next = run(
+      [
+        server({ type: "turn", state: "model_end", turn_id: "open" }),
+        server({ type: "transcript.input", text: "What is my name?", final: true, turn_id: "name" }),
+      ],
+      dispatched,
+    );
+    expect(next.activeInputTurnId).toBe("name");
+    expect(next.lastResult).toBe(OFFERED_MAIL);
+
+    // ...until that question's own answer takes the slot.
+    const answered = run(
+      [server(toolResult({ call_id: "name-call", tool: "get_profile", turn_id: "name", status: "ok", result_public: { status: "ok", display_name: "Ankit" } }))],
+      next,
+    );
+    expect(answered.lastResult?.display_name).toBe("Ankit");
+  });
+
+  it("still gives the slot to a new question when the result has no offered rows to act on", () => {
+    const { offer_revision: _revision, ...unbound } = OFFERED_MAIL;
+    void _revision;
+    const cases: Array<[string, string, ToolResultPublic]> = [
+      [
+        "people",
+        "list_people",
+        { status: "ok", spoken_facts: ["You have 1 connection."], connected: [{ user_id: "u-1", display_name: "Priya" }] },
+      ],
+      ["an empty read", "read_mail", { ...OFFERED_MAIL, items: [] }],
+      ["rows with no offer to resolve a position against", "read_mail", unbound],
+    ];
+    for (const [label, tool, result] of cases) {
+      const shown = run(
+        [
+          server({ type: "transcript.input", text: "First", final: true, turn_id: "a" }),
+          server(toolResult({ call_id: "a-call", tool, turn_id: "a", status: "ok", result_public: result })),
+        ],
+        connected(),
+      );
+      expect(shown.lastResult, label).toBe(result);
+      const asked = run(
+        [server({ type: "transcript.input", text: "Second", final: true, turn_id: "b" })],
+        shown,
+      );
+      expect(asked.lastResult, label).toBeNull();
+    }
+  });
 });
 
 describe("reduceVoiceSession: transcript", () => {
@@ -653,6 +758,45 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(NOT_SUCCESS_STATUSES.has("confirmation_waiting")).toBe(true);
     expect(toolResultTone("confirmation_waiting", true)).toBe("failure");
     expect(selectSuccessReceipt(waiting)).toBeNull();
+  });
+
+  it("pending_action_exists is a refusal: another card is still waiting, nothing ran", () => {
+    const blocked = run(
+      [
+        server(
+          toolResult({
+            tool: "add_all_connections",
+            status: "pending_action_exists",
+            result_public: {
+              status: "pending_action_exists",
+              spoken_facts: ["Answer the card that's already up first."],
+            },
+          }),
+        ),
+      ],
+      connected(),
+    );
+    expect(NOT_SUCCESS_STATUSES.has("pending_action_exists")).toBe(true);
+    expect(isSuccessStatus("pending_action_exists")).toBe(false);
+    expect(toolResultTone("pending_action_exists", true)).not.toBe("success");
+    expect(selectSuccessReceipt(blocked)).toBeNull();
+  });
+
+  it("circle batch adds succeed only when someone was added", () => {
+    // none_added (add_circle_members) and the add_all_connections refusals add
+    // nobody; a success tone would tell the person their circle grew.
+    for (const status of [
+      "none_added",
+      "no_one_to_add",
+      "not_enough_room",
+      "not_added",
+    ]) {
+      expect(isSuccessStatus(status), status).toBe(false);
+      expect(toolResultTone(status, true), status).toBe("neutral");
+    }
+    // Negative control: a real add still reads as done.
+    expect(toolResultTone("added", true)).toBe("success");
+    expect(toolResultTone("partially_added", true)).toBe("success");
   });
 
   it("device Location switch tones: on/off succeed, already_* are neutral, pending and rejected fail", () => {
@@ -1082,6 +1226,20 @@ describe("reduceVoiceSession: tools and success", () => {
     );
     expect(informational.phase).toBe("listening");
     expect(informational.error?.recoverable).toBe(true);
+    // The relay survives a voice storage blip on a tap or cancel and keeps
+    // the session open, so the client must not strand it in "error".
+    const storage = run(
+      [
+        server({
+          type: "error",
+          code: "storage_unavailable",
+          message: "That didn't go through. Please try again.",
+        }),
+      ],
+      base,
+    );
+    expect(storage.phase).toBe("listening");
+    expect(storage.error?.recoverable).toBe(true);
     const fatal = run(
       [
         server({

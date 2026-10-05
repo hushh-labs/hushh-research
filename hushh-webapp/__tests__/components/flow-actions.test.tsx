@@ -57,4 +57,22 @@ describe("FlowActionGroup", () => {
       container.querySelector('[data-ui-role="flow-actions"]')?.className,
     ).toContain("max-w-[30rem]");
   });
+
+  it("can keep stacked secondary actions grouped without a divider", () => {
+    const { container } = render(
+      <FlowActionGroup
+        stacked
+        separateSecondary={false}
+        secondary={<button type="button">Cancel</button>}
+        primary={<button type="button">Create code</button>}
+      />,
+    );
+
+    const secondary = container.querySelector(
+      '[data-action-priority="secondary"]',
+    );
+    expect(secondary).toBeTruthy();
+    expect(secondary?.className).not.toContain("border-t");
+    expect(secondary?.className).not.toContain("pt-2");
+  });
 });

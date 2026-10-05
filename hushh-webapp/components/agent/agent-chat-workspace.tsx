@@ -16,6 +16,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmCaptureRunning, isAgentPkmProcessingReady, shouldPresentAgentPkmCapture, shouldPublishAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import {
   applyOwnerConfirmedSave,
@@ -107,7 +108,11 @@ import {
 } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
-import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
+import {
+  McpCallReviewCard,
+  type McpChatReview,
+  type McpReviewActivityOutcome,
+} from "@/components/agent/mcp-call-review-card";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
@@ -657,6 +662,52 @@ function settleVisibleStreamEvents(
       durationMs: Math.max(0, Date.now() - event.createdAtMs),
     };
   });
+}
+
+/**
+ * A browser review failure has no server tool-result event to replace its
+ * Activity rows. Settle only the opaque ids that emitted this review, never a
+ * different pending call, and never promise that a post-receipt result did not
+ * reach the provider.
+ */
+export function settleMcpReviewActivity(
+  events: AgentVisibleStreamEvent[] | undefined,
+  activityIds: readonly string[] | undefined,
+  outcome: McpReviewActivityOutcome,
+): AgentVisibleStreamEvent[] | undefined {
+  if (!events || !activityIds?.length) return events;
+  const ids = new Set(activityIds);
+  const presentation: Record<McpReviewActivityOutcome, {
+    status: Extract<AgentVisibleStreamStatus, "blocked" | "error">;
+    tag: string;
+    message: string;
+  }> = {
+    unavailable: {
+      status: "error",
+      tag: "Unavailable",
+      message: "Connector review unavailable. No change was sent.",
+    },
+    expired: {
+      status: "blocked",
+      tag: "Expired",
+      message: "Review expired. No change was sent.",
+    },
+    unknown: {
+      status: "error",
+      tag: "Check status",
+      message: "Connector outcome could not be verified. Check the connector before trying again.",
+    },
+  };
+  const next = presentation[outcome];
+  return events.map((event) =>
+    ids.has(event.id) && (event.status === "running" || event.status === "waiting")
+      ? {
+          ...event,
+          ...next,
+          durationMs: Math.max(0, Date.now() - event.createdAtMs),
+        }
+      : event,
+  );
 }
 
 function stopDriveCompilationProgress(
@@ -6151,6 +6202,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // into messages, stream diagnostics, or restored history.
             const boundReview: McpChatReview = {
               ...review,
+              activityMessageId: assistantMessageId,
               isCurrent: () => review.isCurrent() &&
                 conversationIdRef.current === review.conversationId &&
                 latestVisibleTurnIdRef.current === debugTurnId,
@@ -8502,20 +8554,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     aria-hidden
                   />
                 ) : (
-                  /* The mark, as text, exactly like the top bar / sidebar /
-                     intro gate. This slot used to render a raster of Noto
-                     (Android) artwork — so it stayed Android on a Mac no matter
-                     what the font stack said, and it was the one brand mark in
-                     the app that could not follow the platform.
-                     .hushh-brand-mark pins the emoji font the same way every
-                     other mark does. */
-                  <span
-                    aria-label="One"
-                    role="img"
-                    className="hushh-brand-mark select-none text-[24px] leading-none"
-                  >
-                    🤫
-                  </span>
+                  <HushhMark
+                    aria-hidden="true"
+                    className="h-[24px] w-[24px]"
+                  />
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about
@@ -9252,6 +9294,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   key={review.reference.directiveId}
                   review={review}
                   vaultOwnerToken={vaultOwnerToken || ""}
+                  onActivityOutcome={(outcome) => {
+                    if (!review.activityMessageId) return;
+                    updateMessage(review.activityMessageId, (message) => ({
+                      ...message,
+                      streamEvents: settleMcpReviewActivity(
+                        message.streamEvents,
+                        review.activityIds,
+                        outcome,
+                      ),
+                    }));
+                  }}
                   onDismiss={() => setPendingMcpReviews((current) => current.filter((item) =>
                     item.reference.directiveId !== review.reference.directiveId))}
                 />

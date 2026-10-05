@@ -19,6 +19,9 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.connector_dev_runtime import loopback_development_origin
+from hushh_mcp.services.curated_connector_manifest import all_manifests
+from hushh_mcp.services.external_mcp_connector_descriptor import descriptor_to_row_values
 from hushh_mcp.services.mcp_public_http import validate_mcp_endpoint
 
 
@@ -90,6 +93,57 @@ class ExternalMcpConnectorDefinition:
             "description": self.description,
             "authStyle": self.auth_style,
         }
+
+
+# The environment whose redirect addresses a local run derives its rows from.
+_DEVELOPMENT_MANIFEST_ENVIRONMENT = "uat"
+
+
+def _development_definitions() -> dict[str, ExternalMcpConnectorDefinition]:
+    """Manifest-derived curated definitions; empty outside a loopback development runtime.
+
+    Localhost reads and writes the same database as UAT, so it must neither trust
+    nor edit the shared registry row of a manifest-backed provider: a stale row
+    shows a dead card, and "fixing" it from a laptop changes UAT. Instead the
+    effective row is derived from the checked-in manifest -- read-only, through
+    the same builder `apply` writes with -- so a local run sees exactly what a
+    correct `apply` would produce without touching the shared registry.
+
+    This can never turn on in a deployed process: it needs ENVIRONMENT=development
+    and a plain-http loopback frontend origin (see `connector_dev_runtime`).
+    """
+    if loopback_development_origin() is None:
+        return {}
+    definitions: dict[str, ExternalMcpConnectorDefinition] = {}
+    for connector_id, manifest in all_manifests().items():
+        if _DEVELOPMENT_MANIFEST_ENVIRONMENT not in manifest.redirect_uris:
+            continue
+        values = descriptor_to_row_values(manifest.to_descriptor(_DEVELOPMENT_MANIFEST_ENVIRONMENT))
+        definitions[connector_id] = ExternalMcpConnectorDefinition.from_row(
+            {**values, "is_active": True, "user_id": None}
+        )
+    return definitions
+
+
+def _with_development_manifests(
+    definitions: list[ExternalMcpConnectorDefinition],
+) -> list[ExternalMcpConnectorDefinition]:
+    """Replace each curated row a manifest covers with its manifest-derived form.
+
+    Only operator-owned rows (no owner) are replaced; a private owner row is
+    never touched, and a manifest-backed provider with no row at all is added.
+    """
+    overlay = _development_definitions()
+    if not overlay:
+        return definitions
+    kept = [
+        item
+        for item in definitions
+        if not (item.owner_user_id is None and item.connector_id in overlay)
+    ]
+    return sorted(
+        [*kept, *overlay.values()], key=lambda item: (item.display_name, item.connector_id)
+    )
 
 
 class ExternalConnectorRegistryService:
@@ -218,13 +272,17 @@ class ExternalConnectorRegistryService:
                    ORDER BY display_name ASC, connector_id ASC""",
                 {"user_id": user_id},
             )
-            return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+            return _with_development_manifests(
+                [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+            )
         rows = await self._execute(
             """SELECT * FROM external_mcp_connectors
                WHERE is_active = TRUE
                ORDER BY display_name ASC"""
         )
-        return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+        return _with_development_manifests(
+            [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+        )
 
     async def list_curated_connectors(
         self, *, include_inactive: bool = False
@@ -242,9 +300,26 @@ class ExternalConnectorRegistryService:
                ORDER BY display_name ASC, connector_id ASC""",
             {"include_inactive": include_inactive},
         )
-        return [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+        return _with_development_manifests(
+            [ExternalMcpConnectorDefinition.from_row(row) for row in rows]
+        )
 
     async def get_connector(
+        self,
+        connector_id: str,
+        *,
+        user_id: str | None = None,
+        include_inactive: bool = False,
+    ) -> ExternalMcpConnectorDefinition | None:
+        found = await self._get_connector_row(
+            connector_id, user_id=user_id, include_inactive=include_inactive
+        )
+        derived = _development_definitions().get(_clean(connector_id))
+        if derived is not None and (found is None or found.owner_user_id is None):
+            return derived
+        return found
+
+    async def _get_connector_row(
         self,
         connector_id: str,
         *,

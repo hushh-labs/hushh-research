@@ -42,6 +42,21 @@ function detail(domain: string, value: unknown, onOpenOwner = vi.fn()) {
 }
 
 describe("Memory detail for an app-owned item", () => {
+  it("preserves the full multiline value when an editable routed note is corrected", () => {
+    const value = "First line\nSecond line " + "Full note ".repeat(30);
+    const [card] = buildPkmMemoryCardsFromNode({ domain: "location", domainTitle: "Location", value, sourceLabel: "Saved memory", updatedAt: null, pathSegments: ["agent_memory", "note"] });
+    const onSave = vi.fn();
+    render(<PkmMemoryDetail card={card!} displayLabel="Note" displayValue={value} sharingState="private" sharingPosture="private" sharingBusy={false} sharingError={null} canMutate saving={false} deleting={false} actionError={null} onBack={vi.fn()} onSharingChange={vi.fn()} onSave={onSave} onForget={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit", exact: true }));
+    const editor = screen.getByRole("textbox", { name: "New value for Note" });
+    expect(editor.tagName).toBe("TEXTAREA");
+    expect(editor).toHaveValue(value);
+    const corrected = value.replace("First", "Corrected");
+    fireEvent.change(editor, { target: { value: corrected } });
+    fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+    expect(onSave).toHaveBeenCalledWith(corrected);
+  });
+
   it("is read-only and opens the owning app instead", () => {
     const onOpenOwner = detail("location", { saved_places: { home: { label: "Home" } } });
     expect(screen.queryByText("Edit")).toBeNull();

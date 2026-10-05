@@ -20,6 +20,7 @@ import { Icon } from "@/lib/morphy-ux/ui";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { AuthProviderButton } from "@/components/onboarding/AuthProviderButton";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
@@ -971,7 +972,10 @@ export function AuthStep({
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
             <span className={lightStyles.brandMark} aria-hidden="true">
               <span className={lightStyles.brandGlow} />
-              <span className={lightStyles.brandEmoji}>🤫</span>
+              <HushhMark
+                aria-hidden="true"
+                className={lightStyles.brandIcon}
+              />
             </span>
 
             <h1

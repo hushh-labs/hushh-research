@@ -65,6 +65,7 @@ import {
 import { bytesFromBase64 } from "@/lib/one-voice/audio/pcm";
 import { MailOpenError, openOfferedMail } from "@/lib/one-voice/mail-open";
 import { LivePlaybackScheduler } from "@/lib/one-voice/audio/playback";
+import { performanceNow, SpeechEndProbe } from "@/lib/one-voice/performance";
 import { isFirebasePlaneTool } from "@/lib/one-voice/confirmation";
 import type {
   AppContextInput,
@@ -74,6 +75,7 @@ import type {
 import type {
   ClientStepRequestFrame,
   OsPermission,
+  PerfFrame,
   ServerFrame,
   UiDirectiveFrame,
 } from "@/lib/one-voice/protocol";
@@ -110,8 +112,11 @@ export interface VoiceLiveClientLike {
   connect(): Promise<void>;
   close(reason?: string): void;
   sendAudio(pcm16: Uint8Array): boolean;
+  sendPerf(metric: PerfFrame["metric"], durationMs: number, turnId?: string): boolean;
   sendText(text: string, requestId?: string): boolean;
   sendAppContext(context: AppContextInput): void;
+  /** Optional so older test doubles keep compiling; the real client has it. */
+  mailDeliveryResult?(deliveryRef: string, actionId: string): boolean;
   pendingShown(pendingActionId: string): boolean;
   confirm(
     pendingActionId: string,
@@ -155,6 +160,7 @@ export interface VoicePlaybackLike {
   flush(): void;
   fenceTurn(turnId: string): void;
   onSpeakingChanged(callback: (speaking: boolean) => void): () => void;
+  onPlaybackStarted(callback: (turnId: string) => void): () => void;
   close(): void;
 }
 
@@ -177,6 +183,8 @@ export type VoiceSessionDeps = {
   /** Runs a callback after the next paint (requestAnimationFrame by default). */
   afterPaint?: (callback: () => void) => void;
   now?: () => number;
+  /** Monotonic clock for measurement; injectable in focused tests. */
+  perfNow?: () => number;
   clientStepTimeoutMs?: number;
   directiveClaimMs?: number;
 };
@@ -404,10 +412,15 @@ type ClientStepEntry = {
 type LiveSession = {
   conversationId: string;
   isReconnect: boolean;
+  /** What this relay advertised in session.ready; empty until it does. */
+  features: Set<string>;
   client: VoiceLiveClientLike;
   capture: VoiceCaptureLike | null;
   captureReady: boolean;
   playback: VoicePlaybackLike;
+  speechEndProbe: SpeechEndProbe;
+  firstAudioReceivedAt: Map<string, number>;
+  measuredAudioTurns: Set<string>;
   audioContext: AudioContext | null;
   lease: VoiceSessionLease | null;
   gate: HalfDuplexGate | null;
@@ -625,6 +638,10 @@ export function VoiceSessionProvider({
     [],
   );
   const now = useCallback(() => depsRef.current?.now?.() ?? Date.now(), []);
+  const perfNow = useCallback(
+    () => depsRef.current?.perfNow?.() ?? performanceNow(),
+    [],
+  );
   const readState = useCallback(
     (): VoiceSessionState => useVoiceSessionStore.getState().state,
     [],
@@ -632,13 +649,32 @@ export function VoiceSessionProvider({
 
   // -- app context ------------------------------------------------------------
 
+  // The mail row open on screen. A ref rather than state: nothing renders from
+  // it, it rides on every app_context this provider builds (each frame
+  // replaces the relay's whole screen context), and changing it resends one.
+  const activeMailRef = useRef<{
+    ordinal: number;
+    offerRevision: number;
+    conversationId: string;
+  } | null>(null);
+
   const sendAppContext = useCallback(() => {
     const session = sessionRef.current;
     if (!session || session.tornDown) return;
+    const activeMail = activeMailRef.current;
     const frame = buildAppContextFrame({
       runtime: runtimeRef.current,
       pathname: pathnameRef.current,
       osLocationPermission: osPermissionRef.current,
+      // Only in the conversation whose offer drew the row (a position means
+      // nothing against another conversation's list), and only to a relay that
+      // accepts the keys: an older one would refuse the whole frame.
+      activeMail:
+        activeMail &&
+        activeMail.conversationId === session.conversationId &&
+        session.features.has("active_mail")
+          ? activeMail
+          : null,
     });
     const { type: _type, ...context } = frame;
     void _type;
@@ -675,6 +711,9 @@ export function VoiceSessionProvider({
       // ignore
     }
     session.capture = null;
+    session.speechEndProbe.reset();
+    session.firstAudioReceivedAt.clear();
+    session.measuredAudioTurns.clear();
     try {
       session.playback.flush();
       session.playback.close();
@@ -911,6 +950,10 @@ export function VoiceSessionProvider({
   const handleFrame = useCallback(
     (session: LiveSession, frame: ServerFrame) => {
       if (sessionRef.current !== session || session.tornDown) return;
+      const receivedAt = frame.type === "audio" ||
+        (frame.type === "transcript.input" && frame.final)
+        ? perfNow()
+        : null;
       const before = useVoiceSessionStore.getState().state;
       const origin = "turn_id" in frame && typeof frame.turn_id === "string"
         ? frame.turn_id
@@ -985,6 +1028,11 @@ export function VoiceSessionProvider({
       };
       switch (frame.type) {
         case "session.ready": {
+          session.features = new Set(
+            Array.isArray(frame.features)
+              ? frame.features.filter((item): item is string => typeof item === "string")
+              : [],
+          );
           sendAppContext();
           // The reducer renders the first re-listed card. If the server never
           // heard it was shown (its pending_action frame was lost to a
@@ -1000,6 +1048,14 @@ export function VoiceSessionProvider({
           return;
         }
         case "transcript.input":
+          if (frame.final && !staleOrigin) {
+            const duration = frame.request_id || session.paused
+              ? null
+              : session.speechEndProbe.takeDuration(receivedAt ?? perfNow());
+            if (duration !== null)
+              session.client.sendPerf("endpointing_client", duration, frame.turn_id);
+            else session.speechEndProbe.reset();
+          }
           if (
             store.state.activeInputTurnId === frame.turn_id &&
             before.activeInputTurnId !== frame.turn_id
@@ -1044,12 +1100,27 @@ export function VoiceSessionProvider({
           )
             return;
           if (frame.narration === true) session.narrating = true;
+          const firstForTurn =
+            !session.measuredAudioTurns.has(frame.turn_id) &&
+            !session.firstAudioReceivedAt.has(frame.turn_id);
           try {
-            session.playback.enqueue(
-              bytesFromBase64(frame.data),
+            const pcm16 = bytesFromBase64(frame.data);
+            if (firstForTurn) {
+              session.firstAudioReceivedAt.set(frame.turn_id, receivedAt ?? perfNow());
+              if (session.firstAudioReceivedAt.size > 32) {
+                const oldest = session.firstAudioReceivedAt.keys().next().value;
+                if (oldest) session.firstAudioReceivedAt.delete(oldest);
+              }
+            }
+            const queued = session.playback.enqueue(
+              pcm16,
               frame.turn_id,
             );
+            if (!queued && firstForTurn)
+              session.firstAudioReceivedAt.delete(frame.turn_id);
           } catch {
+            if (firstForTurn)
+              session.firstAudioReceivedAt.delete(frame.turn_id);
             // A malformed chunk is dropped; the next one schedules normally.
           }
           return;
@@ -1093,7 +1164,7 @@ export function VoiceSessionProvider({
           return;
       }
     },
-    [dispatch, now, requestClientStep, sendAppContext, settleDirective],
+    [dispatch, now, perfNow, requestClientStep, sendAppContext, settleDirective],
   );
 
   // -- capture ------------------------------------------------------------------
@@ -1119,6 +1190,7 @@ export function VoiceSessionProvider({
       )();
       session.capture = capture;
       session.captureReady = false;
+      session.speechEndProbe.reset();
       capture.setMuted(mutedRef.current);
       let result: CaptureStartResult;
       try {
@@ -1139,7 +1211,18 @@ export function VoiceSessionProvider({
             if (session.gate && !session.gate.allows()) return;
             session.client.sendAudio(pcm16);
           },
-          onLevel: dispatchLevel,
+          onLevel: (level) => {
+            if (
+              sessionRef.current === session &&
+              !session.tornDown &&
+              !session.paused &&
+              !mutedRef.current &&
+              !session.narrating &&
+              (!session.gate || session.gate.allows())
+            ) session.speechEndProbe.observe(level, perfNow());
+            else session.speechEndProbe.reset();
+            dispatchLevel(level);
+          },
           onEnded: () => {
             if (
               sessionRef.current !== session ||
@@ -1201,7 +1284,7 @@ export function VoiceSessionProvider({
         : null;
       dispatch({ type: "half_duplex", enabled: halfDuplex });
     },
-    [dispatch, dispatchLevel, now],
+    [dispatch, dispatchLevel, now, perfNow],
   );
 
   // -- open ---------------------------------------------------------------------
@@ -1227,10 +1310,14 @@ export function VoiceSessionProvider({
       const session: LiveSession = {
         conversationId: input.conversationId,
         isReconnect: input.isReconnect,
+        features: new Set(),
         client: null as unknown as VoiceLiveClientLike,
         capture: null,
         captureReady: false,
         playback,
+        speechEndProbe: new SpeechEndProbe(),
+        firstAudioReceivedAt: new Map(),
+        measuredAudioTurns: new Set(),
         audioContext,
         lease: null,
         gate: null,
@@ -1342,6 +1429,26 @@ export function VoiceSessionProvider({
           dispatch({ type: "speaking", speaking });
         }),
       );
+      session.unsubscribes.push(
+        playback.onPlaybackStarted((turnId) => {
+          if (sessionRef.current !== session || session.tornDown) return;
+          const receivedAt = session.firstAudioReceivedAt.get(turnId);
+          if (receivedAt === undefined) return;
+          session.firstAudioReceivedAt.delete(turnId);
+          session.measuredAudioTurns.add(turnId);
+          if (session.measuredAudioTurns.size > 128) {
+            const oldest = session.measuredAudioTurns.values().next().value;
+            if (oldest) session.measuredAudioTurns.delete(oldest);
+          }
+          // This is the first observed nonzero WebAudio output tick, within
+          // the scheduler's 50 ms cadence; hardware speaker latency is unknown.
+          session.client.sendPerf(
+            "audio_receive_to_audible",
+            Math.round(perfNow() - receivedAt),
+            turnId,
+          );
+        }),
+      );
 
       // The socket and the mic open together: frames captured before
       // `session.ready` sit in the client's bounded onset buffer.
@@ -1366,7 +1473,7 @@ export function VoiceSessionProvider({
         dispatch({ type: "resumed" });
       return true;
     },
-    [dispatch, handleClose, handleFrame, now, startCapture],
+    [dispatch, handleClose, handleFrame, now, perfNow, startCapture],
   );
 
   const resumeSession = useCallback(
@@ -1505,6 +1612,7 @@ export function VoiceSessionProvider({
       if (!session || session.tornDown) return;
       const wasPaused = session.paused;
       session.paused = true;
+      session.speechEndProbe.reset();
       session.pauseReason = reason;
       session.captureGeneration += 1;
       // A foreground capture may still be inside getUserMedia or worklet load.
@@ -1621,6 +1729,7 @@ export function VoiceSessionProvider({
         }
         return false;
       }
+      session.speechEndProbe.reset();
       session.narrating = false;
       session.playback.flush();
       const turnId = readState().turnId;
@@ -1737,6 +1846,7 @@ export function VoiceSessionProvider({
   useEffect(() => {
     // A different account never continues the previous conversation.
     conversationIdRef.current = null;
+    activeMailRef.current = null;
     stopRef.current("account_changed");
   }, [user?.uid]);
   useEffect(() => () => stopRef.current("unmount"), []);
@@ -1782,6 +1892,7 @@ export function VoiceSessionProvider({
     (muted: boolean) => {
       mutedRef.current = muted;
       sessionRef.current?.capture?.setMuted(muted);
+      if (muted) sessionRef.current?.speechEndProbe.reset();
       if (muted) dispatchLevel(0);
       dispatch({ type: "muted", muted });
     },
@@ -1886,6 +1997,32 @@ export function VoiceSessionProvider({
     [],
   );
 
+  const setActiveMail = useCallback(
+    (hint: { ordinal: number; offerRevision: number; conversationId: string } | null) => {
+      const current = activeMailRef.current;
+      if (
+        hint === current ||
+        (hint &&
+          current &&
+          hint.ordinal === current.ordinal &&
+          hint.offerRevision === current.offerRevision &&
+          hint.conversationId === current.conversationId)
+      ) {
+        return;
+      }
+      activeMailRef.current = hint;
+      sendAppContext();
+    },
+    [sendAppContext],
+  );
+
+  const reportMailDelivery = useCallback((deliveryRef: string, actionId: string) => {
+    const session = sessionRef.current;
+    // A relay that never listed the frame would answer it with a protocol error.
+    if (!session || session.tornDown || !session.features.has("mail_delivery")) return;
+    session.client.mailDeliveryResult?.(deliveryRef, actionId);
+  }, []);
+
   const cancelPending = useCallback(() => {
     const session = sessionRef.current;
     const current = readState();
@@ -1945,6 +2082,8 @@ export function VoiceSessionProvider({
       chooseCandidate,
       clearView,
       reportClientStep,
+      setActiveMail,
+      reportMailDelivery,
     }),
     [
       enabled,
@@ -1960,6 +2099,8 @@ export function VoiceSessionProvider({
       chooseCandidate,
       clearView,
       reportClientStep,
+      setActiveMail,
+      reportMailDelivery,
     ],
   );
 
