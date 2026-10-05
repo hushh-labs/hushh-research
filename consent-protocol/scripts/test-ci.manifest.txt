@@ -590,5 +590,29 @@ tests/test_provision_curated_connector.py
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
 
+# Scheduled mail by voice: migration 275 shape and rollback guard, the owner-local
+# send-time rules, and the schedule/list/cancel tools against the sealed ledger.
+tests/test_scheduled_mail_send_migration.py
+tests/services/test_owner_time.py
+tests/one_voice/test_mail_schedule.py
+
+# One Voice scheduled mail: send-once drain, its OIDC route and the UAT-only scheduler.
+tests/services/test_scheduled_mail_drain.py
+tests/test_scheduled_mail_drain_routes.py
+tests/test_scheduled_mail_scheduler_contract.py
+
+# Gmail drafts by voice: list/open/send by position, the send gate and the
+# drafts grant, one ledger row per send, and the draft open route.
+tests/services/test_gmail_drafts_service.py
+tests/one_voice/test_mail_drafts.py
+tests/one_voice/test_draft_open_route.py
+
+# Scheduled mail and draft sends on real PostgreSQL (serial lane): 275 over 173
+# with its CHECKs and refused rollback, one row per schedule under concurrent
+# confirmations, cancel frees the key, the drain fires a due row once under
+# concurrent drains and never touches an immediate send (send_at IS NULL), and
+# one draft send (one retry after a refusal) per draft.
+tests/services/test_scheduled_mail_postgres.py
+
 tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py

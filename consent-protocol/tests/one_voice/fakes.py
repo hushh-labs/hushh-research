@@ -16,6 +16,8 @@ from hushh_mcp.one_voice.conversations import Conversation
 from hushh_mcp.one_voice.live_client import LiveEvent
 from hushh_mcp.one_voice.pending_actions import (
     MAIL_DRAFT_TOOLS,
+    SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS,
+    SCHEDULED_MAIL_TOOLS,
     PendingAction,
     PendingActionConflict,
 )
@@ -50,6 +52,18 @@ class MemoryPendingStore:
                 row.status = "failed"
                 row.resolved_at = _now().isoformat()
                 row.result = {"status": "draft_open_unconfirmed", "needs": None}
+                _scrub_private(row)
+            if (
+                row.user_id == user_id
+                and row.tool_name in SCHEDULED_MAIL_TOOLS
+                and row.status == "confirmed"
+                and row.expires_at
+                and datetime.fromisoformat(row.expires_at)
+                < _now() - timedelta(seconds=SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS)
+            ):
+                row.status = "failed"
+                row.resolved_at = _now().isoformat()
+                row.result = {"status": "schedule_unconfirmed", "needs": None}
                 _scrub_private(row)
             if (
                 row.user_id == user_id

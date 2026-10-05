@@ -114,6 +114,7 @@ class FakeClient {
   static instances: FakeClient[] = [];
   readonly options: OneLiveClientOptions;
   readonly sent: string[] = [];
+  readonly audioFrames: Uint8Array[] = [];
   readonly perf: Array<{ metric: string; durationMs: number; turnId?: string }> = [];
   /** Each app_context payload, in order; each one replaces the relay's screen context. */
   readonly appContexts: AppContextInput[] = [];
@@ -145,7 +146,8 @@ class FakeClient {
     };
     this.options.onClose(info);
   }
-  sendAudio() {
+  sendAudio(pcm16: Uint8Array) {
+    this.audioFrames.push(pcm16);
     return this.isReady;
   }
   sendPerf(metric: string, durationMs: number, turnId?: string) {
@@ -208,17 +210,27 @@ class FakeCapture {
 }
 
 let playbackStarted: ((turnId: string) => void) | null = null;
+let speakingChanged: ((speaking: boolean) => void) | null = null;
 const playback = {
+  speaking: false,
   enqueue: () => true,
   flush: () => undefined,
   fenceTurn: () => undefined,
-  onSpeakingChanged: () => () => undefined,
+  onSpeakingChanged: (callback: (speaking: boolean) => void) => {
+    speakingChanged = callback;
+    return () => { speakingChanged = null; };
+  },
   onPlaybackStarted: (callback: (turnId: string) => void) => {
     playbackStarted = callback;
     return () => { playbackStarted = null; };
   },
   close: () => undefined,
 };
+
+function setPlaybackSpeaking(speaking: boolean) {
+  playback.speaking = speaking;
+  speakingChanged?.(speaking);
+}
 
 let controller: VoiceSessionController | null = null;
 function Probe() {
@@ -288,6 +300,8 @@ beforeEach(() => {
   useVoiceSessionStore.getState().reset();
   FakeClient.instances = [];
   playbackStarted = null;
+  speakingChanged = null;
+  playback.speaking = false;
   harness.leases = [];
   harness.pathname = "/one/location";
   harness.lifecycle = "active";
@@ -467,6 +481,72 @@ describe("VoiceSessionProvider ownership", () => {
       { metric: "audio_receive_to_audible", durationMs: 120, turnId: "012345abcdef" },
     ]);
     expect(JSON.stringify(client.perf)).not.toContain("private words");
+  });
+
+  it.each([
+    ["playback rejects the narration", "AAAA", true],
+    ["the narration has malformed base64", "%%%", false],
+  ])("keeps the mic open when %s", async (_case, data, rejectPlayback) => {
+    const { capture } = mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const micFrame = new Uint8Array([1, 2]);
+    const enqueue = vi.spyOn(playback, "enqueue");
+    if (rejectPlayback) enqueue.mockReturnValue(false);
+
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "narration-failed", narration: true,
+      data, mime_type: "audio/pcm;rate=24000",
+    }));
+    expect(enqueue).toHaveBeenCalledTimes(rejectPlayback ? 1 : 0);
+    capture.options!.onFrame(micFrame);
+    expect(client.audioFrames).toEqual([micFrame]);
+  });
+
+  it("keeps the mic closed after a failed late narration chunk until earlier speech drains", async () => {
+    const { capture } = mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const micFrame = new Uint8Array([3, 4]);
+
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "narration-first", narration: true,
+      data: "AAAA", mime_type: "audio/pcm;rate=24000",
+    }));
+    await act(async () => setPlaybackSpeaking(true));
+    const enqueue = vi.spyOn(playback, "enqueue").mockReturnValue(false);
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "narration-late", narration: true,
+      data: "AAAA", mime_type: "audio/pcm;rate=24000",
+    }));
+    expect(enqueue).toHaveBeenCalledOnce();
+    capture.options!.onFrame(micFrame);
+    expect(client.audioFrames).toHaveLength(0);
+
+    await act(async () => setPlaybackSpeaking(false));
+    capture.options!.onFrame(micFrame);
+    expect(client.audioFrames).toEqual([micFrame]);
+  });
+
+  it("does not mute barge-in when narration fails during ordinary playback", async () => {
+    const { capture } = mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const micFrame = new Uint8Array([5, 6]);
+
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "ordinary-speech",
+      data: "AAAA", mime_type: "audio/pcm;rate=24000",
+    }));
+    await act(async () => setPlaybackSpeaking(true));
+    vi.spyOn(playback, "enqueue").mockReturnValue(false);
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "narration-failed", narration: true,
+      data: "AAAA", mime_type: "audio/pcm;rate=24000",
+    }));
+
+    capture.options!.onFrame(micFrame);
+    expect(client.audioFrames).toEqual([micFrame]);
   });
 
   it("stops old speech on a new voice input before a provider interrupt arrives", async () => {

@@ -11,14 +11,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
-
-// "Decide by" must render as a plain date ("Oct 5"), never "Today" or
-// "Tomorrow". Within two days of Oct 5 use the 12th instead, or this test
-// fails for everyone on those days (it did on 2026-10-05 UTC).
-const DECIDE_BY_DAY = (() => {
-  const now = new Date();
-  return now.getMonth() === 9 && now.getDate() >= 3 && now.getDate() <= 7 ? 12 : 5;
-})();
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   getIdToken: vi.fn().mockResolvedValue("id-token"),
@@ -325,6 +317,10 @@ function pendingListResponse(entry: Record<string, unknown>) {
 
 /** Kushal's dinner request, as the pending list sends it today. */
 function foodRequestEntry() {
+  const now = Date.now();
+  const decisionDeadline = new Date(now);
+  decisionDeadline.setDate(decisionDeadline.getDate() + 7);
+
   return {
     id: "req_food",
     request_id: "req_food",
@@ -340,8 +336,10 @@ function foodRequestEntry() {
     counterpart_email: "kushal@example.com",
     reason: "Picking a place for our dinner together",
     // Numeric epoch string, exactly as the pending list serialises it.
-    issued_at: String(Date.now() - 60_000),
-    approval_timeout_at: new Date(new Date().getFullYear(), 9, DECIDE_BY_DAY, 13, 51).getTime(),
+    issued_at: String(now - 60_000),
+    // Keep the deadline outside the current day: `formatDecideBy` deliberately
+    // says "Today" for a same-day deadline.
+    approval_timeout_at: decisionDeadline.getTime(),
     metadata: { expiry_hours: 168 },
   };
 }
@@ -1894,7 +1892,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     // The wire sends issued_at as a numeric string; it used to read
     // "Unavailable".
     expect(valueFor("Requested")).toMatch(/^Today, /);
-    expect(valueFor("Decide by")).toMatch(new RegExp(`^Oct ${DECIDE_BY_DAY}\\b`));
+    expect(valueFor("Decide by")).toMatch(/^[A-Z][a-z]{2} \d{1,2}(, \d{4})?$/);
     // The request carries the same name its access will.
     expect(valueFor("Access")).toBe("Food preferences");
     // One duration wording: the requester's card says "7 days", so the

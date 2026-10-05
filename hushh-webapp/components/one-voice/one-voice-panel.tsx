@@ -67,6 +67,8 @@ const HANDOFF_STATUSES = new Set<string>([
   // that has nothing of its own to show -- and take away the very rows the
   // ordinal refers to.
   "mail_open_dispatched",
+  // The same for a draft in a drafts list.
+  "draft_open_dispatched",
 ]);
 const DISAMBIGUATION_STATUSES = new Set<string>([
   "multiple",
@@ -431,6 +433,7 @@ export function OneVoicePanel({
                 tool={resultSlot.tool}
                 ok={resultSlot.ok}
                 onOpenMail={controller.openMail}
+                onOpenDraft={controller.openDraft}
                 onActiveMailChange={controller.setActiveMail}
               />
             ) : null}

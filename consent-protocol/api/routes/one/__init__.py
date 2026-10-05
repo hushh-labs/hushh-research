@@ -41,6 +41,7 @@ from .places import router as places_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
+from .scheduled_mail_drain import router as scheduled_mail_drain_router
 from .voice import router as voice_router
 
 router = APIRouter()
@@ -59,6 +60,7 @@ router.include_router(command_proposals_router)
 router.include_router(client_connectors_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
+router.include_router(scheduled_mail_drain_router)
 router.include_router(gmail_information_requests_router)
 router.include_router(google_router)
 router.include_router(feed_router)

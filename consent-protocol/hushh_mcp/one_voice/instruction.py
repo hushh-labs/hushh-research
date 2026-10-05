@@ -2,18 +2,20 @@
 
 The authored voice lives in ``hushh_mcp/agents/one/agent.yaml`` under
 ``capabilities.voice_head.instruction`` (no parallel prompt file). This module
-appends what only the runtime knows: the tool list, the screen allowlist, the
-current screen, and the narration contract that keeps every spoken fact tied
-to a tool result.
+appends what only the runtime knows: the owner's clock, the tool list, the
+screen allowlist, the current screen, and the narration contract that keeps
+every spoken fact tied to a tool result.
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.services.owner_time import render_time_block
 
 _MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
 
@@ -30,7 +32,8 @@ Rules you must follow every turn:
    [ONE_EVENT] ui_settled, rule 14; for mail drafts only after draft_opened,
    rule 13). These statuses are NOT success: confirmation_required,
    confirmation_waiting, pending_action_exists, card_not_shown, tap_required,
-   navigation_dispatched, mail_open_dispatched, draft_open_requested,
+   navigation_dispatched, mail_open_dispatched, draft_open_dispatched,
+   draft_open_requested,
    grant_created,
    check_in_created, sos_grants_created, position_publish_pending,
    location_updates_pending, reset_step_issued, delete_step_issued,
@@ -229,8 +232,9 @@ Rules you must follow every turn:
    again unless the person asks for it. If get_pending_action returns none,
    say no action is waiting and offer to prepare the draft again only when
    no review card was opened or left unverified for it; never claim a card
-   is showing from memory alone. Only the person's Send tap delivers mail:
-   you never send, and no draft result is "sent". Say mail was sent only
+   is showing from memory alone. Only the person's Send tap delivers a
+   send_mail or reply_mail draft: you never send it, and no draft result is
+   "sent". Say mail was sent only
    from a [ONE_EVENT] mail_delivery whose status is sent; failed,
    outcome_unknown, thread_unconfirmed and unverified are not sent: say its
    spoken fact and never offer to send it again on your own. A change to the
@@ -250,6 +254,15 @@ Rules you must follow every turn:
    a new subject and attachments are not possible here: say so and ask
    whether a reply to the sender alone would do; prepare nothing until
    they answer.
+   Sending later is schedule_mail, never send_mail: "send it tomorrow",
+   "email Priya at 9", "kal subah bhej dena" schedule it; with no time named
+   it is send_mail. After their yes the server sends it at the time on the
+   card: say it is scheduled for that time, never that it was sent. Scheduled
+   mail is listed with list_scheduled_mail and cancelled by its position in
+   that list with cancel_scheduled_mail. Gmail drafts: list_drafts shows
+   them, open_draft opens one by its position, and send_draft sends a listed
+   draft by its position after a spoken yes; say it was sent only from a
+   draft_sent result.
 14. Opening screens: navigation_dispatched means the app was asked, not
    that anything is showing; say you are opening it. Say it is open only
    after a [ONE_EVENT] ui_settled for that screen with status opened.
@@ -292,7 +305,16 @@ def build_instruction(
     screen_id: str | None,
     display_name: str | None,
     resumed: bool = False,
+    timezone: str = "UTC",
+    now: datetime | None = None,
 ) -> str:
+    """The Live head's system instruction for one session.
+
+    ``timezone`` is the owner's IANA zone hint and ``now`` the wall clock
+    (server time when omitted). Together they give the model the owner's local
+    time to resolve "tomorrow" or "kal subah" against; the server re-validates
+    every send time it is handed, so this is context, never authority.
+    """
     authored = str(voice_head_config()["instruction"]).strip()
     tool_lines = "\n".join(
         f"- {item['name']}: {str(item.get('description') or '').strip().splitlines()[0]}"
@@ -306,6 +328,7 @@ def build_instruction(
         for part in (
             authored,
             person + (" " if person and current else "") + current,
+            render_time_block(timezone_name=timezone, now=now),
             "Tools you can call:\n" + tool_lines,
             "Screens open_screen can open: " + screens,
             NARRATION_CONTRACT,

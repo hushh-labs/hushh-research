@@ -19,7 +19,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from datetime import timezone as datetime_timezone
 from typing import Any, Literal
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -36,6 +36,7 @@ from hushh_mcp.services.gmail_personal_information_request_service import (
     SensitiveRequestAssessment,
     get_personal_gmail_information_request_service,
 )
+from hushh_mcp.services.owner_time import owner_zone
 
 logger = logging.getLogger(__name__)
 
@@ -180,12 +181,9 @@ _DATE_OPERATOR = {"after": "after", "newer": "after", "before": "before", "older
 
 
 def _owner_zone(name: str) -> ZoneInfo:
-    try:
-        return ZoneInfo(name or "UTC")
-    except (ValueError, ZoneInfoNotFoundError, OSError):
-        # OSError is what ZoneInfo raises for an over-long or unusable name.
-        # A bad zone degrades to UTC; it never breaks the read.
-        return ZoneInfo("UTC")
+    # One owner-zone rule for every surface; see ``owner_time.owner_zone``.
+    zone: ZoneInfo = owner_zone(name)
+    return zone
 
 
 def _epoch_date_terms(query: str, zone: ZoneInfo) -> str:
