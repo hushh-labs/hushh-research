@@ -282,10 +282,18 @@ async def _claim_job(user_id: str, group_ref: str) -> tuple[str, bool]:
     raise _refuse(409, "SETUP_IN_PROGRESS", "A cloud setup is already running.")
 
 
+async def _finish_recorded_setup(user_id: str) -> None:
+    """Mark the cloud step done, then attach the agent setup built (no Build my agent)."""
+    from api.routes.one.runtime import _write_cloud_setup_marker
+    from hushh_mcp.services.owner_cloud_attach import attach_after_setup
+
+    await _write_cloud_setup_marker(user_id)
+    await attach_after_setup(user_id)
+
+
 async def _start_setup(
     user_id: str, token: entra.DelegatedToken, subscription: str, row: dict
 ) -> AzureAuthorizeCompleteResponse:
-    from api.routes.one.runtime import _write_cloud_setup_marker
     from hushh_mcp.services.azure_setup_job import run_azure_setup_job
     from hushh_mcp.services.azure_setup_plan import group_id, resource_group_name
     from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE, PodSpec
@@ -316,7 +324,7 @@ async def _start_setup(
                 location=DEFAULT_LOCATION,
                 spec=spec,
                 source_image=source,
-                on_recorded=lambda: _write_cloud_setup_marker(user_id),
+                on_recorded=lambda: _finish_recorded_setup(user_id),
             )
         )
         logger.info("azure_setup_job.accepted user=%s job=%s", user_id, job_id)

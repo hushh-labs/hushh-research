@@ -911,3 +911,4 @@ tests/test_pod_key_pull_during_attach_postgres.py
 # Public-by-construction ingress admitted to owner-direct chat on a beat (2026-10-05)
 tests/test_pod_external_ingress_admission.py
 tests/test_pod_external_ingress_admission_postgres.py
+tests/test_owner_cloud_attach.py
