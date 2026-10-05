@@ -264,3 +264,22 @@ def test_reaction_is_typed_only_once_and_queued_target_is_server_owned():
         "clientMessageId": "queued-123",
     }
     assert react_to_message("🎉", context) == {"status": "ignored"}
+
+
+def test_clarifying_choices_follow_ups():
+    """Clarifying choices like transit or travel destinations are allowed as interactive chips."""
+    assert "when asking a clarifying question with two or three distinct choices" in FOLLOW_UP_INSTRUCTION
+    assert "Directions to Pune Airport" in FOLLOW_UP_INSTRUCTION
+    # Verify that clarifying questions are no longer in the forbidden skip list
+    assert "skip it after greetings, thanks, small talk, errors or anything you could not do, clarifying questions" not in FOLLOW_UP_INSTRUCTION
+
+    clarifying_chips = [
+        "Directions to Pune Airport",
+        "Directions to Mumbai Airport",
+        "Check flight details",
+    ]
+    normalized = normalize_follow_ups(clarifying_chips)
+    assert normalized == clarifying_chips
+    assert len(normalized) == 3
+    assert all(len(chip) <= 80 for chip in normalized)
+

@@ -5560,3 +5560,50 @@ async def read_my_profile_status(tool_context: ToolContext) -> dict[str, Any]:
             "message": "Could not check your profile status right now. Try again in a moment.",
         }
     return {"status": "ok", "result": result}
+
+
+async def open_navigation_route(
+    destination: str,
+    mode: Literal["driving", "transit", "walking", "bicycling"] = "driving",
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Generate a turn-by-turn map navigation route and client directive for a destination.
+
+    Call this tool when the person wants directions, travel route, or navigation
+    to a specific destination (e.g. 'Directions to Pune Airport', 'Navigate to Central Station').
+    Returns a sanitized universal Google Maps and Apple Maps route directive.
+    """
+    import urllib.parse
+
+    del tool_context
+    clean_dest = str(destination or "").strip()
+    if not clean_dest:
+        return {
+            "status": "error",
+            "reason": "missing_destination",
+            "message": "A destination name or address is required for navigation.",
+        }
+
+    # Sanitize control characters and bounded length
+    clean_dest = re.sub(r"[\x00-\x1f\x7f]", "", clean_dest)[:200].strip()
+    encoded_dest = urllib.parse.quote_plus(clean_dest)
+
+    valid_modes = {"driving", "transit", "walking", "bicycling"}
+    travel_mode = mode if mode in valid_modes else "driving"
+
+    # Universal Google Maps navigation URL
+    maps_url = f"https://www.google.com/maps/dir/?api=1&destination={encoded_dest}&travelmode={travel_mode}"
+    # Universal Apple Maps navigation URL for iOS native
+    apple_dirflg = "d" if travel_mode == "driving" else "r" if travel_mode == "transit" else "w"
+    apple_maps_url = f"https://maps.apple.com/?daddr={encoded_dest}&dirflg={apple_dirflg}"
+
+    return {
+        "status": "ready",
+        "destination": clean_dest,
+        "travel_mode": travel_mode,
+        "maps_url": maps_url,
+        "apple_maps_url": apple_maps_url,
+        "client_directive": "open_navigation",
+        "message": f"Navigation to {clean_dest} is ready. Tap to open in Maps.",
+    }
+
