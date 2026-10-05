@@ -17,6 +17,7 @@ from typing import Any, AsyncGenerator, AsyncIterator
 
 from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
+from .openai_transport import tool_json
 from .translate import NeutralRequest
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -106,7 +107,9 @@ def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
                     pending.remove(call_id)
                 if call_id:
                     item["toolCallId"] = call_id
-                item["toolResult"] = message.tool_result
+                # JSON-safe at the source: the sealed envelope serializes this with
+                # plain json.dumps, so a recall result's datetime ended the turn.
+                item["toolResult"] = json.loads(tool_json(message.tool_result))
             elif call_id:
                 item["toolCallId"] = call_id
         if len(item) > 1:

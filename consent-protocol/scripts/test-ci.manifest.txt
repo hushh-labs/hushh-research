@@ -921,3 +921,4 @@ tests/test_pod_admission_rate_limit_key.py
 tests/test_pod_capabilities_private_commands.py
 tests/test_endpoint_version_across_homes.py
 tests/test_azure_idle_window.py
+tests/test_puppy_tool_result_dates.py
