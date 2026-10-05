@@ -4,7 +4,7 @@
 
 ```mermaid
 flowchart LR
-  browse["Browse\nunlocked client"] --> encrypted["Encrypted PKM\nselected domain only"]
+  browse["Saved\nunlocked client"] --> encrypted["Encrypted PKM\nowner-scoped domains"]
   add["Add\nproposal then confirmation"] --> review["Owner review"] --> encrypted
   sharing["Sharing\nmaterialized scope bundles"] --> consent["Consent capability"]
   private["Private analysis history\nand raw debate artifacts"] -. "never export" .-> consent
@@ -14,11 +14,22 @@ flowchart LR
 
 The consumer **Memory** workspace has three views:
 
-- **Browse** decrypts only a user-selected domain in the unlocked client and presents saved details as collapsed folders.
+- **Saved** loads consumer-visible domains through the existing owner-scoped encrypted resource service for categories, recent details and search. Generic categories retain their folder browser. Location opens `/one/pkm/location`, which loads only the Location domain and presents named saved places, visit notes and other visible Location details together without storage-wrapper screens.
 - **Add** sends a note through the existing proposal endpoint, shows the resulting review, and saves only after explicit confirmation. It never sends a decrypted domain or duplicate candidate values to the backend.
 - **Sharing** controls only existing, materialized top-level scope bundles. A parent checked, unchecked, or mixed state is a summary of those bundles; nested folders inherit the bundle setting and are not independent consent controls.
 
 An explicit `empty` materialization is hidden from Memory and cannot be requested through consent. Legacy `unknown` materialization remains visible to its owner but cannot be newly enabled for sharing until a normal unlocked structure update resolves it.
+
+Location detail options live at `/one/pkm/location/detail?memory=<opaque-selector>`.
+Labels, addresses, coordinates, notes and vault authority stay out of URLs.
+Links resolve from the current unlocked domain; missing, duplicate or stale
+identities fail closed. Editable records are resolved again inside the existing
+writer against its fresh domain before mutation. Saved places and visit notes
+keep their reserved ownership and **Open in Location** action. The projection
+retains canonical paths, fingerprints and sharing scopes; it does not migrate
+or normalize stored records. Full scalar values are readable on the Location
+screen, including address parts and long notes. Memory's three tabs use shared
+section, row and description typography, scoped to the Memory route family.
 
 `financial.analysis_history`, raw cards, debate transcripts, and the old broad `attr.financial.*` scope are private source material. They are rejected at manifest generation, discovery, new requests, pending approval, client export creation, export retrieval, and refresh. Compact `financial.analysis.decisions` remains the intended consentable decision surface when materialized.
 

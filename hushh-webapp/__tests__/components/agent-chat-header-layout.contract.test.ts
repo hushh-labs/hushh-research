@@ -101,4 +101,11 @@ describe("agent chat header layout", () => {
       "max-sm:hidden",
     );
   });
+
+  it("renders the canonical Hussh mark at the existing 24px size", () => {
+    const header = headerBlock();
+    expect(header).toContain("<HushhMark");
+    expect(header).toContain('className="h-[24px] w-[24px]"');
+    expect(header).not.toContain("🤫");
+  });
 });

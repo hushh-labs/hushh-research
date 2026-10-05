@@ -60,6 +60,8 @@ export const ROUTE_ID_VALUES = [
   "email_agent",
   "pkm",
   "pkm_recent",
+  "pkm_location",
+  "pkm_location_detail",
   "connected_systems",
   "profile_pkm",
   "profile_pkm_agent_lab",
@@ -237,6 +239,8 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
   if (pathname === ROUTES.PKM_RECENT) return "pkm_recent";
+  if (pathname === ROUTES.PKM_LOCATION) return "pkm_location";
+  if (pathname === ROUTES.PKM_LOCATION_DETAIL) return "pkm_location_detail";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
     pathname === ROUTES.CONNECTED_SYSTEMS ||

@@ -1,9 +1,17 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { verbatimEmailHtmlFromText } from "@/components/agent/email-rich-text";
 import { OneVoiceMailDraftBridge } from "@/components/one-voice/one-voice-mail-draft-bridge";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
-import type { EmailDraft } from "@/lib/services/email-delivery-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
+import {
+  EmailDeliveryError,
+  EmailDeliveryService,
+  type EmailDraft,
+  type PreparedEmailSend,
+  type SentEmailResult,
+} from "@/lib/services/email-delivery-service";
 
 const harness = vi.hoisted(() => ({
   user: { uid: "owner", getIdToken: vi.fn(async () => "firebase-token") } as { uid: string; getIdToken: () => Promise<string> } | null,
@@ -11,9 +19,14 @@ const harness = vi.hoisted(() => ({
   vaultToken: "vault-token",
   sendFailure: null as { message: string; code: string | null } | null,
   reviewedBody: null as string | null,
+  realCard: false,
+  voice: null as { reportMailDelivery: (deliveryRef: string, actionId: string) => void } | null,
 }));
 
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: harness.user }) }));
+vi.mock("@/components/one-voice/voice-session-provider", () => ({
+  useOptionalVoiceSession: () => harness.voice,
+}));
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({
     isVaultUnlocked: harness.vaultUnlocked,
@@ -24,8 +37,18 @@ vi.mock("@/lib/vault/vault-context", () => ({
 vi.mock("@/components/vault/vault-unlock-dialog", () => ({
   VaultUnlockDialog: ({ open }: { open: boolean }) => open ? <div data-testid="mail-vault-dialog" /> : null,
 }));
-vi.mock("@/components/agent/email-draft-card", () => ({
-  EmailDraftCard: ({
+vi.mock("@/lib/services/email-delivery-service", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/services/email-delivery-service")>()),
+  EmailDeliveryService: {
+    draft: vi.fn(),
+    prepare: vi.fn(),
+    send: vi.fn(),
+    saveGmailDraft: vi.fn(),
+  },
+}));
+vi.mock("@/components/agent/email-draft-card", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/components/agent/email-draft-card")>();
+  const StubEmailDraftCard = ({
     initialDraft,
     verbatimInitialBody,
     getAuth,
@@ -58,8 +81,14 @@ vi.mock("@/components/agent/email-draft-card", () => ({
         else onSent(id);
       }}>Send</button>
     </section>
-  ),
-}));
+  );
+  return {
+    EmailDraftCard: (props: Parameters<typeof actual.EmailDraftCard>[0]) =>
+      harness.realCard
+        ? <actual.EmailDraftCard {...props} />
+        : <StubEmailDraftCard {...(props as unknown as Parameters<typeof StubEmailDraftCard>[0])} />,
+  };
+});
 
 const payload = () => ({
   draft: {
@@ -70,13 +99,57 @@ const payload = () => ({
   },
 });
 
-function openDraft(input: Record<string, unknown> = payload()) {
+const SOURCE_MAIL_REF = "rs1.R2htLXNlYWxlZC1yZXBseS0x";
+const DELIVERY_REF = "dlv_7Hk2pQ9xLm4Vn8Ws";
+const SECOND_DELIVERY_REF = "dlv_Second9xLm4Vn8Ws";
+// " - " is what rich-text normalization turns into a list item; dictation must survive it.
+const DICTATED_REPLY = "Tomorrow - I'll send the demo.";
+
+const replyPayload = () => ({
+  delivery_ref: DELIVERY_REF,
+  draft: {
+    mode: "reply",
+    source_mail_ref: SOURCE_MAIL_REF,
+    to: "jhumma@example.com",
+    to_name: "Jhumma",
+    subject: "Re: Demo tomorrow",
+    body: DICTATED_REPLY,
+  },
+});
+
+/** All a reply sends: the person's body as dictated, and the ref the server derives the rest from. */
+const boundReply: EmailDraft = {
+  to: "",
+  cc: "",
+  bcc: "",
+  subject: "",
+  body: DICTATED_REPLY,
+  htmlBody: verbatimEmailHtmlFromText(DICTATED_REPLY),
+  sourceMailRef: SOURCE_MAIL_REF,
+};
+
+const reportMailDelivery = vi.fn<(deliveryRef: string, actionId: string) => void>();
+
+function enableRealCard() {
+  harness.realCard = true;
+  vi.spyOn(ConnectionsService, "listConnections").mockResolvedValue([]);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
+function openDraft(input: Record<string, unknown> = payload(), stepId = "mail-step-1") {
   const report = vi.fn((status: string) => {
     if (status === "ok") expect(screen.getByTestId("one-email-draft-card")).toBeInTheDocument();
   });
   act(() => {
     useVoiceSessionStore.getState().emitClientStep({
-      stepId: "mail-step-1",
+      stepId,
       kind: "open_mail_draft",
       payload: input,
       timeoutS: 30,
@@ -91,6 +164,12 @@ beforeEach(() => {
   harness.vaultToken = "vault-token";
   harness.sendFailure = null;
   harness.reviewedBody = null;
+  harness.realCard = false;
+  reportMailDelivery.mockReset();
+  harness.voice = { reportMailDelivery };
+  vi.mocked(EmailDeliveryService.prepare).mockReset();
+  vi.mocked(EmailDeliveryService.send).mockReset();
+  vi.mocked(EmailDeliveryService.saveGmailDraft).mockReset();
   act(() => useVoiceSessionStore.getState().reset());
 });
 afterEach(() => cleanup());
@@ -188,6 +267,206 @@ describe("OneVoiceMailDraftBridge", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Check Sent Mail before trying again");
     expect(screen.queryByRole("button", { name: "Review draft" })).toBeNull();
+  });
+
+  it("saves a voice-opened draft to Gmail Drafts through the real card without sending", async () => {
+    harness.realCard = true;
+    vi.spyOn(ConnectionsService, "listConnections").mockResolvedValue([]);
+    vi.mocked(EmailDeliveryService.saveGmailDraft).mockResolvedValue();
+    render(<OneVoiceMailDraftBridge />);
+    const report = openDraft();
+    expect(report).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true });
+    expect(screen.getByTestId("one-email-draft-to")).toHaveValue("jhumma@example.com");
+
+    fireEvent.click(screen.getByTestId("one-email-draft-save-gmail"));
+
+    await waitFor(() => expect(screen.getByTestId("one-email-draft-save-gmail")).toHaveTextContent("Saved in Gmail Drafts"));
+    expect(EmailDeliveryService.saveGmailDraft).toHaveBeenCalledExactlyOnceWith({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-token",
+      draft: expect.objectContaining({
+        to: "jhumma@example.com",
+        subject: "Demo tomorrow",
+        body: "Tomorrow - I'll send the demo.\nThanks!",
+      }),
+    });
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    // Saving keeps the draft open for review; no delivery status appears.
+    expect(screen.getByTestId("one-email-draft-card")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-voice-mail-delivery")).toBeNull();
+  });
+
+  it("sends a voice reply in its original thread from a locked envelope with the dictated body verbatim", async () => {
+    harness.realCard = true;
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "reply-action-1", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "reply-action-1", messageId: "reply-message", threadId: "source-thread", outcomeUnknown: false,
+    });
+    render(<OneVoiceMailDraftBridge />);
+    expect(openDraft(replyPayload())).toHaveBeenCalledExactlyOnceWith("ok", { mounted: true });
+
+    // The server-derived envelope is read-only, and a reply has no Gmail Drafts path.
+    expect(screen.getByTestId("one-email-draft-source-bound-to")).toHaveValue("jhumma@example.com");
+    expect(screen.getByTestId("one-email-draft-source-bound-subject")).toHaveValue("Re: Demo tomorrow");
+    expect(screen.queryByTestId("one-email-draft-to")).toBeNull();
+    expect(screen.queryByTestId("one-email-draft-subject")).toBeNull();
+    expect(screen.queryByTestId("one-email-draft-save-gmail")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Reply sent in the original thread."),
+    );
+    // Recipient, subject and thread are re-derived from the ref on both requests,
+    // never taken from the card, and no other source binding rides along.
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledExactlyOnceWith({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-token",
+      idempotencyKey: expect.any(String),
+      draft: boundReply,
+    });
+    expect(EmailDeliveryService.send).toHaveBeenCalledExactlyOnceWith({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-token",
+      actionId: "reply-action-1",
+      draft: boundReply,
+    });
+    expect(reportMailDelivery).toHaveBeenCalledExactlyOnceWith(DELIVERY_REF, "reply-action-1");
+  });
+
+  it("reopens a reply that failed before sending still bound to its original email", async () => {
+    harness.realCard = true;
+    vi.mocked(EmailDeliveryService.prepare)
+      .mockRejectedValueOnce(new EmailDeliveryError(
+        "Mail couldn't check the original email just now. Nothing was sent. Try again.",
+        503,
+        "REPLY_SOURCE_RETRYABLE",
+      ))
+      .mockResolvedValueOnce({ actionId: "reply-action-2", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "reply-action-2", messageId: "reply-message", threadId: "source-thread", outcomeUnknown: false,
+    });
+    render(<OneVoiceMailDraftBridge />);
+    openDraft(replyPayload());
+
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    // Nothing was sent, so the failure is reviewable instead of "check Sent Mail",
+    // and there is no send action to report.
+    fireEvent.click(await screen.findByRole("button", { name: "Review draft" }));
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    expect(reportMailDelivery).not.toHaveBeenCalled();
+
+    expect(screen.getByTestId("one-email-draft-source-bound-to")).toHaveValue("jhumma@example.com");
+    expect(screen.getByTestId("one-email-draft-source-bound-subject")).toHaveValue("Re: Demo tomorrow");
+    expect(screen.queryByTestId("one-email-draft-to")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Reply sent in the original thread."),
+    );
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(2);
+    expect(EmailDeliveryService.prepare).toHaveBeenLastCalledWith(expect.objectContaining({ draft: boundReply }));
+    expect(EmailDeliveryService.send).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ actionId: "reply-action-2", draft: boundReply }),
+    );
+    expect(reportMailDelivery).toHaveBeenCalledExactlyOnceWith(DELIVERY_REF, "reply-action-2");
+  });
+
+  it.each([
+    // The send route re-read the original and refused: nothing was sent, the
+    // card says why, and One stays quiet instead of "I couldn't confirm".
+    { code: "REPLY_SOURCE_CHANGED", status: 409, reported: false },
+    // Gmail itself rejected it after the request: One says it was not sent.
+    { code: "GMAIL_SEND_FAILED", status: 502, reported: true },
+  ])("tells One about a reply Send refused with $code only if it reached Gmail", async ({ code, status, reported }) => {
+    harness.realCard = true;
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "reply-action-1", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockRejectedValue(new EmailDeliveryError("Refused.", status, code));
+    render(<OneVoiceMailDraftBridge />);
+    openDraft(replyPayload());
+
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Refused."));
+    if (reported) {
+      expect(reportMailDelivery).toHaveBeenCalledExactlyOnceWith(DELIVERY_REF, "reply-action-1");
+    } else {
+      expect(reportMailDelivery).not.toHaveBeenCalled();
+    }
+  });
+
+  it("reports a compose Send with the action its prepare named, even when delivery is unconfirmed", async () => {
+    enableRealCard();
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "compose-action-1", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockRejectedValue(new TypeError("network response lost"));
+    render(<OneVoiceMailDraftBridge />);
+    openDraft({ ...payload(), delivery_ref: DELIVERY_REF });
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Check Sent Mail before trying again"),
+    );
+    // No send response arrived; the relay re-reads the action the card prepared.
+    expect(reportMailDelivery).toHaveBeenCalledExactlyOnceWith(DELIVERY_REF, "compose-action-1");
+  });
+
+  it("sends an old-shape compose step unchanged and never reports a Send without a delivery ref", async () => {
+    enableRealCard();
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "compose-action-2", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "compose-action-2", messageId: "compose-message", threadId: null, outcomeUnknown: false,
+    });
+    render(<OneVoiceMailDraftBridge />);
+    openDraft();
+    expect(screen.getByTestId("one-email-draft-to")).toHaveValue("jhumma@example.com");
+    expect(screen.queryByTestId("one-email-draft-source-bound-to")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail sent."));
+    const composed: EmailDraft = {
+      to: "jhumma@example.com",
+      cc: "",
+      bcc: "",
+      subject: "Demo tomorrow",
+      body: payload().draft.body,
+      htmlBody: verbatimEmailHtmlFromText(payload().draft.body),
+    };
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ draft: composed }));
+    expect(EmailDeliveryService.send).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ actionId: "compose-action-2", draft: composed }),
+    );
+    expect(reportMailDelivery).not.toHaveBeenCalled();
+  });
+
+  it("reports a later Send with its own action when an earlier reply finishes preparing during it", async () => {
+    enableRealCard();
+    const replyPrepare = deferred<PreparedEmailSend>();
+    const composeSend = deferred<SentEmailResult>();
+    vi.mocked(EmailDeliveryService.prepare)
+      .mockReturnValueOnce(replyPrepare.promise)
+      .mockResolvedValueOnce({ actionId: "compose-action-2", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send)
+      .mockReturnValueOnce(composeSend.promise)
+      .mockResolvedValueOnce({
+        actionId: "reply-action-1", messageId: "reply-message", threadId: "source-thread", outcomeUnknown: false,
+      });
+    render(<OneVoiceMailDraftBridge />);
+    openDraft(replyPayload());
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    await waitFor(() => expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1));
+
+    // A second voice draft opens and is sent while the reply is still preparing.
+    openDraft({ ...payload(), delivery_ref: SECOND_DELIVERY_REF }, "mail-step-2");
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1));
+    await act(async () => replyPrepare.resolve({ actionId: "reply-action-1", expiresAt: null }));
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledTimes(2));
+    await act(async () => composeSend.resolve({
+      actionId: "compose-action-2", messageId: "compose-message", threadId: null, outcomeUnknown: false,
+    }));
+    await waitFor(() => expect(screen.getByTestId("one-voice-mail-delivery")).toHaveTextContent("Mail sent."));
+
+    // One must hear about the compose Send's own action, never the reply's.
+    expect(reportMailDelivery).toHaveBeenCalledWith(SECOND_DELIVERY_REF, "compose-action-2");
+    expect(reportMailDelivery).not.toHaveBeenCalledWith(SECOND_DELIVERY_REF, "reply-action-1");
   });
 
   it("rejects an initially locked step promptly and opens the unlock prompt without retaining the draft", () => {

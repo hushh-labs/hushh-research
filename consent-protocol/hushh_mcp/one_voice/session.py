@@ -15,21 +15,29 @@ import asyncio
 import base64
 import json
 import logging
+import secrets
 import time
 import uuid
 from collections import deque
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, Protocol
 
 from hushh_mcp.one_voice import protocol
 from hushh_mcp.one_voice.config import OneVoiceLiveConfig
-from hushh_mcp.one_voice.conversations import Conversation, ConversationNotOwned, ConversationStore
+from hushh_mcp.one_voice.conversations import (
+    Conversation,
+    ConversationNotOwned,
+    ConversationStorageError,
+    ConversationStore,
+)
 from hushh_mcp.one_voice.live_client import LiveEvent, LiveSessionPort
 from hushh_mcp.one_voice.pending_actions import (
     PendingAction,
     PendingActionConflict,
+    PendingActionStorageError,
     PendingActionStore,
 )
 from hushh_mcp.one_voice.tickets import TicketClaims
@@ -45,12 +53,21 @@ from hushh_mcp.one_voice.tools.base import (
 )
 from hushh_mcp.one_voice.tools.executor import (
     CONFIRMATION_WAITING,
+    PENDING_ACTION_EXISTS,
     ToolCallOutcome,
     ToolExecutor,
 )
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
+from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_owner_send_action
+from hushh_mcp.services.gmail_reply_source_service import open_reply_source_ref
 
 logger = logging.getLogger(__name__)
+
+# Voice storage failures the relay survives. Each one used to escape the pumps
+# and close a healthy session with 4013 (provider unavailable), which the client
+# reads as an outage. Mutation governance fails closed in the executor; what
+# reaches the relay is bookkeeping it can do without.
+_STORAGE_ERRORS = (PendingActionStorageError, ConversationStorageError)
 
 
 def _failure_fingerprints(error: BaseException) -> list[dict[str, Any]]:
@@ -101,6 +118,7 @@ _NOT_SUCCESS = {
     "unsupported",
     "confirmation_required",
     CONFIRMATION_WAITING,
+    PENDING_ACTION_EXISTS,
     "tap_required",
     "card_not_shown",
     "firebase_proof_required",
@@ -109,6 +127,17 @@ _NOT_SUCCESS = {
 # Bound for the per-session directive metadata and card_not_shown waiters.
 _DIRECTIVE_MEMORY = 128
 _SHOWN_WAITERS_MAX = 32
+_PERF_TURN_MEMORY = 128
+# How long a review card's Send may still be reported to this session, and how
+# many such cards it remembers. A send after this is still delivered and still
+# shown on the card; One just does not speak it.
+MAIL_DELIVERY_TTL_SECONDS = 30 * 60
+_MAIL_DELIVERY_MEMORY = 16
+# Clock slack between the database that stamps a send action and this process,
+# when deciding the action was made after the card it is reported for.
+_MAIL_DELIVERY_SKEW = timedelta(seconds=60)
+# Reports per card: a failed send may be reviewed and sent again, once or twice.
+_MAIL_DELIVERY_REPORTS = 3
 # A client-executed step is still outstanding: neither a receipt nor a
 # rejection. It never counts as ok (so the turn cannot read "complete") and
 # never bumps the rejected counter; the settled result does one or the other.
@@ -195,6 +224,23 @@ class TurnState:
         self.input_transcript_completed = False
 
 
+@dataclass
+class TurnPerf:
+    """Bounded timings and structural counts for one user input, never content."""
+
+    input_turn_id: str
+    transcript_final_at: float | None = None
+    provider_activity_end_at: float | None = None
+    first_tool_at: float | None = None
+    first_audio_at: float | None = None
+    tool_response_at: float | None = None
+    provider_turns: int = 0
+    tool_calls: int = 0
+    pending_created: int = 0
+    pending_reused: int = 0
+    pending_cancelled: int = 0
+
+
 class VoiceSession:
     def __init__(
         self,
@@ -208,6 +254,7 @@ class VoiceSession:
         conversations: ConversationStore | None = None,
         pending: PendingActionStore | None = None,
         clock: Callable[[], float] = time.monotonic,
+        mail_delivery_status: Callable[..., Awaitable[dict[str, Any] | None]] | None = None,
     ) -> None:
         self.transport = transport
         self.config = config
@@ -256,6 +303,11 @@ class VoiceSession:
         self.audio_out_chunks = 0
         self.dropped_audio_frames = 0
         self.client_steps: dict[str, dict[str, Any]] = {}
+        # Review cards this session opened, by the delivery_ref their Send
+        # reports with. The report only names a send action; the outcome is
+        # always re-read from the ledger through ``_mail_delivery_status``.
+        self.mail_deliveries: dict[str, dict[str, Any]] = {}
+        self._mail_delivery_status = mail_delivery_status or get_owner_send_action
         self.pending_receipts: dict[str, str] = {}
         self._last_turn_ok = False
         self.close_code: int | None = None
@@ -263,6 +315,20 @@ class VoiceSession:
         self._closed = False
         self._counters: dict[str, int] = {}
         self._send_lock = asyncio.Lock()
+        # Only server-issued turn ids may re-enter operational logs through an
+        # optional client perf frame. Shape validation alone cannot prove that
+        # a hex string was not client-chosen content.
+        self._issued_turn_ids: deque[str] = deque(maxlen=256)
+        # Latency marks (monotonic, from ``clock``). Only durations are logged,
+        # never names, screens or words.
+        self._input_final_at: float | None = None
+        self._awaiting_first_tool = False
+        self._awaiting_first_audio = False
+        self._tool_response_at: float | None = None
+        self._turn_perfs: dict[str, TurnPerf] = {}
+        self._provider_activity_end_at: float | None = None
+        self._provider_activity_source: str | None = None
+        self._provider_activity_started = False
 
     # -- state guards (raise instead of assert; the relay must never run
     #    a frame before auth or a provider before the socket is ready) --------
@@ -301,6 +367,10 @@ class VoiceSession:
 
     async def _send(self, frame: dict[str, Any]) -> None:
         async with self._send_lock:
+            if frame.get("type") in {"audio", "transcript.input", "transcript.output", "turn"}:
+                turn_id = frame.get("turn_id")
+                if isinstance(turn_id, str):
+                    self._issued_turn_ids.append(turn_id)
             await self.transport.send(frame)
 
     def _touch(self) -> None:
@@ -309,6 +379,125 @@ class VoiceSession:
     def _bump(self, **counters: int) -> None:
         for name, value in counters.items():
             self._counters[name] = self._counters.get(name, 0) + value
+
+    def _storage_failed(self, op: str, exc: BaseException) -> None:
+        """Record a survived storage failure. ``op`` is a short fixed word."""
+        self._bump(storage_failures=1)
+        logger.warning(
+            "one_voice.storage.failed session=%s op=%s error=%s",
+            self.session_id,
+            op,
+            type(exc).__name__,
+        )
+
+    def _perf_for_input(self, input_turn_id: str) -> TurnPerf:
+        perf = self._turn_perfs.get(input_turn_id)
+        if perf is None:
+            if len(self._turn_perfs) >= _PERF_TURN_MEMORY:
+                self._turn_perfs.pop(next(iter(self._turn_perfs)))
+            perf = TurnPerf(input_turn_id=input_turn_id)
+            self._turn_perfs[input_turn_id] = perf
+        return perf
+
+    def _perf_for_turn(self, turn_id: str | None) -> TurnPerf | None:
+        if turn_id is None:
+            return None
+        input_turn_id = self._turn_input_origins.get(turn_id, turn_id)
+        return self._turn_perfs.get(input_turn_id)
+
+    def _count_turn_perf(self, turn_id: str | None, field_name: str) -> None:
+        perf = self._perf_for_turn(turn_id)
+        if perf is not None:
+            setattr(perf, field_name, getattr(perf, field_name) + 1)
+
+    def _mark_input_final(self, input_turn_id: str, *, audio: bool = False) -> None:
+        """A complete user input reached the model: start the latency clock."""
+        now = self.clock()
+        self._input_final_at = now
+        self._awaiting_first_tool = True
+        self._awaiting_first_audio = True
+        self._tool_response_at = None
+        perf = self._perf_for_input(input_turn_id)
+        if perf.transcript_final_at is None:
+            perf.transcript_final_at = now
+            self._bump(user_input_turns=1)
+        if audio and self._provider_activity_end_at is not None:
+            elapsed_ms = int((now - self._provider_activity_end_at) * 1000)
+            if 0 <= elapsed_ms <= 120_000:
+                perf.provider_activity_end_at = self._provider_activity_end_at
+                logger.info(
+                    "one_voice.latency session=%s turn=%s phase=provider_activity_end_to_transcript source=%s ms=%d",
+                    self.session_id,
+                    input_turn_id,
+                    self._provider_activity_source,
+                    elapsed_ms,
+                )
+        self._provider_activity_end_at = None
+        self._provider_activity_source = None
+        self._provider_activity_started = False
+
+    def _log_turn_perf(self, provider_turn_id: str) -> None:
+        perf = self._perf_for_turn(provider_turn_id)
+        if perf is None:
+            return
+        logger.info(
+            "one_voice.turn_perf session=%s input_turn=%s provider_turn=%s "
+            "provider_turns=%d tool_calls=%d pending_created=%d pending_reused=%d pending_cancelled=%d",
+            self.session_id,
+            perf.input_turn_id,
+            provider_turn_id,
+            perf.provider_turns,
+            perf.tool_calls,
+            perf.pending_created,
+            perf.pending_reused,
+            perf.pending_cancelled,
+        )
+
+    def _log_session_perf(self) -> None:
+        inputs = self._counters.get("user_input_turns", 0)
+        provider_turns = self._counters.get("provider_turns", 0)
+        tool_calls = self._counters.get("tool_calls", 0)
+        created = self._counters.get("pending_created", 0)
+        reused = self._counters.get("pending_reused", 0)
+        cancelled = self._counters.get("pending_cancelled", 0)
+        ratios = (
+            " provider_turns_per_user_input=%.2f tool_calls_per_user_input=%.2f "
+            "pending_proposals_per_user_input=%.2f reused_or_cancelled_proposals_per_user_input=%.2f"
+            % (
+                provider_turns / inputs,
+                tool_calls / inputs,
+                created / inputs,
+                (reused + cancelled) / inputs,
+            )
+            if inputs
+            else ""
+        )
+        logger.info(
+            "one_voice.session_perf session=%s user_input_turns=%d provider_turns=%d "
+            "tool_calls=%d confirmation_proposals=%d confirmation_reused=%d "
+            "confirmation_cancelled=%d confirmations_completed=%d clarifications=%d%s",
+            self.session_id,
+            inputs,
+            provider_turns,
+            tool_calls,
+            created,
+            reused,
+            cancelled,
+            self._counters.get("confirmations_completed", 0),
+            self._counters.get("clarifications", 0),
+            ratios,
+        )
+
+    def _log_latency(self, phase: str, started: float | None, turn_id: str | None = None) -> None:
+        if started is None:
+            return
+        logger.info(
+            "one_voice.latency session=%s turn=%s phase=%s ms=%d",
+            self.session_id,
+            turn_id or self.turn.turn_id,
+            phase,
+            int((self.clock() - started) * 1000),
+        )
 
     async def _close(self, code: int, reason: str) -> None:
         if self._closed:
@@ -402,6 +591,9 @@ class VoiceSession:
             timezone=self._client_timezone,
         )
         self._display_name = auth.display_name
+        # Not guarded on purpose: a session that cannot say which cards are open
+        # must not start, or a card shown in an earlier session could be
+        # confirmed by voice while this client displays nothing.
         open_rows = await self.pending.list_open(
             user_id=auth.user_id, conversation_id=self.claims.conversation_id
         )
@@ -467,6 +659,7 @@ class VoiceSession:
     async def _record_close(self) -> None:
         if self._conversation is None or self._ctx is None:
             return
+        self._log_session_perf()
         # A lost socket cannot prove whether the review card appeared. Settle
         # every outstanding mail step as unconfirmed before the session leaves.
         for step_id, step in list(self.client_steps.items()):
@@ -520,15 +713,20 @@ class VoiceSession:
                 ):
                     continue
                 self.client_steps.pop(step_id, None)
-                await self._settle_mail_draft_step(
-                    step,
-                    protocol.ClientStepResultFrame(
-                        type="client_step.result",
-                        step_id=step_id,
-                        status="failed",
-                        payload={"reason": "timeout"},
-                    ),
-                )
+                try:
+                    await self._settle_mail_draft_step(
+                        step,
+                        protocol.ClientStepResultFrame(
+                            type="client_step.result",
+                            step_id=step_id,
+                            status="failed",
+                            payload={"reason": "timeout"},
+                        ),
+                    )
+                except _STORAGE_ERRORS as exc:
+                    # The row stays "requested" and storage's own recovery marks
+                    # it unconfirmed; nothing here may report it as opened.
+                    self._storage_failed("settle", exc)
             elapsed = now - self.started_at
             if (
                 self._queued_texts
@@ -572,7 +770,20 @@ class VoiceSession:
             except protocol.FrameError as exc:
                 await self._send(protocol.error("protocol", str(exc)))
                 continue
-            await self._handle_client_frame(frame)
+            try:
+                await self._handle_client_frame(frame)
+            except _STORAGE_ERRORS as exc:
+                # Whatever this frame asked for did not happen; the card or
+                # setting stays as it was, and the person can simply try again.
+                # A device's own step report is not something they did, so it
+                # gets no "try again" (storage recovers that row on its own).
+                self._storage_failed("frame", exc)
+                if not isinstance(frame, protocol.ClientStepResultFrame):
+                    await self._send(
+                        protocol.error(
+                            "storage_unavailable", "That didn't go through. Please try again."
+                        )
+                    )
 
     async def _handle_client_frame(self, frame: Any) -> None:
         if isinstance(frame, protocol.AudioFrame):
@@ -586,6 +797,16 @@ class VoiceSession:
             return
         if isinstance(frame, protocol.PingFrame):
             await self._send(protocol.pong())
+            return
+        if isinstance(frame, protocol.PerfFrame):
+            # Telemetry is optional and must not extend the idle deadline.
+            logger.info(
+                "one_voice.client_perf session=%s turn=%s metric=%s ms=%d",
+                self.session_id,
+                frame.turn_id if frame.turn_id in self._issued_turn_ids else "none",
+                frame.metric,
+                frame.duration_ms,
+            )
             return
         self._touch()
         if isinstance(frame, protocol.TextFrame):
@@ -614,13 +835,20 @@ class VoiceSession:
             if input_id == self.turn.turn_id:
                 self._narration_owns_response = False
                 self._narration_origin_turn_id = None
+                self._mark_input_final(input_id)
                 await self.live.send_text(frame.text)
         elif isinstance(frame, protocol.AppContextFrame):
             await self._update_screen(frame)
         elif isinstance(frame, protocol.PendingShownFrame):
-            shown = await self.pending.mark_shown(
-                user_id=self.ctx.user_id, pending_action_id=frame.pending_action_id
-            )
+            try:
+                shown = await self.pending.mark_shown(
+                    user_id=self.ctx.user_id, pending_action_id=frame.pending_action_id
+                )
+            except PendingActionStorageError as exc:
+                # Not recorded as shown, so a spoken yes still gets card_not_shown
+                # and a tap (which needs no shown mark) still works.
+                self._storage_failed("shown", exc)
+                shown = None
             if shown is not None and shown.id in self._shown_waiters:
                 refused_turn_id = self._shown_waiters.pop(shown.id)
                 if self._origin_is_stale(refused_turn_id):
@@ -649,6 +877,8 @@ class VoiceSession:
             )
         elif isinstance(frame, protocol.ClientStepResultFrame):
             await self._client_step_result(frame)
+        elif isinstance(frame, protocol.MailDeliveryResultFrame):
+            await self._settle_mail_delivery(frame)
         elif isinstance(frame, protocol.UiSettledFrame):
             origin_turn_id = self._directive_turn_ids.pop(frame.directive_id, None)
             meta = self._directive_meta.pop(frame.directive_id, {})
@@ -685,12 +915,19 @@ class VoiceSession:
             screen_state=dict(sanitized.get("screen_state") or {}),
             os_location_permission=frame.os_location_permission,
             active_circle_id=frame.active_circle_id,
+            active_mail_ordinal=frame.active_mail_ordinal,
+            active_mail_offer_revision=frame.active_mail_offer_revision,
         )
-        await self.conversations.save_screen_context(
-            user_id=self.ctx.user_id,
-            conversation_id=self.ctx.conversation_id,
-            context=self.ctx.screen.model_dump(mode="json"),
-        )
+        try:
+            await self.conversations.save_screen_context(
+                user_id=self.ctx.user_id,
+                conversation_id=self.ctx.conversation_id,
+                context=self.ctx.screen.model_dump(mode="json"),
+            )
+        except ConversationStorageError as exc:
+            # The live screen above is what this session uses; only a resumed
+            # session would start from an older one.
+            self._storage_failed("screen", exc)
 
     async def _inject_event(self, event: dict[str, Any]) -> None:
         if self._live is None:
@@ -719,6 +956,7 @@ class VoiceSession:
                 *self._pending_turn_ids.values(),
                 *self._shown_waiters.values(),
                 *(str(step.get("origin_turn_id") or "") for step in self.client_steps.values()),
+                *(str(item.get("origin_turn_id") or "") for item in self.mail_deliveries.values()),
                 *self._directive_turn_ids.values(),
                 self.turn.turn_id,
                 self._narration_origin_turn_id,
@@ -796,6 +1034,7 @@ class VoiceSession:
         origin_turn_id = (
             self._pending_turn_ids.get(frame.pending_action_id) or confirmed.origin_turn_id
         )
+        self._bump(confirmations_completed=1)
         if origin_turn_id is not None:
             await self._send(protocol.voice_state("executing", turn_id=origin_turn_id))
         outcome = await self.executor.execute_pending(self.ctx, confirmed)
@@ -819,6 +1058,7 @@ class VoiceSession:
                 if await self.pending.cancel(user_id=self.ctx.user_id, pending_action_id=row.id):
                     cancelled.append(row.id)
         for pending_id in cancelled:
+            origin_turn_id = self._pending_turn_ids.get(pending_id)
             self.pending_receipts.pop(pending_id, None)
             self._pending_turn_ids.pop(pending_id, None)
             await self._send(
@@ -827,6 +1067,7 @@ class VoiceSession:
                 )
             )
             self._bump(pending_cancelled=1)
+            self._count_turn_perf(origin_turn_id, "pending_cancelled")
         if frame.scope == "turn":
             await self._send(protocol.turn("interrupted", turn_id=self.turn.turn_id))
         await self._inject_event(
@@ -1014,10 +1255,22 @@ class VoiceSession:
     async def _settle_mail_draft_step(
         self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
     ) -> None:
-        """A review card is open only after the owning UI confirms its mount."""
+        """A review card is open only after the owning UI confirms its mount.
+
+        The ledger write is what makes "open" true. When it cannot be made --
+        storage is unreachable, or the row is no longer in the state that write
+        expects (its earlier resolve never landed) -- the draft is reported as
+        unverified: never opened, never sent, and never "nothing is pending".
+        The card may well be on screen; nothing re-opens, re-drafts or sends it.
+        """
         pending = step.get("pending")
         if not isinstance(pending, PendingAction):
             return
+        self._log_latency(
+            "draft_step",
+            step.get("requested_at"),
+            turn_id=str(step.get("origin_turn_id") or "") or None,
+        )
         opened = (
             frame.status == "ok"
             and frame.payload.get("mounted") is True
@@ -1027,34 +1280,198 @@ class VoiceSession:
             self.clock() > float(step.get("expires_at") or 0)
             or frame.payload.get("reason") in {"timeout", "no_handler", "surface_unmounted"}
         )
-        settled = await self.pending.settle_mail_draft_step(
-            user_id=self.ctx.user_id,
-            pending_action_id=pending.id,
-            opened=opened,
-            uncertain=uncertain,
-        )
-        if settled is None:
-            return
-        await self._send(
-            protocol.pending_resolved(
-                pending_action_id=settled.id,
-                status=settled.status,
-                result_public=settled.result,
+        unrecorded: str | None = None
+        try:
+            settled = await self.pending.settle_mail_draft_step(
+                user_id=self.ctx.user_id,
+                pending_action_id=pending.id,
+                opened=opened,
+                uncertain=uncertain,
             )
-        )
+        except PendingActionStorageError as exc:
+            self._storage_failed("settle", exc)
+            settled, unrecorded = None, "storage_unavailable"
+        if settled is None:
+            if unrecorded is None:
+                # The row is not in the state a settlement expects, typically
+                # because the resolve after the handler never landed and it is
+                # still "confirmed". Close it the way storage's own recovery
+                # would (resolve is the one owner of that transition, and it
+                # scrubs the sealed dictation); a no-op for any other state.
+                try:
+                    await self.pending.resolve(
+                        user_id=self.ctx.user_id,
+                        pending_action_id=pending.id,
+                        status="failed",
+                        result={"status": "draft_open_unconfirmed", "needs": None},
+                    )
+                except PendingActionStorageError as exc:
+                    self._storage_failed("settle", exc)
+            unrecorded = unrecorded or "draft_not_settled"
+            await self._send(
+                protocol.pending_resolved(
+                    pending_action_id=pending.id,
+                    status="failed",
+                    result_public={
+                        "status": "draft_open_unconfirmed",
+                        "needs": None,
+                        "reason_code": unrecorded,
+                    },
+                )
+            )
+        else:
+            await self._send(
+                protocol.pending_resolved(
+                    pending_action_id=settled.id,
+                    status=settled.status,
+                    result_public=settled.result,
+                )
+            )
+        raw_draft = step.get("draft")
+        draft: dict[str, Any] = raw_draft if isinstance(raw_draft, dict) else {}
+        noun = "reply" if draft.get("mode") == "reply" else "draft"
+        if not opened:
+            # No card, so no Send can follow; its delivery report is never valid.
+            self.mail_deliveries.pop(str(step.get("delivery_ref") or ""), None)
         if not self._origin_is_stale(str(step.get("origin_turn_id") or "") or None):
+            event: dict[str, Any] = {
+                "kind": "client_step",
+                "step": "open_mail_draft",
+                "status": "ok" if opened and unrecorded is None else "failed",
+                "spoken_facts": [
+                    f"I couldn't verify the {noun} review state just now. Nothing was sent."
+                    if unrecorded is not None
+                    else (
+                        "The reply is open for review in the original thread. It has not been sent."
+                        if noun == "reply"
+                        else "The draft is open for review. It has not been sent."
+                    )
+                    if opened
+                    else f"I couldn't confirm the {noun} opened. Nothing was sent."
+                    if uncertain
+                    else f"The {noun} did not open. Nothing was sent."
+                ],
+            }
+            if unrecorded is not None:
+                event["reason_code"] = unrecorded
+            await self._inject_event(event)
+
+    def _issue_mail_delivery(self, payload: dict[str, Any], origin_turn_id: str | None) -> str:
+        """Remember a review card so its Send can be reported back once it finishes.
+
+        The ref correlates; it authorizes nothing. What the card's Send did is
+        read from the send ledger when the report arrives, never taken from it.
+        """
+        raw_draft = payload.get("draft")
+        draft: dict[str, Any] = raw_draft if isinstance(raw_draft, dict) else {}
+        reply = draft.get("mode") == "reply"
+        delivery_ref = secrets.token_urlsafe(18)
+        while len(self.mail_deliveries) >= _MAIL_DELIVERY_MEMORY:
+            self.mail_deliveries.pop(next(iter(self.mail_deliveries)))
+        self.mail_deliveries[delivery_ref] = {
+            "mode": "reply" if reply else "compose",
+            # Server-minted and opaque to the client; read back only to learn
+            # which thread a "sent" reply had to land in.
+            "source_mail_ref": str(draft.get("source_mail_ref") or "") if reply else "",
+            "origin_turn_id": origin_turn_id,
+            "issued_at": datetime.now(timezone.utc),
+            "expires_at": self.clock() + MAIL_DELIVERY_TTL_SECONDS,
+            "reports": 0,
+        }
+        return delivery_ref
+
+    def _mail_delivery_outcome(self, delivery: dict[str, Any], row: dict[str, Any] | None) -> str:
+        """The ledger's answer for this card's Send, in five words.
+
+        ``unverified`` covers everything the ledger cannot vouch for: no such
+        action for this owner, an action older than the card (some earlier
+        send), a reply that landed outside its thread, or a send still in flight.
+        """
+        if row is None:
+            return "unverified"
+        created = row.get("created_at")
+        if not isinstance(created, datetime):
+            return "unverified"
+        if created.tzinfo is None:
+            created = created.replace(tzinfo=timezone.utc)
+        if created < delivery["issued_at"] - _MAIL_DELIVERY_SKEW:
+            return "unverified"
+        state = str(row.get("state") or "")
+        if state == "sent":
+            if delivery["mode"] == "reply":
+                try:
+                    ref = open_reply_source_ref(
+                        delivery["source_mail_ref"],
+                        owner_user_id=self.ctx.user_id,
+                        allow_expired=True,
+                    )
+                except GmailDeliveryError:
+                    return "unverified"
+                if str(row.get("gmail_thread_id") or "") != ref.thread_id:
+                    return "unverified"
+            return "sent"
+        if state == "failed":
+            return "failed"
+        if state == "outcome_unknown":
+            return (
+                "thread_unconfirmed"
+                if str(row.get("safe_error_code") or "") == "reply_thread_mismatch"
+                else "outcome_unknown"
+            )
+        return "unverified"
+
+    async def _settle_mail_delivery(self, frame: protocol.MailDeliveryResultFrame) -> None:
+        """A review card's Send finished. Say what the ledger says, once.
+
+        Only reaches the model while the person is still on the turn that opened
+        the card; a late report never interrupts a newer question. The card shows
+        its own outcome either way, and nothing here retries or re-sends.
+        """
+        delivery = self.mail_deliveries.get(frame.delivery_ref)
+        if delivery is None or self.clock() > float(delivery["expires_at"]):
+            # A card this session did not open (the socket reconnected), or one
+            # that outlived the window. Its mail was still sent and its card
+            # still shows the outcome; One just does not speak it. Not a
+            # protocol error, which the panel would show the person as one.
+            self.mail_deliveries.pop(frame.delivery_ref, None)
+            logger.info("one_voice.mail_delivery outcome=untracked")
+            return
+        delivery["reports"] = int(delivery.get("reports") or 0) + 1
+        try:
+            row = await self._mail_delivery_status(
+                user_id=self.ctx.user_id, action_id=frame.action_id
+            )
+        except Exception as exc:  # noqa: BLE001 - an unreadable ledger is "unverified"
+            logger.warning("one_voice.mail_delivery.read_failed error=%s", type(exc).__name__)
+            row = None
+        outcome = self._mail_delivery_outcome(delivery, row)
+        # A failed send can be reviewed and sent again from the same card, so
+        # its ref stays for the next report; anything else is final.
+        if outcome != "failed" or delivery["reports"] >= _MAIL_DELIVERY_REPORTS:
+            self.mail_deliveries.pop(frame.delivery_ref, None)
+        reply = delivery["mode"] == "reply"
+        logger.info("one_voice.mail_delivery mode=%s outcome=%s", delivery["mode"], outcome[:23])
+        noun = "reply" if reply else "email"
+        fact = {
+            "sent": (
+                "Your reply was sent in the original thread." if reply else "Your email was sent."
+            ),
+            "failed": f"Gmail didn't send the {noun}. Nothing was sent.",
+            "thread_unconfirmed": (
+                "Gmail took the reply, but I couldn't confirm it stayed in the original "
+                "thread. Check Sent Mail before trying again."
+            ),
+        }.get(
+            outcome,
+            f"I couldn't confirm whether the {noun} was sent. Check Sent Mail before trying again.",
+        )
+        if not self._origin_is_stale(str(delivery.get("origin_turn_id") or "") or None):
             await self._inject_event(
                 {
-                    "kind": "client_step",
-                    "step": "open_mail_draft",
-                    "status": "ok" if opened else "failed",
-                    "spoken_facts": [
-                        "The draft is open for review. It has not been sent."
-                        if opened
-                        else "I couldn't confirm the draft opened. Nothing was sent."
-                        if uncertain
-                        else "The draft did not open. Nothing was sent."
-                    ],
+                    "kind": "mail_delivery",
+                    "mode": delivery["mode"],
+                    "status": outcome,
+                    "spoken_facts": [fact],
                 }
             )
 
@@ -1280,19 +1697,47 @@ class VoiceSession:
         async for event in events:
             if self._closed:
                 break
-            await self._handle_live_event(event)
+            try:
+                await self._handle_live_event(event)
+            except _STORAGE_ERRORS as exc:
+                self._storage_failed("event", exc)
         if not self._closed:
             await self._close(protocol.CLOSE_PROVIDER_UNAVAILABLE, "provider_closed")
             raise SessionClosed(protocol.CLOSE_PROVIDER_UNAVAILABLE, "provider_closed")
 
     async def _handle_live_event(self, event: LiveEvent) -> None:
         kind = event.kind
-        if kind == "audio" and event.audio_b64:
+        if kind == "activity_start":
+            self._provider_activity_end_at = None
+            self._provider_activity_source = None
+            self._provider_activity_started = True
+        elif kind == "activity_end":
+            # Accept an end only for an observed start or an active transcript
+            # segment. A late end from the previous utterance must not be
+            # assigned to the next person's input.
+            if event.activity_source in {"voice_activity", "vad_signal"} and (
+                self._provider_activity_started
+                or self._input_segment_id is not None
+                or event.same_message_input_transcript
+            ):
+                self._provider_activity_end_at = self.clock()
+                self._provider_activity_source = event.activity_source
+        elif kind == "audio" and event.audio_b64:
             self._touch()
             if self._narration_owns_response or self.turn.turn_id in self._superseded_turn_ids:
                 return
             self.turn.input_seen = True
             if self.turn.audio_chunks == 0:
+                perf = self._perf_for_turn(self.turn.turn_id)
+                if perf is not None and perf.first_audio_at is None:
+                    perf.first_audio_at = self.clock()
+                    self._log_latency("first_audio", perf.transcript_final_at, self.turn.turn_id)
+                if self._tool_response_at is not None:
+                    self._log_latency("reply_audio", self._tool_response_at)
+                    self._tool_response_at = None
+                    self._awaiting_first_audio = False
+                elif self._awaiting_first_audio:
+                    self._awaiting_first_audio = False
                 await self._send(protocol.turn("model_start", turn_id=self.turn.turn_id))
                 await self._send(
                     protocol.voice_state(self._speaking_state(), turn_id=self.turn.turn_id)
@@ -1308,29 +1753,32 @@ class VoiceSession:
             )
         elif kind == "input_transcript" and event.text:
             self._touch()
-            if self._input_segment_id is None:
-                self._input_segment_id = (
+            input_turn_id = self._input_segment_id
+            if input_turn_id is None:
+                input_turn_id = (
                     self.turn.turn_id
                     if not self.turn.input_transcript_completed
                     else uuid.uuid4().hex[:12]
                 )
-                if self._input_segment_id != self.turn.turn_id:
+                self._input_segment_id = input_turn_id
+                if input_turn_id != self.turn.turn_id:
                     self._superseded_turn_ids.add(self.turn.turn_id)
-                    self._pending_voice_turn_id = self._input_segment_id
-            self._latest_input_turn_id = self._input_segment_id
-            self._bind_turn_to_input(self._input_segment_id, self._input_segment_id)
-            if self._input_segment_id != self._narration_origin_turn_id:
+                    self._pending_voice_turn_id = input_turn_id
+            self._latest_input_turn_id = input_turn_id
+            self._bind_turn_to_input(input_turn_id, input_turn_id)
+            if input_turn_id != self._narration_origin_turn_id:
                 self._narration_owns_response = False
                 self._narration_origin_turn_id = None
             self.turn.input_seen = True
             await self._send(
                 protocol.transcript(
-                    "input", event.text, final=bool(event.finished), turn_id=self._input_segment_id
+                    "input", event.text, final=bool(event.finished), turn_id=input_turn_id
                 )
             )
             if event.finished:
                 self.turn.input_transcript_completed = True
                 self._input_segment_id = None
+                self._mark_input_final(input_turn_id, audio=True)
                 await self._send(protocol.voice_state("understanding", turn_id=self.turn.turn_id))
         elif kind == "output_transcript" and event.text:
             if self._narration_owns_response or self.turn.turn_id in self._superseded_turn_ids:
@@ -1349,6 +1797,9 @@ class VoiceSession:
         elif kind == "turn_complete":
             await self._send(protocol.turn("model_end", turn_id=self.turn.turn_id))
             self._narration_guard()
+            self._bump(provider_turns=1)
+            self._count_turn_perf(self.turn.turn_id, "provider_turns")
+            self._log_turn_perf(self.turn.turn_id)
             self._last_turn_ok = (
                 bool(self.turn.ok_results)
                 if self.turn.turn_id not in self._superseded_turn_ids
@@ -1364,11 +1815,16 @@ class VoiceSession:
         elif kind == "tool_cancel":
             pass
         elif kind == "resumption" and event.resumption_handle:
-            await self.conversations.save_resumption_handle(
-                user_id=self.ctx.user_id,
-                conversation_id=self.ctx.conversation_id,
-                handle=event.resumption_handle,
-            )
+            try:
+                await self.conversations.save_resumption_handle(
+                    user_id=self.ctx.user_id,
+                    conversation_id=self.ctx.conversation_id,
+                    handle=event.resumption_handle,
+                )
+            except ConversationStorageError as exc:
+                # This session is unaffected; only a later reconnect would start
+                # from an older handle (or none).
+                self._storage_failed("resume", exc)
         elif kind == "go_away":
             await self._send(protocol.reconnect_required("go_away"))
             await self._close(protocol.CLOSE_ENDED, "go_away")
@@ -1405,6 +1861,7 @@ class VoiceSession:
                 self._superseded_turn_ids.add(turn_id)
             self._narration_owns_response = False
             self._narration_origin_turn_id = None
+            self._mark_input_final(turn_id)
             await self.live.send_text(text)
         else:
             # No user input arrived during the provider turn. A later spoken
@@ -1432,6 +1889,7 @@ class VoiceSession:
         call_id = call.get("id")
         args = dict(call.get("args") or {})
         origin_turn_id = self.turn.turn_id
+        dispatch_started = self.clock()
         logger.info(
             "one_voice.tool.selected session=%s turn=%s call=%s tool=%s",
             self.session_id,
@@ -1439,8 +1897,44 @@ class VoiceSession:
             str(call_id or "")[:64],
             name[:80],
         )
+        if self._awaiting_first_tool:
+            perf = self._perf_for_turn(origin_turn_id)
+            if perf is not None and perf.first_tool_at is None:
+                perf.first_tool_at = dispatch_started
+            self._log_latency(
+                "first_tool",
+                perf.transcript_final_at if perf is not None else self._input_final_at,
+                origin_turn_id,
+            )
+            self._awaiting_first_tool = False
+        try:
+            await self._dispatch_tool_call_inner(
+                name=name, call_id=call_id, args=args, origin_turn_id=origin_turn_id
+            )
+        finally:
+            self._tool_response_at = self.clock()
+            perf = self._perf_for_turn(origin_turn_id)
+            if perf is not None:
+                perf.tool_response_at = self._tool_response_at
+            logger.info(
+                "one_voice.latency session=%s turn=%s phase=tool tool=%s ms=%d",
+                self.session_id,
+                origin_turn_id,
+                name[:80],
+                int((self._tool_response_at - dispatch_started) * 1000),
+            )
+
+    async def _dispatch_tool_call_inner(
+        self,
+        *,
+        name: str,
+        call_id: Any,
+        args: dict[str, Any],
+        origin_turn_id: str,
+    ) -> None:
         self.turn.tool_calls += 1
         self._bump(tool_calls=1)
+        self._count_turn_perf(origin_turn_id, "tool_calls")
         spec = registry.get_tool(name)
         await self._send(
             protocol.tool_started(
@@ -1455,7 +1949,24 @@ class VoiceSession:
         )
         await self._send(protocol.voice_state("executing", turn_id=self.turn.turn_id))
         outcome = await self.executor.call(self.ctx, name, args, origin_turn_id=origin_turn_id)
+        if outcome.timings:
+            # Executor phases only (store reads, prepare, handler), as short
+            # key=ms pairs; the result status is bounded vocabulary.
+            logger.info(
+                "one_voice.latency session=%s turn=%s phase=exec status=%s steps=%s",
+                self.session_id,
+                origin_turn_id,
+                str(outcome.result.status)[:40],
+                ",".join(f"{key}:{value}" for key, value in sorted(outcome.timings.items())),
+            )
         public = outcome.result.public()
+        if (
+            name == "confirm_pending_action"
+            and outcome.pending is not None
+            and outcome.pending.confirmation_source == "voice"
+            and outcome.pending.status in {"executed", "failed"}
+        ):
+            self._bump(confirmations_completed=1)
         if outcome.result.status == "rejected" and outcome.result.reason_code == "unknown_tool":
             self._bump(unknown_tool_calls=1)
         if outcome.result.status == "card_not_shown":
@@ -1469,6 +1980,7 @@ class VoiceSession:
             # A card the client is still showing no longer means anything: a
             # newer proposal replaced it, or a fresh lookup made its target
             # stale. Say so to both sides rather than letting it expire quietly.
+            stale_turn_id = self._pending_turn_ids.get(stale.id) or stale.origin_turn_id
             self.pending_receipts.pop(stale.id, None)
             self._pending_turn_ids.pop(stale.id, None)
             await self._send(
@@ -1477,18 +1989,27 @@ class VoiceSession:
                 )
             )
             self._bump(pending_cancelled=1)
+            self._count_turn_perf(stale_turn_id, "pending_cancelled")
         if outcome.superseded:
             public = dict(public, superseded_pending_action_ids=[s.id for s in outcome.superseded])
         if self._origin_is_stale(origin_turn_id):
             # A newer question arrived while this call was running. Never leave
             # an unseen confirmation in storage for session.ready to resurrect.
             if outcome.pending is not None and outcome.result.status == "confirmation_required":
-                cancelled = await self.pending.cancel(
-                    user_id=self.ctx.user_id,
-                    pending_action_id=outcome.pending.id,
-                )
+                try:
+                    cancelled = await self.pending.cancel(
+                        user_id=self.ctx.user_id,
+                        pending_action_id=outcome.pending.id,
+                    )
+                except PendingActionStorageError as exc:
+                    # Never shown and never confirmable by voice (no shown
+                    # mark); it expires on its own. The model still gets its
+                    # answer below.
+                    self._storage_failed("cancel", exc)
+                    cancelled = None
                 if cancelled is not None:
                     self._bump(pending_cancelled=1)
+                    self._count_turn_perf(origin_turn_id, "pending_cancelled")
             elif outcome.pending is not None and outcome.pending.status in {
                 "executed",
                 "failed",
@@ -1537,11 +2058,13 @@ class VoiceSession:
             )
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
             self._bump(pending_created=1)
+            self._count_turn_perf(origin_turn_id, "pending_created")
         elif outcome.pending is not None and outcome.result.status == CONFIRMATION_WAITING:
             # The same proposal is already open: no new row, no side effects.
             # The card now answers this turn, so a tap on it reports here.
             self._pending_turn_ids[outcome.pending.id] = origin_turn_id
             self._bump(pending_reused=1)
+            self._count_turn_perf(origin_turn_id, "pending_reused")
             if outcome.pending.shown_at is None:
                 # Repair, not a new card: the same row and id, carried on the
                 # current turn so the client does not drop it as stale. Voice
@@ -1555,6 +2078,13 @@ class VoiceSession:
                         turn_id=origin_turn_id,
                     )
                 )
+            await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
+        elif outcome.pending is not None and outcome.result.status == PENDING_ACTION_EXISTS:
+            # A different card is still waiting and the model is about to ask
+            # about it, so a tap on it now answers this turn. Nothing is
+            # re-sent: the client already holds that card (and any receipt).
+            self._pending_turn_ids[outcome.pending.id] = origin_turn_id
+            self._bump(pending_blocked=1)
             await self._send(protocol.voice_state("confirming", turn_id=self.turn.turn_id))
         else:
             if outcome.pending is not None and outcome.pending.status in {
@@ -1743,6 +2273,8 @@ class VoiceSession:
         if isinstance(step, dict) and step.get("kind"):
             step_id = uuid.uuid4().hex[:12]
             payload = {k: v for k, v in step.items() if k != "kind"}
+            if step["kind"] == "open_mail_draft":
+                payload["delivery_ref"] = self._issue_mail_delivery(payload, origin_turn_id)
             timeout_s = int(step.get("timeout_s") or CLIENT_STEP_TIMEOUT_SECONDS)
             requested_at = self.clock()
             self.client_steps[step_id] = {
@@ -1784,6 +2316,9 @@ class VoiceSession:
                 "truncated",
             }
         ):
+            # A shown candidate picker is an explicit clarification; do not
+            # classify free-form speech or model wording to derive this count.
+            self._bump(clarifications=1)
             kind: Literal["person", "circle"] = (
                 "circle" if outcome.spec and "circle" in outcome.spec.name else "person"
             )
@@ -1842,11 +2377,17 @@ class VoiceSession:
         return cards
 
     async def _persist_entities(self) -> None:
-        await self.conversations.save_entity_context(
-            user_id=self.ctx.user_id,
-            conversation_id=self.ctx.conversation_id,
-            context=self.ctx.entities.model_dump(mode="json"),
-        )
+        try:
+            await self.conversations.save_entity_context(
+                user_id=self.ctx.user_id,
+                conversation_id=self.ctx.conversation_id,
+                context=self.ctx.entities.model_dump(mode="json"),
+            )
+        except ConversationStorageError as exc:
+            # This session keeps the confirmed entities in memory, and a tool
+            # result already computed must still reach the model. Only a
+            # resumed session (or an HTTP tap resolver) would see older ones.
+            self._storage_failed("entities", exc)
 
 
 def _public_args(args: dict[str, Any], *, hidden_fields: tuple[str, ...] = ()) -> dict[str, Any]:

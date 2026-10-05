@@ -107,6 +107,8 @@ export function readyFrame(
     pending_actions: [],
     setup_progress: null,
     output_mime_type: OUTPUT_MIME,
+    // What the current relay advertises (protocol.RELAY_FEATURES).
+    features: ["active_mail", "mail_delivery"],
     ...overrides,
   };
 }

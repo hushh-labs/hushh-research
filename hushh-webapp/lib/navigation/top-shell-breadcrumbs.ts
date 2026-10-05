@@ -224,6 +224,8 @@ function profileOriginCrumbLabel(backHref: string): string {
     [ROUTES.GMAIL]: "Mail",
     [ROUTES.PKM]: "Memory",
     [ROUTES.PKM_RECENT]: "Recently learned",
+    [ROUTES.PKM_LOCATION]: "Location",
+    [ROUTES.PKM_LOCATION_DETAIL]: "Detail",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
     [ROUTES.CONNECTED_SYSTEMS]: "Connected Systems",
     [ROUTES.CONSENTS]: "Consent Center",
@@ -1062,6 +1064,21 @@ function resolveTopShellBreadcrumbInner(
       // Memory owns the visible route title; the shell retains only the
       // implicit One root so deterministic back navigation stays intact.
       items: [{ label: "One", href: ROUTES.ONE_HOME }],
+    };
+  }
+
+  if (pathname === ROUTES.PKM_LOCATION || pathname === ROUTES.PKM_LOCATION_DETAIL) {
+    const detail = pathname === ROUTES.PKM_LOCATION_DETAIL;
+    return {
+      backHref: detail ? ROUTES.PKM_LOCATION : ROUTES.PKM,
+      width: "profile",
+      align: "center",
+      items: [
+        { label: "One", href: ROUTES.ONE_HOME },
+        { label: "Memory", href: ROUTES.PKM },
+        { label: "Location", ...(detail ? { href: ROUTES.PKM_LOCATION } : {}) },
+        ...(detail ? [{ label: "Detail" }] : []),
+      ],
     };
   }
 

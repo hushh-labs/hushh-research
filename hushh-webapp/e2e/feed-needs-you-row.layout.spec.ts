@@ -100,7 +100,8 @@ for (const dark of [false, true]) {
         await awaitProductFont(page);
         const rows = page.locator('[data-row-layout="person"]');
         // A missing selector used to silently pass this entire suite.
-        await expect(rows).toHaveCount(7);
+        // Seven existing person/actionable rows plus five real agent outcomes.
+        await expect(rows).toHaveCount(12);
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
@@ -113,7 +114,7 @@ for (const dark of [false, true]) {
               '[data-slot="settings-row-title"]',
             )!;
             const avatar = row.querySelector(
-              '[data-slot="avatar"],[data-slot="settings-row-icon"]',
+              '[data-slot="avatar"],[data-slot="settings-row-icon"],[data-slot="feed-domain-icon"]',
             )!;
             const desc = row.querySelector(
               '[data-slot="feed-event-description"]',

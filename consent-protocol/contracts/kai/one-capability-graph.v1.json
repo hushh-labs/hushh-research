@@ -14877,6 +14877,146 @@
     {
       "aliases": [
         "Open Memory",
+        "open memory",
+        "memory home",
+        "return to memory"
+      ],
+      "authorization": {
+        "guard_ids": [],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "route.one_pkm_location_home",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Returns from Location memory to the Memory home.",
+      "execution": {
+        "binding_ref": "route:/one/pkm",
+        "executor": {
+          "kind": "existing_route",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "NAVIGATE",
+        "target": {
+          "path": "route",
+          "status": "wired",
+          "target": "/one/pkm"
+        }
+      },
+      "goal_id": "goal.route.one_pkm_location_home",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Open Memory",
+      "navigation": {
+        "fallback": "/one/pkm",
+        "routes": [
+          "/one/pkm/location",
+          "/one/pkm/location/detail"
+        ],
+        "screens": [
+          "pkm_location",
+          "pkm_location_detail"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [],
+        "mounted_surface_required": false,
+        "requires_signed_in": false,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "settlement_proof": "validated_route_settlement",
+      "side_effect": {
+        "classification": "navigation"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
+        "Open Memory",
         "open personal data",
         "open my personal data",
         "go to personal data",
@@ -37319,7 +37459,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "c01add6cd214dcec23a00826b2a2aa52d0200564d4529436fbbf919b9981669e",
+      "projection_digest": "eee6b5b295453c559c055b7f25f47216c8fab27346f534a8df370c8e2c7cb886",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -37338,7 +37478,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "6e8019d530acf44b",
+      "source_revision": "3d97761098a4bbd2",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -38856,7 +38996,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "6e8019d530acf44b",
+    "source_revision": "3d97761098a4bbd2",
     "web": {
       "actions": [
         {
@@ -38899,7 +39039,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "4c6cea9f11c048b169bcdd9dd0610c5b4e7f48e693c2d9506f3940b94a7d2c4e",
+      "projection_digest": "fb6f6ea36cef0154e400713c1c266f870af0d75c4d4c7d8a08bf6b670c814cae",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38918,7 +39058,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "6e8019d530acf44b",
+      "source_revision": "3d97761098a4bbd2",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -40475,7 +40615,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "6e8019d530acf44b",
+  "revision": "3d97761098a4bbd2",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -40790,6 +40930,7 @@
         "route.one_feed",
         "route.one_location",
         "route.one_pkm",
+        "route.one_pkm_location_home",
         "route.voice_settings",
         "wallet.add",
         "wallet.list",
@@ -41325,6 +41466,28 @@
       "kind": "screen",
       "label": "pkm",
       "route_pattern": "/one/pkm",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.one_pkm_location_home"
+      ],
+      "capability_id": "screen:/one/pkm/location",
+      "kind": "screen",
+      "label": "pkm_location",
+      "route_pattern": "/one/pkm/location",
+      "telemetry_event": "app_intelligence.navigation",
+      "version": 1
+    },
+    {
+      "action_ids": [
+        "route.one_pkm_location_home"
+      ],
+      "capability_id": "screen:/one/pkm/location/detail",
+      "kind": "screen",
+      "label": "pkm_location_detail",
+      "route_pattern": "/one/pkm/location/detail",
       "telemetry_event": "app_intelligence.navigation",
       "version": 1
     },
@@ -42190,10 +42353,15 @@
   ],
   "semantic_diff": {
     "added": [
-      "screens:screen:/one/career"
+      "actions:route.one_pkm_location_home",
+      "screens:screen:/one/career",
+      "screens:screen:/one/pkm/location",
+      "screens:screen:/one/pkm/location/detail"
     ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "27c9fbd5a1b01b65",
@@ -44425,18 +44593,18 @@
     "capability_graph_evolution": "96b63878194651962b7fd3deceaac9d6223f7b170c16c67f813a3c72ca911946",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "f0027e74756f9371f7d34a1da3591b4bebc3078c85652a32a010d9ec3d100e9d",
+    "kai_action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "fdfe011ded0aae80be955a957639dea09d29d7564470ea7b4f60d596214bd430",
-    "route_orchestration_index": "1e3d9ef1c45d29d3d390512fb8d49d5b2dca76ca62be61a074dd2fa76f756243",
+    "route_orchestration_index": "13aa94374eb537f398a27144d2cd73e526409d5e3f6719b40e5af68588cc91f9",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "6e8019d530acf44b",
+  "source_revision": "3d97761098a4bbd2",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "6e8019d530acf44b",
+    "current_graph_revision": "3d97761098a4bbd2",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

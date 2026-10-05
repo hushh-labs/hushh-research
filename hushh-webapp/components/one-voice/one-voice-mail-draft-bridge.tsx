@@ -2,28 +2,65 @@
 
 /** Keeps a reviewed mail draft alive across voice dock and route changes. */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@/components/icons";
 
-import { EmailDraftCard } from "@/components/agent/email-draft-card";
+import {
+  EmailDraftCard,
+  type SourceBoundEmailReplyAdapter,
+} from "@/components/agent/email-draft-card";
+import { richEmailPlainText } from "@/components/agent/email-rich-text";
+import { useOptionalVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
-import { parseOpenMailDraftStepPayload } from "@/lib/one-voice/mail-draft-step";
+import {
+  parseMailDeliveryRef,
+  parseOpenMailDraftStepPayload,
+} from "@/lib/one-voice/mail-draft-step";
 import { useVoiceToolEffects } from "@/lib/one-voice/session-store";
-import type { EmailDraft, EmailDeliveryError } from "@/lib/services/email-delivery-service";
+import {
+  EmailDeliveryError,
+  EmailDeliveryService,
+  type EmailDraft,
+} from "@/lib/services/email-delivery-service";
 import { useVault } from "@/lib/vault/vault-context";
 
-type OpenMailDraft = { id: string; ownerUid: string; draft: EmailDraft; recipientName: string; verbatimInitialBody: boolean };
+/**
+ * A reply in an email's own thread. The server derived the envelope from that
+ * email; the card shows it locked, and every Send re-derives it from the ref.
+ */
+type ReplyBinding = { sourceMailRef: string; envelope: { to: string; subject: string } };
+type OpenMailDraft = {
+  id: string;
+  ownerUid: string;
+  draft: EmailDraft;
+  recipientName: string;
+  verbatimInitialBody: boolean;
+  reply: ReplyBinding | null;
+  /** Correlates this card's Send with the voice session that opened it. */
+  deliveryRef: string | null;
+};
 type MailDelivery = {
   id: string;
   ownerUid: string;
   draft: EmailDraft;
   recipientName: string;
   verbatimInitialBody: boolean;
+  reply: ReplyBinding | null;
+  deliveryRef: string | null;
   status: "sending" | "sent" | "failed" | "outcome_unknown";
   error: string | null;
 };
+/** A Send in flight: the card it came from and the action it prepared. */
+type DeliveryAttempt = { deliveryRef: string | null; actionId: string | null };
+/**
+ * Failures that happened at Gmail, or may have: One is told about these. A
+ * refusal before the send (a changed original, an expired review, a locked
+ * vault) sent nothing, the card already says why, and One stays quiet rather
+ * than contradict it with "I couldn't confirm".
+ */
+const REACHED_GMAIL = new Set(["EMAIL_ACTION_OUTCOME_UNKNOWN", "GMAIL_SEND_FAILED", "DELIVERY_FAILED"]);
 type StepReport = (status: "ok" | "failed", payload?: Record<string, unknown>) => void;
 type Viewport = { top: number; left: number; width: number; height: number };
 
@@ -42,6 +79,7 @@ function newAttemptId(): string {
 
 export function OneVoiceMailDraftBridge() {
   const { user } = useAuth();
+  const voice = useOptionalVoiceSession();
   const { isVaultUnlocked, tokenExpiresAt, getVaultOwnerToken } = useVault();
   const [host, setHost] = useState<HTMLElement | null>(null);
   const [viewport, setViewport] = useState<Viewport | null>(null);
@@ -55,6 +93,9 @@ export function OneVoiceMailDraftBridge() {
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const ownerRef = useRef(user?.uid ?? null);
   const wasVaultUnlockedRef = useRef(isVaultUnlocked);
+  // Keyed by attempt, so a slow Send that finishes after a newer one started is
+  // still reported with its own action, and never lends it to the newer one.
+  const attemptsRef = useRef(new Map<string, DeliveryAttempt>());
 
   useEffect(() => {
     setHost(document.body);
@@ -98,6 +139,13 @@ export function OneVoiceMailDraftBridge() {
         recipientName: parsed.toName,
         verbatimInitialBody: true,
         draft: { to: parsed.to, cc: "", bcc: "", subject: parsed.subject, body: parsed.body },
+        reply: parsed.mode === "reply" && parsed.sourceMailRef
+          ? {
+              sourceMailRef: parsed.sourceMailRef,
+              envelope: { to: parsed.to, subject: parsed.subject },
+            }
+          : null,
+        deliveryRef: parseMailDeliveryRef(step.payload),
       };
       previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
       draftRef.current = next;
@@ -135,6 +183,8 @@ export function OneVoiceMailDraftBridge() {
     ownerRef.current = user?.uid ?? null;
     for (const report of reportsRef.current.values()) report("failed", { reason: "owner_changed" });
     reportsRef.current.clear();
+    // A previous owner's Send is never reported into the next owner's session.
+    attemptsRef.current.clear();
     handledStepsRef.current.clear();
     draftRef.current = null;
     setMailDraft(null);
@@ -173,12 +223,15 @@ export function OneVoiceMailDraftBridge() {
   const onMailSendStarted = (reviewedDraft: EmailDraft): string => {
     const id = newAttemptId();
     const openDraft = draftRef.current;
+    attemptsRef.current.set(id, { deliveryRef: openDraft?.deliveryRef ?? null, actionId: null });
     setMailDelivery({
       id,
       ownerUid: openDraft?.ownerUid ?? user?.uid ?? "",
       draft: reviewedDraft,
       recipientName: openDraft?.recipientName ?? "",
       verbatimInitialBody: Boolean(openDraft?.verbatimInitialBody && reviewedDraft.body === openDraft.draft.body),
+      reply: openDraft?.reply ?? null,
+      deliveryRef: openDraft?.deliveryRef ?? null,
       status: "sending",
       error: null,
     });
@@ -187,8 +240,26 @@ export function OneVoiceMailDraftBridge() {
     return id;
   };
 
+  const onDeliveryPrepared = (actionId: string, attemptId: string | null) => {
+    const attempt = attemptId ? attemptsRef.current.get(attemptId) : undefined;
+    if (attempt) attempt.actionId = actionId;
+  };
+
+  // Tell the voice session the Send finished, so One can say what happened.
+  // Only the send action is named; the relay reads its outcome server-side.
+  // Nothing here depends on the socket: the card already shows the outcome.
+  const reportDelivery = (id: string | null | undefined, reachedGmail: boolean) => {
+    const attempt = id ? attemptsRef.current.get(id) : undefined;
+    if (!id || !attempt) return;
+    attemptsRef.current.delete(id);
+    if (reachedGmail && attempt.deliveryRef && attempt.actionId) {
+      voice?.reportMailDelivery?.(attempt.deliveryRef, attempt.actionId);
+    }
+  };
+
   const onMailSent = (id?: string | null) => {
     setMailDelivery((current) => current && current.id === id ? { ...current, status: "sent", error: null } : current);
+    reportDelivery(id, true);
   };
 
   const onMailSendFailed = (error: EmailDeliveryError, id?: string | null) => {
@@ -199,16 +270,21 @@ export function OneVoiceMailDraftBridge() {
           error: error.message,
         }
       : current);
+    reportDelivery(id, REACHED_GMAIL.has(error.code ?? ""));
   };
 
   const reopenFailedDraft = () => {
     if (!mailDelivery || mailDelivery.status !== "failed") return;
-    const next = {
+    // A reply reopens still bound to its original email, so Send stays in
+    // that thread; dropping the binding here would send a new, unthreaded one.
+    const next: OpenMailDraft = {
       id: newAttemptId(),
       ownerUid: mailDelivery.ownerUid,
       draft: mailDelivery.draft,
       recipientName: mailDelivery.recipientName,
       verbatimInitialBody: mailDelivery.verbatimInitialBody,
+      reply: mailDelivery.reply,
+      deliveryRef: mailDelivery.deliveryRef,
     };
     draftRef.current = next;
     setMailDraft(next);
@@ -218,6 +294,51 @@ export function OneVoiceMailDraftBridge() {
   const visibleDraft = isVaultUnlocked && mailDraft?.ownerUid === user?.uid ? mailDraft : null;
   const visibleDelivery = isVaultUnlocked && mailDelivery?.ownerUid === user?.uid ? mailDelivery : null;
   const visible = visibleDraft || visibleDelivery;
+  const replySourceRef = visibleDraft?.reply?.sourceMailRef ?? null;
+  const replyAdapter = useMemo<SourceBoundEmailReplyAdapter | null>(
+    () =>
+      replySourceRef
+        ? {
+            reportsSendStart: true,
+            send: async ({
+              firebaseIdToken,
+              vaultOwnerToken,
+              draft,
+              idempotencyKey,
+              onSendRequestStarted,
+              onPrepared,
+            }) => {
+              // Only the body is the person's. Recipient, subject and thread are
+              // re-derived by the server from the ref on prepare and on send, so
+              // the locked envelope fields are not sent at all. The body goes as
+              // reviewed: no reformatting of dictated text.
+              // Dictated text stays exactly as reviewed; an edit made in the rich
+              // editor arrives as markup, and its plain-text part must be text.
+              const edited = draft.body.trim().startsWith("<") && draft.body.includes(">");
+              const bound: EmailDraft = {
+                to: "",
+                cc: "",
+                bcc: "",
+                subject: "",
+                body: edited ? richEmailPlainText(draft.body) : draft.body,
+                htmlBody: draft.htmlBody,
+                sourceMailRef: replySourceRef,
+              };
+              const auth = { firebaseIdToken, vaultOwnerToken };
+              const prepared = await EmailDeliveryService.prepare({ ...auth, draft: bound, idempotencyKey });
+              if (!prepared.actionId) {
+                throw new EmailDeliveryError("The reply could not be prepared for sending.", 500);
+              }
+              onPrepared?.(prepared.actionId);
+              onSendRequestStarted?.();
+              const sent = await EmailDeliveryService.send({ ...auth, actionId: prepared.actionId, draft: bound });
+              return { outcomeUnknown: sent.outcomeUnknown };
+            },
+          }
+        : null,
+    [replySourceRef],
+  );
+  const deliveryIsReply = Boolean(visibleDelivery?.reply);
   return (
     <>
       {host && visible ? createPortal(
@@ -251,6 +372,9 @@ export function OneVoiceMailDraftBridge() {
                 onSendStarted={onMailSendStarted}
                 onSent={onMailSent}
                 onSendFailed={onMailSendFailed}
+                onDeliveryPrepared={onDeliveryPrepared}
+                sourceBoundReply={replyAdapter}
+                sourceBoundEnvelope={visibleDraft.reply?.envelope ?? null}
               />
             </div>
           ) : null}
@@ -262,10 +386,10 @@ export function OneVoiceMailDraftBridge() {
               className="pointer-events-auto flex h-fit w-full max-w-2xl items-center gap-3 rounded-2xl bg-card px-4 py-3 text-sm shadow-2xl"
             >
               <span className="min-w-0 flex-1">
-                {visibleDelivery.status === "sending" ? "Sending mail…" :
-                  visibleDelivery.status === "sent" ? "Mail sent." :
+                {visibleDelivery.status === "sending" ? (deliveryIsReply ? "Sending reply…" : "Sending mail…") :
+                  visibleDelivery.status === "sent" ? (deliveryIsReply ? "Reply sent in the original thread." : "Mail sent.") :
                     visibleDelivery.status === "outcome_unknown" ? "Delivery could not be confirmed. Check Sent Mail before trying again." :
-                      visibleDelivery.error || "Mail could not be sent."}
+                      visibleDelivery.error || (deliveryIsReply ? "The reply could not be sent." : "Mail could not be sent.")}
               </span>
               {visibleDelivery.status === "failed" ? (
                 <button type="button" className="shrink-0 font-semibold text-[color:var(--app-accent)]" onClick={reopenFailedDraft}>

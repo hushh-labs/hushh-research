@@ -4681,6 +4681,21 @@ body:has([data-testid="one-location-onboarding"])
     letter-spacing: var(--foundation-title3-tracking) !important;
   }
 
+  /* Memory's tabs and categories use the same section hierarchy as Location.
+     Keep this within Memory so other app surfaces retain their own roles. */
+  .app-page-shell [data-pkm-workspace] [data-slot="settings-group-heading"] {
+    font-family: var(--font-app-body);
+    font-size: var(--type-section-label-size) !important;
+    line-height: var(--type-section-label-line) !important;
+    font-weight: var(--type-section-label-weight) !important;
+    letter-spacing: var(--type-section-label-tracking) !important;
+  }
+
+  [data-pkm-location-view] [data-slot="settings-row-description"] {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
   .app-page-shell
     .profile-account-content
     [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
@@ -7782,14 +7797,10 @@ html.native-android .boot-surface[data-boot-phase="launch"] {
 
 .boot-mark-glyph {
   position: absolute;
-  inset: -50%;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-family: var(--font-app-emoji), sans-serif;
-  font-size: calc(var(--boot-mark-size) / 0.96);
-  line-height: 1;
-  translate: 0 calc(var(--boot-mark-size) / 0.96 * 0.0267);
   user-select: none;
 }
 

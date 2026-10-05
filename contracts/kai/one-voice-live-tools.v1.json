@@ -102,6 +102,53 @@
       "circle_args": [
         "circle"
       ],
+      "description": "Add everyone the person is connected with to one confirmed circle they own, in a single step with one confirmation. People are not an argument: the server reads their current connections, and the card gives exact counts (how many will be added, how many are already in it or can't be added right now). The yes adds exactly that group, never someone who connects later. All or none: without room for everyone it adds nobody (not_enough_room). For a few named people use add_circle_members instead, and never resolve people one by one for this. Trusted and the SMS circle are refused. It sends no connection requests. The circle is a canonical id, never a name.",
+      "firebase_plane": false,
+      "gateway_action_id": "location.add_to_circle",
+      "name": "add_all_connections",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Only the circle. Who \"all my connections\" are is read by the server from\nthe person's own connections, never named by the model, so the audience can\nbe neither invented nor widened by an argument.",
+        "properties": {
+          "circle": {
+            "additionalProperties": false,
+            "properties": {
+              "circle_id": {
+                "description": "Canonical circle id from list_circles/confirm_circle.",
+                "maxLength": 36,
+                "minLength": 36,
+                "title": "Circle Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "circle_id"
+            ],
+            "type": "object"
+          }
+        },
+        "required": [
+          "circle"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "added",
+        "no_one_to_add",
+        "not_added",
+        "not_enough_room"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "location_circles"
+      ]
+    },
+    {
+      "circle_args": [
+        "circle"
+      ],
       "description": "Add a confirmed person to a confirmed circle. Only an existing connection can be added; the result says exactly what happened: added, already_member, invite_pending, connection_pending_outgoing (your request to them is waiting), connection_pending_incoming (their request to you is waiting), not_eligible, or not_connected. It never sends a connection request: that is invite_person, and only if the person asks. Both arguments are canonical ids, never names.",
       "firebase_plane": false,
       "gateway_action_id": "location.add_to_circle",
@@ -1862,6 +1909,52 @@
       "ui_refresh": [
         "location_circles"
       ]
+    },
+    {
+      "circle_args": [],
+      "description": "Prepare a reply inside the same Gmail thread as an email you already showed the person. Use when they want to answer or respond to a particular email: by its position in the list you showed, the email they have open on screen, or the single email you just showed them. It needs what the reply should say: when they have not said, ask what they would like to say and do not call it yet. A reply goes only to whoever wrote that email, never to everyone on it: when they ask to reply to all, forward it, change its subject or attach something, do not call it; say that is not possible here and ask whether a reply to the sender alone would do. Never look the sender up as a person (resolve_person or list_people) for a reply: the server derives the recipient, subject and thread from the original email. Use send_mail instead for a new email to a named person, read_mail when they only want to know what mail says or what needs a reply, and open_mail when they only want to see it. If there is no email to answer yet, search their mail with read_mail first, then ask which one. After spoken confirmation it opens a review card with the reply; it never sends. Only the owner's tap on Send reply in that card delivers it.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "reply_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "Which offered email to answer, and what to say. Never who or which thread.\n\nNo recipient, subject, address or message id: a reply is addressed by the\nemail it answers, and the server derives all of that from the message.",
+        "properties": {
+          "message": {
+            "description": "The finished reply text, as it should read in the email. When they dictate it, their words exactly. When they only describe it (decline, accept, thank them), write that short reply yourself as the email body -- never pass their description through as the text -- and add no dates, amounts, commitments or facts they did not give. Never empty: if they have not said what to reply, ask them first.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "ordinal": {
+            "anyOf": [
+              {
+                "maximum": 25,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The position of the email in the list of mail you last showed them, when they name one (the third email is 3). Leave it out when they mean the email they have open on screen, or the single email you just showed them: the server knows which one that is. Never guess a position.",
+            "title": "Ordinal"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "draft_open_requested"
+      ],
+      "tier": "voice",
+      "ui_refresh": []
     },
     {
       "circle_args": [],

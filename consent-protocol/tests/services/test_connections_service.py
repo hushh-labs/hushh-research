@@ -1357,6 +1357,15 @@ def test_cancel_marks_request_and_pending_scope_proposals_declined():
         out = svc.cancel_request("user-a", "req-1")
 
     assert out == {"status": "cancelled", "requestId": "req-1"}
+    feed_params = [params for sql, params in db.calls if "INSERT INTO feed_events" in sql]
+    assert [(p["owner_user_id"], p["actor_is_self"]) for p in feed_params] == [
+        ("user-a", True),
+        ("user-b", False),
+    ]
+    assert all(
+        p["event_type"] == "connection_withdrawn" and p["source_row_id"] == "req-1"
+        for p in feed_params
+    )
     proposal_update = next(
         (sql, params) for sql, params in db.calls if "UPDATE connection_scope_proposals" in sql
     )
@@ -1434,6 +1443,7 @@ def test_cancel_does_not_notify_when_the_request_was_already_resolved():
         svc.cancel_request("user-a", "req-1")
 
     assert notify_calls == []
+    assert not any("INSERT INTO feed_events" in sql for sql, _ in db.calls)
 
 
 def test_cancel_notify_failure_does_not_break_the_write():

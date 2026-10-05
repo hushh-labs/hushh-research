@@ -40,7 +40,16 @@ _BIND = re.compile(r'add_secret "\$\{(_[A-Z0-9_]+_SECRET)\}"')
 # A parser that only matches the literal form saw 5 of 49 and reported OK. A
 # check that silently covers nothing is worse than no check.
 _LOOP = re.compile(r"^\s*for n in ((?:[A-Z0-9_]+ ?)+); do\s*$", re.MULTILINE)
-_DEFAULT = re.compile(r"^  (_[A-Z0-9_]+_SECRET):[ ]*(.*?)[ ]*$", re.MULTILINE)
+# Curated OAuth connectors are bound through ONE generic loop over a '+'-joined
+# list of names derived from config/curated_connectors/*.json:
+#     for s in $(echo "${_CURATED_CONNECTOR_SECRETS}" | tr '+' ' '); do add_secret "$s" "$s"
+# The substitution name ends in _SECRETS (plural), so both this pattern and the
+# widened _DEFAULT below are required; without them this binding is invisible to
+# the check and a lane could drop it with CI green.
+_CURATED = re.compile(
+    r"for s in \$\(echo \"\$\{(_[A-Z0-9_]+_SECRETS)\}\" \| tr '\+' ' '\); do"
+)
+_DEFAULT = re.compile(r"^  (_[A-Z0-9_]+_SECRETS?):[ ]*(.*?)[ ]*$", re.MULTILINE)
 
 
 def _defaults(text: str) -> dict[str, str]:
@@ -63,6 +72,7 @@ def bound_substitutions() -> list[str]:
     text = CLOUDBUILD.read_text(encoding="utf-8")
     defaults = _defaults(text)
     names: list[str] = list(_BIND.findall(text))
+    names.extend(_CURATED.findall(text))
     for match in _LOOP.finditer(text):
         # Ordinary environment loops use _${n}, not _${n}_SECRET. They must
         # not create fictitious secret bindings or baseline exemptions.
@@ -96,6 +106,13 @@ def main() -> int:
     baseline = json.loads(BASELINE.read_text(encoding="utf-8"))
     bound = bound_substitutions()
     failures: list[str] = []
+    # A check that silently covers nothing is worse than no check: the generic
+    # curated-connector binding must always be parsed.
+    if "_CURATED_CONNECTOR_SECRETS" not in bound:
+        failures.append(
+            "_CURATED_CONNECTOR_SECRETS is not recognised as a bound secret in "
+            "backend.cloudbuild.yaml; the parser no longer sees the curated-connector loop."
+        )
 
     for lane, expected in baseline["lanes"].items():
         workflow = WORKFLOWS / lane

@@ -1013,7 +1013,7 @@
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache. Closed agent outcomes also project canonical provider proposal/connection/job and Circle relationship transitions (migration269)."
     },
     {
       "data_class": "workflow_state",
@@ -2598,6 +2598,7 @@
           "route.one_feed",
           "route.one_location",
           "route.one_pkm",
+          "route.one_pkm_location_home",
           "route.voice_settings",
           "wallet.add",
           "wallet.list",
@@ -3773,6 +3774,56 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.pkm"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-location",
+      "page_file": "app/one/pkm/location/page.tsx",
+      "pathname": "/one/pkm/location",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm_location_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.location"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-location-detail",
+      "page_file": "app/one/pkm/location/detail/page.tsx",
+      "pathname": "/one/pkm/location/detail",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm_location_home"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.location.detail"
       }
     },
     {
@@ -5813,27 +5864,27 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "f0027e74756f9371f7d34a1da3591b4bebc3078c85652a32a010d9ec3d100e9d",
+    "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "agent_registry": "fdfe011ded0aae80be955a957639dea09d29d7564470ea7b4f60d596214bd430",
-    "cache_manifest": "4e63b52c642d2775eae2c7f941217feef83fafad6e85179a662a1aecae51b516",
-    "data_plane": "1df49f95104f4d30fc5ed6de778ff88e0180f690a8d3a736e2df0cb567be8c5a",
+    "cache_manifest": "dcf4ad2bdc42263d49cd3b0bd66b51695e9b2a45c6bbf8c570f54d494c11c1d7",
+    "data_plane": "7984489716bb6f91dc2eb92f561640d9d41af536a728e224a9025bf520faf520",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "1e3d9ef1c45d29d3d390512fb8d49d5b2dca76ca62be61a074dd2fa76f756243",
-    "route_layout": "f4dcd0844e411e9c675e2c7025a63db6e1786747fa1a86f4e93322cf683bb65c",
-    "surface_map": "9051e0574dbfbf63f8254f57bac89d2abfa9e54e2fbd987d22036050001ec140",
+    "route_index": "13aa94374eb537f398a27144d2cd73e526409d5e3f6719b40e5af68588cc91f9",
+    "route_layout": "5a77364b3aca34fca4d2249ae26fc5d8dc85c33fcf34ce2ae8d7cddd4be2fa46",
+    "surface_map": "8d9345199a7e4e262f388c539c03d65f6b967590154eb305263e7a029473693f",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 225,
+    "actions": 226,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 143,
+    "physical_routes": 145,
     "semantic_routes": 14,
     "table_families": 83
   }

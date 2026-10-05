@@ -2415,6 +2415,7 @@ export function CircleDetailFlow({
                   <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
                     <FlowActionGroup
                       stacked
+                      separateSecondary={false}
                       secondary={
                         <div className={CIRCLE_SHEET_CTA_CLASSNAME}>
                           <Button

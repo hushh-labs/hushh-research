@@ -54,6 +54,7 @@ FAMILIES = frozenset(
         "rename",
         "set_kind",
         "add_member",
+        "add_all",
         "remove_member",
         "leave",
         "delete",
@@ -77,7 +78,19 @@ WRONG_EFFECT = {
     "read_details": {"rename_circle", "delete_circle", "leave_circle"},
     "rename": {"delete_circle", "create_circle", "leave_circle"},
     "set_kind": {"rename_circle", "delete_circle", "create_circle", "leave_circle"},
-    "add_member": {"remove_circle_member", "invite_person", "create_circle_invite_link"},
+    "add_member": {
+        "remove_circle_member",
+        "invite_person",
+        "create_circle_invite_link",
+        "add_all_connections",
+    },
+    "add_all": {
+        "add_circle_member",
+        "add_circle_members",
+        "invite_person",
+        "create_circle",
+        "remove_circle_member",
+    },
     "remove_member": {"remove_connection", "delete_circle", "leave_circle"},
     "leave": {"delete_circle", "remove_circle_member", "remove_connection"},
     "delete": {"leave_circle", "remove_circle_member", "remove_connection"},
@@ -197,6 +210,13 @@ def _world() -> FakeCircleService:
             {"userId": ROHAN, "displayName": "Rohan Mehta"},
         ],
     }
+    # The person's connections as "add all my connections" reads them; current
+    # members of the target circle are reported as such by the fake.
+    service.audience = [
+        {"userId": PRIYA, "displayName": "Priya Nair"},
+        {"userId": ROHAN, "displayName": "Rohan Mehta"},
+        {"userId": AYESHA, "displayName": "Ayesha Sharma"},
+    ]
     service.outgoing = []
     service.incoming = []
     return service

@@ -79,6 +79,9 @@ const NEUTRAL_STATUSES = new Set<string>([
   "sos_partially_stopped",
   // The emergency roster is at its limit; nobody was added.
   "roster_full",
+  // add_circle_members: every requested person was refused or already in; no
+  // one was added, so the batch must not read as done.
+  "none_added",
   "step_order",
   "recipient_key_missing",
   "recipient_not_ready",
@@ -123,6 +126,24 @@ const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED, "draft_open_reques
  * result already displayed.
  */
 export const DISPATCH_ONLY_STATUSES = new Set<string>(["mail_open_dispatched"]);
+
+/**
+ * A mail list the person can still act on by position: rows the server
+ * offered under a revision ("open the second one", "reply to it").
+ *
+ * It keeps the answer slot across a new question until that question produces
+ * a result of its own. Clearing it the moment the person spoke took away the
+ * very list their words were about, so a spoken open arrived with nothing left
+ * on screen to open.
+ */
+export function keepsAnswerSlotAcrossInput(result: ToolResultPublic | null): boolean {
+  return (
+    result !== null &&
+    typeof result.offer_revision === "number" &&
+    Array.isArray(result.items) &&
+    result.items.length > 0
+  );
+}
 
 /**
  * A navigation the app was asked to make. It is not a success (it stays in
@@ -340,6 +361,9 @@ const INFORMATIONAL_ERROR_CODES = new Set<string>([
   // The tap's proof failed verification (expired, revoked, other account);
   // the card stays pending and a fresh tap can still complete it.
   "firebase_proof_invalid",
+  // Voice storage could not record a tap or cancel; the relay keeps the
+  // session up and the card stays as it was, so the person can try again.
+  "storage_unavailable",
 ]);
 
 function summarizeArgs(
@@ -635,7 +659,10 @@ function reduceServerFrame(
           : state.fencedTurnIds,
         // A new question owns the visible answer slot. Older tool receipts
         // remain in the timeline and any pending action still settles by ID.
-        lastResult: newInput ? null : state.lastResult,
+        lastResult:
+          newInput && !keepsAnswerSlotAcrossInput(state.lastResult)
+            ? null
+            : state.lastResult,
         toolTimeline: newInput
           ? state.toolTimeline.map((item) => item.tool === "open_screen" ? { ...item, navigationSuperseded: true } : item)
           : state.toolTimeline,

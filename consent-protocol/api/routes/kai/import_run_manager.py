@@ -15,9 +15,12 @@ import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Callable, Optional
+from typing import Any, AsyncGenerator, Callable, Optional, cast
+
+from starlette.concurrency import run_in_threadpool
 
 import api.routes.kai.analyze_run_store as run_store
+from hushh_mcp.services.feed_service import FeedService
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +68,8 @@ class PortfolioImportRunRecord:
     # process, and whether an attached local stream already delivered it.
     terminal_frame: Optional[RunFrame] = None
     terminal_delivered: bool = False
+    completion_feed_recorded: bool = False
+    outcome_feed_recorded: bool = False
     heartbeat_task: Optional[asyncio.Task] = None
     relay_task: Optional[asyncio.Task] = None
 
@@ -192,23 +197,23 @@ class KaiPortfolioImportRunManager:
             frame["data"] = json.dumps(envelope)
 
         async with run.condition:
+            if run.status != "running" and envelope and envelope.get("terminal"):
+                return cast(dict[str, Any], envelope)
             run.events.append(frame)
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
-                if run.status == "running":
-                    run.terminal_frame = frame
                 event_name = str(envelope.get("event") or "")
-                run.terminal_event = event_name or run.terminal_event
-                payload = envelope.get("payload")
-                run.terminal_payload = (
-                    payload if isinstance(payload, dict) else run.terminal_payload
-                )
-                if event_name == "complete":
-                    run.status = "completed"
-                elif event_name == "aborted":
-                    run.status = "canceled"
-                elif event_name == "error":
-                    run.status = "failed"
+                terminal_status = {
+                    "complete": "completed",
+                    "aborted": "canceled",
+                    "error": "failed",
+                }.get(event_name)
+                if terminal_status is not None and run.status == "running":
+                    run.terminal_frame = frame
+                    run.terminal_event = event_name
+                    payload = envelope.get("payload")
+                    run.terminal_payload = payload if isinstance(payload, dict) else None
+                    run.status = terminal_status
             run.condition.notify_all()
         return envelope if isinstance(envelope, dict) else None
 
@@ -251,12 +256,14 @@ class KaiPortfolioImportRunManager:
             else None
         )
         saw_terminal = False
+        generator = None
         try:
             generator = generator_factory(run, background_request)
             async for frame in generator:
                 envelope = await self._append_frame(run, frame)
-                if envelope and bool(envelope.get("terminal")):
+                if envelope and bool(envelope.get("terminal")) and run.status != "running":
                     saw_terminal = True
+                    break
                 if run.cancel_event.is_set() and run.status in {
                     "canceled",
                     "failed",
@@ -265,7 +272,6 @@ class KaiPortfolioImportRunManager:
                     break
         except Exception as exc:
             logger.exception("[KaiImportRun] Worker crashed for %s: %s", run.run_id, exc)
-            run.status = "failed"
             await self._append_synthetic_terminal(
                 run,
                 event_name="error",
@@ -277,8 +283,12 @@ class KaiPortfolioImportRunManager:
             )
             saw_terminal = True
         finally:
+            if generator is not None:
+                try:
+                    await generator.aclose()
+                except Exception:
+                    logger.warning("kai_import_generator_cleanup_failed")
             if run.cancel_event.is_set() and not saw_terminal:
-                run.status = "canceled"
                 await self._append_synthetic_terminal(
                     run,
                     event_name="aborted",
@@ -289,7 +299,6 @@ class KaiPortfolioImportRunManager:
                     },
                 )
             elif run.status == "running" and not saw_terminal:
-                run.status = "failed"
                 await self._append_synthetic_terminal(
                     run,
                     event_name="error",
@@ -338,6 +347,36 @@ class KaiPortfolioImportRunManager:
                         delivered=lambda: run.terminal_delivered,
                     )
                 )
+
+            await self._record_feed(run, completed=False)
+
+    async def _record_feed(self, run: PortfolioImportRunRecord, *, completed: bool) -> None:
+        if run.is_durable_replay:
+            return
+        if completed:
+            if (
+                run.status != "completed"
+                or not run.terminal_delivered
+                or run.completion_feed_recorded
+            ):
+                return
+            run.completion_feed_recorded = True
+        else:
+            if run.status not in {"failed", "canceled"} or run.outcome_feed_recorded:
+                return
+            run.outcome_feed_recorded = True
+        try:
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type=f"kai_import_{run.status}",
+                actor_label="Kai",
+                metadata={},
+                source_row_id=run.run_id,
+            )
+        except Exception:
+            logger.warning("kai_outcome_feed_projection_failed")
 
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
@@ -486,7 +525,9 @@ class KaiPortfolioImportRunManager:
 
             for frame in pending:
                 yield frame
+                if frame is run.terminal_frame:
+                    run.terminal_delivered = True
+                    await self._record_feed(run, completed=True)
 
             if terminal_reached:
-                run.terminal_delivered = True
                 return

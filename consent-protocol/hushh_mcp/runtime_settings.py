@@ -173,6 +173,11 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # one path here that sends mail-derived text to a second model, so it is
     # enabled deliberately rather than inherited from the read switch.
     "one_voice_mail_narration_enabled": "ONE_VOICE_MAIL_NARRATION_ENABLED",
+    # Reply in an email's own Gmail thread. OFF by default like narration: it
+    # is new capability whose recipient comes from a message, not a connection,
+    # so each lane turns it on deliberately (deploy-uat passes it, production
+    # passes false). It also gates the HTTP send of a reply card.
+    "one_voice_mail_reply_enabled": "ONE_VOICE_MAIL_REPLY_ENABLED",
 }
 
 

@@ -140,10 +140,17 @@ export const MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME =
 export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
   CIRCLE_MEMBER_MENU_ITEM_CLASSNAME;
 
-/** One row of the bottom sheet's action list. 56px, full bleed, so the whole
- *  width of the row is the target rather than the label alone. */
+/** One row of the bottom sheet's action list. The sheet uses the same
+ *  244×50 action measure as Location onboarding while retaining the grouped
+ *  menu treatment for the actions that can coexist here. */
 export const MEMBER_ACTIONS_SHEET_ITEM_CLASSNAME =
-  "flex min-h-14 w-full items-center gap-3 px-4 text-left text-[17px] font-normal leading-[22px] transition-colors active:bg-[color:var(--app-neutral-fill)] disabled:opacity-60";
+  "flex min-h-[50px] w-full items-center gap-3 px-4 text-left text-[17px] font-normal leading-[22px] transition-colors active:bg-[color:var(--app-neutral-fill)] disabled:opacity-60";
+
+export const MEMBER_ACTIONS_SHEET_CTA_CLASSNAME =
+  "mx-auto w-full max-w-[244px]";
+
+const MEMBER_REMOVE_CONFIRM_CLASSNAME =
+  "w-full bg-destructive text-[color:var(--destructive-foreground)] hover:bg-destructive/90";
 
 /* ------------------------------------------------------------------ */
 /* Confirmation copy                                                  */
@@ -317,11 +324,17 @@ export function CircleMemberActionsMenu({
                 <DrawerDescription className="mt-1 text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
                   {memberRemoveConfirmDescription(displayName)}
                 </DrawerDescription>
-                <div className="mt-4 flex flex-col gap-2">
+                <div
+                  className={cn(
+                    "mt-4 flex flex-col gap-2",
+                    MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
+                  )}
+                >
                   <Button
                     type="button"
                     variant="destructive"
-                    className="h-12 w-full rounded-[14px] text-[17px] font-semibold"
+                    size="prominent"
+                    className={MEMBER_REMOVE_CONFIRM_CLASSNAME}
                     onClick={() => {
                       closeSheet();
                       void onRemove();
@@ -332,7 +345,8 @@ export function CircleMemberActionsMenu({
                   <Button
                     type="button"
                     variant="ghost"
-                    className="h-12 w-full rounded-[14px] text-[17px] font-semibold text-foreground"
+                    size="prominent"
+                    className="w-full text-foreground"
                     onClick={() => setSheetConfirmingRemove(false)}
                   >
                     Cancel
@@ -364,7 +378,10 @@ export function CircleMemberActionsMenu({
                 <div
                   role="menu"
                   aria-label={menuLabel}
-                  className="overflow-hidden rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]"
+                  className={cn(
+                    MEMBER_ACTIONS_SHEET_CTA_CLASSNAME,
+                    "overflow-hidden rounded-[14px] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)]",
+                  )}
                 >
                   {profileHref ? (
                     <Link
@@ -446,14 +463,19 @@ export function CircleMemberActionsMenu({
                   ) : null}
                 </div>
 
-                <Button
-                  type="button"
-                  variant="ghost"
-                  className="mt-2 h-12 w-full rounded-[14px] text-[17px] font-semibold"
-                  onClick={closeSheet}
+                <div
+                  className={cn("mt-2", MEMBER_ACTIONS_SHEET_CTA_CLASSNAME)}
                 >
-                  Cancel
-                </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="prominent"
+                    className="w-full justify-center text-center"
+                    onClick={closeSheet}
+                  >
+                    Cancel
+                  </Button>
+                </div>
               </div>
             )}
           </DrawerContent>
@@ -548,11 +570,14 @@ export function CircleMemberActionsMenu({
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel size="prominent" className="w-full">
+                Cancel
+              </AlertDialogCancel>
               <AlertDialogAction
                 variant="destructive"
+                size="prominent"
                 onClick={() => void onRemove()}
-                className="h-11 w-full sm:w-auto"
+                className={MEMBER_REMOVE_CONFIRM_CLASSNAME}
               >
                 Remove
               </AlertDialogAction>

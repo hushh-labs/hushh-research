@@ -110,6 +110,7 @@ const PENDING_TOOLS = new Set([
   // this screen's own Add control exactly as a single-add card does. Without it
   // the person can tap Add while a card for the same circle is still waiting.
   "add_circle_members",
+  "add_all_connections",
 ]);
 
 function isOkResult(result: ToolResultPublic | null | undefined): boolean {

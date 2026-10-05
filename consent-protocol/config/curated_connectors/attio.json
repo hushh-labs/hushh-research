@@ -1,0 +1,83 @@
+{
+  "version": "curated-connector.v1",
+  "connectorId": "attio",
+  "displayName": "Attio",
+  "description": "Connect Attio so Kai can search and read your CRM records, notes and tasks, and make changes you approve.",
+  "mcpEndpoint": "https://mcp.attio.com/mcp",
+  "oauth": {
+    "authorizeUrl": "https://app.attio.com/oidc/authorize",
+    "tokenUrl": "https://app.attio.com/oidc/token",
+    "registrationUrl": "https://app.attio.com/oauth/register",
+    "scopes": ["mcp", "offline_access", "openid"],
+    "tokenEndpointAuth": "none",
+    "clientIdEnv": "ATTIO_OAUTH_CLIENT_ID"
+  },
+  "tools": {
+    "allowlist": [
+      "create-comment",
+      "add-record-to-list",
+      "create-note",
+      "create-record",
+      "create-task",
+      "get-call-recording",
+      "get-email-content",
+      "get-note-body",
+      "get-records-by-ids",
+      "list-attribute-definitions",
+      "list-comment-replies",
+      "list-comments",
+      "list-list-attribute-definitions",
+      "list-lists",
+      "list-objects",
+      "list-records-in-list",
+      "list-records",
+      "list-tasks",
+      "list-workspace-members",
+      "list-workspace-teams",
+      "run-basic-report",
+      "search-call-recordings-by-metadata",
+      "search-emails-by-metadata",
+      "search-meetings",
+      "search-notes-by-metadata",
+      "search-records",
+      "semantic-search-call-recordings",
+      "semantic-search-emails",
+      "semantic-search-notes",
+      "update-list-entry-by-id",
+      "update-list-entry-by-record-id",
+      "update-note",
+      "update-record",
+      "update-task",
+      "upsert-record",
+      "whoami"
+    ],
+    "freeRead": [
+      "get-note-body",
+      "get-records-by-ids",
+      "list-attribute-definitions",
+      "list-comment-replies",
+      "list-comments",
+      "list-list-attribute-definitions",
+      "list-lists",
+      "list-objects",
+      "list-records-in-list",
+      "list-records",
+      "list-tasks",
+      "list-workspace-members",
+      "list-workspace-teams",
+      "run-basic-report",
+      "search-meetings",
+      "search-notes-by-metadata",
+      "search-records",
+      "semantic-search-notes",
+      "whoami"
+    ]
+  },
+  "environments": {
+    "uat": {
+      "registeredRedirectUris": [
+        "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+      ]
+    }
+  }
+}
