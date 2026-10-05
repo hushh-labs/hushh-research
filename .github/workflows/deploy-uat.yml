@@ -581,6 +581,9 @@ jobs:
             --insurance-agents-api-base-url "${{ vars.INSURANCE_AGENTS_API_BASE_URL || 'https://insurance-agents.34.61.69.175.sslip.io' }}" \
             --one-places-directory-enabled "${{ vars.ONE_PLACES_DIRECTORY_ENABLED_UAT || 'true' }}" \
             --one-voice-mail-reply-enabled "${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}" \
+            --one-voice-mail-schedule-send-enabled "${{ vars.ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED_UAT || 'true' }}" \
+            --one-voice-mail-drafts-enabled "${{ vars.ONE_VOICE_MAIL_DRAFTS_ENABLED_UAT || 'true' }}" \
+            --mail-scheduled-drain-enabled "${{ vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true' }}" \
             > /tmp/uat-runtime-secret-sync.json
 
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
@@ -2318,6 +2321,81 @@ jobs:
             --file deploy/account-deletion/remove_release_fence.sql \
             | tee /tmp/uat-account-deletion-fence-removal.log
           echo "activated=true" >> "$GITHUB_OUTPUT"
+
+      # Delivers One Voice scheduled mail. UAT only: production pins
+      # MAIL_SCHEDULED_DRAIN_ENABLED to false and has no job. The route answers
+      # 404 unless the drain flag reached this revision's runtime config.
+      # The same repository variable is the job's kill switch: anything but
+      # 'true' pauses the job (never creates it); 'true' creates or updates it
+      # and resumes a paused job, so a manual pause lasts until the next deploy.
+      # Runs on every healthy release, frontend-only included, so flipping the
+      # variable takes effect on the next deploy of any kind.
+      - name: Activate scheduled mail drain
+        id: activate-scheduled-mail-drain
+        if: steps.classify-uat-release.outputs.release_failed == 'false'
+        shell: bash
+        env:
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          OIDC_AUDIENCE: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: mail-scheduled-send
+          JOB_NAME: mail-scheduled-send-uat
+          BATCH_LIMIT: "50"
+          MAIL_SCHEDULED_DRAIN_ENABLED: ${{ vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT || 'true' }}
+        run: |
+          set -euo pipefail
+          bash deploy/gmail/setup_scheduled_mail_scheduler.sh \
+            | tee /tmp/uat-scheduled-mail-scheduler-setup.log
+
+          if [[ "${MAIL_SCHEDULED_DRAIN_ENABLED}" != "true" ]]; then
+            if gcloud scheduler jobs describe "${JOB_NAME}" \
+              --project="${PROJECT_ID}" \
+              --location="${SCHEDULER_LOCATION}" \
+              --format='value(state)' > /tmp/uat-scheduled-mail-scheduler-state.txt 2>/dev/null \
+              && [[ "$(cat /tmp/uat-scheduled-mail-scheduler-state.txt)" != "PAUSED" ]]; then
+              echo "Scheduled mail drain kill switch did not pause ${JOB_NAME}" >&2
+              exit 1
+            fi
+            echo "Scheduled mail drain disabled by vars.MAIL_SCHEDULED_DRAIN_ENABLED_UAT"
+            exit 0
+          fi
+
+          gcloud scheduler jobs describe "${JOB_NAME}" \
+            --project="${PROJECT_ID}" \
+            --location="${SCHEDULER_LOCATION}" \
+            --format=json > /tmp/uat-scheduled-mail-scheduler-config.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          job = json.loads(
+              Path('/tmp/uat-scheduled-mail-scheduler-config.json').read_text(
+                  encoding='utf-8'
+              )
+          )
+          target = job.get('httpTarget') or {}
+          oidc = target.get('oidcToken') or {}
+          expected_uri = (
+              'https://api.uat.hushh.ai/api/one/email/scheduled/drain?limit=50'
+          )
+          expected_service_account_email = (
+              f"{os.environ['SCHEDULER_SERVICE_ACCOUNT_NAME']}@"
+              f"{os.environ['PROJECT_ID']}.iam.gserviceaccount.com"
+          )
+          checks = {
+              'enabled': job.get('state') == 'ENABLED',
+              'schedule': job.get('schedule') == '* * * * *',
+              'method': target.get('httpMethod') == 'POST',
+              'uri': target.get('uri') == expected_uri,
+              'service_account': oidc.get('serviceAccountEmail')
+              == expected_service_account_email,
+              'audience': oidc.get('audience') == 'https://api.uat.hushh.ai',
+          }
+          if not all(checks.values()):
+              raise SystemExit('Scheduled mail drain scheduler configuration drifted')
+          PY
 
       - name: Activate personal Gmail monitor
         id: activate-personal-gmail-monitor

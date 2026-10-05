@@ -40,7 +40,7 @@ _DRIVE_FILE_PATH_RE = re.compile(
 )
 _GMAIL_RESOURCE_PATH_RE = re.compile(
     r"(https://(?:gmail|www)\.googleapis\.com/gmail/v1/users/)[^/?\s\"'<>]+"
-    r"(/(?:messages|threads)/)[^/?\s\"'<>]+(?:/attachments/[^/?\s\"'<>]+)?",
+    r"(/(?:messages|threads|drafts)/)[^/?\s\"'<>]+(?:/attachments/[^/?\s\"'<>]+)?",
     re.IGNORECASE,
 )
 

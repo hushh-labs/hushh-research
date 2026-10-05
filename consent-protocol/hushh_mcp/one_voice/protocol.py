@@ -14,6 +14,12 @@ from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, ValidationError
 
 from hushh_mcp.one_voice.tools.base import LOCATION_UPDATES_PENDING as _LOCATION_UPDATES_PENDING
 from hushh_mcp.one_voice.tools.mail import MAIL_OPEN_DISPATCHED as _MAIL_OPEN_DISPATCHED
+from hushh_mcp.one_voice.tools.mail_drafts import (
+    DRAFT_OPEN_DISPATCHED as _DRAFT_OPEN_DISPATCHED,
+)
+from hushh_mcp.one_voice.tools.mail_drafts import (
+    DRAFT_SEND_UNCONFIRMED as _DRAFT_SEND_UNCONFIRMED,
+)
 
 PROTOCOL_VERSION = "one-voice-v1"
 # Additive client capabilities this relay accepts, advertised in session.ready.
@@ -33,6 +39,8 @@ LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
 # Re-exported for the wire, like the status above it, so the relay does not have
 # to import a tool family to know a dispatch when it sees one.
 MAIL_OPEN_DISPATCHED = _MAIL_OPEN_DISPATCHED
+# The drafts list's twin of the dispatch above: open a draft row on screen.
+DRAFT_OPEN_DISPATCHED = _DRAFT_OPEN_DISPATCHED
 # Interim status of an armed Save My Soul alert: grants exist, the device has
 # not published a position yet, and nobody has been reached.
 SOS_GRANTS_CREATED = "sos_grants_created"
@@ -54,6 +62,14 @@ NOT_OK_STATUSES = frozenset(
         "scope_review_required",
         "draft_open_requested",
         "draft_open_unconfirmed",
+        _DRAFT_SEND_UNCONFIRMED,
+        # A scheduled-mail cancel that did not cancel anything, and a scheduled
+        # send whose confirmation could not be recorded: none is a success.
+        "already_sent",
+        "already_sending",
+        "not_sent",
+        "send_unconfirmed",
+        "schedule_unconfirmed",
         LOCATION_UPDATES_PENDING,
         SOS_GRANTS_CREATED,
         RESET_STEP_ISSUED,

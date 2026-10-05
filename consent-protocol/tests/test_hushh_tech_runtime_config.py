@@ -21,6 +21,17 @@ def _module():
     return module
 
 
+def _unset_for_this_test(monkeypatch, name: str) -> None:
+    """Unset ``name`` and restore its prior state after the test.
+
+    ``delenv`` of an absent variable registers no undo, and hydration writes
+    with ``os.environ.setdefault``, so a bare delete lets the hydrated value
+    leak into every later test in the session.
+    """
+    monkeypatch.setenv(name, "x")
+    monkeypatch.delenv(name)
+
+
 def test_passkey_rp_ids_are_derived_from_the_active_frontend_origin():
     module = _module()
 
@@ -101,7 +112,7 @@ def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):
 
     for env_name in runtime_settings._BACKEND_RUNTIME_ENV_MAP.values():
         if env_name.startswith("HUSSH_TECH_"):
-            monkeypatch.delenv(env_name, raising=False)
+            _unset_for_this_test(monkeypatch, env_name)
     monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps(expected))
     runtime_settings.hydrate_runtime_environment()
 
@@ -158,17 +169,7 @@ def test_uat_cloud_run_binds_launch_pepper_only_as_optional_secret():
     )
 
 
-def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monkeypatch):
-    """The reply switch must survive the deploy hop, and only where it is asked for.
-
-    Hosted lanes set only BACKEND_RUNTIME_CONFIG_JSON, regenerated on every
-    deploy. A key the generator emits but the runtime map forgets would leave
-    reply dark in UAT while the deploy said it was on; a generator default of
-    on would ship it to every lane that never asked.
-    """
-    from hushh_mcp.one_voice.config import voice_mail_reply_enabled
-
-    module = _module()
+def _uat_lane_args() -> argparse.Namespace:
     args = argparse.Namespace(
         **{
             key: ""
@@ -189,13 +190,28 @@ def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monk
     )
     args.environment = "uat"
     args.project = "hushh-pda-uat"
+    return args
+
+
+def test_voice_mail_reply_switch_is_generated_off_unless_a_lane_turns_it_on(monkeypatch):
+    """The reply switch must survive the deploy hop, and only where it is asked for.
+
+    Hosted lanes set only BACKEND_RUNTIME_CONFIG_JSON, regenerated on every
+    deploy. A key the generator emits but the runtime map forgets would leave
+    reply dark in UAT while the deploy said it was on; a generator default of
+    on would ship it to every lane that never asked.
+    """
+    from hushh_mcp.one_voice.config import voice_mail_reply_enabled
+
+    module = _module()
+    args = _uat_lane_args()
     assert module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"] == "false"
 
     args.one_voice_mail_reply_enabled = "true"
     generated = module._build_backend_runtime_config(args)["one_voice_mail_reply_enabled"]
     assert generated == "true"
 
-    monkeypatch.delenv("ONE_VOICE_MAIL_REPLY_ENABLED", raising=False)
+    _unset_for_this_test(monkeypatch, "ONE_VOICE_MAIL_REPLY_ENABLED")
     assert voice_mail_reply_enabled() is False
     monkeypatch.setenv(
         "BACKEND_RUNTIME_CONFIG_JSON", json.dumps({"one_voice_mail_reply_enabled": generated})
@@ -213,3 +229,44 @@ def test_production_workflow_pins_voice_mail_reply_off():
         "--one-voice-mail-reply-enabled \"${{ vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT || 'true' }}\""
         in uat
     )
+
+
+_MAIL_PART_TWO_SWITCHES = (
+    ("one_voice_mail_schedule_send_enabled", "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED"),
+    ("one_voice_mail_drafts_enabled", "ONE_VOICE_MAIL_DRAFTS_ENABLED"),
+    ("mail_scheduled_drain_enabled", "MAIL_SCHEDULED_DRAIN_ENABLED"),
+)
+
+
+@pytest.mark.parametrize(("key", "env_name"), _MAIL_PART_TWO_SWITCHES)
+def test_mail_part_two_switches_are_generated_off_unless_a_lane_turns_them_on(
+    monkeypatch, key, env_name
+):
+    """Scheduled send, drafts and the drain survive the deploy hop, only where asked.
+
+    A key the generator emits but the runtime map forgets leaves the capability
+    dark in UAT while the deploy said it was on; a generator default of on ships
+    a server-side send to every lane that never asked.
+    """
+    module = _module()
+    args = _uat_lane_args()
+    assert module._build_backend_runtime_config(args)[key] == "false"
+
+    setattr(args, key, "true")
+    generated = module._build_backend_runtime_config(args)[key]
+    assert generated == "true"
+
+    _unset_for_this_test(monkeypatch, env_name)
+    monkeypatch.setenv("BACKEND_RUNTIME_CONFIG_JSON", json.dumps({key: generated}))
+    runtime_settings.hydrate_runtime_environment()
+    assert os.environ.get(env_name) == "true"
+
+
+@pytest.mark.parametrize(("key", "_env_name"), _MAIL_PART_TWO_SWITCHES)
+def test_production_pins_mail_part_two_switches_off_and_uat_turns_them_on(key, _env_name):
+    root = Path(__file__).resolve().parents[2]
+    production = (root / ".github/workflows/deploy-production.yml").read_text()
+    uat = (root / ".github/workflows/deploy-uat.yml").read_text()
+    flag = "--" + key.replace("_", "-")
+    assert f'{flag} "false"' in production
+    assert f"{flag} \"${{{{ vars.{key.upper()}_UAT || 'true' }}}}\"" in uat

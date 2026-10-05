@@ -505,6 +505,44 @@
     },
     {
       "circle_args": [],
+      "description": "Cancel one scheduled email before it sends, by its position in the list you last showed. Use when they ask to cancel a scheduled mail. After spoken confirmation the send never happens.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "cancel_scheduled_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "The position the person named in the scheduled list, and nothing else.",
+        "properties": {
+          "ordinal": {
+            "description": "The position the person named in the list of scheduled emails you last showed them ('cancel the second one' is 2). Never guess a position that was not in that list.",
+            "maximum": 25,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "already_cancelled",
+        "already_sending",
+        "already_sent",
+        "cancelled",
+        "not_sent",
+        "send_unconfirmed"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "mail"
+      ]
+    },
+    {
+      "circle_args": [],
       "description": "Set a new length on a share you own (grant id from list_shares): a number of hours from now, or until you stop it. The share keeps the same id.",
       "firebase_plane": false,
       "gateway_action_id": "location.change_share_duration",
@@ -1391,6 +1429,32 @@
     },
     {
       "circle_args": [],
+      "description": "Show the owner's Gmail drafts: who each is to, its subject, and how old it is. Use when they ask about their drafts. You learn only how many there are; the list appears on screen. Bodies are never read by the list.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "list_drafts",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 10,
+            "description": "How many drafts to show. Leave it out for ten.",
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Read your public location links with their real status (active, expired, revoked), time left, and URL. Read this before revoking one.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_links",
@@ -1506,6 +1570,37 @@
     },
     {
       "circle_args": [],
+      "description": "List the owner's scheduled emails that have not sent yet: who each goes to, its subject, and when it sends. Use when they ask what is scheduled or want to cancel one. You learn only how many there are; the list appears on screen.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "list_scheduled_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "default": 10,
+            "description": "How many scheduled emails to list, soonest first.",
+            "maximum": 25,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "empty",
+        "ok"
+      ],
+      "tier": null,
+      "ui_refresh": [
+        "mail"
+      ]
+    },
+    {
+      "circle_args": [],
       "description": "Read who you are sharing your location with and who is sharing with you, with each share's real status, time left, and whether a position has been sent yet. Read this before stopping or changing a share.",
       "firebase_plane": false,
       "gateway_action_id": "location.open_active_shares",
@@ -1521,6 +1616,34 @@
         "empty",
         "ok"
       ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
+      "description": "Show the owner the full text of one draft from the list of drafts you last showed them, when they ask to open it. Pass that draft's position in the list (ordinal); never invent a draft id. It opens what is already on screen and does not read it to you.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "open_draft",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {
+            "description": "The position the person named in the list of drafts you last showed them ('open the second one' is 2). The surface opens the exact draft it already showed at that position. Never guess a position that was not in that list.",
+            "maximum": 25,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [],
       "tier": null,
       "ui_refresh": []
     },
@@ -2374,7 +2497,130 @@
     },
     {
       "circle_args": [],
-      "description": "Prepare an email the owner dictates to a confirmed person. Use when they ask to send, write, or draft mail to a person by name. First resolve_person and confirm_person; pass only that canonical PersonRef as recipient. Preserve their dictated message in message and never invent an address, subject, or body. This tool opens an editable review card after spoken confirmation; it never sends. Only the owner's tap on Send in that card can deliver the email.",
+      "description": "Schedule an email the owner dictates to a confirmed person for a future time they name. Use this \u2014 never send_mail \u2014 whenever they give any future time: 'tomorrow', 'in the morning', 'at 9', 'next Monday', 'kal subah'. First resolve_person and confirm_person; pass only that canonical PersonRef as recipient. Preserve their dictated message in message and never invent an address, subject, or body. For a clock time or day, pass send_at as owner-local wall-clock ISO-8601 without a UTC offset; never a relative phrase. For a duration ('in 30 minutes'), pass send_in_minutes instead. A bare 'morning' or 'subah' means 9:00 AM owner-local today, or tomorrow if 9:00 AM has passed; a bare 'tomorrow' or 'kal' means 9:00 AM tomorrow; a bare date means 9:00 AM that day. After spoken confirmation the mail is stored to be delivered at that time; it is never sent immediately. It never sends a Gmail draft.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "schedule_mail",
+      "parameters": {
+        "additionalProperties": false,
+        "description": "``send_mail``'s fields, plus when to send: a clock time or a duration.\n\nThe time is never a phrase. The model resolves \"kal subah\" against the\nowner-local clock the instruction names and passes the owner's wall-clock\ntime, which the server places in the owner's zone (daylight saving\nincluded); a duration is minutes the server counts from its own clock,\nbecause the instruction's clock is stale by the time it is said. Exactly\none of the two is given; the server only validates, so a phrase it cannot\nread is refused rather than guessed at.",
+        "properties": {
+          "message": {
+            "description": "The owner's dictated email message, preserved exactly; never invent it.",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Message",
+            "type": "string"
+          },
+          "recipient": {
+            "additionalProperties": false,
+            "description": "Canonical person from resolve_person and confirm_person.",
+            "properties": {
+              "user_id": {
+                "description": "Canonical user id from resolve_person/confirm_person.",
+                "maxLength": 128,
+                "minLength": 1,
+                "title": "User Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "user_id"
+            ],
+            "type": "object"
+          },
+          "send_at": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A clock time or day: the owner's local wall-clock time as ISO-8601 without a UTC offset, e.g. 2026-10-06T09:00:00. The server applies their zone (daylight saving included) and rejects unparseable, past, or >30-days-out times. Never a relative phrase; omit for a duration.",
+            "title": "Send At"
+          },
+          "send_in_minutes": {
+            "anyOf": [
+              {
+                "maximum": 43200,
+                "minimum": 2,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "A duration from now ('in 30 minutes'): that many minutes, counted by the server. Leave send_at out then.",
+            "title": "Send In Minutes"
+          },
+          "subject": {
+            "default": "",
+            "description": "Subject the owner dictated; leave empty if they gave none.",
+            "maxLength": 256,
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "recipient",
+          "message"
+        ],
+        "type": "object"
+      },
+      "person_args": [
+        "recipient"
+      ],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "scheduled"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "mail"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Send \u2014 never delete \u2014 one of the owner's Gmail drafts, now, after spoken confirmation. Deleting or discarding a draft is not possible here: say so and prepare nothing. A draft cannot be scheduled here: when they name any later time (tomorrow, at nine, tonight), say so, ask whether to send it now, and prepare nothing. Use it for a draft they picked from the list of drafts you showed; it goes as-is. Use send_mail for a new email they dictate now.",
+      "firebase_plane": false,
+      "gateway_action_id": "email.chat.turn",
+      "name": "send_draft",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {
+            "description": "The position the person named in the list of drafts you last showed them ('send the second one' is 2). The server resolves it to the draft it showed there. Never guess a position that was not in that list.",
+            "maximum": 25,
+            "minimum": 1,
+            "title": "Ordinal",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "ordinal"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_voice",
+      "result_statuses": [
+        "draft_send_unconfirmed",
+        "draft_sent"
+      ],
+      "tier": "voice",
+      "ui_refresh": [
+        "mail"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Prepare an email the owner dictates to a confirmed person, to send now. It has no time: when they name any later time (tomorrow, at nine, tonight, on Friday), use schedule_mail instead, even when they say send. Use when they ask to send, write, or draft mail to a person by name. First resolve_person and confirm_person; pass only that canonical PersonRef as recipient. Preserve their dictated message in message and never invent an address, subject, or body. This tool opens an editable review card after spoken confirmation; it never sends. Only the owner's tap on Send in that card can deliver the email.",
       "firebase_plane": false,
       "gateway_action_id": "email.chat.turn",
       "name": "send_mail",

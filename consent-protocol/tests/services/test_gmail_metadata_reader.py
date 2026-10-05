@@ -593,6 +593,32 @@ def test_gmail_log_redaction_handles_httpx_urls_and_structured_provider_identifi
     ) == {"gmail_message_id": "[REDACTED]", "thread_id": "[REDACTED]", "query": "[REDACTED]"}
 
 
+def test_gmail_log_redaction_hides_draft_ids_in_httpx_urls():
+    # The drafts service reads users.drafts.get and sends users.drafts.send;
+    # httpx logs both URLs at INFO, and a draft id is a handle to the owner's
+    # unsent mail.
+    draft_url = httpx.URL(
+        "https://gmail.googleapis.com/gmail/v1/users/me/drafts/r-private-draft?format=full"
+    )
+    send_url = httpx.URL("https://gmail.googleapis.com/gmail/v1/users/me/drafts/send")
+    list_url = httpx.URL("https://gmail.googleapis.com/gmail/v1/users/me/drafts?maxResults=10")
+    record = logging.LogRecord(
+        "httpx",
+        logging.INFO,
+        "fixture",
+        1,
+        "HTTP %s %s %s",
+        (draft_url, send_url, list_url),
+        None,
+    )
+    SensitiveLogFilter().filter(record)
+    message = record.getMessage()
+    assert "r-private-draft" not in message
+    assert "/gmail/v1/users/me/drafts/[REDACTED]?format=full" in message
+    # Negative control: the list URL names no draft, so it stays readable.
+    assert "/gmail/v1/users/me/drafts?maxResults=10" in message
+
+
 async def test_provider_over_return_cannot_exceed_requested_limit():
     def respond(_request):
         return _response({"messages": [{"id": "message-1"}, {"id": "message-2"}]})

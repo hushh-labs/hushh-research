@@ -277,6 +277,44 @@ describe("ToolResultCard", () => {
     expect(container.textContent).not.toContain("inv_SECRET");
   });
 
+  it("never shows Done for a scheduled-mail cancel that cancelled nothing", () => {
+    // The panel passes ok = (resolved executed) for a confirmed card, and the
+    // cancel did execute: it answered that nothing was left to cancel.
+    for (const status of [
+      "send_unconfirmed",
+      "schedule_unconfirmed",
+      "already_sent",
+      "already_sending",
+      "not_sent",
+    ]) {
+      for (const ok of [true, false, undefined]) {
+        expect(toneForResult({ status }, ok), `${status} ${ok}`).toBe("neutral");
+      }
+      const { unmount } = render(
+        <ToolResultCard
+          result={{ status, spoken_facts: ["Nothing to cancel."] }}
+          tool="cancel_scheduled_mail"
+          ok
+        />,
+      );
+      expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+        "data-tone",
+        "neutral",
+      );
+      expect(screen.queryByText("Done")).toBeNull();
+      unmount();
+    }
+    // Negative control: a real cancel is done.
+    render(
+      <ToolResultCard
+        result={{ status: "cancelled", spoken_facts: ["Cancelled."] }}
+        tool="cancel_scheduled_mail"
+        ok
+      />,
+    );
+    expect(screen.getByText("Done")).toBeInTheDocument();
+  });
+
   it("classifies tools into families and tones", () => {
     expect(toolResultFamily("list_people")).toBe("people");
     expect(toolResultFamily("rename_circle")).toBe("circles");
@@ -1294,5 +1332,250 @@ describe("ToolResultCard: a spoken open runs the same code as a tap", () => {
     expect(screen.queryByTestId("one-voice-mail-original")).toBeNull();
     // Nothing opened, so nothing is named for "reply to it".
     expect(onActiveMailChange).not.toHaveBeenCalled();
+  });
+});
+
+describe("ToolResultCard: drafts and scheduled mail", () => {
+  const CONV = "22222222-2222-4222-8222-222222222222";
+
+  function draftsResult(): ToolResultPublic {
+    return {
+      status: "ok",
+      spoken_facts: ["You have 2 drafts."],
+      items: [
+        {
+          source_ref: "draft:1",
+          to: "Priya Sharma",
+          subject: "Diwali plans",
+          snippet: "Shall we meet at 7?",
+          updated_at: "2026-10-04T10:00:00+00:00",
+        },
+        { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+      ],
+      coverage: { returned: 2, has_more: true },
+      offer_revision: 8,
+      conversation_id: CONV,
+    };
+  }
+
+  const OPENED_DRAFT = {
+    toLabel: "Arjun",
+    to: ["arjun@example.com"],
+    cc: ["meera@example.com"],
+    bcc: ["hidden@example.com"],
+    subject: "Rent",
+    body: "Sending October's share today.",
+    bodyTruncated: false,
+    updatedAt: null,
+  };
+
+  it("names each draft by who it goes to and opens it through the draft resolver", async () => {
+    const draftCalls: unknown[] = [];
+    const onOpenMail = vi.fn();
+    const onActiveMailChange = vi.fn();
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenMail={onOpenMail}
+        onOpenDraft={async (input) => {
+          draftCalls.push(input);
+          return OPENED_DRAFT;
+        }}
+        onActiveMailChange={onActiveMailChange}
+      />,
+    );
+
+    expect(toolResultFamily("list_drafts")).toBe("mail");
+    const list = screen.getByLabelText("Drafts");
+    expect(list.children).toHaveLength(2);
+    expect(list.textContent).toContain("Priya Sharma");
+    expect(list.textContent).toContain("Shall we meet at 7?");
+    expect(screen.getByTestId("one-voice-mail-coverage")).toHaveTextContent(
+      "2 drafts · more in Gmail",
+    );
+    const buttons = screen.getAllByTestId("one-voice-mail-open");
+    expect(buttons[1]).toHaveAttribute("data-ordinal", "2");
+    expect(buttons[1]).toHaveTextContent("Open draft");
+    fireEvent.click(buttons[1]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Sending October's share today."),
+      ).toBeInTheDocument(),
+    );
+    expect(screen.getByText("To arjun@example.com")).toBeInTheDocument();
+    expect(screen.getByText("Cc meera@example.com")).toBeInTheDocument();
+    // A send reaches Bcc too, so the owner sees it before saying yes.
+    expect(screen.getByText("Bcc hidden@example.com")).toBeInTheDocument();
+    expect(draftCalls).toEqual([
+      { ordinal: 2, offerRevision: 8, conversationId: CONV },
+    ]);
+    // A draft is never the mail resolver's, and never "this email" for a reply.
+    expect(onOpenMail).not.toHaveBeenCalled();
+    expect(
+      onActiveMailChange.mock.calls.filter(([selection]) => selection !== null),
+    ).toEqual([]);
+  });
+
+  it("answers only its own directive: a drafts list ignores a mail open", async () => {
+    const { ONE_VOICE_OPEN_DRAFT_EVENT, ONE_VOICE_OPEN_MAIL_EVENT } =
+      await import("@/lib/one-voice/directives");
+    const draftCalls: unknown[] = [];
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async (input) => {
+          draftCalls.push(input);
+          return OPENED_DRAFT;
+        }}
+      />,
+    );
+    const settled: Array<[string, string | undefined]> = [];
+    const detail = (ordinal: number) => ({
+      ordinal,
+      offerRevision: 8,
+      conversationId: CONV,
+      settle: (status: string, reason?: string) =>
+        settled.push([status, reason]),
+    });
+
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_MAIL_EVENT, { detail: detail(1) }),
+    );
+    expect(draftCalls).toEqual([]);
+    expect(settled).toEqual([]);
+
+    window.dispatchEvent(
+      new CustomEvent(ONE_VOICE_OPEN_DRAFT_EVENT, { detail: detail(2) }),
+    );
+    await waitFor(() => expect(settled).toEqual([["opened", undefined]]));
+    expect(draftCalls).toEqual([
+      { ordinal: 2, offerRevision: 8, conversationId: CONV },
+    ]);
+  });
+
+  it("says a draft is gone rather than showing an empty one", async () => {
+    const { MailOpenError } = await import("@/lib/one-voice/mail-open");
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async () => {
+          throw new MailOpenError("draft_gone", {
+            status: 410,
+            code: "DRAFT_GONE",
+          });
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("That draft isn't in Gmail anymore."),
+    );
+  });
+
+  it("tells the person to reconnect Gmail when the connection is the problem", async () => {
+    const { MailOpenError } = await import("@/lib/one-voice/mail-open");
+    render(
+      <ToolResultCard
+        result={draftsResult()}
+        tool="list_drafts"
+        ok
+        onOpenDraft={async () => {
+          throw new MailOpenError("reconnect_required", {
+            status: 409,
+            code: "GMAIL_READ_PERMISSION_REQUIRED",
+          });
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByTestId("one-voice-mail-open")[0]);
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("one-voice-mail-open-error"),
+      ).toHaveTextContent("Reconnect Gmail, then try again."),
+    );
+    expect(screen.getByTestId("one-voice-mail-open-error")).not.toHaveTextContent(
+      "isn't on offer anymore",
+    );
+  });
+
+  it("renders scheduled emails read-only, in the server's order, with the owner-local time", () => {
+    const result: ToolResultPublic = {
+      status: "ok",
+      spoken_facts: ["You have 2 scheduled emails."],
+      items: [
+        {
+          source_ref: "scheduled:1",
+          to: "Priya Sharma",
+          subject: "Diwali plans",
+          send_at: "2026-10-06T03:30:00+00:00",
+          send_at_label: "Tomorrow, 9:00 AM IST",
+        },
+        {
+          source_ref: "scheduled:2",
+          to: "Arjun",
+          subject: "",
+          send_at: "2026-10-12T03:30:00+00:00",
+          send_at_label: "12 Oct, 9:00 AM IST",
+        },
+      ],
+      coverage: { returned: 2, next_send_at: "2026-10-06T03:30:00+00:00" },
+      offer_revision: 9,
+      conversation_id: CONV,
+    };
+    render(<ToolResultCard result={result} tool="list_scheduled_mail" ok />);
+
+    expect(toolResultFamily("list_scheduled_mail")).toBe("scheduled_mail");
+    const list = screen.getByLabelText("Scheduled emails");
+    expect(Array.from(list.children).map((row) => row.textContent)).toEqual([
+      "1.Diwali plansPriya Sharma · Tomorrow, 9:00 AM IST",
+      "2.No subjectArjun · 12 Oct, 9:00 AM IST",
+    ]);
+    // Cancelling is a spoken, confirmed action: no tap control here.
+    expect(screen.queryByRole("button")).toBeNull();
+    // A list is not something that got "Done".
+    expect(screen.queryByTestId("one-voice-tool-result-headline")).toBeNull();
+  });
+
+  it("says there are no scheduled emails, and nothing of the kind on a refusal", () => {
+    const { unmount } = render(
+      <ToolResultCard
+        result={{
+          status: "empty",
+          spoken_facts: ["You have no scheduled emails."],
+          items: [],
+        }}
+        tool="list_scheduled_mail"
+        ok
+      />,
+    );
+    expect(
+      screen.getByTestId("one-voice-scheduled-mail-empty"),
+    ).toHaveTextContent("No scheduled emails");
+    unmount();
+
+    render(
+      <ToolResultCard
+        result={{
+          status: "rejected",
+          spoken_facts: ["Scheduling is switched off."],
+        }}
+        tool="list_scheduled_mail"
+        ok={false}
+      />,
+    );
+    expect(screen.queryByTestId("one-voice-scheduled-mail-empty")).toBeNull();
   });
 });
