@@ -505,6 +505,9 @@ jobs:
             --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
             --hushh-tech-client-enabled "false" \
             --one-voice-mail-reply-enabled "false" \
+            --one-voice-mail-schedule-send-enabled "false" \
+            --one-voice-mail-drafts-enabled "false" \
+            --mail-scheduled-drain-enabled "false" \
             --hushh-tech-allowed-consent-scopes "" \
             --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
             --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \

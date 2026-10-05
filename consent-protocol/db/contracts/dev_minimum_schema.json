@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 271,
+  "expected_migration_version": 277,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -909,7 +909,13 @@
       "gmail_thread_id",
       "safe_error_code",
       "created_at",
-      "updated_at"
+      "updated_at",
+      "send_at",
+      "payload_sealed",
+      "recipient_display",
+      "subject",
+      "attempt_count",
+      "notified_at"
     ],
     "gmail_personal_information_request_preferences": [
       "user_id",

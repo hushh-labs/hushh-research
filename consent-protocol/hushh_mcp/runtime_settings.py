@@ -177,6 +177,13 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     # so each lane turns it on deliberately (deploy-uat passes it, production
     # passes false). It also gates the HTTP send of a reply card.
     "one_voice_mail_reply_enabled": "ONE_VOICE_MAIL_REPLY_ENABLED",
+    # Scheduling an email for later, and listing/opening/sending Gmail drafts,
+    # by voice. OFF by default like reply; each is also its own kill switch.
+    "one_voice_mail_schedule_send_enabled": "ONE_VOICE_MAIL_SCHEDULE_SEND_ENABLED",
+    "one_voice_mail_drafts_enabled": "ONE_VOICE_MAIL_DRAFTS_ENABLED",
+    # The Cloud Scheduler drain that delivers scheduled mail. Its own key, so a
+    # lane can pause delivery without withdrawing scheduling, and vice versa.
+    "mail_scheduled_drain_enabled": "MAIL_SCHEDULED_DRAIN_ENABLED",
 }
 
 

@@ -246,18 +246,66 @@ def test_one_voice_package_has_no_lexical_matcher_on_the_path():
 
 
 def test_voice_mail_is_exactly_read_open_access_and_a_reviewed_draft():
-    """Mail on voice is five tools. Archive, label, read-state, trash and forward
-    are mailbox mutations that need their own policy review; none may appear as
-    a voice tool by accident.
+    """Mail on voice is eight tools, and drafts three more. Archive, label,
+    read-state, trash, forward and draft deletion are mailbox mutations that
+    need their own policy review; none may appear as a voice tool by accident.
 
     Reply was reviewed: its recipient, subject and thread are derived from the
     message it answers, never from the model, and only the owner's Send tap
-    delivers it. It is the only reply tool."""
+    delivers it. It is the only reply tool.
+
+    Scheduled send was reviewed: a spoken yes stores a sealed row that the
+    server sends at the confirmed time, so it has no device step; the recipient
+    is a confirmed connection and the words are sealed. Cancel names a position
+    in the list the owner was shown. Drafts were reviewed: list and open read,
+    send_draft sends a listed draft by position after a spoken yes, and there is
+    no discard (it needs gmail.modify, an unreviewed grant)."""
     declared = {item["name"] for item in registry.declarations()}
     mail_tools = {name for name in declared if "mail" in name}
-    assert mail_tools == {"get_mail_access", "read_mail", "open_mail", "send_mail", "reply_mail"}
-    for forbidden in ("archive", "label", "mark_read", "unread", "trash", "forward"):
+    assert mail_tools == {
+        "get_mail_access",
+        "read_mail",
+        "open_mail",
+        "send_mail",
+        "reply_mail",
+        "schedule_mail",
+        "list_scheduled_mail",
+        "cancel_scheduled_mail",
+    }
+    assert {name for name in declared if "draft" in name} == {
+        "list_drafts",
+        "open_draft",
+        "send_draft",
+    }
+    for forbidden in ("archive", "label", "mark_read", "unread", "trash", "forward", "discard"):
         assert not [name for name in declared if forbidden in name], forbidden
+    assert not [name for name in declared if "draft" in name and "delete" in name]
+    schedule = registry.get_tool("schedule_mail")
+    assert schedule is not None and schedule.policy.value == "confirm_voice"
+    assert schedule.device_step is False, "the server sends it later; no device is present"
+    assert schedule.person_args == ("recipient",)
+    assert set(schedule.private_args) == {"subject", "message"}
+    assert schedule.prepare is not None
+    # A clock time is send_at; a duration is send_in_minutes, counted by the server.
+    assert set(schedule.declaration()["parameters_json_schema"]["properties"]) == {
+        "recipient",
+        "subject",
+        "message",
+        "send_at",
+        "send_in_minutes",
+    }
+    listed = registry.get_tool("list_scheduled_mail")
+    assert listed is not None and listed.policy.value == "read"
+    for name in ("cancel_scheduled_mail", "send_draft"):
+        tool = registry.get_tool(name)
+        assert tool is not None and tool.policy.value == "confirm_voice", name
+        assert tool.person_args == () and tool.private_args == (), name
+        assert set(tool.declaration()["parameters_json_schema"]["properties"]) == {"ordinal"}
+        assert tool.lookup_targets == () and tool.target_key is not None, name
+        assert tool.prepare is not None, name
+    for name in ("list_drafts", "open_draft"):
+        tool = registry.get_tool(name)
+        assert tool is not None and tool.policy.value == "read", name
     assert [name for name in declared if "reply" in name] == ["reply_mail"]
     send = registry.get_tool("send_mail")
     assert send is not None and send.policy.value == "confirm_voice"
