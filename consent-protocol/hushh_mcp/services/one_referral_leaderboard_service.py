@@ -1,6 +1,6 @@
 """Read-side composition for the gamified Referrals dashboard (PR4).
 
-Reads the LATEST published leaderboard snapshot (migration 270) rather than
+Reads the LATEST published leaderboard snapshot (migration 271) rather than
 aggregating `one_referral_score_events` live on every request -- "use shared
 snapshots, bounded refresh, and suitable invalidation" is a product
 requirement, not an optimization afterthought. Every row is resolved through

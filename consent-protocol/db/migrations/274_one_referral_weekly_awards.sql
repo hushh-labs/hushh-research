@@ -1,7 +1,7 @@
--- Migration 273: Hushh One weekly reward awards.
+-- Migration 274: Hushh One weekly reward awards.
 --
 -- PR5 of the gamified-referral-dashboard plan. One additive table, reading
--- migration 269's reward rounds and migration 270's score ledger; writes
+-- migration 270's reward rounds and migration 271's score ledger; writes
 -- nothing back into either.
 --
 -- WHY UNIQUENESS IS (reward_round_id, award_slot), NEVER (user_id,

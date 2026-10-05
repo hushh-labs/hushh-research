@@ -1,4 +1,4 @@
--- Migration 271: Hushh One referral circle contributions and lifetime
+-- Migration 272: Hushh One referral circle contributions and lifetime
 -- milestones.
 --
 -- PR3 of the gamified-referral-dashboard plan. Four additive tables, none of
@@ -25,7 +25,7 @@
 -- WHY CONTRIBUTIONS ARE A SEPARATE SNAPSHOT, NOT A JOIN. Recomputing "which
 -- team gets credit for this relationship" from current selections at read
 -- time would let a later team switch retroactively move history. Instead,
--- the worker that scores a relationship (migration 270's
+-- the worker that scores a relationship (migration 271's
 -- one_referral_scoring_jobs) resolves the referrer's selection interval that
 -- covers the relationship's qualified_at the ONE time it processes that job,
 -- and writes the result here, once, forever. One row per relationship, ever

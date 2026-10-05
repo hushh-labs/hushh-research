@@ -1,4 +1,4 @@
-"""Coverage for the durable referral-scoring worker (migration 270).
+"""Coverage for the durable referral-scoring worker (migration 271).
 
 These tests pin the contracts the product spec calls out explicitly:
 

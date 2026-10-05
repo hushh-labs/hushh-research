@@ -1,4 +1,4 @@
-"""Referral-contest team selection and event-time resolution (migration 271).
+"""Referral-contest team selection and event-time resolution (migration 272).
 
 Pins the contracts the product spec calls out:
 

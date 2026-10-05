@@ -104,10 +104,10 @@ tests/services/test_connection_graph_service.py
 # Referral program: attribution integrity (self-referral, predates-link,
 # duplicate, expiry), the qualification pipeline (onboarding-completion is
 # the whole bar), the gamification foundation (program settings + weekly
-# reward round schedule, migration 269), cumulative scoring (base/flash/
-# streak points, the durable worker, leaderboard snapshots, migration 270),
+# reward round schedule, migration 270), cumulative scoring (base/flash/
+# streak points, the durable worker, leaderboard snapshots, migration 271),
 # and circles/milestones (team contest selection, event-time contribution
-# snapshots, lifetime entitlements, fulfillment foundation, migration 271).
+# snapshots, lifetime entitlements, fulfillment foundation, migration 272).
 # Absent from this manifest means collect-only, not run.
 tests/services/test_one_referral_service_bind_attribution.py
 tests/services/test_one_referral_service_qualification.py

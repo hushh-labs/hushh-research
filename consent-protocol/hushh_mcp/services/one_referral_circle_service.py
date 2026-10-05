@@ -1,4 +1,4 @@
-"""Referral-contest team selection and team standings (migration 271).
+"""Referral-contest team selection and team standings (migration 272).
 
 Owns `one_referral_circle_selections` and `one_referral_circle_contributions`.
 Reads `one_location_circles` / `one_location_circle_memberships` for identity

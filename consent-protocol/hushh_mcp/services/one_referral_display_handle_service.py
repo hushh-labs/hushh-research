@@ -1,4 +1,4 @@
-"""Opt-in referral leaderboard display handles (migration 272).
+"""Opt-in referral leaderboard display handles (migration 273).
 
 Owns `one_referral_display_handles`. This is the ONLY source a leaderboard
 read may use for a referrer's public name. `actor_identity_cache.display_name`

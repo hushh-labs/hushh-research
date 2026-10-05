@@ -1,4 +1,4 @@
--- Migration 269: Hushh One referral gamification foundation.
+-- Migration 270: Hushh One referral gamification foundation.
 --
 -- PR1 of the gamified-referral-dashboard plan. This migration creates exactly
 -- two tables and touches nothing that already exists: no column is added to

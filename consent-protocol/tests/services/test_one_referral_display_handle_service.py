@@ -1,4 +1,4 @@
-"""Opt-in referral display handles (migration 272).
+"""Opt-in referral display handles (migration 273).
 
 Pins the privacy contract directly: a handle is never derived from or
 compared against the real/account name, an invalid handle is rejected before

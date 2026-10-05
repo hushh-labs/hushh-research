@@ -1,7 +1,7 @@
 """Referral gamification program settings and weekly reward round schedule.
 
 Owns `one_referral_program_settings` and `one_referral_reward_rounds`
-(migration 269). Deliberately a separate module from `one_referral_service`:
+(migration 270). Deliberately a separate module from `one_referral_service`:
 that file owns attribution and qualification -- whether a referral counts at
 all. This file owns the rules for what a qualified referral is WORTH (points,
 milestones, streaks, flash windows, the weekly schedule, the prize catalogue)

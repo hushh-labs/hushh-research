@@ -1,4 +1,4 @@
-"""Coverage for weekly reward-round finalization (migration 273, PR5).
+"""Coverage for weekly reward-round finalization (migration 274, PR5).
 
 The contracts the product spec calls out explicitly:
 

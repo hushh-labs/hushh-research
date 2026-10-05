@@ -1,6 +1,6 @@
--- Migration 270: Hushh One referral cumulative scoring.
+-- Migration 271: Hushh One referral cumulative scoring.
 --
--- PR2 of the gamified-referral-dashboard plan. Reads migration 269's settings
+-- PR2 of the gamified-referral-dashboard plan. Reads migration 270's settings
 -- (point values, flash windows, streak rules) and migration 165's qualified
 -- relationships; writes nothing back into either. Five additive tables:
 --

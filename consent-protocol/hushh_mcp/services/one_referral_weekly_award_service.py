@@ -1,4 +1,4 @@
-"""Weekly reward-round finalization (migration 273, PR5).
+"""Weekly reward-round finalization (migration 274, PR5).
 
 Closes one scheduled `one_referral_reward_rounds` row into up to three
 `one_referral_weekly_awards` rows -- the frozen top-3 CUMULATIVE standing as

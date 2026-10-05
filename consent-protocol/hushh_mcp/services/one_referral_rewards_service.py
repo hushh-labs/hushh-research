@@ -1,7 +1,7 @@
 """Lifetime milestone entitlements and the fulfillment review foundation.
 
 Owns `one_referral_milestone_entitlements` and
-`one_referral_fulfillment_records` (migration 271). Matches the product
+`one_referral_fulfillment_records` (migration 272). Matches the product
 spec's own responsibility split: referral core owns attribution and
 qualification, scoring owns points and rankings, THIS module owns
 entitlements, review, and fulfillment.

@@ -1,5 +1,5 @@
 """Coverage for the referral gamification program settings and weekly reward
-round schedule (migration 269).
+round schedule (migration 270).
 
 These tests pin two contracts directly:
 

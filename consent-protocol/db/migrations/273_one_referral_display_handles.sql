@@ -1,4 +1,4 @@
--- Migration 272: Hushh One referral display handles.
+-- Migration 273: Hushh One referral display handles.
 --
 -- PR4 foundation. One additive table, closing a real gap the PR1 privacy
 -- audit flagged before any cross-user display existed: `actor_identity_cache
