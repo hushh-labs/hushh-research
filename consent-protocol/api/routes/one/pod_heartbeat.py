@@ -28,7 +28,9 @@ against the registry row. So the beat may carry ``imageTag`` / ``revision`` (bou
 strings, everything else ignored), recorded under ``backend_metadata.observed`` and
 never on the deployed record -- see ``describe_pod_update``. It is the only signal
 that says what is RUNNING rather than what was DEPLOYED, which is what makes an
-update detectable honestly.
+update detectable honestly. Since 2026-10-04 it may also carry the image's
+``aiSelection`` advert (``pod_capabilities.ai_selection_advert``), kept only in its
+exact shape.
 
 The HusshID comes from the verified header, never from the body, so a pod cannot
 report a heartbeat on behalf of another user's agent by asking to.
@@ -66,6 +68,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Header, HTTPException, Request
 
+from api.routes.one.pod_capabilities import ai_selection_advert
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
@@ -183,11 +186,17 @@ async def _read_self_report(request: Request) -> Optional[dict]:
         return None
     if not isinstance(payload, dict):
         return None
-    report = {
+    report: dict[str, Any] = {
         key: str(payload[key]).strip()[:_SELF_REPORT_MAX_LEN]
         for key in _SELF_REPORT_FIELDS
         if isinstance(payload.get(key), str) and payload[key].strip()
     }
+    # Which "Bring your own AI" providers the running image supports: checkable like
+    # the tag (an image either carries the code or not), and kept only in its exact
+    # shape, so the owner's status can offer an update to an image that says nothing.
+    advert = ai_selection_advert(payload.get("aiSelection"))
+    if advert is not None:
+        report["aiSelection"] = advert
     return report or None
 
 

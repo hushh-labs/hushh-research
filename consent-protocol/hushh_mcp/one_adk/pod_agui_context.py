@@ -109,7 +109,7 @@ class PodChatContext:
         from api.routes.one.pod_turn import (
             _require_local_puppy_admission,
             _resolve_model,
-            _resolve_turn_target,
+            _resolve_owner_target,
         )
         from hushh_mcp.one_adk.agent_tree import (
             ONE_APP_NAME,
@@ -132,7 +132,7 @@ class PodChatContext:
                 hushh_id=self.hushh_id,
             )
             options = options.model_copy(update={"runtime_credential": token})
-        provider, model, mode = _resolve_turn_target(options, provider, model)
+        options, (provider, model, mode) = _resolve_owner_target(options, provider, model)
         self.runtime = build_pod_specialist_runtime(
             user_id=self.owner,
             hushh_id=self.hushh_id,

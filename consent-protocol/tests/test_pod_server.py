@@ -92,8 +92,8 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/turn/stream",
         "/api/one/pod/turn/cancel",
         "/api/one/pod/puppy/models",
-        # The learning loop's doors (api/routes/one/pod_memory.py): same admission
-        # as the turn. Reviewed here because each carries owner authority.
+        # Owner doors (pod_memory.py, pod_ai_selection.py): turn admission, owner authority.
+        "/api/one/pod/ai-selection",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
@@ -103,10 +103,10 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/admit",
         "/api/one/pod/session/renew",
         "/api/one/pod/session/revoke",
-        # Each command/Files route enforces its scoped session; worker verifies
-        # its exact queue identity instead. Reachability grants no authority.
-        # Direct chat/history requires a current owner app session, pkm.read,
-        # owner-bound chat key and encrypted recovery fence.
+        # Each command/Files route enforces its scoped session; worker verifies its exact
+        # queue identity instead. Reachability grants no authority. Direct chat/history
+        # requires a current owner app session, pkm.read, owner-bound chat key and
+        # encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
@@ -211,8 +211,7 @@ def test_a_router_that_fails_to_mount_disappears_from_the_answer(monkeypatch):
     """Reported capabilities must track the mounted routes."""
     import pod_server
 
-    # app.routes is a read-only property over app.router.routes, so the swap goes
-    # one level down.
+    # app.routes is a read-only property over app.router.routes: swap one level down.
     kept = [r for r in pod_server.app.routes if "/turn" not in str(getattr(r, "path", ""))]
     monkeypatch.setattr(pod_server.app.router, "routes", kept)
 
@@ -373,11 +372,10 @@ OWNER_REACHABLE_PATHS = frozenset(
     {
         "/health",
         "/health/ready",
-        # Capabilities remain private; only liveness is public.
-        # Each command/Files route enforces its scoped session; worker verifies
-        # its exact queue identity instead. Reachability grants no authority.
-        # Direct chat/history requires a current owner app session, pkm.read,
-        # owner-bound chat key and encrypted recovery fence.
+        # Capabilities remain private; only liveness is public. Each command/Files route
+        # enforces its scoped session; worker verifies its exact queue identity instead.
+        # Reachability grants no authority. Direct chat/history requires a current owner
+        # app session, pkm.read, owner-bound chat key and encrypted recovery fence.
         "/api/one/pod/agent-chat",
         "/api/one/pod/agent-chat/capabilities",
         "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/review",
@@ -409,7 +407,8 @@ OWNER_REACHABLE_PATHS = frozenset(
         "/api/one/pod/session/admit",
         "/api/one/pod/session/renew",
         "/api/one/pod/session/revoke",
-        # Memory uses the same two-door admission; APP_SURFACE_EXACT owns reachability.
+        # Memory and the AI selection: two-door admission; APP_SURFACE_EXACT owns reach.
+        "/api/one/pod/ai-selection",
         "/api/one/pod/conversation/{conversation_id}/close",
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/revoke",

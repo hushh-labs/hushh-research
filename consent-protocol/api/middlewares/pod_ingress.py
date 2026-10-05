@@ -10,9 +10,9 @@ assert one container. One middleware can, and this is it.
 Two surfaces:
 
 * **App surface.** Health, the session routes, status, config, the turn, the
-  conversation close, the owner's memory doors, the Puppy relay. These carry their
-  own authentication (a pod session bearer, or nothing for health) and are reachable
-  by anyone who can reach the pod.
+  conversation close, the owner's memory doors, the owner's sealed AI selection, the
+  Puppy relay. These carry their own authentication (a pod session bearer, or nothing
+  for health) and are reachable by anyone who can reach the pod.
 * **Machine wall.** Everything else requires the Google ID token the hub already
   sends with every call it makes to a pod, verified with the same
   ``verify_scheduler_request`` the tick and the migration routes use, against the
@@ -117,6 +117,14 @@ APP_SURFACE_EXACT: frozenset[str] = frozenset(
         "/api/one/pod/memory/status",
         "/api/one/pod/memory/revoke",
         "/api/one/pod/memory/provider-consent",
+        # The owner's sealed "Bring your own AI" (api/routes/one/pod_ai_selection.py):
+        # PUT, GET and DELETE on one path. The point of sealing the key to the pod is
+        # that the hub never holds it, so the owner's app must reach this door directly.
+        # Same trade as the memory doors: the route's own admission is the whole
+        # defence (a hub-verified owner consent, or an app-role session with
+        # `pod.config` to change it and `pod.status` to read it), and the envelope is
+        # opened only after that admission, by a key that never leaves this process.
+        "/api/one/pod/ai-selection",
     }
 )
 APP_SURFACE_PREFIXES: tuple[str, ...] = (

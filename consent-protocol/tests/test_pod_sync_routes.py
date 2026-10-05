@@ -402,6 +402,27 @@ async def test_promotion_moves_the_epoch_forward_and_reverses_direction(pair, mo
     assert (await _head(monkeypatch, primary))["head_sha"] == imported["head_sha"]
 
 
+async def test_import_and_promotion_reload_the_owners_ai_selection(pair, monkeypatch):
+    """A standby must serve the owner's current AI choice the moment it takes over.
+
+    Negative control: without the reload the active copy stays whatever the standby
+    loaded at boot, so an import that carried a new choice would read as no reloads.
+    """
+    from hushh_mcp.services import pod_ai_selection
+
+    reloads: list[object] = []
+
+    async def _load(log: object = None) -> None:
+        reloads.append(log)
+
+    monkeypatch.setattr(pod_ai_selection, "load_active_ai_selection", _load)
+    primary, standby = pair
+    await _sync(monkeypatch, primary, standby)
+    assert reloads == [standby.log], "an import that appended records reloads once"
+    await _set_role(monkeypatch, standby, "primary", 2)
+    assert len(reloads) == 2, "a role change reloads too"
+
+
 def test_bodies_are_strict_so_the_hashed_body_is_the_sent_body():
     from pydantic import ValidationError
 

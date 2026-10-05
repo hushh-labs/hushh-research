@@ -53,6 +53,16 @@ def _puppy_head():
     )
 
 
+def _openai_head():
+    """The exact head a turn on the owner's sealed OpenAI selection builds."""
+    return _runtime_model(
+        runtime_model="gpt-5.6-luna",
+        runtime_mode="byok",
+        runtime_credential="sk-owner-test-key",
+        runtime_provider="openai",
+    )
+
+
 def _gemini_head():
     return Gemini(model="gemini-turn-local", client_kwargs={"api_key": "turn-local-test-key"})
 
@@ -87,7 +97,9 @@ async def test_adk_refuses_google_search_for_the_azure_deployment(monkeypatch):
         await GoogleSearchTool().process_llm_request(tool_context=None, llm_request=request)
 
 
-@pytest.mark.parametrize("head", [_azure_head, _puppy_head], ids=["azure_openai", "puppy"])
+@pytest.mark.parametrize(
+    "head", [_azure_head, _puppy_head, _openai_head], ids=["azure_openai", "puppy", "openai"]
+)
 def test_a_non_gemini_head_has_no_google_search_and_says_so(head):
     model = head()
     agent = agent_tree.build_one_text_agent(model=model)
@@ -188,7 +200,7 @@ def _system_text(request: LlmRequest) -> str:
     return str(request.config.system_instruction or "")
 
 
-@pytest.mark.parametrize("provider", ["azure_openai", "puppy"])
+@pytest.mark.parametrize("provider", ["azure_openai", "puppy", "openai"])
 async def test_a_non_gemini_turn_sends_no_search_and_the_honest_sentence(provider):
     request = await _request_for(provider)
     assert "google_search" not in _declared(request)

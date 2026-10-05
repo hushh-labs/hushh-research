@@ -19,6 +19,9 @@ paths = [
   # Deterministic, synthetic Hermes interoperability vector. The encrypted
   # bytes and hash are fixed test outputs, not deployable credentials.
   '''^hushh-webapp/__tests__/fixtures/hermes-vault-vector\.json$''',
+  # Deterministic "Bring your own AI" seal vector (C1): published synthetic X25519
+  # keys, iv and derived AES key so the device and the pod assert identical bytes.
+  '''^consent-protocol/tests/fixtures/ai_selection_seal_vector_v1\.json$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',

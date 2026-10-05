@@ -235,6 +235,17 @@ async def _apply(log: Any, contents: Any, start_seq: int) -> str:
     return head_sha
 
 
+async def _reload_owner_ai(log: Any) -> None:
+    """The owner's AI selection may have arrived or changed: read it again (never raises).
+
+    Startup alone is not enough. A standby that booted before the owner chose, or
+    before they removed a key, would otherwise serve a stale choice after promotion.
+    """
+    from hushh_mcp.services.pod_ai_selection import load_active_ai_selection  # noqa: PLC0415
+
+    await load_active_ai_selection(log)
+
+
 @router.post("/import")
 async def sync_import(
     body: ImportRequest,
@@ -271,6 +282,7 @@ async def sync_import(
     head_sha = contents.head_sha
     if start < contents.head_seq:
         head_sha = await _apply(log, contents, start)
+        await _reload_owner_ai(log)
     logger.info("pod_sync.imported from_seq=%d head_seq=%d", start, contents.head_seq)
     return {"head_seq": contents.head_seq, "head_sha": head_sha}
 
@@ -323,5 +335,6 @@ async def sync_set_role(
     except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
         logger.warning("pod_sync.role_write_unconfirmed")
         raise HTTPException(status_code=503, detail="the role write was not confirmed") from None
+    await _reload_owner_ai(log)
     logger.info("pod_sync.role_set role=%s epoch=%d", written.role, written.epoch)
     return {"role": written.role, "epoch": written.epoch}

@@ -895,3 +895,11 @@ tests/test_pod_standby_sync_wiring.py
 tests/test_byoc_setup_job_azure_admission_postgres.py
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py
+# Bring your own AI (2026-10-04): the owner's provider, model and key sealed to their
+# own pod (C1 envelope + golden vector), the set/read/clear doors, every turn and door
+# on exactly that selection with typed refusals, and the agent advert plus the catalog.
+tests/test_pod_ai_selection_seal.py
+tests/test_pod_ai_selection_doors.py
+tests/test_pod_ai_selection_turns.py
+tests/test_pod_ai_selection_voice.py
+tests/test_pod_ai_selection_advert.py

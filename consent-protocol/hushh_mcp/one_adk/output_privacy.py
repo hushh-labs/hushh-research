@@ -13,6 +13,11 @@ from ag_ui.core import (
     StateSnapshotEvent,
 )
 
+from hushh_mcp.one_adk.owner_ai_run_errors import (
+    is_owner_ai_run_error,
+    owner_ai_bridge_error,
+    owner_ai_error_for_exception,
+)
 from hushh_mcp.one_adk.run_errors import (
     is_authored_run_error,
     transient_model_error_for_exception,
@@ -44,7 +49,8 @@ def normalize_history_error(event: BaseEvent) -> BaseEvent:
             return CHAT_HISTORY_UPGRADING_RUN_ERROR
         if event.message in CHAT_KEY_ERROR_MESSAGES:
             return CHAT_KEY_RUN_ERROR
-    return transient_model_run_error(event) or event
+    # The owner's own key refused first: a 429 there is their quota, not our capacity.
+    return owner_ai_bridge_error(event) or transient_model_run_error(event) or event
 
 
 def safe_exception_event(exc: Exception) -> RunErrorEvent:
@@ -53,8 +59,12 @@ def safe_exception_event(exc: Exception) -> RunErrorEvent:
         return CHAT_HISTORY_UPGRADING_RUN_ERROR
     if isinstance(exc, CHAT_KEY_ERRORS):
         return CHAT_KEY_RUN_ERROR
-    return transient_model_error_for_exception(exc) or RunErrorEvent(
-        message="One couldn't finish that request. Please try again.", code="AGENT_ERROR"
+    return (
+        owner_ai_error_for_exception(exc)
+        or transient_model_error_for_exception(exc)
+        or RunErrorEvent(
+            message="One couldn't finish that request. Please try again.", code="AGENT_ERROR"
+        )
     )
 
 
@@ -136,10 +146,15 @@ def public_event(event: BaseEvent, *, allow_thought_summary: bool = False) -> Ba
                 )
         return None
     if isinstance(event, RunErrorEvent):
-        if (event.code, event.message) in {
-            (CHAT_KEY_REQUIRED_CODE, CHAT_KEY_RECOVERY_MESSAGE),
-            (CHAT_HISTORY_UPGRADING, CHAT_HISTORY_UPGRADING_MESSAGE),
-        } or is_authored_run_error(event):
+        if (
+            (event.code, event.message)
+            in {
+                (CHAT_KEY_REQUIRED_CODE, CHAT_KEY_RECOVERY_MESSAGE),
+                (CHAT_HISTORY_UPGRADING, CHAT_HISTORY_UPGRADING_MESSAGE),
+            }
+            or is_authored_run_error(event)
+            or is_owner_ai_run_error(event)
+        ):
             # A fixed, content-free refusal the person can act on.
             return event.model_copy(update={"raw_event": None})
         # The installed bridge builds this event from str(exception). Neither

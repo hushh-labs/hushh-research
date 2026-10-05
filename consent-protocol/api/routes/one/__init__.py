@@ -50,6 +50,7 @@ from .puppy_relay import router as puppy_relay_router
 from .referrals import router as referrals_router
 from .retired_voice import router as retired_voice_router
 from .runtime import router as runtime_router
+from .runtime_providers import router as runtime_providers_router
 from .runtime_standby import router as runtime_standby_router
 from .voice import router as voice_router
 from .webauthn import router as webauthn_router
@@ -112,6 +113,8 @@ router.include_router(referrals_router)
 router.include_router(runtime_router)
 # Hub-only: the owner's standby "sync now" (STANDBY-SYNC.md), same prefix as runtime.
 router.include_router(runtime_standby_router)
+# Hub-only: the server-owned "Bring your own AI" provider catalog the app renders.
+router.include_router(runtime_providers_router)
 # Hub-only, beside the GCP one-click routes: Connect Azure (byoc-azure.md).
 router.include_router(byoc_azure_router)
 router.include_router(webauthn_router)

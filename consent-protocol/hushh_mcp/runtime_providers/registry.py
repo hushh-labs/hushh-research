@@ -128,6 +128,11 @@ _MODELS: tuple[ModelEntry, ...] = (
     ),
     ModelEntry(provider="openai", model="gpt-5", supports_native_realtime=True),
     ModelEntry(provider="openai", model="gpt-5-mini", supports_native_realtime=True),
+    # Owner-key text models for a pod (``owner_openai``), through the Responses API.
+    # gpt-5.6-luna is the owner default: 54 of 60 at reasoning low, measured 2026-10-03
+    # on the owner's own Azure deployment; OpenAI's API serves the same ids.
+    ModelEntry(provider="openai", model="gpt-5.6-luna"),
+    ModelEntry(provider="openai", model="gpt-6-luna"),
     # Grok -- OpenAI-compatible wire format on the x.ai host.
     ModelEntry(
         provider="grok",

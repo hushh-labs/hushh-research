@@ -1,0 +1,48 @@
+{
+  "name": "ai_selection_seal_vector_v1",
+  "description": "Deterministic C1 vector: seal the plaintext to podPublicKey with the fixed ephemeral key and iv and the result must equal expectedEnvelope byte for byte (canonical JSON). Keys are synthetic and published; never reuse an ephemeral key or iv in a real seal.",
+  "alg": "X25519-HKDF-SHA256-AES256GCM",
+  "hkdfInfo": "hussh/ai-selection/v1",
+  "podPrivateKey": "S1U9nOiTMTdB7GTWuiztKPmmETtag5nEhlOjFfBz9X8",
+  "podPublicKey": "7iwX3MsP2v5MifJhiKLjgMW39VC_jnNcbcdZKOstzlI",
+  "podPublicKeyStandardBase64": "7iwX3MsP2v5MifJhiKLjgMW39VC/jnNcbcdZKOstzlI=",
+  "podKeyId": "podk_c1334901843ec13697f0bf5b590a0136",
+  "ephemeralPrivateKey": "daFMeWzbGiWUKHaFvhbCaP6ByCQEczfmkBMMn4YkOzE",
+  "ephemeralPublicKey": "Z_PyxICrJk4B3aXfghhiFduEgTk1Zav-lVDRy1kgQ10",
+  "iv": "hq0iYNU1lZF-3bIG",
+  "aad": {
+    "purpose": "ai_selection",
+    "hushhId": "ha1_vector_owner",
+    "podKeyId": "podk_c1334901843ec13697f0bf5b590a0136",
+    "issuedAtMs": 1790000000000,
+    "selectionId": "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f"
+  },
+  "aadCanonical": "{\"hushhId\":\"ha1_vector_owner\",\"issuedAtMs\":1790000000000,\"podKeyId\":\"podk_c1334901843ec13697f0bf5b590a0136\",\"purpose\":\"ai_selection\",\"selectionId\":\"6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f\"}",
+  "plaintext": {
+    "provider": "openai",
+    "model": null,
+    "apiKey": "sk-test-vector-not-a-real-key",
+    "transport": null,
+    "vertexProject": null,
+    "vertexLocation": null
+  },
+  "plaintextCanonical": "{\"apiKey\":\"sk-test-vector-not-a-real-key\",\"model\":null,\"provider\":\"openai\",\"transport\":null,\"vertexLocation\":null,\"vertexProject\":null}",
+  "sharedSecret": "uIMNN9zycSpGG8FGFYitoPzPRrgPlzlecGHoK7nlOSI",
+  "hkdfSalt": "Z_PyxICrJk4B3aXfghhiFduEgTk1Zav-lVDRy1kgQ13uLBfcyw_a_kyJ8mGIouOAxbf1UL-Oc1xtx1ko6y3OUg",
+  "aesKey": "izamG6hYoOVGTpPxnCS3iin41xPGtoSEt0Ts2wVDQdo",
+  "expectedEnvelope": {
+    "v": 1,
+    "alg": "X25519-HKDF-SHA256-AES256GCM",
+    "epk": "Z_PyxICrJk4B3aXfghhiFduEgTk1Zav-lVDRy1kgQ10",
+    "iv": "hq0iYNU1lZF-3bIG",
+    "ct": "F97JNtx0Yt_peagEvqdBzMjatFW4gCCGEOgsUPsLfEnhknJThOE_ZoejZ9yKK57U82wg2ObuBQnWeguZK1JyLLdRaKQjzhmxy8mdLmpze3tTDT8UzLbJPGOfpJUveQPu0-sdWeAQ-g_ABrEL-NjWqVBcOrayjENcOJxvcxRnUKcKSxyNaBfgz9zPaWDekS0TUTW6a1uT4g",
+    "aad": {
+      "purpose": "ai_selection",
+      "hushhId": "ha1_vector_owner",
+      "podKeyId": "podk_c1334901843ec13697f0bf5b590a0136",
+      "issuedAtMs": 1790000000000,
+      "selectionId": "6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f"
+    }
+  },
+  "expectedEnvelopeCanonical": "{\"aad\":{\"hushhId\":\"ha1_vector_owner\",\"issuedAtMs\":1790000000000,\"podKeyId\":\"podk_c1334901843ec13697f0bf5b590a0136\",\"purpose\":\"ai_selection\",\"selectionId\":\"6f1c2d3e-4b5a-4c6d-8e7f-9a0b1c2d3e4f\"},\"alg\":\"X25519-HKDF-SHA256-AES256GCM\",\"ct\":\"F97JNtx0Yt_peagEvqdBzMjatFW4gCCGEOgsUPsLfEnhknJThOE_ZoejZ9yKK57U82wg2ObuBQnWeguZK1JyLLdRaKQjzhmxy8mdLmpze3tTDT8UzLbJPGOfpJUveQPu0-sdWeAQ-g_ABrEL-NjWqVBcOrayjENcOJxvcxRnUKcKSxyNaBfgz9zPaWDekS0TUTW6a1uT4g\",\"epk\":\"Z_PyxICrJk4B3aXfghhiFduEgTk1Zav-lVDRy1kgQ10\",\"iv\":\"hq0iYNU1lZF-3bIG\",\"v\":1}"
+}

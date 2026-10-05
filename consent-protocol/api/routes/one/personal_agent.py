@@ -22,6 +22,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.one.pod_capabilities import observed_ai_selection
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.account_service import (
     PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
@@ -609,21 +610,20 @@ async def resolve_personal_agent_status(
             if last_seen:
                 result["lastSeenAt"] = str(last_seen)
 
-    # The readiness verdict was already durable and simply never read. `wait_ready`
-    # writes its answer into `backend_metadata.ready` (gcp_backend renders it,
-    # provisioning persists it), so "the host was created but never became ready" has
-    # been knowable on the row all along while every client had to infer it from a
-    # state that does not distinguish the two. Surfaced as a FIELD rather than
-    # promoted to a lifecycle state: a new state costs a branch in every consumer of
-    # the state union to say something one boolean says for free.
+    # The readiness verdict was already durable and simply never read. `wait_ready` writes its
+    # answer into `backend_metadata.ready` (gcp_backend renders it, provisioning persists it), so
+    # "the host was created but never became ready" has been knowable on the row all along while
+    # every client had to infer it from a state that does not distinguish the two. Surfaced as a
+    # FIELD rather than promoted to a lifecycle state: a new state costs a branch in every consumer
+    # of the state union to say something one boolean says for free.
     #
-    # Tri-state on purpose. Absent means the backend never recorded a verdict, which
-    # is different from recording False. Coercing the two together would turn "we do
-    # not know yet" into "it failed", which is the same over-claim `health` goes out
-    # of its way above not to make.
+    # Tri-state on purpose. Absent means the backend never recorded a verdict, which is different
+    # from recording False. Coercing the two together would turn "we do not know yet" into "it
+    # failed", which is the same over-claim `health` goes out of its way above not to make.
     metadata = (row or {}).get("backend_metadata")
     if isinstance(metadata, dict) and metadata.get("ready") is not None:
         result["hostReady"] = bool(metadata.get("ready"))
+    result["aiSelection"] = observed_ai_selection(metadata)  # None: an older agent
     result["filesActivationAvailable"] = bool(
         result.get("hostingMode") == "byoc"
         and state == "active"

@@ -39,7 +39,13 @@ from api.routes.one.pod_turn_memory_authority import (
     memory_commit_allowed as _memory_commit_allowed,  # noqa: F401 - compatibility export
 )
 from api.routes.one.pod_turn_stream import TurnKey, cancel_stream_turn, stream_turn_events
-from api.routes.one.pod_turn_target import TurnTarget, owner_azure_model, turn_target
+from api.routes.one.pod_turn_target import (
+    TurnTarget,
+    owner_ai_refusal,
+    owner_azure_model,
+    owner_selected_turn,
+    turn_target,
+)
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.pod_commit_log import PodLogFenced
@@ -78,7 +84,7 @@ class PodTurnRequest(BaseModel):
     # cap here would 422 credentials the hub accepts, and the relay would surface
     # that as an opaque refusal rather than "your key is too long".
     runtime_credential: Optional[str] = Field(
-        default=None, alias="runtimeCredential", max_length=12000
+        default=None, alias="runtimeCredential", max_length=12000, repr=False
     )
     runtime_credential_transport: str = Field(
         default="developer_api", alias="runtimeCredentialTransport", max_length=32
@@ -265,9 +271,8 @@ async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict
     # B's memory, B's holdings, B's model spend. "Valid" and "yours" are different
     # questions and only the second one makes a per-user pod per-user.
     #
-    # An unresolvable binding is refused too. An unknown owner is precisely the
-    # case where serving anyway would be the bug, so empty must never read as
-    # "any pod will do".
+    # An unresolvable binding is refused too. An unknown owner is precisely the case
+    # where serving anyway would be the bug, so empty must never read as "any pod".
     mine = (os.getenv("HUSSH_ID") or "").strip()
     if not mine or not verdict.hushh_id or verdict.hushh_id != mine:
         logger.warning(
@@ -284,11 +289,10 @@ async def _validate_consent(consent_token: str, *, verifier: Any = None) -> dict
 
 # -- owner-local sessions ------------------------------------------------------
 #
-# A turn admitted by the pod's own session authority (api/routes/one/pod_session.py)
-# carries no hub token. The session's local verifier answers the consent question
-# the hub used to, from the pod's own trust and tombstone records; the hub-verified
-# path below is unchanged. Role comes from the signed binding the session was minted
-# from, and only the app role may run a turn.
+# A turn admitted by the pod's own session authority (api/routes/one/pod_session.py) carries
+# no hub token. The session's local verifier answers the consent question the hub used to,
+# from the pod's own trust and tombstone records; the hub-verified path below is unchanged.
+# Role comes from the signed binding the session was minted from; only app roles run turns.
 
 
 def _require_local_session(consent_token: str, session: dict | None) -> None:
@@ -408,11 +412,9 @@ async def run_pod_turn(
     # close route resolves -- and it must be the SAME answer, from the same helper, or
     # the two doors into one memory would disagree about one caller.
     #
-    # Resolved at the route rather than in the runtime on purpose. The runtime can be
-    # handed a verdict; it must not be handed a session and asked to read scopes,
-    # because a second place that interprets consent is a second place that can
-    # interpret it differently, and the interpretation would then live in the ADK
-    # layer where a change to the binding vocabulary has no business reaching. A bare
+    # Resolved at the route rather than in the runtime on purpose: the runtime is handed
+    # a verdict, never a session to read scopes from, because a second place that
+    # interprets consent can interpret it differently, from inside the ADK layer. A bare
     # bool would carry the verdict but not its provenance, so a denial could not name
     # itself in a log line.
     #
@@ -425,8 +427,7 @@ async def run_pod_turn(
 
     memory_review_policy = review_policy_for_session(session)
 
-    # Keep the no-argument manifest resolver injectable for existing pod tests
-    # and callers; an explicit Puppy target is the only payload-dependent path.
+    # The manifest's model, or an explicit Puppy device; a sealed selection wins below.
     provider, model = _resolve_model(payload) if payload.runtime_provider else _resolve_model()
     if provider == "puppy":
         if session is None:
@@ -469,7 +470,7 @@ async def run_pod_turn(
             # The session IS the Puppy authority on the local path; the marker keeps
             # every existing non-empty credential check honest without a hub grant.
             payload = payload.model_copy(update={"runtime_credential": consent_token})
-    provider, model, runtime_mode = _resolve_turn_target(payload, provider, model)
+    payload, (provider, model, runtime_mode) = _resolve_owner_target(payload, provider, model)
     # Normalised once: an all-whitespace projection is not grounding, and letting it
     # count would report `grounded: true` for a turn that learned nothing.
     grounding = (payload.pkm_context or "").strip() or None
@@ -637,8 +638,9 @@ async def run_pod_turn(
         # in pod mode, and only for that specific wall: a real DB error on the
         # DB-capable hub still surfaces, and any OTHER pod failure is still a 502.
         model_refusal = _puppy_model_refusal(exc) if provider == "puppy" else ""
-        if model_refusal:
-            raise HTTPException(status_code=409, detail={"code": model_refusal}) from None
+        refusal = {"code": model_refusal} if model_refusal else owner_ai_refusal(exc, provider)
+        if refusal:  # the owner's device or key said no: typed, never a fallback
+            raise HTTPException(status_code=409, detail=refusal) from None
         if pod_mode() and _is_puppy_capability_unsupported(exc):
             # The owner's device model refused a capability One's own request
             # needs. The device is up and the consent is good, so this is a
@@ -803,29 +805,22 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
       identity would mean granting ``aiplatform.user`` to every pod in the fleet --
       spending the one property that makes a compromised pod uninteresting.
 
-    The key never rests in the pod: it arrives with the turn and leaves with it.
-    Nothing here writes it anywhere, and it is never logged.
-
-    A managed fallback exists because the product supports it, but it is chosen
-    explicitly, never by silent default -- a pod with no credential that quietly
-    reached for a fleet identity would be spending money nobody authorised.
+    A per-turn key arrives with the turn and leaves with it; nothing here writes it
+    anywhere or logs it. A key the owner SEALED to this pod is decided before this
+    function (``_resolve_owner_target``), rests only in the pod's sealed log, and has
+    no road to the managed branch below, which is chosen explicitly, never by silent
+    default: a fleet identity nobody authorised would be spending money.
     """
     if provider == "puppy":
         if not str(payload.runtime_credential or "").strip():
             raise HTTPException(status_code=403, detail="Puppy inference grant required")
         return "puppy_relay"
     if str(payload.runtime_credential or "").strip():
-        # `byok`, matching AgentRuntimeCredentialMode — NOT "gemini_byok".
-        #
-        # This returned "gemini_byok" and `text_runtime._runtime_model` branches on
-        # "byok", so a pod turn carrying a credential matched neither BYOK branch,
-        # fell through to `if credential:` and raised "Managed Vertex cannot be
-        # constructed from an API key". The BYOK pod path failed on every turn.
-        #
-        # It survived because the route test asserts this STRING while injecting a
-        # stub `stream_fn`, so the real runner was never constructed. A test that
-        # pins the value a function returns, rather than what the next function does
-        # with it, passes for exactly as long as both ends are wrong together.
+        # `byok`, matching AgentRuntimeCredentialMode, NOT "gemini_byok": that string
+        # matched neither BYOK branch of `text_runtime._runtime_model` and failed every
+        # BYOK pod turn, unseen because the route test pinned this STRING with a stub
+        # `stream_fn`. A test that pins a returned value rather than what the next
+        # function does with it passes for as long as both ends are wrong together.
         return "byok"
     if owner_azure_model() is not None:
         return "user_azure_mi"
@@ -834,7 +829,7 @@ def _resolve_runtime_mode(payload: PodTurnRequest, provider: str | None = None) 
         pod_user_adc_enabled,
     )
 
-    # ORDER IS LOAD-BEARING: BYOK -> owner Azure (half-rendered refuses) -> user ADC -> managed.
+    # ORDER IS LOAD-BEARING: sealed selection (before this) -> BYOK -> Azure -> ADC -> managed.
     #
     # An owner who sends a key gets their key: that is checked above and nothing here
     # can take it from them. Next comes the person's own project, which is the
@@ -863,6 +858,12 @@ def _resolve_turn_target(payload: PodTurnRequest, provider: str, model: str) -> 
     return turn_target(provider, model, _resolve_runtime_mode(payload, provider))
 
 
+def _resolve_owner_target(payload: Any, provider: str, model: str) -> tuple[Any, TurnTarget]:
+    """The owner's sealed AI selection wins, with its key; else ``_resolve_turn_target``."""
+    owned = owner_selected_turn(payload, provider, model)
+    return owned if owned is not None else (payload, _resolve_turn_target(payload, provider, model))
+
+
 def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
     """Provider + model from the file-backed runtime manifest. No database.
 
@@ -876,8 +877,7 @@ def _resolve_model(payload: PodTurnRequest | None = None) -> tuple[str, str]:
     requested = str(getattr(payload, "runtime_provider", None) or "").strip().lower()
     if requested:
         # Puppy is an owner/device capability, not a deployment-wide feature flag.
-        # Admission is enforced by the pod consent token and device-bound grant
-        # before this resolver is reached.
+        # The pod consent token and device-bound grant admit it before this resolver.
         if requested != "puppy":
             raise HTTPException(status_code=400, detail="requested inference target is unavailable")
         if not str(getattr(payload, "puppy_device_id", None) or "").strip():

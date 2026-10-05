@@ -50,7 +50,7 @@ from hushh_mcp.runtime_providers import (
     build_gemini_byok_adk_model,
     build_managed_gemini_adk_model,
 )
-from hushh_mcp.runtime_providers.azure_openai import build_owner_azure_adk_model
+from hushh_mcp.runtime_providers.owner_openai import OWNER_HEADS, build_owner_adk_model
 from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 
@@ -191,8 +191,8 @@ def _runtime_model(
     managed_location: str | None = None,
 ) -> Any:
     """Build a turn-local ADK model without persisting a BYOK secret."""
-    if runtime_mode == "user_azure_mi" or str(runtime_provider or "").lower() == "azure_openai":
-        return build_owner_azure_adk_model(
+    if runtime_mode == "user_azure_mi" or str(runtime_provider or "").lower() in OWNER_HEADS:
+        return build_owner_adk_model(
             runtime_model, mode=runtime_mode, provider=runtime_provider, api_key=runtime_credential
         )
     model = str(runtime_model or "").strip()
@@ -573,7 +573,7 @@ async def _stream_one_text_turn_once(
     memory_review_policy: "MemoryReviewPolicy | None" = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
-    if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy", "azure_openai"}:
+    if str(runtime_provider or "").strip().lower() not in {"gemini", "puppy", *OWNER_HEADS}:
         raise ValueError("One text ADK provider is unavailable")
 
     clean_user_id = str(user_id or "").strip()

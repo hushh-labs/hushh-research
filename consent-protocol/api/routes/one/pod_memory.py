@@ -80,7 +80,7 @@ class PodConversationCloseRequest(BaseModel):
     """The runtime triple of the conversation being closed. No message, no history."""
 
     runtime_credential: Optional[str] = Field(
-        default=None, alias="runtimeCredential", max_length=12000
+        default=None, alias="runtimeCredential", max_length=12000, repr=False
     )
     runtime_credential_transport: str = Field(
         default="developer_api", alias="runtimeCredentialTransport", max_length=32
@@ -299,12 +299,10 @@ async def run_conversation_close(
         if payload.runtime_provider
         else _turn._resolve_model()
     )
-    provider, model, runtime_mode = _turn._resolve_turn_target(payload, provider, model)  # type: ignore[arg-type]
-    build = model_builder
-    if build is None:
-        from hushh_mcp.one_adk.text_runtime import _runtime_model  # noqa: PLC0415
+    payload, (provider, model, runtime_mode) = _turn._resolve_owner_target(payload, provider, model)
+    from hushh_mcp.one_adk.text_runtime import _runtime_model  # noqa: PLC0415
 
-        build = _runtime_model
+    build = model_builder or _runtime_model
     try:
         model_object = build(
             runtime_model=model,
@@ -338,8 +336,10 @@ async def run_conversation_close(
         )
     except Exception as exc:  # noqa: BLE001 - a close never surfaces as a 500
         logger.warning("pod_memory.close_failed reason=%s", type(exc).__name__)
+        refusal = _turn.owner_ai_refusal(exc, provider)  # typed, as on the turn itself
         raise HTTPException(
-            status_code=502, detail=f"the review could not complete: {type(exc).__name__}"
+            status_code=409 if refusal else 502,
+            detail=refusal or f"the review could not complete: {type(exc).__name__}",
         ) from None
 
     logger.info(

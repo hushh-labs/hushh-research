@@ -52,7 +52,8 @@ from api.routes.one.a2a import router as a2a_router  # noqa: E402
 from api.routes.one.a2a import well_known_router as a2a_well_known_router  # noqa: E402
 from api.routes.one.agent_prompt import router as agent_prompt_router  # noqa: E402
 from api.routes.one.pod_agent_chat import router as pod_agent_chat_router
-from api.routes.one.pod_capabilities import pod_capabilities
+from api.routes.one.pod_ai_selection import router as pod_ai_selection_router
+from api.routes.one.pod_capabilities import ai_selection_capability, pod_capabilities
 from api.routes.one.pod_commands import router as pod_commands_router
 from api.routes.one.pod_files import router as pod_files_router
 from api.routes.one.pod_maintenance import router as pod_maintenance_router  # noqa: E402
@@ -123,16 +124,16 @@ _POD_ROUTERS = (
     # model), owner revoke, provider consent and memory status. Same admission as
     # the turn route; see api/routes/one/pod_memory.py.
     pod_memory_router,
+    pod_ai_selection_router,  # the owner's sealed "Bring your own AI"; same two doors
     # The tick: background attention arrives as an inbound authenticated request,
     # because an economy pod has no CPU between requests and no process a loop
     # could live in. Fail-closed without its audience/allowlist env; see the
     # module docstring for why the wake wiring lands separately.
     pod_maintenance_router,
-    # Export and import: the two steps of a migration that only a pod can do,
-    # because reading the source log needs the source pod's key and writing the
-    # destination needs the destination's, and hushh holds neither. Ships dark
-    # behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the same scheduler
-    # identity the tick uses.
+    # Export and import: the two steps of a migration that only a pod can do, because reading the
+    # source log needs the source pod's key and writing the destination needs the destination's,
+    # and hushh holds neither. Ships dark behind HUSSH_POD_MIGRATION_ENABLED and fail-closed on the
+    # same scheduler identity the tick uses.
     pod_migration_router,
     pod_sync_router,  # standby sync (pod_sync.py): migration's switch, body-bound hub proofs
     # The app surface: owner-local sessions, status and configuration. The pod
@@ -497,16 +498,15 @@ async def _pod_startup() -> None:
     except Exception:  # noqa: BLE001 - a pod must boot even with no durable identity
         logger.warning("pod.durable_identity_unavailable", exc_info=True)
 
-    # Generate the keypair now rather than on the first request, so the key exists
-    # before the hub can ask for it and two concurrent requests cannot race to
-    # create two different ones.
-    # One owner, one configuration record. Loaded once here and read on every
-    # request; a write from the app replaces the active copy in place. Defaults
-    # are the full experience, so an unreadable store never blocks the boot.
+    # Generate the keypair now rather than on the first request, so the key exists before
+    # the hub can ask for it and two concurrent requests cannot race to create two.
+    # One owner: one configuration record and one sealed AI selection, loaded once here,
+    # read on every request, replaced in place by a write. Neither blocks the boot; an
+    # unreadable selection refuses turns rather than falling back (pod_ai_selection).
     try:
-        from hushh_mcp.services.pod_config import load_active_pod_config  # noqa: PLC0415
+        from hushh_mcp.services.pod_ai_selection import load_owner_configuration  # noqa: PLC0415
 
-        await load_active_pod_config()
+        await load_owner_configuration()
     except Exception:  # noqa: BLE001 - configuration never blocks the boot
         logger.warning("pod.config_unavailable", exc_info=True)
 
@@ -575,7 +575,7 @@ _APPLIED_TOMBSTONES: list[str] = []
 
 async def _heartbeat_once(client: Any) -> bool:
     """Send one beat. Returns whether the hub recorded it. Never raises."""
-    body = _self_report()
+    body = {**_self_report(), "aiSelection": ai_selection_capability()}
     if _APPLIED_TOMBSTONES:
         body["appliedTombstones"] = list(_APPLIED_TOMBSTONES)
     try:

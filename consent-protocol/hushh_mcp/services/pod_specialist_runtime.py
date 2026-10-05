@@ -543,10 +543,10 @@ def build_pod_specialist_runtime(
         nonlocal client
         await require_access()
         if client is None:
-            from hushh_mcp.runtime_providers import azure_openai, factory
+            from hushh_mcp.runtime_providers import factory, owner_openai
 
-            if runtime_mode == "user_azure_mi":
-                client = azure_openai.owner_azure_client(provider, runtime_mode, credential)
+            if owner_openai.is_owner_model(provider, runtime_mode):
+                client = owner_openai.owner_model_client(provider, runtime_mode, credential)
             elif runtime_mode in {"byok", "puppy_relay"}:
                 client = factory.build_runtime_client(
                     provider,

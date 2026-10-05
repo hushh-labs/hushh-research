@@ -9,8 +9,8 @@ setup yet. Nothing stands in for it: no other search provider is added (founder 
 no new provider API unasked).
 
 The head declares its provider. Every non-Gemini head reaches One through
-``ProviderAdkModel`` (built by ``text_runtime._runtime_model`` for ``puppy_relay`` and
-``user_azure_mi``), which carries ``provider``. Any other head (the Gemini adapters, a
+``ProviderAdkModel`` (built by ``text_runtime._runtime_model`` for ``puppy_relay``,
+``user_azure_mi`` and the owner's sealed OpenAI key), which carries ``provider``. Any other head (the Gemini adapters, a
 Gemini model id, a test double standing in for Gemini) keeps web search exactly as
 before. The pod's capability report asks ``provider_supports_web_search`` too, so what
 the pod says it can do and what its head can do are one decision.

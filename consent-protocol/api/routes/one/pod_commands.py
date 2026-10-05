@@ -13,7 +13,7 @@ from pydantic import Field
 
 from api.routes.one.agent_context import sanitize_agent_context
 from api.routes.one.pod_session import verified_session
-from api.routes.one.pod_turn import PodTurnRequest, _resolve_model, _resolve_turn_target
+from api.routes.one.pod_turn import PodTurnRequest, _resolve_model, _resolve_owner_target
 from hushh_mcp.agents.location.command_brain import LocationCommandBrain, _load_transcriber_gene
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
@@ -37,8 +37,9 @@ from hushh_mcp.services.pod_upgrade_admission import (
 router = APIRouter(prefix="/api/one/pod/commands", tags=["personal-agent"])
 _slots = asyncio.Semaphore(2)
 # The only modes a command brain is built for, each named. ``user_azure_mi`` is not
-# one: commands need structured output and audio input, which the owner's Azure
-# transport does not carry, and a mode outside both sets must never reach a builder.
+# one, and an owner OpenAI key is refused too: commands need Gemini structured output
+# and audio input, which neither transport carries, and a mode outside both sets must
+# never reach a builder.
 _KEY_MODES = frozenset({"byok", "puppy_relay"})
 _AMBIENT_MODES = frozenset({"user_adc", "hushh_managed_vertex"})
 
@@ -70,19 +71,10 @@ class TranscribeRequest(CommandValue):
     model: CommandModel = Field(default_factory=CommandModel)
 
 
-async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> LocationCommandBrain:
-    from pathlib import Path
-
-    from hushh_mcp.agents.location import command_brain
-    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
-    from hushh_mcp.runtime_providers.factory import (
-        build_gemini_byok_adk_model,
-        build_managed_gemini_adk_model,
-        build_managed_runtime_client,
-        build_runtime_client,
-    )
-    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
-
+async def _command_target(
+    model: CommandModel, owner: str, claims: dict
+) -> tuple[CommandModel, str, str, str]:
+    """(model carrying the key to use, provider, model id, mode), or a typed refusal."""
     selection = PodTurnRequest(message="private-command", **model.model_dump(exclude_none=True))
     provider, selected_model = _resolve_model(selection)
     if provider == "puppy":
@@ -97,13 +89,41 @@ async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> L
             raise HTTPException(503, detail={"code": "LOCAL_AUTHORITY_UNAVAILABLE"})
         # Use this verified app session, never a caller-selected owner credential.
         marker = authority.local_token(claims)
-        model = model.model_copy(update={"runtimeCredential": marker})
         selection = selection.model_copy(update={"runtime_credential": marker})
-    provider, selected_model, mode = _resolve_turn_target(selection, provider, selected_model)
-    if mode not in _KEY_MODES | _AMBIENT_MODES:
+    selection, (provider, selected_model, mode) = _resolve_owner_target(
+        selection, provider, selected_model
+    )
+    if provider == "openai" or mode not in _KEY_MODES | _AMBIENT_MODES:
         # Refused before any builder: the person's audio and location never reach an
         # identity this mode did not name.
         raise HTTPException(503, detail={"code": "COMMAND_MODEL_UNAVAILABLE", "runtimeMode": mode})
+    # The key every builder uses: the owner's sealed one when they chose their own AI,
+    # the Puppy session marker, or exactly what this request carried.
+    owned = model.model_copy(
+        update={
+            "runtimeCredential": selection.runtime_credential,
+            "runtimeCredentialTransport": selection.runtime_credential_transport,
+            "vertexProject": selection.vertex_project,
+            "vertexLocation": selection.vertex_location,
+        }
+    )
+    return owned, provider, selected_model, mode
+
+
+async def _brain(model: CommandModel, owner: str, token: str, claims: dict) -> LocationCommandBrain:
+    from pathlib import Path
+
+    from hushh_mcp.agents.location import command_brain
+    from hushh_mcp.runtime_providers.adk_model import ProviderAdkModel
+    from hushh_mcp.runtime_providers.factory import (
+        build_gemini_byok_adk_model,
+        build_managed_gemini_adk_model,
+        build_managed_runtime_client,
+        build_runtime_client,
+    )
+    from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+
+    model, provider, selected_model, mode = await _command_target(model, owner, claims)
     manifest = ManifestLoader.load(str(Path(command_brain.__file__).with_name("agent.yaml")))
 
     def adk(name: str):
