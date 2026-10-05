@@ -2,11 +2,12 @@
 
 **Status:** approved design (2026-10-01), live platform spike done in a consumer
 free-trial subscription (2026-10-02). Implementation lanes 1 to 5 and the
-image-source round are on the dev workspace branch with unit evidence only; no
-live Azure agent has answered a turn through this code yet (see *Known gaps*).
-Not on `main`, UAT or production. Inherits `private-agent-north-star.md` by
-pointer; where this page and the north star disagree, the north star wins and
-this page moves.
+image-source round are on the dev workspace branch. The first live Azure agent
+answered owner-direct chat turns on dev on 2026-10-05 (see *First live agent*);
+tool turns and the rest of the admission bar still need live evidence (see
+*Known gaps*). Not on `main`, UAT or production. Inherits
+`private-agent-north-star.md` by pointer; where this page and the north star
+disagree, the north star wins and this page moves.
 
 ## Visual Map
 
@@ -62,6 +63,11 @@ Hussh never holds: `Microsoft.ManagedIdentity/*/write` (federated credentials,
 Whoever can write the container app chooses the code that runs as the pod's
 identity, and that identity can unwrap the agent's key. Container write is
 therefore read authority, and it stays with the person.
+
+Verified live on the first agent (2026-10-05, dev test account): Hussh's standing
+role in the subscription was read plus revision restart only, beside the
+ABAC-limited access-removal role, and every write in the resource group was made
+under the owner's own delegated sign-in.
 
 The standing service principal authenticates by workload identity federation: a
 federated credential on the Hussh app with issuer `https://accounts.google.com`,
@@ -183,8 +189,12 @@ may do in Google Cloud.
   with it. Without one, the source must be readable anonymously. Otherwise the
   route answers 503 with a typed code: `IMAGE_SOURCE_NOT_CONFIGURED` (names the
   missing `HUSSH_POD_IMAGE_READER_SA`), `IMAGE_READER_CANNOT_READ`,
+  `IMAGE_NOT_PUBLISHED` (the reader can read the repository but the digest is
+  not in it; never "grant more access"), `IMAGE_REPOSITORY_MISCONFIGURED`,
   `IMAGE_READER_UNAVAILABLE`, `IMAGE_READER_IS_HUB`, `IMAGE_READER_MISCONFIGURED`
-  or `IMAGE_SOURCE_UNSUPPORTED`.
+  or `IMAGE_SOURCE_UNSUPPORTED`. Setup and update read the same place: both map the
+  approved reference through `release_source()`, while the approval, the
+  acknowledgement and the agent's reported image stay on the approved reference.
 
 Implemented in `consent-protocol/hushh_mcp/services/azure_image_source.py`;
 `HUSSH_POD_IMAGE_READER_SA` is hub deployment configuration, not a secret and not
@@ -231,22 +241,75 @@ person's subscription.
 At the spike the pod image did not boot off Google Cloud: it built a Google model
 at import time (`api/routes/one/agent_chat.py` intro agent). The agent-side lane
 now builds the chat heads on first use, so the same image boots on Container
-Apps; it still needs `APP_SIGNING_KEY`, which setup provides as a Key Vault
-reference.
+Apps (live on dev since 2026-10-05); it still needs `APP_SIGNING_KEY`, which
+setup provides as a Key Vault reference.
+
+## First live agent (2026-10-05, dev)
+
+Measured on the founder's dev test account: the agent `ca-hussh-one-pod` in
+`eastus2`, on the Azure OpenAI deployment `one-chat` (gpt-5.6-luna, Global
+Standard), set up through Connect Azure on the dev lane. Earlier live runs on
+localhost (2026-10-03 and 2026-10-04) proved Microsoft sign-in, home-directory
+discovery and setup admission, then stopped at free-trial limits (one Azure
+OpenAI account and one Container Apps environment per subscription), since freed.
+
+| Fact | Measured |
+|---|---|
+| Setup end to end, first time | about 9 minutes (Container Apps environment 6 min 19 s, model deployment 42 s) |
+| Setup on a retry | 1 min 39 s |
+| Container cold start | about 30 s |
+| First owner-direct chat turns | answered at about 09:01 to 09:02 UTC |
+| First visible text | 9.8 s on the cold first turn of a new process (its request build took 4.1 s), then 4.7 s and 3.1 s warm |
+| Whole turn | 6.2 to 12.1 s |
+| Model calls per plain turn | one |
+| Memory recall | works from the sealed commit log (`pod_memory.recall hits=2`); Memory Bank is absent by design and its steps log `no_bank` |
+| First tool turn | recalled memories, then failed with a `TypeError` on the next model call (recall results carry dates, and the tool output was serialized with plain `json.dumps`); fixed on the branch in agent release `2026.10-dev.7`, not yet installed |
+
+For comparison, Google agents (`hushh-byoc-test`, 2026-09-28) reached first text
+on plain turns in 5.9 to 6.7 s. These are a handful of turns on one agent, not a
+series, so they show the path works and roughly how fast; they do not qualify a
+latency claim.
+
+Four defects only a live subscription could show were found and fixed on the
+branch:
+
+- **ARM id case.** ARM listed the agent's identity under `.../resourcegroups/...`
+  while setup looked it up under `.../resourceGroups/...`, so a healthy agent was
+  refused with `PROOF_FAILED`. Setup proof and observation now match ARM ids
+  case-insensitively; a different principal is still refused.
+- **Provision claim (dev-only migration 952).** The claim refused an account whose
+  Google agent had been detached, and its insert row omitted the Azure
+  coordinates that 948's check requires, so no Azure home could be claimed.
+- **Key pull during attach (dev-only migration 953).** An Azure agent signs alone,
+  so the hub knows it only after pulling its key. The attach guard refused the
+  pull's throttle stamp while the row was `connecting`, and every heartbeat drew
+  401.
+- **Owner-direct admission and attach on record.** Nothing wrote the
+  direct-readiness record for an `ingress: external` agent, so chat refused with
+  `POD_DIRECT_NOT_READY`; the hub now runs the direct checks itself on a live beat
+  (`pod_external_ingress_admission`, see
+  `docs/reference/operations/dev-pod-first-light-runbook.md`). The setup also
+  stayed `reserved` until attach was pressed by hand; the hub now attaches when
+  the setup is recorded.
 
 ## Azure version 1 capabilities, stated honestly
 
-`GET /pod/info` reports these from rendered topology, never from a flag
+`GET /pod/info` reports these under `capabilities` (with `platform: "azure"`), from
+rendered topology, never from a flag
 (`consent-protocol/api/routes/one/pod_capabilities.py`):
 
-- Memory recall from the sealed commit log (keyword-based); no managed memory
-  service yet.
-- Voice unavailable (it needs a Vertex model); the voice route refuses before
-  accepting a connection.
-- Gmail push alerts off (Gmail push only targets Google Pub/Sub).
-- Files background organization off; an update that carries a Files plan is
-  refused on Azure.
-- Web search unavailable. One's web search is Google Search grounding, a Gemini
+- `memoryRecall`: source `sealed_log`. Recall reads the sealed commit log
+  (keyword-based); there is no managed memory service. Proven live on
+  2026-10-05 (see *First live agent*).
+- `voice`: unavailable, reason `no_vertex_model` (voice needs a Vertex model), or
+  `owner_ai_selected` while a Bring your own AI choice is in force; the voice
+  route refuses before accepting a connection.
+- `gmailPush`: unavailable, reason `requires_google_pubsub` (Gmail push only
+  targets Google Pub/Sub).
+- `filesBackgroundOrganization`: unavailable (`files_disabled`, or
+  `requires_google_cloud_storage` where Files is turned on); an update that
+  carries a Files plan is refused on Azure.
+- `webSearch`: unavailable. One's web search is Google Search grounding, a Gemini
   tool that ADK refuses for any other model. A head on the person's Azure OpenAI
   deployment (or on Puppy) is built without it and, when a request needs the
   web, says "Web search is not available on this setup yet." instead of
@@ -256,18 +319,24 @@ reference.
   `webSearch: {available: false, reason: "requires_gemini_model"}` for a pod
   whose own model is Azure OpenAI. A turn that brings its own Gemini key keeps
   web search.
-- Private commands (structured output, audio input) refuse the Azure OpenAI mode
-  with a typed 503 `COMMAND_MODEL_UNAVAILABLE`; they still work with the person's
-  own Gemini key.
+- `privateCommands`: unavailable with `requires_gemini_model` when the agent's own
+  model is Azure OpenAI (or a sealed OpenAI key). Voice transcription and location
+  commands need Gemini structured output and audio input, so the pod refuses them
+  with a typed 503 `COMMAND_MODEL_UNAVAILABLE`, and the app now says so in standing
+  words ("Voice and location commands are not available with your Azure model
+  yet.") instead of "temporarily unavailable". A request that carries the person's
+  own Gemini key still works.
+- `aiSelection`: the Bring your own AI providers this image can run a sealed
+  owner choice on (`bring-your-own-ai.md`).
 
-Each item above is reported under `capabilities` on `/pod/info`, which the hub
-relays to the owner (`GET /api/one/u/{hushh_id}/info`).
+The hub relays this report to the owner (`GET /api/one/u/{hushh_id}/info`).
 
 **Turn timeouts.** An Azure OpenAI head keeps Gemini's budgets (20 s to the
 first event, 30 s between events, 90 s per turn, and 30 s per specialist model
-call). Reasoning deployments may need more, but no Azure turn
-latency has been measured yet, so nothing changes until a measured series
-says it must. Puppy keeps its own measured budgets
+call). The first live plain turns fit inside them with room (9.8 s to first text
+at worst, 12.1 s for a whole turn; see *First live agent*). That is a handful of
+turns and no completed tool turn, not a series, so nothing changes until a
+measured series says it must. Puppy keeps its own measured budgets
 (`consent-protocol/tests/test_timeout_ladder.py`).
 
 ## Erasure, heal and update recovery, as implemented
@@ -341,12 +410,15 @@ reaches each one through a typed capability in
 
 ## Known gaps
 
-- **No Azure agent has answered a turn yet.** Microsoft sign-in, home-directory
-  discovery and setup admission ran live on localhost against the 1711
-  subscription (2026-10-03 and 2026-10-04); both setups then stopped at free-trial
-  limits (one Azure OpenAI account, one Container Apps environment per
-  subscription), now freed. Every other gate in the admission bar still needs
-  live evidence.
+- **No Azure tool turn has completed yet.** Setup, attach, plain owner-direct
+  turns and memory recall are proven live on dev (2026-10-05, *First live
+  agent*). The first tool turn failed on the model call after its tool ran; the
+  fix is in agent release `2026.10-dev.7`, which is built but not installed on
+  the Azure agent. That release offers no predecessor until a recovery rehearsal
+  qualifies one, and an Azure update also needs the repository mapping described
+  below.
+  Every other gate in the admission bar still needs live evidence, and
+  `config/pod-completion-ledger.yaml` has no Azure rows yet.
 - **Operator setup exists for dev only:** the `Hussh One (dev)` Entra app, the
   `hussh-azure-broker` and `hussh-pod-image-reader` service accounts in
   `hushh-pda-dev`, with Token Creator on each held only by the dev hub runtime.
@@ -373,12 +445,17 @@ reaches each one through a typed capability in
   only logs it. **Dev avoids it for setup:** `HUSSH_AZURE_POD_IMAGE_REPOSITORY`
   points the import at `one-pod-release`, the pod-only repository the reader alone
   is granted, with the hub image's exact digest (a digest names exact bytes). A
-  release digest must be copied there before Azure can import it; a missing one
-  fails the preflight before any sign-in. The Azure **update** path still imports
-  from the approval's own reference, so on dev it refuses before sign-in until it
-  gets the same mapping.
-- **Agent-to-hub calls are dev-only:** they need `POD_HUB_IDENTITY_AUTH_ENABLED`
-  and the parked migrations 947 and 948.
+  release digest must be in that repository before Azure can import it; a missing
+  one fails the preflight with `IMAGE_NOT_PUBLISHED` before any sign-in. The dev
+  build now publishes it: the `publish-azure-pod-release` step in
+  `deploy/backend.cloudbuild.yaml` (dev pod builds only) copies the exact digest
+  that becomes `HUSSH_ONE_POD_IMAGE`, reads it back, and fails the build before the
+  hub deploys if it did not land. The Azure **update** path uses the same mapping
+  (2026-10-05); before that it imported from the approval's own `gcr.io`
+  reference and refused on dev before the sign-in.
+- **Azure is dev-only end to end:** setup and attach need the parked dev
+  migrations 947, 948 and 951 to 953, and agent-to-hub calls need
+  `POD_HUB_IDENTITY_AUTH_ENABLED`.
 - **Re-create after Azure deletes the environment:** the gone reason
   `environment_deleted` is typed, but the person-facing re-create flow is not
   wired (setup refuses a person whose agent record is already provisioned).
@@ -389,7 +466,9 @@ reaches each one through a typed capability in
   registry; pruning to the current and previous digest is not built.
 - **Placement** is fixed to `eastus2` (where the model was measured available).
 - **Azure OpenAI quality** has not passed the evals that make a model "proven".
-- **Measurements pending:** the 48-hour bill readout and the 20-wake series.
+- **Measurements pending:** the 48-hour bill readout, the 20-wake series (two
+  single samples so far: 36.9 s at the spike, about 30 s on the dev agent) and a
+  turn-latency series that includes tool turns.
 
 ## Cost (list prices, not measured bills)
 
@@ -497,7 +576,7 @@ Already required and unchanged: `HUSSH_ONE_POD_IMAGE` (the pod release; a tag
 is resolved to its digest), `HUSSH_CONSENT_PLANE_SA` (the hub identity the
 agent's wall admits), `HUSSH_HUB_BASE_URL` (rendered into the agent as its hub
 address), `APP_SIGNING_KEY`, and, for agent-to-hub calls, the dev-only
-`POD_HUB_IDENTITY_AUTH_ENABLED` with migrations 947 and 948 applied.
+`POD_HUB_IDENTITY_AUTH_ENABLED` with the dev migrations through 953 applied.
 
 ### Localhost
 
@@ -520,5 +599,6 @@ address), `APP_SIGNING_KEY`, and, for agent-to-hub calls, the dev-only
 The dev lane is shared; coordinate before dispatching. Add the four hub
 variables to the dev backend (see *Known gaps*), deploy a CI-green SHA, register
 the dev redirect URI, then repeat the localhost steps against the dev web
-origin. Record each result in `config/pod-completion-ledger.yaml` under Azure
-rows.
+origin. Allow about 9 minutes for a first setup, most of it the Container Apps
+environment, and under 2 minutes for a retry (measured 2026-10-05). Record each
+result in `config/pod-completion-ledger.yaml` under Azure rows.

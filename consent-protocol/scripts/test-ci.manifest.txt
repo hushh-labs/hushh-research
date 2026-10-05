@@ -913,3 +913,11 @@ tests/test_pod_external_ingress_admission.py
 tests/test_pod_external_ingress_admission_postgres.py
 tests/test_owner_cloud_attach.py
 tests/test_azure_openai_tool_wire.py
+
+# Azure release path, honest commands, admission keying (2026-10-05)
+tests/test_azure_upgrade_release_source.py
+tests/test_azure_pod_release_publish_step.py
+tests/test_pod_admission_rate_limit_key.py
+tests/test_pod_capabilities_private_commands.py
+tests/test_endpoint_version_across_homes.py
+tests/test_azure_idle_window.py
