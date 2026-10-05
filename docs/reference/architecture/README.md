@@ -49,6 +49,7 @@ For board-level future direction, use the [Founder and Board Brief](../../future
 - [architecture-view-catalog.md](./architecture-view-catalog.md): C4 + ISO 42010 architecture views for system landscape, context, containers, components, dynamic flows, deployment/network/physical topology, and data boundaries.
 - [founder-language-matrix.md](./founder-language-matrix.md): canonical founder-term to implementation-term mapping and audit checklist.
 - [api-contracts.md](./api-contracts.md): API surface and proxy/backend contracts.
+- [bring-your-own-ai.md](./bring-your-own-ai.md): the person's own model key (OpenAI or Gemini), sealed to their own agent, owner-only doors, no fallback, provider catalog and agent capability advert for graceful updates.
 - [preference-subscription-fabric.md](./preference-subscription-fabric.md): the Personal World Model (`/api/pwm`) and the PCHP RFC-002 Preference Subscription Fabric (`/api/fabric`) — grants, the pairing handshake, subscriber reads, and the hash-chained receipt ledger.
 - [route-contracts.md](./route-contracts.md): app route inventory and parity governance.
 - [runtime-topology-maintenance.md](./runtime-topology-maintenance.md): generated cross-contract index, maintenance profiles, compatibility lifecycle, and destructive-retirement boundary.
