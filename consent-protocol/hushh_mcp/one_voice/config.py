@@ -22,6 +22,7 @@ ONE_VOICE_IDLE_CLOSE_SECONDS_ENV = "ONE_VOICE_IDLE_CLOSE_SECONDS"
 ONE_VOICE_DAILY_MINUTES_PER_USER_ENV = "ONE_VOICE_DAILY_MINUTES_PER_USER"
 ONE_VOICE_MAIL_READS_ENABLED_ENV = "ONE_VOICE_MAIL_READS_ENABLED"
 ONE_VOICE_MAIL_NARRATION_ENABLED_ENV = "ONE_VOICE_MAIL_NARRATION_ENABLED"
+ONE_VOICE_MAIL_REPLY_ENABLED_ENV = "ONE_VOICE_MAIL_REPLY_ENABLED"
 
 PROTOCOL_VERSION: Final = "one-voice-v1"
 
@@ -151,6 +152,21 @@ def voice_mail_narration_enabled() -> bool:
     return _clean(ONE_VOICE_MAIL_NARRATION_ENABLED_ENV).lower() in _TRUE_VALUES
 
 
+def voice_mail_reply_enabled() -> bool:
+    """Whether One may prepare a reply inside an email's own Gmail thread.
+
+    Unset means OFF, for the reason narration's switch does: a reply is new
+    capability, and it is the first voice path whose recipient is derived from a
+    message someone else wrote rather than from a confirmed connection. It is
+    also the kill switch for that path end to end -- the HTTP send of a reply
+    card already on screen re-checks it -- while ``read_mail``, ``open_mail``,
+    ``send_mail`` and the personal-information-request replies stay untouched.
+
+    Set ``ONE_VOICE_MAIL_REPLY_ENABLED=true`` to enable it.
+    """
+    return _clean(ONE_VOICE_MAIL_REPLY_ENABLED_ENV).lower() in _TRUE_VALUES
+
+
 class OneVoiceMailAdmission:
     """Injectable facade over the predicates, so tests can hand a tool a double.
 
@@ -164,3 +180,6 @@ class OneVoiceMailAdmission:
 
     def mail_narration_enabled(self) -> bool:
         return voice_mail_narration_enabled()
+
+    def mail_reply_enabled(self) -> bool:
+        return voice_mail_reply_enabled()

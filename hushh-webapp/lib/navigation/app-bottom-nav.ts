@@ -124,7 +124,7 @@ export function resolveOneNavSlot(
     return "gmail";
   }
   if (
-    normalizedPathname === ROUTES.PKM ||
+    isBottomNavRoute(normalizedPathname, ROUTES.PKM) ||
     normalizedPathname === ROUTES.LEGACY_PKM ||
     normalizedPathname === ROUTES.PROFILE ||
     normalizedPathname === ROUTES.PROFILE_PKM ||

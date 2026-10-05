@@ -322,6 +322,43 @@ describe("Feed history interactions", () => {
     );
   });
 
+  it("refreshes the displayed details when the server updates an existing notification", async () => {
+    mocks.useRealFeedRow = true;
+    mocks.data.items = [
+      {
+        ...mocks.data.items[0],
+        source_domain: "location",
+        event_type: "location_share_created",
+        actor_label: "Ankit",
+        metadata: {
+          feed_audience: "recipient",
+          counterpart_label: "Ankit",
+          duration_hours: 2,
+        },
+      },
+    ];
+    const view = await renderAfterAutomaticRead();
+    expect(
+      screen.getByText("Shared location with you for 2 hours"),
+    ).toBeInTheDocument();
+
+    mocks.data = {
+      ...mocks.data,
+      items: [
+        {
+          ...mocks.data.items[0],
+          metadata: { ...mocks.data.items[0].metadata, duration_hours: 3 },
+        },
+      ],
+    };
+    await act(async () => view.rerender(<FeedPage />));
+
+    expect(
+      screen.getByText("Shared location with you for 3 hours"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Shared location with you for 2 hours")).toBeNull();
+  });
+
   it("retires an unsafe legacy timestamp watermark without hiding a later id", async () => {
     window.localStorage.setItem(
       "hushh:feed-cleared-at:feed-user",

@@ -424,18 +424,14 @@ export function ContactSyncResultsSheet({
           ) : null}
         </div>
 
-        <div
-          className={cn(
-            "mt-4 grid grid-cols-1 gap-2",
-            (recoveryLabel || !emptyGoogleBook) && "sm:grid-cols-2",
-          )}
-        >
+        <div className="mt-4 flex flex-wrap justify-center gap-2">
           {recoveryLabel ? (
             <Button
               type="button"
+              size="prominent"
               disabled={syncing}
               onClick={() => void onSyncAgain()}
-              className="h-11 rounded-full"
+              className="w-full max-w-[244px]"
             >
               {syncing ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -445,8 +441,9 @@ export function ContactSyncResultsSheet({
           ) : null}
           <Button
             asChild
+            size="prominent"
             variant={recoveryLabel || !emptyGoogleBook ? "outline" : "default"}
-            className="h-11 rounded-full"
+            className="w-full max-w-[244px]"
           >
             <Link
               href={`${ROUTES.CONNECT}?tab=all`}
@@ -458,6 +455,7 @@ export function ContactSyncResultsSheet({
           {!emptyGoogleBook ? (
             <Button
               type="button"
+              size="prominent"
               disabled={
                 syncing ||
                 !(invitations?.enabled
@@ -465,7 +463,7 @@ export function ContactSyncResultsSheet({
                   : result.inviteCandidateCount)
               }
               onClick={() => void onInvite()}
-              className="h-11 rounded-full"
+              className="w-full max-w-[244px]"
             >
               <Send className="mr-2 h-4 w-4" />
               Invite contacts

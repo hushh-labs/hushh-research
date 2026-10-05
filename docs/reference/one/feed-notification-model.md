@@ -7,8 +7,9 @@ flowchart TD
   consent["consent_audit<br/>INSERT trigger"]
   location["one_location_events<br/>INSERT trigger"]
   connected["connected_system_audit_events<br/>INSERT trigger"]
-  kai["Kai run_manager.py<br/>run.status = completed"]
-  connections["connections_service.py<br/>accept / reject / revoke"]
+  kai["Kai analyze/import managers<br/>canonical terminal + delivery guard"]
+  connections["connections_service.py<br/>accept / reject / revoke / withdraw"]
+  outcomes["269 source-row triggers<br/>Calendar, Mail, Drive, connectors, Circle"]
   feed_events["feed_events table"]
   api["GET/POST /api/one/feed*<br/>FeedService"]
   page["/one/feed page<br/>FeedItemRow"]
@@ -19,6 +20,7 @@ flowchart TD
   connected -->|trigger| feed_events
   kai -->|app-level write| feed_events
   connections -->|app-level write| feed_events
+  outcomes -->|closed terminal projection| feed_events
   feed_events --> api
   api --> page
   api --> tab
@@ -75,16 +77,17 @@ code — mirrors the established `consent_audit` NOTIFY-trigger pattern from
 **App-level writes** (no existing durable event table to hook — this is new
 tracking, added alongside each domain's existing mutation):
 
-- **Kai** — `consent-protocol/api/routes/kai/run_manager.py`, at the existing
-  debate-completion point (`run.status = "completed"`). The analysis itself
-  stays E2EE in PKM as before; the feed row is just `{ticker}` metadata.
+- **Kai** — analysis and import managers, after canonical terminal selection;
+  success also requires actual local terminal delivery. Analysis history is
+  saved by the client, not inferred from the server status. The completion row
+  carries only ticker and opaque run ID.
 - **Connections** — `consent-protocol/hushh_mcp/services/connections_service.py`,
   at `accept_request` / `reject_request` / `remove_connection`.
 
-All writes go through `FeedService.record_event` (Python) or the migration's
-trigger functions, both best-effort: a feed-write failure is logged and
-swallowed, never allowed to fail or roll back the domain action that produced
-it (see `hushh_mcp/services/feed_service.py`'s docstring).
+Provider outcome projections use `FeedService.record_event` or best-effort SQL
+functions; a Feed outage must not turn provider success into another write.
+Relationship history in Connections uses the same transaction as its source
+mutation and retains that existing atomic policy.
 
 ## Read/unread and pagination
 
@@ -102,11 +105,20 @@ The Feed tab's icon is fixed (no spinner or live-task overlay): the tab is a
 static navigational affordance, and unread state surfaces only through its
 badge count, not an icon swap.
 
-## Two zones: "Needs you" over "Earlier"
+## Live cards and chronological history
 
 The Feed route renders under one fixed (sticky) header where only the list
-scrolls, in two stacked zones modelled on Instagram's Activity pane (pinned
-actionable requests over a chronological log):
+scrolls. Current cards come from authorized domain services, followed by the
+chronological Feed projection. Empty sections disappear:
+
+- **Live:** active location/emergency sharing.
+- **Needs you:** pending information, location, connection and Circle requests,
+  Mail/KYC review and active Kai tasks, with existing vault/consent guards.
+- **Coming up:** up to three upcoming Calendar events.
+- **In progress:** Drive request search/sharing progress, grouped by request.
+- **History:** durable events grouped by Today, Yesterday and date.
+
+The actionable and history mechanisms remain distinct:
 
 1. **"Needs you" (live + actionable).** A `useFeedActionables`
    (`hushh-webapp/lib/feed/use-feed-actionables.ts`) hook aggregates the live
@@ -124,7 +136,7 @@ actionable requests over a chronological log):
      tasks → **Open** / **Cancel** (`DebateRunManagerService`,
      `AppBackgroundTaskService`).
    Vault-gated actions disable cleanly when the vault is locked.
-2. **"Earlier" (history).** The `feed_events` log, day-grouped
+2. **History.** The `feed_events` log, day-grouped
    (Today / Yesterday / date), each row deep-linking into its origin screen.
 
 Both zones are built on the canonical `SettingsGroup` + `SettingsRow` list
@@ -223,6 +235,63 @@ modes, source compatibility, concurrent-index failure recovery, and rollback.
 Browser emulation and these fixtures do not replace
 authenticated user review or physical iOS/Android acceptance.
 
+## Useful agent outcomes (migration 269)
+
+The Feed reports authoritative outcomes, not each helper/tool invocation. The
+additive, forward-only `269_feed_agent_outcomes.sql` preserves existing consent
+bundle, Calendar/Mail success and Drive request/payment publishers. It adds:
+
+| Source | Feed-worthy transition and audience | Replay key / noise filter |
+| --- | --- | --- |
+| Calendar proposals | failed, owner | proposal ID; status change only |
+| Reviewed Gmail mailbox proposals | executed/failed, owner | proposal ID; execution persists terminal status before sensitive proposal cleanup |
+| CRM audit | create/update/delete succeeded or partial; disconnect succeeded, owner | intent ID or event ID; successful reads stay quiet |
+| Custom connector connection | connected, needs reauthentication, revoked, owner | connector + generation + status; placeholder and refresh updates stay quiet |
+| Drive owner search | completed/limited/failed/stopped, owner | job ID + event type; request-bound completed searches use existing request outcome instead |
+| Reviewed Drive directive ledger | settled share/trash success, failure or unconfirmed, owner | directive ID; requires the reviewed-action context revision |
+| Standalone Drive bulk sharing | final owner summary; confirmed recipient notice | share + final revision; stopped uses stable stop timestamp and waits for every in-flight effect; request-origin jobs retain their existing aggregation |
+| Drive question | withdrawn or returned to pending for retry, owner | request + revision + type; no question/answer/error content |
+| Consent audit | denied, withdrawn, timed out, owner | bundle or request + event type; wording does not imply all bundle items resolved alike |
+| Circle invitation/membership | declined to inviter, withdrawn to invitee, left to owner, membership ended to affected member | invite ID or membership generation; cleanup after deletion stays quiet |
+| Circle deletion | owner and previously active members | circle ID; one deletion row, no removal fanout |
+
+Connections withdrawal writes both participants' history in the existing source
+transaction, with counterpart labels and `actor_is_self`, only after the guarded
+pending update succeeds. A retry or lost race writes no additional history.
+Migration 269 extends the existing indexed counterpart resolver
+to withdrawals, preserving both audiences' current photos and server-only identity
+mappings; it does not place user IDs or photo snapshots in Feed metadata.
+
+Kai analysis/import workers keep the first recognized terminal immutable and
+close generators in the owning task. Failed/canceled outcomes follow source
+cleanup and durable receipt persistence. Successful analysis and statement
+parsing are projected only after a local stream actually consumes the canonical
+terminal frame. Empty/end cursors, detached completion and remote fallback
+replay never announce a ready result. Import copy describes parsing and the
+current import, without claiming saved portfolio information.
+
+The Feed projection cannot mask provider success or cause a repeated write.
+Projection failures are best effort; relationship transactions retain their
+existing atomic policy. CRM partial status can mean a successful mutation whose
+readback failed; Drive bulk partial/failed can include uncertain provider writes.
+Both prompt review before retrying instead of asserting the action did not happen.
+Unconfirmed Drive writes and possibly partial Mail
+changes ask people to check the provider before retrying. No query, filename,
+mailbox ID, label ID, account label, credentials, provider errors, holdings,
+HMAC or terminal payload is copied into Feed.
+
+Drive and custom connector rows remain visible with the CRM build flag disabled.
+Links use the existing chat, Profile connector/my-data panes, Consent, Calendar,
+Mail, Kai and Circle management surfaces. Routine reads, reasoning, Memory and
+Wallet updates remain quiet. No new API endpoint, table, retention policy or
+domain authority is introduced.
+
+Rollback: `db/migrations/rollback/269_feed_agent_outcomes.rollback.sql` removes
+only the new triggers/functions, preserving source state and delivered history.
+The release manifest and three environment schema contracts register version 269.
+Real PostgreSQL tests cover transitions, audience, content boundaries, replay,
+bulk-stop races, migration replay, projection failure and rollback/reapply.
+
 ## Caching
 
 `FeedPage` (`hushh-webapp/components/feed/feed-page.tsx`) loads its first
@@ -231,6 +300,10 @@ page through `useStaleResource` under `CACHE_KEYS.FEED_LIST(userId)`
 a background refresh runs, matching every other cache-coherent route.
 Pagination beyond the first page ("load more") stays a live, uncached fetch
 appended to local state — only the first page needs an instant warm render.
+On refresh, row reuse compares the presentation metadata as well as the domain,
+event, actor, timestamp, and read state. Consent bundles can update their details
+under the same event ID, and counterpart photos are resolved at read time; those
+updates must reach the visible row even when no new event is appended.
 Opening the feed calls `FeedService.markRead` (clearing the unread badge via
 `dispatchFeedStateChanged`) but deliberately does **not** force-refresh the
 list: the rows on screen keep their unread styling for the current visit and

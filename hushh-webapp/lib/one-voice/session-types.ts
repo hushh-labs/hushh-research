@@ -202,6 +202,20 @@ export type VoiceSessionController = {
   clearView: () => void;
   /** Report a client step outcome (publish, permission, share sheet). */
   reportClientStep: (stepId: string, status: "ok" | "failed", payload?: Record<string, unknown>) => void;
+  /**
+   * Tell the relay which mail row is open on screen, or that none is. The
+   * position and the offer revision only, never a message id: it is a hint for
+   * "reply to this" that the relay honors only while that offer is current.
+   * It rides on every app_context until cleared.
+   */
+  setActiveMail?: (
+    hint: { ordinal: number; offerRevision: number; conversationId: string } | null,
+  ) => void;
+  /**
+   * A review card's Send finished: its delivery ref and the send action it
+   * used. Carries no outcome on purpose; the relay re-reads the send action.
+   */
+  reportMailDelivery?: (deliveryRef: string, actionId: string) => void;
 };
 
 /** Screen hooks subscribe to tool results and directives by tool name/kind. */

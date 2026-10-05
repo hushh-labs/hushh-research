@@ -17,6 +17,7 @@ import type {
   CaptureStartResult,
 } from "@/lib/one-voice/audio/capture";
 import type {
+  AppContextInput,
   LiveCloseInfo,
   OneLiveClientOptions,
 } from "@/lib/one-voice/live-client";
@@ -103,6 +104,7 @@ function publishLifecycle(state: "active" | "background") {
 
 import {
   VoiceSessionProvider,
+  type VoiceSessionDeps,
   useVoiceSession,
 } from "@/components/one-voice/voice-session-provider";
 import { OneVoicePanel } from "@/components/one-voice/one-voice-panel";
@@ -112,6 +114,10 @@ class FakeClient {
   static instances: FakeClient[] = [];
   readonly options: OneLiveClientOptions;
   readonly sent: string[] = [];
+  readonly perf: Array<{ metric: string; durationMs: number; turnId?: string }> = [];
+  /** Each app_context payload, in order; each one replaces the relay's screen context. */
+  readonly appContexts: AppContextInput[] = [];
+  readonly mailDeliveries: Array<[deliveryRef: string, actionId: string]> = [];
   closeReasons: string[] = [];
   connected = 0;
   isReady = false;
@@ -142,12 +148,21 @@ class FakeClient {
   sendAudio() {
     return this.isReady;
   }
+  sendPerf(metric: string, durationMs: number, turnId?: string) {
+    this.perf.push({ metric, durationMs, ...(turnId ? { turnId } : {}) });
+    return this.isReady;
+  }
   sendText(text: string) {
     this.sent.push(`text:${text}`);
     return true;
   }
-  sendAppContext() {
+  sendAppContext(context: AppContextInput) {
     this.sent.push("app_context");
+    this.appContexts.push(context);
+  }
+  mailDeliveryResult(deliveryRef: string, actionId: string) {
+    this.mailDeliveries.push([deliveryRef, actionId]);
+    return true;
   }
   pendingShown(pendingActionId: string) {
     this.sent.push(`pending_shown:${pendingActionId}`);
@@ -192,11 +207,16 @@ class FakeCapture {
   }
 }
 
+let playbackStarted: ((turnId: string) => void) | null = null;
 const playback = {
   enqueue: () => true,
   flush: () => undefined,
   fenceTurn: () => undefined,
   onSpeakingChanged: () => () => undefined,
+  onPlaybackStarted: (callback: (turnId: string) => void) => {
+    playbackStarted = callback;
+    return () => { playbackStarted = null; };
+  },
   close: () => undefined,
 };
 
@@ -232,7 +252,7 @@ function mockVisiblePendingGeometry(offscreenUntilScrolled = false) {
   });
 }
 
-function mount(enabled = true, children?: ReactNode) {
+function mount(enabled = true, children?: ReactNode, overrides: Partial<VoiceSessionDeps> = {}) {
   const capture = new FakeCapture();
   const deps = {
     createClient: (options: OneLiveClientOptions) => new FakeClient(options),
@@ -244,6 +264,7 @@ function mount(enabled = true, children?: ReactNode) {
       wsPath: "/api/one/voice/live",
     }),
     afterPaint: (callback: () => void) => callback(),
+    ...overrides,
   };
   const view = render(
     <VoiceSessionProvider enabled={enabled} deps={deps}>
@@ -266,6 +287,7 @@ beforeEach(() => {
   resetAgentConversationBrokerForTests();
   useVoiceSessionStore.getState().reset();
   FakeClient.instances = [];
+  playbackStarted = null;
   harness.leases = [];
   harness.pathname = "/one/location";
   harness.lifecycle = "active";
@@ -413,6 +435,38 @@ describe("VoiceSessionProvider ownership", () => {
     clock.mockReturnValue(at + 10_001);
     await act(async () => client.options.onFrame(audio));
     expect(enqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports client endpointing and first observed playback onset without content", async () => {
+    const clock = { now: 1000 };
+    const { capture } = mount(true, undefined, { perfNow: () => clock.now });
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const level = capture.options!.onLevel!;
+    level(0.2); // Speech is observed.
+    for (clock.now = 1100; clock.now <= 1400; clock.now += 100)
+      level(0.01); // Quiet candidate starts at 1100 after a 300 ms hold.
+    clock.now = 1800;
+    await act(async () => client.options.onFrame({
+      type: "transcript.input", turn_id: "abcdef012345", text: "private words", final: true,
+    }));
+    expect(client.perf).toEqual([{
+      metric: "endpointing_client", durationMs: 700, turnId: "abcdef012345",
+    }]);
+
+    clock.now = 2000;
+    await act(async () => client.options.onFrame({
+      type: "audio", turn_id: "012345abcdef", origin_turn_id: "abcdef012345",
+      data: "AAAA", mime_type: "audio/pcm;rate=24000",
+    }));
+    expect(client.perf).toHaveLength(1); // enqueue is not output onset.
+    clock.now = 2120;
+    await act(async () => playbackStarted?.("012345abcdef"));
+    expect(client.perf).toEqual([
+      { metric: "endpointing_client", durationMs: 700, turnId: "abcdef012345" },
+      { metric: "audio_receive_to_audible", durationMs: 120, turnId: "012345abcdef" },
+    ]);
+    expect(JSON.stringify(client.perf)).not.toContain("private words");
   });
 
   it("stops old speech on a new voice input before a provider interrupt arrives", async () => {
@@ -1178,5 +1232,159 @@ describe("VoiceSessionProvider ownership", () => {
     expect(FakeClient.instances[0]?.closeReasons).toEqual([
       "local:vault_locked",
     ]);
+  });
+});
+
+describe("VoiceSessionProvider open mail row and Send reports", () => {
+  const DELIVERY_REF = "Zr4mQ8vX2kLp9TnB_wYc7H-E";
+  const ACTION_ID = "6f1c2b9a-3d4e-4f5a-8b6c-7d8e9f0a1b2c";
+  const namesMailRow = (context: AppContextInput | undefined) =>
+    context !== undefined &&
+    ("active_mail_ordinal" in context || "active_mail_offer_revision" in context);
+
+  function rerenderProvider(view: ReturnType<typeof mount>) {
+    view.rerender(
+      <VoiceSessionProvider enabled deps={view.deps}>
+        <Probe />
+      </VoiceSessionProvider>,
+    );
+  }
+
+  function routeTo(view: ReturnType<typeof mount>, pathname: string) {
+    harness.pathname = pathname;
+    rerenderProvider(view);
+  }
+
+  it("keeps the open row and Send reports away from a relay that does not list them", async () => {
+    mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const conversationId = client.options.auth()!.conversationId;
+    // An older or rolled-back relay advertises no features, and would refuse
+    // the keys (dropping the whole app_context) and the report frame outright.
+    await act(async () =>
+      client.options.onFrame(readyFrame({ conversation_id: conversationId, features: undefined })),
+    );
+
+    await act(async () =>
+      controller!.setActiveMail!({ ordinal: 2, offerRevision: 7, conversationId }),
+    );
+    await act(async () => controller!.reportMailDelivery!(DELIVERY_REF, ACTION_ID));
+
+    expect(client.appContexts.some(namesMailRow)).toBe(false);
+    expect(client.mailDeliveries).toEqual([]);
+  });
+
+  it("names the open mail row on every app_context of its conversation until it is closed", async () => {
+    const view = mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const conversationId = client.options.auth()!.conversationId;
+    const contexts = client.appContexts;
+    const readyCount = contexts.length;
+    expect(readyCount).toBeGreaterThan(0);
+    expect(namesMailRow(contexts.at(-1))).toBe(false);
+
+    await act(async () =>
+      controller!.setActiveMail!({ ordinal: 2, offerRevision: 7, conversationId }),
+    );
+    expect(contexts).toHaveLength(readyCount + 1);
+    expect(contexts.at(-1)).toMatchObject({
+      active_mail_ordinal: 2,
+      active_mail_offer_revision: 7,
+    });
+
+    // The same row again, as a fresh object, is not news to the relay.
+    await act(async () =>
+      controller!.setActiveMail!({ ordinal: 2, offerRevision: 7, conversationId }),
+    );
+    expect(contexts).toHaveLength(readyCount + 1);
+
+    // A frame sent for another reason still names the row: each app_context
+    // replaces the relay's whole screen context.
+    routeTo(view, "/one/connect");
+    expect(contexts.at(-1)).toMatchObject({
+      route: "/one/connect",
+      active_mail_ordinal: 2,
+      active_mail_offer_revision: 7,
+    });
+
+    // Closing the row resends the context with both keys omitted, never null.
+    const beforeClose = contexts.length;
+    await act(async () => controller!.setActiveMail!(null));
+    expect(contexts).toHaveLength(beforeClose + 1);
+    expect(namesMailRow(contexts.at(-1))).toBe(false);
+  });
+
+  it("never names a row from another conversation's offer: its position means nothing here", async () => {
+    const view = mount();
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    const otherConversationId = "22222222-3333-4444-8555-666666666666";
+    expect(client.options.auth()!.conversationId).not.toBe(otherConversationId);
+
+    await act(async () =>
+      controller!.setActiveMail!({
+        ordinal: 2,
+        offerRevision: 7,
+        conversationId: otherConversationId,
+      }),
+    );
+    routeTo(view, "/one/connect");
+
+    expect(client.appContexts.at(-1)).toMatchObject({ route: "/one/connect" });
+    expect(client.appContexts.some(namesMailRow)).toBe(false);
+  });
+
+  it("forgets the open mail row when the account changes, even under a reused conversation id", async () => {
+    // Pin the conversation id so the conversation check cannot be what keeps
+    // the old account's row off the new account's relay.
+    const conversationId = "33333333-4444-4555-8666-777777777777";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(conversationId);
+    const view = mount();
+    await act(async () => controller!.start());
+    await act(async () =>
+      controller!.setActiveMail!({ ordinal: 2, offerRevision: 7, conversationId }),
+    );
+
+    // Negative control: a restart on the same account continues the same
+    // conversation, so its first app_context still names the row.
+    await act(async () => controller!.stop());
+    await act(async () => controller!.start());
+    expect(FakeClient.instances).toHaveLength(2);
+    expect(FakeClient.instances[1]!.appContexts.at(-1)).toMatchObject({
+      active_mail_ordinal: 2,
+      active_mail_offer_revision: 7,
+    });
+
+    harness.user = { uid: "owner-2" };
+    updateVoicePreferences("owner-2", (current) => ({
+      ...current,
+      voiceEnabled: true,
+    }));
+    rerenderProvider(view);
+    await act(async () => controller!.start());
+    expect(FakeClient.instances).toHaveLength(3);
+    const next = FakeClient.instances[2]!;
+    expect(next.options.auth()!.conversationId).toBe(conversationId);
+    expect(next.appContexts.length).toBeGreaterThan(0);
+    expect(next.appContexts.some(namesMailRow)).toBe(false);
+  });
+
+  it("reports a finished Send to the live session once, and drops it when no session is live", async () => {
+    mount();
+    // Before any session: dropped, not held for the next one.
+    await act(async () => controller!.reportMailDelivery!(DELIVERY_REF, ACTION_ID));
+    await act(async () => controller!.start());
+    const client = FakeClient.instances[0]!;
+    expect(client.mailDeliveries).toEqual([]);
+
+    await act(async () => controller!.reportMailDelivery!(DELIVERY_REF, ACTION_ID));
+    expect(client.mailDeliveries).toEqual([[DELIVERY_REF, ACTION_ID]]);
+
+    // A Send that finishes after Stop has no relay left to tell.
+    await act(async () => controller!.stop());
+    await act(async () => controller!.reportMailDelivery!(DELIVERY_REF, ACTION_ID));
+    expect(client.mailDeliveries).toEqual([[DELIVERY_REF, ACTION_ID]]);
   });
 });

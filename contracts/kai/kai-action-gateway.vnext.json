@@ -12439,6 +12439,114 @@
       }
     },
     {
+      "action_id": "route.one_pkm_location_home",
+      "surface_id": "one_agents",
+      "label": "Open Memory",
+      "aliases": [
+        "open memory",
+        "memory home",
+        "return to memory"
+      ],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "meaning": "Returns from Location memory to the Memory home.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/pkm/location",
+          "/one/pkm/location/detail"
+        ],
+        "screens": [
+          "pkm_location",
+          "pkm_location_detail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [
+        "top_agent_section_pkm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/pkm"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_pkm_location_home",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.one_pkm_location_home",
+            "label": "Open Memory",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/pkm",
+              "screen": "pkm_location"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.one_pkm",
       "surface_id": "one_agents",
       "label": "Open Memory",

@@ -24,8 +24,13 @@ import {
   parseServerFrame,
   type AppContextFrame,
   type ClientFrame,
+  type PerfFrame,
   type ServerFrame,
 } from "@/lib/one-voice/protocol";
+import {
+  PERF_MAX_DURATION_MS,
+  PERF_TURN_ID,
+} from "@/lib/one-voice/performance";
 import {
   base64FromBytes,
   INPUT_SAMPLE_RATE,
@@ -105,6 +110,11 @@ const BACKLOG_RECOVER_BYTES = BACKLOG_DROP_BYTES / 2;
 export const PING_INTERVAL_MS = 20_000;
 export const APP_CONTEXT_COALESCE_MS = 150;
 const DEFAULT_CONNECT_TIMEOUT_MS = 15_000;
+const PERF_METRICS: ReadonlySet<string> = new Set<PerfFrame["metric"]>([
+  "endpointing_client",
+  "audio_receive_to_audible",
+  "capture_callback_to_socket_enqueue",
+]);
 
 const NON_RESUMABLE_CLOSE_CODES = new Set<number>([
   1000, 4001, 4003, 4008, 4030,
@@ -193,6 +203,7 @@ export class OneLiveClient {
   private ws: LiveSocket | null = null;
   private phase: LiveClientPhase = "idle";
   private sessionIdValue: string | null = null;
+  private clientPerfSupported = false;
   private connectPromise: Promise<void> | null = null;
   private closeReported = false;
   /** Rejects a connect() that is still pending when the socket goes away. */
@@ -379,6 +390,7 @@ export class OneLiveClient {
         if (frame.type === "session.ready" && this.phase !== "ready") {
           this.phase = "ready";
           this.sessionIdValue = frame.session_id;
+          this.clientPerfSupported = frame.client_perf === true;
           this.options.onFrame(frame);
           this.startPing();
           this.flushOnsetBuffer();
@@ -623,6 +635,15 @@ export class OneLiveClient {
     });
   }
 
+  /** Report that a review card's Send finished; the relay reads the outcome itself. */
+  mailDeliveryResult(deliveryRef: string, actionId: string): boolean {
+    return this.sendControl({
+      type: "mail_delivery.result",
+      delivery_ref: deliveryRef,
+      action_id: actionId,
+    });
+  }
+
   uiSettled(
     directiveId: string,
     status: "opened" | "failed" | "ignored",
@@ -636,6 +657,27 @@ export class OneLiveClient {
 
   interrupt(): boolean {
     return this.sendControl({ type: "interrupt" });
+  }
+
+  /** Send only bounded timings; invalid or untrusted turn IDs stay off wire. */
+  sendPerf(
+    metric: PerfFrame["metric"],
+    durationMs: number,
+    turnId?: string,
+  ): boolean {
+    if (
+      !this.clientPerfSupported ||
+      !PERF_METRICS.has(metric) ||
+      !Number.isInteger(durationMs) ||
+      durationMs < 0 ||
+      durationMs > PERF_MAX_DURATION_MS
+    ) return false;
+    return this.sendControl({
+      type: "perf",
+      metric,
+      duration_ms: durationMs,
+      ...(turnId && PERF_TURN_ID.test(turnId) ? { turn_id: turnId } : {}),
+    });
   }
 
   /** Control frames ignore the audio backlog guard: a confirm must land. */

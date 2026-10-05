@@ -109,6 +109,49 @@
     },
     {"action_id": "route.one_location", "label": "Open Location", "meaning": "Navigates to the One Location route.", "aliases": ["open location", "go to location", "show location"], "search_keywords": ["location", "live sharing", "local context"], "reachability": {"routes": ["/one/location"], "screens": ["one_location"], "hidden_navigable": false, "navigation_prerequisites": []}, "guard_ids": [], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": {"status": "wired", "path": "route", "target": "/one/location"}, "control_ids": ["top_agent_section_location"], "state_exposure": [], "docs_references": ["docs/reference/one/one-voice-runtime-architecture.md"], "speaker_persona": "one", "command": {"domain": "location", "review_route": "/one/location"}},
     {
+      "action_id": "route.one_pkm_location_home",
+      "label": "Open Memory",
+      "meaning": "Returns from Location memory to the Memory home.",
+      "aliases": [
+        "open memory",
+        "memory home",
+        "return to memory"
+      ],
+      "search_keywords": [
+        "personal data",
+        "saved knowledge",
+        "memory"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/pkm/location",
+          "/one/pkm/location/detail"
+        ],
+        "screens": [
+          "pkm_location",
+          "pkm_location_detail"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/pkm"
+      },
+      "control_ids": [
+        "top_agent_section_pkm"
+      ],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.one_pkm",
       "label": "Open Memory",
       "meaning": "Navigates to the One Memory route.",

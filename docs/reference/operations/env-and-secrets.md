@@ -376,6 +376,7 @@ Used by:
 | `SYNC_REMOTE_ENABLED` | deploy env (`deploy/backend.cloudbuild.yaml`) | No | Legacy deploy flag; currently not read by backend code |
 | `DEVELOPER_API_ENABLED` | `server.py`, `mcp_modules/config.py`, `api/developer_auth.py` | No | Enabled in both UAT and production; sourced from `BACKEND_RUNTIME_CONFIG_JSON`'s `developer_api_enabled` key via `hydrate_runtime_environment()`, not a literal Cloud Run env var |
 | `HUSSH_TECH_CLIENT_ENABLED` | `hushh_mcp/services/hushh_tech_client_service.py` | No | UAT-only cohort switch from `BACKEND_RUNTIME_CONFIG_JSON`; production is hard-disabled in code |
+| `ONE_VOICE_MAIL_REPLY_ENABLED` | `hushh_mcp/one_voice/config.py`, `api/routes/one/gmail_delivery.py` | No | One Voice reply-in-thread (`reply_mail` and the HTTP send of a reply card). Off unless set; `deploy-uat.yml` passes `--one-voice-mail-reply-enabled` (`vars.ONE_VOICE_MAIL_REPLY_ENABLED_UAT`, default `true`) and production passes `false`, so it arrives through `BACKEND_RUNTIME_CONFIG_JSON`'s `one_voice_mail_reply_enabled` key, not a literal Cloud Run env var |
 | `HUSSH_TECH_DEVELOPER_APP_ID` | `api/routes/hushh_tech.py` | No | Exact UAT product registration id from `BACKEND_RUNTIME_CONFIG_JSON` |
 | `HUSSH_TECH_ALLOWED_AUDIENCE` | `hushh_mcp/services/hushh_tech_client_service.py` | No | Exact UAT product audience from `BACKEND_RUNTIME_CONFIG_JSON` |
 | `HUSSH_TECH_ALLOWED_REDIRECT_URIS` | `hushh_mcp/services/hushh_tech_client_service.py` | No | Exact UAT HTTPS callback allowlist from `BACKEND_RUNTIME_CONFIG_JSON` |

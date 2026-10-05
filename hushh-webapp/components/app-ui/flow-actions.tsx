@@ -12,6 +12,8 @@ type FlowActionGroupProps = {
   className?: string;
   /** Keep actions stacked at every width for narrow sheets and cards. */
   stacked?: boolean;
+  /** Keep the phone-stack divider before the secondary action. */
+  separateSecondary?: boolean;
   /** Caps final flow actions to a readable decision width. */
   measure?: "full" | "decision";
   "data-testid"?: string;
@@ -30,6 +32,7 @@ export function FlowActionGroup({
   tertiary,
   className,
   stacked = false,
+  separateSecondary = true,
   measure = "full",
   "data-testid": testId,
 }: FlowActionGroupProps) {
@@ -63,7 +66,8 @@ export function FlowActionGroup({
           <div
             data-action-priority="secondary"
             className={cn(
-              "w-full order-2 border-t border-border/60 pt-2",
+              "w-full order-2",
+              separateSecondary && "border-t border-border/60 pt-2",
               !stacked && "sm:border-t-0 sm:pt-0 sm:w-auto sm:order-1",
               "[&>*]:w-full",
             )}

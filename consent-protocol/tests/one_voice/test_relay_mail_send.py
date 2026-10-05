@@ -258,3 +258,81 @@ async def test_stale_ack_settles_its_own_card_without_replaying_client_payload(d
     assert transport.frames("pending_action.resolved")[-1]["pending_action_id"] == row_id
     assert live.events_sent == prior_events
     assert marker not in "".join(live.events_sent)
+
+
+@pytest.mark.asyncio
+async def test_an_unrecordable_mounted_report_is_unverified_never_opened(
+    draft_session, monkeypatch
+):
+    """Storage cannot record the mount: no draft_opened, no "sent", no new
+    draft and no silence -- the person hears the state could not be verified,
+    the card reads "may be open", and the session keeps running."""
+    from hushh_mcp.one_voice.pending_actions import PendingActionStorageError
+
+    session, transport, live, pending, row_id, step, _now = draft_session
+
+    async def unavailable(**_kwargs):
+        raise PendingActionStorageError("Voice storage is temporarily unavailable.")
+
+    monkeypatch.setattr(pending, "settle_mail_draft_step", unavailable)
+    await session._client_step_result(
+        protocol.ClientStepResultFrame(
+            type="client_step.result",
+            step_id=step["step_id"],
+            status="ok",
+            payload={"mounted": True},
+        )
+    )
+
+    resolved = transport.frames("pending_action.resolved")[-1]
+    assert resolved["pending_action_id"] == row_id
+    assert resolved["result_public"] == {
+        "status": "draft_open_unconfirmed",
+        "needs": None,
+        "reason_code": "storage_unavailable",
+    }
+    assert _events(live)[-1] == {
+        "kind": "client_step",
+        "step": "open_mail_draft",
+        "status": "failed",
+        "reason_code": "storage_unavailable",
+        "spoken_facts": ["I couldn't verify the draft review state just now. Nothing was sent."],
+    }
+    assert not any(event.get("status") == "ok" for event in _events(live))
+    assert session.close_code is None
+    assert len(transport.frames("client_step.request")) == 1, "no second draft"
+    # The ledger row is left for storage's own recovery, never marked opened.
+    assert pending.rows[row_id].result == {"status": "draft_open_requested", "needs": "client_step"}
+
+
+@pytest.mark.asyncio
+async def test_a_draft_row_that_can_no_longer_be_settled_is_reported_unverified(draft_session):
+    """The earlier resolve never landed (or storage already recovered the row):
+    the mounted report proves nothing to the ledger, so it is not silence and
+    not success."""
+    session, transport, live, pending, row_id, step, _now = draft_session
+    pending.rows[row_id].status = "confirmed"
+    pending.rows[row_id].result = None
+    pending.rows[row_id].args["_sealed_args"] = "v1:still-at-rest"
+
+    await session._client_step_result(
+        protocol.ClientStepResultFrame(
+            type="client_step.result",
+            step_id=step["step_id"],
+            status="ok",
+            payload={"mounted": True},
+        )
+    )
+
+    resolved = transport.frames("pending_action.resolved")[-1]
+    assert resolved["result_public"]["status"] == "draft_open_unconfirmed"
+    assert resolved["result_public"]["reason_code"] == "draft_not_settled"
+    assert _events(live)[-1]["status"] == "failed"
+    assert _events(live)[-1]["spoken_facts"] == [
+        "I couldn't verify the draft review state just now. Nothing was sent."
+    ]
+    # The ledger row is closed the way storage's own recovery would close it,
+    # and the sealed dictation does not stay at rest until expiry.
+    assert pending.rows[row_id].status == "failed"
+    assert pending.rows[row_id].result == {"status": "draft_open_unconfirmed", "needs": None}
+    assert "_sealed_args" not in pending.rows[row_id].args
