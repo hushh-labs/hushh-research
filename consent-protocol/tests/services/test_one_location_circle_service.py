@@ -2002,6 +2002,277 @@ def test_member_invite_batch_capacity_failure_writes_nothing() -> None:
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
+_DIRECT_ADD_CIRCLE_ID = "550e8400-e29b-41d4-a716-446655440000"
+
+
+class _RecordingTransaction(_Transaction):
+    """A transaction that records when it ends and what it ended with."""
+
+    def __init__(self, conn: _CapacityConnection, events: list[tuple]) -> None:
+        super().__init__(conn)
+        self.events = events
+
+    def __exit__(self, exc_type, exc, traceback):
+        self.events.append(("exit", exc_type))
+        return False
+
+
+def _direct_add_service(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    chunk_outcomes: list[Exception | None] | None = None,
+) -> tuple[OneLocationCircleService, _CapacityConnection, list[tuple], list[object]]:
+    """`add_direct_connections` with each chunk and the notification submit recorded.
+
+    ``create_member_invites`` is the rule-bearing method and has its own tests;
+    here it is replaced so the chunking, the shared transaction and the single
+    post-commit notification can be observed in order.
+    """
+
+    events: list[tuple] = []
+    conn = _CapacityConnection({"name": "Family"})
+    transactions: list[object] = []
+
+    def begin() -> _RecordingTransaction:
+        transaction = _RecordingTransaction(conn, events)
+        transactions.append(transaction)
+        return transaction
+
+    service = OneLocationCircleService(
+        db=SimpleNamespace(engine=SimpleNamespace(begin=begin)),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    outcomes = list(chunk_outcomes or [])
+
+    def fake_create_member_invites(**kwargs):
+        events.append(("chunk", kwargs))
+        outcome = outcomes.pop(0) if outcomes else None
+        if outcome is not None:
+            raise outcome
+        return {"addedUserIds": list(kwargs["invitee_user_ids"]), "skippedReasons": {}}
+
+    monkeypatch.setattr(service, "create_member_invites", fake_create_member_invites)
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, /, **kwargs: events.append(("submit", callback, kwargs)),
+    )
+    return service, conn, events, transactions
+
+
+def test_adding_all_connections_is_one_transaction_and_one_notification_after_commit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, conn, events, transactions = _direct_add_service(monkeypatch)
+    ids = [f"friend-{index:02d}" for index in range(47)]
+    requested = list(reversed(ids)) + [ids[5]]
+
+    result = service.add_direct_connections(
+        actor_user_id="owner-user",
+        circle_id=_DIRECT_ADD_CIRCLE_ID,
+        user_ids=requested,
+    )
+
+    assert len(transactions) == 1
+    chunks = [event[1] for event in events if event[0] == "chunk"]
+    # Sorted across chunks, so profile locks are always taken in one order.
+    assert [chunk["invitee_user_ids"] for chunk in chunks] == [ids[0:20], ids[20:40], ids[40:47]]
+    assert all(chunk["_connection"] is conn for chunk in chunks)
+    assert all(chunk["_emit_notifications"] is False for chunk in chunks)
+    assert result["addedUserIds"] == ids
+    assert result["skippedReasons"] == {}
+
+    submits = [event for event in events if event[0] == "submit"]
+    assert len(submits) == 1
+    _, callback, kwargs = submits[0]
+    assert callback == service._notify_members_added
+    assert kwargs["added_user_ids"] == tuple(ids)
+    assert kwargs["circle_name"] == "Family"
+    # Nobody is told before the membership is committed.
+    assert [event[0] for event in events][-2:] == ["exit", "submit"]
+    assert events[-2] == ("exit", None)
+
+
+def test_a_chunk_of_existing_members_is_an_answer_and_later_chunks_still_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _conn, events, _transactions = _direct_add_service(
+        monkeypatch,
+        chunk_outcomes=[
+            OneLocationCircleError("LOCATION_CIRCLE_ALREADY_MEMBER", "Already in this Circle."),
+        ],
+    )
+    ids = [f"friend-{index:02d}" for index in range(45)]
+
+    result = service.add_direct_connections(
+        actor_user_id="owner-user",
+        circle_id=_DIRECT_ADD_CIRCLE_ID,
+        user_ids=ids,
+    )
+
+    assert len([event for event in events if event[0] == "chunk"]) == 3
+    assert result["skippedReasons"] == dict.fromkeys(ids[:20], "already_member")
+    assert result["addedUserIds"] == ids[20:]
+    submits = [event for event in events if event[0] == "submit"]
+    assert len(submits) == 1
+    assert submits[0][2]["added_user_ids"] == tuple(ids[20:])
+
+
+def test_any_other_chunk_refusal_rolls_the_whole_list_back_and_tells_nobody(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, conn, events, _transactions = _direct_add_service(
+        monkeypatch,
+        chunk_outcomes=[
+            None,
+            OneLocationCircleError(
+                "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED", "This Circle is full."
+            ),
+        ],
+    )
+    ids = [f"friend-{index:02d}" for index in range(45)]
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.add_direct_connections(
+            actor_user_id="owner-user",
+            circle_id=_DIRECT_ADD_CIRCLE_ID,
+            user_ids=ids,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_INVITE_CAPACITY_REACHED"
+    # The refusal escaped the transaction block, which is what rolls the first
+    # chunk back; nothing after it ran and nobody was notified.
+    assert [event[0] for event in events] == ["chunk", "chunk", "exit"]
+    assert events[-1] == ("exit", OneLocationCircleError)
+    assert conn.sql == []
+
+
+@pytest.mark.parametrize("count", [0, 101])
+def test_adding_all_connections_refuses_an_empty_or_oversized_list_before_the_database(
+    monkeypatch: pytest.MonkeyPatch,
+    count: int,
+) -> None:
+    service, _conn, events, transactions = _direct_add_service(monkeypatch)
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.add_direct_connections(
+            actor_user_id="owner-user",
+            circle_id=_DIRECT_ADD_CIRCLE_ID,
+            user_ids=[f"friend-{index:03d}" for index in range(count)],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_INVITE_BATCH_INVALID"
+    assert transactions == []
+    assert events == []
+
+
+def _planning_service(*responses: list[dict]) -> tuple[OneLocationCircleService, list[dict]]:
+    calls: list[dict] = []
+    scripted = list(responses)
+    service = OneLocationCircleService(
+        db=_TransactionDb(_CapacityConnection()),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    def execute_raw(_sql, params):
+        calls.append(dict(params))
+        return SimpleNamespace(data=scripted.pop(0))
+
+    service._db.execute_raw = execute_raw  # type: ignore[attr-defined]
+    return service, calls
+
+
+def _planned_circle(**overrides) -> dict:
+    return {
+        "id": _DIRECT_ADD_CIRCLE_ID,
+        "name": "Family",
+        "kind": "family",
+        "owner_user_id": "owner-user",
+        "member_limit": 20,
+        "is_system": False,
+        "system_kind": None,
+        "active_member_count": 3,
+        "pending_invite_count": 2,
+        **overrides,
+    }
+
+
+def _planned_connection(user_id: str, **overrides) -> dict:
+    return {
+        "user_id": user_id,
+        "display_name": user_id.title(),
+        "has_profile": True,
+        "membership_status": None,
+        "left_recently": False,
+        "invite_pending": False,
+        "invite_cooldown": False,
+        **overrides,
+    }
+
+
+def test_planning_all_connections_classifies_each_person_the_add_would_meet() -> None:
+    service, calls = _planning_service(
+        [_planned_circle()],
+        [
+            _planned_connection("member", membership_status="active"),
+            _planned_connection("left", membership_status="left", left_recently=True),
+            _planned_connection("pending", invite_pending=True),
+            _planned_connection("cooling", invite_cooldown=True),
+            _planned_connection("unready", has_profile=False),
+            _planned_connection("addable"),
+        ],
+    )
+
+    plan = service.plan_direct_connection_adds(
+        actor_user_id="owner-user",
+        circle_id=_DIRECT_ADD_CIRCLE_ID,
+    )
+
+    assert {row["userId"]: row["status"] for row in plan["connections"]} == {
+        "member": "member",
+        "left": "left_recently",
+        "pending": "invite_pending",
+        "cooling": "invite_cooldown",
+        "unready": "not_ready",
+        "addable": "addable",
+    }
+    assert plan["circle"]["memberLimit"] == 20
+    # Capacity reserved by open invitations counts, exactly as the add counts it.
+    assert plan["circle"]["reservedCount"] == 5
+    assert calls[1]["actor_user_id"] == "owner-user"
+
+
+def test_planning_all_connections_uses_the_sms_circle_ceiling() -> None:
+    service, _calls = _planning_service(
+        [_planned_circle(system_kind="sms", member_limit=100)],
+        [],
+    )
+
+    plan = service.plan_direct_connection_adds(
+        actor_user_id="owner-user",
+        circle_id=_DIRECT_ADD_CIRCLE_ID,
+    )
+
+    assert plan["circle"]["memberLimit"] == 10
+
+
+def test_only_the_owner_can_plan_adding_all_connections() -> None:
+    service, calls = _planning_service(
+        [_planned_circle(owner_user_id="someone-else")],
+        [_planned_connection("addable")],
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.plan_direct_connection_adds(
+            actor_user_id="owner-user",
+            circle_id=_DIRECT_ADD_CIRCLE_ID,
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_OWNER_REQUIRED"
+    # A member who is not the owner never learns who the owner is connected to.
+    assert len(calls) == 1
+
+
 def test_disconnecting_takes_each_person_out_of_shared_circles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

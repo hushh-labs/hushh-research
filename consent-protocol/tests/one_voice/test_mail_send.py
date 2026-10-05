@@ -156,20 +156,50 @@ async def test_pending_row_and_model_receipt_do_not_expose_full_draft(mail_harne
 
 
 @pytest.mark.asyncio
-async def test_identical_dictation_is_a_new_proposal_never_a_reused_card(mail_harness):
-    """Sealed drafts are excluded from the duplicate-proposal guard: two
-    dictations to one recipient compare equal on public args alone."""
+async def test_identical_dictation_reuses_the_waiting_card(mail_harness):
+    """A re-proposal of the very same draft (a misheard yes) answers with the
+    card already waiting instead of replacing it and asking again. The check
+    opens the waiting row's own sealed payload in memory; nothing is stored."""
     ctx, _connections, executor = mail_harness
     await _confirm_ayesha(ctx, executor)
     first = await _pending_draft(ctx, executor)
-    outcome = await executor.call(
+
+    again = await executor.call(
         ctx,
         "send_mail",
         {"recipient": {"user_id": AYESHA}, "subject": "Demo tomorrow", "message": MESSAGE},
     )
-    assert outcome.result.status == "confirmation_required"
-    assert outcome.pending is not None and outcome.pending.id != first.id
-    assert [row.id for row in outcome.superseded] == [first.id]
+
+    assert again.result.status == "confirmation_waiting"
+    assert again.result.pending_action_id == first.id
+    assert again.superseded == [] and again.receipt_token is None
+    rows = await executor.pending.list_open(user_id=OWNER, conversation_id=ctx.conversation_id)
+    assert [row.id for row in rows] == [first.id]
+    # The waiting card's receipt never carries the dictation.
+    assert MESSAGE not in json.dumps(again.result.model_public())
+
+
+@pytest.mark.asyncio
+async def test_a_different_dictation_to_the_same_person_is_a_new_proposal(mail_harness):
+    """Negative control: public args alone cannot tell two dictations apart, so
+    a changed body or subject is a correction that replaces the card."""
+    ctx, _connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    first = await _pending_draft(ctx, executor)
+
+    changed = await executor.call(
+        ctx,
+        "send_mail",
+        {
+            "recipient": {"user_id": AYESHA},
+            "subject": "Demo tomorrow",
+            "message": MESSAGE + " See you there.",
+        },
+    )
+
+    assert changed.result.status == "confirmation_required"
+    assert changed.pending is not None and changed.pending.id != first.id
+    assert [row.id for row in changed.superseded] == [first.id]
 
 
 @pytest.mark.asyncio
@@ -184,7 +214,10 @@ async def test_tampered_pending_recipient_cannot_open_the_sealed_draft(mail_harn
         ctx, "confirm_pending_action", {"pending_action_id": pending.id}
     )
     assert confirmed.result.status == "rejected"
-    assert confirmed.result.reason_code == "execution_failed"
+    # Nothing ran: the sealed draft failed authentication before any handler,
+    # so this is "nothing was sent", not "can't confirm whether anything changed".
+    assert confirmed.result.reason_code == "private_draft_unavailable"
+    assert "Nothing was sent" in confirmed.result.spoken_facts[0]
     assert "client_step" not in confirmed.result.public()
     assert confirmed.pending is not None and confirmed.pending.status == "failed"
 
@@ -306,3 +339,154 @@ async def test_send_mail_rejects_values_the_gmail_draft_cannot_accept(mail_harne
         outcome = await executor.call(ctx, "send_mail", {"recipient": {"user_id": AYESHA}, **args})
         assert outcome.result.reason_code == "invalid_arguments"
         assert outcome.pending is None
+
+
+# -- recipient truth and the shared confirmation rules, for a dictated draft ------------
+
+
+@pytest.mark.asyncio
+async def test_a_recipient_no_longer_connected_is_named_as_such(mail_harness):
+    """Confirmed earlier, disconnected since: that is "not connected", not "no
+    address on file" -- the person acts on the two differently."""
+    ctx, connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    connections.connections = [c for c in connections.connections if c["userId"] != AYESHA]
+
+    outcome = await executor.call(
+        ctx, "send_mail", {"recipient": {"user_id": AYESHA}, "message": MESSAGE}
+    )
+
+    assert outcome.result.status == "rejected"
+    assert outcome.result.reason_code == "recipient_not_connected"
+    assert outcome.pending is None
+
+
+@pytest.mark.asyncio
+async def test_a_connection_without_an_address_drafts_nothing(mail_harness):
+    """Negative control: still connected, just no email -- person_has_no_email."""
+    ctx, _connections, executor = mail_harness
+    found = await executor.call(
+        ctx, "resolve_person", {"spoken_name": "Aisha Khan", "pool": "connections"}
+    )
+    assert AISHA in ctx.entities.offered_person_ids, found.result.status
+    await executor.call(ctx, "confirm_person", {"user_id": AISHA})
+
+    outcome = await executor.call(
+        ctx, "send_mail", {"recipient": {"user_id": AISHA}, "message": MESSAGE}
+    )
+
+    assert (outcome.result.status, outcome.result.reason_code) == (
+        "rejected",
+        "person_has_no_email",
+    )
+    assert outcome.pending is None
+
+
+@pytest.mark.asyncio
+async def test_a_connection_that_ends_after_the_card_never_opens_the_draft(mail_harness):
+    ctx, connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    pending = await _pending_draft(ctx, executor)
+    await executor.pending.mark_shown(user_id=OWNER, pending_action_id=pending.id)
+    connections.connections = [c for c in connections.connections if c["userId"] != AYESHA]
+
+    confirmed = await executor.call(
+        ctx, "confirm_pending_action", {"pending_action_id": pending.id}
+    )
+
+    assert confirmed.result.status == "rejected"
+    assert confirmed.result.reason_code == "recipient_changed"
+    assert "client_step" not in confirmed.result.public()
+
+
+@pytest.mark.asyncio
+async def test_a_person_correction_retires_the_waiting_draft(mail_harness):
+    """ "Yes, but send it to Aisha instead": the new person lookup makes the
+    draft addressed to Ayesha stale, so no yes can still open it."""
+    ctx, _connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    pending = await _pending_draft(ctx, executor)
+    await executor.pending.mark_shown(user_id=OWNER, pending_action_id=pending.id)
+
+    lookup = await executor.call(
+        ctx, "resolve_person", {"spoken_name": "Aisha Khan", "pool": "connections"}
+    )
+
+    assert [row.id for row in lookup.superseded] == [pending.id]
+    late_yes = await executor.call(ctx, "confirm_pending_action", {"pending_action_id": pending.id})
+    assert late_yes.result.status == "not_pending"
+
+
+@pytest.mark.asyncio
+async def test_a_different_action_waits_behind_a_shown_draft_card(mail_harness):
+    """A shown draft is answered before anything else is proposed over it."""
+    ctx, _connections, executor = mail_harness
+    await _confirm_ayesha(ctx, executor)
+    pending = await _pending_draft(ctx, executor)
+    await executor.pending.mark_shown(user_id=OWNER, pending_action_id=pending.id)
+
+    other = await executor.call(ctx, "invite_person", {"person": {"user_id": AYESHA}})
+
+    assert other.result.status == "pending_action_exists"
+    assert other.result.pending_action_id == pending.id
+    rows = await executor.pending.list_open(user_id=OWNER, conversation_id=ctx.conversation_id)
+    assert [row.id for row in rows] == [pending.id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("relationship", ["pending_outgoing", "pending_incoming"])
+async def test_a_pending_request_is_not_a_connection_for_mail(mail_harness, relationship):
+    """A request either way is not a connection, so no draft is prepared even
+    though the person was confirmed."""
+    from hushh_mcp.one_voice.tools.base import ConfirmedPerson, now_iso
+
+    ctx, _connections, executor = mail_harness
+    ctx.entities.remember_person(
+        ConfirmedPerson(
+            user_id=AYESHA,
+            display_name="Ayesha Sharma",
+            relationship=relationship,
+            confirmed_at=now_iso(),
+        )
+    )
+
+    outcome = await executor.call(
+        ctx, "send_mail", {"recipient": {"user_id": AYESHA}, "message": MESSAGE}
+    )
+
+    assert (outcome.result.status, outcome.result.reason_code) == (
+        "rejected",
+        "recipient_not_connected",
+    )
+    assert outcome.pending is None
+
+
+@pytest.mark.asyncio
+async def test_an_unopenable_draft_retires_its_card_instead_of_leaving_it_answerable(
+    mail_harness,
+):
+    """The real store returns a new row from confirm and resolve. Handing back
+    the confirmed row it started from would leave a dead card that still looks
+    answerable; the resolved row retires it."""
+    import dataclasses
+
+    ctx, _connections, executor = mail_harness
+
+    class CopyingStore(MemoryPendingStore):
+        async def confirm(self, **kwargs):
+            return dataclasses.replace(await super().confirm(**kwargs))
+
+        async def resolve(self, **kwargs):
+            row = await super().resolve(**kwargs)
+            return dataclasses.replace(row) if row is not None else None
+
+    executor = ToolExecutor(pending_store=CopyingStore())
+    await _confirm_ayesha(ctx, executor)
+    pending = await _pending_draft(ctx, executor)
+    executor.pending.rows[pending.id].args["_sealed_args"] = "v1:not-a-real-seal"
+    await executor.pending.mark_shown(user_id=OWNER, pending_action_id=pending.id)
+
+    outcome = await executor.call(ctx, "confirm_pending_action", {"pending_action_id": pending.id})
+
+    assert outcome.result.reason_code == "private_draft_unavailable"
+    assert outcome.pending is not None and outcome.pending.status == "failed"

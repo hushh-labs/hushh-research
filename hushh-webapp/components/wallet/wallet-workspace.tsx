@@ -25,6 +25,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -36,9 +37,12 @@ import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
-import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
+import {
+  PageTitle,
+  PageSubtitle,
+  TYPOGRAPHY_CLASSNAMES,
+} from "@/components/app-ui/typography";
 import { Lock, Plus, Search } from "@/components/icons";
-import { WalletAgentIcon } from "@/components/icons/agents";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -116,6 +120,62 @@ function StateMessage({ title, body }: { title: string; body: string }) {
       <p className={TYPOGRAPHY_CLASSNAMES.mediumRowLabel}>{title}</p>
       <p className={TYPOGRAPHY_CLASSNAMES.helperText}>{body}</p>
     </div>
+  );
+}
+
+function WalletEmptyState({ onConnect }: { onConnect: () => void }) {
+  return (
+    <section
+      className="flex w-full flex-col items-center pt-12 text-center lg:pt-6"
+      aria-labelledby="one-wallet-empty-title"
+      data-testid="one-wallet-empty"
+    >
+      <div
+        className="relative aspect-[698/894] w-[min(70vw,19rem)] lg:h-[clamp(10rem,calc(100svh-33rem),19rem)] lg:w-auto"
+        aria-hidden="true"
+        data-testid="one-wallet-empty-art"
+      >
+        <span className="pointer-events-none absolute inset-[9%] rounded-full bg-white/90 blur-3xl dark:bg-white/80" />
+        <span className="pointer-events-none absolute inset-[20%] rounded-full bg-[color:var(--app-accent-surface)] blur-3xl" />
+        <div className="absolute inset-0 overflow-hidden">
+          <Image
+            src="/wallet/wallet-cards-hero.png"
+            alt=""
+            width={1214}
+            height={1295}
+            sizes="(max-width: 434px) 70vw, 304px"
+            className="absolute left-[-38.25%] top-[-22.82%] h-auto w-[173.93%] max-w-none"
+            priority
+          />
+        </div>
+      </div>
+
+      <h2 id="one-wallet-empty-title" className="sr-only">
+        All your cards. In one place.
+      </h2>
+      <PageTitle
+        as="p"
+        aria-hidden="true"
+        className="mt-8 max-w-[20rem] text-balance lg:mt-6 lg:max-w-none lg:whitespace-nowrap"
+        data-testid="one-wallet-empty-display-title"
+      >
+        <span className="block lg:inline">All your cards.</span>{" "}
+        <span className="block lg:inline">In one place.</span>
+      </PageTitle>
+      <PageSubtitle className="mt-4 max-w-[20rem] text-balance lg:mt-3">
+        Cards you add are encrypted on this device and kept in your vault.
+      </PageSubtitle>
+      <div className="mx-auto mt-7 w-full max-w-[244px] lg:mt-5">
+        <Button
+          size="prominent"
+          className="w-full"
+          onClick={onConnect}
+          data-testid="one-wallet-empty-action"
+        >
+          Add a Card
+        </Button>
+      </div>
+    </section>
   );
 }
 
@@ -386,7 +446,11 @@ export function WalletWorkspace() {
     : "";
 
   return (
-    <AppPageShell as="div" width="reading">
+    <AppPageShell
+      as="div"
+      width="reading"
+      fitContent={view.kind === "list" && cards.length === 0}
+    >
       <AppPageHeaderRegion>
         <div className={WALLET_COLUMN}>
           <PageHeader
@@ -397,8 +461,6 @@ export function WalletWorkspace() {
                 Wallet
               </span>
             }
-            description="Encrypted in your vault. Shared only with your consent."
-            descriptionFullWidth
             actionsInlineMobile
             // The slot keeps its 44px height with or without an action, so
             // the header never changes height when the cards arrive.
@@ -480,22 +542,7 @@ export function WalletWorkspace() {
           ) : null}
 
           {view.kind === "list" && cards.length === 0 ? (
-            <div className="flex flex-col items-center gap-6" data-testid="one-wallet-empty">
-              <CardSlot variant="outline">
-                <WalletAgentIcon size={40} aria-hidden="true" />
-              </CardSlot>
-              <StateMessage
-                title="No cards yet"
-                body="Cards you add are encrypted on this device and kept in your vault."
-              />
-              <Button
-                size="prominent"
-                className="w-full"
-                onClick={() => dispatch({ type: "open_add" })}
-              >
-                Add a card
-              </Button>
-            </div>
+            <WalletEmptyState onConnect={() => dispatch({ type: "open_add" })} />
           ) : null}
 
           {showSearch ? (

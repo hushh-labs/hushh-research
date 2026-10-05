@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 272,
+  "expected_migration_version": 273,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -50,6 +50,9 @@
     "circle_chat_recipient_deleted",
     "circle_chat_circle_deleted",
     "circle_photo_erased",
+    "project_agent_outcome_feed",
+    "feed_from_agent_outcome",
+    "feed_from_bulk_share_outcome",
     "pkm_grant_credits",
     "pkm_spend_credits"
   ],

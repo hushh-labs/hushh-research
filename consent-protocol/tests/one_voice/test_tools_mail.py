@@ -228,6 +228,7 @@ async def test_analysis_receipt_exposes_counts_but_never_mail_content(monkeypatc
     [
         ("planning", "couldn't plan"),
         ("retrieval", "couldn't fetch"),
+        ("interpretation", "couldn't finish reading them"),
         ("analysis", "couldn't complete the requested analysis"),
     ],
 )
@@ -348,6 +349,36 @@ async def test_needs_reply_rows_are_counted_as_conversations(monkeypatch):
         ),
     )
     assert "3 conversations" in " ".join(result.spoken_facts)
+
+
+async def test_needs_reply_is_a_filtered_set_never_the_newest(monkeypatch):
+    """The reader reports needs-reply as its own scope. Saying "your 3 newest
+    conversations" would describe a different read than the one that ran."""
+    result = await _call(
+        monkeypatch,
+        _delegated(
+            "ok",
+            [{"source_ref": "mail:1"}],
+            coverage=_coverage(
+                3, unit="threads", operation="list_needs_reply", scope="needs_reply", cited=1
+            ),
+        ),
+    )
+    spoken = " ".join(result.spoken_facts)
+    assert spoken.startswith("I found 3 conversations that may need a reply")
+    assert "newest" not in spoken
+
+
+async def test_one_checked_message_is_spoken_in_the_singular(monkeypatch):
+    result = await _call(
+        monkeypatch,
+        _delegated(
+            "ok",
+            [{"source_ref": "mail:1"}],
+            coverage=_coverage(1, analysis_requested=["action_items"], findings_action_items=0),
+        ),
+    )
+    assert " ".join(result.spoken_facts).startswith("I checked 1 message.")
 
 
 async def test_one_no_longer_claims_the_result_is_on_screen(monkeypatch):

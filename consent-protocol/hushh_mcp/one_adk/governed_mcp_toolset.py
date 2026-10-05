@@ -36,6 +36,7 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.curated_connector_manifest import get_manifest
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
     get_external_connector_credentials_service,
@@ -196,15 +197,20 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
 
 
 def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
-    """The registry row's tool allowlist, if it declares one.
+    """The exact set of tools chat may offer for this connector.
 
-    A declared list is exact (an empty list admits no tools). No list means the
-    operator did not restrict the server's catalog; review still applies.
+    The reviewed manifest decides, never the operator-writable registry row: an
+    edited row can neither widen the list nor free a tool. A connector without a
+    manifest falls back to the row's own list (narrowing only, review still applies).
     """
-    allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
-    if not isinstance(allowed, list):
-        return None
-    names = frozenset(item for item in allowed if isinstance(item, str))
+    manifest = get_manifest(getattr(connector, "connector_id", ""))
+    if manifest is not None:
+        names = frozenset(manifest.tool_allowlist)
+    else:
+        allowed = (getattr(connector, "capability_policy", None) or {}).get("tools")
+        if not isinstance(allowed, list):
+            return None
+        names = frozenset(item for item in allowed if isinstance(item, str))
 
     def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return [item for item in catalog if item.get("name") in names]

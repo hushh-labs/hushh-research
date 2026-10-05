@@ -40,6 +40,7 @@ from urllib.parse import urlencode
 import httpx
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.curated_connector_manifest import get_manifest
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
     ExternalConnectorCredentialsService,
@@ -73,48 +74,22 @@ _REFRESH_POST_TIMEOUT = 12.0
 _FEATURE = "curated_mcp_connectors"
 # The registry is operator-writable and intentionally contains no secrets.
 # It therefore cannot itself decide which process environment variable is
-# safe to put in an OAuth token exchange. Keep each enabled provider's
-# endpoint, scope, and secret-name binding in reviewed application code.
-# Adding a provider is deliberately fail-closed until its pin is reviewed.
-_CURATED_OAUTH_RUNTIME_PINS: dict[str, tuple[str, str, str, tuple[str, ...], str, str]] = {
-    "hubspot": (
-        "https://mcp.hubspot.com/",
-        "https://mcp.hubspot.com/oauth/authorize/user",
-        "https://mcp.hubspot.com/oauth/v3/token",
-        (),
-        "HUBSPOT_OAUTH_CLIENT_ID",
-        "HUBSPOT_OAUTH_CLIENT_SECRET",
-    ),
-}
-
-# Which of a curated provider's tools may run WITHOUT a per-call review card.
-# Reviewed here, in code, not in the operator-writable registry: an edited row
-# must not be able to free a tool. A tool also has to be annotated read-only by
-# the server itself (see mcp_review_outcome); every other tool, including all
-# writes, keeps exact-call review. Adding a provider or a tool is a reviewed
-# code change, and a provider absent from this table keeps review on every call.
-_CURATED_FREE_READ_TOOLS: dict[str, frozenset[str]] = {
-    "hubspot": frozenset(
-        {
-            "get_user_details",
-            "get_organization_details",
-            "discover_hubspot_schema",
-            "search_crm_objects",
-            "get_crm_objects",
-            "search_properties",
-            "get_properties",
-            "search_owners",
-            "query_crm_data",
-            "tool_guidance",
-        }
-    ),
-}
-
+# safe to put in an OAuth token exchange, nor which tools may skip review.
+# Each provider's endpoint, scope and secret-name pins and its free-read tools
+# live in a reviewed, checked-in manifest (config/curated_connectors/<id>.json,
+# see curated_connector_manifest.py). A provider with no valid manifest is
+# never served, and its tools never skip review.
 logger = logging.getLogger(__name__)
 
 
 def curated_free_read_tools(connector_id: str) -> frozenset[str]:
-    return _CURATED_FREE_READ_TOOLS.get(connector_id, frozenset())
+    """Tools the reviewed manifest lets run WITHOUT a per-call review card.
+
+    A tool must also be annotated read-only by the server itself (see
+    mcp_review_outcome); every other tool, including all writes, keeps
+    exact-call review. No manifest, or none listed, means review on every call."""
+    manifest = get_manifest(connector_id)
+    return manifest.free_read_tools if manifest else frozenset()
 
 
 class CuratedConnectorOAuthError(RuntimeError):
@@ -198,15 +173,20 @@ class ExternalConnectorCuratedOAuth:
 
     async def _configuration(
         self, connector_id: str, connector: ExternalMcpConnectorDefinition | None = None
-    ) -> tuple[ExternalMcpConnectorDefinition, str, str]:
+    ) -> tuple[ExternalMcpConnectorDefinition, str, str | None]:
+        """The live row, its client id, and its client secret (None for a public
+        client, which authenticates with PKCE alone and has no secret to send)."""
         # A caller that just read the live registry row may pass it to save a query.
         if connector is None or connector.connector_id != connector_id:
             connector = await self.registry.get_connector(connector_id)
         if connector is None or not is_curated_oauth_connector(connector):
             raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
-        expected = _CURATED_OAUTH_RUNTIME_PINS.get(connector.connector_id)
+        manifest = get_manifest(connector.connector_id)
+        # Check the raw row before `registered_redirect_uris()` adds the one
+        # development-loopback callback. An operator may not widen callbacks;
+        # only a reviewed manifest environment can seed the shared row.
         if (
-            expected is None
+            manifest is None
             or (
                 connector.mcp_endpoint,
                 connector.oauth_authorize_url,
@@ -215,7 +195,9 @@ class ExternalConnectorCuratedOAuth:
                 connector.oauth_client_id_env,
                 connector.oauth_client_secret_env,
             )
-            != expected
+            != manifest.pin()
+            or tuple(connector.registered_redirect_uris or ())
+            not in manifest.redirect_uris.values()
         ):
             raise CuratedConnectorOAuthError("connector_configuration_invalid", status_code=503)
         # A descriptor is checked on apply, but registry rows can predate that
@@ -233,11 +215,25 @@ class ExternalConnectorCuratedOAuth:
             raise CuratedConnectorOAuthError(
                 "connector_configuration_invalid", status_code=503
             ) from None
-        client_id = getenv(connector.oauth_client_id_env or "", "").strip()
-        client_secret = getenv(connector.oauth_client_secret_env or "", "").strip()
-        if not client_id or not client_secret:
+        client_id = getenv(manifest.client_id_env, "").strip()
+        if not client_id:
+            raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
+        if manifest.is_public_client:
+            # No secret variable is ever read for a public client.
+            return connector, client_id, None
+        client_secret = getenv(manifest.client_secret_env or "", "").strip()
+        if not client_secret:
             raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
         return connector, client_id, client_secret
+
+    @staticmethod
+    def _client_auth(client_id: str, client_secret: str | None) -> dict[str, str]:
+        """Client credentials for a token request: the secret is sent only when
+        the provider has one (never an empty string for a public client)."""
+        return {
+            "client_id": client_id,
+            **({"client_secret": client_secret} if client_secret else {}),
+        }
 
     async def connection_available(self, connector_id: str, *, user_id: str) -> bool:
         """Safe catalog readiness; never reveal OAuth credentials or endpoints."""
@@ -398,9 +394,8 @@ class ExternalConnectorCuratedOAuth:
                 grant_type="authorization_code",
                 code=code,
                 redirect_uri=attempt["redirect_uri"],
-                client_id=client_id,
-                client_secret=client_secret,
                 code_verifier=proof["verifier"],
+                **self._client_auth(client_id, client_secret),
             ),
         )
         credential = self._token_fields(token)
@@ -502,8 +497,7 @@ class ExternalConnectorCuratedOAuth:
                 data=dict(
                     grant_type="refresh_token",
                     refresh_token=credential["refreshToken"],
-                    client_id=client_id,
-                    client_secret=client_secret,
+                    **self._client_auth(client_id, client_secret),
                 ),
                 timeout_seconds=_REFRESH_POST_TIMEOUT,
             )

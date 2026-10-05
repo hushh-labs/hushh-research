@@ -1217,7 +1217,17 @@ describe("named Circle flows", () => {
     fireEvent.click(
       await screen.findByRole("button", { name: /Invite code/i }),
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Create code" }));
+    const createCode = await screen.findByRole("button", {
+      name: "Create code",
+    });
+    const cancel = screen.getByRole("button", { name: "Cancel" });
+    const secondaryAction = cancel.closest(
+      '[data-action-priority="secondary"]',
+    );
+    expect(secondaryAction).toBeTruthy();
+    expect(secondaryAction).not.toHaveClass("border-t");
+    expect(secondaryAction).not.toHaveClass("pt-2");
+    fireEvent.click(createCode);
     await waitFor(() =>
       expect(onGenerateCode).toHaveBeenCalledWith("circle-1", true),
     );

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 from datetime import datetime, timezone
 from unittest.mock import AsyncMock
 
@@ -223,6 +225,8 @@ async def test_analysis_preserves_combined_categories_date_scope_and_exact_sourc
     }
     assert result["offer"]["message_ids"] == ["mail-id-1", "mail-id-2", "mail-id-3"]
     assert "Please upload your address proof" not in json.dumps(result["structured"])
+    # A meeting found in Mail is not a Calendar check; the answer must say so.
+    assert "These are findings from Mail, not a check of your Calendar." in result["response"]
 
 
 async def test_analysis_keeps_successful_category_when_another_category_fails():
@@ -602,6 +606,52 @@ def test_mail_analyzer_schema_builds_as_a_toolless_manifest_gene():
     assert agent.disallow_transfer_to_parent and agent.disallow_transfer_to_peers
     assert "untrusted" in agent.instruction.lower()
     assert agent.output_schema is MailAnalysisAnswer
+
+
+@pytest.mark.parametrize(
+    ("plan", "stages"),
+    [
+        ({"operation": "read_message", "limit": 2}, ["plan", "fetch", "interpret"]),
+        (
+            {"operation": "analyze_mail", "categories": ["action_items"]},
+            ["plan", "fetch", "analyze"],
+        ),
+    ],
+)
+async def test_mail_latency_logs_bounded_stage_timings_and_no_mail_content(caplog, plan, stages):
+    async def gene(**kwargs):
+        if kwargs["gene_id"] == "agent_email_read_planner":
+            return plan
+        if kwargs["gene_id"] == "agent_email_read_analyzer":
+            return {"findings": []}
+        return {
+            "answer": "Priya needs the deck.",
+            "source_refs": ["mail:1"],
+            "item_summaries": [{"source_ref": "mail:1", "gist": "Priya wants the Q3 deck."}],
+        }
+
+    caplog.set_level(logging.INFO)
+    result = await _run(_body_reader(2), gene)
+    assert result["structured"]["status"] == "ok"
+
+    timings = [
+        re.fullmatch(r"one_voice\.mail\.latency stage=(\w+) ms=(\d+) status=(\w+)", line)
+        for line in (record.getMessage() for record in caplog.records)
+        if line.startswith("one_voice.mail.latency")
+    ]
+    assert all(timings), "a latency line carried more than stage, integer ms and status"
+    assert [(match[1], match[3]) for match in timings] == [(stage, "ok") for stage in stages]
+    # The content check is the negative control: subject, sender, body, the
+    # request and the answer from this fixture must appear in no log record.
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    for private in (
+        "Subject 1",
+        "Priya",
+        "Body text for message",
+        "find my invoices",
+        "Q3 deck",
+    ):
+        assert private not in logged
 
 
 async def test_model_exception_never_logs_or_returns_private_prompt(caplog):

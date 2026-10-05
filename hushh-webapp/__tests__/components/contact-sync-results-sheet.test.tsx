@@ -52,6 +52,34 @@ function result(
 }
 
 describe("ContactSyncResultsSheet", () => {
+  it("uses the Location onboarding measure for its decision CTAs", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result()}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const proceed = screen.getByRole("link", {
+      name: "Proceed to connections",
+    });
+    const invite = screen.getByRole("button", { name: "Invite contacts" });
+    for (const action of [proceed, invite]) {
+      expect(action).toHaveClass(
+        "h-[50px]",
+        "min-h-[50px]",
+        "w-full",
+        "max-w-[244px]",
+      );
+    }
+    expect(proceed.parentElement).toHaveClass("justify-center");
+  });
+
   it("keeps the launcher inert, traps focus, and still dismisses with Escape", async () => {
     const onOpenChange = vi.fn();
     render(

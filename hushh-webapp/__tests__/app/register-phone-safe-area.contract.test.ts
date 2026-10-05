@@ -57,7 +57,8 @@ describe("/register-phone safe-area shell contract", () => {
       "utf8",
     );
 
-    expect(source).toContain("🤫");
+    expect(source).toContain("HushhMark");
+    expect(source).not.toContain("🤫");
     expect(source).not.toContain("one-quiet-emoji.png");
     expect(source).toContain('sendCodeLabel="Continue"');
     expect(source).toContain("primaryActionClassName={styles.primaryAction}");

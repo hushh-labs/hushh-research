@@ -29,7 +29,18 @@ export type SourceBoundEmailReplyAdapter = {
     vaultOwnerToken: string;
     draft: EmailDraft;
     idempotencyKey: string;
+    /** Call right before the send request; see `reportsSendStart`. */
+    onSendRequestStarted?: () => void;
+    /** Report the send action the adapter prepared, for this attempt only. */
+    onPrepared?: (actionId: string) => void;
   }) => Promise<{ outcomeUnknown: boolean }>;
+  /**
+   * The adapter calls `onSendRequestStarted` immediately before its send
+   * request, so a failure while preparing reads as "not sent" and can be
+   * reviewed again. Without it, any failure after the tap is treated as a send
+   * that may have happened.
+   */
+  reportsSendStart?: boolean;
 };
 
 type EmailDraftCardProps = {
@@ -60,6 +71,12 @@ type EmailDraftCardProps = {
   onDraftChange?: (draft: EmailDraft) => void;
   /** Opens the existing connections drawer on Gmail for a never-connected mailbox. */
   onOpenConnections?: (provider: "gmail", trigger: HTMLButtonElement) => void;
+  /**
+   * The send action a Send prepared, reported before the send request with the
+   * attempt it belongs to: by the card for a compose, by the adapter for a
+   * source-bound reply.
+   */
+  onDeliveryPrepared?: (actionId: string, attemptId: string | null) => void;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -77,12 +94,37 @@ function newIdempotencyKey(): string {
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * Refusals the send route makes before it touches the prepared action: the
+ * reply's original email was re-read and refused, or the route was switched
+ * off. Nothing can have been sent, whatever stage the tap had reached.
+ */
+const REFUSED_BEFORE_SEND = new Set([
+  "REPLY_SOURCE_CHANGED",
+  "REPLY_SOURCE_UNAVAILABLE",
+  "REPLY_SOURCE_RETRYABLE",
+  "REPLY_SOURCE_REF_EXPIRED",
+  "REPLY_SOURCE_REF_INVALID",
+  "REPLY_ACCOUNT_CHANGED",
+  "REPLY_TARGET_IS_OWNER",
+  "REPLY_TARGET_AMBIGUOUS",
+  "REPLY_RECIPIENT_INVALID",
+  "REPLY_HEADERS_INVALID",
+  "MAIL_REPLY_UNAVAILABLE",
+  "GMAIL_READ_PERMISSION_REQUIRED",
+  "SOURCE_BOUND_ATTACHMENT_UNSUPPORTED",
+  "SOURCE_BINDING_CONFLICT",
+]);
+
 function deliveryFailure(cause: unknown, sendRequestStarted: boolean): EmailDeliveryError {
   const unknown = () => new EmailDeliveryError(
     "We could not confirm delivery. Check Sent Mail before trying again.",
     502,
     "EMAIL_ACTION_OUTCOME_UNKNOWN",
   );
+  if (cause instanceof EmailDeliveryError && REFUSED_BEFORE_SEND.has(cause.code ?? "")) {
+    return cause;
+  }
   if (cause instanceof EmailDeliveryError) {
     if (sendRequestStarted && (
       cause.code === "EMAIL_ACTION_ALREADY_USED" ||
@@ -113,6 +155,7 @@ export function EmailDraftCard({
   sourceBoundEnvelope = null,
   onDraftChange,
   onOpenConnections,
+  onDeliveryPrepared,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -150,7 +193,11 @@ export function EmailDraftCard({
     onDraftChange?.(draft);
   }, [draft, onDraftChange]);
 
+  // A source-bound reply's recipient is locked, so its picker never renders:
+  // reading the person's connections for it would be a read with no use.
+  const recipientEditable = !sourceBoundReply;
   useEffect(() => {
+    if (!recipientEditable) return;
     let active = true;
     void (async () => {
       try {
@@ -163,7 +210,7 @@ export function EmailDraftCard({
       }
     })();
     return () => { active = false; };
-  }, [getAuth]);
+  }, [getAuth, recipientEditable]);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -390,11 +437,15 @@ export function EmailDraftCard({
         const idempotencyKey = attachmentIdempotencyKeyRef.current ?? newIdempotencyKey();
         const outcome = sourceBoundReply
           ? await (async () => {
-              sendRequestStarted = true;
+              if (!sourceBoundReply.reportsSendStart) sendRequestStarted = true;
               return sourceBoundReply.send({
                 ...auth,
                 draft: reviewedDraft,
                 idempotencyKey,
+                onSendRequestStarted: () => {
+                  sendRequestStarted = true;
+                },
+                onPrepared: (actionId) => onDeliveryPrepared?.(actionId, attemptId),
               });
             })()
           : await (async () => {
@@ -409,6 +460,7 @@ export function EmailDraftCard({
                   500,
                 );
               }
+              onDeliveryPrepared?.(prepared.actionId, attemptId);
               sendRequestStarted = true;
               return EmailDeliveryService.send({
                 ...auth,
@@ -477,9 +529,13 @@ export function EmailDraftCard({
             <Mail className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-sm font-semibold text-foreground">Review Mail Draft</h2>
+            <h2 className="text-sm font-semibold text-foreground">
+              {sourceBoundReply ? "Review reply" : "Review Mail Draft"}
+            </h2>
             <p className="text-xs text-muted-foreground">
-              Verify recipients and content before sending
+              {sourceBoundReply
+                ? "Goes in the original thread when you tap Send reply"
+                : "Verify recipients and content before sending"}
             </p>
           </div>
         </div>

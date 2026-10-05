@@ -22,6 +22,9 @@ import { INPUT_MIME } from "@/lib/one-voice/protocol";
 import { VoiceUnavailableError } from "@/lib/one-voice/ticket";
 
 const CONVERSATION_ID = "0f4d8f2e-7c3a-4b1e-9d2f-5a6b7c8d9e01";
+/** Shaped as the relay mints and validates them: token_urlsafe(18), a UUID. */
+const DELIVERY_REF = "Zx9_aB-3cD4eF5gH6iJ7kL8m";
+const SEND_ACTION_ID = "3f0c9a52-6b1e-4d8a-9c47-2e5b8f1d0a63";
 const FRAME_BYTES = 682 * 2; // one 2048-sample worklet frame at 48 kHz, downsampled to 16 kHz
 const FRAME_MS = (FRAME_BYTES / 2 / 16000) * 1000;
 
@@ -150,12 +153,15 @@ async function settleTicket(): Promise<void> {
   await Promise.resolve();
 }
 
-async function connectReady(h: Harness): Promise<FakeSocket> {
+async function connectReady(
+  h: Harness,
+  ready: Record<string, unknown> = READY,
+): Promise<FakeSocket> {
   const pending = h.client.connect();
   await settleTicket();
   const socket = h.socket();
   socket.open();
-  socket.receive(READY);
+  socket.receive(ready);
   await pending;
   return socket;
 }
@@ -443,6 +449,30 @@ describe("audio", () => {
 });
 
 describe("control frames", () => {
+  it("sends bounded content-free perf frames and omits unsafe turn ids", async () => {
+    const h = harness();
+    expect(h.client.sendPerf("endpointing_client", 42, "abcdef012345")).toBe(false);
+    const socket = await connectReady(h, { ...READY, client_perf: true });
+    expect(h.client.sendPerf("endpointing_client", 840, "abcdef012345")).toBe(true);
+    expect(h.client.sendPerf("audio_receive_to_audible", 100, "private transcript")).toBe(true);
+    expect(h.client.sendPerf("endpointing_client", -1)).toBe(false);
+    expect(h.client.sendPerf("endpointing_client", 120_001)).toBe(false);
+    expect(h.client.sendPerf("endpointing_client", Number.NaN)).toBe(false);
+    expect(h.client.sendPerf("endpointing_client", 2.5)).toBe(false);
+    expect(h.client.sendPerf("unapproved" as "endpointing_client", 10)).toBe(false);
+    expect(socket.frames().filter((frame) => frame.type === "perf")).toEqual([
+      { type: "perf", metric: "endpointing_client", duration_ms: 840, turn_id: "abcdef012345" },
+      { type: "perf", metric: "audio_receive_to_audible", duration_ms: 100 },
+    ]);
+  });
+
+  it("never sends perf frames to an older relay without explicit capability", async () => {
+    const h = harness();
+    const socket = await connectReady(h); // Old relay omits client_perf.
+    expect(h.client.sendPerf("endpointing_client", 840, "abcdef012345")).toBe(false);
+    expect(socket.frames().filter((frame) => frame.type === "perf")).toEqual([]);
+  });
+
   it("serialises every control frame per the protocol", async () => {
     const h = harness();
     const socket = await connectReady(h);
@@ -465,6 +495,7 @@ describe("control frames", () => {
       true,
     );
     expect(h.client.clientStepResult("step-2", "failed")).toBe(true);
+    expect(h.client.mailDeliveryResult(DELIVERY_REF, SEND_ACTION_ID)).toBe(true);
     expect(h.client.uiSettled("dir-1", "opened")).toBe(true);
     expect(h.client.interrupt()).toBe(true);
     const sent = socket.frames().slice(1);
@@ -489,6 +520,12 @@ describe("control frames", () => {
         payload: { published: 2 },
       },
       { type: "client_step.result", step_id: "step-2", status: "failed" },
+      // No status: the relay re-reads the send itself; a client cannot claim one.
+      {
+        type: "mail_delivery.result",
+        delivery_ref: DELIVERY_REF,
+        action_id: SEND_ACTION_ID,
+      },
       { type: "ui.settled", directive_id: "dir-1", status: "opened" },
       { type: "interrupt" },
     ]);
@@ -502,6 +539,7 @@ describe("control frames", () => {
     socket.open();
     expect(h.client.sendText("hello")).toBe(false);
     expect(h.client.confirm("pa-1", { receiptToken: null })).toBe(false);
+    expect(h.client.mailDeliveryResult(DELIVERY_REF, SEND_ACTION_ID)).toBe(false);
     expect(h.client.interrupt()).toBe(false);
     expect(socket.frames().map((f) => f.type)).toEqual(["auth"]);
     h.client.close("test");

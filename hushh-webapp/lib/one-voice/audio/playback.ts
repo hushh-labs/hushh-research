@@ -53,8 +53,11 @@ export type LivePlaybackSchedulerOptions = {
 type ActiveChunk = {
   node: AudioBufferSourceNode;
   gain: GainNode;
+  turnId: string;
   turnOrder: number;
   startAt: number;
+  /** First nonzero PCM sample on the AudioContext clock; null for silence. */
+  audibleStartAt: number | null;
   endAt: number;
   level: number;
 };
@@ -91,6 +94,8 @@ export class LivePlaybackScheduler {
   private lastLevel = 0;
   private speakingListeners = new Set<(speaking: boolean) => void>();
   private levelListeners = new Set<(level: number) => void>();
+  private playbackStartedListeners = new Set<(turnId: string) => void>();
+  private playbackStartedTurns = new Set<string>();
 
   constructor(options: LivePlaybackSchedulerOptions = {}) {
     this.sampleRate = options.sampleRate ?? OUTPUT_SAMPLE_RATE;
@@ -130,6 +135,16 @@ export class LivePlaybackScheduler {
     return () => {
       this.levelListeners.delete(callback);
     };
+  }
+
+  /**
+   * First nonzero output tick after the running AudioContext reaches a turn's
+   * scheduled start. This estimates audible onset; device output latency is
+   * not exposed by WebAudio and is not included in the measurement.
+   */
+  onPlaybackStarted(callback: (turnId: string) => void): () => void {
+    this.playbackStartedListeners.add(callback);
+    return () => this.playbackStartedListeners.delete(callback);
   }
 
   /** The order index of a turn (assigned on first sight). */
@@ -176,14 +191,19 @@ export class LivePlaybackScheduler {
       gain.gain.linearRampToValueAtTime(1, startAt + this.fadeSeconds);
     }
     const duration = samples.length / this.sampleRate;
+    const firstSignalSample = samples.findIndex((sample) => sample !== 0);
     node.start(startAt);
     this.playheadTime = startAt + duration;
 
     const chunk: ActiveChunk = {
       node,
       gain,
+      turnId,
       turnOrder: order,
       startAt,
+      audibleStartAt: firstSignalSample < 0
+        ? null
+        : startAt + firstSignalSample / this.sampleRate,
       endAt: startAt + duration,
       level: Math.min(1, rms(samples) * 2.5),
     };
@@ -234,6 +254,8 @@ export class LivePlaybackScheduler {
     this.context = null;
     this.speakingListeners.clear();
     this.levelListeners.clear();
+    this.playbackStartedListeners.clear();
+    this.playbackStartedTurns.clear();
   }
 
   // -- internals -------------------------------------------------------------
@@ -296,7 +318,7 @@ export class LivePlaybackScheduler {
 
   private tickLevel(): void {
     const context = this.context;
-    if (!context || this.active.size === 0) {
+    if (!context || context.state !== "running" || this.active.size === 0) {
       this.emitLevel(0);
       return;
     }
@@ -304,7 +326,20 @@ export class LivePlaybackScheduler {
     let level = 0;
     for (const chunk of this.active) {
       if (now >= chunk.startAt && now < chunk.endAt) {
-        level = chunk.level;
+        // Whole-chunk RMS can be nonzero even while leading silence is still
+        // rendering. Use the first signal sample for onset and meter timing.
+        level = chunk.audibleStartAt !== null && now >= chunk.audibleStartAt
+          ? chunk.level
+          : 0;
+        if (level > 0 && !this.playbackStartedTurns.has(chunk.turnId)) {
+          this.playbackStartedTurns.add(chunk.turnId);
+          if (this.playbackStartedTurns.size > 128) {
+            const oldest = this.playbackStartedTurns.values().next().value;
+            if (oldest) this.playbackStartedTurns.delete(oldest);
+          }
+          for (const listener of this.playbackStartedListeners)
+            listener(chunk.turnId);
+        }
         break;
       }
     }

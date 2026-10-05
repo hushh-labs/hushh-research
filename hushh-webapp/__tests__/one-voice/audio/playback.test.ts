@@ -113,6 +113,65 @@ afterEach(() => {
 });
 
 describe("LivePlaybackScheduler", () => {
+  it("reports onset only after the running audio clock reaches nonzero output", () => {
+    vi.useFakeTimers();
+    const { context, scheduler: s } = scheduler();
+    const started: string[] = [];
+    s.onPlaybackStarted((turnId) => started.push(turnId));
+    s.enqueue(chunk(2400, 0.4), "turn-a");
+    expect(started).toEqual([]); // enqueue and speaking=true are too early.
+    context.currentTime = 0.05;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual([]);
+    context.state = "suspended";
+    context.currentTime = 0.1;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual([]);
+    context.state = "running";
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual(["turn-a"]);
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual(["turn-a"]);
+    s.close();
+  });
+
+  it("waits past silent PCM before reporting playback onset", () => {
+    vi.useFakeTimers();
+    const { context, scheduler: s } = scheduler();
+    const started: string[] = [];
+    s.onPlaybackStarted((turnId) => started.push(turnId));
+    s.enqueue(chunk(2400, 0), "turn-a");
+    context.currentTime = 0.1;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual([]);
+    s.enqueue(chunk(2400, 0.4), "turn-a");
+    context.currentTime = 0.2;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual(["turn-a"]);
+    s.close();
+  });
+
+  it("does not mistake whole-chunk RMS for onset during leading silence", () => {
+    vi.useFakeTimers();
+    const { context, scheduler: s } = scheduler();
+    const started: string[] = [];
+    const levels: number[] = [];
+    s.onPlaybackStarted((turnId) => started.push(turnId));
+    s.onOutputLevel((level) => levels.push(level));
+    const samples = new Float32Array(2400);
+    samples.fill(0.4, 1200); // First signal is 50 ms into the chunk.
+    s.enqueue(floatToPcm16(samples), "turn-a"); // Starts at 80 ms; signal at 130 ms.
+    context.currentTime = 0.1;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual([]);
+    expect(levels).toEqual([]);
+    context.currentTime = 0.15;
+    vi.advanceTimersByTime(50);
+    expect(started).toEqual(["turn-a"]);
+    expect(levels.at(-1)).toBeGreaterThan(0);
+    s.close();
+  });
+
   it("starts the first chunk 80 ms ahead of the clock with a 6 ms fade-in", () => {
     const { context, scheduler: s } = scheduler();
     context.currentTime = 1;
