@@ -7,7 +7,12 @@ on `main`, UAT or production. Agent release `2026.10-dev.6` (image
 identity, file bytes, encrypted sessions, memory, PKM summary and the sealed AI
 selection all survived the update and a restart, with no tested plaintext marker in
 the encrypted artifacts. This proves isolated compatibility, not a live
-installation. Inherits `private-agent-north-star.md` by pointer;
+installation. Agent release `2026.10-dev.7` (image `sha256:ace34069…f14a`, source `060ece8c0`:
+working tool turns on the person's Azure OpenAI model and on Puppy One) was
+qualified the same way from `sha256:3a7bb679…feb4c` by recovery build
+`c11ba209-4c41-43d1-a550-e84c6e57e1a0` on 2026-10-05: all four steps passed and the
+sealed AI selection was recovered. The rehearsal uses the local object store,
+so it proves format compatibility, not Azure Blob storage. Inherits `private-agent-north-star.md` by pointer;
 where this page and the north star disagree, the north star wins and this page
 moves.
 

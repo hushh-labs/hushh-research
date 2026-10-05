@@ -15,5 +15,7 @@
       "A model's private reasoning never reaches another provider as something your agent said."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:3a7bb6792bd282596aa43b3ffd86a5bab346c19556a1c43b51b3ac57552feb4c"
+  ]
 }
