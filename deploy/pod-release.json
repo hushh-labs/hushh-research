@@ -1,21 +1,19 @@
 {
-  "version": "2026.10-dev.6",
+  "version": "2026.10-dev.7",
   "channel": "dev",
-  "summary": "Use your own OpenAI or Gemini key on your agent.",
+  "summary": "Tool steps work on your own Azure model.",
   "notes": {
     "improvements": [
-      "Your agent can run on your own OpenAI key, or your own Gemini key, exactly as you chose it in Bring your own AI.",
-      "Your agent tells the app which AI providers it supports, so the app can offer this update when it is needed."
+      "Your agent's tool steps (memory, mail, calendar, files) run on your own Azure OpenAI model, as they do on Gemini."
     ],
     "fixes": [
-      "A key your provider refuses is reported plainly instead of quietly switching to another model."
+      "A tool result that carries a date no longer ends the answer with an error.",
+      "A tool with a long name no longer makes your model refuse the whole turn."
     ],
     "security": [
-      "Your key reaches your agent sealed to its own key and stays in its encrypted log; Hussh never sees it.",
-      "Only your own session can set, read or clear your AI choice."
+      "When an answer must not use tools (a consent decision), your own model is told so too.",
+      "A model's private reasoning never reaches another provider as something your agent said."
     ]
   },
-  "supportedUpgradeDigests": [
-    "sha256:a313b9f7aa12a2e27db290a9e0607d723472c5d39350a008dfb25e90f194126d"
-  ]
+  "supportedUpgradeDigests": []
 }
