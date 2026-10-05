@@ -1,7 +1,13 @@
 # Bring your own AI: the person's own model key on their own agent
 
 **Status:** built on the dev workspace branch (2026-10-04) with unit evidence; not
-on `main`, UAT or production. Inherits `private-agent-north-star.md` by pointer;
+on `main`, UAT or production. Agent release `2026.10-dev.6` (image
+`sha256:3a7bb679…2feb4c`, source `8a8494a73`) was qualified from the installed
+`sha256:a313b9f7…194126d` by recovery build `7a7751ae-4b3a-4165-b885-bdc713d18898`:
+identity, file bytes, encrypted sessions, memory, PKM summary and the sealed AI
+selection all survived the update and a restart, with no tested plaintext marker in
+the encrypted artifacts. This proves isolated compatibility, not a live
+installation. Inherits `private-agent-north-star.md` by pointer;
 where this page and the north star disagree, the north star wins and this page
 moves.
 

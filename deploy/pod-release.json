@@ -15,5 +15,7 @@
       "Only your own session can set, read or clear your AI choice."
     ]
   },
-  "supportedUpgradeDigests": []
+  "supportedUpgradeDigests": [
+    "sha256:a313b9f7aa12a2e27db290a9e0607d723472c5d39350a008dfb25e90f194126d"
+  ]
 }
