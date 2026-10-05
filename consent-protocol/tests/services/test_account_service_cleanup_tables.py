@@ -829,6 +829,9 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["details"]["pwm_documents"] is True
     assert result["details"]["fabric_subscription_grants"] is True
     assert result["details"]["marketplace_access_requests"] is True
+    # A reset keeps vault_keys, so the send ledger's ON DELETE CASCADE never
+    # fires: a scheduled email must be deleted here or it sends after the reset.
+    assert result["details"]["gmail_owner_send_actions"] is True
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
@@ -839,6 +842,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     # Personal data is cleared.
     cleared_fragments = [
         "DELETE FROM kai_gmail_receipts",
+        "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",

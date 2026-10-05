@@ -1,8 +1,14 @@
 """Owner-approved delivery through the canonical Gmail receipts connection.
 
 This service intentionally stores only action metadata and HMACs.  It never
-creates Gmail-native drafts, never persists an email envelope, and never
-accepts a sender address or a caller-provided OAuth token.
+creates Gmail-native drafts, never persists a plaintext email envelope, and
+never accepts a sender address or a caller-provided OAuth token.
+
+The one persisted envelope is a scheduled send's: it must outlive the session
+that approved it, so it is stored as AES-GCM ciphertext bound to its owner and
+action, and is opened only by the send that fires it. Its envelope HMAC is the
+one an immediate send of the same draft would carry, so the existing
+``execute`` verifies it unchanged.
 """
 
 from __future__ import annotations
@@ -28,6 +34,8 @@ from typing import Any
 import httpx
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from cryptography.hazmat.primitives.hashes import SHA256
+from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from db.connection import get_pool
 from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
@@ -45,6 +53,7 @@ from hushh_mcp.services.google_drive_blob_attachment_service import (
     DriveBlobDescriptor,
     GoogleDriveBlobAttachmentService,
 )
+from hushh_mcp.services.owner_time import SCHEDULE_HORIZON_DAYS, SCHEDULE_MIN_LEAD_SECONDS
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +65,21 @@ _MAX_BODY_CHARS = 50_000
 _ACTION_TTL_SECONDS = 10 * 60
 _EMAIL_RE = re.compile(r"^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$")
 _CRLF_RE = re.compile(r"[\r\n]")
+
+# Scheduled sends (migration 275). A due row is sent late by at most this much;
+# past it, the drain expires the row instead of delivering it days late.
+_SCHEDULE_WINDOW = timedelta(hours=24)
+_SCHEDULE_PAYLOAD_INFO = b"gmail-owner-schedule-payload-v1"
+_SCHEDULE_PAYLOAD_PREFIX = "sp1."
+_SCHEDULE_PAYLOAD_KEYS = frozenset({"to", "subject", "body", "recipient_user_id", "sender_sub"})
+_SCHEDULE_SEALED_MAX_CHARS = 256 * 1024
+# v2 adds the sending account to the key material.
+_SCHEDULE_IDEMPOTENCY_PREFIX = "one-voice-schedule-mail-v2"
+_SCHEDULE_DISPLAY_MAX_CHARS = 120
+_SCHEDULED_LIST_MAX = 25
+# A cancel renames its row's idempotency key, so the same email to the same
+# person for the same time can be scheduled again once it was cancelled.
+_SCHEDULE_CANCELLED_KEY_MARK = ":cancelled:"
 
 _EMAIL_AGENT_INTRO_PHRASES = (
     "explain features of the email agent",
@@ -357,6 +381,30 @@ def _safe_attachment_descriptor(
         "revision": descriptor.revision,
         "sha256": descriptor.sha256,
     }
+
+
+def _schedule_payload_fields(payload: Any) -> dict[str, str]:
+    """The exact sealed shape: five string fields and nothing else.
+
+    ``sender_sub`` is the Google account the owner approved the send from. A
+    send fires up to a month later, and only while that account is still the
+    one connected.
+    """
+    if not isinstance(payload, dict) or set(payload) != _SCHEDULE_PAYLOAD_KEYS:
+        raise ValueError("scheduled payload shape is invalid")
+    if any(not isinstance(payload[key], str) for key in _SCHEDULE_PAYLOAD_KEYS):
+        raise ValueError("scheduled payload fields must be text")
+    if not payload["to"].strip() or not payload["recipient_user_id"].strip():
+        raise ValueError("scheduled payload needs a recipient")
+    if not payload["sender_sub"].strip():
+        raise ValueError("scheduled payload needs a sending account")
+    return {key: payload[key] for key in sorted(_SCHEDULE_PAYLOAD_KEYS)}
+
+
+def _schedule_display(value: Any) -> str:
+    """A one-line display label for the owner's scheduled list, never an HMAC input."""
+    text = " ".join(_CRLF_RE.sub(" ", str(value or "")).split())
+    return text[:_SCHEDULE_DISPLAY_MAX_CHARS]
 
 
 class GmailDeliveryService:
@@ -667,11 +715,15 @@ class GmailDeliveryService:
         pool = await get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # Only this path's own immediate confirmations: an armed
+                # scheduled send (send_at set) is expired by the drain alone,
+                # which judges it against its send window.
                 await conn.execute(
                     """
                     UPDATE gmail_owner_send_actions
                     SET state = 'expired', updated_at = NOW()
                     WHERE user_id = $1 AND state = 'prepared' AND expires_at <= NOW()
+                      AND send_at IS NULL
                     """,
                     user_id,
                 )
@@ -817,17 +869,24 @@ class GmailDeliveryService:
                     status_code=409,
                 )
         async with pool.acquire() as conn:
+            # Committed on its own, before the claim: the claim refuses an
+            # expired row by raising inside its transaction, which would roll
+            # this write back with it. Immediate confirmations only: an armed
+            # scheduled send past its window is still refused by the claim
+            # (expires_at > NOW()), and the drain records it as failed, so the
+            # Feed keeps the unsent email.
+            await conn.execute(
+                """
+                UPDATE gmail_owner_send_actions
+                SET state = 'expired', updated_at = NOW()
+                WHERE action_id = $1 AND user_id = $2
+                  AND state = 'prepared' AND expires_at <= NOW()
+                  AND send_at IS NULL
+                """,
+                action_id,
+                user_id,
+            )
             async with conn.transaction():
-                await conn.execute(
-                    """
-                    UPDATE gmail_owner_send_actions
-                    SET state = 'expired', updated_at = NOW()
-                    WHERE action_id = $1 AND user_id = $2
-                      AND state = 'prepared' AND expires_at <= NOW()
-                    """,
-                    action_id,
-                    user_id,
-                )
                 action = await conn.fetchrow(
                     """
                     SELECT action_id, state, expires_at, sent_at, envelope_hmac
@@ -1046,6 +1105,350 @@ class GmailDeliveryService:
                 message_id,
                 thread_id,
             )
+
+    # -- scheduled sends (migration 275) -------------------------------------
+
+    @staticmethod
+    def _schedule_payload_key() -> bytes:
+        secret = get_core_security_settings().app_signing_key
+        if not secret:
+            raise ValueError("scheduled payload key is unavailable")
+        return HKDF(algorithm=SHA256(), length=32, salt=None, info=_SCHEDULE_PAYLOAD_INFO).derive(
+            secret.encode("utf-8")
+        )
+
+    @staticmethod
+    def _schedule_payload_aad(*, user_id: str, action_id: str) -> bytes:
+        if not _text(user_id) or not _text(action_id):
+            raise ValueError("scheduled payload binding is incomplete")
+        return json.dumps(
+            {
+                "purpose": _SCHEDULE_PAYLOAD_INFO.decode("ascii"),
+                "user": user_id,
+                "action": action_id,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+    def seal_schedule_payload(
+        self, *, user_id: str, action_id: str, payload: dict[str, Any]
+    ) -> str:
+        """Seal a scheduled send's envelope for exactly this owner and action.
+
+        The ciphertext opens only with the same ``user_id`` and ``action_id``, so
+        a row copied to another owner, or a payload swapped between two of one
+        owner's rows, fails authentication instead of sending.
+        """
+        fields = _schedule_payload_fields(payload)
+        aad = self._schedule_payload_aad(user_id=user_id, action_id=action_id)
+        nonce = secrets.token_bytes(12)
+        plaintext = json.dumps(fields, separators=(",", ":"), sort_keys=True).encode("utf-8")
+        ciphertext = AESGCM(self._schedule_payload_key()).encrypt(nonce, plaintext, aad)
+        packed = base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii").rstrip("=")
+        return _SCHEDULE_PAYLOAD_PREFIX + packed
+
+    def open_schedule_payload(self, *, user_id: str, action_id: str, sealed: str) -> dict[str, Any]:
+        """Open a sealed scheduled envelope, or raise ``ValueError``.
+
+        Every failure is the same opaque ``ValueError``: the caller fails the
+        send closed and never learns, or logs, what was inside.
+        """
+        try:
+            if (
+                not isinstance(sealed, str)
+                or not sealed.startswith(_SCHEDULE_PAYLOAD_PREFIX)
+                or len(sealed) > _SCHEDULE_SEALED_MAX_CHARS
+            ):
+                raise ValueError("sealed")
+            token = sealed[len(_SCHEDULE_PAYLOAD_PREFIX) :]
+            packed = base64.b64decode(
+                token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
+            )
+            if len(packed) < 12 + 16 + 1:
+                raise ValueError("sealed")
+            plaintext = AESGCM(self._schedule_payload_key()).decrypt(
+                packed[:12],
+                packed[12:],
+                self._schedule_payload_aad(user_id=user_id, action_id=action_id),
+            )
+            return dict(_schedule_payload_fields(json.loads(plaintext)))
+        except (ValueError, TypeError, binascii.Error, InvalidTag):
+            raise ValueError("scheduled payload is unavailable") from None
+
+    @staticmethod
+    def scheduled_draft_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        """The draft a scheduled send hashes at confirmation and sends when due.
+
+        The single source of truth for both ends: confirmation computes the
+        envelope HMAC over this draft exactly as ``prepare`` would for an
+        immediate send, and the drain passes this same dict to ``execute``.
+        """
+        return {
+            "to": [str(payload.get("to") or "")],
+            "cc": [],
+            "bcc": [],
+            "subject": str(payload.get("subject") or ""),
+            "body": str(payload.get("body") or ""),
+        }
+
+    async def current_sender_sub(self, *, user_id: str) -> str | None:
+        """The Google account id of the Gmail connection that would send now.
+
+        None when no usable connection exists. A scheduled send records this
+        when the owner approves it and fires only while it is unchanged: a
+        reconnect to another Google account must not send the owner's words
+        from an address they never approved.
+        """
+        user_id = _text(user_id)
+        if not user_id:
+            return None
+        row = await asyncio.to_thread(self.gmail_service._fetch_connection_row, user_id=user_id)
+        if not row or row.get("status") != "connected" or row.get("revoked"):
+            return None
+        return _text(row.get("google_sub")) or None
+
+    async def schedule_send(
+        self,
+        *,
+        user_id: str,
+        payload: dict[str, Any],
+        send_at: datetime,
+        recipient_display: str,
+    ) -> dict[str, Any]:
+        """Store one confirmed send to fire at ``send_at``, idempotently.
+
+        ``payload`` carries the sealed fields (to, subject, body,
+        recipient_user_id, sender_sub). The row stores only ciphertext, HMACs
+        and two display labels; the envelope HMAC is the one ``prepare``
+        computes for an immediate send of the same draft, so ``execute``
+        verifies it unchanged. The time, the recipient and the sending account
+        live in the idempotency key instead (HMAC'd, so the account id is never
+        stored in the clear): the same draft to the same person at the same
+        time from the same account is one row, whichever conversation confirmed
+        it, and a re-approval after reconnecting another account is a new one.
+
+        Returns ``{"action_id", "state", "send_at", "created"}``. A second
+        call for the same send returns the existing row with ``created`` False.
+        The insert commits before this returns.
+        """
+        user_id = _text(user_id)
+        if not user_id:
+            raise GmailDeliveryError(
+                "OWNER_AUTHORITY_REQUIRED",
+                "Scheduling requires the current vault owner's authorization.",
+                status_code=403,
+            )
+        if not isinstance(send_at, datetime) or send_at.tzinfo is None:
+            raise GmailDeliveryError("INVALID_SEND_AT", "Choose a valid send time.")
+        send_at = send_at.astimezone(timezone.utc)
+        # The voice tool validated this time already; the ledger does not rely
+        # on that. A time the drain could not honour is never stored.
+        now = _utcnow()
+        too_soon = send_at <= now + timedelta(seconds=SCHEDULE_MIN_LEAD_SECONDS)
+        if too_soon or send_at > now + timedelta(days=SCHEDULE_HORIZON_DAYS):
+            raise GmailDeliveryError("INVALID_SEND_AT", "Choose a valid send time.")
+        try:
+            fields = _schedule_payload_fields(payload)
+        except ValueError:
+            raise GmailDeliveryError(
+                "INVALID_SCHEDULED_EMAIL", "Review the scheduled email again."
+            ) from None
+        draft = normalize_draft(self.scheduled_draft_payload(fields))
+        if len(draft.to) != 1 or draft.cc or draft.bcc:
+            raise GmailDeliveryError(
+                "INVALID_RECIPIENTS", "A scheduled email goes to exactly one person."
+            )
+        recipient_user_id = fields["recipient_user_id"]
+        sealed_fields = {
+            "to": draft.to[0],
+            "subject": draft.subject,
+            "body": draft.body,
+            "recipient_user_id": recipient_user_id,
+            "sender_sub": fields["sender_sub"],
+        }
+        # Exactly prepare()'s envelope for this draft: no schedule fields in it.
+        envelope_hmac = self._envelope_hmac(draft)
+        idempotency_hmac = self._idempotency_hmac(
+            ":".join(
+                (
+                    _SCHEDULE_IDEMPOTENCY_PREFIX,
+                    envelope_hmac,
+                    send_at.isoformat(),
+                    recipient_user_id,
+                    fields["sender_sub"],
+                )
+            )
+        )
+        action_id = str(uuid.uuid4())
+        try:
+            payload_sealed = self.seal_schedule_payload(
+                user_id=user_id, action_id=action_id, payload=sealed_fields
+            )
+        except Exception as exc:  # noqa: BLE001 - never persist what could not be sealed
+            logger.warning("gmail.schedule.seal_failed error=%s", type(exc).__name__)
+            raise GmailDeliveryError(
+                "SCHEDULE_SEAL_FAILED",
+                "The scheduled email could not be secured.",
+                status_code=500,
+            ) from None
+        select_existing = """
+            SELECT action_id, state, send_at, envelope_hmac
+            FROM gmail_owner_send_actions
+            WHERE user_id = $1 AND idempotency_hmac = $2
+            FOR UPDATE
+        """
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                existing = await conn.fetchrow(select_existing, user_id, idempotency_hmac)
+                if existing is None:
+                    inserted = await conn.fetchrow(
+                        """
+                        INSERT INTO gmail_owner_send_actions (
+                            action_id, user_id, envelope_hmac, idempotency_hmac,
+                            recipient_count, state, expires_at, send_at,
+                            payload_sealed, recipient_display, subject
+                        ) VALUES ($1, $2, $3, $4, 1, 'scheduled', $5, $6, $7, $8, $9)
+                        ON CONFLICT (user_id, idempotency_hmac) DO NOTHING
+                        RETURNING action_id, state, send_at
+                        """,
+                        action_id,
+                        user_id,
+                        envelope_hmac,
+                        idempotency_hmac,
+                        send_at + _SCHEDULE_WINDOW,
+                        send_at,
+                        payload_sealed,
+                        _schedule_display(recipient_display),
+                        draft.subject,
+                    )
+                    if inserted is not None:
+                        row = dict(inserted)
+                        return {
+                            "action_id": _text(row.get("action_id")),
+                            "state": _text(row.get("state")),
+                            "send_at": row.get("send_at"),
+                            "created": True,
+                        }
+                    # An identical schedule committed between the read and the
+                    # insert; it is this send, so answer with it.
+                    existing = await conn.fetchrow(select_existing, user_id, idempotency_hmac)
+                    if existing is None:
+                        raise GmailDeliveryError(
+                            "SCHEDULE_UNAVAILABLE",
+                            "Scheduling is temporarily unavailable.",
+                            status_code=503,
+                        )
+                row = dict(existing)
+                if not hmac.compare_digest(_text(row.get("envelope_hmac")), envelope_hmac):
+                    raise GmailDeliveryError(
+                        "IDEMPOTENCY_PAYLOAD_MISMATCH",
+                        "This confirmation key belongs to a different draft.",
+                        status_code=409,
+                    )
+                return {
+                    "action_id": _text(row.get("action_id")),
+                    "state": _text(row.get("state")),
+                    "send_at": row.get("send_at"),
+                    "created": False,
+                }
+
+    async def list_scheduled_sends(self, *, user_id: str, limit: int = 10) -> list[dict[str, Any]]:
+        """The owner's sends still waiting, soonest first. Display columns only.
+
+        Never selects ``payload_sealed``: a list is not a reason to open mail.
+        """
+        user_id = _text(user_id)
+        if not user_id:
+            return []
+        # One past the largest page: a caller asking for a page plus one can
+        # tell a full list from a truncated one.
+        bounded = max(1, min(int(limit), _SCHEDULED_LIST_MAX + 1))
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT action_id, recipient_display, subject, send_at, created_at
+                FROM gmail_owner_send_actions
+                WHERE user_id = $1 AND state = 'scheduled'
+                ORDER BY send_at ASC, action_id ASC
+                LIMIT $2
+                """,
+                user_id,
+                bounded,
+            )
+        return [dict(row) for row in rows]
+
+    async def get_scheduled_send(self, *, user_id: str, action_id: str) -> dict[str, Any] | None:
+        """One owner's scheduled action as the ledger has it now, or None."""
+        user_id, action_id = _text(user_id), _text(action_id)
+        if not user_id or not action_id:
+            return None
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT action_id, state, send_at, sent_at, recipient_display
+                FROM gmail_owner_send_actions
+                WHERE action_id = $1 AND user_id = $2 AND send_at IS NOT NULL
+                """,
+                action_id,
+                user_id,
+            )
+        return dict(row) if row is not None else None
+
+    async def cancel_scheduled_send(self, *, user_id: str, action_id: str) -> dict[str, Any]:
+        """Cancel a send that is still waiting; report honestly when it is not.
+
+        A compare-and-set on ``state = 'scheduled'``: the drain arms a due row
+        under the same row lock, so exactly one of a cancel and a send wins.
+        The sealed envelope and the display subject leave with the cancel;
+        nothing can fire it now, and nothing lists it.
+        The same write renames the row's idempotency key (still unique: it ends
+        in the action id), so scheduling the same email for the same time again
+        stores a new send instead of answering with this cancelled one.
+        Returns ``{"cancelled": bool, "state": str | None, "sent_at": ...}``
+        where ``state`` is the row's state after this call (None when absent).
+        """
+        user_id, action_id = _text(user_id), _text(action_id)
+        if not user_id or not action_id:
+            return {"cancelled": False, "state": None, "sent_at": None}
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            flipped = await conn.fetchrow(
+                """
+                UPDATE gmail_owner_send_actions
+                SET state = 'cancelled',
+                    payload_sealed = NULL,
+                    subject = NULL,
+                    idempotency_hmac = idempotency_hmac || $3 || action_id,
+                    updated_at = NOW()
+                WHERE action_id = $1 AND user_id = $2 AND state = 'scheduled'
+                RETURNING action_id, state, sent_at
+                """,
+                action_id,
+                user_id,
+                _SCHEDULE_CANCELLED_KEY_MARK,
+            )
+            if flipped is not None:
+                return {"cancelled": True, "state": "cancelled", "sent_at": None}
+            current = await conn.fetchrow(
+                """
+                SELECT state, sent_at FROM gmail_owner_send_actions
+                WHERE action_id = $1 AND user_id = $2 AND send_at IS NOT NULL
+                """,
+                action_id,
+                user_id,
+            )
+        if current is None:
+            return {"cancelled": False, "state": None, "sent_at": None}
+        row = dict(current)
+        return {
+            "cancelled": False,
+            "state": _text(row.get("state")) or None,
+            "sent_at": row.get("sent_at"),
+        }
 
 
 async def get_owner_send_action(*, user_id: str, action_id: str) -> dict[str, Any] | None:

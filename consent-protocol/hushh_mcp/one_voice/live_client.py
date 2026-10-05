@@ -192,14 +192,9 @@ def translate_message(message: Any) -> list[LiveEvent]:
             )
         )
     if content is not None:
-        turn = getattr(content, "model_turn", None)
-        for part in getattr(turn, "parts", None) or []:
-            inline = getattr(part, "inline_data", None)
-            data = getattr(inline, "data", None) if inline is not None else None
-            if data:
-                events.append(
-                    LiveEvent(kind="audio", audio_b64=base64.b64encode(data).decode("ascii"))
-                )
+        # The person's words come before Live's reply to them. Within one message
+        # the relay must see the input first, or the reply's opening audio is
+        # attributed to whatever turn was current before the person spoke.
         transcription = getattr(content, "input_transcription", None)
         if transcription is not None and getattr(transcription, "text", None):
             events.append(
@@ -209,6 +204,14 @@ def translate_message(message: Any) -> list[LiveEvent]:
                     finished=bool(getattr(transcription, "finished", False)),
                 )
             )
+        turn = getattr(content, "model_turn", None)
+        for part in getattr(turn, "parts", None) or []:
+            inline = getattr(part, "inline_data", None)
+            data = getattr(inline, "data", None) if inline is not None else None
+            if data:
+                events.append(
+                    LiveEvent(kind="audio", audio_b64=base64.b64encode(data).decode("ascii"))
+                )
         transcription = getattr(content, "output_transcription", None)
         if transcription is not None and getattr(transcription, "text", None):
             events.append(

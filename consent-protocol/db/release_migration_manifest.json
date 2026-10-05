@@ -240,7 +240,8 @@
     "266_circle_chat_presentation.sql",
     "267_gmail_receipt_cache_read_only_cutover.sql",
     "268_direct_message_feed_projection.sql",
-    "269_feed_agent_outcomes.sql"
+    "269_feed_agent_outcomes.sql",
+    "275_scheduled_mail_send.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -393,7 +394,8 @@
       "255_account_legal_acceptances.sql",
       "257_one_chat_onboarding_state.sql",
       "258_one_attention_ledger.sql",
-      "260_consent_outcome_delivery.sql"
+      "260_consent_outcome_delivery.sql",
+      "275_scheduled_mail_send.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -499,6 +501,7 @@
     "266_circle_chat_presentation.sql": "rollback/266_circle_chat_presentation.rollback.sql",
     "267_gmail_receipt_cache_read_only_cutover.sql": "rollback/267_gmail_receipt_cache_read_only_cutover.rollback.sql",
     "268_direct_message_feed_projection.sql": "rollback/268_direct_message_feed_projection.rollback.sql",
-    "269_feed_agent_outcomes.sql": "rollback/269_feed_agent_outcomes.rollback.sql"
+    "269_feed_agent_outcomes.sql": "rollback/269_feed_agent_outcomes.rollback.sql",
+    "275_scheduled_mail_send.sql": "rollback/275_scheduled_mail_send.rollback.sql"
   }
 }

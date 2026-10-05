@@ -212,6 +212,9 @@ class AccountService:
             "kai_gmail_connections": text(
                 "DELETE FROM kai_gmail_connections WHERE user_id = :user_id"
             ),
+            "gmail_owner_send_actions": text(
+                "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id"
+            ),
             "kai_gmail_receipts": text("DELETE FROM kai_gmail_receipts WHERE user_id = :user_id"),
             "kai_gmail_sync_runs": text("DELETE FROM kai_gmail_sync_runs WHERE user_id = :user_id"),
             "one_kyc_workflows": text("DELETE FROM one_kyc_workflows WHERE user_id = :user_id"),
@@ -1382,6 +1385,9 @@ class AccountService:
                 # Retired intake still has historical mail records to erase.
                 "one_kyc_workflows",
                 "kai_gmail_connections",
+                # Sends ride vault_keys' ON DELETE CASCADE on a full deletion, but
+                # a reset keeps vault_keys: a scheduled send must not outlive it.
+                "gmail_owner_send_actions",
                 "kai_receipt_memory_artifacts",
                 "kai_analyze_runs",
                 "kai_run_state",

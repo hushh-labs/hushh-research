@@ -21,12 +21,15 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import unquote
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft7Validator, Draft202012Validator
 from jsonschema.exceptions import SchemaError
+from referencing import Registry
 
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
 
@@ -96,6 +99,180 @@ def _http_status_from_error(error: BaseException, *, _seen: set[int] | None = No
     return None
 
 
+def _error_types(error: BaseException, *, _seen: set[int] | None = None, _depth: int = 0) -> str:
+    """Exception class names only, so a flattened failure can be told apart in logs.
+
+    Never the message, arguments or traceback: those can carry authorization
+    headers, URLs and returned document text. A class name cannot.
+    """
+    seen = _seen if _seen is not None else set()
+    if id(error) in seen or _depth > 4:
+        return ""
+    seen.add(id(error))
+    names = [type(error).__name__]
+    children = list(getattr(error, "exceptions", None) or ())
+    for link in (error.__cause__, error.__context__):
+        if isinstance(link, BaseException):
+            children.append(link)
+    for child in children[:4]:
+        if isinstance(child, BaseException) and (
+            nested := _error_types(child, _seen=seen, _depth=_depth + 1)
+        ):
+            names.append(nested)
+    return "<".join(names)
+
+
+def _external_error_in(error: BaseException) -> ExternalMcpError | None:
+    """The connector error a task group wrapped, if that is all it contained.
+
+    The streamable-HTTP transport runs in an anyio task group, so an
+    ExternalMcpError raised while the connection is open (an unsupported tool
+    schema, say) leaves it wrapped in one or more ExceptionGroups. Without this
+    it falls through to the generic handler and is reported as "could not
+    reach the connector", hiding a specific, actionable reason. Only a group whose
+    every leaf is a connector error is unwrapped; a mixed group is a real failure.
+    """
+    leaves: list[BaseException] = []
+
+    def collect(node: BaseException, depth: int = 0) -> None:
+        # Only a real exception group is descended into; any other exception is a
+        # leaf however it is shaped, so a genuine failure beside a connector error
+        # is never dropped.
+        if isinstance(node, BaseExceptionGroup) and depth < 8:
+            for child in node.exceptions:
+                collect(child, depth + 1)
+        else:
+            leaves.append(node)
+
+    collect(error)
+    connector_errors = [leaf for leaf in leaves if isinstance(leaf, ExternalMcpError)]
+    if not connector_errors or len(connector_errors) != len(leaves):
+        return None
+    # An authorization or timeout classification outranks a generic connector error.
+    for kind in (ExternalMcpAuthError, ExternalMcpTimeoutError):
+        for candidate in connector_errors:
+            if isinstance(candidate, kind):
+                return candidate
+    return connector_errors[0]
+
+
+_MODEL_SCHEMA_DATA_KEYS = {"enum", "const", "default", "examples"}
+# Keys whose value is a map of NAME -> schema, so every entry is expanded even when a
+# name collides with a data keyword (a property literally called "default").
+_MODEL_SCHEMA_MAPS = {
+    "properties",
+    "patternProperties",
+    "$defs",
+    "definitions",
+    "dependentSchemas",
+    "dependencies",
+}
+_MODEL_SCHEMA_ANNOTATIONS = {
+    "description",
+    "title",
+    "$comment",
+    "default",
+    "examples",
+    "deprecated",
+    "readOnly",
+    "writeOnly",
+}
+_MODEL_SCHEMA_MAX_REF_DEPTH = 8
+_MODEL_SCHEMA_MAX_NODES = 20_000
+_MODEL_SCHEMA_MAX_BYTES = 262_144
+_POINTER_INDEX = re.compile(r"0|[1-9][0-9]{0,8}")
+
+
+class _ExpansionBudgetExceeded(Exception):
+    """Local reference expansion grew past its budget; use the schema as written."""
+
+
+def _json_pointer(document: Any, reference: str) -> Any | None:
+    """Resolve a `#/a/b/0` reference. None when it does not resolve."""
+    node = document
+    for part in reference[2:].split("/"):
+        part = unquote(part).replace("~1", "/").replace("~0", "~")
+        if isinstance(node, dict) and part in node:
+            node = node[part]
+        elif isinstance(node, list) and _POINTER_INDEX.fullmatch(part) and int(part) < len(node):
+            node = node[int(part)]
+        else:
+            return None
+    return node
+
+
+def model_facing_schema(schema: dict[str, Any]) -> dict[str, Any]:
+    """A conservative copy of a tool schema for the model's function declaration.
+
+    Guidance only: argument validation always uses the provider's own admitted
+    schema. The copy drops the root `$schema` and inlines local `#/...`
+    references, so the model provider is never handed a dialect marker or a
+    pointer form it may not accept (one rejected declaration would fail every chat
+    turn for the owner). A reference that cannot be expanded safely (a cycle, a
+    missing target, a size blowup) is left as the provider wrote it; the root
+    `$schema` is always dropped.
+    """
+    source = json.loads(json.dumps(schema))
+    source.pop("$schema", None)
+    nodes = 0
+    size = 0
+
+    def spend(cost: int) -> None:
+        # Counted as the copy is built, so a hostile fan-out of references (many
+        # nodes, or one very large node referenced many times) is abandoned early
+        # instead of being built and then measured.
+        nonlocal nodes, size
+        nodes += 1
+        size += cost
+        if nodes > _MODEL_SCHEMA_MAX_NODES or size > _MODEL_SCHEMA_MAX_BYTES:
+            raise _ExpansionBudgetExceeded
+
+    def entries(items: list[tuple[str, Any]], stack: tuple[str, ...]) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for key, child in items:
+            spend(len(key) + 2)
+            if key in _MODEL_SCHEMA_DATA_KEYS:
+                out[key] = child
+            else:
+                out[key] = expand(child, stack, names=key in _MODEL_SCHEMA_MAPS)
+        return out
+
+    def expand(node: Any, stack: tuple[str, ...], *, names: bool = False) -> Any:
+        if isinstance(node, list):
+            spend(2)
+            return [expand(child, stack) for child in node]
+        if not isinstance(node, dict):
+            spend(len(node) + 2 if isinstance(node, str) else 8)
+            return node
+        spend(2)
+        if names:
+            # A map of NAME -> schema: its keys are names, never keywords.
+            return {key: expand(child, stack) for key, child in node.items()}
+        reference = node.get("$ref")
+        if (
+            isinstance(reference, str)
+            and reference.startswith("#/")
+            and reference not in stack
+            and len(stack) < _MODEL_SCHEMA_MAX_REF_DEPTH
+        ):
+            target = _json_pointer(source, reference)
+            if isinstance(target, dict):
+                merged = expand(target, (*stack, reference))
+                siblings = entries([(k, v) for k, v in node.items() if k != "$ref"], stack)
+                if not siblings:
+                    return merged
+                if set(siblings) <= _MODEL_SCHEMA_ANNOTATIONS:
+                    return {**merged, **siblings}
+                # Keywords beside a $ref narrow the target; keep both, conjunctively.
+                return {"allOf": [merged], **siblings}
+        return entries(list(node.items()), stack)
+
+    try:
+        return expand(source, ())  # type: ignore[no-any-return]
+    except (_ExpansionBudgetExceeded, RecursionError, ValueError, TypeError):
+        return source  # type: ignore[no-any-return]
+
+
 def _normalize_and_cap(
     result: Any, *, project: Callable[[dict[str, Any]], dict[str, Any]] | None = None
 ) -> ExternalMcpToolResult:
@@ -136,6 +313,63 @@ def _normalize_and_cap(
     )
 
 
+# The dialects a provider may declare. A schema is validated under the dialect it
+# declares, so a provider's own contract is applied as written rather than
+# reinterpreted. Anything else is refused. (zod-based servers, such as Attio's,
+# declare draft-07 on every tool.)
+_DIALECTS: dict[str, Any] = {
+    Draft202012Validator.META_SCHEMA["$id"]: Draft202012Validator,
+    "http://json-schema.org/draft-07/schema#": Draft7Validator,
+    "http://json-schema.org/draft-07/schema": Draft7Validator,
+    "https://json-schema.org/draft-07/schema#": Draft7Validator,
+    "https://json-schema.org/draft-07/schema": Draft7Validator,
+}
+# 2019-09 / 2020-12 constructs a draft-07 validator silently ignores. A schema that
+# declares draft-07 and uses one is refused: admitting it would drop constraints the
+# provider believes it is enforcing.
+_DRAFT7_UNMODELLED = {
+    "prefixItems",
+    "dependentRequired",
+    "dependentSchemas",
+    "unevaluatedProperties",
+    "unevaluatedItems",
+    "minContains",
+    "maxContains",
+    "$anchor",
+    "$dynamicRef",
+    "$dynamicAnchor",
+    "$recursiveAnchor",
+    "$vocabulary",
+}
+
+
+def schema_validator_class(schema: Any) -> Any | None:
+    """The validator class for a schema's declared dialect, or None if unsupported.
+
+    No declaration means 2020-12, the same default as before.
+    """
+    if not isinstance(schema, dict):
+        return None
+    dialect = schema.get("$schema")
+    if dialect is None:
+        return Draft202012Validator
+    return _DIALECTS.get(dialect) if isinstance(dialect, str) else None
+
+
+def schema_validator(schema: Any) -> Any:
+    """A validator for the schema's declared dialect that can never fetch a reference.
+
+    Admission refuses remote references, but a local pointer can still land on a
+    node the walk treats as data (an enum value, say), and the validator would then
+    resolve whatever it holds. An empty registry means any reference that is not
+    local to this schema fails instead of being retrieved over the network or from disk.
+    """
+    validator_class = schema_validator_class(schema)
+    if validator_class is None:
+        raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
+    return validator_class(schema, registry=Registry())
+
+
 def validate_tool_schema(schema: Any) -> dict[str, Any]:
     """Admit bounded object schemas without fetching provider-controlled references.
 
@@ -145,7 +379,17 @@ def validate_tool_schema(schema: Any) -> dict[str, Any]:
     """
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise ExternalMcpError("Invalid connector schema.", code="MCP_SCHEMA_INVALID")
+    validator_class = schema_validator_class(schema)
+    if validator_class is None:
+        raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
+    # A nested declaration may only repeat the root's dialect.
+    permitted_dialect = schema.get("$schema") or Draft202012Validator.META_SCHEMA["$id"]
+    draft7 = validator_class is Draft7Validator
     schema_maps = {"$defs", "properties", "patternProperties", "dependentSchemas"}
+    if draft7:
+        # Draft-07's own homes for sub-schemas, so a hidden $id or remote $ref in
+        # one is checked like any other (`items` as a list is handled below).
+        schema_maps |= {"definitions", "dependencies"}
     schema_arrays = {"allOf", "anyOf", "oneOf", "prefixItems"}
     schema_values = {
         "additionalProperties",
@@ -159,6 +403,8 @@ def validate_tool_schema(schema: Any) -> dict[str, Any]:
         "then",
         "else",
     }
+    if draft7:
+        schema_values.add("additionalItems")
     pending = [(schema, 0, "schema")]
     nodes = 0
     while pending:
@@ -180,7 +426,9 @@ def validate_tool_schema(schema: Any) -> dict[str, Any]:
             if "$id" in value or "$recursiveRef" in value:
                 raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
             dialect = value.get("$schema")
-            if dialect is not None and dialect != Draft202012Validator.META_SCHEMA["$id"]:
+            if dialect is not None and dialect != permitted_dialect:
+                raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
+            if draft7 and _DRAFT7_UNMODELLED.intersection(value):
                 raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
         if isinstance(value, dict):
             for key, child in value.items():
@@ -193,16 +441,23 @@ def validate_tool_schema(schema: Any) -> dict[str, Any]:
                     elif key in schema_arrays:
                         child_kind = "array"
                     elif key in schema_values:
-                        child_kind = "schema"
+                        # Draft-07 allows `items` as a list of schemas (a tuple).
+                        child_kind = (
+                            "array" if key == "items" and isinstance(child, list) else "schema"
+                        )
                 pending.append((child, depth + 1, child_kind))
         elif isinstance(value, list):
             pending.extend(
                 (child, depth + 1, "schema" if kind == "array" else "data") for child in value
             )
     try:
-        Draft202012Validator.check_schema(schema)
+        validator_class.check_schema(schema)
     except SchemaError:
         raise ExternalMcpError("Invalid connector schema.", code="MCP_SCHEMA_INVALID") from None
+    # Not bounded here: the cost of EVALUATING a schema against an argument (a
+    # recursive schema with several branches, say) depends on the argument, so no
+    # estimate at admission can bound it. Callers that validate provider schemas
+    # must treat evaluation as potentially expensive.
     return schema
 
 
@@ -292,7 +547,17 @@ async def list_tools(
     except TimeoutError as error:
         raise ExternalMcpTimeoutError() from error
     except Exception as error:
+        if (inner := _external_error_in(error)) is not None:
+            raise inner from None
         status = _http_status_from_error(error)
+        # This branch flattens every unexpected failure (a transport error, a
+        # response the SDK cannot parse) into "could not reach", so record what
+        # it was. Class names only; see _error_types.
+        logger.warning(
+            "external_mcp_client.list_tools_failed status=%s types=%s",
+            status,
+            _error_types(error),
+        )
         if status in {401, 403}:
             raise ExternalMcpAuthError() from error
         raise ExternalMcpError(
@@ -339,11 +604,17 @@ async def call_tool(
     except TimeoutError as error:
         raise ExternalMcpTimeoutError() from error
     except Exception as error:
+        if (inner := _external_error_in(error)) is not None:
+            raise inner from None
         status = _http_status_from_error(error)
         # Provider/SDK exceptions can contain authorization headers, arguments,
         # URLs, and returned document text. Never retain their traceback or
         # model-supplied tool name in application diagnostics.
-        logger.warning("external_mcp_client.call_tool_failed status=%s", status)
+        logger.warning(
+            "external_mcp_client.call_tool_failed status=%s types=%s",
+            status,
+            _error_types(error),
+        )
         if status in {401, 403}:
             raise ExternalMcpAuthError() from error
         raise ExternalMcpError(
