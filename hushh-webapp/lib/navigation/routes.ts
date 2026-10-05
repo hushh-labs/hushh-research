@@ -201,6 +201,7 @@ export const ROUTES = {
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   /** Retired mailbox-KYC compatibility target; personal Gmail KYC lives in Email. */
   ONE_KYC: "/one/email",
+  ONE_CAREER: "/one/career",
   ONE_LOCATION: "/one/location",
   /** Immersive, consented multi-person Location map. */
   ONE_LOCATION_MAP: "/one/location/map",

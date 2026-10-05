@@ -260,6 +260,9 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "consents", subview: query.get("tab") || null };
   }
+  if (normalizedPath === ROUTES.ONE_CAREER) {
+    return { screen: "one_career", subview: null };
+  }
   if (normalizedPath === ROUTES.ONE_FEED) {
     return { screen: "one_feed", subview: null };
   }

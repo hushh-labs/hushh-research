@@ -9,6 +9,7 @@ from .agent_chat import router as agent_chat_router
 from .agent_feedback import router as agent_feedback_router
 from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
+from .career import router as career_router
 from .circle_chat import router as circle_chat_router
 from .client_connectors import router as client_connectors_router
 from .command_proposals import router as command_proposals_router
@@ -83,6 +84,7 @@ router.include_router(directory_claims_router)
 router.include_router(packet_orders_router)
 router.include_router(credits_router)
 router.include_router(payouts_router)
+router.include_router(career_router)
 router.include_router(opportunity_signals_router)
 router.include_router(places_router)
 router.include_router(public_people_router)

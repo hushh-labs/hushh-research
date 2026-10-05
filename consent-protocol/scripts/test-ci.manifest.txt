@@ -618,3 +618,4 @@ tests/test_pkm_packets_and_directory_claims.py
 tests/test_pkm_packet_orders.py
 tests/test_pkm_credits.py
 tests/test_pkm_payouts.py
+tests/test_one_career_routes.py

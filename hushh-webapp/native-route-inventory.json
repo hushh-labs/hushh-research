@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-09-20",
-  "total_routes": 124,
-  "native_required_routes": 103,
+  "total_routes": 125,
+  "native_required_routes": 104,
   "excluded_routes": 21,
   "routes": [
     {
@@ -322,6 +322,19 @@
       "route": "/one/calendar",
       "classification": "excluded-web-only",
       "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
+    },
+    {
+      "route": "/one/career",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fcareer",
+      "expectedMarker": "native-route-one-career",
+      "expectedRoute": "/one/career",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "loading"
+      ]
     },
     {
       "route": "/one/connect",

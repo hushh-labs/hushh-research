@@ -817,6 +817,15 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.ONE_CAREER) {
+    return {
+      backHref: ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Career" }],
+    };
+  }
+
   if (pathname === ROUTES.ONE_KYC) {
     // Origin-aware back: explicit safe origins retrace exactly; direct/cold
     // One capability entry falls back to the Agents dashboard.

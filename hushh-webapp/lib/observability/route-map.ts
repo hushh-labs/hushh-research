@@ -79,6 +79,7 @@ export const ROUTE_ID_VALUES = [
   "marketplace_connection_portfolio",
   "marketplace_ria_profile",
   "one_kyc",
+  "one_career",
   "one_marketplace",
   "one_location",
   "one_location_map",
@@ -285,6 +286,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "marketplace_ria_profile";
   }
   if (pathname === ROUTES.ONE_KYC) return "one_kyc";
+  if (pathname === ROUTES.ONE_CAREER) return "one_career";
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   // Its own id rather than the map's: these are separate screens now, and
   // folding them together would hide the split from every page-view metric.
