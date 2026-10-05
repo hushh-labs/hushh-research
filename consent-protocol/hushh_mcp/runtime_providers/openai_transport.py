@@ -12,6 +12,8 @@ so a workload token that rotates is always current; caching belongs to the provi
 from __future__ import annotations
 
 import asyncio
+import base64
+import datetime
 import json
 import re
 from dataclasses import dataclass, field
@@ -20,6 +22,24 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
 from .translate import NeutralMessage, NeutralRequest, NeutralTool
+
+
+def _json_default(value: Any) -> Any:
+    """What genai would carry for a non-JSON tool value: ISO dates, base64 bytes, else text."""
+    if isinstance(value, (datetime.date, datetime.time)):
+        return value.isoformat()
+    if isinstance(value, (bytes, bytearray)):
+        return base64.b64encode(bytes(value)).decode("ascii")
+    if isinstance(value, (set, frozenset)):
+        return sorted(value, key=str)
+    return str(value)
+
+
+def tool_json(value: Any) -> str:
+    """A tool's arguments or result on the wire. A memory recall carries datetimes:
+    plain ``json.dumps`` raised TypeError and ended the first live Azure tool turn."""
+    return json.dumps(value, separators=(",", ":"), default=_json_default)
+
 
 GROK_BASE_URL = "https://api.x.ai/v1"
 
@@ -36,7 +56,7 @@ def _tool_call(m: NeutralMessage) -> dict[str, Any]:
         "type": "function",
         "function": {
             "name": m.tool_name,
-            "arguments": json.dumps(m.tool_arguments or {}, separators=(",", ":")),
+            "arguments": tool_json(m.tool_arguments or {}),
         },
     }
 
@@ -80,7 +100,7 @@ def _messages(request: NeutralRequest) -> list[dict[str, Any]]:
                     # Paired with the assistant entry's fallback id above, so a call the
                     # provider sent without an id still finds its result.
                     "tool_call_id": m.tool_call_id or f"call_{m.tool_name}",
-                    "content": json.dumps(m.tool_result, separators=(",", ":")),
+                    "content": tool_json(m.tool_result),
                 }
             )
         elif m.text:

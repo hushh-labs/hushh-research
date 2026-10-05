@@ -200,7 +200,10 @@ def to_neutral_request(contents: Any, config: Any) -> NeutralRequest:
         text_chunks: list[str] = []
         for part in getattr(content, "parts", None) or []:
             text = getattr(part, "text", None)
-            if isinstance(text, str) and text:
+            # A model's private thought (a Gemini summary kept in history by its
+            # signature) is never answer text: merged in, it reached another provider
+            # as something the assistant said.
+            if isinstance(text, str) and text and getattr(part, "thought", None) is not True:
                 text_chunks.append(text)
             call = getattr(part, "function_call", None)
             if call is not None:

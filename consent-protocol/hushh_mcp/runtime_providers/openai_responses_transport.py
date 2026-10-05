@@ -34,7 +34,8 @@ an owner-cloud pod can account for its own model spend.
 
 from __future__ import annotations
 
-import json
+import hashlib
+import re
 from typing import Any, AsyncIterator
 
 from .base import ProviderTransport
@@ -44,12 +45,30 @@ from .normalized import (
     NormalizedResponse,
     NormalizedUsage,
 )
-from .openai_transport import TokenProvider, _credential, _parse_args, _schema_name
+from .openai_transport import TokenProvider, _credential, _parse_args, _schema_name, tool_json
 from .translate import NeutralMessage, NeutralRequest, NeutralTool
 
 #: The efforts a neutral thinking level may become. ``none`` is never inferred:
 #: some models refuse it, so it is sent only when the agent names it explicitly.
 _EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+
+#: The function-name shape the wire accepts. A longer or wider name is aliased,
+#: never sent: one bad name makes the provider refuse the whole turn.
+_WIRE_NAME = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+
+
+def wire_name(name: str) -> str:
+    """``name`` as sent: unchanged when the wire accepts it, else a stable 64-char alias."""
+    if _WIRE_NAME.match(name):
+        return name
+    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:8]
+    return f"{re.sub(r'[^A-Za-z0-9_-]', '_', name)[:55]}_{digest}"
+
+
+def _aliases(request: NeutralRequest) -> dict[str, str]:
+    """Sent name -> the agent's own name, so a returned call is mapped back."""
+    return {wire_name(t.name): t.name for t in request.tools if wire_name(t.name) != t.name}
 
 
 def _call_id(m: NeutralMessage) -> str:
@@ -64,8 +83,8 @@ def _input_items(request: NeutralRequest) -> list[dict[str, Any]]:
                 {
                     "type": "function_call",
                     "call_id": _call_id(m),
-                    "name": m.tool_name,
-                    "arguments": json.dumps(m.tool_arguments or {}, separators=(",", ":")),
+                    "name": wire_name(m.tool_name),
+                    "arguments": tool_json(m.tool_arguments or {}),
                 }
             )
         elif m.role == "tool" and (m.tool_name or m.tool_call_id):
@@ -73,7 +92,7 @@ def _input_items(request: NeutralRequest) -> list[dict[str, Any]]:
                 {
                     "type": "function_call_output",
                     "call_id": _call_id(m),
-                    "output": json.dumps(m.tool_result, separators=(",", ":")),
+                    "output": tool_json(m.tool_result),
                 }
             )
         elif m.text and m.role in {"user", "assistant"}:
@@ -85,7 +104,7 @@ def _tools(tools: tuple[NeutralTool, ...]) -> list[dict[str, Any]]:
     return [
         {
             "type": "function",
-            "name": tool.name,
+            "name": wire_name(tool.name),
             "description": tool.description,
             "parameters": tool.json_schema
             or tool.parameters
@@ -94,6 +113,24 @@ def _tools(tools: tuple[NeutralTool, ...]) -> list[dict[str, Any]]:
         }
         for tool in tools
     ]
+
+
+def _tool_fields(request: NeutralRequest) -> dict[str, Any]:
+    """``tools`` and ``tool_choice`` honouring the agent's mode, never a blanket ``auto``.
+
+    A consent answer turn asks for no tools; ignoring that let the model call them on
+    exactly the turn that must not. Allowed names narrow the declared tools rather
+    than relying on a provider-specific allow-list shape.
+    """
+    choice = str(request.tool_choice or "auto").strip().lower()
+    tools = request.tools
+    if request.allowed_function_names:
+        allowed = set(request.allowed_function_names)
+        tools = tuple(t for t in tools if t.name in allowed)
+    if not tools:
+        return {}
+    mode = {"none": "none", "any": "required"}.get(choice, "auto")
+    return {"tools": _tools(tools), "tool_choice": mode}
 
 
 def reasoning_effort(request: NeutralRequest) -> str | None:
@@ -120,14 +157,14 @@ def _usage(raw: Any) -> NormalizedUsage | None:
     )
 
 
-def _function_call(item: Any) -> NormalizedFunctionCall | None:
+def _function_call(item: Any, aliases: dict[str, str]) -> NormalizedFunctionCall | None:
     if getattr(item, "type", None) != "function_call":
         return None
     name = str(getattr(item, "name", "") or "")
     if not name:
         return None
     return NormalizedFunctionCall(
-        name=name,
+        name=aliases.get(name, name),
         args=_parse_args(getattr(item, "arguments", None)),
         id=str(getattr(item, "call_id", "") or ""),
     )
@@ -177,9 +214,7 @@ class OpenAIResponsesTransport(ProviderTransport):
             kwargs["instructions"] = request.system_instruction
         if request.max_output_tokens is not None:
             kwargs["max_output_tokens"] = request.max_output_tokens
-        if request.tools:
-            kwargs["tools"] = _tools(request.tools)
-            kwargs["tool_choice"] = "auto"
+        kwargs.update(_tool_fields(request))
         effort = reasoning_effort(request)
         if effort is not None:
             kwargs["reasoning"] = {"effort": effort}
@@ -196,9 +231,12 @@ class OpenAIResponsesTransport(ProviderTransport):
 
     async def _generate(self, request: NeutralRequest, *, model: str) -> NormalizedResponse:
         response = await self._client.responses.create(**self._request_kwargs(request, model=model))
+        aliases = _aliases(request)
         calls = tuple(
             call
-            for call in (_function_call(item) for item in getattr(response, "output", None) or [])
+            for call in (
+                _function_call(item, aliases) for item in getattr(response, "output", None) or []
+            )
             if call is not None
         )
         return NormalizedResponse(
@@ -215,6 +253,7 @@ class OpenAIResponsesTransport(ProviderTransport):
             stream=True, **self._request_kwargs(request, model=model)
         )
         calls: list[NormalizedFunctionCall] = []
+        aliases = _aliases(request)
         reported = ""
         usage: NormalizedUsage | None = None
         async for event in stream:
@@ -224,7 +263,7 @@ class OpenAIResponsesTransport(ProviderTransport):
                 if isinstance(delta, str) and delta:
                     yield NormalizedChunk(text=delta, model_version=reported)
             elif kind == "response.output_item.done":
-                call = _function_call(getattr(event, "item", None))
+                call = _function_call(getattr(event, "item", None), aliases)
                 if call is not None:
                     calls.append(call)
             elif kind in {"response.created", "response.completed", "response.incomplete"}:

@@ -912,3 +912,4 @@ tests/test_pod_key_pull_during_attach_postgres.py
 tests/test_pod_external_ingress_admission.py
 tests/test_pod_external_ingress_admission_postgres.py
 tests/test_owner_cloud_attach.py
+tests/test_azure_openai_tool_wire.py
