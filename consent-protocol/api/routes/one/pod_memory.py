@@ -302,7 +302,7 @@ async def run_conversation_close(
     payload, (provider, model, runtime_mode) = _turn._resolve_owner_target(payload, provider, model)
     from hushh_mcp.one_adk.text_runtime import _runtime_model  # noqa: PLC0415
 
-    build = model_builder or _runtime_model
+    build: Any = model_builder or _runtime_model
     try:
         model_object = build(
             runtime_model=model,

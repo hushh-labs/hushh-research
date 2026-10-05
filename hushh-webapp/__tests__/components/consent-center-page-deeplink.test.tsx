@@ -6,7 +6,7 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -1863,6 +1863,10 @@ describe("ConsentCenterPage requestId deep links", () => {
   });
 
   it("names a request plainly: when it was asked, when to decide, what and how long", async () => {
+    // The deadline is Oct 5; pin "now" before it, or on Oct 5 itself it reads "Today".
+    vi.useFakeTimers({ toFake: ["Date"], shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(new Date().getFullYear(), 8, 28, 12, 0));
+    onTestFinished(() => vi.useRealTimers());
     mocks.search = "tab=requests&requestId=req_food";
     mocks.sharePreviewState = {
       status: "ready",
