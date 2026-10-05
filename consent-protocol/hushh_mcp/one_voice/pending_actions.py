@@ -36,6 +36,16 @@ ORIGIN_TURN_KEY = "_one_voice_origin_turn_id"
 MAIL_DRAFT_TOOLS: Final = ("send_mail", "reply_mail")
 # A static fragment built from the constant above, never from input.
 _MAIL_DRAFT_TOOLS_SQL = ", ".join(f"'{name}'" for name in MAIL_DRAFT_TOOLS)
+# Tools whose confirmed effect is a row in the scheduled-send ledger. A crash
+# after the confirmation CAS can leave one confirmed forever, holding a sealed
+# dictation (schedule_mail). Recovery records "schedule_unconfirmed": the insert
+# or cancel may have committed before the crash, so the honest outcome is "not
+# confirmed in time -- check the scheduled list", never "nothing happened".
+SCHEDULED_MAIL_TOOLS: Final = ("schedule_mail", "cancel_scheduled_mail")
+_SCHEDULED_MAIL_TOOLS_SQL = ", ".join(f"'{name}'" for name in SCHEDULED_MAIL_TOOLS)
+# A confirmed scheduled-mail row is recovered only this long after its card
+# expired, so a handler still writing its ledger row is not overtaken.
+SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS = 60
 # What leaves a row when it can no longer execute: the sealed dictation, and a
 # reply's sealed source reference inside the prepared snapshot. Both are
 # ciphertext; neither is needed once the row is terminal. Absent keys and
@@ -177,19 +187,31 @@ class PendingActionStore:
         )
         # A process can die after the confirmation CAS and before the handler
         # resolves the row. No session will resume that confirmed action, so
-        # remove its sealed dictation once the confirmation has expired.
+        # remove its sealed dictation once the confirmation has expired. One
+        # statement for both mail families keeps the proposal path's SQL trips
+        # unchanged; each family records its own honest outcome.
         await self._execute(
             f"""
             UPDATE one_voice_pending_actions
             SET status = 'failed', resolved_at = NOW(),
                 result = jsonb_build_object(
-                    'status', 'draft_open_unconfirmed', 'needs', NULL
+                    'status',
+                    CASE WHEN tool_name IN ({_SCHEDULED_MAIL_TOOLS_SQL})
+                         THEN 'schedule_unconfirmed'
+                         ELSE 'draft_open_unconfirmed' END,
+                    'needs', NULL
                 ),
                 args = {_SCRUB_PRIVATE}
-            WHERE user_id = :user_id AND tool_name IN ({_MAIL_DRAFT_TOOLS_SQL})
-              AND status = 'confirmed' AND expires_at < NOW()
+            WHERE user_id = :user_id AND status = 'confirmed'
+              AND (
+                (tool_name IN ({_MAIL_DRAFT_TOOLS_SQL}) AND expires_at < NOW())
+                OR (
+                  tool_name IN ({_SCHEDULED_MAIL_TOOLS_SQL})
+                  AND expires_at < NOW() - make_interval(secs => :grace)
+                )
+              )
             """,  # nosec B608 - static tool-name constants; every value is a bound parameter.
-            {"user_id": user_id},
+            {"user_id": user_id, "grace": SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS},
         )
         await self._execute(
             f"""

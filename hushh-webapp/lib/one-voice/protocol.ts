@@ -274,7 +274,9 @@ export type UiDirectiveKind =
   | "open_share_sheet"
   | "focus_pending_action"
   /** Open the original message at a position already on screen. */
-  | "open_mail";
+  | "open_mail"
+  /** Open the owner's draft at a position in a drafts list already on screen. */
+  | "open_draft";
 export type UiDirectiveFrame = {
   type: "ui_directive";
   turn_id?: string;
@@ -412,6 +414,16 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   // A dispatch asks the surface to do something; it reports no outcome, so it
   // must never render as a success even if it reaches a card.
   "mail_open_dispatched",
+  "draft_open_dispatched",
+  // Gmail may or may not have sent the draft; never shown as "Sent".
+  "draft_send_unconfirmed",
+  // A scheduled-mail cancel that cancelled nothing, and a scheduled send whose
+  // confirmation could not be recorded (mirrors the relay's NOT_OK_STATUSES).
+  "send_unconfirmed",
+  "schedule_unconfirmed",
+  "already_sent",
+  "already_sending",
+  "not_sent",
   "draft_open_requested",
   "draft_not_opened",
   "draft_open_unconfirmed",

@@ -6,6 +6,8 @@ tool list the model reads is the one the executor serves.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 import pytest
 
 from hushh_mcp.one_voice import instruction
@@ -145,6 +147,23 @@ def test_context_lines_name_the_person_and_screen():
     assert "The person's name is" not in bare and "currently on the" not in bare
 
 
+def test_owner_clock_sits_between_the_context_line_and_the_tool_list():
+    """A relative send time is resolved against the owner's clock, so the model
+    is given it; without a zone the honest fallback is UTC, named as such."""
+    now = datetime(2026, 10, 5, 14, 6, 55, tzinfo=timezone.utc)
+    text = _build(timezone="Asia/Calcutta", now=now)
+    context = text.index("They are currently on the one_home screen.")
+    clock = text.index("Current time: 2026-10-05T14:06:55+00:00 (UTC).")
+    assert context < clock < text.index("Tools you can call:")
+    assert "The owner's local time is 2026-10-05 19:36:55 Asia/Calcutta — Monday" in text
+    # The owner's wall clock with no offset: the server applies the zone.
+    assert "e.g. 2026-10-06T09:00:00;" in text
+
+    fallback = _build(now=now)
+    assert "The owner's local time is 2026-10-05 14:06:55 UTC — Monday" in fallback
+    assert "Asia/Calcutta" not in fallback
+
+
 @pytest.mark.parametrize("resumed", [True, False])
 def test_resumed_caveat_is_added_only_when_the_conversation_was_resumed(resumed):
     text = _build(resumed=resumed)
@@ -221,7 +240,14 @@ def test_rule_thirteen_keeps_voice_away_from_sending_and_from_duplicate_drafts()
     rule = _rule(_build(), 13)
     assert "The action card's button is Confirm, not Send" in rule
     assert "Only the later draft_opened client-step result proves it appeared" in rule
-    assert "Only the person's Send tap delivers mail: you never send" in rule
+    assert (
+        "Only the person's Send tap delivers a send_mail or reply_mail draft: you never send it"
+    ) in rule
+    # A later time is a scheduled send; the server sends it, so the model may say
+    # "scheduled" after the yes but never "sent".
+    assert "Sending later is schedule_mail, never send_mail" in rule
+    assert "say it is scheduled for that time, never that it was sent" in rule
+    assert "say it was sent only from a draft_sent result" in rule
     # "Sent" is the delivery's own settled report, never a draft result or memory.
     assert "Say mail was sent only from a [ONE_EVENT] mail_delivery whose status is sent" in rule
     assert "failed, outcome_unknown, thread_unconfirmed and unverified are not sent" in rule

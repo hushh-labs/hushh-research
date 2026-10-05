@@ -289,6 +289,14 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         # One Voice reply-in-thread. A new capability, so absent means off and
         # each lane opts in explicitly (UAT first; production passes false).
         "one_voice_mail_reply_enabled": getattr(args, "one_voice_mail_reply_enabled", "false"),
+        # Voice scheduled send, voice Gmail drafts, and the server-side drain
+        # that delivers scheduled mail with no device present. New capability,
+        # so each is off unless a lane opts in (UAT first; production false).
+        "one_voice_mail_schedule_send_enabled": getattr(
+            args, "one_voice_mail_schedule_send_enabled", "false"
+        ),
+        "one_voice_mail_drafts_enabled": getattr(args, "one_voice_mail_drafts_enabled", "false"),
+        "mail_scheduled_drain_enabled": getattr(args, "mail_scheduled_drain_enabled", "false"),
         "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
         "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
         "hushh_tech_allowed_redirect_uris": getattr(args, "hushh_tech_allowed_redirect_uris", ""),
@@ -458,6 +466,15 @@ def main() -> int:
     parser.add_argument("--hushh-tech-client-enabled", default="false")
     parser.add_argument(
         "--one-voice-mail-reply-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-schedule-send-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--one-voice-mail-drafts-enabled", default="false", choices=["true", "false"]
+    )
+    parser.add_argument(
+        "--mail-scheduled-drain-enabled", default="false", choices=["true", "false"]
     )
     parser.add_argument("--hushh-tech-developer-app-id", default="")
     parser.add_argument("--hushh-tech-allowed-audience", default="")

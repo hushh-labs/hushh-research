@@ -6,7 +6,7 @@
  * chips come from `tool.result ok:true` / `pending_action.resolved executed`.
  */
 
-import type { OpenedMailMessage } from "@/lib/one-voice/mail-open";
+import type { OpenedDraft, OpenedMailMessage } from "@/lib/one-voice/mail-open";
 import type {
   CandidatePublic,
   EntityCardPayload,
@@ -193,6 +193,16 @@ export type VoiceSessionController = {
     offerRevision: number;
     conversationId: string;
   }) => Promise<OpenedMailMessage>;
+  /**
+   * Open the owner's draft at a position in a drafts list One offered. The same
+   * binding and resolver shape as `openMail`, against `/draft/open`; optional so
+   * a surface without drafts keeps its rows plain.
+   */
+  openDraft?: (input: {
+    ordinal: number;
+    offerRevision: number;
+    conversationId: string;
+  }) => Promise<OpenedDraft>;
   cancelPending: () => void;
   chooseCandidate: (id: string | null) => void;
   /**

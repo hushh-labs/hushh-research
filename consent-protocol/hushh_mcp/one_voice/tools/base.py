@@ -273,6 +273,21 @@ class OfferedMail(BaseModel):
     revision: int = 0
 
 
+class OfferedScheduledMail(BaseModel):
+    """The scheduled sends One last listed, in the order the person saw them.
+
+    Ordinal 1 is ``action_ids[0]``, soonest first. Action ids and nothing else:
+    no recipient, subject or time, because this row is persisted and is a
+    pointer into the owner's send ledger, not a copy of it. "Cancel the second
+    one" resolves here, never by the model naming an id it was never given.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    action_ids: list[str] = Field(default_factory=list, max_length=25)
+    offered_at: str | None = None
+    revision: int = 0
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -311,6 +326,10 @@ class EntityContext(BaseModel):
     # had in the list it was read from. Top level, not inside OfferedMail, so a
     # server that predates it drops the key instead of the whole context.
     offered_mail_selected_ordinal: int | None = None
+    # The scheduled sends the last list_scheduled_mail showed. Top level and
+    # separate from ``offered_mail``: a position in the scheduled list must
+    # never resolve against an inbox list, or the reverse.
+    offered_scheduled_mail: OfferedScheduledMail | None = None
 
     @staticmethod
     def _now() -> datetime:
@@ -342,6 +361,8 @@ class EntityContext(BaseModel):
         if self.offered_mail is not None and not self.offered_mail_is_fresh():
             self.offered_mail = None
             self.offered_mail_selected_ordinal = None
+        if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
+            self.offered_scheduled_mail = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
@@ -413,6 +434,38 @@ class EntityContext(BaseModel):
         if position is None or self.offered_mail is None:
             return None
         return self.offered_mail.message_ids[position - 1]
+
+    def offer_scheduled_mail(self, action_ids: list[str]) -> int:
+        """Replace the listed scheduled sends; share the one offer counter.
+
+        Replaced on every list, never merged: the newest list is the only one a
+        position can mean. The shared revision lets a card prepared from an
+        older list notice that the list it named has been replaced.
+        """
+        self.offer_revision += 1
+        self.offered_scheduled_mail = OfferedScheduledMail(
+            action_ids=list(action_ids)[:25],
+            offered_at=self._now().isoformat(),
+            revision=self.offer_revision,
+        )
+        return self.offer_revision
+
+    def offered_scheduled_mail_is_fresh(self) -> bool:
+        """Like ``offered_mail_is_fresh``: an unstamped offer is never trusted."""
+        offer = self.offered_scheduled_mail
+        if offer is None or not offer.action_ids or not offer.offered_at:
+            return False
+        age = self._now().timestamp() - datetime.fromisoformat(offer.offered_at).timestamp()
+        return age <= OFFER_TTL_SECONDS
+
+    def offered_scheduled_mail_action_id(self, ordinal: int) -> str | None:
+        """The scheduled send at a spoken position, or None when it cannot be trusted."""
+        offer = self.offered_scheduled_mail
+        if offer is None or not self.offered_scheduled_mail_is_fresh():
+            return None
+        if not 1 <= ordinal <= len(offer.action_ids):
+            return None
+        return offer.action_ids[ordinal - 1]
 
     def offer_requests(self, requests: list[OfferedRequest]) -> None:
         self.offered_requests = {item.request_id: item for item in requests}
@@ -642,6 +695,7 @@ __all__ = [
     "EntityContext",
     "Needs",
     "OfferedRequest",
+    "OfferedScheduledMail",
     "PendingActionExists",
     "PersonRef",
     "Rejected",

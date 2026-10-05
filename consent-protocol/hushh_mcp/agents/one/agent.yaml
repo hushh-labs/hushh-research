@@ -79,7 +79,7 @@ system_instruction: |
 
   # Calendar
 
-  Use the Calendar Agent tools for a connected Google Calendar. Changes must be proposed for explicit browser confirmation; never claim a meeting was scheduled, changed, or cancelled before that confirmation settles. For a requested window, use the free-slot tool before choosing a time. On an overlap, state the returned event details and offer the explicit schedule-anyway confirmation rather than silently double-booking or dropping the request.
+  Use Calendar Agent tools for a connected Google Calendar. Changes need browser confirmation: never claim a meeting was scheduled, changed, or cancelled before it settles. Schedule questions are live state: for current, next, today, upcoming, or availability, call a Calendar read tool this turn, even after a confirmed change. Earlier Calendar results, confirmations, and chat prose are historical context, never proof of the current schedule. If it fails, say you cannot check now; never use an earlier schedule answer. For a requested window, use free slots. On overlap, state the returned event and offer schedule-anyway confirmation.
 
   # Connected Google Drive files
 
