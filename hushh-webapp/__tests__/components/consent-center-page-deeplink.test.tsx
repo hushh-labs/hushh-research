@@ -1675,7 +1675,7 @@ describe("ConsentCenterPage requestId deep links", () => {
       id, request_id: `req_${id}`, kind: "active_grant", status: "active", action: "CONSENT_GRANTED",
       counterpart_type: "person", counterpart_id: "user-kushal", counterpart_label: "Kushal Trivedi",
       counterpart_email: "kushal@example.com", scope, scope_description: label,
-      issued_at: "2026-09-28T23:20:00.000Z", expires_at: "2026-10-05T23:20:00.000Z",
+      issued_at: "2026-09-28T23:20:00.000Z", expires_at: "2027-10-05T23:20:00.000Z",
       bundle_id: "bundle-dinner", bundle_labels: ["Food preferences", "Dietary constraints"],
       bundle_label: "Food preferences and Dietary constraints",
       metadata: { bundle_id: "bundle-dinner", request_source: "one_person_profile" },
@@ -1808,7 +1808,7 @@ describe("ConsentCenterPage requestId deep links", () => {
           scope: "attr.food.preferences.*",
           scope_description: "Food preferences",
           issued_at: "2026-09-28T23:20:00.000Z",
-          expires_at: "2026-10-05T23:20:00.000Z",
+          expires_at: "2027-10-05T23:20:00.000Z",
         },
       ],
     });

@@ -56,7 +56,7 @@ import { Check, MinusCircle, ShieldOff } from "@/components/icons";
 import { CONSENT_OUTCOME_LABELS, wireOutcomeForSentLabel } from "@/lib/consent/open-granted-person-information";
 
 const ASKED = "2026-09-28T13:49:00Z";
-const ENDS = "2026-10-05T12:00:00Z";
+const ENDS = "2027-10-05T12:00:00Z"; // a grant still in force (the 2026 value expired mid-CI)
 
 function progress(overrides: Partial<Record<string, unknown>> = {}): RequestProgress {
   const parsed = parseRequestProgress({
