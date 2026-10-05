@@ -72,6 +72,7 @@ from api.routes.one.pod_capabilities import ai_selection_advert
 from api.routes.one.pod_identity_auth import verify_pod_request
 from hushh_mcp.runtime_settings import personal_agent_enabled
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+from hushh_mcp.services.pod_external_ingress_admission import admit_external_ingress_if_due
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,7 @@ async def record_pod_heartbeat(
     *,
     registry: Optional[PersonalAgentRegistryRepo] = None,
     collector: Any = None,
+    admitter: Any = None,
 ) -> dict:
     """Testable core: verify the pod, stamp the beat, finish provisioning if due."""
     if not personal_agent_enabled():
@@ -114,6 +116,9 @@ async def record_pod_heartbeat(
         raise HTTPException(status_code=404, detail="no registry row for this pod")
 
     result = {"recorded": True, "status": await _finish_provisioning(row, collector=collector)}
+    # A pod beating is up and warm: the moment to verify public-by-construction
+    # ingress for owner-direct chat. Bounded, never raises, and a no-op unless due.
+    await (admitter or admit_external_ingress_if_due)(row)
     # THE TOMBSTONE COURIER. An owner who revoked a device while their pod was
     # unreachable left a signed intent with the hub; the beat is the one moment the
     # pod reliably reaches the hub, so it collects them here and reports back which

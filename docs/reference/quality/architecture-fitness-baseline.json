@@ -15152,7 +15152,7 @@
       "limit": 500,
       "path": "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx",
       "symbol": null,
-      "value": 793
+      "value": 802
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18718,7 +18718,8 @@
       "dev_lane_wiring_delta": {
         "consent-protocol/hushh_mcp/runtime_settings.py": "1201 to 1207: five Azure keys in the runtime env map",
         "scripts/ops/sync_backend_runtime_secrets.py": "660 to 683: the dev-only Azure lane table, its helper and a shared origin check",
-        "hushh-webapp/__tests__/services/pkm-save-job.test.ts": "850 to 853: the secure-cache helper mirrors this branch's schema version 2 (three stores), not version 1"
+        "hushh-webapp/__tests__/services/pkm-save-job.test.ts": "850 to 853: the secure-cache helper mirrors this branch's schema version 2 (three stores), not version 1",
+        "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx": "793 to 802: re-read where the agent lives when a watched setup job records (founder-hit 2026-10-05: stuck on still in progress)"
       }
     }
   },

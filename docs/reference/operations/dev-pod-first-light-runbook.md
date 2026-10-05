@@ -200,6 +200,13 @@ direct-ready record absent. An update keeps the ingress axis; recheck the route
 wall and recovery before treating the new image as accepted. Puppy access
 still requires the owner's explicit per-device choice in Trusted devices.
 
+A pod whose ingress is public by construction records `ingress: external` (Azure
+Container Apps). There is nothing to open, so the hub runs the same checks on a
+live beat (`pod_external_ingress_admission`): key recorded from that URL,
+machine-route wall refusing an unidentified caller, and the app origin's preflight
+allowed. One compare-and-set then writes `direct` together with the readiness
+receipt. `internal` is never promoted this way; it stays the operator step above.
+
 ### Model project ownership
 
 The production default is Vertex in the owner's cloud project through the pod's

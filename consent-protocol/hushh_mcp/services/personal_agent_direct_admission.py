@@ -278,6 +278,59 @@ async def record_direct_readiness(
     return bool(getattr(response, "data", None))
 
 
+async def promote_external_ingress(
+    db: Any,
+    *,
+    user_id: str,
+    hushh_id: str,
+    service_uid: str,
+    pod_key_id: str,
+    url: str,
+    verified_at: str,
+) -> bool:
+    """Promote hub-verified public-by-construction ingress to direct, with its receipt.
+
+    One write, so an external pod is never ``direct`` without readiness. Bound to the
+    same owner, key, service and address the checks ran against
+    (``pod_external_ingress_admission``); an erasure or a replaced pod refuses it.
+    """
+    readiness = {
+        "verified": True,
+        "serviceUid": service_uid,
+        "podKeyId": pod_key_id,
+        "url": url,
+        "verifiedAt": verified_at,
+    }
+    response = await asyncio.to_thread(
+        db.execute_raw,
+        """
+        UPDATE personal_agent_registry
+        SET backend_metadata = jsonb_set(
+            jsonb_set(coalesce(backend_metadata, '{}'::jsonb), '{ingress}', '"direct"'::jsonb, true),
+            '{directReadiness}', CAST(:readiness AS jsonb), true
+        )
+        WHERE user_id = :user_id AND hushh_id = :hushh_id
+          AND deployment_target = ANY(:owner_cloud_targets) AND status = 'provisioned'
+          AND pod_key_id = :pod_key_id AND pod_pubkey IS NOT NULL
+          AND backend_metadata->>'serviceUid' = :service_uid
+          AND backend_metadata->>'url' = :url
+          AND backend_metadata->>'ingress' = 'external'
+          AND NOT (backend_metadata ? 'erasure')
+        RETURNING user_id
+        """,
+        {
+            **owner_cloud_bind(),
+            "user_id": user_id,
+            "hushh_id": hushh_id,
+            "service_uid": service_uid,
+            "pod_key_id": pod_key_id,
+            "url": url,
+            "readiness": json.dumps(readiness),
+        },
+    )
+    return bool(getattr(response, "data", None))
+
+
 async def record_direct_ingress_observed(
     db: Any,
     *,

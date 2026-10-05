@@ -907,3 +907,7 @@ tests/test_pod_ai_selection_advert.py
 # Provision claim for an Azure home and after a detached placement (2026-10-05)
 tests/test_personal_agent_provision_after_detach_postgres.py
 tests/test_pod_key_pull_during_attach_postgres.py
+
+# Public-by-construction ingress admitted to owner-direct chat on a beat (2026-10-05)
+tests/test_pod_external_ingress_admission.py
+tests/test_pod_external_ingress_admission_postgres.py
