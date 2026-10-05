@@ -65,6 +65,7 @@
     "948_personal_agent_user_azure.sql",
     "949_personal_agent_owner_access_erasure.sql",
     "950_personal_agent_standby_placements.sql",
-    "951_byoc_setup_job_azure_admission.sql"
+    "951_byoc_setup_job_azure_admission.sql",
+    "952_personal_agent_provision_after_detach.sql"
   ]
 }

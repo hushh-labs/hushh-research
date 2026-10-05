@@ -120,6 +120,10 @@ export function ByocCloudSetupPage() {
   // The popup finished and the hub started the job: read it now, not in 2s.
   const [setupPollNonce, setSetupPollNonce] = useState(0);
   useAzureSetupStartedSignal(() => setSetupPollNonce((value) => value + 1));
+  // Where the agent lives is read once on mount; a job this page watched run
+  // to recorded re-reads it, or the screen stays on "still in progress".
+  const [agentStatusNonce, setAgentStatusNonce] = useState(0);
+  const watchedRunningJob = useRef(false);
   const [job, setJob] = useState<Awaited<
     ReturnType<typeof ApiService.getByocSetupStatus>
   > | null>(null);
@@ -186,7 +190,7 @@ export function ByocCloudSetupPage() {
     return () => {
       cancelled = true;
     };
-  }, [user?.uid]);
+  }, [user?.uid, agentStatusNonce]);
 
   useEffect(() => {
     if (!user?.uid) return;
@@ -200,6 +204,11 @@ export function ByocCloudSetupPage() {
         setJob(status.status === "none" ? null : status);
         setChecked(true);
         setSetupStatusReadOk(true);
+        if (status.status === "running") watchedRunningJob.current = true;
+        if (status.status === "recorded" && watchedRunningJob.current) {
+          watchedRunningJob.current = false;
+          setAgentStatusNonce((value) => value + 1);
+        }
         if (status.status === "recorded") {
           // Only a Google job restores its project from the Google suggestion;
           // an Azure home is already named by the registry status above.

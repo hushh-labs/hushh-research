@@ -284,6 +284,23 @@ describe("Connect Azure on the cloud step", () => {
     expect(ApiService.suggestByocProject).not.toHaveBeenCalled();
   });
 
+  it("moves on to connected by itself when the job it watched is recorded", async () => {
+    // Founder-hit 2026-10-05: read once as "pending" mid-job, the page sat on
+    // "still in progress" with Finish disabled after the job had recorded.
+    vi.mocked(ApiService.getPersonalAgentStatus)
+      .mockResolvedValueOnce({ hostingMode: "pending", state: "reserved", deploymentTarget: "user_azure" })
+      .mockResolvedValue({ hostingMode: "byoc", state: "reserved", deploymentTarget: "user_azure" });
+    vi.mocked(ApiService.getByocSetupStatus)
+      .mockResolvedValueOnce(azureJob("deploying_agent", ["creating_resource_group", "deploying_agent"]))
+      .mockResolvedValue({ ...azureJob("proving", ["creating_resource_group", "proving"]), status: "recorded" });
+    render(<ByocCloudSetupPage />);
+    await screen.findByTestId("byoc-setup-progress");
+    const connected = await screen.findByTestId("byoc-cloud-connected", {}, { timeout: 5000 });
+    expect(connected).toHaveTextContent("Connected: Microsoft Azure");
+    expect(screen.queryByTestId("hosting-mode-pending")).toBeNull();
+    expect(ApiService.getPersonalAgentStatus).toHaveBeenCalledTimes(2);
+  });
+
   it("deploys a reserved Azure home through the Microsoft sign-in", async () => {
     vi.mocked(ApiService.getPersonalAgentStatus).mockResolvedValue({
       hostingMode: "pending",

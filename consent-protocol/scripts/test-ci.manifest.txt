@@ -903,3 +903,6 @@ tests/test_pod_ai_selection_doors.py
 tests/test_pod_ai_selection_turns.py
 tests/test_pod_ai_selection_voice.py
 tests/test_pod_ai_selection_advert.py
+
+# Provision claim for an Azure home and after a detached placement (2026-10-05)
+tests/test_personal_agent_provision_after_detach_postgres.py
