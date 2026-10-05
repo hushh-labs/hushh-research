@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
 from hushh_mcp.services import azure_federation as federation
+from hushh_mcp.services.azure_agent_observation import assigned_identity
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.azure_container_app_renderer import AgentCoordinates, render_container_app
 from hushh_mcp.services.azure_image_source import import_credentials
@@ -171,8 +172,7 @@ def prove(
     """Read the agent back from ARM and wait for its health; return (fqdn, app)."""
     scopes = Scopes(plan.inputs, plan.names)
     app = arm.get(scopes.app, api_version=API_VERSIONS["container_apps"], op="proving")
-    identities = (app.get("identity") or {}).get("userAssignedIdentities") or {}
-    principal = str((identities.get(scopes.identity) or {}).get("principalId") or "")
+    principal, _client_id = assigned_identity(app, scopes.identity)
     fqdn = str(
         ((app.get("properties") or {}).get("configuration") or {}).get("ingress", {}).get("fqdn")
         or ""

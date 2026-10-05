@@ -87,9 +87,24 @@ class AzureAgentObservation:
         return str(containers[0].get("image") or "")
 
     def principal(self, identity: str) -> tuple[str, str]:
-        identities = (self.app.get("identity") or {}).get("userAssignedIdentities") or {}
-        entry = identities.get(identity) or {}
-        return str(entry.get("principalId") or ""), str(entry.get("clientId") or "")
+        return assigned_identity(self.app, identity)
+
+
+def assigned_identity(app: dict, identity: str) -> tuple[str, str]:
+    """(principalId, clientId) of ``identity`` on ``app``, or empty strings.
+
+    ARM resource ids are case-insensitive and ARM echoes them in its own casing:
+    a Container App read back lists its identity under ``.../resourcegroups/...``
+    even when it was written as ``.../resourceGroups/...``. An exact lookup missed
+    it and the first live Connect Azure on dev (2026-10-05) refused its own agent.
+    """
+    identities = (app.get("identity") or {}).get("userAssignedIdentities") or {}
+    wanted = identity.lower()
+    for key, entry in identities.items():
+        if str(key).lower() == wanted:
+            entry = entry or {}
+            return str(entry.get("principalId") or ""), str(entry.get("clientId") or "")
+    return "", ""
 
 
 def _read_or_forbidden(arm: ArmClient, path: str) -> tuple[Optional[dict], bool]:
@@ -164,5 +179,6 @@ __all__ = [
     "AzureJitAuthorizationRequired",
     "adoption_refusal",
     "approved_image_digests",
+    "assigned_identity",
     "observe_agent",
 ]

@@ -196,6 +196,37 @@ def test_an_agent_that_never_answers_is_a_typed_refusal_with_everything_kept():
     assert any(p.endswith("/containerApps/ca-hussh-one-pod") for _, p in arm.writes())
 
 
+class _ArmCasedLikeAzure(FakeArm):
+    """Echo identity ids the way real ARM does: ``resourcegroups``, lower case."""
+
+    def __init__(self, principal: str = POD_PRINCIPAL) -> None:
+        super().__init__()
+        self.principal = principal
+
+    def get(self, path, *, api_version, op=""):
+        body = super().get(path, api_version=api_version, op=op)
+        identities = (body.get("identity") or {}).get("userAssignedIdentities")
+        if identities:
+            body["identity"]["userAssignedIdentities"] = {
+                key.replace("/resourceGroups/", "/resourcegroups/"): {
+                    **(value or {}),
+                    "principalId": self.principal,
+                }
+                for key, value in identities.items()
+            }
+        return body
+
+
+def test_the_proof_matches_the_identity_however_azure_cases_its_id():
+    """The first live Connect Azure on dev (2026-10-05) failed PROOF_FAILED on a correct
+    agent: ARM echoed ``resourcegroups`` and the exact lookup missed. Negative control:
+    the same casing with a different principal is still refused."""
+    assert _run(_ArmCasedLikeAzure()).pod_principal_id == POD_PRINCIPAL
+    with pytest.raises(AzureSetupRefused) as refused:
+        _run(_ArmCasedLikeAzure(principal="99999999-9999-9999-9999-999999999999"))
+    assert refused.value.code == "PROOF_FAILED"
+
+
 def test_a_tagged_image_is_refused_before_any_azure_call():
     arm = FakeArm()
     with pytest.raises(AzureSetupRefused) as exc:
