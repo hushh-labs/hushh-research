@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2074,
+  "finding_count": 2077,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -18672,13 +18672,43 @@
       "path": "hushh-webapp/scripts/native/ios-ui-interaction-audit.mjs",
       "symbol": null,
       "value": 501
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/scripts/azure_model_eval/analyze.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/scripts/azure_model_eval/analyze.py",
+      "symbol": null,
+      "value": 511
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/scripts/azure_model_eval/analyze.py|first_tool|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/scripts/azure_model_eval/analyze.py",
+      "symbol": "first_tool",
+      "value": 86
+    },
+    {
+      "detail": "function exceeds the advisory gene budget",
+      "key": "function_size|consent-protocol/scripts/azure_model_eval/analyze.py|nav|function exceeds the advisory gene budget",
+      "kind": "function_size",
+      "limit": 80,
+      "path": "consent-protocol/scripts/azure_model_eval/analyze.py",
+      "symbol": "nav",
+      "value": 82
     }
   ],
   "inspected_files": 5706,
   "review": {
     "additional_reviewed_entries": [
       "module_size|consent-protocol/tests/test_pod_turn_route.py||module exceeds the advisory operon budget",
-      "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget"
+      "module_size|hushh-webapp/lib/generated/one-location-workflow-card-catalog.v1.ts||module exceeds the advisory operon budget",
+      "module_size|consent-protocol/scripts/azure_model_eval/analyze.py||module exceeds the advisory operon budget",
+      "function_size|consent-protocol/scripts/azure_model_eval/analyze.py|first_tool|function exceeds the advisory gene budget",
+      "function_size|consent-protocol/scripts/azure_model_eval/analyze.py|nav|function exceeds the advisory gene budget"
     ],
     "adk_revision": "1b08a07ebe9314a4e67e3fac1a082a102c8a3d40",
     "date": "2026-10-01",
@@ -18721,7 +18751,8 @@
         "hushh-webapp/__tests__/services/pkm-save-job.test.ts": "850 to 853: the secure-cache helper mirrors this branch's schema version 2 (three stores), not version 1",
         "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx": "793 to 802: re-read where the agent lives when a watched setup job records (founder-hit 2026-10-05: stuck on still in progress)"
       }
-    }
+    },
+    "azure_model_eval_harness": "Reviewed 2026-10-05: the on-demand Azure model evaluation harness (consent-protocol/scripts/azure_model_eval/, run inside the person's own Azure to choose the default model) entered from its measurement branch; analyze.py is 511 lines with two report functions at 86 and 82. Measurement tooling, not product code; split it if it grows further."
   },
   "status": "advisory"
 }
