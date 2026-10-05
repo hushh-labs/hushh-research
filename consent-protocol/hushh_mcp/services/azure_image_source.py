@@ -103,7 +103,8 @@ def release_source(source: str) -> str:
     A digest names exact bytes, so ``<release repository>@<digest>`` is the approved
     image wherever it is read from. That lets the reader be granted one pod-only
     repository instead of the project-wide ``gcr.io`` one. A digest missing from the
-    release repository fails the import preflight, before any sign-in.
+    release repository fails the import preflight with ``IMAGE_NOT_PUBLISHED``, before
+    any sign-in. Setup and the approved update both import through this mapping.
     """
     repository = (os.getenv(RELEASE_REPOSITORY_ENV) or "").strip().rstrip("/")
     if not repository:
@@ -241,18 +242,46 @@ def source_is_public(registry: str, repository: str, digest: str, *, session: An
     return getattr(response, "status_code", 0) == 200
 
 
-def readable_with(
-    token: str, registry: str, repository: str, digest: str, *, session: Any = None
-) -> bool:
-    """Whether this Google token can read the digest. Only ever sent to a Google registry."""
+def _read_status(token: str, registry: str, repository: str, digest: str, session: Any) -> int:
+    """HTTP status of this token's manifest read; 0 when unreachable or not a Google host."""
     if not is_google_registry(registry):
-        return False
+        return 0
     try:
         response = _head_manifest(_session(session), registry, repository, digest, token)
     except Exception as exc:  # noqa: BLE001 - an unreachable source is not a readable one
         logger.info("azure_image_source.reader_probe_failed err=%s", type(exc).__name__)
-        return False
-    return getattr(response, "status_code", 0) == 200
+        return 0
+    return int(getattr(response, "status_code", 0) or 0)
+
+
+def readable_with(
+    token: str, registry: str, repository: str, digest: str, *, session: Any = None
+) -> bool:
+    """Whether this Google token can read the digest. Only ever sent to a Google registry."""
+    return _read_status(token, registry, repository, digest, session) == 200
+
+
+def _reader_refusal(status: int) -> AzureSetupRefused:
+    """Why the reader's read failed, worded so the remedy never widens its grant.
+
+    Artifact Registry answers 404 only to a caller allowed to read the repository; one
+    without the grant gets 403 whether or not the digest exists (measured on the dev
+    release repository, 2026-10-05). So a 404 means the digest was never published
+    there (the dev deploy publishes each release digest). Telling an operator to grant
+    the reader more in that case would invite the exact widening the founder did not
+    approve.
+    """
+    if status == 404:
+        return AzureSetupRefused(
+            "This agent release is not yet in the repository your subscription imports "
+            "from; it appears there when the release is published.",
+            code="IMAGE_NOT_PUBLISHED",
+        )
+    return AzureSetupRefused(
+        f"{READER_SA_ENV} cannot read the agent image; grant it Artifact Registry "
+        "reader on the pod image repository.",
+        code="IMAGE_READER_CANNOT_READ",
+    )
 
 
 def require_import_access(
@@ -279,12 +308,9 @@ def require_import_access(
                 registry.strip().lower(),
             )
         token = mint_reader_token(reader, session=session, hub_identity=hub_identity)
-        if not readable_with(token, registry, repository, digest, session=session):
-            raise AzureSetupRefused(
-                f"{READER_SA_ENV} cannot read the agent image; grant it Artifact Registry "
-                "reader on the pod image repository.",
-                code="IMAGE_READER_CANNOT_READ",
-            )
+        status = _read_status(token, registry, repository, digest, session)
+        if status != 200:
+            raise _reader_refusal(status)
         return "reader"
     if source_is_public(registry, repository, digest, session=session):
         return "public"

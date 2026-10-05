@@ -15,7 +15,8 @@ names exactly the revision this attempt created. The previous revision keeps ser
 until the new one is ready (single revision mode activates the new one only then).
 Files background organization is not available on Azure yet, so a Files plan refuses.
 The import reads the source as the configured image reader (``azure_image_source``),
-minted inside the fenced section so a refused credential releases the drained agent.
+minted inside the fenced section so a refused credential releases the drained agent,
+and from the same pod-only release repository setup imports from (``import_source``).
 """
 
 from __future__ import annotations
@@ -32,7 +33,7 @@ from hushh_mcp.services.azure_container_app_renderer import (
     image_reference,
     refuse_metered_configuration,
 )
-from hushh_mcp.services.azure_image_source import import_credentials
+from hushh_mcp.services.azure_image_source import import_credentials, release_source
 from hushh_mcp.services.azure_setup_applier import resolve
 from hushh_mcp.services.azure_setup_plan import (
     CONTAINER_APP_NAME,
@@ -62,6 +63,24 @@ def revision_suffix(attempt_id: str) -> str:
     return f"u{clean[:12]}"
 
 
+#: The economy idle window every scale-to-zero agent runs with (the renderer's value).
+IDLE_GRACE_ENV = {"name": "POD_IDLE_GRACE_SECONDS", "value": "600"}
+
+
+def _carry_idle_window(template: dict[str, Any], container: dict[str, Any]) -> None:
+    """Give a scale-to-zero agent set up before the idle window existed that window.
+
+    Azure has one profile (minReplicas 0), so this is part of it, not an opt-in; an
+    agent without it never released an idle Puppy socket and stayed warm. A value the
+    agent already carries is never changed.
+    """
+    if ((template.get("scale") or {}).get("minReplicas")) != 0:
+        return
+    env = container.setdefault("env", [])
+    if not any(entry.get("name") == IDLE_GRACE_ENV["name"] for entry in env):
+        env.append(dict(IDLE_GRACE_ENV))
+
+
 def replacement_body(app: dict[str, Any], *, image: str, suffix: str) -> dict[str, Any]:
     """The existing agent with one image and one revision suffix changed."""
     body = {key: copy.deepcopy(app[key]) for key in _WRITABLE if key in app}
@@ -75,6 +94,7 @@ def replacement_body(app: dict[str, Any], *, image: str, suffix: str) -> dict[st
     if len(containers) != 1:
         raise ValueError("the agent runs exactly one container")
     containers[0]["image"] = image
+    _carry_idle_window(template, containers[0])
     # Secrets are Key Vault references (name, URL, identity), so the GET shape is
     # exactly what a replace must carry; no secret value ever transits Hussh here.
     refuse_metered_configuration(body)
@@ -94,6 +114,23 @@ def _image(app: dict[str, Any]) -> str:
     return str(containers[0].get("image") or "")
 
 
+def import_source(approved: str) -> tuple[str, str, str]:
+    """(registry, repository, digest) the person's registry imports the approved image from.
+
+    The approval, the acknowledgement and the agent's reported image all stay bound to
+    ``approved``; only where those bytes are read from moves, to the pod-only release
+    repository the image reader is granted (``release_source``), exactly as setup does.
+    Reading the hub's own reference instead would ask the reader for a repository it is
+    deliberately not granted. A digest names exact bytes, so a mapping that reads any
+    other digest is refused.
+    """
+    _, _, approved_digest = parse_source_image(approved)
+    registry, repository, digest = parse_source_image(release_source(approved))
+    if digest != approved_digest:
+        raise RuntimeError("the import source must name the approved digest")
+    return registry, repository, digest
+
+
 def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> BackendHandle:
     """Synchronous: import the digest, re-fence, replace, acknowledge, wait."""
     if spec.files_upgrade_plan is not None:
@@ -101,7 +138,7 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     expected = str(spec.expected_service_uid or "").strip()
     if not expected:
         raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
-    registry, repository, digest = parse_source_image(str(spec.upgrade_target_image or ""))
+    registry, repository, digest = import_source(str(spec.upgrade_target_image or ""))
     api = API_VERSIONS["container_apps"]
     app = arm.get(backend.app_id, api_version=api, op="upgrade")
     nonce, created = _fence(app, spec, expected)
@@ -323,6 +360,7 @@ def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
 
 
 __all__ = [
+    "import_source",
     "observe_upgrade",
     "replacement_body",
     "revision_suffix",

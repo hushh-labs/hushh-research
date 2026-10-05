@@ -124,6 +124,10 @@ def _azure_env(coords: AgentCoordinates) -> list[dict[str, Any]]:
         {"name": "GOOGLE_GENAI_USE_VERTEXAI", "value": "false"},
         {"name": "HUSSH_POD_HUB_CALLER_EMAILS", "value": coords.hub_caller_emails},
         {"name": "APP_SIGNING_KEY", "secretRef": SIGNING_SECRET_NAME},
+        # Scale to zero always (minReplicas 0), so the economy idle window applies, as
+        # on a Google agent at minScale 0. Without it a linked Puppy never closed an
+        # idle socket and held the agent warm, billing the owner for idle time.
+        {"name": "POD_IDLE_GRACE_SECONDS", "value": "600"},
     ]
     if coords.openai_endpoint and coords.openai_deployment:
         env += [

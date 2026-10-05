@@ -171,6 +171,50 @@ steps:
     id: "resolve-pod-image-digest"
     waitFor: ["build-pod-image"]
 
+  # Connect Azure (dev only) imports the approved pod digest from the lane's
+  # pod-only release repository, the one repository its image reader is granted
+  # (HUSSH_AZURE_POD_IMAGE_REPOSITORY, docs/reference/architecture/byoc-azure.md).
+  # The hub's runtime identity holds no registry write, and widening it or the
+  # reader is not approved, so the build identity copies exactly the digest the
+  # hub will offer, before deploy-backend can offer it. A digest names exact
+  # bytes: the copy is proven by reading that digest back, and a digest already
+  # there is left alone. Fail closed: a release Azure could not import is never
+  # offered. The repository must equal the dev lane's
+  # hussh_azure_pod_image_repository in scripts/ops/sync_backend_runtime_secrets.py
+  # (pinned by consent-protocol/tests/test_azure_pod_release_publish_step.py).
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        if [[ "${_DEPLOY_ENV}" != "dev" || "${_BUILD_POD_IMAGE}" != "true" ]]; then
+          echo "azure pod release: skipped"
+          exit 0
+        fi
+        release_repository="us-central1-docker.pkg.dev/$PROJECT_ID/one-pod-release/consent-protocol-pod"
+        pod_image="$(head -n 1 /workspace/pod-image-reference | tr -d '\r\n')"
+        pod_digest="${pod_image##*@}"
+        if [[ ! "$pod_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+          echo "azure pod release: the pinned pod image is not a digest" >&2
+          exit 1
+        fi
+        release_image="${release_repository}@${pod_digest}"
+        if gcloud artifacts docker images describe "$release_image" >/dev/null 2>&1; then
+          echo "azure pod release: ${pod_digest} already published"
+          exit 0
+        fi
+        gcloud container images add-tag "$pod_image" "${release_repository}:${_IMAGE_TAG}" --quiet
+        published="$(gcloud artifacts docker images describe "$release_image" \
+          --format='value(image_summary.digest)')"
+        if [[ "$published" != "$pod_digest" ]]; then
+          echo "azure pod release: ${pod_digest} did not land in the release repository" >&2
+          exit 1
+        fi
+        echo "azure pod release: published ${pod_digest}"
+    id: "publish-azure-pod-release"
+    waitFor: ["resolve-pod-image-digest"]
+
   # IAM and the isolated model probe overlap pod publication. Deployment joins
   # both paths; Docker builds stay serialized because they share a build context.
   # Validate the runtime identity + managed-Vertex IAM prerequisites.
@@ -504,7 +548,8 @@ steps:
       - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
       - "_WALLET_PASS_WWDR_PEM_SECRET=${_WALLET_PASS_WWDR_PEM_SECRET}"
     id: "deploy-backend"
-    waitFor: ["resolve-pod-image-digest", "verify-managed-vertex-runtime"]
+    waitFor:
+      ["resolve-pod-image-digest", "publish-azure-pod-release", "verify-managed-vertex-runtime"]
 
 # NOTE: no top-level `images:` block — `docker buildx build --push` (Step 1) already
 # pushes every tag. Listing images here would make Cloud Build try to re-push them from

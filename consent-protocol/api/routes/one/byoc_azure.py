@@ -397,6 +397,24 @@ async def _upgrade_row(user_id: str) -> tuple[dict, str]:
     return dict(row), target
 
 
+def _upgrade_import_reference(target: str) -> str:
+    """The approved digest where the update imports it from, as setup's ``_source_image``.
+
+    The approval stays bound to ``target``; the preflight must read the same place the
+    import will (``azure_agent_upgrade.import_source``), or it proves access to a
+    repository the import never touches and the person signs in for an update that
+    then cannot be copied.
+    """
+    from hushh_mcp.services.azure_image_source import release_source
+    from hushh_mcp.services.azure_setup_applier import AzureSetupRefused
+
+    try:
+        source: str = release_source(target)
+    except AzureSetupRefused as exc:
+        raise _refuse(503, exc.code, str(exc)) from exc
+    return source
+
+
 @router.post("/byoc/azure/upgrade/begin", response_model=AzureAuthorizeBeginResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def begin_azure_upgrade(
@@ -405,7 +423,7 @@ async def begin_azure_upgrade(
 ) -> AzureAuthorizeBeginResponse:
     """The Microsoft sign-in that authorizes ONE approved update, in the agent's directory."""
     row, target = await _upgrade_row(firebase_uid)
-    await _require_image_access(target)
+    await _require_image_access(_upgrade_import_reference(target))
     url = await _authorization_url(
         firebase_uid,
         kind="upgrade",
