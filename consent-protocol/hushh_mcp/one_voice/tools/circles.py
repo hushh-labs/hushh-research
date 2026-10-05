@@ -13,6 +13,7 @@ synchronous SQLAlchemy code, so they are dispatched with ``asyncio.to_thread``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -26,12 +27,14 @@ from hushh_mcp.one_voice.tools.base import (
     ConfirmedCircle,
     Needs,
     PersonRef,
+    Prepared,
     Rejected,
     ToolContext,
     ToolInput,
     ToolPolicy,
     ToolResult,
     ToolSpec,
+    Unsupported,
     now_iso,
 )
 from hushh_mcp.one_voice.tools.people import ServiceError as PeopleServiceError
@@ -1366,6 +1369,316 @@ def summarize_add_circle_members(ctx: ToolContext, args: AddCircleMembersInput) 
     return f"add {_names_for_speech(people)} to {_circle_label(_circle_name(ctx, args.circle.circle_id))}"
 
 
+# -- add_all_connections ----------------------------------------------------------
+
+# Circles the app manages, which "everyone I'm connected with" never fills in one
+# go: Trusted is curated person by person, and the SMS circle is a short
+# emergency list (ten people), not a group.
+_BULK_REFUSED_SYSTEM_KINDS = frozenset({"trusted", "sms"})
+
+
+class AddAllConnectionsInput(ToolInput):
+    """Only the circle. Who "all my connections" are is read by the server from
+    the person's own connections, never named by the model, so the audience can
+    be neither invented nor widened by an argument."""
+
+    circle: CircleRef
+
+
+AddAllStatus = Literal["added", "no_one_to_add", "not_enough_room", "not_added"]
+
+
+class AddAllConnectionsResult(ToolResult):
+    """Counts, not a roster: the audience can be a hundred people, and the
+    circle's own roster read is where the names live."""
+
+    status: AddAllStatus
+    circle_id: str
+    added_count: int = 0
+    already_member_count: int = 0
+    unavailable_count: int = 0
+    # A few of the people added, for the sentence One says; never all of them.
+    added_names: list[str] = Field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class _AudiencePlan:
+    """Who "all my connections" means for one circle, read without writing."""
+
+    circle_id: str
+    circle_name: str
+    addable: tuple[str, ...]
+    names: dict[str, str]
+    member_ids: frozenset[str]
+    unavailable_count: int
+    connection_count: int
+    remaining: int
+
+
+def _audience_digest(circle_id: str, user_ids: Sequence[str]) -> str:
+    """A fingerprint of the exact reviewed audience, stored with the card."""
+    material = f"{circle_id}:{','.join(sorted(user_ids))}".encode()
+    return hashlib.sha256(material).hexdigest()[:32]
+
+
+def _count(count: int, one: str, many: str) -> str:
+    return f"{count} {one if count == 1 else many}"
+
+
+async def _audience_plan(ctx: ToolContext, circle_id: str) -> _AudiencePlan | ToolResult:
+    """Read the owner's connections against the circle, as the add would judge them.
+
+    Raises the service's own errors (not the owner, circle gone) for the caller
+    to map. A managed circle answers with ``unsupported`` instead of a plan.
+    """
+    service = _service(ctx)
+    plan = dict(
+        await asyncio.to_thread(
+            service.plan_direct_connection_adds, actor_user_id=ctx.user_id, circle_id=circle_id
+        )
+        or {}
+    )
+    circle = dict(plan.get("circle") or {})
+    name = str(circle.get("name") or "") or _circle_name(ctx, circle_id)
+    system_kind = str(circle.get("systemKind") or "")
+    if system_kind in _BULK_REFUSED_SYSTEM_KINDS or bool(circle.get("isSystem")):
+        label = _circle_label(name)
+        return Unsupported(
+            reason_code="managed_circle",
+            spoken_facts=[
+                f"I can't add all your connections to {label} at once. "
+                "Tell me who you want in it and I'll add them."
+            ],
+        )
+    connections = [dict(row) for row in (plan.get("connections") or [])]
+    member_ids = frozenset(
+        str(row.get("userId") or "") for row in connections if row.get("status") == "member"
+    )
+    addable_rows = [row for row in connections if row.get("status") == "addable"]
+    addable = tuple(sorted(str(row.get("userId") or "") for row in addable_rows))
+    limit = int(circle.get("memberLimit") or 0)
+    reserved = int(circle.get("reservedCount") or 0)
+    return _AudiencePlan(
+        circle_id=circle_id,
+        circle_name=name,
+        addable=addable,
+        names={
+            str(row.get("userId") or ""): str(row.get("displayName") or "") or "a connection"
+            for row in addable_rows
+        },
+        member_ids=member_ids,
+        unavailable_count=len(connections) - len(member_ids) - len(addable),
+        connection_count=len(connections),
+        remaining=max(0, limit - reserved),
+    )
+
+
+def _already_in(count: int) -> str:
+    return f"{count} {'is' if count == 1 else 'are'} already in it"
+
+
+def _nobody_to_add(plan: _AudiencePlan, label: str) -> AddAllConnectionsResult:
+    if not plan.connection_count:
+        fact = f"You aren't connected with anyone yet, so there's nobody to add to {label}."
+    elif not plan.unavailable_count:
+        fact = f"Everyone you're connected with is already in {label}."
+    elif not plan.member_ids:
+        fact = f"None of your connections can be added to {label} right now."
+    else:
+        fact = (
+            f"Nobody can be added to {label} right now: {_already_in(len(plan.member_ids))}, "
+            f"and {plan.unavailable_count} can't be added yet."
+        )
+    return AddAllConnectionsResult(
+        status="no_one_to_add",
+        circle_id=plan.circle_id,
+        already_member_count=len(plan.member_ids),
+        unavailable_count=plan.unavailable_count,
+        spoken_facts=[fact],
+    )
+
+
+def _no_room(plan: _AudiencePlan, label: str, wanted: int) -> AddAllConnectionsResult:
+    fact = (
+        f"{label[0].upper()}{label[1:]} is full, so nobody was added."
+        if plan.remaining <= 0
+        else f"{label[0].upper()}{label[1:]} only has room for {plan.remaining} more, so I "
+        f"can't add all {wanted} as you asked. Nobody was added."
+    )
+    return AddAllConnectionsResult(
+        status="not_enough_room",
+        circle_id=plan.circle_id,
+        already_member_count=len(plan.member_ids),
+        unavailable_count=plan.unavailable_count,
+        reason_code="capacity",
+        spoken_facts=[fact],
+    )
+
+
+def _add_all_summary(plan: _AudiencePlan, label: str) -> str:
+    """The card sentence: exact counts, decided before the person says yes."""
+    count = len(plan.addable)
+    if count == plan.connection_count:
+        who = "your only connection" if count == 1 else f"all {count} of your connections"
+    else:
+        who = f"{count} of your {plan.connection_count} connections"
+    notes: list[str] = []
+    if plan.member_ids:
+        notes.append(_already_in(len(plan.member_ids)))
+    if plan.unavailable_count:
+        notes.append(f"{plan.unavailable_count} can't be added right now")
+    return f"add {who} to {label}" + (f" ({', '.join(notes)})" if notes else "")
+
+
+async def prepare_add_all_connections(
+    ctx: ToolContext, args: AddAllConnectionsInput
+) -> Prepared | ToolResult:
+    """Work out exactly who would be added before the card is shown.
+
+    Nothing is written. The card names the counts, and the snapshot binds the
+    exact sorted ids, so the yes approves that group and nobody else.
+    """
+    circle_id = args.circle.circle_id
+    try:
+        plan = await _audience_plan(ctx, circle_id)
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    if isinstance(plan, ToolResult):
+        return plan
+    label = _circle_label(plan.circle_name)
+    if not plan.addable:
+        return _nobody_to_add(plan, label)
+    if len(plan.addable) > plan.remaining:
+        # All or nothing, decided before asking: never a silent subset.
+        return _no_room(plan, label, len(plan.addable))
+    return Prepared(
+        summary=_add_all_summary(plan, label),
+        snapshot={
+            "circle_id": circle_id,
+            "user_ids": list(plan.addable),
+            "audience": _audience_digest(circle_id, plan.addable),
+            "already_member_count": len(plan.member_ids),
+            "unavailable_count": plan.unavailable_count,
+        },
+    )
+
+
+def summarize_add_all_connections(ctx: ToolContext, args: AddAllConnectionsInput) -> str:
+    """Fallback card sentence only; the prepared summary carries the counts."""
+    return f"add all your connections to {_circle_label(_circle_name(ctx, args.circle.circle_id))}"
+
+
+def _approved_audience(snapshot: dict[str, Any] | None, circle_id: str) -> tuple[str, ...] | None:
+    """The exact ids the person approved, or None when the card's binding is unusable."""
+    if not isinstance(snapshot, dict) or snapshot.get("circle_id") != circle_id:
+        return None
+    raw = snapshot.get("user_ids")
+    if not isinstance(raw, list) or not raw or not all(isinstance(item, str) for item in raw):
+        return None
+    ids = tuple(sorted(raw))
+    if snapshot.get("audience") != _audience_digest(circle_id, ids):
+        return None
+    return ids
+
+
+async def add_all_connections(ctx: ToolContext, args: AddAllConnectionsInput) -> ToolResult:
+    """Add exactly the reviewed audience, in one all-or-nothing write.
+
+    Everything is read again first. Anyone approved who can no longer be added
+    (disconnected, left, cooling down) means the card no longer describes what
+    would happen, so nothing is written and the person is asked again. Someone
+    who connected after the card was shown is never added on its strength.
+    """
+    circle_id = args.circle.circle_id
+    approved = _approved_audience(ctx.prepared, circle_id)
+    if approved is None:
+        return AddAllConnectionsResult(
+            status="not_added",
+            circle_id=circle_id,
+            reason_code="review_required",
+            spoken_facts=["I need to check your connections again before adding anyone."],
+        )
+    try:
+        plan = await _audience_plan(ctx, circle_id)
+    except _SERVICE_ERRORS as exc:
+        return _rejected(exc)
+    if isinstance(plan, ToolResult):
+        return plan
+    label = _circle_label(plan.circle_name)
+    addable = set(plan.addable)
+    joined = [user_id for user_id in approved if user_id in plan.member_ids]
+    to_add = [user_id for user_id in approved if user_id in addable]
+    if len(joined) + len(to_add) != len(approved):
+        return AddAllConnectionsResult(
+            status="not_added",
+            circle_id=circle_id,
+            reason_code="audience_changed",
+            spoken_facts=[
+                f"Your connections or {label} changed since I asked, so I haven't added "
+                "anyone. Should I check again?"
+            ],
+        )
+    if not to_add:
+        return AddAllConnectionsResult(
+            status="no_one_to_add",
+            circle_id=circle_id,
+            already_member_count=len(joined),
+            spoken_facts=[f"Everyone on the card is already in {label}."],
+        )
+    if len(to_add) > plan.remaining:
+        return _no_room(plan, label, len(to_add))
+    service = _service(ctx)
+    try:
+        written = dict(
+            await asyncio.to_thread(
+                service.add_direct_connections,
+                actor_user_id=ctx.user_id,
+                circle_id=circle_id,
+                user_ids=to_add,
+            )
+            or {}
+        )
+    except _SERVICE_ERRORS as exc:
+        # One transaction: a refusal means nobody was added.
+        return _rejected(exc)
+    added = [str(item) for item in (written.get("addedUserIds") or [])]
+    skipped = {
+        str(key): str(value) for key, value in dict(written.get("skippedReasons") or {}).items()
+    }
+    if added:
+        await _refresh_remembered(ctx, circle_id)
+    already = len(joined) + sum(1 for reason in skipped.values() if reason == "already_member")
+    unavailable = sum(1 for reason in skipped.values() if reason != "already_member")
+    names = [plan.names.get(user_id) or "a connection" for user_id in added]
+    facts: list[str] = []
+    if added:
+        listed = (
+            f", including {_names_for_speech(names[:3])}"
+            if len(names) > 3
+            else f": {_names_for_speech(names)}"
+        )
+        facts.append(f"Added {_count(len(added), 'person', 'people')} to {label}{listed}.")
+    if already:
+        facts.append(f"{_count(already, 'person was', 'people were')} already in it.")
+    if unavailable:
+        facts.append(f"{_count(unavailable, 'person', 'people')} couldn't be added right now.")
+    newer = len(addable - set(approved))
+    if newer:
+        facts.append(
+            f"{_count(newer, 'newer connection was', 'newer connections were')} not on the "
+            "card, so I left them out."
+        )
+    return AddAllConnectionsResult(
+        status="added" if added else "no_one_to_add",
+        circle_id=circle_id,
+        added_count=len(added),
+        already_member_count=already,
+        unavailable_count=unavailable,
+        added_names=names[:SPOKEN_LIST_LIMIT],
+        spoken_facts=facts or [f"Nobody was added to {label}."],
+    )
+
+
 # -- remove_circle_member ---------------------------------------------------------
 
 
@@ -1791,6 +2104,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         handler=create_circle,
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_create_circle,
+        # A new circle names no existing person or circle, so a lookup made for
+        # a follow-up ("yes, and add Priya to it") must not cancel its card.
+        lookup_targets=(),
     ),
     ToolSpec(
         name="rename_circle",
@@ -1853,6 +2169,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "if the person asks. Both arguments are canonical ids, never names."
         ),
         handler=add_circle_member,
+        correction_group="circle_add",
         person_args=("person",),
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
@@ -1877,10 +2194,35 @@ TOOLS: tuple[ToolSpec, ...] = (
             "argument is a canonical id, never a name."
         ),
         handler=add_circle_members,
+        correction_group="circle_add",
         person_args=("people",),
         circle_args=("circle",),
         ui_refresh=REFRESH_CIRCLES,
         summarize=summarize_add_circle_members,
+    ),
+    ToolSpec(
+        name="add_all_connections",
+        gateway_action_id="location.add_to_circle",
+        policy=ToolPolicy.confirm_voice,
+        input_model=AddAllConnectionsInput,
+        output_model=AddAllConnectionsResult,
+        description=(
+            "Add everyone the person is connected with to one confirmed circle they own, in a "
+            "single step with one confirmation. People are not an argument: the server reads "
+            "their current connections, and the card gives exact counts (how many will be "
+            "added, how many are already in it or can't be added right now). The yes adds "
+            "exactly that group, never someone who connects later. All or none: without room "
+            "for everyone it adds nobody (not_enough_room). For a few named people use "
+            "add_circle_members instead, and never resolve people one by one for this. Trusted "
+            "and the SMS circle are refused. It sends no connection requests. The circle is a "
+            "canonical id, never a name."
+        ),
+        handler=add_all_connections,
+        correction_group="circle_add",
+        circle_args=("circle",),
+        ui_refresh=REFRESH_CIRCLES,
+        summarize=summarize_add_all_connections,
+        prepare=prepare_add_all_connections,
     ),
     ToolSpec(
         name="remove_circle_member",

@@ -15,7 +15,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional
+from typing import Any, AsyncGenerator, Awaitable, Callable, Dict, Optional, cast
 
 from starlette.concurrency import run_in_threadpool
 
@@ -106,6 +106,7 @@ class AnalyzeRunRecord:
     durable_state: Optional[run_store.DurableRunState] = None
     # Set once the "Analysis ready" Feed item has been written for this run.
     completion_feed_recorded: bool = False
+    outcome_feed_recorded: bool = False
     # The frame that ended the run, kept for the sealed hand-off to another
     # process, and whether an attached local stream already delivered it.
     terminal_frame: Optional[RunFrame] = None
@@ -243,6 +244,8 @@ class KaiAnalyzeRunManager:
             frame["data"] = json.dumps(envelope)
 
         async with run.condition:
+            if run.status != "running" and envelope and envelope.get("terminal"):
+                return cast(dict[str, Any], envelope)
             run.events.append(frame)
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
@@ -277,18 +280,47 @@ class KaiAnalyzeRunManager:
         optional durable store exposes no shared outbox, so this manager must not
         invent a second DB authority.
         """
-        if run.completion_feed_recorded or run.is_durable_replay or run.status != "completed":
+        if (
+            run.completion_feed_recorded
+            or run.is_durable_replay
+            or run.status != "completed"
+            or not run.terminal_delivered
+        ):
             return
         run.completion_feed_recorded = True
-        await run_in_threadpool(
-            FeedService().record_event,
-            user_id=run.user_id,
-            source_domain="kai",
-            event_type="kai_analysis_completed",
-            actor_label="Kai",
-            metadata={"ticker": run.ticker, "run_id": run.run_id},
-            source_row_id=run.run_id,
-        )
+        try:
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type="kai_analysis_completed",
+                actor_label="Kai",
+                metadata={"ticker": run.ticker, "run_id": run.run_id},
+                source_row_id=run.run_id,
+            )
+        except Exception:
+            logger.warning("kai_outcome_feed_projection_failed")
+
+    async def _record_outcome_feed(self, run: AnalyzeRunRecord) -> None:
+        if (
+            run.outcome_feed_recorded
+            or run.is_durable_replay
+            or run.status not in {"failed", "canceled"}
+        ):
+            return
+        run.outcome_feed_recorded = True
+        try:
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type=f"kai_analysis_{run.status}",
+                actor_label="Kai",
+                metadata={"ticker": run.ticker},
+                source_row_id=run.run_id,
+            )
+        except Exception:
+            logger.warning("kai_outcome_feed_projection_failed")
 
     async def _append_synthetic_terminal(
         self,
@@ -338,6 +370,7 @@ class KaiAnalyzeRunManager:
             else None
         )
         saw_terminal = False
+        generator = None
         try:
             generator = generator_factory(
                 run.ticker,
@@ -351,11 +384,11 @@ class KaiAnalyzeRunManager:
                 envelope = await self._append_frame(run, frame)
                 if envelope and bool(envelope.get("terminal")) and run.status != "running":
                     saw_terminal = True
+                    break
                 if run.cancel_event.is_set() and run.status in {"canceled", "failed", "completed"}:
                     break
         except Exception as exc:
             logger.exception("[KaiRun] Worker crashed for %s: %s", run.run_id, exc)
-            run.status = "failed"
             await self._append_synthetic_terminal(
                 run,
                 event_name="error",
@@ -368,8 +401,14 @@ class KaiAnalyzeRunManager:
             )
             saw_terminal = True
         finally:
+            # Close in the owning task: generators release contextvar tokens
+            # here, which cannot safely be deferred to asyncgen GC in a new task.
+            if generator is not None:
+                try:
+                    await generator.aclose()
+                except Exception:
+                    logger.warning("kai_run_generator_cleanup_failed")
             if run.cancel_event.is_set() and not saw_terminal:
-                run.status = "canceled"
                 await self._append_synthetic_terminal(
                     run,
                     event_name="aborted",
@@ -381,7 +420,6 @@ class KaiAnalyzeRunManager:
                     },
                 )
             elif run.status == "running" and not saw_terminal:
-                run.status = "failed"
                 await self._append_synthetic_terminal(
                     run,
                     event_name="error",
@@ -430,6 +468,8 @@ class KaiAnalyzeRunManager:
                         delivered=lambda: run.terminal_delivered,
                     )
                 )
+
+            await self._record_outcome_feed(run)
 
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
@@ -640,9 +680,9 @@ class KaiAnalyzeRunManager:
 
             for frame in pending:
                 yield frame
+                if frame is run.terminal_frame:
+                    run.terminal_delivered = True
+                    await self._record_completion_feed(run)
 
             if terminal_reached:
-                # Reached only after the consumer pulled the terminal frame.
-                run.terminal_delivered = True
-                await self._record_completion_feed(run)
                 return

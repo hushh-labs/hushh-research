@@ -3,6 +3,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixtures/product-font";
+import {
+  resolveSignedInShellContentOffset,
+  resolveTopShellGeometryStyle,
+} from "../components/app-ui/signed-in-shell-content-offset";
 
 /**
  * The Wallet as a card holder, measured in the engine it ships in.
@@ -25,6 +29,10 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
  *    stood, and nothing shifts;
  *  - card travel that never overshoots and returns along the same path, and
  *    no travel at all under reduced motion;
+ *  - the empty Wallet's supplied HD hero, semantic typography, and centered
+ *    Location-onboarding action measure at phone and desktop widths;
+ *  - the empty desktop Wallet fits the real signed-in scroll shell while a
+ *    short phone remains safely scrollable;
  *  - no horizontal page overflow.
  */
 
@@ -33,6 +41,7 @@ const INSET = 20;
 const ISO_RATIO = 85.6 / 53.98;
 const WIDTHS = [320, 393, 1440] as const;
 const THEMES = ["light", "dark"] as const;
+const BOTTOM_SHELL_HEIGHT_PX = 132;
 
 const BOUNDARY_MODULES = [
   "next/navigation",
@@ -47,9 +56,11 @@ const BOUNDARY_MODULES = [
 
 let css = "";
 let script = "";
+let walletHero: Buffer;
 
 test.beforeAll(async () => {
   const root = process.cwd();
+  walletHero = fs.readFileSync(path.join(root, "public/wallet/wallet-cards-hero.png"));
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
@@ -160,12 +171,66 @@ window.__sampleWallet = (ms) => {
 };
 `;
 
-async function open(page: Page, width: number, theme: string, scenario: Scenario = {}) {
-  await page.setViewportSize({ width, height: 852 });
+type FixtureOptions = { height?: number; shell?: boolean };
+
+function inlineStyle(style: Record<string, unknown>): string {
+  return Object.entries(style)
+    .map(([name, value]) => `${name}: ${String(value)};`)
+    .join(" ");
+}
+
+function shellMarkup(): string {
+  const offset = resolveSignedInShellContentOffset({
+    shellVisible: true,
+    routeLayoutMode: "standard",
+    localOffset: "0px",
+  });
+  const shellStyle = inlineStyle({
+    ...offset.style,
+    ...resolveTopShellGeometryStyle({ hasTabs: false }),
+    "--app-bottom-shell-height": `${BOTTOM_SHELL_HEIGHT_PX}px`,
+    "--bottom-chrome-stack-height": "var(--app-bottom-shell-height)",
+    "--app-scroll-bottom-pad": "var(--bottom-chrome-stack-height)",
+  });
+
+  return `<div data-app-shell-root="true" style="${shellStyle}; position: fixed; inset: 0; display: flex; flex-direction: column;">
+    <div
+      data-app-scroll-root="true"
+      style="flex: 1 1 0%; min-height: 0; overflow-y: auto; overflow-x: hidden; padding-bottom: var(--app-scroll-bottom-pad);"
+    >
+      <div data-app-shell-top-spacer="true" aria-hidden></div>
+      <div data-app-shell-content="true" style="min-height: 0;"><div id="root"></div></div>
+    </div>
+    <div
+      data-bottom-chrome
+      style="position: fixed; inset-inline: 0; bottom: 0; height: var(--bottom-chrome-stack-height);"
+    ></div>
+  </div>`;
+}
+
+async function open(
+  page: Page,
+  width: number,
+  theme: string,
+  scenario: Scenario = {},
+  options: FixtureOptions = {},
+) {
+  const { height = 852, shell = false } = options;
+  await page.setViewportSize({ width, height });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
+  await page.route("http://wallet-fixture.local/**", async (route) => {
+    const requestUrl = new URL(route.request().url());
+    const assetPath = requestUrl.searchParams.get("url") ?? requestUrl.pathname;
+    if (assetPath === "/wallet/wallet-cards-hero.png") {
+      await route.fulfill({ body: walletHero, contentType: "image/png" });
+      return;
+    }
+    await route.abort();
+  });
+  const fixture = shell ? shellMarkup() : '<div id="root"></div>';
   await page.setContent(
-    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground"><div id="root"></div></body></html>`,
+    `<!doctype html><html class="${theme === "dark" ? "dark" : ""}"><head><base href="http://wallet-fixture.local/"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${css}</style></head><body class="bg-background text-foreground" data-ambient-chrome-primed="true" style="margin:0">${fixture}</body></html>`,
   );
   await awaitProductFont(page);
   await page.addScriptTag({ content: `window.__walletScenario = ${JSON.stringify(scenario)};${PROBES}` });
@@ -434,22 +499,178 @@ test("under reduced motion a chosen card moves in one step", async ({ page }) =>
 });
 
 for (const theme of THEMES) {
-  test(`the locked and empty Wallet keep the card's shape at 393px ${theme}`, async ({ page }) => {
-    for (const scenario of [{ locked: true }, { cards: 0 }] as Scenario[]) {
-      await open(page, 393, theme, scenario);
-      await mount(page);
-      const state = page.getByTestId(scenario.locked ? "one-wallet-locked" : "one-wallet-empty");
-      await expect(state).toBeVisible();
-      const frame = await state.locator(".aspect-\\[85\\.6\\/53\\.98\\]").boundingBox();
-      expect(Math.abs(frame!.width / frame!.height / ISO_RATIO - 1)).toBeLessThanOrEqual(0.005);
-      const action = state.getByRole("button");
-      expect((await action.boundingBox())!.height).toBeGreaterThanOrEqual(44);
-      // A locked vault never shows a card, masked or otherwise.
-      if (scenario.locked) {
-        await expect(page.getByTestId("wallet-stack")).toHaveCount(0);
-        await expect(page.getByTestId("secure-card-reveal")).toHaveCount(0);
-      }
-      expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
-    }
+  test(`the locked Wallet keeps the card's shape at 393px ${theme}`, async ({ page }) => {
+    await open(page, 393, theme, { locked: true });
+    await mount(page);
+    const state = page.getByTestId("one-wallet-locked");
+    await expect(state).toBeVisible();
+    const frame = await state.locator(".aspect-\\[85\\.6\\/53\\.98\\]").boundingBox();
+    expect(Math.abs(frame!.width / frame!.height / ISO_RATIO - 1)).toBeLessThanOrEqual(0.005);
+    expect((await state.getByRole("button").boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    // A locked vault never shows a card, masked or otherwise.
+    await expect(page.getByTestId("wallet-stack")).toHaveCount(0);
+    await expect(page.getByTestId("secure-card-reveal")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 }
+
+for (const width of WIDTHS) {
+  for (const theme of THEMES) {
+    test(`the empty Wallet hero matches its responsive layout at ${width}px ${theme}`, async ({ page }) => {
+      const errors = await open(page, width, theme, { cards: 0 });
+      await mount(page);
+
+      const state = page.getByTestId("one-wallet-empty");
+      const art = page.getByTestId("one-wallet-empty-art");
+      const title = page.getByTestId("one-wallet-empty-display-title");
+      const subtitle = state.getByText(
+        "Cards you add are encrypted on this device and kept in your vault.",
+      );
+      const action = page.getByTestId("one-wallet-empty-action");
+
+      await expect(state).toBeVisible();
+      await expect(art).toBeVisible();
+      await expect(title).toBeVisible();
+      await expect(title).toHaveClass(/\bui-text-page-title\b/);
+      await expect(subtitle).toBeVisible();
+      await expect(action).toHaveText("Add a Card");
+
+      const geometry = await page.evaluate(() => {
+        const box = (selector: string) => {
+          const rect = document.querySelector(selector)!.getBoundingClientRect();
+          return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+        };
+        const typography = (selector: string) => {
+          const style = getComputedStyle(document.querySelector(selector)!);
+          return {
+            family: style.fontFamily,
+            size: style.fontSize,
+            lineHeight: style.lineHeight,
+            weight: style.fontWeight,
+          };
+        };
+        const titleElement = document.querySelector<HTMLElement>('[data-testid="one-wallet-empty-display-title"]')!;
+        const titleLines = [...titleElement.querySelectorAll<HTMLElement>("span")].map((span) => {
+          const rect = span.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom };
+        });
+        return {
+          workspace: box('[data-testid="one-wallet-workspace"]'),
+          art: box('[data-testid="one-wallet-empty-art"]'),
+          image: box('[data-testid="one-wallet-empty-art"] img'),
+          imageIntrinsic: {
+            width: document.querySelector<HTMLImageElement>('[data-testid="one-wallet-empty-art"] img')!.naturalWidth,
+            height: document.querySelector<HTMLImageElement>('[data-testid="one-wallet-empty-art"] img')!.naturalHeight,
+          },
+          title: box('[data-testid="one-wallet-empty-display-title"]'),
+          titleLines,
+          titleFits: titleElement.scrollWidth <= titleElement.clientWidth + 1,
+          titleTypography: typography('[data-testid="one-wallet-empty-display-title"]'),
+          subtitle: box('[data-testid="one-wallet-empty"] .ui-text-page-subtitle'),
+          subtitleTypography: typography('[data-testid="one-wallet-empty"] .ui-text-page-subtitle'),
+          action: box('[data-testid="one-wallet-empty-action"]'),
+          actionTypography: typography('[data-testid="one-wallet-empty-action"]'),
+          overflowX: document.documentElement.scrollWidth - window.innerWidth,
+        };
+      });
+
+      const desktop = width >= 1024;
+      const expectedArtHeight = desktop
+        ? Math.min(304, Math.max(160, 852 - 33 * 16))
+        : Math.min(width * 0.7, 304) / (698 / 894);
+      expect(Math.abs(geometry.art.height - expectedArtHeight)).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.art.width / geometry.art.height - 698 / 894)).toBeLessThanOrEqual(0.005);
+      expect(Math.abs(geometry.image.width / geometry.art.width - 1.7393)).toBeLessThanOrEqual(0.005);
+      expect(geometry.imageIntrinsic.width).toBeGreaterThanOrEqual(geometry.image.width);
+      expect(
+        Math.abs(geometry.imageIntrinsic.width / geometry.imageIntrinsic.height - 1214 / 1295),
+      ).toBeLessThanOrEqual(0.005);
+      expect(
+        Math.abs(geometry.title.y - (geometry.art.y + geometry.art.height) - (desktop ? 24 : 32)),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(geometry.subtitle.y - (geometry.title.y + geometry.title.height) - (desktop ? 12 : 16)),
+      ).toBeLessThanOrEqual(1);
+      expect(
+        Math.abs(geometry.action.y - (geometry.subtitle.y + geometry.subtitle.height) - (desktop ? 20 : 28)),
+      ).toBeLessThanOrEqual(1);
+      expect(Math.abs(geometry.action.width - Math.min(geometry.workspace.width, 244))).toBeLessThanOrEqual(0.5);
+      expect(geometry.action.height).toBeGreaterThanOrEqual(44);
+      expect(geometry.titleLines).toHaveLength(2);
+      if (desktop) {
+        expect(Math.abs(geometry.titleLines[1]!.top - geometry.titleLines[0]!.top)).toBeLessThanOrEqual(1);
+      } else {
+        expect(geometry.titleLines[1]!.top - geometry.titleLines[0]!.top).toBeGreaterThan(20);
+      }
+      expect(geometry.titleFits).toBe(true);
+      expect(geometry.titleTypography).toMatchObject({
+        size: "28px",
+        lineHeight: "34px",
+        weight: "700",
+      });
+      expect(geometry.subtitleTypography).toMatchObject({
+        size: "15px",
+        lineHeight: "20px",
+        weight: "400",
+      });
+      expect(geometry.actionTypography).toMatchObject({
+        size: "17px",
+        lineHeight: "22px",
+        weight: "600",
+      });
+      expect(geometry.titleTypography.family).toBe(geometry.subtitleTypography.family);
+      expect(geometry.overflowX).toBeLessThanOrEqual(0);
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
+test("the empty Wallet fits one desktop shell viewport", async ({ page }) => {
+  for (const viewport of [
+    { width: 1024, height: 768 },
+    { width: 1440, height: 852 },
+  ]) {
+    const errors = await open(page, viewport.width, "light", { cards: 0 }, { ...viewport, shell: true });
+    await mount(page);
+    await expect(page.getByTestId("one-wallet-empty-action")).toBeVisible();
+
+    const measured = await page.evaluate(() => {
+      const root = document.querySelector<HTMLElement>('[data-app-scroll-root="true"]')!;
+      const action = document.querySelector<HTMLElement>('[data-testid="one-wallet-empty-action"]')!;
+      const chrome = document.querySelector<HTMLElement>("[data-bottom-chrome]")!;
+      return {
+        overflow: root.scrollHeight - root.clientHeight,
+        actionBottom: action.getBoundingClientRect().bottom,
+        chromeTop: chrome.getBoundingClientRect().top,
+      };
+    });
+
+    expect(measured.overflow, `${viewport.width}x${viewport.height} scroll overflow`).toBeLessThanOrEqual(1);
+    expect(measured.actionBottom, `${viewport.width}x${viewport.height} action clears chrome`)
+      .toBeLessThanOrEqual(measured.chromeTop - 24 + 1);
+    expect(errors).toEqual([]);
+  }
+});
+
+test("the empty Wallet remains reachable in a short phone shell", async ({ page }) => {
+  const errors = await open(page, 393, "light", { cards: 0 }, { height: 667, shell: true });
+  await mount(page);
+  await expect(page.getByTestId("one-wallet-empty-action")).toBeVisible();
+
+  const measured = await page.evaluate(() => {
+    const root = document.querySelector<HTMLElement>('[data-app-scroll-root="true"]')!;
+    const action = document.querySelector<HTMLElement>('[data-testid="one-wallet-empty-action"]')!;
+    const chrome = document.querySelector<HTMLElement>("[data-bottom-chrome]")!;
+    const scrollable = root.scrollHeight > root.clientHeight + 1;
+    root.scrollTop = root.scrollHeight;
+    return {
+      scrollable,
+      actionBottom: action.getBoundingClientRect().bottom,
+      chromeTop: chrome.getBoundingClientRect().top,
+    };
+  });
+
+  expect(measured.scrollable).toBe(true);
+  expect(measured.actionBottom).toBeLessThanOrEqual(measured.chromeTop - 24 + 1);
+  expect(errors).toEqual([]);
+});

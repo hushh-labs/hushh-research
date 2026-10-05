@@ -9,8 +9,11 @@ tests/services/test_external_connector_google_oauth.py
 tests/services/test_external_mcp_connector_descriptor.py
 tests/test_configure_external_mcp_connector.py
 tests/services/test_external_connector_curated_oauth.py
+tests/services/test_external_connector_oauth_dispatch.py
+tests/services/test_curated_connector_manifest.py
 tests/test_uat_connector_rollout_contract.py
 tests/services/test_external_connector_registry_ownership.py
+tests/services/test_external_connector_dev_overlay.py
 tests/test_drive_uat_registry_provisioning.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
@@ -484,6 +487,21 @@ tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
 tests/one_voice/test_tools_sos.py
 tests/one_voice/test_tools_mail.py
+tests/one_voice/test_mail_send.py
+tests/one_voice/test_relay_mail_send.py
+tests/one_voice/test_live_mail_tool_selection_eval.py
+tests/one_voice/test_mail_reply.py
+tests/one_voice/test_relay_mail_reply.py
+# Mail delivery and read contracts the voice path relies on: one Send per
+# reviewed draft, no retry on an unknown outcome, nonpersisting personal-info
+# assessment, and narration off unless switched on.
+tests/services/test_gmail_delivery_service.py
+tests/test_one_gmail_delivery_routes.py
+tests/services/test_gmail_personal_information_request_service.py
+tests/services/test_voice_narration.py
+# Reply in the original thread: a derived recipient, subject and thread, the
+# opaque source reference, and the account and self-reply fences.
+tests/services/test_gmail_reply_source_service.py
 tests/one_voice/test_relay_external_content_isolation.py
 tests/one_voice/test_tools_profile.py
 tests/one_voice/test_tools_account_lifecycle.py
@@ -553,6 +571,10 @@ tests/test_consent_redaction.py
 tests/test_consent_outcome_delivery_postgres.py
 tests/test_consent_listener_notifications.py
 tests/test_feed_metadata_allowlist.py
+# Useful Feed outcomes: real source transitions, audience/privacy/dedupe and
+# canonical Kai terminal delivery/cleanup. PostgreSQL runs in the serial lane.
+tests/test_feed_agent_outcomes_postgres.py
+tests/test_kai_feed_outcomes.py
 # Wave 2 consent (CONTRACT-2, 2026-09-28). One sensitivity authority, deny by
 # default, on the catalog, request progress and the shared card (C7). A
 # sensitive value never reaches the model on the continuation path: the real
@@ -562,6 +584,8 @@ tests/test_feed_metadata_allowlist.py
 tests/test_scope_sensitivity.py
 tests/test_consent_sensitive_continuation.py
 tests/test_shared_with_me_card.py
+tests/test_curated_connector_deploy_wiring.py
+tests/test_provision_curated_connector.py
 
 # Circle chat membership, encrypted relay, retries, delivery and migration replay.
 tests/test_circle_chat.py

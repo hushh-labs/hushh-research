@@ -15,6 +15,7 @@
  */
 
 import {
+  Component,
   useCallback,
   useEffect,
   useId,
@@ -57,6 +58,13 @@ export type OpenMail = (input: {
   conversationId: string;
 }) => Promise<OpenedMailMessage>;
 
+/** Which offered mail row is open on screen, for "reply to this". */
+export type ActiveMailSelection = {
+  ordinal: number;
+  offerRevision: number;
+  conversationId: string;
+};
+
 export type ToolResultCardProps = {
   result: ToolResultPublic;
   tool: string;
@@ -69,6 +77,12 @@ export type ToolResultCardProps = {
    * render in the tests does.
    */
   onOpenMail?: OpenMail;
+  /**
+   * Told which row is open (after its message is on screen) and when none is,
+   * so a spoken "reply to this" can resolve it. Never called on unmount: a new
+   * question can unmount the card a moment before the reply is asked for.
+   */
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 };
 
 export type ToolResultFamily =
@@ -103,6 +117,7 @@ const CIRCLE_TOOLS = new Set([
   "delete_circle",
   "add_circle_member",
   "add_circle_members",
+  "add_all_connections",
   "remove_circle_member",
   "leave_circle",
   "respond_circle_invite",
@@ -872,7 +887,17 @@ export function mailCoverageLine(coverage: unknown): string | null {
   const returned = count(row.returned);
   const assessed = count(row.assessed);
   const scope = text(row.scope);
-  if (returned !== null) {
+  if (returned !== null && scope === "needs_reply") {
+    // A filtered set: threads that may need a reply. Never "newest N", which
+    // would describe the front of the mailbox rather than what was kept, and the
+    // threads checked to find them are a separate server-counted fact.
+    parts.push(
+      `${returned} ${unitNoun(row.unit, returned)} that may need a reply`,
+    );
+    if (assessed !== null && assessed > returned) {
+      parts.push(`${assessed} checked`);
+    }
+  } else if (returned !== null) {
     parts.push(
       Array.isArray(row.analysis_requested) && assessed !== null && assessed < returned
         ? `${assessed} of ${returned} message texts checked`
@@ -907,9 +932,11 @@ export function mailCoverageLine(coverage: unknown): string | null {
 function MailDetail({
   result,
   onOpenMail,
+  onActiveMailChange,
 }: {
   result: ToolResultPublic;
   onOpenMail?: OpenMail;
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 }) {
   // Which row is open, and the message behind it. Expanding in place rather than
   // navigating is what makes "Back returns to the same list, order and position"
@@ -922,6 +949,16 @@ function MailDetail({
   // person has already closed -- or a different row -- is dropped instead of
   // being painted under the wrong heading.
   const requestRef = useRef(0);
+  // Whether this card is the one currently naming an open row, so it clears
+  // that name when it leaves the screen, and only then.
+  const publishedRef = useRef(false);
+  const publish = useCallback(
+    (selection: ActiveMailSelection | null) => {
+      publishedRef.current = selection !== null;
+      onActiveMailChange?.(selection);
+    },
+    [onActiveMailChange],
+  );
   const regionId = useId();
   const offerRevision =
     typeof result.offer_revision === "number" ? result.offer_revision : null;
@@ -939,6 +976,9 @@ function MailDetail({
       setOpenRef(ref);
       setMessage(null);
       setFailure(null);
+      // Whatever was open has just closed; until this one is on screen, no row
+      // is "this email".
+      publish(null);
       if (!onOpenMail || offerRevision === null || !conversationId) {
         settle?.("failed", "no_resolver");
         return;
@@ -955,6 +995,9 @@ function MailDetail({
           return;
         }
         setMessage(opened);
+        // Only now is this row the one on screen, so only now may "reply to
+        // this" mean it.
+        publish({ ordinal, offerRevision, conversationId });
         // Settled on the render, not on the dispatch: a resolved handler is not
         // evidence the person is looking at the message.
         settle?.("opened");
@@ -964,12 +1007,13 @@ function MailDetail({
           return;
         }
         setFailure(mailOpenMessage(error));
+        publish(null);
         settle?.("failed", "open_failed");
       } finally {
         if (requestRef.current === ticket) setLoading(false);
       }
     },
-    [conversationId, offerRevision, onOpenMail],
+    [conversationId, offerRevision, onOpenMail, publish],
   );
 
   const toggle = useCallback(
@@ -982,11 +1026,42 @@ function MailDetail({
         setMessage(null);
         setFailure(null);
         setLoading(false);
+        publish(null);
         return;
       }
       await openAt(ordinal);
     },
-    [openAt, openRef],
+    [openAt, openRef, publish],
+  );
+
+  // A newer list can arrive in this same card. Its rows are different messages,
+  // so whatever was open belonged to the old list: close it, and stop naming it
+  // as the email on screen. Only a change after mount counts; mounting a list
+  // closes nothing.
+  const offerKey = `${conversationId ?? ""}:${offerRevision ?? ""}`;
+  const offerKeyRef = useRef(offerKey);
+  useEffect(() => {
+    if (offerKeyRef.current === offerKey) return;
+    offerKeyRef.current = offerKey;
+    requestRef.current += 1;
+    setOpenRef(null);
+    setMessage(null);
+    setFailure(null);
+    setLoading(false);
+    publish(null);
+  }, [offerKey, publish]);
+
+  // Leaving the screen (Clear view, a collapsed panel, another kind of answer)
+  // ends "this email". A new question no longer unmounts a mail list -- the
+  // reducer keeps it until that question has its own result -- so this cannot
+  // race a "reply to this" that is still being asked.
+  const publishOnLeaveRef = useRef(publish);
+  publishOnLeaveRef.current = publish;
+  useEffect(
+    () => () => {
+      if (publishedRef.current) publishOnLeaveRef.current(null);
+    },
+    [],
   );
 
   // A spoken "open the second one" arrives here, so it runs the same code a tap
@@ -1248,14 +1323,53 @@ function MailDetail({
   );
 }
 
+/**
+ * Keeps a mail detail that fails to render from taking the panel with it.
+ *
+ * The fallback is a static line: it reads nothing, opens nothing and dispatches
+ * nothing, so a malformed result can never turn into a new read or an open. The
+ * error is not logged -- what threw may carry message content. A new result
+ * gets a fresh attempt.
+ */
+class MailDetailBoundary extends Component<
+  { result: ToolResultPublic; children: ReactNode },
+  { failed: boolean }
+> {
+  state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  componentDidUpdate(prev: { result: ToolResultPublic }) {
+    if (this.state.failed && prev.result !== this.props.result) {
+      this.setState({ failed: false });
+    }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    return (
+      <p
+        data-testid="one-voice-mail-detail-error"
+        className="mt-2 text-[13px] text-[color:var(--app-secondary-label)]"
+      >
+        Couldn&apos;t show these messages.
+      </p>
+    );
+  }
+}
+
 function Detail({
   family,
   result,
   onOpenMail,
+  onActiveMailChange,
 }: {
   family: ToolResultFamily;
   result: ToolResultPublic;
   onOpenMail?: OpenMail;
+  onActiveMailChange?: (selection: ActiveMailSelection | null) => void;
 }) {
   switch (family) {
     case "sos":
@@ -1271,7 +1385,15 @@ function Detail({
     case "status":
       return <StatusDetail result={result} />;
     case "mail":
-      return <MailDetail result={result} onOpenMail={onOpenMail} />;
+      return (
+        <MailDetailBoundary result={result}>
+          <MailDetail
+            result={result}
+            onOpenMail={onOpenMail}
+            onActiveMailChange={onActiveMailChange}
+          />
+        </MailDetailBoundary>
+      );
     default:
       return null;
   }
@@ -1285,6 +1407,7 @@ export function ToolResultCard({
   ok,
   className,
   onOpenMail,
+  onActiveMailChange,
 }: ToolResultCardProps) {
   const tone = toneForResult(result, ok);
   const family = toolResultFamily(tool, result.status);
@@ -1387,7 +1510,12 @@ export function ToolResultCard({
               Nothing was changed.
             </p>
           ) : null}
-          <Detail family={family} result={result} onOpenMail={onOpenMail} />
+          <Detail
+            family={family}
+            result={result}
+            onOpenMail={onOpenMail}
+            onActiveMailChange={onActiveMailChange}
+          />
         </div>
       </div>
     </div>

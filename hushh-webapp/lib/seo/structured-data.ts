@@ -12,6 +12,7 @@ import {
   PUBLIC_ROUTE_SEMANTICS,
   SITE_URL,
 } from "@/lib/seo/site";
+import { HUSHH_MARK_PATH } from "@/lib/brand/hushh-mark";
 
 const ORG_ID = `${SITE_URL}/#organization`;
 const SITE_ID = `${SITE_URL}/#website`;
@@ -27,7 +28,7 @@ export function buildOrganizationGraph(): Record<string, unknown> {
         "@id": ORG_ID,
         name: "Hussh",
         url: SITE_URL,
-        logo: absoluteUrl("/quiet-emoji-icon.png"),
+        logo: absoluteUrl(HUSHH_MARK_PATH),
         description:
           "Hussh is the platform and trust infrastructure for consent-first private AI agents: scoped access, BYOK, zero-knowledge vault, and encrypted PKM.",
         founder: { "@id": FOUNDER_ID },

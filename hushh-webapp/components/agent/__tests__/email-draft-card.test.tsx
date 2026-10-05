@@ -92,6 +92,7 @@ describe("EmailDraftCard", () => {
       expiresAt: "2026-08-26T00:00:00Z",
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-1",
       messageId: "msg-1",
       threadId: null,
       outcomeUnknown: false,
@@ -133,6 +134,7 @@ describe("EmailDraftCard", () => {
       expiresAt: "2026-10-02T00:00:00Z",
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "voice-action",
       messageId: "voice-message",
       threadId: null,
       outcomeUnknown: false,
@@ -164,7 +166,9 @@ describe("EmailDraftCard", () => {
   it("shows leading HTML-like dictation as text and escapes it in the send envelope", async () => {
     const dictated = '<img src=x onerror="alert(1)"> I will send the demo.';
     vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "escaped-action", expiresAt: null });
-    vi.mocked(EmailDeliveryService.send).mockResolvedValue({ messageId: "sent", threadId: null, outcomeUnknown: false });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "escaped-action", messageId: "sent", threadId: null, outcomeUnknown: false,
+    });
     render(
       <EmailDraftCard
         initialInstruction=""
@@ -218,6 +222,7 @@ describe("EmailDraftCard", () => {
       new EmailDeliveryError("Draft changed.", 409, "DRAFT_CHANGED"),
     );
     const onSendFailed = vi.fn();
+    const onDeliveryPrepared = vi.fn();
     render(
       <EmailDraftCard
         initialInstruction=""
@@ -227,6 +232,7 @@ describe("EmailDraftCard", () => {
         onDismiss={vi.fn()}
         onSent={vi.fn()}
         onSendFailed={onSendFailed}
+        onDeliveryPrepared={onDeliveryPrepared}
       />,
     );
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
@@ -236,6 +242,35 @@ describe("EmailDraftCard", () => {
       null,
     );
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    // Nothing was prepared, so no send action is named for a delivery report.
+    expect(onDeliveryPrepared).not.toHaveBeenCalled();
+  });
+
+  it("names the prepared send action for its attempt before the send request starts", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "action-prepared", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-prepared", messageId: "msg-prepared", threadId: null, outcomeUnknown: false,
+    });
+    const onDeliveryPrepared = vi.fn();
+    const onSent = vi.fn();
+    render(
+      <EmailDraftCard
+        initialInstruction=""
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Demo", body: "Hello" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSendStarted={() => "attempt-7"}
+        onSent={onSent}
+        onDeliveryPrepared={onDeliveryPrepared}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+    await waitFor(() => expect(onSent).toHaveBeenCalledWith("attempt-7"));
+    // Named before the send request, so a Send whose response is lost can still be reported.
+    expect(onDeliveryPrepared).toHaveBeenCalledExactlyOnceWith("action-prepared", "attempt-7");
+    expect(onDeliveryPrepared).toHaveBeenCalledAfter(vi.mocked(EmailDeliveryService.prepare));
+    expect(onDeliveryPrepared).toHaveBeenCalledBefore(vi.mocked(EmailDeliveryService.send));
   });
 
   it("replaces a draft revised in chat and still sends only on the Send click", async () => {
@@ -244,6 +279,7 @@ describe("EmailDraftCard", () => {
       expiresAt: "2026-08-26T00:00:00Z",
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-1",
       messageId: "msg-1",
       threadId: null,
       outcomeUnknown: false,
@@ -342,6 +378,7 @@ describe("EmailDraftCard", () => {
       },
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-drive",
       messageId: "sent-drive",
       threadId: null,
       outcomeUnknown: false,
@@ -480,10 +517,8 @@ describe("EmailDraftCard", () => {
   it("keeps a source-bound auth failure retryable because Send was never invoked", async () => {
     const send = vi.fn();
     const onSendFailed = vi.fn();
-    getAuth.mockResolvedValueOnce({
-      firebaseIdToken: "firebase-token",
-      vaultOwnerToken: "vault-owner-token",
-    }).mockResolvedValueOnce(null);
+    // A source-bound card reads nothing at mount, so the Send tap is its first auth read.
+    getAuth.mockResolvedValueOnce(null);
     render(
       <EmailDraftCard
         initialInstruction=""
@@ -503,6 +538,99 @@ describe("EmailDraftCard", () => {
       status: 403,
       code: null,
     }));
+  });
+
+  it("loads connections for an editable recipient but reads nothing for a locked reply", async () => {
+    const replyAuth = vi.fn(async () => ({
+      firebaseIdToken: "reply-token",
+      vaultOwnerToken: "vault-owner-token",
+    }));
+    render(
+      <>
+        <EmailDraftCard
+          initialInstruction=""
+          initialDraft={{ to: "", cc: "", bcc: "", subject: "", body: "Hello" }}
+          getAuth={replyAuth}
+          onRequireVault={vi.fn()}
+          onDismiss={vi.fn()}
+          onSent={vi.fn()}
+          sourceBoundReply={{ send: vi.fn() }}
+          sourceBoundEnvelope={{ to: "verify@example.com", subject: "Re: KYC details" }}
+        />
+        <EmailDraftCard
+          initialInstruction=""
+          initialDraft={{ to: "", cc: "", bcc: "", subject: "", body: "Hello" }}
+          getAuth={getAuth}
+          onRequireVault={vi.fn()}
+          onDismiss={vi.fn()}
+          onSent={vi.fn()}
+        />
+      </>,
+    );
+    // Negative control: the compose card's recipient picker still reads the person's connections.
+    await waitFor(() =>
+      expect(ConnectionsService.listConnections).toHaveBeenCalledExactlyOnceWith({ idToken: "firebase-token" }),
+    );
+    // The reply's recipient is locked, so its card asks for no credentials and reads no connections.
+    expect(replyAuth).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      when: "before a send-start adapter's send",
+      reportsSendStart: true,
+      failAfterStart: false,
+      thrown: "GMAIL_DELIVERY_UNAVAILABLE",
+      code: "GMAIL_DELIVERY_UNAVAILABLE",
+    },
+    {
+      when: "after a send-start adapter's send",
+      reportsSendStart: true,
+      failAfterStart: true,
+      thrown: "GMAIL_DELIVERY_UNAVAILABLE",
+      code: "EMAIL_ACTION_OUTCOME_UNKNOWN",
+    },
+    {
+      when: "from a legacy adapter",
+      reportsSendStart: false,
+      failAfterStart: false,
+      thrown: "GMAIL_DELIVERY_UNAVAILABLE",
+      code: "EMAIL_ACTION_OUTCOME_UNKNOWN",
+    },
+    {
+      // The send route re-reads the original email before it touches the
+      // prepared action, so this refusal sent nothing even after the request left.
+      when: "refused by the send route's re-read of the original",
+      reportsSendStart: true,
+      failAfterStart: true,
+      thrown: "REPLY_SOURCE_RETRYABLE",
+      code: "REPLY_SOURCE_RETRYABLE",
+    },
+  ])("reads a source-bound reply failure $when as $code", async ({ reportsSendStart, failAfterStart, thrown, code }) => {
+    const send = vi.fn(async (input: { onSendRequestStarted?: () => void }) => {
+      if (failAfterStart) input.onSendRequestStarted?.();
+      throw new EmailDeliveryError("Mail could not be completed.", 503, thrown);
+    });
+    const onSendFailed = vi.fn();
+    render(
+      <EmailDraftCard
+        initialInstruction=""
+        initialDraft={{ to: "", cc: "", bcc: "", subject: "", body: "Hello" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        onSendFailed={onSendFailed}
+        sourceBoundReply={reportsSendStart ? { send, reportsSendStart } : { send }}
+        sourceBoundEnvelope={{ to: "verify@example.com", subject: "Re: KYC details" }}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Send reply" }));
+    await waitFor(() => expect(onSendFailed).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledTimes(1);
+    // Only a failure before the send request is safe to review and send again;
+    // anything later may have been delivered and must say "check Sent Mail".
+    expect(onSendFailed).toHaveBeenCalledWith(expect.objectContaining({ code }), null);
   });
 
   it("shows clear draft progress instead of a disabled empty composer", async () => {
@@ -542,6 +670,7 @@ describe("EmailDraftCard", () => {
       expiresAt: "2026-08-26T00:00:00Z",
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-rich",
       messageId: "msg-rich",
       threadId: null,
       outcomeUnknown: false,
@@ -795,6 +924,7 @@ describe("EmailDraftCard", () => {
       expiresAt: "2026-08-26T00:00:00Z",
     });
     vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-unknown",
       messageId: null,
       threadId: null,
       outcomeUnknown: true,
@@ -819,10 +949,63 @@ describe("EmailDraftCard", () => {
 
     await waitFor(() => expect(onSendFailed).toHaveBeenCalledTimes(1));
     expect(onSendFailed).toHaveBeenCalledWith(
-      expect.objectContaining({ code: "EMAIL_ACTION_OUTCOME_UNKNOWN" }),
+      expect.objectContaining({
+        code: "EMAIL_ACTION_OUTCOME_UNKNOWN",
+        message: "We could not confirm delivery. Check Sent Mail before trying again.",
+      }),
       null,
     );
     expect(onSent).not.toHaveBeenCalled();
+
+    // The message may already be delivered: this card must never send it again.
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1);
+    expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1);
+    expect(onSendFailed).toHaveBeenCalledTimes(1);
+  });
+
+  it("sends the edited Cc and Bcc recipients in the reviewed envelope", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({ actionId: "action-cc", expiresAt: null });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      actionId: "action-cc",
+      messageId: "msg-cc",
+      threadId: null,
+      outcomeUnknown: false,
+    });
+    render(
+      <EmailDraftCard
+        initialInstruction=""
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Demo", body: "Hello" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByTestId("one-email-draft-cc")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "+ CC / BCC" }));
+    fireEvent.change(screen.getByTestId("one-email-draft-cc"), {
+      target: { value: "priya@example.com" },
+    });
+    fireEvent.change(screen.getByTestId("one-email-draft-bcc"), {
+      target: { value: "audit@example.com" },
+    });
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1));
+    const reviewed = expect.objectContaining({
+      to: "pat@example.com",
+      cc: "priya@example.com",
+      bcc: "audit@example.com",
+    });
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledWith(
+      expect.objectContaining({ draft: reviewed }),
+    );
+    expect(EmailDeliveryService.send).toHaveBeenCalledWith(
+      expect.objectContaining({ actionId: "action-cc", draft: reviewed }),
+    );
   });
   it("offers Connect Gmail in the connections drawer when Gmail was never connected", async () => {
     vi.mocked(EmailDeliveryService.draft).mockRejectedValue(

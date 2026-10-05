@@ -21,6 +21,7 @@ import {
   appDownloadTargets,
   type AppDownloadTarget,
 } from "@/lib/app-download/official-app-links";
+import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
 import { cn } from "@/lib/utils";
 
 export const GET_APP_TITLE = "Take One with you";
@@ -40,7 +41,7 @@ function OnePhonePreview() {
           <span className="h-1.5 w-6 rounded-full bg-foreground/25" />
         </div>
         <div className="mt-2 flex flex-col items-center gap-0.5">
-          <span className="hushh-brand-mark text-[18px] leading-none">🤫</span>
+          <HushhMark aria-hidden="true" className="h-[18px] w-[18px]" />
           <span className="text-[9px] font-semibold text-foreground">One</span>
         </div>
         <div className="mt-2.5 space-y-1.5">

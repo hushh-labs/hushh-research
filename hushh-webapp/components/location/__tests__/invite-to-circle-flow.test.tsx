@@ -204,49 +204,52 @@ describe("InviteToCircleFlow", () => {
     );
   });
 
-  it("shows the card note while add_circle_member waits, and refetches once it resolves", async () => {
-    render(<InviteToCircleFlow circleId={CIRCLE_ID} />);
-    await screen.findByTestId("invite-review-circle");
-    expect(
-      service.listNamedCircleEligibleConnectionsPage,
-    ).toHaveBeenCalledTimes(1);
-    act(() => {
-      dispatchServerFrame({
-        type: "pending_action",
-        pending_action_id: "pa-3",
-        tool: "add_circle_member",
-        gateway_action_id: "location.add_to_circle",
-        tier: "voice",
-        summary: "Add Priya Nair to Weekend Hikers",
-        args: {},
-        status: "pending",
-        shown_at: null,
-        expires_at: null,
-        result: null,
-        risk_level: "medium",
-        requires_tap: false,
-        entities: [
-          { kind: "person", user_id: "user-2", display_name: "Priya Nair" },
-        ],
-      });
-    });
-    expect(screen.getByTestId("invite-voice-pending")).toHaveTextContent(
-      "Confirm on the card to send",
-    );
-    act(() => {
-      useVoiceSessionStore.getState().emitPendingResolved("pa-3", "executed", {
-        status: "invite_pending",
-        circle_id: CIRCLE_ID,
-        user_id: "user-2",
-        ui_refresh: ["location_circles"],
-      });
-    });
-    await waitFor(() =>
+  it.each(["add_circle_member", "add_all_connections"])(
+    "shows the card note while %s waits, and refetches once it resolves",
+    async (tool) => {
+      render(<InviteToCircleFlow circleId={CIRCLE_ID} />);
+      await screen.findByTestId("invite-review-circle");
       expect(
         service.listNamedCircleEligibleConnectionsPage,
-      ).toHaveBeenCalledTimes(2),
-    );
-  });
+      ).toHaveBeenCalledTimes(1);
+      act(() => {
+        dispatchServerFrame({
+          type: "pending_action",
+          pending_action_id: "pa-3",
+          tool,
+          gateway_action_id: "location.add_to_circle",
+          tier: "voice",
+          summary: "Add Priya Nair to Weekend Hikers",
+          args: {},
+          status: "pending",
+          shown_at: null,
+          expires_at: null,
+          result: null,
+          risk_level: "medium",
+          requires_tap: false,
+          entities: [
+            { kind: "person", user_id: "user-2", display_name: "Priya Nair" },
+          ],
+        });
+      });
+      expect(screen.getByTestId("invite-voice-pending")).toHaveTextContent(
+        "Confirm on the card to send",
+      );
+      act(() => {
+        useVoiceSessionStore.getState().emitPendingResolved("pa-3", "executed", {
+          status: "invite_pending",
+          circle_id: CIRCLE_ID,
+          user_id: "user-2",
+          ui_refresh: ["location_circles"],
+        });
+      });
+      await waitFor(() =>
+        expect(
+          service.listNamedCircleEligibleConnectionsPage,
+        ).toHaveBeenCalledTimes(2),
+      );
+    },
+  );
 
   it("keeps the Location header contract", () => {
     expect(SOURCE).toContain('eyebrow="Location"');

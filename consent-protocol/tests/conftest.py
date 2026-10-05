@@ -338,3 +338,66 @@ def cleanup_revoked_tokens():
         _revoked_tokens.clear()
     except ImportError:
         pass  # Module not available in all test contexts
+
+
+# --- Registration-only connector fixture ------------------------------------
+# A registration-only contract (config/curated_connector_registrations/<id>.json)
+# is the pre-discovery stage of a curated provider: it can register a public
+# client but has no tool policy, so it is never a runtime provider. Attio used to
+# be the one shipped example, and tests of that mechanism borrowed it. Attio now
+# has a reviewed runtime manifest, so those tests use this synthetic provider
+# instead. It keeps Attio's real endpoints (a cross-origin authorization server,
+# which several registration tests exist to cover) under a different id.
+REGISTRATION_ONLY_SPEC = {
+    "version": "curated-connector-registration.v1",
+    "connectorId": "pendingco",
+    "displayName": "Pending Co",
+    "description": "Connect Pending Co after setup is complete.",
+    "mcpEndpoint": "https://mcp.attio.com/mcp",
+    "oauth": {
+        "authorizeUrl": "https://app.attio.com/oidc/authorize",
+        "tokenUrl": "https://app.attio.com/oidc/token",
+        "registrationUrl": "https://app.attio.com/oauth/register",
+        "scopes": ["mcp", "offline_access", "openid"],
+        "tokenEndpointAuth": "none",
+        "clientIdEnv": "PENDINGCO_OAUTH_CLIENT_ID",
+    },
+    "environments": {
+        "uat": {
+            "registeredRedirectUris": [
+                "https://uat.one.hushh.ai/one/profile/connectors/oauth/return"
+            ]
+        }
+    },
+}
+
+
+@pytest.fixture
+def registration_only_provider(tmp_path, monkeypatch):
+    """A valid registration-only spec ("pendingco"), isolated to this test.
+
+    Points the registration-spec directory at a temporary one holding only this
+    spec, clears the loader caches on the way in and out, and yields the parsed
+    spec. The shipped runtime manifests are untouched.
+    """
+    import json
+
+    from hushh_mcp.services import curated_connector_manifest as manifest_module
+
+    registration_dir = tmp_path / "curated_connector_registrations"
+    registration_dir.mkdir()
+    (registration_dir / "pendingco.json").write_text(
+        json.dumps(REGISTRATION_ONLY_SPEC, indent=2), encoding="utf-8"
+    )
+    # A context-scoped patch: undoing only this one attribute, never every patch
+    # the test body or other fixtures have made through the shared monkeypatch.
+    with monkeypatch.context() as scoped:
+        scoped.setattr(manifest_module, "REGISTRATION_SPEC_DIR", registration_dir)
+        manifest_module.clear_registration_spec_cache()
+        spec = manifest_module.get_registration_spec("pendingco")
+        assert spec is not None, manifest_module.registration_spec_errors()
+        try:
+            yield spec
+        finally:
+            manifest_module.clear_registration_spec_cache()
+    manifest_module.clear_registration_spec_cache()

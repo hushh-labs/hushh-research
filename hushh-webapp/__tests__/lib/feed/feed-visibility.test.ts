@@ -10,6 +10,18 @@ describe("Feed row visibility", () => {
       "document_share_request",
       "document_share_question",
       "document_share_answered",
+      "drive_search_completed",
+      "drive_search_failed",
+      "drive_share_unconfirmed",
+      "drive_trash_succeeded",
+      "drive_bulk_received",
+      "drive_bulk_partial",
+      "drive_bulk_stopped",
+      "drive_question_withdrawn",
+      "drive_question_retry_required",
+      "connector_connected",
+      "connector_disconnected",
+      "connector_reconnect_required",
     ]) {
       expect(
         isFeedItemHidden({ source_domain: "connected_systems", event_type }, false),

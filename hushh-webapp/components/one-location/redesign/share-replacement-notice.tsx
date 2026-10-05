@@ -171,12 +171,14 @@ export function ShareReplacementConfirmDialog({
             {rows.map((row) => (
               <li
                 key={row.recipientUserId}
-                className="flex items-baseline justify-between gap-3 text-[13px]"
+                className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 text-[13px]"
               >
-                <span className="min-w-0 flex-1 truncate font-medium">
+                <span className="min-w-0 text-left font-medium [overflow-wrap:anywhere]">
                   {row.label}
                 </span>
-                <span className={`${MUTED_TEXT} shrink-0 tabular-nums`}>
+                <span
+                  className={`${MUTED_TEXT} shrink-0 whitespace-nowrap text-right tabular-nums`}
+                >
                   {row.remainingLabel} → {newDurationLabel}
                 </span>
               </li>
@@ -184,14 +186,19 @@ export function ShareReplacementConfirmDialog({
           </ul>
         )}
         <AlertDialogFooter>
-          <AlertDialogCancel data-testid="one-location-share-replacement-cancel">
+          <AlertDialogCancel
+            size="prominent"
+            className="w-full"
+            data-testid="one-location-share-replacement-cancel"
+          >
             Keep current
           </AlertDialogCancel>
           <AlertDialogAction
+            size="prominent"
             data-testid="one-location-share-replacement-accept"
             disabled={busy}
             onClick={onConfirm}
-            className="h-11 w-full sm:w-auto"
+            className="w-full"
           >
             Start sharing
           </AlertDialogAction>

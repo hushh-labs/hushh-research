@@ -1209,6 +1209,7 @@ describe("AG-UI Agent One client", () => {
     expect(onMcpReview).toHaveBeenCalledTimes(1);
     expect(onToolWaiting).not.toHaveBeenCalled();
     const review = onMcpReview.mock.calls[0][0];
+    expect(review.activityIds).toEqual(["tool-1", "original"]);
     const approval = { connectorId: reference.connectorId, toolName: reference.toolName,
       directiveId: reference.directiveId, pendingHandle: reference.pendingHandle, receipt: "r".repeat(48) };
     await expect(review.resume({ ...approval, connectorId: "wrong_owner_connector" })).rejects.toThrow("does not match");

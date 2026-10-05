@@ -1,4 +1,5 @@
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -14,6 +15,10 @@ import {
   panelHasContent,
   selectPanelResult,
 } from "@/components/one-voice/one-voice-panel";
+import {
+  executeDirective,
+  type DirectiveOutcome,
+} from "@/lib/one-voice/directives";
 import type { ServerFrame } from "@/lib/one-voice/protocol";
 import { reduceVoiceSession } from "@/lib/one-voice/session-reducer";
 import {
@@ -263,6 +268,117 @@ describe("OneVoicePanel", () => {
     expect(screen.getByLabelText("Mail").children).toHaveLength(2);
     expect(screen.getByText("Two findings.")).toBeInTheDocument();
     expect(card.textContent).not.toContain("Opening it.");
+  });
+
+  it("a spoken open on the next turn still finds the list it names and opens the row", async () => {
+    // Regression: the person's new words cleared the answer slot, so the list
+    // unmounted before the open_mail directive arrived and nothing was left on
+    // screen to open. Frames are replayed in the order the relay sends them:
+    // the directive goes out before the dispatch's own receipt.
+    const binding = { ordinal: 2, offerRevision: 7, conversationId: "conv_1" };
+    const openMail = vi.fn(async () => ({
+      sourceRef: "mail:2",
+      subject: "March invoice",
+      sender: "Acme",
+      receivedAt: null,
+      body: "Invoice 4471 is overdue.",
+      bodyTruncated: false,
+    }));
+    const setActiveMail = vi.fn();
+    const control = controller({ openMail, setActiveMail });
+    const directivePayload = {
+      ordinal: 2,
+      offer_revision: 7,
+      conversation_id: "conv_1",
+    };
+    const step = (state: VoiceSessionState, frames: ServerFrame[]) =>
+      frames.reduce(
+        (next, frame) =>
+          reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+        state,
+      );
+
+    const shown = replay([
+      ready,
+      { type: "transcript.input", text: "What's in my inbox?", final: true, turn_id: "t1" },
+      { type: "tool.started", call_id: "m1", tool: "read_mail", args_public: {}, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "m1",
+        tool: "read_mail",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["I read your 2 newest messages."],
+          answer: "Two findings.",
+          sources: [],
+          items: [
+            { source_ref: "mail:1", subject: "Q3 deck", sender: "Priya" },
+            { source_ref: "mail:2", subject: "March invoice", sender: "Acme" },
+          ],
+          coverage: { unit: "messages", returned: 2, scope: "newest" },
+          offer_revision: 7,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+    ]);
+    const { rerender } = render(
+      <OneVoicePanel state={shown} controller={control} />,
+    );
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+
+    const spoken = step(shown, [
+      { type: "transcript.input", text: "Open the second one", final: true, turn_id: "t2" },
+      { type: "tool.started", call_id: "m2", tool: "open_mail", args_public: { ordinal: 2 }, turn_id: "t2" },
+      {
+        type: "ui_directive",
+        directive_id: "dir-open",
+        kind: "open_mail",
+        turn_id: "t2",
+        payload: directivePayload,
+      },
+    ]);
+    expect(spoken.activeInputTurnId).toBe("t2");
+    rerender(<OneVoicePanel state={spoken} controller={control} />);
+    // The list the ordinal refers to is still on screen.
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+
+    // The provider runs the directive through the same module.
+    let outcome: DirectiveOutcome | undefined;
+    await act(async () => {
+      outcome = await executeDirective("open_mail", directivePayload, {
+        pathname: null,
+      });
+    });
+    expect(outcome).toEqual({ handled: true, status: "opened" });
+    expect(openMail.mock.calls).toEqual([[binding]]);
+    expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument();
+    // The opened row is what "reply to it" now means.
+    expect(setActiveMail).toHaveBeenLastCalledWith(binding);
+
+    // The dispatch's receipt arrives last and does not take the list, or the
+    // open row, off the screen.
+    const settled = step(spoken, [
+      {
+        type: "tool.result",
+        call_id: "m2",
+        tool: "open_mail",
+        status: "mail_open_dispatched",
+        ok: true,
+        turn_id: "t2",
+        result_public: {
+          status: "mail_open_dispatched",
+          spoken_facts: ["Opening it."],
+          ...directivePayload,
+        },
+      },
+    ]);
+    rerender(<OneVoicePanel state={settled} controller={control} />);
+    expect(screen.getByLabelText("Mail").children).toHaveLength(2);
+    expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument();
   });
 
   it("hides a confirmation_required result behind the pending card and confirms through the controller", async () => {

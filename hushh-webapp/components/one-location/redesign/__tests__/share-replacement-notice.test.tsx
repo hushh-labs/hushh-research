@@ -170,5 +170,23 @@ describe("ShareReplacementConfirmDialog", () => {
     expect(list.textContent).toContain("1h 47m more");
     expect(list.textContent).toContain("Ravi");
     expect(list.textContent).toContain("40 more min");
+    for (const item of Array.from(list.children)) {
+      expect(item).toHaveClass(
+        "grid",
+        "grid-cols-[minmax(0,1fr)_auto]",
+        "items-baseline",
+      );
+    }
+  });
+
+  it("keeps both dialog actions equal at the prominent 50px height", () => {
+    renderDialog([row()]);
+
+    expect(
+      screen.getByTestId("one-location-share-replacement-cancel"),
+    ).toHaveClass("h-[50px]", "min-h-[50px]", "w-full");
+    expect(
+      screen.getByTestId("one-location-share-replacement-accept"),
+    ).toHaveClass("h-[50px]", "min-h-[50px]", "w-full");
   });
 });

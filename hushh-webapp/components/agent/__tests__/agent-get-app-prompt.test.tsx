@@ -22,6 +22,8 @@ describe("AgentGetAppPrompt", () => {
     );
     expect(appStoreLink).toHaveAttribute("target", "_blank");
     expect(appStoreLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
+    expect(document.body).not.toHaveTextContent("🤫");
     expect(screen.queryByText("Store links aren't available yet.")).not.toBeInTheDocument();
   });
 });

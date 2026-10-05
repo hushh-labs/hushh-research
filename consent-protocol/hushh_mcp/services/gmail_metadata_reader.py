@@ -31,6 +31,9 @@ _ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 _SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _FIELDS = "id,threadId,internalDate,labelIds,payload/headers"
 _HEADERS = ["From", "Subject", "Date"]
+# What a reply in the original thread is routed by. Never a body: the reply's
+# recipient, subject and RFC thread headers come from these and nothing else.
+_REPLY_HEADERS = ["From", "Reply-To", "To", "Subject", "Message-ID", "References"]
 # Mailbox scope for a read. Spam and trash stay excluded everywhere.
 _MAILBOX_LABELS: dict[str, str | None] = {"inbox": "INBOX", "sent": "SENT", "anywhere": None}
 _BUDGET = 256 * 1024
@@ -215,6 +218,14 @@ async def in_listing_order(
         raise
 
 
+def _coverage_scope(operation: str, query: str) -> str:
+    if operation == "read_message_by_id":
+        return "selected"
+    if operation == "list_needs_reply":
+        return "needs_reply"
+    return "search" if query else "newest"
+
+
 class GmailMetadataReader:
     """One owner, one observed Gmail grant, one bounded read per instance."""
 
@@ -321,6 +332,40 @@ class GmailMetadataReader:
             label_id=label_id,
             account=str(self._account),
         )
+
+    async def reply_source(self, message_id: str) -> dict[str, Any]:
+        """Routing headers of one message this server offered, for a reply in its thread.
+
+        Metadata only, never a body, under the same fenced session as a read:
+        the account is pinned to the one the id was offered in and the grant is
+        rechecked either side of the fetch. The id comes from a server offer,
+        never from a model. Returns the provider message (id, thread id, labels,
+        the requested headers); the caller derives the reply envelope from it.
+        """
+        if not isinstance(message_id, str) or not _ID.fullmatch(message_id):
+            raise GmailMetadataError("invalid_argument")
+
+        async def body(client: httpx.AsyncClient, token: str) -> dict[str, Any]:
+            payload = await self._get(
+                client,
+                token,
+                f"/messages/{message_id}",
+                {"format": "metadata", "metadataHeaders": _REPLY_HEADERS, "fields": _FIELDS},
+            )
+            thread_id = payload.get("threadId")
+            if (
+                payload.get("id") != message_id
+                or not isinstance(thread_id, str)
+                or not _ID.fullmatch(thread_id)
+            ):
+                raise GmailMetadataError("invalid_response")
+            # Six requested headers; a repeated one (two References lines) is
+            # still bounded well below this.
+            _validate_message(payload, max_headers=32)
+            return payload
+
+        result: dict[str, Any] = await self._session(body, reads_bodies=False)
+        return result
 
     async def _label_id(self, client: httpx.AsyncClient, token: str, name: str) -> str:
         """Map a label the person named to its ID: their own labels, or a star/importance."""
@@ -668,9 +713,9 @@ class GmailMetadataReader:
             # What the read covered, so a count cannot imply a whole mailbox.
             # "newest" is the front of the mailbox and nothing more: five bodies
             # is this reader's budget, not evidence that five is all there is.
-            "scope": (
-                "selected" if operation == "read_message_by_id" else "search" if query else "newest"
-            ),
+            # "needs_reply" is a filtered set (threads that may need a reply),
+            # so it must never be described as the newest mail.
+            "scope": _coverage_scope(operation, query),
             # One row per thread for needs-reply, one per message everywhere else.
             "unit": "threads" if operation == "list_needs_reply" else "messages",
             "assessed": assessed,

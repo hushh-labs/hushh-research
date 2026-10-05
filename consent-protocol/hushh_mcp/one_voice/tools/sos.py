@@ -1256,6 +1256,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         summarize=summarize_trigger,
         prepare=prepare_trigger,
         device_step=True,
+        # An alert never waits behind an unrelated card the person has not
+        # answered: its own card replaces that one (still only a tap arms it).
+        preempts_pending=True,
     ),
     ToolSpec(
         name="report_save_my_soul_delivery",

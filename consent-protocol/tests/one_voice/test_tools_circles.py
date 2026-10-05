@@ -123,6 +123,10 @@ class FakeCircleService:
         self.cancel_result = True
         self.errors: dict[str, Exception] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
+        # The owner's connections as ``plan_direct_connection_adds`` classes
+        # them; anyone already in the circle reads as "member" automatically.
+        self.audience: list[dict[str, Any]] = []
+        self.member_limit = 100
 
     def _hit(self, method: str, **kwargs: Any) -> None:
         self.calls.append((method, kwargs))
@@ -296,6 +300,65 @@ class FakeCircleService:
                     }
                 )
         return dict(self.add_result)
+
+    def plan_direct_connection_adds(self, *, actor_user_id: str, circle_id: str):
+        self._hit("plan_direct_connection_adds", actor_user_id=actor_user_id, circle_id=circle_id)
+        row = self._stored(circle_id)
+        if row["role"] != "owner":
+            raise OneLocationCircleError(
+                "LOCATION_CIRCLE_OWNER_REQUIRED",
+                "Only the Circle owner can add people to this Circle.",
+                status_code=403,
+            )
+        members = {m["userId"] for m in row["members"]}
+        return {
+            "circle": {
+                "id": circle_id,
+                "name": row["name"],
+                "kind": row["kind"],
+                "isSystem": bool(row.get("isSystem")),
+                "systemKind": row.get("systemKind"),
+                "memberLimit": self.member_limit,
+                "reservedCount": len(members),
+            },
+            "connections": [
+                {
+                    "userId": person["userId"],
+                    "displayName": person["displayName"],
+                    "status": "member"
+                    if person["userId"] in members
+                    else person.get("status", "addable"),
+                }
+                for person in self.audience
+            ],
+        }
+
+    def add_direct_connections(self, *, actor_user_id: str, circle_id: str, user_ids: list[str]):
+        self._hit(
+            "add_direct_connections",
+            actor_user_id=actor_user_id,
+            circle_id=circle_id,
+            user_ids=list(user_ids),
+        )
+        row = self._stored(circle_id)
+        names = {person["userId"]: person["displayName"] for person in self.audience}
+        added: list[str] = []
+        skipped: dict[str, str] = {}
+        for uid in sorted(set(user_ids)):
+            if uid in {m["userId"] for m in row["members"]}:
+                skipped[uid] = "already_member"
+                continue
+            row["members"].append(
+                {
+                    "userId": uid,
+                    "displayName": names.get(uid, uid),
+                    "role": "member",
+                    "relationship": "connected",
+                    "joinedAt": "2030-01-03T00:00:00+00:00",
+                }
+            )
+            added.append(uid)
+        return {"addedUserIds": added, "skippedUserIds": sorted(skipped), "skippedReasons": skipped}
 
     def list_member_invites(
         self, *, user_id: str, circle_id: str | None = None, direction: str = "incoming"
@@ -492,6 +555,9 @@ def test_catalog_policies_and_gateway_ids():
         # gateway already declares a person-list slot, so this binds rather than
         # minting a second action for the same effect.
         "add_circle_members": (ToolPolicy.confirm_voice, "location.add_to_circle"),
+        # The same effect again, with the audience read by the server instead of
+        # named by the model.
+        "add_all_connections": (ToolPolicy.confirm_voice, "location.add_to_circle"),
         "remove_circle_member": (ToolPolicy.confirm_tap, "location.remove_from_circle"),
         "leave_circle": (ToolPolicy.confirm_tap, "location.leave_circle"),
         "list_circle_invites": (ToolPolicy.read, "location.open_needs_review"),
@@ -1829,3 +1895,237 @@ def test_the_cooldown_the_service_reports_is_not_flattened_into_not_eligible():
     assert result.spoken_facts[-1] == (
         "Dev Kapoor left the Family circle recently, so I couldn't add them back yet."
     )
+
+
+# -- add_all_connections: the server decides who, one card binds exactly them -----------
+
+KABIR = "user-kabir"
+
+
+def _everyone_ctx():
+    """Family holds the owner and Priya. The owner's connections: Ayesha and
+    Kabir can join, Priya is already in, Dev left Family moments ago."""
+    service = FakeCircleService()
+    service.audience = [
+        {"userId": AYESHA, "displayName": "Ayesha Sharma"},
+        {"userId": KABIR, "displayName": "Kabir Singh"},
+        {"userId": PRIYA, "displayName": "Priya Nair"},
+        {"userId": DEV, "displayName": "Dev Kapoor", "status": "left_recently"},
+    ]
+    ctx = make_ctx(service, confirm_ayesha=False)
+    return ctx, service
+
+
+def _propose_everyone(ctx, executor):
+    outcome = asyncio.run(
+        executor.call(ctx, "add_all_connections", {"circle": {"circle_id": FAMILY}})
+    )
+    return outcome
+
+
+def _say_yes(executor, ctx, outcome):
+    asyncio.run(executor.pending.mark_shown(user_id=USER, pending_action_id=outcome.pending.id))
+    return asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": outcome.pending.id})
+    )
+
+
+def _writes(service):
+    return [
+        kwargs["user_ids"] for name, kwargs in service.calls if name == "add_direct_connections"
+    ]
+
+
+def test_add_all_shows_one_card_with_the_exact_counts_and_writes_nothing():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "confirmation_required" and outcome.result.tier == "voice"
+    assert outcome.result.summary == (
+        "add 2 of your 4 connections to the Family circle "
+        "(1 is already in it, 1 can't be added right now)"
+    )
+    assert _writes(service) == []
+    # The server, not the model, decided the audience: no lookup per person.
+    assert {name for name, _ in service.calls} == {"plan_direct_connection_adds"}
+    # The exact ids ride the server's private snapshot, never the card or the model.
+    stored = outcome.pending.args["_prepared"]
+    assert stored["user_ids"] == sorted([AYESHA, KABIR])
+    public = outcome.pending.public()
+    assert "_prepared" not in public["args"]
+    assert AYESHA not in str(outcome.result.model_public())
+
+
+def test_add_all_adds_exactly_the_reviewed_group_once():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+
+    done = _say_yes(executor, ctx, outcome)
+    late = asyncio.run(
+        executor.call(ctx, "confirm_pending_action", {"pending_action_id": outcome.pending.id})
+    )
+
+    assert done.result.status == "added"
+    assert (done.result.added_count, done.result.already_member_count) == (2, 0)
+    assert done.result.spoken_facts == [
+        "Added 2 people to the Family circle: Ayesha Sharma and Kabir Singh."
+    ]
+    assert "location_circles" in done.result.ui_refresh
+    assert late.result.status == "not_pending"
+    assert _writes(service) == [sorted([AYESHA, KABIR])]
+
+
+def test_someone_who_connects_after_the_card_is_never_added_on_its_strength():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    service.audience.append({"userId": "user-new", "displayName": "New Person"})
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "added"
+    assert _writes(service) == [sorted([AYESHA, KABIR])]
+    assert done.result.spoken_facts[-1] == (
+        "1 newer connection was not on the card, so I left them out."
+    )
+
+
+@pytest.mark.parametrize("change", ["disconnected", "left_recently"])
+def test_an_approved_person_who_can_no_longer_join_stops_the_whole_add(change):
+    """Negative control for the binding: the card no longer says what would
+    happen, so nothing is written and the person is asked again."""
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    if change == "disconnected":
+        service.audience = [p for p in service.audience if p["userId"] != KABIR]
+    else:
+        next(p for p in service.audience if p["userId"] == KABIR)["status"] = "left_recently"
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "not_added"
+    assert done.result.reason_code == "audience_changed"
+    assert _writes(service) == []
+
+
+def test_without_room_for_everyone_nobody_is_added_and_no_card_is_shown():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    service.member_limit = 3  # two seats taken, one left, two people to add
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "not_enough_room"
+    assert outcome.result.spoken_facts == [
+        "The Family circle only has room for 1 more, so I can't add all 2 as you asked. "
+        "Nobody was added."
+    ]
+    assert outcome.pending is None and store.rows == {}
+    assert _writes(service) == []
+
+
+@pytest.mark.parametrize(("is_system", "system_kind"), [(False, "trusted"), (True, "sms")])
+def test_trusted_and_the_sms_circle_are_never_filled_with_everyone(is_system, system_kind):
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    family = service._stored(FAMILY)
+    family["isSystem"], family["systemKind"] = is_system, system_kind
+    store = MemoryPendingStore()
+    executor = ToolExecutor(pending_store=store)
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "unsupported"
+    assert outcome.result.reason_code == "managed_circle"
+    assert store.rows == {} and _writes(service) == []
+
+
+def test_nobody_left_to_add_is_an_answer_without_a_card():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    service.audience = [{"userId": PRIYA, "displayName": "Priya Nair"}]
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = _propose_everyone(ctx, executor)
+
+    assert outcome.result.status == "no_one_to_add"
+    assert outcome.result.spoken_facts == [
+        "Everyone you're connected with is already in the Family circle."
+    ]
+    assert outcome.pending is None
+
+
+def test_only_the_owner_can_fill_a_circle_with_everyone():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    ctx.entities.remember_circle(
+        ConfirmedCircle(circle_id=WORK, name="Work Friends", kind="friends", confirmed_at=now_iso())
+    )
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+
+    outcome = asyncio.run(
+        executor.call(ctx, "add_all_connections", {"circle": {"circle_id": WORK}})
+    )
+
+    assert outcome.result.status == "rejected"
+    assert outcome.result.reason_code == "LOCATION_CIRCLE_OWNER_REQUIRED"
+    assert outcome.pending is None
+
+
+def test_the_model_cannot_name_the_audience():
+    tool = spec("add_all_connections")
+    assert set(tool.declaration()["parameters_json_schema"]["properties"]) == {"circle"}
+    with pytest.raises(ValidationError):
+        tool.input_model.model_validate(
+            {"circle": {"circle_id": FAMILY}, "people": [{"user_id": AYESHA}]}
+        )
+
+
+def test_without_the_reviewed_binding_nothing_is_added():
+    """A missing or altered snapshot is not an approval of anyone."""
+    ctx, service = _everyone_ctx()
+    ctx.prepared = {
+        "circle_id": FAMILY,
+        "user_ids": sorted([AYESHA, KABIR]),
+        "audience": "not-the-digest",
+    }
+
+    result = run("add_all_connections", ctx, circle={"circle_id": FAMILY})
+
+    assert (result.status, result.reason_code) == ("not_added", "review_required")
+    assert _writes(service) == []
+
+
+def test_a_refused_bulk_write_reports_nobody_added():
+    from tests.one_voice.fakes import MemoryPendingStore
+
+    ctx, service = _everyone_ctx()
+    executor = ToolExecutor(pending_store=MemoryPendingStore())
+    outcome = _propose_everyone(ctx, executor)
+    service.errors["add_direct_connections"] = OneLocationCircleError(
+        "LOCATION_CIRCLE_INVITE_COOLDOWN", "Try again in an hour.", status_code=429
+    )
+
+    done = _say_yes(executor, ctx, outcome)
+
+    assert done.result.status == "rejected"
+    assert done.result.reason_code == "LOCATION_CIRCLE_INVITE_COOLDOWN"
+    assert getattr(done.result, "added_count", 0) == 0

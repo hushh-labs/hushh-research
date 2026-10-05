@@ -14,11 +14,23 @@ from typing import Any
 
 from hushh_mcp.one_voice.conversations import Conversation
 from hushh_mcp.one_voice.live_client import LiveEvent
-from hushh_mcp.one_voice.pending_actions import PendingAction, PendingActionConflict
+from hushh_mcp.one_voice.pending_actions import (
+    MAIL_DRAFT_TOOLS,
+    PendingAction,
+    PendingActionConflict,
+)
 
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
+
+
+def _scrub_private(row: PendingAction) -> None:
+    """Mirror of the store's terminal scrub: dictation and a reply's source ref."""
+    row.args.pop("_sealed_args", None)
+    prepared = row.args.get("_prepared")
+    if isinstance(prepared, dict):
+        prepared.pop("source_mail_ref", None)
 
 
 class MemoryPendingStore:
@@ -30,7 +42,7 @@ class MemoryPendingStore:
         for row in self.rows.values():
             if (
                 row.user_id == user_id
-                and row.tool_name == "send_mail"
+                and row.tool_name in MAIL_DRAFT_TOOLS
                 and row.status == "confirmed"
                 and row.expires_at
                 and datetime.fromisoformat(row.expires_at) < _now()
@@ -38,7 +50,7 @@ class MemoryPendingStore:
                 row.status = "failed"
                 row.resolved_at = _now().isoformat()
                 row.result = {"status": "draft_open_unconfirmed", "needs": None}
-                row.args.pop("_sealed_args", None)
+                _scrub_private(row)
             if (
                 row.user_id == user_id
                 and row.status == "pending"
@@ -46,11 +58,10 @@ class MemoryPendingStore:
                 and datetime.fromisoformat(row.expires_at) < _now()
             ):
                 row.status = "expired"
-                if row.tool_name == "send_mail":
-                    row.args.pop("_sealed_args", None)
+                _scrub_private(row)
             if (
                 row.user_id == user_id
-                and row.tool_name == "send_mail"
+                and row.tool_name in MAIL_DRAFT_TOOLS
                 and row.status == "executed"
                 and (row.result or {}).get("status") == "draft_open_requested"
                 and row.resolved_at
@@ -70,8 +81,7 @@ class MemoryPendingStore:
                 and row.id != except_id
             ):
                 row.status = "cancelled"
-                if row.tool_name == "send_mail":
-                    row.args.pop("_sealed_args", None)
+                _scrub_private(row)
                 count += 1
         return count
 
@@ -153,15 +163,14 @@ class MemoryPendingStore:
         row.status = status
         row.result = result
         row.resolved_at = _now().isoformat()
-        if row.tool_name == "send_mail":
-            row.args.pop("_sealed_args", None)
+        _scrub_private(row)
         return row
 
     async def settle_mail_draft_step(self, *, user_id, pending_action_id, opened, uncertain=False):
         row = await self.get(user_id=user_id, pending_action_id=pending_action_id)
         if (
             row is None
-            or row.tool_name != "send_mail"
+            or row.tool_name not in MAIL_DRAFT_TOOLS
             or row.status != "executed"
             or (row.result or {}).get("status") != "draft_open_requested"
         ):
@@ -184,8 +193,7 @@ class MemoryPendingStore:
         if row is None or row.status != "pending":
             return None
         row.status = "cancelled"
-        if row.tool_name == "send_mail":
-            row.args.pop("_sealed_args", None)
+        _scrub_private(row)
         return row
 
 

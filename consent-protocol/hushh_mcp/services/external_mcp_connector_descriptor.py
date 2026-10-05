@@ -76,13 +76,19 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
         raise ExternalMcpConnectorDescriptorError(
             "Descriptor must be a readable JSON object."
         ) from error
+    return validate_descriptor(raw)
+
+
+def validate_descriptor(raw: Any) -> ValidatedExternalMcpConnectorDescriptor:
     if not isinstance(raw, dict) or raw.get("version") != "external-mcp-connector.v1":
         raise ExternalMcpConnectorDescriptorError(
             "Descriptor version must be external-mcp-connector.v1."
         )
 
     connector_id = _text(raw.get("connectorId"))
-    if not _CONNECTOR_ID_PATTERN.match(connector_id):
+    # The id is written to the registry as given, so it must already be exact:
+    # a padded id would pass the pattern yet slip past any per-id guard.
+    if raw.get("connectorId") != connector_id or not _CONNECTOR_ID_PATTERN.match(connector_id):
         raise ExternalMcpConnectorDescriptorError(
             "connectorId must be lowercase snake_case, e.g. 'notion'."
         )
@@ -118,7 +124,19 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
                 "oauthScopes must be a list of scope strings (may be empty)."
             )
         _safe_env_name(raw.get("oauthClientIdEnv"), "oauthClientIdEnv")
-        _safe_env_name(raw.get("oauthClientSecretEnv"), "oauthClientSecretEnv")
+        token_auth = _text(raw.get("tokenEndpointAuth")) or "client_secret_post"
+        if token_auth not in {"client_secret_post", "none"}:
+            raise ExternalMcpConnectorDescriptorError(
+                "tokenEndpointAuth must be client_secret_post or none."
+            )
+        if token_auth == "none":  # noqa: S105 - an auth method name, not a credential
+            # A public client (PKCE, no secret) must not name a secret variable.
+            if _text(raw.get("oauthClientSecretEnv")):
+                raise ExternalMcpConnectorDescriptorError(
+                    "A public client (tokenEndpointAuth none) must not set oauthClientSecretEnv."
+                )
+        else:
+            _safe_env_name(raw.get("oauthClientSecretEnv"), "oauthClientSecretEnv")
 
     if "registeredRedirectUris" in raw:
         uris = raw.get("registeredRedirectUris")
@@ -148,3 +166,34 @@ def load_and_validate_descriptor(path: str | Path) -> ValidatedExternalMcpConnec
             )
 
     return ValidatedExternalMcpConnectorDescriptor(raw=raw)
+
+
+def descriptor_to_row_values(raw: dict[str, Any]) -> dict[str, Any]:
+    """The registry-row values a validated descriptor denotes.
+
+    The one builder behind both `configure_external_mcp_connector.py apply`
+    (which writes these values to the shared registry) and the development
+    overlay in the registry service (which only reads them), so the row a
+    manifest produces locally is, by construction, the row `apply` would write.
+    """
+    scopes_csv = " ".join(raw.get("oauthScopes") or [])
+    return {
+        "connector_id": raw["connectorId"],
+        "display_name": raw["displayName"],
+        "description": raw.get("description") or "",
+        "mcp_endpoint": raw["mcpEndpoint"],
+        "auth_style": raw["authStyle"],
+        "oauth_authorize_url": raw.get("oauthAuthorizeUrl"),
+        "oauth_token_url": raw.get("oauthTokenUrl"),
+        "oauth_scopes": scopes_csv or None,
+        "oauth_client_id_env": raw.get("oauthClientIdEnv"),
+        "oauth_client_secret_env": raw.get("oauthClientSecretEnv"),
+        "api_key_header_name": raw.get("apiKeyHeaderName"),
+        "transport_kind": "mcp",
+        "capability_policy": {
+            "version": 1,
+            "chat": raw.get("chatAdmission"),
+            **({"tools": raw["toolAllowlist"]} if "toolAllowlist" in raw else {}),
+        },
+        "registered_redirect_uris": list(raw.get("registeredRedirectUris") or []),
+    }

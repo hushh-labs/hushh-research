@@ -10,13 +10,18 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.one_voice.conversations import ConversationNotOwned, ConversationStore
-from hushh_mcp.one_voice.pending_actions import PendingActionConflict, PendingActionStore
+from hushh_mcp.one_voice.pending_actions import (
+    PendingAction,
+    PendingActionConflict,
+    PendingActionStore,
+)
 from hushh_mcp.services.one_location_account_settings_service import (
     OneLocationAccountSettingsService,
 )
@@ -180,6 +185,45 @@ def test_sharing_on_requires_consent_then_persists(db):
 # --- pending actions ----------------------------------------------------------
 
 
+async def test_pending_proposal_and_spoken_confirm_db_call_budget(db, monkeypatch):
+    """Count real pending-store SQL trips so future policy changes expose their cost."""
+    await ConversationStore(db=db).open(
+        user_id="owner", conversation_id=CONV, model_id="m", model_location="l"
+    )
+    calls: list[str] = []
+    execute_raw = db.execute_raw
+
+    def recording_execute_raw(sql, params=None):
+        if "one_voice_pending_actions" in sql:
+            calls.append(sql)
+        return execute_raw(sql, params)
+
+    monkeypatch.setattr(db, "execute_raw", recording_execute_raw)
+    store = PendingActionStore(db=db)
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    # The second read is a concurrency re-check after the executor's awaited prepare.
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    row, _ = await store.create(
+        user_id="owner",
+        conversation_id=CONV,
+        tool_name="request_location",
+        gateway_action_id="location.send_request",
+        tier="voice",
+        args={"person": {"user_id": "other"}},
+        summary="ask",
+    )
+    assert len(calls) <= 13
+
+    await store.mark_shown(user_id="owner", pending_action_id=row.id)
+    calls.clear()
+    assert await store.get(user_id="owner", pending_action_id=row.id) is not None
+    await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
+    await store.resolve(
+        user_id="owner", pending_action_id=row.id, status="executed", result={"status": "ok"}
+    )
+    assert len(calls) <= 4
+
+
 async def test_pending_actions_single_open_cas_and_receipt(db):
     conversations = ConversationStore(db=db)
     await conversations.open(
@@ -259,33 +303,94 @@ async def test_tap_receipt_is_hashed_single_use_and_expiry_is_db_clock(db):
     assert (await store.get(user_id="owner", pending_action_id=row.id)).status == "expired"
 
 
-async def test_mail_draft_interim_receipt_recovers_lazily_after_missing_client_report(db):
-    conversations = ConversationStore(db=db)
-    await conversations.open(
+# --- mail-draft rows (send_mail, reply_mail) ----------------------------------
+
+# The mail-draft family, pinned by name rather than read from MAIL_DRAFT_TOOLS:
+# dropping a tool from that family must fail its cases here, not quietly shrink
+# the matrix. Each entry is (args as the executor stores them, what remains once
+# the row can no longer execute): the sealed dictation and a reply's sealed
+# source reference leave; public args and the rest of the snapshot stay.
+_MAIL_DRAFT_ROWS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
+    "send_mail": (
+        {
+            "recipient": {"user_id": "recipient"},
+            "_sealed_args": "v1:fixture-ciphertext",
+            "_prepared": {"recipient_user_id": "recipient", "email_binding": "b" * 32},
+        },
+        {
+            "recipient": {"user_id": "recipient"},
+            "_prepared": {"recipient_user_id": "recipient", "email_binding": "b" * 32},
+        },
+    ),
+    "reply_mail": (
+        {
+            "ordinal": 2,
+            "_sealed_args": "v1:fixture-ciphertext",
+            "_prepared": {"source_mail_ref": "rs1.fixture-source", "target_key": "k" * 32},
+        },
+        {"ordinal": 2, "_prepared": {"target_key": "k" * 32}},
+    ),
+}
+_GATEWAYS = {
+    "send_mail": "email.chat.turn",
+    "reply_mail": "email.chat.turn",
+    "create_circle": "location.create_circle",
+    "delete_circle": "location.delete_circle",
+}
+_INTERIM_RECEIPT = {"status": "draft_open_requested", "needs": "client_step"}
+_UNCONFIRMED = {"status": "draft_open_unconfirmed", "needs": None}
+
+
+async def _voice_store(db) -> PendingActionStore:
+    await ConversationStore(db=db).open(
         user_id="owner", conversation_id=CONV, model_id="m", model_location="l"
     )
-    store = PendingActionStore(db=db)
+    return PendingActionStore(db=db)
+
+
+async def _proposed(store, tool_name: str, args: dict[str, Any]) -> PendingAction:
     row, _ = await store.create(
         user_id="owner",
         conversation_id=CONV,
-        tool_name="send_mail",
-        gateway_action_id="email.chat.turn",
+        tool_name=tool_name,
+        gateway_action_id=_GATEWAYS[tool_name],
         tier="voice",
-        args={"recipient": {"user_id": "recipient"}, "_sealed_args": "v1:fixture"},
-        summary="draft an email",
+        args=args,
+        summary="prepare",
     )
+    return row
+
+
+async def _confirmed(store, tool_name: str, args: dict[str, Any]) -> PendingAction:
+    row = await _proposed(store, tool_name, args)
     await store.mark_shown(user_id="owner", pending_action_id=row.id)
-    await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
-    await store.resolve(
-        user_id="owner",
-        pending_action_id=row.id,
-        status="executed",
-        result={"status": "draft_open_requested", "needs": "client_step"},
+    return await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
+
+
+async def _awaiting_mount(store, tool_name: str, args: dict[str, Any]) -> PendingAction:
+    """Executed, holding the interim receipt only a review card's mount settles."""
+    row = await _confirmed(store, tool_name, args)
+    resolved = await store.resolve(
+        user_id="owner", pending_action_id=row.id, status="executed", result=_INTERIM_RECEIPT
     )
-    current = await store.get(user_id="owner", pending_action_id=row.id)
-    assert current.status == "executed"
-    assert current.result["status"] == "draft_open_requested"
-    assert "_sealed_args" not in current.args
+    assert resolved is not None
+    return resolved
+
+
+@pytest.mark.parametrize("tool_name", tuple(_MAIL_DRAFT_ROWS))
+async def test_mail_draft_interim_receipt_recovers_lazily_after_missing_client_report(
+    db, tool_name
+):
+    stored, remaining = _MAIL_DRAFT_ROWS[tool_name]
+    store = await _voice_store(db)
+    row = await _awaiting_mount(store, tool_name, stored)
+    assert row.status == "executed"
+    assert row.result == _INTERIM_RECEIPT
+    assert row.args == remaining
+
+    # While the device can still report the mount, a recovery pass leaves it.
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    assert (await store.get(user_id="owner", pending_action_id=row.id)).status == "executed"
 
     db.execute_raw(
         "UPDATE one_voice_pending_actions SET resolved_at = NOW() - interval '40 seconds' "
@@ -295,44 +400,136 @@ async def test_mail_draft_interim_receipt_recovers_lazily_after_missing_client_r
     assert await store.list_open(user_id="owner", conversation_id=CONV) == []
     recovered = await store.get(user_id="owner", pending_action_id=row.id)
     assert recovered.status == "failed"
-    assert recovered.result == {"status": "draft_open_unconfirmed", "needs": None}
+    assert recovered.result == _UNCONFIRMED
 
 
-async def test_expired_confirmed_mail_draft_scrubs_sealed_args_after_crash(db):
-    conversations = ConversationStore(db=db)
-    await conversations.open(
-        user_id="owner", conversation_id=CONV, model_id="m", model_location="l"
-    )
-    store = PendingActionStore(db=db)
-    row, _ = await store.create(
-        user_id="owner",
-        conversation_id=CONV,
-        tool_name="send_mail",
-        gateway_action_id="email.chat.turn",
-        tier="voice",
-        args={"recipient": {"user_id": "recipient"}, "_sealed_args": "v1:fixture-ciphertext"},
-        summary="draft an email",
-    )
-    await store.mark_shown(user_id="owner", pending_action_id=row.id)
-    confirmed = await store.confirm(user_id="owner", pending_action_id=row.id, source="voice")
+@pytest.mark.parametrize("tool_name", tuple(_MAIL_DRAFT_ROWS))
+async def test_expired_confirmed_mail_draft_scrubs_sealed_args_after_crash(db, tool_name):
+    stored, remaining = _MAIL_DRAFT_ROWS[tool_name]
+    store = await _voice_store(db)
+    # A confirmed non-mail action expired by the same clock. Crash recovery
+    # writes a mail-draft outcome, which would be false for it.
+    bystander = await _confirmed(store, "create_circle", {"name": "Family"})
+    confirmed = await _confirmed(store, tool_name, stored)
     assert confirmed.status == "confirmed"
     assert "_sealed_args" in confirmed.args
 
+    db.execute_raw("UPDATE one_voice_pending_actions SET expires_at = NOW() - interval '1 second'")
+    # Recovery is owner-scoped; a different actor's activity cannot settle it.
+    assert await store.list_open(user_id="other", conversation_id=CONV) == []
+    assert (await store.get(user_id="owner", pending_action_id=confirmed.id)).status == "confirmed"
+
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    recovered = await store.get(user_id="owner", pending_action_id=confirmed.id)
+    assert recovered.status == "failed"
+    assert recovered.result == _UNCONFIRMED
+    assert recovered.resolved_at is not None
+    assert recovered.args == remaining
+    untouched = await store.get(user_id="owner", pending_action_id=bystander.id)
+    assert untouched.status == "confirmed"
+    assert untouched.result is None
+
+
+@pytest.mark.parametrize("tool_name", tuple(_MAIL_DRAFT_ROWS))
+async def test_mount_report_settles_a_mail_draft_once_and_only_for_its_owner(db, tool_name):
+    stored, _remaining = _MAIL_DRAFT_ROWS[tool_name]
+    store = await _voice_store(db)
+    row = await _awaiting_mount(store, tool_name, stored)
+    other = await store.settle_mail_draft_step(
+        user_id="other", pending_action_id=row.id, opened=True
+    )
+    assert other is None
+
+    settled = await store.settle_mail_draft_step(
+        user_id="owner", pending_action_id=row.id, opened=True
+    )
+    assert settled is not None
+    assert settled.status == "executed"
+    assert settled.result == {"status": "draft_opened", "needs": None}
+    # The first settlement stands: a late watchdog or socket-close settlement
+    # cannot turn an opened card into an unconfirmed one.
+    late = await store.settle_mail_draft_step(
+        user_id="owner", pending_action_id=row.id, opened=False, uncertain=True
+    )
+    assert late is None
+    current = await store.get(user_id="owner", pending_action_id=row.id)
+    assert current.status == "executed"
+    assert current.result == {"status": "draft_opened", "needs": None}
+
+
+async def test_mount_report_cannot_settle_a_non_mail_row_holding_the_same_receipt(db):
+    store = await _voice_store(db)
+    row = await _awaiting_mount(store, "create_circle", {"name": "Family"})
+    refused = await store.settle_mail_draft_step(
+        user_id="owner", pending_action_id=row.id, opened=True
+    )
+    assert refused is None
+    current = await store.get(user_id="owner", pending_action_id=row.id)
+    assert current.status == "executed"
+    assert current.result == _INTERIM_RECEIPT
+
+
+# --- terminal scrub -----------------------------------------------------------
+
+# A reply row's private values beside what a terminal row keeps. The same args
+# ride on a non-mail tool: the scrub must not depend on the tool name (it was
+# once ``CASE WHEN tool_name = 'send_mail'``), and the ``#-`` path must remove
+# the source reference alone, not the snapshot that holds it.
+_SEALED_ROW_ARGS = {
+    "_sealed_args": "v1:x",
+    "_prepared": {"source_mail_ref": "rs1.abc", "target_key": "k"},
+    "ordinal": 2,
+}
+_TERMINAL_ROW_ARGS = {"_prepared": {"target_key": "k"}, "ordinal": 2}
+
+
+async def _cancel(db, store, row_id: str) -> None:
+    await store.cancel(user_id="owner", pending_action_id=row_id)
+
+
+async def _supersede(db, store, row_id: str) -> None:
+    # A newer proposal in the same conversation cancels the open one.
+    await _proposed(store, "delete_circle", {"circle": {"circle_id": "c" * 36}})
+
+
+async def _expire(db, store, row_id: str) -> None:
     db.execute_raw(
         "UPDATE one_voice_pending_actions SET expires_at = NOW() - interval '1 second' "
         "WHERE id = CAST(:id AS UUID)",
-        {"id": row.id},
+        {"id": row_id},
     )
-    # Recovery is owner-scoped; a different actor's activity cannot settle it.
-    assert await store.list_open(user_id="other", conversation_id=CONV) == []
-    assert (await store.get(user_id="owner", pending_action_id=row.id)).status == "confirmed"
+    await store.expire_stale(user_id="owner")
 
-    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
-    recovered = await store.get(user_id="owner", pending_action_id=row.id)
-    assert recovered.status == "failed"
-    assert recovered.result == {"status": "draft_open_unconfirmed", "needs": None}
-    assert recovered.resolved_at is not None
-    assert recovered.args == {"recipient": {"user_id": "recipient"}}
+
+async def _resolve(db, store, row_id: str) -> None:
+    await store.mark_shown(user_id="owner", pending_action_id=row_id)
+    await store.confirm(user_id="owner", pending_action_id=row_id, source="voice")
+    await store.resolve(
+        user_id="owner", pending_action_id=row_id, status="executed", result={"status": "done"}
+    )
+
+
+# store transition -> (how the row gets there, the status it lands in)
+_TERMINAL_TRANSITIONS = {
+    "cancel": (_cancel, "cancelled"),
+    "cancel_open": (_supersede, "cancelled"),
+    "expire_stale": (_expire, "expired"),
+    "resolve": (_resolve, "executed"),
+}
+
+
+@pytest.mark.parametrize("transition", tuple(_TERMINAL_TRANSITIONS))
+@pytest.mark.parametrize("tool_name", ("reply_mail", "create_circle"))
+async def test_every_terminal_transition_scrubs_exactly_the_sealed_values(
+    db, tool_name, transition
+):
+    store = await _voice_store(db)
+    row = await _proposed(store, tool_name, _SEALED_ROW_ARGS)
+    move, status = _TERMINAL_TRANSITIONS[transition]
+    await move(db, store, row.id)
+    terminal = await store.get(user_id="owner", pending_action_id=row.id)
+    assert terminal.status == status
+    assert terminal.args == _TERMINAL_ROW_ARGS
 
 
 async def test_conversation_ownership_and_counters(db):

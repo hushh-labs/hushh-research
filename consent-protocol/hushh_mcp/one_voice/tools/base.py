@@ -168,6 +168,20 @@ class ConfirmationWaiting(ToolResult):
     card_shown: bool
 
 
+class PendingActionExists(ToolResult):
+    """A different action is still waiting for an answer. Never success, never a
+    new row: a card the person may be answering is not replaced by an unrelated
+    proposal. It is confirmed or cancelled first, and the model is handed its id."""
+
+    status: Literal["pending_action_exists"] = "pending_action_exists"
+    needs: Needs | None = "confirmation"
+    pending_action_id: str
+    tool: str
+    tier: Literal["voice", "tap"]
+    summary: str
+    card_shown: bool
+
+
 class ConfirmedPerson(BaseModel):
     model_config = ConfigDict(extra="forbid")
     user_id: str
@@ -293,6 +307,10 @@ class EntityContext(BaseModel):
     # The messages the last mail read showed, so a spoken position resolves to
     # the message it named rather than to whatever a fresh search returns now.
     offered_mail: OfferedMail | None = None
+    # When that offer is the one message read by its position, the position it
+    # had in the list it was read from. Top level, not inside OfferedMail, so a
+    # server that predates it drops the key instead of the whole context.
+    offered_mail_selected_ordinal: int | None = None
 
     @staticmethod
     def _now() -> datetime:
@@ -323,16 +341,25 @@ class EntityContext(BaseModel):
             self.offered_person_circle_id = None
         if self.offered_mail is not None and not self.offered_mail_is_fresh():
             self.offered_mail = None
+            self.offered_mail_selected_ordinal = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
 
-    def offer_mail(self, message_ids: list[str], *, account: str, mailbox: str) -> int:
+    def offer_mail(
+        self,
+        message_ids: list[str],
+        *,
+        account: str,
+        mailbox: str,
+        selected_ordinal: int | None = None,
+    ) -> int:
         """Replace the offered messages, and say when they were offered.
 
         Replaced on every read, like ``offer_requests``: the person is looking at
         the newest list, so that is the only one a position can mean.
+        ``selected_ordinal`` is the position a single message was read by.
         """
         self.offer_revision += 1
         self.offered_mail = OfferedMail(
@@ -341,6 +368,9 @@ class EntityContext(BaseModel):
             mailbox=mailbox,
             offered_at=self._now().isoformat(),
             revision=self.offer_revision,
+        )
+        self.offered_mail_selected_ordinal = (
+            selected_ordinal if len(self.offered_mail.message_ids) == 1 else None
         )
         return self.offer_revision
 
@@ -356,15 +386,33 @@ class EntityContext(BaseModel):
         age = self._now().timestamp() - datetime.fromisoformat(offer.offered_at).timestamp()
         return age <= OFFER_TTL_SECONDS
 
+    def offered_mail_position(self, ordinal: int) -> int | None:
+        """The position in the current offer that a spoken position names, or None.
+
+        Ordinarily the same number. After a read by position the offer is that
+        one message, and the position it was read from still names it: "reply to
+        the second one" right after reading the second one means that message,
+        not a refusal that the list now has one entry. Any other position is
+        still refused: the longer list is no longer what the person sees.
+        """
+        if not self.offered_mail_is_fresh() or self.offered_mail is None:
+            return None
+        ids = self.offered_mail.message_ids
+        if 1 <= ordinal <= len(ids):
+            return ordinal
+        if len(ids) == 1 and ordinal == self.offered_mail_selected_ordinal:
+            return 1
+        return None
+
     def offered_mail_message_id(self, ordinal: int) -> str | None:
         """The message at a spoken position, or None when it cannot be trusted.
 
         None is a refusal to guess, not an invitation to search again.
         """
-        if not self.offered_mail_is_fresh() or self.offered_mail is None:
+        position = self.offered_mail_position(ordinal)
+        if position is None or self.offered_mail is None:
             return None
-        ids = self.offered_mail.message_ids
-        return ids[ordinal - 1] if 1 <= ordinal <= len(ids) else None
+        return self.offered_mail.message_ids[position - 1]
 
     def offer_requests(self, requests: list[OfferedRequest]) -> None:
         self.offered_requests = {item.request_id: item for item in requests}
@@ -407,6 +455,11 @@ class ScreenContext(BaseModel):
     # circle", never authority: every read of it goes through the authorized
     # circle service, and every mutation still needs the id confirmed.
     active_circle_id: str | None = None
+    # The mail row open on screen: its position and the offer it was drawn
+    # from. A hint for "this email", never authority: it names a position in a
+    # server offer, and it is honored only while that offer is the current one.
+    active_mail_ordinal: int | None = None
+    active_mail_offer_revision: int | None = None
 
 
 @dataclass
@@ -502,6 +555,40 @@ class ToolSpec:
     # run and settle; confirming it over plain HTTP would arm an effect with
     # no publisher, so that route refuses it.
     device_step: bool = False
+    # Which kind of lookup (``resolve_person`` -> "person", ``resolve_circle``
+    # -> "circle") makes an open card for this tool stale. ``None`` derives it
+    # from ``person_args``/``circle_args``; a tool with neither stays stale on
+    # every lookup, because its counterpart can ride an opaque id (a request, a
+    # share, an invite). A tool whose effect names no counterpart at all
+    # declares ``()`` so an unrelated lookup cannot cancel its card.
+    lookup_targets: tuple[Literal["person", "circle"], ...] | None = None
+    # May replace an open card of a different action without it being answered
+    # first. Only for an effect that must never wait behind another card.
+    preempts_pending: bool = False
+    # Tools whose proposals correct one another's open card: the same effect
+    # re-aimed ("not Roopman", "turn it off instead"). ``None`` means only the
+    # tool itself. A shared gateway action is NOT enough on its own:
+    # request_location and withdraw_request share one and do opposite things.
+    correction_group: str | None = None
+    # For a tool whose arguments do not name what it acts on -- a position in a
+    # list the server offered, or the item open on screen -- the server-side
+    # identity of that target, resolved without I/O. Equal arguments against
+    # different targets are different proposals, so an open card is reused only
+    # for the same target. Returning ``None`` (unresolvable) never reuses one.
+    target_key: Callable[[ToolContext, Any], str | None] | None = None
+
+    @property
+    def correction_key(self) -> str:
+        """Which open cards a proposal from this tool may replace as a correction."""
+        return self.correction_group or self.name
+
+    def stale_on_lookup(self, kind: Literal["person", "circle"]) -> bool:
+        """Whether a ``kind`` lookup makes an open card for this tool stale."""
+        if self.lookup_targets is not None:
+            return kind in self.lookup_targets
+        if not self.person_args and not self.circle_args:
+            return True
+        return bool(self.person_args if kind == "person" else self.circle_args)
 
     def declaration(self) -> dict[str, Any]:
         """Gemini function declaration (JSON-schema parameters, refs inlined)."""
@@ -555,6 +642,7 @@ __all__ = [
     "EntityContext",
     "Needs",
     "OfferedRequest",
+    "PendingActionExists",
     "PersonRef",
     "Rejected",
     "ScreenContext",

@@ -1109,6 +1109,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "switch (resume_device_location_updates / pause_device_location_updates)."
         ),
         handler=turn_sharing_on,
+        correction_group="sharing_switch",
         ui_refresh=("location_state", "location_settings"),
         summarize=summarize_turn_sharing_on,
     ),
@@ -1127,6 +1128,7 @@ TOOLS: tuple[ToolSpec, ...] = (
             "(resume_device_location_updates / pause_device_location_updates)."
         ),
         handler=turn_sharing_off,
+        correction_group="sharing_switch",
         ui_refresh=("location_state", "location_settings", "location_map"),
         summarize=summarize_turn_sharing_off,
     ),

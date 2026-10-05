@@ -21,7 +21,10 @@ import requests
 from google.auth.transport.requests import Request
 from google.oauth2 import id_token
 
-from hushh_mcp.runtime_settings import get_app_runtime_settings
+from hushh_mcp.services.connector_dev_runtime import (
+    LOCAL_WEB_RETURN_PATH,
+    loopback_development_origin,
+)
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
@@ -39,8 +42,6 @@ AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - public provider URL, not a token
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
 SCOPES = ("openid", "email", DRIVE_FILE_SCOPE)
-_LOCAL_WEB_RETURN_PATH = "/one/profile/connectors/oauth/return"
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "[::1]"})
 
 
 def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
@@ -53,14 +54,10 @@ def registered_redirect_uris(connector: Any) -> tuple[str, ...]:
     Google still enforces the OAuth client's own redirect list.
     """
     registered = tuple(connector.registered_redirect_uris or ())
-    if os.getenv("ENVIRONMENT", "").strip().lower() != "development":
+    origin = loopback_development_origin()
+    if origin is None:
         return registered
-    origin = get_app_runtime_settings().app_frontend_origin
-    scheme, _, rest = origin.partition("://")
-    host = rest.split("/", 1)[0].rsplit(":", 1)[0] if rest else ""
-    if scheme != "http" or host not in _LOOPBACK_HOSTS or "@" in rest or "/" in rest:
-        return registered
-    local = f"{origin}{_LOCAL_WEB_RETURN_PATH}"
+    local = f"{origin}{LOCAL_WEB_RETURN_PATH}"
     return registered if local in registered else (*registered, local)
 
 

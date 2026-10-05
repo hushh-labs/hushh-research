@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader, SurfaceCardTitle } from "@/components/app-ui/surfaces";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { Button } from "@/lib/morphy-ux/button";
@@ -11,8 +11,12 @@ import type { McpCallPreview } from "@/lib/agent/mcp-call-review";
 import { serverNow } from "@/lib/agent/server-clock";
 import { ReviewArguments } from "@/components/agent/mcp-call-review-values";
 
-export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0];
+export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0] & {
+  /** Browser-only transcript message that owns the live Activity rows. */
+  activityMessageId?: string;
+};
 type Phase = "loading" | "ready" | "busy" | "unavailable" | "unknown";
+export type McpReviewActivityOutcome = "unavailable" | "expired" | "unknown";
 
 // A real approval lives minutes; a far-future value would only be noise.
 const COUNTDOWN_MAX_SECONDS = 3600;
@@ -29,10 +33,12 @@ function countdownFor(expiresAt: string, now: number): { label: string; urgent: 
 }
 
 /** A transient authority-bearing review, deliberately excluded from chat history. */
-export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
+export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivityOutcome }: {
   review: McpChatReview;
   vaultOwnerToken: string;
   onDismiss: () => void;
+  /** Safe UI status only; it never contains provider output, arguments, or a receipt. */
+  onActivityOutcome?: (outcome: McpReviewActivityOutcome) => void;
 }) {
   const [preview, setPreview] = useState<McpCallPreview | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -40,6 +46,16 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
   const [now, setNow] = useState(() => serverNow());
   const lifetime = useRef<AbortController | null>(null);
   const attempted = useRef(false);
+  const reportedOutcome = useRef<McpReviewActivityOutcome | null>(null);
+  const outcomeListener = useRef(onActivityOutcome);
+  useEffect(() => {
+    outcomeListener.current = onActivityOutcome;
+  }, [onActivityOutcome]);
+  const reportOutcome = useCallback((outcome: McpReviewActivityOutcome) => {
+    if (reportedOutcome.current) return;
+    reportedOutcome.current = outcome;
+    outcomeListener.current?.(outcome);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -58,7 +74,14 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
       controller.abort();
       setPreview(null);
       // Time ran out before a decision: say so, rather than a generic failure.
-      if (!attempted.current) setExpired(true);
+      if (!attempted.current) {
+        setExpired(true);
+        reportOutcome("expired");
+      } else {
+        // A confirmation may already have reached the server. Never imply that
+        // the provider did not receive it when the page's acknowledgement dies.
+        reportOutcome("unknown");
+      }
       setPhase(attempted.current ? "unknown" : "unavailable");
     };
     if (remaining <= 0 || !review.isCurrent()) {
@@ -82,10 +105,13 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
       setPreview(value);
       setPhase("ready");
     }).catch(() => {
-      if (!controller.signal.aborted) setPhase("unavailable");
+      if (!controller.signal.aborted) {
+        reportOutcome("unavailable");
+        setPhase("unavailable");
+      }
     });
     return () => { clearTimeout(timeout); controller.abort(); };
-  }, [review, vaultOwnerToken]);
+  }, [reportOutcome, review, vaultOwnerToken]);
 
   // Tick only while the person can still act, so the card never re-renders idly.
   const ticking = phase === "loading" || phase === "ready";
@@ -125,7 +151,11 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss }: {
       await operation;
       if (!controller.signal.aborted && review.isCurrent()) onDismiss();
     } catch {
-      if (!controller.signal.aborted && review.isCurrent()) setPhase(resumeStarted ? "unknown" : "unavailable");
+      if (!controller.signal.aborted && review.isCurrent()) {
+        const outcome = resumeStarted ? "unknown" : "unavailable";
+        reportOutcome(outcome);
+        setPhase(outcome);
+      }
     }
   };
 
