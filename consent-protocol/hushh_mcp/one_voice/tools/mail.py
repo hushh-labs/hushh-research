@@ -1,9 +1,18 @@
 """Mail tools: read the owner's inbox and open a reviewed compose or reply card.
 
-No voice tool archives, labels, marks read, trashes, saves drafts, or sends.
-``send_mail`` and ``reply_mail`` only propose a first-party draft after spoken
-confirmation; the existing owner's card owns every provider write, and only the
-owner's Send tap delivers anything.
+No voice tool archives, labels, marks read, trashes, saves drafts, or sends
+anything now. ``send_mail`` and ``reply_mail`` only propose a first-party draft
+after spoken confirmation; the existing owner's card owns every provider write,
+and only the owner's Send tap delivers it.
+
+Scheduling is the one carve-out, and it is a deferral, not an immediate send.
+After spoken confirmation ``schedule_mail`` stores a sealed send that the
+server delivers at the future time the owner named, through the same
+owner-approved send path a tap uses; nothing is sent from the device. The
+spoken yes on a card naming the person and the time is the approval.
+``list_scheduled_mail`` shows what is waiting and ``cancel_scheduled_mail``
+withdraws one before it fires. The model sees counts and owner-local times;
+the subject, body and address stay server-side.
 
 The read itself is not implemented here. It belongs to
 ``email_delegated_read``, which runs a planner that sees the person's request
@@ -38,6 +47,8 @@ import asyncio
 import hashlib
 import hmac
 import logging
+from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any, Literal
 
 from pydantic import Field, field_validator
@@ -59,9 +70,22 @@ from hushh_mcp.services import gmail_reply_source_service as reply_source
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, normalize_draft
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailDeliveryError,
+    get_gmail_delivery_service,
+    normalize_draft,
+)
 from hushh_mcp.services.gmail_metadata_reader import GmailMetadataReader
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, get_gmail_receipts_service
+from hushh_mcp.services.owner_time import (
+    ScheduleTimeError,
+    check_send_at,
+    format_schedule_echo,
+    owner_zone,
+    resolve_send_at,
+    send_at_after_minutes,
+    spoken_schedule_time,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +97,10 @@ MAX_REQUEST_BYTES = 8000
 MAIL_ADMISSION_SERVICE = "voice_mail_admission"
 # The provider boundary a reply re-reads its source through; injected by tests.
 MAIL_REPLY_READER_SERVICE = "voice_mail_reply_reader"
+# The send ledger a scheduled send is stored in and cancelled from; injected by tests.
+MAIL_DELIVERY_SERVICE = "voice_mail_delivery"
+# The wall clock a send time is validated against; injected by tests.
+MAIL_CLOCK_SERVICE = "voice_mail_clock"
 
 # What One says when a read did not happen. Connection state and nothing else:
 # no sender, subject or body, so the model boundary is untouched.
@@ -137,6 +165,19 @@ MAIL_OPEN_DISPATCHED = "mail_open_dispatched"
 # A capability answer, not a read. Distinct from the read statuses so a surface
 # never renders it as an empty mail list.
 MAIL_ACCESS_STATUS = "mail_access"
+
+# The mailbox a drafts list is offered under (``mail_drafts``). The drafts list
+# and the inbox share one offer slot, so a position resolved by a mail path must
+# never land on a draft: a draft id is not a message id, and "reply to the
+# second one" must not answer the owner's own unsent words.
+DRAFTS_MAILBOX = "drafts"
+
+
+def _drafts_offer_refused() -> Rejected:
+    return Rejected(
+        reason_code="mail_offer_is_drafts",
+        spoken_facts=["That list is your drafts, not your mail. Ask me to show your mail first."],
+    )
 
 
 class ReadMailInput(ToolInput):
@@ -349,6 +390,8 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
                 reason_code="mail_offer_expired",
                 spoken_facts=["That list is a while old. Ask me again and I'll take a fresh look."],
             )
+        if offer.mailbox == DRAFTS_MAILBOX:
+            return _drafts_offer_refused()
         message_id = ctx.entities.offered_mail_message_id(args.ordinal)
         if message_id is None:
             shown = len(offer.message_ids)
@@ -545,6 +588,8 @@ async def _open_mail(ctx: ToolContext, args: OpenMailInput) -> ToolResult:
             reason_code="mail_offer_expired",
             spoken_facts=["That list is a while old. Ask me again and I'll take a fresh look."],
         )
+    if offer.mailbox == DRAFTS_MAILBOX:
+        return _drafts_offer_refused()
     # Presence only. The message itself is fetched by the surface through the
     # resolver, so this handler performs no provider read and cannot duplicate one.
     position = ctx.entities.offered_mail_position(args.ordinal)
@@ -1018,6 +1063,11 @@ def _resolve_reply_target(
             reason_code="mail_offer_expired",
             spoken_facts=["That Mail list is a while old. Ask me to show your mail again."],
         )
+    if offer.mailbox == DRAFTS_MAILBOX:
+        return Rejected(
+            reason_code="reply_target_is_draft",
+            spoken_facts=["That's a draft, not an email. Ask me to show your mail first."],
+        )
     message_id = ctx.entities.offered_mail_message_id(ordinal)
     if message_id is None:
         shown = len(offer.message_ids)
@@ -1173,6 +1223,712 @@ async def _reply_mail(ctx: ToolContext, args: ReplyMailInput) -> ToolResult:
     )
 
 
+# -- scheduled sends -----------------------------------------------------------------------
+#
+# A scheduled send is the owner's dictation to a confirmed connection, stored
+# after a spoken yes on a card that names the person and the owner-local time.
+# The server sends it when due through the existing owner-approved send path.
+# Everything the model is told is a count, a person it already confirmed, or a
+# time; the subject, body and address never leave the server.
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _now(ctx: ToolContext) -> datetime:
+    clock: Callable[[], datetime] = ctx.services.get(MAIL_CLOCK_SERVICE) or _utcnow
+    return clock()
+
+
+def _schedule_off() -> Rejected:
+    return Rejected(
+        reason_code="voice_mail_schedule_disabled",
+        spoken_facts=["Scheduling email is switched off for me right now."],
+    )
+
+
+def _schedule_gates(admission: OneVoiceMailAdmission) -> Rejected | None:
+    """Every switch a new scheduled send needs, at the card and again on the yes.
+
+    The drain's switch is one of them: with the drain off nothing would ever
+    send the email, so accepting it would be a promise nobody keeps.
+    """
+    if not admission.mail_schedule_send_enabled():
+        return _schedule_off()
+    if not admission.mail_reads_enabled():
+        return _unavailable("voice_mail_reads_disabled")
+    if not admission.mail_scheduled_drain_enabled():
+        return Rejected(
+            reason_code="voice_mail_drain_disabled",
+            spoken_facts=["Scheduling isn't available right now."],
+        )
+    return None
+
+
+def _scheduled_list_gates(admission: OneVoiceMailAdmission) -> Rejected | None:
+    """Listing and cancelling stay open while a waiting send could still fire.
+
+    Either switch is enough: with scheduling off the drain may still send what
+    was stored earlier, and the owner must always be able to see and stop it.
+    Mail reads are not required: both touch only the send ledger, never the
+    mailbox, so switching voice mail reads off must not strand a waiting send.
+    """
+    if not (admission.mail_schedule_send_enabled() or admission.mail_scheduled_drain_enabled()):
+        return _schedule_off()
+    return None
+
+
+async def _schedule_send_refusal(ctx: ToolContext) -> Rejected | None:
+    """Send readiness before the card: a send that can never fire is not offered."""
+    gmail = ctx.services.get("gmail") or get_gmail_receipts_service()
+    try:
+        await gmail.assert_send_ready(user_id=ctx.user_id)
+    except GmailApiError as exc:
+        reason, fact = _SEND_NOT_READY.get(
+            str(exc.code or ""), _SEND_NOT_READY["GMAIL_SEND_PERMISSION_REQUIRED"]
+        )
+        if reason == "mail_connect_required":
+            fact = "Mail isn't connected, so I can't schedule this."
+        return Rejected(reason_code=reason, spoken_facts=[fact])
+    return None
+
+
+def _schedule_delivery(ctx: ToolContext) -> Any:
+    return ctx.service(MAIL_DELIVERY_SERVICE, get_gmail_delivery_service)
+
+
+def _sender_binding(ctx: ToolContext, sender_sub: str) -> str:
+    """Pins the sending Google account in the card row without retaining its id."""
+    secret = get_core_security_settings().app_signing_key
+    if not secret:
+        raise ValueError("voice mail binding key is unavailable")
+    material = f"one-voice-schedule-sender-v1:{ctx.user_id}:{sender_sub}"
+    return hmac.new(secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _schedule_not_connected() -> Rejected:
+    return Rejected(
+        reason_code="mail_connect_required",
+        spoken_facts=["Mail isn't connected, so I can't schedule this."],
+    )
+
+
+def _when(send_at: datetime, zone: str, now: datetime) -> str:
+    """The time inside a sentence, in the owner's zone: "tomorrow at 9:00 AM IST"."""
+    return str(spoken_schedule_time(send_at, zone, now=now))
+
+
+class ScheduleMailInput(SendMailInput):
+    """``send_mail``'s fields, plus when to send: a clock time or a duration.
+
+    The time is never a phrase. The model resolves "kal subah" against the
+    owner-local clock the instruction names and passes the owner's wall-clock
+    time, which the server places in the owner's zone (daylight saving
+    included); a duration is minutes the server counts from its own clock,
+    because the instruction's clock is stale by the time it is said. Exactly
+    one of the two is given; the server only validates, so a phrase it cannot
+    read is refused rather than guessed at.
+    """
+
+    send_at: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description=(
+            "A clock time or day: the owner's local wall-clock time as ISO-8601 "
+            "without a UTC offset, e.g. 2026-10-06T09:00:00. The server applies "
+            "their zone (daylight saving included) and rejects unparseable, past, "
+            "or >30-days-out times. Never a relative phrase; omit for a duration."
+        ),
+    )
+    send_in_minutes: int | None = Field(
+        default=None,
+        ge=2,
+        le=43200,
+        description=(
+            "A duration from now ('in 30 minutes'): that many minutes, counted by "
+            "the server. Leave send_at out then."
+        ),
+    )
+
+
+class ScheduleMailResult(ToolResult):
+    """A scheduled send that is stored. Built only after the row committed."""
+
+    status: Literal["scheduled"] = "scheduled"
+    action_id: str = ""
+    send_at: str = ""
+    send_at_label: str = ""
+
+    def narratable_digest(self) -> str:
+        return self.spoken_facts[0] if self.spoken_facts else ""
+
+    def model_public(self) -> dict[str, Any]:
+        """The person and the time, both of which the model already holds."""
+        return {"status": self.status, "spoken_facts": list(self.spoken_facts)}
+
+
+def _schedule_recipient_refusal(fact: str) -> Rejected:
+    return Rejected(reason_code="recipient_changed", spoken_facts=[fact])
+
+
+def _schedule_no_email(name: str) -> Rejected:
+    return Rejected(
+        reason_code="person_has_no_email",
+        spoken_facts=[f"I don't have an email address for {name}, so I can't schedule this."],
+    )
+
+
+def _schedule_time_choice(args: ScheduleMailInput) -> Rejected | None:
+    """Exactly one of a clock time and a duration: asked about, never picked."""
+    if args.send_at is not None and args.send_in_minutes is not None:
+        return Rejected(
+            reason_code="schedule_time_ambiguous",
+            spoken_facts=["Should I send it at a set time, or in a number of minutes from now?"],
+        )
+    if args.send_at is None and args.send_in_minutes is None:
+        return Rejected(
+            reason_code="schedule_time_missing",
+            spoken_facts=[
+                "When should I send it — for example, tomorrow at 9 AM, or in 30 minutes?"
+            ],
+        )
+    return None
+
+
+def _requested_send_at(args: ScheduleMailInput, *, zone: str, now: datetime) -> datetime:
+    """The instant the card will show, or :class:`ScheduleTimeError`."""
+    send_at: datetime = (
+        send_at_after_minutes(args.send_in_minutes, now=now)
+        if args.send_in_minutes is not None
+        else resolve_send_at(args.send_at or "", owner_zone=zone, now=now)
+    )
+    return send_at
+
+
+def _approved_send_at(
+    args: ScheduleMailInput, prepared: dict[str, Any], *, zone: str, now: datetime
+) -> datetime | None:
+    """The instant the card showed, checked again against the server clock.
+
+    A clock time is read again and must still name that instant. A duration is
+    never counted again: the instant pinned at the card is what the yes
+    approved. None when the card's pinned time is missing or no longer matches.
+    """
+    if args.send_in_minutes is None:
+        return _requested_send_at(args, zone=zone, now=now)
+    if prepared.get("send_in_minutes") != args.send_in_minutes:
+        return None
+    try:
+        pinned = datetime.fromisoformat(str(prepared.get("send_at_iso") or ""))
+    except ValueError:
+        return None
+    if pinned.tzinfo is None:
+        return None
+    checked: datetime = check_send_at(pinned, now=now)
+    return checked
+
+
+async def _prepare_schedule_mail(
+    ctx: ToolContext, args: ScheduleMailInput
+) -> Prepared | ToolResult:
+    admission = ctx.service(MAIL_ADMISSION_SERVICE, OneVoiceMailAdmission)
+    refused = _schedule_gates(admission) or _schedule_time_choice(args)
+    if refused is not None:
+        return refused
+    # The same fail-closed recipient gates as ``send_mail``.
+    person = ctx.entities.person(args.recipient.user_id)
+    if person is None or person.relationship != "connected":
+        return Rejected(
+            reason_code="recipient_not_connected",
+            spoken_facts=[
+                "I can schedule mail only to a confirmed connection with an email address."
+            ],
+        )
+    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    if row is None:
+        return Rejected(
+            reason_code="recipient_not_connected",
+            spoken_facts=[
+                f"You aren't connected with {person.display_name} any more, so I can't schedule this."
+            ],
+        )
+    address = _recipient_email(row, args.subject, args.message)
+    if address is None:
+        return _schedule_no_email(person.display_name)
+    to_email, _subject = address
+    now = _now(ctx)
+    # The zone the card is read in. Pinned in the snapshot, so a yes given on a
+    # surface without the owner's zone (a tap over HTTP) approves the same time.
+    zone = str(owner_zone(ctx.timezone).key)
+    try:
+        send_at = _requested_send_at(args, zone=zone, now=now)
+    except ScheduleTimeError as exc:
+        return Rejected(reason_code=exc.code, spoken_facts=[exc.spoken])
+    not_ready = await _schedule_send_refusal(ctx)
+    if not_ready is not None:
+        return not_ready
+    # The account it would send from today. The send fires much later, so the
+    # yes approves this account and the drain sends only from it.
+    sender_sub = await _schedule_delivery(ctx).current_sender_sub(user_id=ctx.user_id)
+    if not sender_sub:
+        return _schedule_not_connected()
+    return Prepared(
+        summary=f"send this to {person.display_name} {_when(send_at, zone, now)}",
+        # HMACs pin the confirmed recipient and the sending account without
+        # retaining either in the long-lived pending-action row; the time is
+        # the server's own reading of the argument, compared again on the yes.
+        snapshot={
+            "recipient_user_id": args.recipient.user_id,
+            "email_binding": _email_binding(ctx, args.recipient.user_id, to_email),
+            "sender_binding": _sender_binding(ctx, sender_sub),
+            "send_at_iso": send_at.isoformat(),
+            "send_at_label": format_schedule_echo(send_at, zone, now=now),
+            "owner_zone": zone,
+            # A duration is pinned as the instant above, never counted again.
+            "send_in_minutes": args.send_in_minutes,
+        },
+    )
+
+
+async def _schedule_mail(ctx: ToolContext, args: ScheduleMailInput) -> ToolResult:
+    admission = ctx.service(MAIL_ADMISSION_SERVICE, OneVoiceMailAdmission)
+    refused = _schedule_gates(admission) or _schedule_time_choice(args)
+    if refused is not None:
+        return refused
+    person = ctx.entities.person(args.recipient.user_id)
+    prepared = ctx.prepared or {}
+    changed = "That connection changed. I didn't schedule anything; please ask again."
+    if (
+        person is None
+        or person.relationship != "connected"
+        or prepared.get("recipient_user_id") != args.recipient.user_id
+    ):
+        return _schedule_recipient_refusal(changed)
+    row = await asyncio.to_thread(_mail_connection, ctx, args.recipient.user_id)
+    if row is None:
+        return _schedule_recipient_refusal(changed)
+    address = _recipient_email(row, args.subject, args.message)
+    if address is None:
+        return _schedule_no_email(person.display_name)
+    to_email, subject = address
+    binding = _email_binding(ctx, args.recipient.user_id, to_email)
+    if not hmac.compare_digest(str(prepared.get("email_binding") or ""), binding):
+        return _schedule_recipient_refusal(
+            "That email address changed. I didn't schedule anything; please ask again."
+        )
+    # The server clock decides again: a card answered late is not a late send.
+    now = _now(ctx)
+    zone = str(prepared.get("owner_zone") or ctx.timezone)
+    try:
+        approved = _approved_send_at(args, prepared, zone=zone, now=now)
+    except ScheduleTimeError as exc:
+        if exc.code in {"schedule_time_in_past", "schedule_time_too_soon"}:
+            return Rejected(
+                reason_code="schedule_time_passed",
+                spoken_facts=[
+                    "That time passed while we were talking. Tell me a new time and I'll schedule it."
+                ],
+            )
+        return Rejected(reason_code=exc.code, spoken_facts=[exc.spoken])
+    if approved is None or approved.isoformat() != prepared.get("send_at_iso"):
+        return Rejected(
+            reason_code="schedule_time_changed",
+            spoken_facts=[
+                "That time changed since I asked, so I didn't schedule anything. "
+                "Tell me the time again."
+            ],
+        )
+    send_at = approved
+    not_ready = await _schedule_send_refusal(ctx)
+    if not_ready is not None:
+        return not_ready
+    delivery = _schedule_delivery(ctx)
+    # The account the card was approved for must still be the one connected:
+    # a reconnect to another Google account is a different sender.
+    sender_sub = await delivery.current_sender_sub(user_id=ctx.user_id)
+    if not sender_sub:
+        return _schedule_not_connected()
+    if not hmac.compare_digest(
+        str(prepared.get("sender_binding") or ""), _sender_binding(ctx, sender_sub)
+    ):
+        return Rejected(
+            reason_code="sender_account_changed",
+            spoken_facts=["Your Gmail account changed, so I didn't schedule it."],
+        )
+    try:
+        stored = await delivery.schedule_send(
+            user_id=ctx.user_id,
+            payload={
+                "to": to_email,
+                "subject": subject,
+                "body": args.message,
+                "recipient_user_id": args.recipient.user_id,
+                "sender_sub": sender_sub,
+            },
+            send_at=send_at,
+            recipient_display=person.display_name,
+        )
+    except GmailDeliveryError as exc:
+        logger.info("one_voice.mail_schedule reason=%s", exc.code.lower()[:23])
+        if exc.code == "SCHEDULE_SEAL_FAILED":
+            return Rejected(
+                reason_code="schedule_seal_failed",
+                spoken_facts=["I couldn't prepare that securely. Nothing was scheduled."],
+            )
+        if exc.code == "INVALID_SEND_AT":
+            # The ledger's own clock disagreed with the card's: the time slipped.
+            return Rejected(
+                reason_code="schedule_time_passed",
+                spoken_facts=[
+                    "That time passed while we were talking. Tell me a new time and I'll schedule it."
+                ],
+            )
+        return Rejected(
+            reason_code="schedule_unavailable",
+            spoken_facts=[
+                "I couldn't schedule that just now. Nothing was scheduled. Please try again."
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001 - storage text is never reflected
+        logger.warning("one_voice.mail_schedule reason=storage error=%s", type(exc).__name__)
+        return Rejected(
+            reason_code="schedule_unavailable",
+            spoken_facts=[
+                "I couldn't schedule that just now. Nothing was scheduled. Please try again."
+            ],
+        )
+    when = _when(send_at, zone, now)
+    state = str(stored.get("state") or "")
+    if stored.get("created") or state == "scheduled":
+        fact = (
+            f"Scheduled to send to {person.display_name} {when}."
+            if stored.get("created")
+            else f"That's already scheduled for {when.removeprefix('on ')}."
+        )
+        return ScheduleMailResult(
+            action_id=str(stored.get("action_id") or ""),
+            send_at=send_at.isoformat(),
+            send_at_label=format_schedule_echo(send_at, zone, now=now),
+            spoken_facts=[fact],
+        )
+    # The same draft, person and time was scheduled before and has moved on:
+    # it is not scheduled again, and the reason is said plainly. A voice cancel
+    # frees its key, so a row still holding one was cancelled by the server
+    # (the recipient was no longer connected), not by the owner.
+    if state in {"prepared", "sending"}:
+        return Rejected(
+            reason_code="schedule_in_flight",
+            spoken_facts=[
+                "That same email is being sent right now, so I didn't schedule it again."
+            ],
+        )
+    if state == "cancelled":
+        return Rejected(
+            reason_code="schedule_previously_cancelled",
+            spoken_facts=[
+                "That same email for that time was cancelled earlier, so I didn't schedule "
+                "it again. Give me a different time if you still want it sent."
+            ],
+        )
+    return Rejected(
+        reason_code="schedule_already_processed",
+        spoken_facts=[
+            "That same email was already scheduled for that time and has been handled, "
+            "so I didn't schedule it again. Check your Sent folder."
+        ],
+    )
+
+
+class ListScheduledMailInput(ToolInput):
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=25,
+        description="How many scheduled emails to list, soonest first.",
+    )
+
+
+class ListScheduledMailResult(ToolResult):
+    """Waiting sends for the screen; a count and a time for the model.
+
+    ``items`` carry who each goes to and its subject, so they reach the screen
+    through ``public`` and never the model through ``model_public``.
+    """
+
+    status: Literal["ok", "empty"]
+    items: list[dict[str, Any]] = Field(default_factory=list)
+    coverage: dict[str, Any] = Field(default_factory=dict)
+    offer_revision: int | None = None
+    conversation_id: str = ""
+
+    def model_public(self) -> dict[str, Any]:
+        """A receipt: how many, and the server's own sentence about when."""
+        returned = self.coverage.get("returned")
+        return {
+            "status": self.status,
+            "coverage": {"returned": returned if isinstance(returned, int) else 0},
+            "spoken_facts": list(self.spoken_facts),
+        }
+
+
+async def _list_scheduled_mail(ctx: ToolContext, args: ListScheduledMailInput) -> ToolResult:
+    admission = ctx.service(MAIL_ADMISSION_SERVICE, OneVoiceMailAdmission)
+    refused = _scheduled_list_gates(admission)
+    if refused is not None:
+        return refused
+    # One past the page: a full page and a truncated one must sound different.
+    rows = await _schedule_delivery(ctx).list_scheduled_sends(
+        user_id=ctx.user_id, limit=args.limit + 1
+    )
+    more = len(rows) > args.limit
+    rows = rows[: args.limit]
+    now = _now(ctx)
+    items: list[dict[str, Any]] = []
+    action_ids: list[str] = []
+    times: list[datetime] = []
+    for row in rows:
+        send_at = row.get("send_at")
+        if not isinstance(send_at, datetime) or not row.get("action_id"):
+            continue
+        action_ids.append(str(row["action_id"]))
+        times.append(send_at)
+        items.append(
+            {
+                # The position the person says is the position drawn.
+                "source_ref": f"scheduled:{len(action_ids)}",
+                "to": str(row.get("recipient_display") or ""),
+                "subject": str(row.get("subject") or ""),
+                "send_at": send_at.astimezone(timezone.utc).isoformat(),
+                "send_at_label": format_schedule_echo(send_at, ctx.timezone, now=now),
+            }
+        )
+    # Replaced, never merged: the newest list is the only one a position means.
+    if action_ids:
+        offer_revision: int | None = ctx.entities.offer_scheduled_mail(action_ids)
+    else:
+        ctx.entities.offered_scheduled_mail = None
+        offer_revision = None
+    count = len(items)
+    # A count is spoken as a total only when it is one: with rows left past
+    # the page it is "the next n", never "you have n".
+    if count == 0:
+        facts = ["You have no scheduled emails."]
+    else:
+        when = _when(times[0], ctx.timezone, now)
+        # Still waiting after its time (the drain is paused or behind): it has
+        # not gone out, and "goes out" a time already past would be false.
+        timing = (
+            f"was due {when} and hasn't gone out yet." if times[0] <= now else f"goes out {when}."
+        )
+        if more:
+            lead = (
+                "Here's your next scheduled email; there are more. It"
+                if count == 1
+                else f"Here are your next {count} scheduled emails; there are more. The next one"
+            )
+        else:
+            lead = (
+                "You have 1 scheduled email. It"
+                if count == 1
+                else f"You have {count} scheduled emails. The next one"
+            )
+        facts = [f"{lead} {timing}"]
+    return ListScheduledMailResult(
+        status="empty" if count == 0 else "ok",
+        items=items,
+        coverage={
+            "returned": count,
+            "next_send_at": items[0]["send_at"] if items else None,
+        },
+        offer_revision=offer_revision,
+        conversation_id=ctx.conversation_id,
+        spoken_facts=facts,
+    )
+
+
+class CancelScheduledMailInput(ToolInput):
+    """The position the person named in the scheduled list, and nothing else."""
+
+    ordinal: int = Field(
+        ge=1,
+        le=25,
+        description=(
+            "The position the person named in the list of scheduled emails you last "
+            "showed them ('cancel the second one' is 2). Never guess a position that "
+            "was not in that list."
+        ),
+    )
+
+
+class CancelScheduledMailResult(ToolResult):
+    """What happened to the scheduled send, from the ledger, not from intent."""
+
+    status: Literal[
+        "cancelled",
+        "already_cancelled",
+        "already_sent",
+        "already_sending",
+        "not_sent",
+        "send_unconfirmed",
+    ]
+
+    def model_public(self) -> dict[str, Any]:
+        return {"status": self.status, "spoken_facts": list(self.spoken_facts)}
+
+
+def _resolve_scheduled_target(ctx: ToolContext, ordinal: int) -> str | Rejected:
+    offer = ctx.entities.offered_scheduled_mail
+    if offer is None or not ctx.entities.offered_scheduled_mail_is_fresh():
+        return Rejected(
+            reason_code="scheduled_mail_offer_expired",
+            spoken_facts=["That list is a while old. Ask me again and I'll take a fresh look."],
+        )
+    action_id = ctx.entities.offered_scheduled_mail_action_id(ordinal)
+    if action_id is None:
+        shown = len(offer.action_ids)
+        noun = "scheduled email" if shown == 1 else "scheduled emails"
+        return Rejected(
+            reason_code="scheduled_mail_ordinal_not_offered",
+            spoken_facts=[f"I only showed you {shown} {noun}. Which one did you mean?"],
+        )
+    return action_id
+
+
+def _cancel_scheduled_target_key(ctx: ToolContext, args: CancelScheduledMailInput) -> str | None:
+    """A stable, non-reversible name for "this scheduled send", for duplicates."""
+    resolved = _resolve_scheduled_target(ctx, args.ordinal)
+    if isinstance(resolved, Rejected):
+        return None
+    secret = get_core_security_settings().app_signing_key
+    if not secret:
+        return None
+    material = f"one-voice-cancel-scheduled-v1:target:{ctx.user_id}:{resolved}"
+    return hmac.new(secret.encode("utf-8"), material.encode("utf-8"), hashlib.sha256).hexdigest()[
+        :32
+    ]
+
+
+def _not_cancellable(
+    state: str | None, *, sent_at: Any, ctx: ToolContext, now: datetime, raced: bool
+) -> ToolResult:
+    """The honest answer when a scheduled send is no longer waiting."""
+    if state == "cancelled":
+        return CancelScheduledMailResult(
+            status="already_cancelled", spoken_facts=["That's already cancelled."]
+        )
+    if state == "sent":
+        if raced:
+            fact = "That one just went out — I couldn't cancel it in time."
+        elif isinstance(sent_at, datetime):
+            when = _when(sent_at, ctx.timezone, now)
+            fact = f"That email already went out {when}, so there's nothing to cancel."
+        else:
+            fact = "That email already went out, so there's nothing to cancel."
+        return CancelScheduledMailResult(status="already_sent", spoken_facts=[fact])
+    if state in {"prepared", "sending"}:
+        return CancelScheduledMailResult(
+            status="already_sending",
+            spoken_facts=["That one is already being sent — I can't stop it now."],
+        )
+    if state in {"failed", "expired"}:
+        reason = "failed" if state == "failed" else "missed its send window"
+        return CancelScheduledMailResult(
+            status="not_sent",
+            spoken_facts=[f"That email never went out — it {reason}. Nothing to cancel."],
+        )
+    if state == "outcome_unknown":
+        # Never "it didn't go out": Gmail may have delivered it.
+        return CancelScheduledMailResult(
+            status="send_unconfirmed",
+            spoken_facts=[
+                "I couldn't confirm whether that email went out, so there's nothing left "
+                "to cancel. Check your Gmail Sent folder."
+            ],
+        )
+    return Rejected(
+        reason_code="scheduled_mail_not_found",
+        spoken_facts=[
+            "I can't find that scheduled email any more. Ask me to show your scheduled mail again."
+        ],
+    )
+
+
+async def _prepare_cancel_scheduled_mail(
+    ctx: ToolContext, args: CancelScheduledMailInput
+) -> Prepared | ToolResult:
+    admission = ctx.service(MAIL_ADMISSION_SERVICE, OneVoiceMailAdmission)
+    refused = _scheduled_list_gates(admission)
+    if refused is not None:
+        return refused
+    resolved = _resolve_scheduled_target(ctx, args.ordinal)
+    if isinstance(resolved, Rejected):
+        return resolved
+    offer = ctx.entities.offered_scheduled_mail
+    row = await _schedule_delivery(ctx).get_scheduled_send(user_id=ctx.user_id, action_id=resolved)
+    now = _now(ctx)
+    if row is None or row.get("state") != "scheduled":
+        return _not_cancellable(
+            (row or {}).get("state"),
+            sent_at=(row or {}).get("sent_at"),
+            ctx=ctx,
+            now=now,
+            raced=False,
+        )
+    name = str(row.get("recipient_display") or "") or "that person"
+    send_at = row["send_at"]
+    return Prepared(
+        summary=f"cancel the scheduled email to {name} {_when(send_at, ctx.timezone, now)}",
+        snapshot={
+            "action_id": resolved,
+            "send_at": send_at.astimezone(timezone.utc).isoformat(),
+            "recipient_display": name,
+            "offer_revision": offer.revision if offer is not None else None,
+        },
+    )
+
+
+async def _cancel_scheduled_mail(ctx: ToolContext, args: CancelScheduledMailInput) -> ToolResult:
+    admission = ctx.service(MAIL_ADMISSION_SERVICE, OneVoiceMailAdmission)
+    refused = _scheduled_list_gates(admission)
+    if refused is not None:
+        return refused
+    prepared = ctx.prepared or {}
+    offer = ctx.entities.offered_scheduled_mail
+    action_id = str(prepared.get("action_id") or "")
+    if (
+        not action_id
+        or offer is None
+        or offer.revision != prepared.get("offer_revision")
+        or args.ordinal > len(offer.action_ids)
+        or offer.action_ids[args.ordinal - 1] != action_id
+    ):
+        return Rejected(
+            reason_code="scheduled_list_changed",
+            spoken_facts=[
+                "Your scheduled list changed since I asked, so I didn't cancel anything. "
+                "Ask me to show it again."
+            ],
+        )
+    outcome = await _schedule_delivery(ctx).cancel_scheduled_send(
+        user_id=ctx.user_id, action_id=action_id
+    )
+    if outcome.get("cancelled"):
+        name = str(prepared.get("recipient_display") or "") or "that person"
+        return CancelScheduledMailResult(
+            status="cancelled",
+            spoken_facts=[f"Cancelled — the email to {name} won't go out."],
+        )
+    return _not_cancellable(
+        outcome.get("state"),
+        sent_at=outcome.get("sent_at"),
+        ctx=ctx,
+        now=_now(ctx),
+        raced=True,
+    )
+
+
 TOOLS: tuple[ToolSpec, ...] = (
     ToolSpec(
         name="get_mail_access",
@@ -1231,7 +1987,9 @@ TOOLS: tuple[ToolSpec, ...] = (
         input_model=SendMailInput,
         output_model=SendMailResult,
         description=(
-            "Prepare an email the owner dictates to a confirmed person. "
+            "Prepare an email the owner dictates to a confirmed person, to send now. "
+            "It has no time: when they name any later time (tomorrow, at nine, "
+            "tonight, on Friday), use schedule_mail instead, even when they say send. "
             "Use when they ask to send, write, or draft mail to a person by name. "
             "First resolve_person and confirm_person; pass only that canonical "
             "PersonRef as recipient. Preserve their dictated message in message "
@@ -1279,5 +2037,67 @@ TOOLS: tuple[ToolSpec, ...] = (
         # cancel a reply card the person is answering.
         lookup_targets=(),
         target_key=_reply_target_key,
+    ),
+    ToolSpec(
+        name="schedule_mail",
+        gateway_action_id="email.chat.turn",
+        policy=ToolPolicy.confirm_voice,
+        input_model=ScheduleMailInput,
+        output_model=ScheduleMailResult,
+        description=(
+            "Schedule an email the owner dictates to a confirmed person for a future "
+            "time they name. Use this — never send_mail — whenever they give any "
+            "future time: 'tomorrow', 'in the morning', 'at 9', 'next Monday', "
+            "'kal subah'. First resolve_person and confirm_person; pass only that "
+            "canonical PersonRef as recipient. Preserve their dictated message in "
+            "message and never invent an address, subject, or body. For a clock "
+            "time or day, pass send_at as owner-local wall-clock ISO-8601 without "
+            "a UTC offset; never a relative phrase. For a duration ('in 30 "
+            "minutes'), pass send_in_minutes instead. A bare 'morning' or 'subah' "
+            "means 9:00 AM owner-local today, or tomorrow if 9:00 AM has passed; a "
+            "bare 'tomorrow' or 'kal' means 9:00 AM tomorrow; a bare date means "
+            "9:00 AM that day. After spoken confirmation the mail is stored to be "
+            "delivered at that time; it is never sent immediately. It never sends "
+            "a Gmail draft."
+        ),
+        handler=_schedule_mail,
+        person_args=("recipient",),
+        private_args=("subject", "message"),
+        prepare=_prepare_schedule_mail,
+        ui_refresh=("mail",),
+    ),
+    ToolSpec(
+        name="list_scheduled_mail",
+        gateway_action_id="email.chat.turn",
+        policy=ToolPolicy.read,
+        input_model=ListScheduledMailInput,
+        output_model=ListScheduledMailResult,
+        description=(
+            "List the owner's scheduled emails that have not sent yet: who each goes "
+            "to, its subject, and when it sends. Use when they ask what is scheduled "
+            "or want to cancel one. You learn only how many there are; the list "
+            "appears on screen."
+        ),
+        handler=_list_scheduled_mail,
+        ui_refresh=("mail",),
+    ),
+    ToolSpec(
+        name="cancel_scheduled_mail",
+        gateway_action_id="email.chat.turn",
+        policy=ToolPolicy.confirm_voice,
+        input_model=CancelScheduledMailInput,
+        output_model=CancelScheduledMailResult,
+        description=(
+            "Cancel one scheduled email before it sends, by its position in the list "
+            "you last showed. Use when they ask to cancel a scheduled mail. After "
+            "spoken confirmation the send never happens."
+        ),
+        handler=_cancel_scheduled_mail,
+        prepare=_prepare_cancel_scheduled_mail,
+        ui_refresh=("mail",),
+        # Names no person or circle: a lookup made for something else must not
+        # cancel the card the person is answering.
+        lookup_targets=(),
+        target_key=_cancel_scheduled_target_key,
     ),
 )

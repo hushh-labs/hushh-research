@@ -59,7 +59,18 @@ REPORT_NAME = "one-voice-mail-eval-report.json"
 SCHEMA_VERSION = "one.voice.mail_tool_selection.v1"
 
 FAMILIES = frozenset(
-    {"access", "read", "open", "send", "reply", "follow_up", "no_mutation", "cross"}
+    {
+        "access",
+        "read",
+        "open",
+        "send",
+        "reply",
+        "schedule",
+        "drafts",
+        "follow_up",
+        "no_mutation",
+        "cross",
+    }
 )
 NO_MUTATION_FAMILIES = frozenset({"no_mutation"})
 CLEAR_INTENT_FAMILIES = FAMILIES - NO_MUTATION_FAMILIES
@@ -77,6 +88,10 @@ WRONG_EFFECT = {
     # A reply is addressed by the email it answers: a new email, or looking the
     # sender up as a person, is the confusable wrong outcome.
     "reply": {"send_mail", "resolve_person"},
+    # A later time is a scheduled send; an immediate draft is the wrong effect.
+    "schedule": {"send_mail"},
+    # A Gmail draft is sent or opened as itself, never re-composed as new mail.
+    "drafts": {"send_mail"},
     "follow_up": {"send_mail"},
     "no_mutation": {"send_mail"},
     "cross": {"read_mail", "send_mail"},

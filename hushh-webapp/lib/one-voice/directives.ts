@@ -59,6 +59,15 @@ export type OneVoiceOpenMailDetail = {
 };
 
 /**
+ * A spoken "open the second one" against a drafts list. The same binding as a
+ * mail open -- a position, its offer and its conversation -- on its own event, so
+ * a mail list never answers a draft directive and a drafts list never answers a
+ * mail one. Settles on the render, under the same timeout.
+ */
+export const ONE_VOICE_OPEN_DRAFT_EVENT = "one-voice:open-draft" as const;
+export type OneVoiceOpenDraftDetail = OneVoiceOpenMailDetail;
+
+/**
  * How long a spoken navigation waits for the screen to actually show.
  *
  * Like an open_mail, a navigate settles on the evidence, not the request: the
@@ -533,6 +542,48 @@ async function openProfilePaneVerified(
 }
 
 /**
+ * Ask the surface showing an offered list to open the row a directive names,
+ * and settle on what the surface reports -- never on the dispatch.
+ */
+async function dispatchOpenRow(
+  eventName: typeof ONE_VOICE_OPEN_MAIL_EVENT | typeof ONE_VOICE_OPEN_DRAFT_EVENT,
+  data: Record<string, unknown>,
+  helpers: DirectiveHelpers,
+): Promise<DirectiveOutcome> {
+  const ordinal = cleanCount(data.ordinal, 25);
+  const offerRevision = cleanCount(data.offer_revision);
+  const conversationId = cleanId(data.conversation_id);
+  if (ordinal === null || offerRevision === null || !conversationId) {
+    // An unbound reference would mean "whatever list is current", which is
+    // the substitution the offer binding exists to prevent.
+    return outcome("failed", "unbound_reference");
+  }
+  const detail: Omit<OneVoiceOpenMailDetail, "settle"> = {
+    ordinal,
+    offerRevision,
+    conversationId,
+  };
+  return await new Promise<DirectiveOutcome>((resolve) => {
+    let done = false;
+    const finish = (status: "opened" | "failed", reason?: string): void => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      resolve(outcome(status, reason));
+    };
+    const timer = setTimeout(
+      () => finish("failed", "not_shown"),
+      OPEN_MAIL_SETTLE_TIMEOUT_MS,
+    );
+    (helpers.dispatchEvent ?? defaultDispatch)(
+      new CustomEvent<OneVoiceOpenMailDetail>(eventName, {
+        detail: { ...detail, settle: finish },
+      }),
+    );
+  });
+}
+
+/**
  * Run one generic directive. Never throws; the outcome is what the caller
  * reports as `ui.settled`. Screen-owned kinds return `handled:false`.
  */
@@ -555,42 +606,10 @@ export async function executeDirective(
         }
         return await settleRoute(target.href, target.observe, helpers);
       }
-      case "open_mail": {
-        const ordinal = cleanCount(data.ordinal, 25);
-        const offerRevision = cleanCount(data.offer_revision);
-        const conversationId = cleanId(data.conversation_id);
-        if (ordinal === null || offerRevision === null || !conversationId) {
-          // An unbound reference would mean "whatever list is current", which is
-          // the substitution the offer binding exists to prevent.
-          return outcome("failed", "unbound_reference");
-        }
-        const detail: Omit<OneVoiceOpenMailDetail, "settle"> = {
-          ordinal,
-          offerRevision,
-          conversationId,
-        };
-        return await new Promise<DirectiveOutcome>((resolve) => {
-          let done = false;
-          const finish = (
-            status: "opened" | "failed",
-            reason?: string,
-          ): void => {
-            if (done) return;
-            done = true;
-            clearTimeout(timer);
-            resolve(outcome(status, reason));
-          };
-          const timer = setTimeout(
-            () => finish("failed", "not_shown"),
-            OPEN_MAIL_SETTLE_TIMEOUT_MS,
-          );
-          (helpers.dispatchEvent ?? defaultDispatch)(
-            new CustomEvent<OneVoiceOpenMailDetail>(ONE_VOICE_OPEN_MAIL_EVENT, {
-              detail: { ...detail, settle: finish },
-            }),
-          );
-        });
-      }
+      case "open_mail":
+        return await dispatchOpenRow(ONE_VOICE_OPEN_MAIL_EVENT, data, helpers);
+      case "open_draft":
+        return await dispatchOpenRow(ONE_VOICE_OPEN_DRAFT_EVENT, data, helpers);
       case "focus_pending_action": {
         const detail: OneVoiceFocusPendingDetail = {
           pendingActionId: cleanId(data.pending_action_id),

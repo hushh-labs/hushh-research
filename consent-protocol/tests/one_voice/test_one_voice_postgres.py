@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 
 from hushh_mcp.one_voice.conversations import ConversationNotOwned, ConversationStore
 from hushh_mcp.one_voice.pending_actions import (
+    SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS,
     PendingAction,
     PendingActionConflict,
     PendingActionStore,
@@ -334,6 +335,8 @@ _MAIL_DRAFT_ROWS: dict[str, tuple[dict[str, Any], dict[str, Any]]] = {
 _GATEWAYS = {
     "send_mail": "email.chat.turn",
     "reply_mail": "email.chat.turn",
+    "schedule_mail": "email.chat.turn",
+    "cancel_scheduled_mail": "email.chat.turn",
     "create_circle": "location.create_circle",
     "delete_circle": "location.delete_circle",
 }
@@ -467,6 +470,71 @@ async def test_mount_report_cannot_settle_a_non_mail_row_holding_the_same_receip
     current = await store.get(user_id="owner", pending_action_id=row.id)
     assert current.status == "executed"
     assert current.result == _INTERIM_RECEIPT
+
+
+# --- scheduled-mail rows (schedule_mail, cancel_scheduled_mail) --------------
+
+# Pinned by name, like the mail-draft family above. A confirmed row's handler
+# writes the scheduled-send ledger; a crash after the confirmation CAS leaves
+# the row confirmed. Recovery must wait out the handler's grace (it may still be
+# committing that ledger row), then say "unconfirmed", never "nothing happened".
+_SCHEDULED_MAIL_ROWS: dict[str, dict[str, Any]] = {
+    "schedule_mail": {
+        "recipient": {"user_id": "recipient"},
+        "send_at": "tomorrow at 9am",
+        "_sealed_args": "v1:fixture-ciphertext",
+        "_prepared": {
+            "recipient_user_id": "recipient",
+            "email_binding": "b" * 32,
+            "sender_binding": "s" * 32,
+            "send_at_iso": "2026-10-06T09:00:00+00:00",
+        },
+    },
+    "cancel_scheduled_mail": {"position": 1},
+}
+
+
+def _expire_by(db, row_id: str, seconds: int) -> None:
+    db.execute_raw(
+        "UPDATE one_voice_pending_actions SET expires_at = NOW() - make_interval(secs => :s) "
+        "WHERE id = CAST(:id AS UUID)",
+        {"id": row_id, "s": seconds},
+    )
+
+
+@pytest.mark.parametrize("tool_name", tuple(_SCHEDULED_MAIL_ROWS))
+async def test_confirmed_scheduled_mail_row_waits_out_the_grace_then_recovers_unconfirmed(
+    db, tool_name
+):
+    args = _SCHEDULED_MAIL_ROWS[tool_name]
+    store = await _voice_store(db)
+    confirmed = await _confirmed(store, tool_name, args)
+    # A mail draft expired just as long is recovered at once: the grace belongs
+    # to the scheduled-mail family alone.
+    draft = await _confirmed(store, "send_mail", _MAIL_DRAFT_ROWS["send_mail"][0])
+    inside = SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS // 2
+    _expire_by(db, confirmed.id, inside)
+    _expire_by(db, draft.id, inside)
+
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    waiting = await store.get(user_id="owner", pending_action_id=confirmed.id)
+    assert waiting.status == "confirmed"
+    assert waiting.result is None and waiting.resolved_at is None
+    assert waiting.args == args
+    assert (await store.get(user_id="owner", pending_action_id=draft.id)).status == "failed"
+
+    _expire_by(db, confirmed.id, SCHEDULED_MAIL_RECOVERY_GRACE_SECONDS + 5)
+    # Owner-scoped like every recovery pass.
+    await store.expire_stale(user_id="other")
+    still = await store.get(user_id="owner", pending_action_id=confirmed.id)
+    assert still.status == "confirmed"
+
+    assert await store.list_open(user_id="owner", conversation_id=CONV) == []
+    recovered = await store.get(user_id="owner", pending_action_id=confirmed.id)
+    assert recovered.status == "failed"
+    assert recovered.result == {"status": "schedule_unconfirmed", "needs": None}
+    assert recovered.resolved_at is not None
+    assert recovered.args == {key: value for key, value in args.items() if key != "_sealed_args"}
 
 
 # --- terminal scrub -----------------------------------------------------------

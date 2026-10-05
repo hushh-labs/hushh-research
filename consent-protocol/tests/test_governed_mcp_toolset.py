@@ -1,6 +1,7 @@
 """The shared ADK adapter never treats discovery as execution authority."""
 
 import asyncio
+import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     ResolvedMcpConnection,
     native_registration_admitted,
     resolve_registered_connection,
+    validated_mcp_arguments,
 )
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client
@@ -1981,3 +1983,60 @@ def test_free_read_ids_must_be_a_frozenset_of_strings(bad):
             review_policy="reviewed_writes",
             free_read_tool_ids=bad,  # type: ignore[arg-type]
         )
+
+
+DRAFT7_TOOL_SCHEMA = {
+    "type": "object",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "properties": {
+        "code": {"type": "string"},
+        # Draft-07 ignores keywords beside a $ref; 2020-12 applies them. The
+        # provider's declared dialect decides, so "xyz" is valid here.
+        "alias": {"$ref": "#/properties/code", "maxLength": 1},
+    },
+    "required": ["code"],
+    "additionalProperties": False,
+}
+
+
+async def test_draft7_tool_is_offered_conservatively_and_validated_in_its_own_dialect(native_ok):
+    """A zod-style server (Attio) declares draft-07: its tools are admitted, the model
+    sees a copy with no dialect marker or pointer reference, and arguments are checked
+    against the provider's exact schema under the dialect it declared."""
+    schema = DRAFT7_TOOL_SCHEMA
+    toolset, approve, _ = _policy_toolset(
+        "credentialed",
+        [SimpleNamespace(name="find", inputSchema=schema, annotations=None, description="d")],
+    )
+    try:
+        tool = (await toolset.get_tools(SimpleNamespace(user_id="owner")))[0]
+        # The model-facing declaration is conservative...
+        declared = tool._get_declaration().model_dump(exclude_none=True, by_alias=True)
+        text = json.dumps(declared)
+        assert "$schema" not in text and "$ref" not in text
+        # A keyword beside a $ref narrows the target, so the copy keeps both, conjunctively.
+        assert declared["parametersJsonSchema"]["properties"]["alias"] == {
+            "allOf": [{"type": "string"}],
+            "maxLength": 1,
+        }
+        # ...while the authoritative schema is the provider's, untouched.
+        assert tool.descriptor["inputSchema"] == schema
+        assert tool.provider_schema == schema
+        # Valid under draft-07 (sibling of $ref ignored), so the call goes through.
+        result = await tool.run_async(
+            args={"code": "abc", "alias": "xyz"}, tool_context=_owner_context()
+        )
+        assert result["status"] == "ok"
+        native_ok.assert_awaited_once()
+        # A genuinely invalid call is still refused before dispatch.
+        refused = await tool.run_async(args={"alias": "x"}, tool_context=_owner_context())
+        assert refused["error"] == "MCP_ARGUMENTS_INVALID"
+        native_ok.assert_awaited_once()
+    finally:
+        await toolset.close()
+
+
+def test_arguments_for_an_undeclared_dialect_fail_closed():
+    with pytest.raises(ExternalMcpError) as caught:
+        validated_mcp_arguments({"type": "object", "$schema": "https://unknown.invalid/s"}, {})
+    assert caught.value.code == "MCP_SCHEMA_INVALID"

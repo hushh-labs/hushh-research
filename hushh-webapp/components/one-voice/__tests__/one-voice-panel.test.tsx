@@ -381,6 +381,106 @@ describe("OneVoicePanel", () => {
     expect(screen.getByText("Invoice 4471 is overdue.")).toBeInTheDocument();
   });
 
+  it("a spoken draft open finds the drafts list it names and opens the draft through openDraft", async () => {
+    const binding = { ordinal: 2, offerRevision: 8, conversationId: "conv_1" };
+    const openDraft = vi.fn(async () => ({
+      toLabel: "Arjun",
+      to: ["arjun@example.com"],
+      cc: [],
+      bcc: [],
+      subject: "Rent",
+      body: "Sending October's share today.",
+      bodyTruncated: false,
+      updatedAt: null,
+    }));
+    const openMail = vi.fn();
+    const setActiveMail = vi.fn();
+    const control = controller({ openMail, openDraft, setActiveMail });
+    const directivePayload = {
+      ordinal: 2,
+      offer_revision: 8,
+      conversation_id: "conv_1",
+    };
+    const step = (state: VoiceSessionState, frames: ServerFrame[]) =>
+      frames.reduce(
+        (next, frame) =>
+          reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+        state,
+      );
+
+    const shown = replay([
+      ready,
+      { type: "transcript.input", text: "Show my drafts", final: true, turn_id: "t1" },
+      { type: "tool.started", call_id: "d1", tool: "list_drafts", args_public: {}, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "d1",
+        tool: "list_drafts",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["You have 2 drafts."],
+          items: [
+            { source_ref: "draft:1", to: "Priya", subject: "Diwali plans" },
+            { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+          ],
+          coverage: { returned: 2, has_more: false },
+          offer_revision: 8,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+      { type: "transcript.input", text: "Open the second one", final: true, turn_id: "t2" },
+      {
+        type: "ui_directive",
+        directive_id: "dir-draft",
+        kind: "open_draft",
+        turn_id: "t2",
+        payload: directivePayload,
+      },
+    ]);
+    const { rerender } = render(
+      <OneVoicePanel state={shown} controller={control} />,
+    );
+    expect(screen.getByLabelText("Drafts").children).toHaveLength(2);
+
+    let outcome: DirectiveOutcome | undefined;
+    await act(async () => {
+      outcome = await executeDirective("open_draft", directivePayload, {
+        pathname: null,
+      });
+    });
+    expect(outcome).toEqual({ handled: true, status: "opened" });
+    expect(openDraft.mock.calls).toEqual([[binding]]);
+    expect(openMail).not.toHaveBeenCalled();
+    expect(screen.getByText("Sending October's share today.")).toBeInTheDocument();
+    // A draft is never "this email" for a reply.
+    expect(
+      setActiveMail.mock.calls.filter(([hint]) => hint !== null),
+    ).toEqual([]);
+
+    const settled = step(shown, [
+      {
+        type: "tool.result",
+        call_id: "d2",
+        tool: "open_draft",
+        status: "draft_open_dispatched",
+        ok: false,
+        turn_id: "t2",
+        result_public: {
+          status: "draft_open_dispatched",
+          spoken_facts: ["Opening it."],
+          ...directivePayload,
+        },
+      },
+    ]);
+    rerender(<OneVoicePanel state={settled} controller={control} />);
+    expect(screen.getByLabelText("Drafts").children).toHaveLength(2);
+    expect(screen.getByText("Sending October's share today.")).toBeInTheDocument();
+  });
+
   it("hides a confirmation_required result behind the pending card and confirms through the controller", async () => {
     const control = controller();
     const state = replay([
@@ -452,6 +552,91 @@ describe("OneVoicePanel", () => {
     expect(
       isHandoffResult({ status: "tap_required" }, { candidatePicker: null }),
     ).toBe(true);
+  });
+
+  it("keeps the drafts list beside the send card it is about, then shows the result", () => {
+    // Regression: the card's confirmation result took the answer slot, so the
+    // list disappeared and "send draft 2" was approved with no draft 2 on screen.
+    const listed = replay([
+      ready,
+      { type: "transcript.input", text: "Show my drafts", final: true, turn_id: "t1" },
+      {
+        type: "tool.result",
+        call_id: "d1",
+        tool: "list_drafts",
+        status: "ok",
+        ok: true,
+        turn_id: "t1",
+        result_public: {
+          status: "ok",
+          spoken_facts: ["You have 2 drafts."],
+          items: [
+            { source_ref: "draft:1", to: "Priya Sharma", subject: "Diwali plans" },
+            { source_ref: "draft:2", to: "Arjun", subject: "Rent" },
+          ],
+          coverage: { returned: 2, has_more: false },
+          offer_revision: 8,
+          conversation_id: "conv_1",
+        },
+      },
+      { type: "turn", state: "model_end", turn_id: "t1" },
+      { type: "transcript.input", text: "Send the second one", final: true, turn_id: "t2" },
+      {
+        type: "pending_action",
+        pending_action_id: "pa_1",
+        tool: "send_draft",
+        gateway_action_id: "email.chat.turn",
+        tier: "voice",
+        summary: "send draft 2 in your list now",
+        args: { ordinal: 2 },
+        status: "pending",
+        shown_at: null,
+        expires_at: new Date(NOW + 120_000).toISOString(),
+        result: null,
+        risk_level: "medium",
+        requires_tap: false,
+        entities: [],
+        turn_id: "t2",
+      },
+      {
+        type: "tool.result",
+        call_id: "s1",
+        tool: "send_draft",
+        status: "confirmation_required",
+        ok: false,
+        turn_id: "t2",
+        result_public: {
+          status: "confirmation_required",
+          needs: "confirmation",
+          spoken_facts: ["Send draft 2 in your list now?"],
+        },
+      },
+    ]);
+    const view = render(<OneVoicePanel state={listed} controller={controller()} />);
+    expect(screen.getByTestId("one-voice-pending-action")).toBeInTheDocument();
+    const drafts = screen.getByLabelText("Drafts");
+    expect(drafts.children).toHaveLength(2);
+    expect(drafts.textContent).toContain("Arjun");
+    view.unmount();
+
+    const sent = [
+      { type: "turn", state: "model_end", turn_id: "t2" },
+      { type: "transcript.input", text: "Yes", final: true, turn_id: "t3" },
+      {
+        type: "pending_action.resolved",
+        pending_action_id: "pa_1",
+        status: "executed",
+        result_public: { status: "draft_sent", spoken_facts: ["Sent."] },
+      },
+    ] as ServerFrame[];
+    const done = sent.reduce(
+      (next, frame) => reduceVoiceSession(next, { type: "server", frame, now: NOW }),
+      listed,
+    );
+    render(<OneVoicePanel state={done} controller={controller()} />);
+    expect(screen.queryByTestId("one-voice-pending-action")).toBeNull();
+    expect(screen.queryByLabelText("Drafts")).toBeNull();
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveTextContent("Sent.");
   });
 
   it("removes the confirmation card when resolved and tool.result carry the same payload", () => {
