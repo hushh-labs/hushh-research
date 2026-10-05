@@ -14,15 +14,41 @@ from typing import Any, Optional
 from hushh_mcp.services.compute_backend import is_owner_cloud_target, owner_cloud_bind
 
 
-def _next_endpoint(previous: Any, *, url: str, pod_key_id: str) -> dict | None:
-    """Preserve a valid version on rediscovery; advance it only for a new endpoint."""
+def _detached_endpoint_floor(metadata: Any) -> int:
+    """The highest endpoint version an earlier, detached home of this identity published.
+
+    Devices pin ``{url, version}`` and accept a new address only at a higher version.
+    A detach keeps the old record under ``detachedPlacements`` but clears the live one,
+    so without this floor the new home restarted at version 1 and every pinned device
+    refused it as "changed without a valid version" (founder's Azure move, 2026-10-05).
+    """
+    floor = 0
+    placements = metadata.get("detachedPlacements") if isinstance(metadata, dict) else None
+    for placement in placements if isinstance(placements, list) else []:
+        recorded = (
+            (placement or {}).get("backend_metadata") if isinstance(placement, dict) else None
+        )
+        endpoint = recorded.get("endpoint") if isinstance(recorded, dict) else None
+        version = endpoint.get("version") if isinstance(endpoint, dict) else None
+        if type(version) is int and version > floor:
+            floor = version
+    return floor
+
+
+def _next_endpoint(previous: Any, *, url: str, pod_key_id: str, floor: int = 0) -> dict | None:
+    """Preserve a valid version on rediscovery; advance it for a new endpoint or home."""
     if not isinstance(previous, dict):
         return None
     version = previous.get("version", 0)
     if type(version) is not int or version < 0:
         return None
-    if not version or previous.get("url") != url or previous.get("podKeyId") != pod_key_id:
-        version += 1
+    if (
+        not version
+        or version <= floor
+        or previous.get("url") != url
+        or previous.get("podKeyId") != pod_key_id
+    ):
+        version = max(version, floor) + 1
     return {"version": version, "url": url, "podKeyId": pod_key_id}
 
 
@@ -97,7 +123,9 @@ async def record_endpoint(
             ):
                 return None
             previous = metadata.get("endpoint") or {}
-            endpoint = _next_endpoint(previous, url=url, pod_key_id=pod_key_id)
+            endpoint = _next_endpoint(
+                previous, url=url, pod_key_id=pod_key_id, floor=_detached_endpoint_floor(metadata)
+            )
             if endpoint is None or endpoint == previous:
                 return endpoint
             conn.execute(
