@@ -20,11 +20,12 @@ from typing import Any, Optional, cast
 
 from fastapi import APIRouter, Body, Header, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field
+from slowapi.util import get_remote_address
 
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import get_trusted_forwarded_client_ip, limiter
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.pod_config import PodConfigError, active_pod_config
-from hushh_mcp.services.pod_platform import pod_revision_name
+from hushh_mcp.services.pod_platform import pod_revision_name, workload_platform
 from hushh_mcp.services.pod_session_authority import (
     ROLE_APP,
     SCOPE_POD_CONFIG,
@@ -41,6 +42,27 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/one/pod", tags=["personal-agent"])
 
 _ADMISSION_RATE = "30/minute"
+
+
+def admission_rate_key(request: Request) -> str:
+    """One admission bucket per client address, as the platform's front end saw it.
+
+    The admission doors carry no bearer, so the shared key falls back to the
+    socket peer. Behind Cloud Run's front end or Container Apps' Envoy that peer
+    is the platform proxy, which put every stranger in the owner's bucket: thirty
+    requests a minute from anyone locked the owner out of their own pod.
+
+    Both front ends append the address they accepted the connection from to
+    ``X-Forwarded-For`` and the pod sits directly behind them (no extra load
+    balancer is rendered on either), so the rightmost entry, zero trusted hops,
+    is the one a caller cannot write. Everything left of it is caller-supplied
+    and ignored. The platform is read from the names it sets itself
+    (``workload_platform``), never from a flag. Off-platform nothing appends, so
+    the header would be the caller's own claim and the socket peer is used.
+    """
+    if workload_platform() == "local":
+        return f"pod_admission:{get_remote_address(request)}"
+    return f"pod_admission:{get_trusted_forwarded_client_ip(request)}"
 
 
 class ChallengeRequest(BaseModel):
@@ -152,7 +174,7 @@ def _session_response(token: str, claims: dict[str, Any]) -> dict[str, Any]:
 
 
 @router.post("/session/challenge")
-@limiter.limit(_ADMISSION_RATE)
+@limiter.limit(_ADMISSION_RATE, key_func=admission_rate_key)
 async def pod_session_challenge(
     request: Request, payload: ChallengeRequest = Body(...)
 ) -> dict[str, Any]:
@@ -173,7 +195,7 @@ async def pod_session_challenge(
 
 
 @router.post("/session/admit")
-@limiter.limit(_ADMISSION_RATE)
+@limiter.limit(_ADMISSION_RATE, key_func=admission_rate_key)
 async def pod_session_admit(request: Request, payload: AdmitRequest = Body(...)) -> dict[str, Any]:
     authority = authority_or_503()
     try:

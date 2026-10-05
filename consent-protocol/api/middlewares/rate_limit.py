@@ -119,6 +119,19 @@ def get_rate_limit_key(request: Request) -> str:
     return get_remote_address(request)
 
 
+def _forwarded_for(request: Request) -> str:
+    """Every ``X-Forwarded-For`` line, joined in order (RFC 9110 5.3).
+
+    Reading only the first line would let a line the caller sent stand
+    "rightmost" ahead of a separate line the platform appended after it. A plain
+    mapping holds one value per name, so it is read as the single line it is.
+    """
+    getlist = getattr(request.headers, "getlist", None)
+    if callable(getlist):
+        return ",".join(getlist("x-forwarded-for"))
+    return str(request.headers.get("x-forwarded-for") or "")
+
+
 def get_trusted_forwarded_client_ip(
     request: Request,
     *,
@@ -132,8 +145,7 @@ def get_trusted_forwarded_client_ip(
             trusted_hops = max(0, int(raw))
         except ValueError:
             trusted_hops = 0
-    forwarded = str(request.headers.get("x-forwarded-for") or "")
-    chain = [part.strip() for part in forwarded.split(",") if part.strip()]
+    chain = [part.strip() for part in _forwarded_for(request).split(",") if part.strip()]
     if not chain:
         return get_remote_address(request) or "unknown"
     index = max(len(chain) - 1 - trusted_hops, 0)
