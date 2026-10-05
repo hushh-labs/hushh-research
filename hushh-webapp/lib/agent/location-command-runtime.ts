@@ -271,22 +271,22 @@ export class LocationCommandRuntime {
     if (this.ports.authority()?.userId !== authority.userId)
       throw new Error("Your account changed. Unlock to continue.");
     if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
+      const detail = (await response.json().catch(() => ({})))?.detail;
       const code =
-        typeof result?.detail?.code === "string"
-          ? result?.detail.code
-          : "COMMAND_UNAVAILABLE";
+        typeof detail?.code === "string" ? detail.code : "COMMAND_UNAVAILABLE";
       const messages: Record<string, string> = {
         AGENT_PRIVATE_RUNTIME_REQUIRED:
           "Connect your private pod to use this command.",
         POD_DIRECT_NOT_READY: "Your private pod connection is not ready yet.",
         LOCAL_AUTHORITY_UNAVAILABLE:
           "Your private pod could not verify this session. Reconnect to continue.",
+        COMMAND_MODEL_UNAVAILABLE:
+          "Voice and location commands need a Gemini model, so they are not available with your current AI model yet.",
       };
       throw new CommandRequestError(
         messages[code] ??
-          (typeof result?.detail === "string"
-            ? result?.detail
+          (typeof detail === "string"
+            ? detail
             : response.status === 401 || response.status === 403
               ? "Unlock your vault and reconnect to continue."
               : response.status >= 500

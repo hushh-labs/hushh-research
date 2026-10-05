@@ -14,6 +14,9 @@ from deployment topology the hub already renders, or from what the platform sets
 * **web search** is Google Search grounding, which only a Gemini model has, so a pod
   whose own model is the person's Azure OpenAI deployment, or whose owner sealed an
   OpenAI key to it, reports it unavailable;
+* **private commands** (voice transcription and location commands) need Gemini
+  structured output and audio input, so the same Azure or OpenAI pod reports them
+  unavailable here instead of answering a typed 503 only after someone tries;
 * **aiSelection** is which "Bring your own AI" providers this image can run a
   person's turns on (``pod_ai_selection``). An older image says nothing, and that
   silence is how the app knows to offer the owner an update before asking for a key.
@@ -74,16 +77,14 @@ def _files_organization() -> dict[str, Any]:
     return _capability("")
 
 
-def web_search_capability() -> dict[str, Any]:
-    """Web search for this pod's OWN model, from the predicate One's head is built with.
+def own_model_provider() -> str:
+    """The provider of this pod's OWN model, the one a request with no key of its own runs on.
 
     A sealed owner selection IS the own model, so its provider answers first. Otherwise
     any rendered Azure model topology, complete or not, means the own model is the
     person's Azure OpenAI deployment; every other pod's own model is Gemini (its Vertex,
-    or a Gemini key). A turn that brings its own key or a Puppy device is decided by its
-    head (``hushh_mcp/one_adk/web_search.py``), never by this report.
+    or a Gemini key). Never raises: a report must not fail where a turn would refuse.
     """
-    from hushh_mcp.one_adk.web_search import provider_supports_web_search  # noqa: PLC0415
     from hushh_mcp.runtime_providers.azure_openai import (  # noqa: PLC0415
         AZURE_OPENAI_PROVIDER,
         azure_openai_configured,
@@ -91,11 +92,35 @@ def web_search_capability() -> dict[str, Any]:
     from hushh_mcp.services.pod_ai_selection import current_ai_selection  # noqa: PLC0415
 
     selection = current_ai_selection()
-    own_provider = AZURE_OPENAI_PROVIDER if azure_openai_configured() else "gemini"
-    own_provider = selection.provider if selection is not None else own_provider
-    return _capability(
-        "" if provider_supports_web_search(own_provider) else "requires_gemini_model"
-    )
+    if selection is not None:
+        # str(): mypy skips hushh_mcp.services (follow_imports=skip), so this is Any.
+        return str(selection.provider)
+    return AZURE_OPENAI_PROVIDER if azure_openai_configured() else "gemini"
+
+
+def web_search_capability() -> dict[str, Any]:
+    """Web search for this pod's OWN model, from the predicate One's head is built with.
+
+    A turn that brings its own key or a Puppy device is decided by its head
+    (``hushh_mcp/one_adk/web_search.py``), never by this report.
+    """
+    from hushh_mcp.one_adk.web_search import provider_supports_web_search  # noqa: PLC0415
+
+    supported = provider_supports_web_search(own_model_provider())
+    return _capability("" if supported else "requires_gemini_model")
+
+
+def private_commands_capability() -> dict[str, Any]:
+    """Voice transcription and location commands for this pod's OWN model.
+
+    ``pod_commands._command_target`` builds a command brain only on Gemini, because a
+    command needs Gemini structured output and audio input, which neither the owner's
+    Azure transport nor an OpenAI key carries. Every other own model is refused there
+    with ``COMMAND_MODEL_UNAVAILABLE``, so it is reported unavailable here, in the same
+    words web search uses. A request that brings its own Gemini key or a Puppy device is
+    decided by that request, never by this report.
+    """
+    return _capability("" if own_model_provider() == "gemini" else "requires_gemini_model")
 
 
 def ai_selection_capability() -> dict[str, Any]:
@@ -142,6 +167,7 @@ def pod_capabilities() -> dict[str, Any]:
         "filesBackgroundOrganization": _files_organization(),
         "gmailPush": _capability("requires_google_pubsub" if platform == "azure" else ""),
         "webSearch": web_search_capability(),
+        "privateCommands": private_commands_capability(),
         "aiSelection": ai_selection_capability(),
     }
 
@@ -150,7 +176,9 @@ __all__ = [
     "ai_selection_advert",
     "ai_selection_capability",
     "observed_ai_selection",
+    "own_model_provider",
     "pod_capabilities",
+    "private_commands_capability",
     "vertex_model_configured",
     "voice_available",
     "voice_capability",
