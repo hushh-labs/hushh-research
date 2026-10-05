@@ -236,6 +236,7 @@ tests/services/test_one_referral_rewards_service.py
 tests/test_one_referral_handle.py
 tests/services/test_one_referral_display_handle_service.py
 tests/services/test_one_referral_leaderboard_service.py
+tests/services/test_one_referral_weekly_award_service.py
 
 # One Location Circles, and the migration guards that protect them.
 #
