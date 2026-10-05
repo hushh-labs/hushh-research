@@ -3614,7 +3614,7 @@ function ProfilePageContent({
         <SettingsRow
           leading={<GeminiLogo className="h-8 w-8" />}
           title="Gemini"
-          description="Choose managed or BYOK."
+          description="Hussh's AI, or bring your own key."
           chevron
           onClick={() =>
             updateProfileView(

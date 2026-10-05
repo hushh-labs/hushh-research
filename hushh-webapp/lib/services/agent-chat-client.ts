@@ -54,6 +54,7 @@ import {
   type AgentStructuredExperience,
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
+import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
 
 export type AgentChatMessage = {
   id: string;
@@ -988,12 +989,8 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
     : Object.keys(CHAT_KEY_REFUSAL_MESSAGES).find((candidate) => message.includes(candidate));
   const chatKeyRefusal = chatKeyCode ? CHAT_KEY_REFUSAL_MESSAGES[chatKeyCode] : undefined;
   if (chatKeyRefusal) return chatKeyRefusal;
-  if (code === "AGENT_RUNTIME_CREDENTIAL_MISSING") {
-    return "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini.";
-  }
-  if (code === "AGENT_RUNTIME_CREDENTIAL_INVALID") {
-    return "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.";
-  }
+  const ownerAiMessage = ownerAiRunErrorMessage(code, message); // own-key refusals link to Bring your own AI
+  if (ownerAiMessage) return ownerAiMessage;
   if (code === "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE") {
     return "Hussh managed Gemini is not available in this environment.";
   }

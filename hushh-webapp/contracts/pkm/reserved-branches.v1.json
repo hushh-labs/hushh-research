@@ -81,6 +81,10 @@
     "profile_gemini_vertex_location": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "profile_gemini_vertex_location_clear": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "profile_gemini_vertex_location_remove": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "profile_openai_api_key": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "profile_openai_api_key_remove": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "profile_ai_selection": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
+    "profile_ai_selection_clear": {"feature": "runtime_credentials", "class": "feature", "surfaces": ["web"], "authorization_modes": ["owner_confirmed"]},
     "connector_settings": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "connector_oauth_return": {"feature": "connectors", "class": "feature", "surfaces": ["web", "ios", "android"], "authorization_modes": ["owner_confirmed"]},
     "chat_connector_card": {"feature": "connectors", "class": "feature", "surfaces": ["chat"], "authorization_modes": ["owner_confirmed"]},
@@ -291,6 +295,7 @@
         "profile_gemini_transport", "profile_gemini_transport_remove",
         "profile_gemini_vertex_project", "profile_gemini_vertex_project_clear", "profile_gemini_vertex_project_remove",
         "profile_gemini_vertex_location", "profile_gemini_vertex_location_clear", "profile_gemini_vertex_location_remove",
+        "profile_openai_api_key", "profile_openai_api_key_remove", "profile_ai_selection", "profile_ai_selection_clear",
         "connector_settings", "connector_oauth_return", "chat_connector_card",
         "pkm_memory_auto_save_toggle"
       ],

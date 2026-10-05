@@ -655,7 +655,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
       requiresExplicitSelection={false} vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
     fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
-    expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1)); // after the agent is asked to stop
     publishValidatedAuthSessionOwner("owner-b");
     view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
     await act(async () => { pending.resolve({ success: true }); });

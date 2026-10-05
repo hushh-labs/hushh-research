@@ -18,15 +18,16 @@ import {
   HelperText,
 } from "@/components/app-ui/typography";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
-import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { Badge } from "@/components/ui/badge";
 import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
+import { BringYourOwnAiProviders } from "@/components/connections/byo-ai-providers";
 import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 import { ApiService } from "@/lib/services/api-service";
+import { clearAgentAiSelectionFor, shareGeminiSelectionWithAgent } from "@/lib/one/ai-selection-agent";
+import { loadSelectedAiProvider } from "@/lib/one/ai-selection-vault";
 import {
   GEMINI_RUNTIME_CREDENTIAL_REF,
   GEMINI_RUNTIME_TRANSPORT_REF,
@@ -71,9 +72,6 @@ type CredentialValidationState =
   | { status: "error"; message: string };
 
 const CREDENTIAL_VALIDATION_TTL_MS = 60_000;
-const COMING_SOON_PROVIDERS = RUNTIME_PROVIDER_CATALOG.filter(
-  (provider) => provider.availability === "coming_soon",
-);
 
 function assertRuntimeSecretStored(result: {
   success: boolean;
@@ -150,6 +148,7 @@ function OwnerRuntimeSettingsCard({
     };
   }, [captureOwnerGuard]);
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
+  const [otherProvider, setOtherProvider] = useState<string | null>(null); // e.g. OpenAI is the own key in use
   const [draftKey, setDraftKey] = useState("");
   const [transport, setTransport] =
     useState<GeminiRuntimeTransport>("developer_api");
@@ -207,7 +206,7 @@ function OwnerRuntimeSettingsCard({
     }
     const selectionRevision = selectionRevisionRef.current;
     try {
-      const [savedMode, savedKey, savedTransport, savedProject, savedLocation] = await Promise.all([
+      const [savedMode, savedKey, savedTransport, savedProject, savedLocation, savedProvider] = await Promise.all([
         PersonalKnowledgeModelService.loadRuntimeSecret({
           userId,
           vaultKey,
@@ -238,10 +237,12 @@ function OwnerRuntimeSettingsCard({
           vaultOwnerToken,
           credentialRef: GEMINI_VERTEX_LOCATION_REF,
         }),
+        loadSelectedAiProvider({ userId, vaultKey, vaultOwnerToken }),
       ]);
       if (!ownerIsCurrent() || selectionRevisionRef.current !== selectionRevision) return;
       const restoredMode = savedMode === "byok" ? "byok" : "hushh_managed_vertex";
       setMode(restoredMode);
+      setOtherProvider(restoredMode === "byok" && savedProvider && savedProvider !== "gemini" ? savedProvider : null);
       if (requiresExplicitSelection) {
         setSelectedOption((current) => current ? restoredMode : "");
         if (restoredMode === "byok" && !savedKey) setHasExplicitSelection(false);
@@ -317,6 +318,7 @@ function OwnerRuntimeSettingsCard({
       //      before it, choosing managed contacted no server route at all.
       const selection = await ApiService.selectManagedGeminiRuntime();
       if (!ownerIsCurrent()) return;
+      if ((await clearAgentAiSelectionFor(null)) === "failed") throw new Error("AGENT_UNREACHABLE"); // agents never fall back on their own
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("hushh_managed_vertex");
         if (!ownerIsCurrent()) return;
@@ -326,6 +328,7 @@ function OwnerRuntimeSettingsCard({
       }
       if (!ownerIsCurrent()) return;
       setMode("hushh_managed_vertex");
+      setOtherProvider(null);
       setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
       // Say which of the two things actually happened. "We are building your
@@ -370,7 +373,9 @@ function OwnerRuntimeSettingsCard({
         return;
       }
       toast.error(
-        error instanceof Error && error.message === "PKM_CONFLICT"
+        error instanceof Error && error.message === "AGENT_UNREACHABLE"
+          ? "Your private agent could not be reached. Try again."
+          : error instanceof Error && error.message === "PKM_CONFLICT"
           ? "This setting changed on another device. Refresh and try again."
           : error instanceof Error &&
               error.message === "MANAGED_RUNTIME_NOT_READY"
@@ -403,6 +408,7 @@ function OwnerRuntimeSettingsCard({
     }
     selectionRevisionRef.current += 1;
     setMode("byok");
+    setOtherProvider(null);
   };
 
   const validateByok = async () => {
@@ -609,6 +615,10 @@ function OwnerRuntimeSettingsCard({
       }
       await persistMode("byok");
       if (!ownerIsCurrent()) return;
+      const agentRefusal = await shareGeminiSelectionWithAgent({ userId, vaultKey, vaultOwnerToken, credential, transport, vertexProject: vertexProject.trim() || null, vertexLocation: vertexLocation.trim() || null });
+      if (!ownerIsCurrent()) return;
+      if (agentRefusal) toast.error(agentRefusal); // the agent keeps its previous selection
+      else setOtherProvider(null);
       setDraftKey("");
       invalidateCredentialValidation();
       setMode("byok");
@@ -642,6 +652,7 @@ function OwnerRuntimeSettingsCard({
     }
     setIsRemoving(true);
     try {
+      if ((await clearAgentAiSelectionFor("gemini")) === "failed") throw new Error("AGENT_UNREACHABLE");
       const credentialResult =
         await PersonalKnowledgeModelService.removeRuntimeSecret({
           userId,
@@ -754,7 +765,7 @@ function OwnerRuntimeSettingsCard({
             <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
               {selectedOption === "hushh_managed_vertex" ? <span className="size-3 rounded-full bg-primary" /> : null}
             </span>
-          ) : mode === "hushh_managed_vertex" && hasExplicitSelection ? (
+          ) : mode === "hushh_managed_vertex" && hasExplicitSelection && !otherProvider ? (
             <Badge variant="secondary">Selected</Badge>
           ) : (
             <Badge variant="outline">Recommended</Badge>
@@ -781,16 +792,16 @@ function OwnerRuntimeSettingsCard({
             <span aria-hidden className="flex size-5 shrink-0 items-center justify-center rounded-full border border-muted-foreground">
               {selectedOption === "byok" ? <span className="size-3 rounded-full bg-primary" /> : null}
             </span>
-          ) : mode === "byok" && hasExplicitSelection ? (
+          ) : mode === "byok" && hasExplicitSelection && !otherProvider ? (
             <Badge variant="secondary">Selected</Badge>
           ) : null
         }
         testId="profile-byok-runtime"
       >
-        {requiresExplicitSelection ? <RadioPrimitive.Item value="byok" /> : <button type="button" onClick={() => void selectByok()} aria-pressed={mode === "byok"} />}
+        {requiresExplicitSelection ? <RadioPrimitive.Item value="byok" /> : <button type="button" onClick={() => void selectByok()} aria-pressed={mode === "byok" && !otherProvider} />}
         </SettingsRow>
 
-        {mode === "byok" ? (
+        {mode === "byok" && !otherProvider ? (
           <div className="space-y-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
             <div className="flex items-center justify-between gap-3">
               <CardTitle as="p">Gemini connection</CardTitle>
@@ -984,32 +995,11 @@ function OwnerRuntimeSettingsCard({
       </div>
       </RadioPrimitive.Root>
 
-      {/* Settings context only. On the mandatory first-run AI-access step the person
-          can only choose Gemini, so a list of future providers does not change that
-          decision and competes with it (Restraint Charter: earn every element +
-          progressive disclosure). The per-row badge is dropped in both contexts: it
-          only restated this group's own title and the row's disabled state (law 5). */}
+      {/* Settings context only: on the first-run step the person can only choose
+          Gemini, so other providers would compete with that one decision. */}
       {!requiresExplicitSelection ? (
-        <SettingsGroup
-          title="Coming soon"
-          testId="profile-coming-soon-runtime"
-          separatorInset
-        >
-          {COMING_SOON_PROVIDERS.map((provider) => (
-            <SettingsRow
-              key={provider.id}
-              leading={
-                <RuntimeProviderMark
-                  provider={provider}
-                  className="!h-8 !w-8"
-                />
-              }
-              title={provider.name}
-              disabled
-              testId={`profile-coming-soon-${provider.id}`}
-            />
-          ))}
-        </SettingsGroup>
+        <BringYourOwnAiProviders userId={userId} vaultKey={vaultKey} vaultOwnerToken={vaultOwnerToken} needsVaultCreation={needsVaultCreation} needsUnlock={needsUnlock}
+          onRequestVaultUnlock={onRequestVaultUnlock} onRequestVaultCreation={onRequestVaultCreation} onChanged={() => void refresh()} />
       ) : null}
     </div>
   );

@@ -33,6 +33,7 @@ export async function ownerPodRequest(
     "turn/stream",
     "turn/cancel",
     "puppy/models",
+    "ai-selection",
   ]);
   const chatRoute = route === "agent-chat" || route === "agent-chat/capabilities" ||
     /^agent-chat\/(history|conversations)\/[A-Za-z0-9_-]{1,256}$/.test(route) ||
@@ -69,6 +70,16 @@ export async function ownerPodRequest(
       dataDoorGrants: grants,
     };
     body = JSON.stringify(turn);
+  }
+  const method = (init.method ?? "GET").toUpperCase();
+  if (route === "ai-selection" && (method !== "GET" && method !== "DELETE" || (body !== undefined && body !== null))) {
+    // The plaintext selection is sealed HERE, to the hub-signed key of exactly
+    // the pod this request is addressed to. Any body on this route must be a
+    // sealed PUT, so a plaintext key can never leave the device unsealed.
+    if (method !== "PUT" || typeof body !== "string") throw new Error("POD_AI_SELECTION_INVALID");
+    const { sealAiSelectionRequestBody } = await import("@/lib/one/ai-selection-recipient");
+    body = await sealAiSelectionRequestBody(body, { userId: uid, endpoint, session, transport });
+    if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
   }
   refuseCancelled();
   const response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
