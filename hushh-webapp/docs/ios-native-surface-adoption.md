@@ -382,9 +382,9 @@ canonical loaded/empty/unavailable states. No route or action authority changed.
 | Shell and Chat | Five bottom destinations, Search, History open/close/reopen, keyboard, dock, voice | iPhone navigation, native History/reopen and keyboard passed; complete speech/echo and Release performance remain open. |
 | Profile and vault | Account, preferences, security, methods, support, photo; nested Back/Close | iPhone stack/photo and appearance/accent return passed; all nested settings and accessibility states still need acceptance. Vault operations remain separate authorized tests. |
 | Connect and Consent | Connections/Circles, all four Consent tabs, person and request details | Connect and isolated Consent tab/return checks passed; record-level fixtures and complete native presentation coverage remain open. |
-| Memory | Saved → Add → Sharing; immediate return tap; detail/save/share | Both iPhone swipes passed, immediate Saved return failed. This remains an interruption regression, not a passed Memory journey. |
+| Memory | Saved → Add → Sharing; immediate return tap; detail/save/share | The latest combined iPhone batch passed both swipes and immediate Saved return after the shared edge-target fix. Detail/save/share remains separately unverified. |
 | Mail, Calendar and Drive | Mail's three panes and keyboard, provider connection return, read/detail | Mail pager/keyboard passed; authenticated provider calls and return paths require separate current evidence. |
-| Finance, Wallet and RIA | Workspace taps/swipes, holdings detail, Wallet Back, authorized advisor/client details | Wallet Back/return passed. Finance's Portfolio was absent; setup versus workspace destination is unverified. RIA detail fixtures remain unavailable. |
+| Finance, Wallet and RIA | Workspace taps/swipes, holdings detail, Wallet Back, authorized advisor/client details | Wallet Back/return passed independently. The latest Finance test observed its introductory setup screen, not a completed workspace. Authorized Finance-complete and RIA detail fixtures remain unavailable. |
 | Public, auth and setup | Welcome/claim, login/back, invites, callback return, recovery | Source/fixture coverage exists; cold flows must not replace or reset the warm device session. |
 
 The following **20 map entries have no native-inventory row**. Together with
@@ -409,6 +409,38 @@ journeys: record them as not reached, restore through authored Back/Chat, verify
 admission, and exercise those isolated paths. Preserve the original failure.
 Rebuild only the runner for harness changes. Record final source/binary identities
 and do not redeploy or enable new families from a partial batch.
+
+The latest combined physical iPhone run used product `b1a7b7189` and test runner
+`4b55595c2` (the intervening change was harness-only): **7 passed, 1 failed,
+0 skipped**. Memory's immediate-return case now passes. Connect selection/return
+passed inside the failed workspace-family test; Finance then explicitly stopped
+at `WORKSPACE_FINANCE_SETUP_REQUIRED`. Consent and Wallet were not reached in
+that test; their earlier independent passes are historical evidence, not new
+combined-head acceptance. Never invent production preferences or RIA roles to
+complete a coverage row. The iPad's public vault layout passed at rest/focus,
+rotation and resume with idle passive receipt counters. It exposed no software
+keyboard and has not admitted protected Chat; the earlier unlock outcome is
+still unobserved. Receipt counters never read input values or event details and
+do not prove handler entry or visible React settlement.
+
+The subsequent native-render RCA found two avoidable source transitions:
+unchanged resize notifications rebuilt layout-confirmed controls, and Profile
+Close reapplied the outer sheet's settlement on every inner-stack change. Exact
+frame/viewport comparison now preserves unchanged leases only while still
+admitted; inert/clipped ancestors and real movement still invalidate. Profile
+Close uses the outer pane's settled identity, while Back/content retain their
+stack-bound contexts. Identical active acknowledged updates no longer advance
+the update fence; pending changes/reverts remain ordered. Four nearest regressions
+failed the prior source; current focused tests pass, including owner replacement
+and clipping negative controls. These changes do **not** eliminate deliberate
+cross-route retirement or prove flicker-free native pixels. Physical observation,
+frame pacing and accessibility acceptance remain release gates.
+
+Retain completed journey receipts with their source/product identity. Re-run the
+families affected by a shared change and previously unreached, admitted routes;
+do not repeat the full sequential batch merely because the runner changed.
+Independent synthetic layout/contract packs run concurrently with bounded
+workers; interactions on the same physical device remain serial.
 
 On the `77dffc907` production-targeted Debug product, the eight-test iPhone
 batch passed six tests and failed two. Independent Consent (four tabs) and Wallet
