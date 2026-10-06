@@ -196,6 +196,13 @@ _HUB_ONLY = "Registered on the hub with no owner adapter; service_for refuses it
 #: ``none`` or ``hub``. Hub-owned capabilities stay hub-owned here; a manifest is
 #: not a claim of pod execution.
 POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
+    "agent_computer_use": _declare(
+        executes_in_pod=False,
+        information_source="unavailable",
+        write_scope="none",
+        confirmation_owner="none",
+        why="Disabled native browser foundation; no One registration, admitted cloud executor, or bound approval adapter. Each cloud needs independent isolation and native-model acceptance.",
+    ),
     "agent_files": _declare(
         executes_in_pod=True,
         information_source="owner_bucket",

@@ -64,6 +64,14 @@ pod admission policy with their owning topology.
 
 ## Architecture Review Questions
 
+### Gated Computer Use foundation
+
+`agent_computer_use` is a development-only, withheld manifest. Its native ADK
+factory and browser boundary are not registered in One or admitted by pod
+routes. Follow the [private browser runtime](./private-browser-runtime.md) for
+isolation, authority and provider-image gates; a manifest or synthetic test
+must not enable browser execution on a shared server or an unsandboxed pod.
+
 ### One Chat connector execution boundary
 
 The existing external connector registry is a catalog of configurations, not a

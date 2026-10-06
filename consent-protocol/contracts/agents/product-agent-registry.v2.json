@@ -165,6 +165,140 @@
     {
       "action_ids": [],
       "authorities": {
+        "actions": [
+          "browser.control"
+        ],
+        "data": [
+          "browser.observe"
+        ],
+        "invocation": [
+          "browser.invoke"
+        ]
+      },
+      "availability": {
+        "enable_flag": null,
+        "environments": [
+          "development"
+        ],
+        "loopback_only": false
+      },
+      "capabilities": {},
+      "credential_policy": {
+        "allowed": [
+          "hushh_managed_vertex"
+        ],
+        "default": "hushh_managed_vertex"
+      },
+      "description": "Perform bounded browser tasks for One through the owner's isolated, authorized browser.",
+      "evaluations": [],
+      "failure_states": [
+        "auth_required",
+        "consent_required",
+        "unavailable",
+        "outcome_uncertain",
+        "source_changed"
+      ],
+      "icon": null,
+      "id": "agent_computer_use",
+      "inputs": [
+        {
+          "description": null,
+          "name": "owner_task",
+          "type": "owner-scoped task request"
+        }
+      ],
+      "legacy_ids": [],
+      "manifest_path": "consent-protocol/hushh_mcp/agents/computer_use/agent.yaml",
+      "manifest_version": 2,
+      "model": {
+        "credential_ref": null,
+        "mode": "hushh_managed_vertex",
+        "name": "gemini-default",
+        "provider": "gemini",
+        "thinking_level": "low"
+      },
+      "name": "Computer Use Agent",
+      "native_requirements": [],
+      "one_exposure": {
+        "discovery_status": "withheld",
+        "exposure_status": "disabled",
+        "knowledge_package_ref": null,
+        "service_id": "computer_use",
+        "supported_entrypoints": [
+          "typed"
+        ]
+      },
+      "optional_scopes": [],
+      "outputs": [
+        {
+          "description": null,
+          "name": "result",
+          "type": "BrowserTaskResultV1"
+        }
+      ],
+      "owner": "backend",
+      "parent": "agent_one",
+      "performance": {
+        "latency_p95_ms": 30000,
+        "max_output_tokens": 2048
+      },
+      "pkm": {
+        "behavior": "none",
+        "mutation_contract": null
+      },
+      "privacy": {
+        "context_allowlist": [
+          "browser.owner_task",
+          "browser.untrusted_screen",
+          "browser.tool_receipt"
+        ],
+        "plaintext_telemetry": false
+      },
+      "prompt_reference": null,
+      "required_scopes": [],
+      "rollout": {
+        "kill_switch": "POD_COMPUTER_USE_ENABLED",
+        "rollback": "Disable browser admission, stop workers, and preserve encrypted opt-in state; never replay uncertain actions.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "side_effects": [
+        {
+          "confirmation": "explicit_user_confirmation",
+          "idempotent": false,
+          "max_retries": 0,
+          "name": "external_browser_action",
+          "timeout_seconds": 30
+        }
+      ],
+      "status": "experimental",
+      "subagents": [],
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "voice": false,
+        "web": true
+      },
+      "system_instruction_sha256": "5337bd7cb8604ac334126b62daf5073a6b3860401bbbb007c724f7668936d7d3",
+      "telemetry_namespace": "agent.computer_use",
+      "tools": [],
+      "ui_type": "chat",
+      "version": "1.0.0"
+    },
+    {
+      "action_ids": [],
+      "authorities": {
         "actions": [],
         "data": [],
         "invocation": []

@@ -26,6 +26,7 @@ flowchart TD
 | --- | --- |
 | [Owner-pod direct-runtime handoff](./OWNER-POD-DIRECT-RUNTIME-HANDOFF-2026-09-10.md) | Next execution context; reuse the fleet and memory while removing mandatory hub traffic from owner-local work. |
 | [Remaining roadmap](./ROADMAP.md) | Deferred requirements and promotion conditions, without obsolete dates or completed implementation instructions. |
+| [Computer Use implementation gates](../../../consent-protocol/docs/reference/private-browser-runtime.md) | Approved dev pilot: disabled ADK/browser foundation, cloud isolation and owner preview still unproved. The execution-owned reference carries current truth and remaining gates. |
 | [Owner co-signature](./OWNER-COSIGNATURE.md) | Design only (fifth revision, 2026-10-06), not built: locks an agent to the owner's phone so Hussh's servers cannot add devices, copy or delete it outside Azure sign-in windows; the phone checks a signed release, role content and every Hussh-app operation after each window and at least monthly, and shows no reassurance while the agent reports drift. |
 
 ## Historical provenance

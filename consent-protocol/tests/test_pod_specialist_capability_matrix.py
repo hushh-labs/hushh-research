@@ -63,6 +63,15 @@ def test_every_manifest_is_declared_and_nothing_disagrees(matrix: dict) -> None:
     assert matrix["disagreements"] == []
 
 
+def test_unavailable_declaration_cannot_hide_registered_execution(matrix: dict) -> None:
+    row = next(row for row in matrix["agents"] if row["id"] == "agent_computer_use")
+    assert row["declared"]["information_source"] == "unavailable"
+    assert generator._check_row(row["id"], row["declared"], row["derived"]) == []
+    for field in ("registered_specialist", "pod_dispatchable", "pod_agent_tool"):
+        changed = {**row["derived"], field: True}
+        assert generator._check_row(row["id"], row["declared"], changed)
+
+
 def test_the_declaration_table_parsed_from_source_is_the_table_python_sees() -> None:
     """The generator reads the table without importing the runtime; that read
     must equal the object the runtime actually exposes, or the artifact describes

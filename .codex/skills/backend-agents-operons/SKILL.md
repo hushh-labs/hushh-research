@@ -57,6 +57,7 @@ Non-owned surfaces:
 3. Route trust, consent, or scope-enforcement questions into `security-audit`.
 4. For pod support, follow `agent-development.md`'s "One authored fleet, explicit runtime dependencies" procedure: reuse the agent and inject dependencies; verify authority and fail-closed behavior through the existing pod ledger.
 5. Separate portable shared-runtime corrections from pod wiring before any ADK worktree transfer. Registration or local synthetic tests alone do not establish pod completion.
+6. For Computer Use, read `consent-protocol/docs/reference/private-browser-runtime.md`. Keep the withheld specialist disabled until exact cloud isolation, native model transport, authority and ephemeral-screen gates pass; never substitute an unsandboxed executor or a second approval ledger.
 
 ## Handoff Rules
 

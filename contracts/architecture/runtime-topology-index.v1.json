@@ -34,6 +34,39 @@
       }
     },
     {
+      "id": "agent_computer_use",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "POD_COMPUTER_USE_ENABLED",
+        "rollback": "Disable browser admission, stop workers, and preserve encrypted opt-in state; never replay uncertain actions.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
@@ -6053,7 +6086,7 @@
   "source_sha256": {
     "a2a_scope_map": "eec9a448fd685fcc615e4e7c5e87274b2f8f7d591111575b7d21394ce57edeb3",
     "action_gateway": "1f5d04a5da49f167d7848b793406c8f0cb300e6f16909b169ee00b9dfa0e67e7",
-    "agent_registry": "590850b9e33799b7466bdfcf6f7eb09798c91028d4c2fbf8552ab0aeda6d0485",
+    "agent_registry": "37fef985869c8107eaa5a66aa58b474072000b1278982ccab679bada56e710b7",
     "cache_manifest": "e1e54c98ad7f359b92517b65f01444dcc0bb876a09dbece17644da38c57cf2da",
     "data_plane": "7a565eef45a719679ae99d2af5cfed759f3e83b8991095dfde98365614adcd36",
     "in_process_dispatch": "f53996118ff741cf030fb48727736e31a99bcd2ba764712aaa15801b33278e28",
@@ -6067,7 +6100,7 @@
   "summary": {
     "a2a_scope_gated_agents": 5,
     "actions": 227,
-    "agents": 19,
+    "agents": 20,
     "aliases": 4,
     "decision_required": 2,
     "in_process_specialists": 7,

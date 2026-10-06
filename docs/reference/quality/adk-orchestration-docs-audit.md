@@ -27,6 +27,49 @@ Git history retains the earlier chronology; this memo records current evidence.
 
 ## Source and serving evidence
 
+### Computer Use foundation — 2026-10-06
+
+Source base `1d8b74998141db83b0dbe5d4c87fc6fd61601719`, plus the accompanying
+disabled foundation change. [The browser runtime record](../../../consent-protocol/docs/reference/private-browser-runtime.md)
+owns exact boundaries and remaining gates. All 119 focused browser, manifest,
+registry and capability-matrix tests pass, including native ADK tool discovery
+without provider execution. The browser suite passes all 38 cases after adding
+the worker-privilege boundary and its negative control. These are local
+synthetic checks, not deployment,
+browser usability or sandbox-isolation evidence.
+Nearest checks pass again after extracting the matrix rules, bounded response
+reader and shared synthetic fixtures. The architecture ratchet has zero new or
+worsened findings; the baseline is unchanged. Generated registry, capability
+matrix and topology projections, typecheck, docs links/governance, skill lint
+and trigger evaluations pass. All 180 diagrams rendered; the changed browser
+topology was visually reviewed. The browser boundary suite is in the existing
+backend CI manifest. The local core mirror ran: secret/governance and web-core
+passed; the protocol stage first found a stale capability projection, corrected
+through its owning generator. The corrected backend run passed lint, typecheck
+and security analysis, with 13,506 tests passing and ten Drive rollback fixture
+failures. Their fake shell intercepted the local pyenv Python shim recursively.
+Pinning the fixture to the active Python interpreter preserved the assertions;
+all 15 nearest rollback tests then passed. MCP packaging and integration passed
+separately (including 380 integration tests). The complete core command has not
+been rerun to terminal success; hosted CI has not run. No application deployment
+or owner image installation occurred.
+
+**Pilot gated:** dev-project access is verified through the existing operator
+identity. The isolated browser-only build succeeded; its native probe failed
+before Chromium with `FetchSpec failed: loading container: file does not exist`.
+The minimal native control passed in 164 ms. Existing mount paths fixed that
+launch failure, but Chromium refused the native child's root identity. Actual
+UID/GID changes then refused with `EPERM`; launcher help exposes no user option.
+The source identity guard fails closed, and its revised image is not qualified.
+This is a failed first gate, not isolation or browser acceptance.
+Azure Sandbox Early Access is not registered. No owner resource changed and no
+specialist was registered in One. Exact ledger adapters,
+cloud transport, provider-screen privacy, preview/login, encrypted site state,
+Files transfer, background continuation and update draining remain incomplete.
+This stage does not change the earlier BYOC serving or acceptance claims below.
+
+### Prior BYOC evidence
+
 - **Application:** [exact-SHA backend CI](https://github.com/hushh-labs/hushh-research/actions/runs/37055310810)
   and [governed dev deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37056544633)
   succeeded for `60f92a6a5f81ea975071ac010fd8c015d2541e5e`. Independent readback
