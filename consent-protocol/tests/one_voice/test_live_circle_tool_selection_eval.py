@@ -416,6 +416,25 @@ def test_spelled_name_is_scored_on_the_arguments_not_only_the_first_tool():
     assert _expected_hit(recovered, reads)
     assert support.arg_mismatches(recovered) == []
 
+    # A spelled word is judged as the server's guard reads it: letters sent
+    # one by one join into the word (live: spelled_words ["H U S S H"]).
+    spaced = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S S H"]}, card),
+        ],
+    )
+    assert _expected_hit(spaced, reads)
+    one_s = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S H"]}, card),
+        ],
+    )
+    assert not _expected_hit(one_s, reads)
+
 
 def test_fake_world_answers_reads_with_real_ids_and_stops_mutations_at_a_card():
     """The responder is the real executor: a read returns canonical ids, a

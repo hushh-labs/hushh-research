@@ -120,13 +120,22 @@ def _normalized(value: str) -> str:
     return normalize_spoken_name(value)
 
 
+def _word_key(value: str) -> str:
+    """A listed word as the server's spelled-word contract reads it: letters
+    sent one by one ("H U S S H") join into the word, case is ignored. The
+    eval judges a declared word exactly as the guard would."""
+    from hushh_mcp.one_voice.tools.spelling import clean_spelled_word, spelling_key
+
+    return spelling_key(clean_spelled_word(value) or value)
+
+
 def _arg_matches(expected: ArgExpectation, actual: Any) -> bool:
     if isinstance(expected, str):
         return isinstance(actual, str) and _normalized(actual) == _normalized(expected)
     if not isinstance(actual, list) or not all(isinstance(item, str) for item in actual):
         return False
-    present = {_normalized(item) for item in actual}
-    return all(_normalized(item) in present for item in expected)
+    present = {_word_key(item) for item in actual}
+    return all(_word_key(item) in present for item in expected)
 
 
 def arg_mismatches(obs: Observation) -> list[dict[str, Any]]:
