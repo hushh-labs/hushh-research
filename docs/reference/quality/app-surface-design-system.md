@@ -219,7 +219,7 @@ scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade
 
 16. The canonical container tokens are:
 
-- `--app-shell-reading: 54rem`
+- `--app-shell-reading: 720px`
 - `--app-shell-agent: 55rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`

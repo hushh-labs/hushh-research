@@ -184,6 +184,18 @@ are stale; settlement still uses rendered position. The nearest unit fails on
 the old code, and the unchanged WebKit drag contract passes with the correction.
 The corrected combined head requires its own core and exact-head CI proof.
 
+At `27b7edc0c`, canonical core passed. The separately built and installed iPhone
+candidate passed normal vault unlock and the same warm navigation, Back,
+Profile/photo, drawer and Mail/software-keyboard journeys. Its dedicated
+History/selector check still found the retained DOM controls instead of the
+expected native families; native-family admission remains incomplete. Exact-head
+CI passed the corrected Mail drag contract but rejected the Profile Connectors
+geometry test, whose measure calculation assumed `rem` for a `px` token. The
+test now resolves the authored CSS width without changing its centering, width
+or overflow assertions. This test/documentation correction does not change the
+installed product bundle. Full-head CI, visual/accessibility qualification and
+three Release performance runs remain required before native-family promotion.
+
 | Family | State / operation owner | Candidate and retained behavior | Evidence and rollback |
 | --- | --- | --- | --- |
 | Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |
