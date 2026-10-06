@@ -12,7 +12,8 @@ fails before the replacement is submitted, exactly as on Google Cloud.
 
 The new revision's suffix is derived from the attempt id, so the acknowledgement
 names exactly the revision this attempt created. The previous revision keeps serving
-until the new one is ready (single revision mode activates the new one only then).
+until the new one is ready (single revision mode activates the new one only then),
+and the update answers only on the platform's verdict for that revision.
 Files background organization is not available on Azure yet, so a Files plan refuses.
 The import reads the source as the configured image reader (``azure_image_source``),
 minted inside the fenced section so a refused credential releases the drained agent,
@@ -23,18 +24,19 @@ from __future__ import annotations
 
 import copy
 import logging
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any, Optional
 
 from hushh_mcp.services.azure_agent_setup import binding_is_valid, parse_source_image
-from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
+from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient, ArmError
 from hushh_mcp.services.azure_container_app_renderer import (
     INCARNATION_TAG,
     image_reference,
     refuse_metered_configuration,
 )
 from hushh_mcp.services.azure_image_source import import_credentials, release_source
-from hushh_mcp.services.azure_setup_applier import resolve
+from hushh_mcp.services.azure_setup_applier import AzureSetupRefused, resolve
 from hushh_mcp.services.azure_setup_plan import (
     CONTAINER_APP_NAME,
     NONCE_TAG,
@@ -46,9 +48,35 @@ from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
 from hushh_mcp.services.pod_release import is_immutable_image_reference
 
 if TYPE_CHECKING:
+    from hushh_mcp.services.azure_agent_observation import AzureAgentObservation
     from hushh_mcp.services.user_azure_backend import UserAzureBackend
 
 logger = logging.getLogger(__name__)
+
+#: How often, and for how long, an update reads its new revision before answering.
+#: A cold start measured 30 to 41 s on dev (2026-10-05). Answering at ARM's acceptance
+#: instead reported a finished update as failed while the revision came up seconds
+#: later; six minutes stays far above the measurement and inside the job's heartbeat.
+VERDICT_POLL_SECONDS = 5.0
+VERDICT_TIMEOUT_SECONDS = 360.0
+
+#: What a waited update tells the person, typed so each sentence claims only what was
+#: observed. Azure decided the new revision failed: single revision mode never moved
+#: traffic off the previous one. No decision arrived (timeout, or the reads stopped):
+#: the lease stays and read-only recovery settles it, so there is nothing to do yet.
+UPGRADE_REVISION_FAILED = "UPGRADE_REVISION_FAILED"
+UPGRADE_UNCONFIRMED = "UPGRADE_UNCONFIRMED"
+REVISION_FAILED_MESSAGE = (
+    "The new version did not start. Your agent keeps running the version it had. "
+    "Try the update again."
+)
+UNCONFIRMED_MESSAGE = (
+    "We could not confirm the update yet. It is being checked; you do not need to do anything."
+)
+
+#: ARM answers read again until the deadline (Azure busy or erroring); an unreadable
+#: agent or any other refusal is no proof either way, so it is unconfirmed at once.
+_TRANSIENT_ARM_KINDS = frozenset({"throttled", "server"})
 
 #: Writable fields of a container app; everything else ARM computes.
 _WRITABLE = ("location", "tags", "identity")
@@ -131,8 +159,15 @@ def import_source(approved: str) -> tuple[str, str, str]:
     return registry, repository, digest
 
 
-def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> BackendHandle:
-    """Synchronous: import the digest, re-fence, replace, acknowledge, wait."""
+def upgrade_agent(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    arm: ArmClient,
+    *,
+    clock: Callable[[], float] = time.monotonic,
+    sleep: Callable[[float], None] = time.sleep,
+) -> BackendHandle:
+    """Synchronous: import the digest, re-fence, replace, acknowledge, wait for a verdict."""
     if spec.files_upgrade_plan is not None:
         raise ValueError("Files background organization is not available on Azure yet")
     expected = str(spec.expected_service_uid or "").strip()
@@ -163,7 +198,16 @@ def upgrade_agent(backend: UserAzureBackend, spec: PodSpec, arm: ArmClient) -> B
     except Exception:
         _release_handoff(handoff, spec)
         raise
-    return _replace(backend, spec, arm, current=current, target=target, previous=previous)
+    return _replace(
+        backend,
+        spec,
+        arm,
+        current=current,
+        target=target,
+        previous=previous,
+        clock=clock,
+        sleep=sleep,
+    )
 
 
 def _replace(
@@ -174,6 +218,8 @@ def _replace(
     current: dict[str, Any],
     target: str,
     previous: str,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
 ) -> BackendHandle:
     """Submit the one-image replacement, acknowledge it, and wait for its revision."""
     api = API_VERSIONS["container_apps"]
@@ -198,14 +244,19 @@ def _replace(
                 "image": target,
             }
         )
-    if arm.needs_poll(started):
-        arm.wait(started, "deploying_agent")
-    observation = backend.observe_sync()
-    properties = observation.app.get("properties") or {}
-    if observation.image != target or properties.get("latestRevisionName") != revision:
-        raise RuntimeError("the new revision did not become the agent's; the previous one serves")
+    try:  # the replace was sent: the revision verdict below, not this poll, decides
+        if arm.needs_poll(started):
+            arm.wait(started, "deploying_agent")
+    except (ArmError, OSError) as exc:
+        logger.warning("user_azure_backend.replace_poll_failed err=%s", type(exc).__name__)
+    began = clock()
+    observation = _await_verdict(
+        backend, spec, arm, revision=revision, target=target, clock=clock, sleep=sleep
+    )
     handle = backend.verified_handle(spec.hushh_id, observation)
-    logger.info("user_azure_backend.upgraded revision=%s ready=%s", revision, observation.ready)
+    logger.info(
+        "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
+    )
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )
@@ -295,6 +346,83 @@ def upgrade_verdict(
     return None
 
 
+def _revision_reader(
+    client: ArmClient, app_id: str, revision: str, op: str
+) -> Callable[[], Optional[dict[str, Any]]]:
+    """Read exactly the revision one attempt created; None while ARM has no such revision."""
+    return lambda: client.get_or_none(
+        f"{app_id}/revisions/{revision}", api_version=API_VERSIONS["container_apps"], op=op
+    )
+
+
+def _unconfirmed(revision: str, reason: str) -> AzureSetupRefused:
+    """The typed answer when no verdict was observed; the reason stays in the log."""
+    logger.warning("user_azure_backend.upgrade_unconfirmed revision=%s reason=%s", revision, reason)
+    return AzureSetupRefused(UNCONFIRMED_MESSAGE, code=UPGRADE_UNCONFIRMED)
+
+
+def _read_verdict(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    *,
+    revision: str,
+    target: str,
+    read_revision: Callable[[], Optional[dict[str, Any]]],
+) -> tuple[Optional[str], AzureAgentObservation]:
+    """One re-fenced read of the agent and the attempt's revision, like recovery's."""
+    observation = backend.observe_sync()
+    if not observation.present:
+        if observation.absence_confirmed:
+            raise observation.refusal("observe the update of")
+        raise _unconfirmed(revision, observation.gone_reason or "unreadable")
+    _fence(observation.app, spec, str(spec.expected_service_uid or ""))
+    verdict = upgrade_verdict(
+        observation.app, revision=revision, image=target, read_revision=read_revision
+    )
+    return verdict, observation
+
+
+def _await_verdict(
+    backend: UserAzureBackend,
+    spec: PodSpec,
+    arm: ArmClient,
+    *,
+    revision: str,
+    target: str,
+    clock: Callable[[], float],
+    sleep: Callable[[float], None],
+) -> AzureAgentObservation:
+    """Read the agent until the attempt's revision has a platform verdict.
+
+    ``upgrade_verdict`` stays the one place that decides live and failed, the same rule
+    the read-only recovery applies, and every read is re-fenced like recovery's. A busy
+    or erroring Azure is read again until the deadline. Every refusal raises after the
+    acknowledgement was recorded, so the orchestrator keeps the lease and that recovery
+    settles it: success is only recorded once observed.
+    """
+    read_revision = _revision_reader(arm, backend.app_id, revision, "deploying_agent")
+    deadline = clock() + VERDICT_TIMEOUT_SECONDS
+    while True:
+        verdict: Optional[str] = None
+        try:
+            verdict, observation = _read_verdict(
+                backend, spec, revision=revision, target=target, read_revision=read_revision
+            )
+        except (ArmError, OSError) as exc:  # requests' transport errors are OSErrors
+            kind = exc.kind if isinstance(exc, ArmError) else type(exc).__name__
+            if isinstance(exc, ArmError) and kind not in _TRANSIENT_ARM_KINDS:
+                raise _unconfirmed(revision, f"arm_{kind}") from exc
+            logger.info("user_azure_backend.verdict_read_retry revision=%s err=%s", revision, kind)
+        if verdict == "live":
+            return observation
+        if verdict == "failed":
+            logger.warning("user_azure_backend.upgrade_revision_failed revision=%s", revision)
+            raise AzureSetupRefused(REVISION_FAILED_MESSAGE, code=UPGRADE_REVISION_FAILED)
+        if clock() + VERDICT_POLL_SECONDS > deadline:
+            raise _unconfirmed(revision, f"no_verdict_within_{VERDICT_TIMEOUT_SECONDS:.0f}s")
+        sleep(VERDICT_POLL_SECONDS)
+
+
 def observe_upgrade(
     backend: UserAzureBackend,
     spec: PodSpec,
@@ -330,11 +458,7 @@ def observe_upgrade(
         observation.app,
         revision=revision,
         image=image,
-        read_revision=lambda: observer.get_or_none(
-            f"{backend.app_id}/revisions/{revision}",
-            api_version=API_VERSIONS["container_apps"],
-            op="observe_upgrade",
-        ),
+        read_revision=_revision_reader(observer, backend.app_id, revision, "observe_upgrade"),
     )
     if verdict == "live":
         return _with_metadata(handle, upgraded=True, source_image=receipt.get("targetImage") or "")
@@ -360,6 +484,12 @@ def _with_metadata(handle: BackendHandle, **extra: Any) -> BackendHandle:
 
 
 __all__ = [
+    "REVISION_FAILED_MESSAGE",
+    "UNCONFIRMED_MESSAGE",
+    "UPGRADE_REVISION_FAILED",
+    "UPGRADE_UNCONFIRMED",
+    "VERDICT_POLL_SECONDS",
+    "VERDICT_TIMEOUT_SECONDS",
     "import_source",
     "observe_upgrade",
     "replacement_body",

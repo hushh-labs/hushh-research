@@ -142,7 +142,9 @@ async def test_an_unexpected_failure_never_dies_silently():
 
     await _run_setup(repo, setup)
     assert repo.finished["code"] == "UNEXPECTED"
-    assert "KeyError" in repo.finished["message"]
+    # The class name is for the log; the person reads plain words only.
+    assert "KeyError" not in repo.finished["message"]
+    assert repo.finished["message"].startswith("Something unexpected stopped the setup.")
 
 
 async def test_a_publication_refusal_is_recorded():

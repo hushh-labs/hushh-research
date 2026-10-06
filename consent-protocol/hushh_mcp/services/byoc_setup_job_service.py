@@ -487,7 +487,7 @@ async def run_setup_job(
                 error_code="UNEXPECTED",
                 error_message=(
                     "Something unexpected stopped the setup. Everything already done "
-                    f"is kept; press Try again. ({type(exc).__name__})"
+                    "is kept; press Try again."
                 ),
             )
         except JobSuperseded:

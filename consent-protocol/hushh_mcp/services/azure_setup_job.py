@@ -17,6 +17,7 @@ import logging
 from typing import Any, Awaitable, Callable, Optional
 
 from hushh_mcp.services.azure_agent_setup import AzureSetupResult, run_agent_setup
+from hushh_mcp.services.azure_agent_upgrade import REVISION_FAILED_MESSAGE
 from hushh_mcp.services.azure_arm_client import ArmError
 from hushh_mcp.services.azure_cloud_publication import record_proven_azure_cloud
 from hushh_mcp.services.azure_entra_authorizer import AzureAuthorizeError
@@ -56,6 +57,21 @@ def arm_refusal(exc: ArmError) -> tuple[str, str]:
     return code, f"{message} ({exc.code or exc.kind})"
 
 
+#: Setup or update stopped on something unnamed. The exception's class name belongs
+#: in the log line (``err=``), never in front of a person.
+SETUP_UNEXPECTED = (
+    "Something unexpected stopped the setup. Everything already created is kept; try again."
+)
+
+#: The update stopped on something unnamed. The page's heading already says the update
+#: did not finish, so this is only the next step. It claims nothing about which version
+#: runs: an unnamed failure after the replacement was submitted has not observed that.
+UPDATE_UNEXPECTED = "Something unexpected interrupted it. Try the update again in a moment."
+
+#: A retry that reconciled the previous attempt and found its revision failed.
+UPGRADE_FAILED = "UPGRADE_FAILED"
+
+
 async def _finish_failed(jobs: Any, *, user_id: str, job_id: str, code: str, message: str) -> None:
     try:
         await jobs.finish(
@@ -83,7 +99,12 @@ def _start_heartbeat(jobs: Any, *, user_id: str, job_id: str) -> Optional[asynci
 
 
 async def _guarded(
-    jobs: Any, *, user_id: str, job_id: str, work: Callable[[], Awaitable[None]]
+    jobs: Any,
+    *,
+    user_id: str,
+    job_id: str,
+    work: Callable[[], Awaitable[None]],
+    unexpected: str = SETUP_UNEXPECTED,
 ) -> None:
     """Run ``work``; every failure becomes a typed record, never a silent death."""
     heartbeat = _start_heartbeat(jobs, user_id=user_id, job_id=job_id)
@@ -98,18 +119,14 @@ async def _guarded(
         code, message = arm_refusal(exc)
         await _finish_failed(jobs, user_id=user_id, job_id=job_id, code=code, message=message)
     except Exception as exc:  # noqa: BLE001 - the record must never die silently
-        logger.exception("azure_setup_job.unexpected user=%s job=%s", user_id, job_id)
-        code = str(getattr(exc, "code", "") or "UNEXPECTED")
-        await _finish_failed(
-            jobs,
-            user_id=user_id,
-            job_id=job_id,
-            code=code,
-            message=(
-                "Something unexpected stopped the setup. Everything already created is "
-                f"kept; try again. ({type(exc).__name__})"
-            ),
+        logger.exception(
+            "azure_setup_job.unexpected user=%s job=%s err=%s",
+            user_id,
+            job_id,
+            type(exc).__name__,
         )
+        code = str(getattr(exc, "code", "") or "UNEXPECTED")
+        await _finish_failed(jobs, user_id=user_id, job_id=job_id, code=code, message=unexpected)
     finally:
         if heartbeat is not None:
             heartbeat.cancel()
@@ -196,15 +213,34 @@ async def run_azure_upgrade_job(
         await jobs.advance(user_id=user_id, job_id=job_id, stage="importing_image")
         with jit_person_authority(access_token):
             outcome = await upgrade(user_id=user_id, current_image=target_image)
-        skipped = str((outcome or {}).get("skipped") or "")
-        if skipped:
-            raise AzureSetupRefused(
-                "The update did not run this time; try again shortly.",
-                code=f"UPGRADE_{skipped.upper()}",
-            )
+        _refuse_unfinished(outcome or {})
         await jobs.advance(user_id=user_id, job_id=job_id, stage="proving")
 
-    await _guarded(jobs, user_id=user_id, job_id=job_id, work=work)
+    await _guarded(jobs, user_id=user_id, job_id=job_id, work=work, unexpected=UPDATE_UNEXPECTED)
 
 
-__all__ = ["arm_refusal", "run_azure_setup_job", "run_azure_upgrade_job"]
+def _refuse_unfinished(outcome: dict) -> None:
+    """Raise for an orchestrator outcome that must not read as a finished update.
+
+    A retry while the previous attempt's lease is held reconciles that attempt instead
+    of updating; when the platform said its revision failed, the outcome is reconciled
+    but not upgraded, which must never read as a finished update.
+    """
+    skipped = str(outcome.get("skipped") or "")
+    if skipped:
+        raise AzureSetupRefused(
+            "The update did not run this time; try again shortly.",
+            code=f"UPGRADE_{skipped.upper()}",
+        )
+    if outcome.get("reconciled") and not outcome.get("upgraded"):
+        raise AzureSetupRefused(REVISION_FAILED_MESSAGE, code=UPGRADE_FAILED)
+
+
+__all__ = [
+    "SETUP_UNEXPECTED",
+    "UPDATE_UNEXPECTED",
+    "UPGRADE_FAILED",
+    "arm_refusal",
+    "run_azure_setup_job",
+    "run_azure_upgrade_job",
+]

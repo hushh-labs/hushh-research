@@ -922,3 +922,7 @@ tests/test_pod_capabilities_private_commands.py
 tests/test_endpoint_version_across_homes.py
 tests/test_azure_idle_window.py
 tests/test_puppy_tool_result_dates.py
+
+# Azure update answers on the revision verdict; typed outcomes, plain setup copy (2026-10-05)
+tests/test_azure_upgrade_waits_for_ready.py
+tests/test_byoc_setup_copy_hides_exception_class.py
