@@ -6,6 +6,7 @@ import base64
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -311,7 +312,9 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            # Keep the active Python ahead of host shims. A pyenv python3 shim
+            # invokes `env bash`, which would recursively enter our fake bash.
+            "PATH": f"{Path(sys.executable).parent}:{fake_bin}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_RESTORE_FAIL": str(not restore_succeeds).lower(),
@@ -374,7 +377,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     environment = os.environ.copy()
     environment.update(
         {
-            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "PATH": f"{Path(sys.executable).parent}:{fake_bin}:{environment['PATH']}",
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_TERMINATE_AFTER_SETUP": "false",
