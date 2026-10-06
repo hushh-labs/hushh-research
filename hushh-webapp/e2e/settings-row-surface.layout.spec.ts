@@ -345,6 +345,27 @@ for (const width of [393, 1440]) {
   });
 }
 
+for (const width of [393, 834, 1440]) {
+  test(`detail Close has a reachable 44px target at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    await page.getByRole("button", { name: "Open detail target" }).click();
+    const close = page.getByRole("button", { name: "Close detail panel", exact: true });
+    await expect(close).toBeVisible();
+    // Wait for the shared entrance, not a guessed sleep or hidden duplicate.
+    await close.click({ trial: true });
+    const box = (await close.boundingBox())!;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    const heading = page.getByRole("heading", { name: "Request details", exact: true });
+    const titleBox = (await heading.boundingBox())!;
+    expect(titleBox.x + titleBox.width).toBeLessThanOrEqual(box.x + 1);
+    // The extra hit area must reach the real close handler, not just measure larger.
+    await page.mouse.click(box.x + box.width - 2, box.y + box.height / 2);
+    await expect(close).toBeHidden();
+    await expect(heading).toBeHidden();
+  });
+}
+
 /**
  * Evidence captures, not assertions. Run with ROW_SHOTS_DIR and ROW_SHOTS_PHASE
  * to write the before/after screenshots the change was reviewed against.

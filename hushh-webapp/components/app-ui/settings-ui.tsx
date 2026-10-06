@@ -997,7 +997,7 @@ export function AdaptiveDetailSurface({
       aria-label="Close detail panel"
       onClick={() => onOpenChange(false)}
       className={cn(
-        "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
+        "group absolute right-4 top-4 z-20 isolate inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full",
         "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
         "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -1087,7 +1087,7 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-14 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-16 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-16">
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">

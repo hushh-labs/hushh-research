@@ -19,6 +19,7 @@ import {
   UserIcon as User,
 } from "../../components/icons";
 import {
+  AdaptiveDetailSurface,
   SettingsGroup,
   SettingsRow,
 } from "../../components/app-ui/settings-ui";
@@ -285,6 +286,23 @@ function LegacySplitRow() {
   );
 }
 
+function DetailTarget() {
+  const [open, setOpen] = useState(false);
+  return (
+    <section>
+      <button type="button" onClick={() => setOpen(true)}>Open detail target</button>
+      <AdaptiveDetailSurface
+        open={open}
+        onOpenChange={setOpen}
+        title="Request details"
+        mobilePresentation="fullscreen"
+      >
+        <p>Review this synthetic request.</p>
+      </AdaptiveDetailSurface>
+    </section>
+  );
+}
+
 function Fixture() {
   return (
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
@@ -293,6 +311,7 @@ function Fixture() {
       <ConsentCenterList />
       <ChatRequestCard />
       <LegacySplitRow />
+      <DetailTarget />
     </main>
   );
 }
