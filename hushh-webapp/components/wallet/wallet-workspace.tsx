@@ -35,7 +35,6 @@ import {
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { PaginatedListFooter } from "@/components/app-ui/paginated-list-footer";
 import {
   PageTitle,
   PageSubtitle,
@@ -82,7 +81,8 @@ import {
 } from "@/lib/wallet/wallet-view-state";
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
-const WALLET_PAGE_SIZE = 10;
+import deckStyles from "./wallet-card-stack.module.css";
+
 const WALLET_TABS = [
   { value: "cards", label: "Cards" },
   { value: "add", label: "Add" },
@@ -214,6 +214,9 @@ export function WalletWorkspace() {
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
   const [tab, setTab] = useState<WalletTab>("cards");
   const [addDraftOpen, setAddDraftOpen] = useState(false);
+  const [selectedDeckCardId, setSelectedDeckCardId] = useState<string | null>(null);
+  const [removingCardId, setRemovingCardId] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(Boolean(searchParams?.get("q")));
   const [selectedAddCardId, setSelectedAddCardId] = useState<string | null>(null);
   const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
   const activeTab = view.kind === "add" ? "add" : tab;
@@ -232,6 +235,8 @@ export function WalletWorkspace() {
     if (!ready) {
       setAddDraftOpen(false);
       setSelectedAddCardId(null);
+      setSelectedDeckCardId(null);
+      setRemovingCardId(null);
       setTab("cards");
       setFiling(null);
       setOfferNickname(null);
@@ -247,27 +252,21 @@ export function WalletWorkspace() {
   };
   const stackRef = useRef<HTMLDivElement | null>(null);
   const detailsId = useId();
-  // Search and page live in the URL (same shape as Consent Center's list), so a
-  // filtered page is deep-linkable and survives Next client navigation.
+  // Metadata search stays in q; presentation selection stays in memory.
   const routeQuery = searchParams?.get("q") || "";
-  const page = Math.max(1, Number(searchParams?.get("page") || "1") || 1);
   const [searchValue, setSearchValue] = useState(routeQuery);
   const deferredQuery = useDeferredValue(searchValue.trim());
-
   useEffect(() => {
-    if (routeQuery === deferredQuery) return;
+    setSearchValue(routeQuery);
+    setSearchOpen(Boolean(routeQuery));
+    dispatch({ type: "unfocus" });
+  }, [routeQuery]);
+  const updateSearch = (value: string) => {
+    setSearchValue(value);
     const next = new URLSearchParams(searchParams?.toString() || "");
-    if (deferredQuery) next.set("q", deferredQuery);
+    if (value.trim()) next.set("q", value.trim());
     else next.delete("q");
     next.delete("page");
-    const query = next.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
-  }, [deferredQuery, routeQuery, pathname, router, searchParams]);
-
-  const goToPage = (target: number) => {
-    const next = new URLSearchParams(searchParams?.toString() || "");
-    if (target <= 1) next.delete("page");
-    else next.set("page", String(target));
     const query = next.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   };
@@ -276,10 +275,6 @@ export function WalletWorkspace() {
     () => cards.filter((card) => WalletService.matchesQuery(card, deferredQuery)),
     [cards, deferredQuery],
   );
-  const pageCount = Math.max(1, Math.ceil(filteredCards.length / WALLET_PAGE_SIZE));
-  const safePage = Math.min(page, pageCount);
-  const pageCards = filteredCards.slice((safePage - 1) * WALLET_PAGE_SIZE, safePage * WALLET_PAGE_SIZE);
-
   const vaultContext = useCallback(() => {
     const token = getVaultOwnerTokenRef.current();
     if (!user?.uid || !vaultKey || !token) return null;
@@ -304,9 +299,11 @@ export function WalletWorkspace() {
       if (!options?.quiet) dispatch({ type: "load_started" });
       try {
         const summaries = await WalletService.listCardSummaries(context);
+        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         setCards(summaries);
         dispatch({ type: "load_succeeded", cardIds: summaries.map((card) => card.cardId) });
       } catch (error) {
+        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
         dispatch({
           type: "load_failed",
           message:
@@ -359,26 +356,13 @@ export function WalletWorkspace() {
   }, [filing, user?.uid, vaultContext, view.kind]);
 
   const focusedCardId = focusedCardIdOf(view);
-  const focusedCard = focusedCardId
-    ? cards.find((card) => card.cardId === focusedCardId) ?? null
-    : null;
-
-  // A card chosen low in a long stack rises to the top of the stack; bring
-  // that top into view so the chosen card and its actions stay on screen.
-  useEffect(() => {
-    if (!focusedCardId) return;
-    stackRef.current?.scrollIntoView?.({
-      block: "nearest",
-      behavior: prefersReducedMotion() ? "auto" : "smooth",
-    });
-  }, [focusedCardId]);
-
+  const focusedCard = cards.find((card) => card.cardId === selectedDeckCardId) ?? cards[0] ?? null;
   const selectCard = (cardId: string) => {
-    if (focusedCardId === cardId) {
-      dispatch({ type: "unfocus" });
-      return;
-    }
+    setSelectedDeckCardId(cardId);
+    dispatch({ type: "unfocus" });
     dispatch({ type: "focus", cardId });
+    if (searchValue) updateSearch("");
+    setSearchOpen(false);
   };
 
   const revealCard = async (cardId: string) => {
@@ -387,10 +371,11 @@ export function WalletWorkspace() {
       dispatch({ type: "vault_unavailable" });
       return;
     }
+    dispatch({ type: "focus", cardId });
     setBusyCardId(cardId);
     try {
       const full = await WalletService.getCard({ ...context, cardId });
-      if (full) {
+      if (full && activeOwnerIdRef.current === context.userId && vaultContextRef.current()?.vaultKey === context.vaultKey) {
         dispatch({
           type: "revealed",
           cardId,
@@ -427,8 +412,19 @@ export function WalletWorkspace() {
         }
         throw error;
       }
+      if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+      if (activeTab === "cards") {
+        setRemovingCardId(cardId);
+        if (!prefersReducedMotion()) await new Promise((resolve) => setTimeout(resolve, 220));
+        if (activeOwnerIdRef.current !== context.userId || vaultContextRef.current()?.vaultKey !== context.vaultKey) return;
+        const index = cards.findIndex((card) => card.cardId === cardId);
+        setSelectedDeckCardId((current) => (current ?? cards[0]?.cardId) === cardId
+          ? cards[index + 1]?.cardId ?? cards[index - 1]?.cardId ?? null
+          : current);
+      }
       dispatch({ type: "unfocus" });
       await refresh({ quiet: true });
+      setRemovingCardId(null);
     } finally {
       setBusyCardId(null);
     }
@@ -452,7 +448,7 @@ export function WalletWorkspace() {
   };
 
   const hasCards = ready && cards.length > 0;
-  const showSearch = hasCards && !focusedCardId && cards.length > WALLET_PAGE_SIZE;
+  const showSearch = hasCards && activeTab === "cards";
 
   const headerAction = activeTab !== "cards" ? null : focusedCardId ? (
     <Button
@@ -474,6 +470,54 @@ export function WalletWorkspace() {
       Add card
     </Button>
   ) : null;
+
+  const cardDetails = (
+    <>
+  {view.kind === "list" && focusedCard ? (
+    <div
+      className="motion-step-enter [animation-delay:var(--motion-duration-sm)]"
+      data-testid="one-wallet-card-actions"
+    >
+      <FlowActionGroup
+        stacked
+        primary={
+          <Button
+            size="standard"
+            isLoading={busyCardId === focusedCard.cardId}
+            onClick={() => void revealCard(focusedCard.cardId)}
+            data-testid={`one-wallet-reveal-${focusedCard.last4}`}
+          >
+            Show card details
+          </Button>
+        }
+        tertiary={
+          <Button
+            variant="ghost"
+            size="compact"
+            disabled={busyCardId === focusedCard.cardId}
+            className="text-[color:var(--app-destructive)] hover:bg-[color:color-mix(in_srgb,var(--app-destructive)_10%,transparent)]"
+            onClick={() => setRemoveTarget(focusedCard)}
+            data-testid="one-wallet-remove"
+          >
+            Remove card
+          </Button>
+        }
+      />
+    </div>
+  ) : null}
+
+  {view.kind === "reveal" ? (
+    <div className={deckStyles.reveal}>
+      <SecureCardReveal
+        summary={view.summary}
+        secrets={view.secrets}
+        showFace={false}
+        onHide={() => dispatch({ type: "hide" })}
+      />
+    </div>
+  ) : null}
+    </>
+  );
 
   const removeTitle = removeTarget
     ? removeTarget.nickname || `${cardNetworkLabel(removeTarget.brand)} ending ${removeTarget.last4}`
@@ -593,15 +637,16 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? (
-            <div className="relative">
+          {showSearch ? <div className="mx-auto flex w-full max-w-[420px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
+          {showSearch && searchOpen ? (
+            <div className="relative mx-auto w-full max-w-[420px]">
               <Search
                 aria-hidden="true"
                 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
               />
               <Input
                 value={searchValue}
-                onChange={(event) => setSearchValue(event.target.value)}
+                onChange={(event) => updateSearch(event.target.value)}
                 aria-label="Search cards"
                 placeholder="Search by nickname, network, last four, or region"
                 className="pl-10"
@@ -616,74 +661,12 @@ export function WalletWorkspace() {
             </p>
           ) : null}
 
-          {ready && pageCards.length > 0 ? (
-            <WalletCardStack
-              ref={stackRef}
-              cards={pageCards}
-              focusedCardId={focusedCardId}
-              revealed={
-                view.kind === "reveal"
-                  ? { pan: view.secrets.pan, cardholderName: view.secrets.cardholderName }
-                  : null
-              }
-              detailsId={detailsId}
-              onSelect={selectCard}
-            />
-          ) : null}
-
-          {view.kind === "list" && focusedCard ? (
-            <div
-              id={detailsId}
-              className="motion-step-enter [animation-delay:var(--motion-duration-sm)]"
-              data-testid="one-wallet-card-actions"
-            >
-              <FlowActionGroup
-                stacked
-                primary={
-                  <Button
-                    size="standard"
-                    isLoading={busyCardId === focusedCard.cardId}
-                    onClick={() => void revealCard(focusedCard.cardId)}
-                    data-testid={`one-wallet-reveal-${focusedCard.last4}`}
-                  >
-                    Show card details
-                  </Button>
-                }
-                tertiary={
-                  <Button
-                    variant="ghost"
-                    size="compact"
-                    disabled={busyCardId === focusedCard.cardId}
-                    className="text-[color:var(--app-destructive)] hover:bg-[color:color-mix(in_srgb,var(--app-destructive)_10%,transparent)]"
-                    onClick={() => setRemoveTarget(focusedCard)}
-                    data-testid="one-wallet-remove"
-                  >
-                    Remove card
-                  </Button>
-                }
-              />
-            </div>
-          ) : null}
-
-          {view.kind === "reveal" ? (
-            <div id={detailsId} className="motion-step-enter">
-              <SecureCardReveal
-                summary={view.summary}
-                secrets={view.secrets}
-                showFace={false}
-                onHide={() => dispatch({ type: "hide" })}
-              />
-            </div>
-          ) : null}
-
-          {view.kind === "list" && !focusedCardId && pageCount > 1 ? (
-            <PaginatedListFooter
-              page={safePage}
-              limit={WALLET_PAGE_SIZE}
-              total={filteredCards.length}
-              hasMore={safePage < pageCount}
-              onPrevious={() => goToPage(safePage - 1)}
-              onNext={() => goToPage(safePage + 1)}
+          {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[420px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
+          {ready && cards.length > 0 && !(searchOpen && deferredQuery) ? (
+            <WalletCardStack ref={stackRef} cards={cards} focusedCardId={focusedCard?.cardId ?? null}
+              detailsId={detailsId} onSelect={selectCard} active={activeTab === "cards"}
+              detailsOpen={view.kind === "reveal"} removingCardId={removingCardId}
+              details={cardDetails}
             />
           ) : null}
 

@@ -50,7 +50,7 @@ flowchart TD
 | Backend validation | `payment_card_validation.py` (`validate_payment_card_envelope`) | `wallet_card_validation.py` (`validate_wallet_card_envelope`) |
 | Frontend service | `lib/services/payment-cards-service.ts` (`PaymentCardsService`, `PAYMENT_CARDS_DOMAIN`) | `lib/services/wallet-service.ts` (`WalletService`, `WALLET_DOMAIN`) |
 | Frontend types | `PaymentCardSummary`, `PaymentCardSecrets`, `PaymentCardInput` | `WalletCardSummary`, `WalletCardSecrets`, `WalletCardInput` |
-| Components | `components/cards/cards-workspace.tsx` (`CardsWorkspace`) | `components/wallet/wallet-workspace.tsx` (`WalletWorkspace`, `WALLET_PAGE_SIZE`) |
+| Components | `components/cards/cards-workspace.tsx` (`CardsWorkspace`) | `components/wallet/wallet-workspace.tsx` (`WalletWorkspace`) |
 | Chat widget state | `AgentCardWidget`, `cardWidgets` | `AgentWalletWidget`, `walletWidgets` |
 | Chat sources | `agent_chat_cards_add` | `agent_chat_wallet_add` |
 | Voice contracts | `cards-widgets.voice-action-contract.json`, `app/one/cards/page.voice-action-contract.json` | `wallet-widgets.voice-action-contract.json`, `app/one/wallet/page.voice-action-contract.json` |
@@ -79,3 +79,39 @@ never sent to the model (`consent-protocol/docs/reference/personal-knowledge-mod
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`
 and the LlmAgent `name="wallet"` were the two the first pass missed and they crashed boot.
+
+
+## Cards presentation
+
+Only the saved-card presentation in Cards uses the animated deck. The existing
+Wallet header, Cards/Add/Sharing tabs, empty illustration, Add flow, and Sharing
+entrypoint retain their ownership and behavior.
+
+`WalletCardStack` derives a visual order from the selected card id followed by
+service-order summaries. It never writes card order. Up to four collapsed layers
+use a responsive 28–34px pitch and 1.5% scale steps; remaining cards are counted.
+View all opens the same keyed cards into a full-card vertical feed with 24px gaps.
+IntersectionObserver selects a clearly visible card near the reading-region
+center, with a dead band to avoid jitter. Tapping a card collapses it into focus.
+
+Horizontal gestures require 56px travel and a 1.5:1 direction ratio within 650ms;
+vertical intent stays with page scrolling. The deck opts out of the enclosing
+tab pager's horizontal gesture. Previous/Next buttons provide equivalent keyboard
+and touch access without a second bottom navigation surface.
+
+Search remains metadata-only through `WalletService.matchesQuery` and the `q`
+URL parameter; history changes resynchronize the input. Selecting a search result
+clears search and focuses the card. The expanded deck exposes all saved cards,
+replacing Cards pagination. Selection is session-local and never exposes secrets.
+
+Show card details still invokes the existing vault-scoped service and
+`SecureCardReveal`, including its auto-hide/background-hide behavior. The deck
+itself remains summary-only. Confirmed deletion fades/translates the removed card
+before refreshing and selects the next surviving neighbor where needed. Late
+summary/reveal responses are ignored if the owner or vault key has changed.
+
+Deck transitions take 320ms, removal 220ms, and count/detail fades 180ms. Reduced
+motion removes these transitions. No animation dependency, API, schema, consent
+scope, encrypted storage, native plugin, or global navigation contract changes.
+Browser coverage lives in `hushh-webapp/e2e/wallet-workspace.layout.spec.ts` and uses
+real Wallet components with synthetic service boundaries.
