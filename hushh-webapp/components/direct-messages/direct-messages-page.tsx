@@ -175,8 +175,9 @@ export function DirectMessagesPage() {
   const requestedConversationId = String(
     searchParams?.get("conversation") || "",
   ).trim();
-  const [thread, setThread] = useState<ThreadState>(EMPTY_THREAD);
+  const [storedThread, setThread] = useState<ThreadState>(EMPTY_THREAD);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
+  const [settledReadScope, setSettledReadScope] = useState<string | null>(null);
   const [loadingThread, setLoadingThread] = useState(false);
   const [threadError, setThreadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
@@ -187,9 +188,19 @@ export function DirectMessagesPage() {
   const loadGeneration = useRef(0);
   const loadedRouteKey = useRef<string | null>(null);
   const messageListRef = useRef<HTMLDivElement | null>(null);
+  const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
 
-  const activeConversationId = thread.conversation?.id ?? null;
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
+  const selectedRouteKey = requestedPersonRef
+    ? `person:${requestedPersonRef}`
+    : requestedConversationId ? `conversation:${requestedConversationId}` : null;
+  const readScope = user && selectedRouteKey
+    ? JSON.stringify([user.uid, selectedRouteKey]) : null;
+  const isCurrentRead = readScope !== null && settledReadScope === readScope;
+  // React can render the new owner/selection before effect cleanup runs. Keep
+  // the old transcript and send authority concealed during that interval.
+  const thread = isCurrentRead ? storedThread : EMPTY_THREAD;
+  const activeConversationId = thread.conversation?.id ?? null;
 
   const openOneVoiceChat = useCallback(() => {
     requestAgentConversationAfterRoute(ROUTES.HOME);
@@ -205,6 +216,7 @@ export function DirectMessagesPage() {
         : requestedConversationId
           ? `conversation:${requestedConversationId}`
           : null;
+      const requestScope = requestKey ? JSON.stringify([user.uid, requestKey]) : null;
 
       // A route change must never leave the previous connection's messages
       // visible beneath a new header while the next history request is in flight.
@@ -214,10 +226,14 @@ export function DirectMessagesPage() {
         setMessages([]);
         setThread(EMPTY_THREAD);
       }
-      if (!options?.preserveMessages) setLoadingThread(true);
-      setThreadError(null);
+      if (!options?.preserveMessages) {
+        setLoadingThread(true);
+        setSettledReadScope((current) => current === requestScope ? current : null);
+        setThreadError(null);
+      }
       try {
         const idToken = await user.getIdToken();
+        if (generation !== loadGeneration.current) return;
         if (requestedPersonRef) {
           const peer = await DirectMessagesService.getConversationWithPerson({
             idToken,
@@ -235,6 +251,8 @@ export function DirectMessagesPage() {
               nextBefore: null,
             });
             setMessages([]);
+            setSettledReadScope(requestScope);
+            setThreadError(null);
             return;
           }
           const history = await DirectMessagesService.getConversationMessages({
@@ -255,6 +273,8 @@ export function DirectMessagesPage() {
             }),
           );
           setMessages(sortMessages(history.items));
+          setSettledReadScope(requestScope);
+          setThreadError(null);
           if (history.conversation.unreadCount > 0) {
             void DirectMessagesService.markConversationRead({
               idToken,
@@ -291,6 +311,8 @@ export function DirectMessagesPage() {
           }),
         );
         setMessages(sortMessages(history.items));
+        setSettledReadScope(requestScope);
+        setThreadError(null);
         if (history.conversation.unreadCount > 0) {
           void DirectMessagesService.markConversationRead({
             idToken,
@@ -310,7 +332,6 @@ export function DirectMessagesPage() {
         // conversation with a large error panel. The next focus, SSE update,
         // or explicit refresh will retry while the cached thread stays usable.
         if (options?.preserveMessages) {
-          setThreadError(null);
           return;
         }
         if (requestedPersonRef) {
@@ -328,6 +349,7 @@ export function DirectMessagesPage() {
             ? "This connection is not available for messaging right now."
             : "Messages could not be loaded. Check your connection and try again.",
         );
+        setSettledReadScope(requestScope);
       } finally {
         if (generation === loadGeneration.current) setLoadingThread(false);
       }
@@ -338,6 +360,7 @@ export function DirectMessagesPage() {
   useEffect(() => {
     if (!user) {
       loadedRouteKey.current = null;
+      setSettledReadScope(null);
       setThread(EMPTY_THREAD);
       setMessages([]);
       return;
@@ -347,7 +370,8 @@ export function DirectMessagesPage() {
   useEffect(() => {
     if (!user) return;
     void loadThread();
-  }, [loadThread, user]);
+    return invalidateThreadRead;
+  }, [invalidateThreadRead, loadThread, user]);
 
   const refresh = useCallback(() => {
     if (hasRouteSelection) void loadThread({ preserveMessages: true });
@@ -450,7 +474,16 @@ export function DirectMessagesPage() {
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
-  const visibleMessages = messages;
+  const visibleMessages = isCurrentRead ? messages : [];
+  const nativeTest = {
+    routeId: "/one/messages",
+    marker: "native-route-direct-messages",
+    authState: authLoading ? "pending" : user ? "authenticated" : "anonymous",
+    dataState: authLoading ? "loading" : !user ? "unavailable-valid"
+      : !isCurrentRead || loadingThread ? "loading"
+      : threadError ? "error" : visibleMessages.length ? "loaded" : "empty-valid",
+    errorCode: isCurrentRead && threadError ? "direct_messages_read" : null,
+  } as const;
 
   const backToConnections = () => {
     router.replace(ROUTES.CONNECT, { scroll: false });
@@ -494,6 +527,7 @@ export function DirectMessagesPage() {
       // the optimistically rendered, server-returned record visible while the
       // matching history refresh resolves.
       loadedRouteKey.current = `conversation:${result.conversation.id}`;
+      setSettledReadScope(JSON.stringify([user.uid, loadedRouteKey.current]));
       router.replace(
         buildDirectMessageRoute({ conversationId: result.conversation.id }),
         { scroll: false },
@@ -545,7 +579,7 @@ export function DirectMessagesPage() {
 
   if (!user && !authLoading) {
     return (
-      <AppPageShell width="agent" fitContent>
+      <AppPageShell width="agent" fitContent nativeTest={nativeTest}>
         <section className={styles.unauthenticated}>
           <MessageCircle className="h-7 w-7" aria-hidden="true" />
           <h1>Messages</h1>
@@ -559,7 +593,7 @@ export function DirectMessagesPage() {
   }
 
   return (
-    <AppPageShell width="agent" fitContent={false}>
+    <AppPageShell width="agent" fitContent={false} nativeTest={nativeTest}>
       <section
         className={styles.page}
         data-one-chat-surface

@@ -379,9 +379,13 @@ product/runner and passed credential-free XCTest admission. Its normal reviewer
 unlock and protected warm journeys are not yet verified. All new SwiftUI families
 remain excluded there; installation and runner admission do not qualify them.
 The iPhone candidate passed the Profile stack and Connect selection/return. Its
-Finance journey stopped before the expected tabs; subsequent navigation and
-Memory did not establish coverage. These failures remain failures, not silently
-skipped acceptance. On iPad, whole-value entry reached the expected mask length
+Finance journey stopped before the expected tabs. The initial cleanup could not
+return from that flow; the harness now uses authored Back/Chat recovery rather
+than assuming the dock remains present. Independent warm Consent (all four tabs),
+Wallet Back/return, Memory Saved → Add → Sharing, and Mail/software-keyboard
+journeys subsequently passed on the `2dfcb5fe4` candidate. They preserve the
+draft and single identified host; the Finance failure is not reclassified as a pass.
+On iPad, whole-value entry reached the expected mask length
 but protected Chat was not admitted. No rejected credential is retried to turn
 that result green. The iPad fallback still requires protected route-family proof.
 
@@ -390,8 +394,14 @@ selected-query `/one/messages` and the three `/ria/clients/[userId]` detail
 templates. Their owning `frontend-native-surface-map` workflow must establish
 current-selection readiness for Messages and build-selected, role-authorized
 RIA fixtures before adding accepted journeys. A template, arbitrary identifier
-or mock conversation is not a working device fixture. RIA error-state precedence
-also needs correction before a retained entity can count as loaded. Token and
+or mock conversation is not a working device fixture. Messages now publishes
+owner/selection-bound readiness and invalidates unfinished reads on sign-out.
+Its first server-returned message remains visible during conversation-route
+handoff. A failed foreground read cannot count as valid empty information.
+The three RIA detail beacons now report errors ahead of retained entities and
+omit provider error bodies. Focused regressions cover all four surfaces; removing
+Messages' cancellation fails the owner-bound negative control. These source
+repairs do not supply the missing authorized device fixtures. Token and
 callback entries likewise do not become native destinations by inference.
 
 ### Shared Geometry and Motion
@@ -799,8 +809,9 @@ that button and cancel on an outside tap, as documented in
 The test now verifies the actual cancellation outcome, unchanged preference and
 interactive segment/trigger restoration, not an obsolete button. Warm entry uses
 the existing Profile state and authored Back actions; it does not reset the app.
-Raw diagnostics and temporary admission tracing were removed. The physical iPad
-remains transport-unavailable (CoreDevice 4016); simulator results do not qualify it.
+Raw diagnostics and temporary admission tracing were removed. That earlier iPad
+run stopped at CoreDevice 4016; the subsequent recovery and protected-session gap
+are recorded under Route Coverage and Device Admission. Simulator results do not qualify it.
 Appearance/Accent remain explicitly opt-in Debug iPhone families; full accessibility,
 visual and Release performance admission remain outstanding. No merge, deployment
 or distribution is implied.
