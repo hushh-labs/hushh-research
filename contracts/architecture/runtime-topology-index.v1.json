@@ -56,7 +56,7 @@
         "chat": false,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.",
+        "not_applicable_reason": "No roster tile and no chat specialist. Agent One itself lists hussh roles and applies from chat (careers.list_roles, careers.apply); this agent only reads resumes. Voice, remote A2A and MCP are not offered.",
         "voice": false,
         "web": true
       },
@@ -5939,8 +5939,8 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
-    "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
-    "agent_registry": "895670815e439630355ab7bff272431ca35e16c6083cad02004048a62ab4fc6a",
+    "action_gateway": "069373b830e0f928d1f2801a7725b595b41e5d8bc75e44dae3aad5cbde4811f4",
+    "agent_registry": "b2e84627c53a5bbb24c9fe6ee5d312847a467116f22c2935c07dcc7505827921",
     "cache_manifest": "dcf4ad2bdc42263d49cd3b0bd66b51695e9b2a45c6bbf8c570f54d494c11c1d7",
     "data_plane": "7346e15f32e4b1a2aaffbe1335e6f8a342636438d3fc313c7c4fed987974855c",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
@@ -5953,7 +5953,7 @@
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 226,
+    "actions": 228,
     "agents": 19,
     "aliases": 4,
     "decision_required": 2,
