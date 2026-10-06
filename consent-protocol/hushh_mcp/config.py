@@ -1,8 +1,14 @@
+from hushh_mcp.consent.audit_signing import enforce_audit_signing_at_startup
 from hushh_mcp.runtime_settings import (
     get_core_security_settings,
 )
 
+# get_core_security_settings() refuses to start on a missing APP_SIGNING_KEY; the
+# audit-signing guard runs right after it, for the same reason: a uat/production
+# hub whose consent-audit chain is enabled but cannot sign refuses to start (dev
+# logs instead).
 _SETTINGS = get_core_security_settings()
+enforce_audit_signing_at_startup(_SETTINGS.environment)
 
 APP_SIGNING_KEY = _SETTINGS.app_signing_key
 VAULT_DATA_KEY = _SETTINGS.vault_data_key

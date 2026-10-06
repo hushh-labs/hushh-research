@@ -191,6 +191,15 @@ def public_verification_keys(namespace: SigningNamespace = CONSENT_TOKENS) -> di
     }
 
 
+def private_key_configured(namespace: SigningNamespace = CONSENT_TOKENS) -> bool:
+    """True when this process can SIGN for ``namespace``.
+
+    A malformed seed raises rather than answering False: a key that is present but
+    unusable is a different operator error from a key nobody set.
+    """
+    return _private_key(namespace) is not None
+
+
 def current_kid(namespace: SigningNamespace = CONSENT_TOKENS) -> str:
     return (os.getenv(namespace.kid_env) or "").strip() or namespace.default_kid
 

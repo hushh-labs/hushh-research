@@ -1,9 +1,11 @@
 # Consent-audit integrity — tamper-evident receipt chain (AU-9 / AU-10)
 
-**Status:** in pursuit, dev-branch only, feature-flagged **OFF**
-(`CONSENT_AUDIT_CHAIN_ENABLED`, default off). Migration `904` is **parked**
-(900 band, not in `db/release_migration_manifest.json`) until greenlit. Nothing
-in a released environment changes until the flag is turned on.
+**Status:** in pursuit. Feature flag `CONSENT_AUDIT_CHAIN_ENABLED` (default
+off) is **on in dev only** (`scripts/deploy/backend-deploy.sh`) and off in uat and
+production. Migrations `904` and `913` are **parked** dev-only
+(`db/dev_migration_manifest.json`, never `db/release_migration_manifest.json`).
+Dev holds **no audit signing key** as of 2026-10-06, so dev writes no receipts
+today and every verification answers `signed: false`.
 
 ## Visual Context
 
@@ -29,8 +31,14 @@ append-only, **per-subject** hash chain in `consent_audit_receipts`:
 
 ```
 hash      = sha256( prev_hash || "\n" || canonical_payload )
-signature = HMAC-SHA256( APP_SIGNING_KEY, hash )
+signature = "ed25519.<kid>." + Ed25519( CONSENT_AUDIT_ED25519_PRIVATE_KEY, hash )
 ```
+
+The audit key is its own namespace (`token_signing.CONSENT_AUDIT`), deliberately
+separate from both `APP_SIGNING_KEY` and the consent-token key: the key that mints
+a permission must not also sign the record of having minted it. Verifiers hold
+only `CONSENT_AUDIT_ED25519_PUBLIC_KEYS`. There is no HMAC fallback: with no audit
+key the chain writes nothing and logs `consent_audit_chain_unsigned` per event.
 
 - **Chain** — each receipt links to the previous by `prev_hash`; a dropped,
   inserted, or reordered event breaks the chain.
@@ -39,9 +47,16 @@ signature = HMAC-SHA256( APP_SIGNING_KEY, hash )
   transaction-scoped `pg_advisory_xact_lock`, so concurrent events cannot fork
   the chain.
 - **Verification** — `ConsentAuditChainService.verify_chain(subject_id)` (and the
-  pure, DB-free `verify_receipts`) replays the chain and reports the first break
-  with a reason (`seq_gap`, `prev_hash_mismatch`, `hash_mismatch`,
-  `signature_mismatch`).
+  pure, DB-free `verify_receipts`, exposed as `GET /api/consent/receipts/verify`)
+  replays the chain and reports the first break with a reason (`seq_gap`,
+  `prev_hash_mismatch`, `hash_mismatch`, `signature_mismatch`). Verification is
+  strict: an untagged (HMAC) signature fails as `signature_mismatch`.
+- **Explicit verdict**: every verification result carries `signed` (true only
+  for a non-empty chain whose every receipt passed strict Ed25519 verification),
+  `chain_enabled`, `signing_key_configured`, `signing_kid`, and the kids actually
+  found in verified signatures. When `signed` is false, `unsigned_reason` is one
+  of `verification_failed`, `chain_disabled`, `signing_key_missing`,
+  `no_receipts`. An empty chain is never reported as signed.
 
 ## Fail-safe by design
 
@@ -51,12 +66,52 @@ logged for reconcile and surfaces as a gap `verify_chain` flags — it does **no
 fail the consent event. Availability of the audit operation is never traded for
 the integrity layer.
 
-## Enabling (dev only)
+## Startup guard
 
-1. Apply migration `904_consent_audit_receipts.sql` (still parked; renumber into
-   sequence + add to the release manifest at greenlight).
-2. Set `CONSENT_AUDIT_CHAIN_ENABLED=1`.
-3. Confirm with `verify_chain` over a known subject after a few consent events.
+A uat or production hub with the chain enabled refuses to start
+(`hushh_mcp/consent/audit_signing.py`, run from `hushh_mcp/config.py`) unless the
+audit private key is usable, any published `CONSENT_AUDIT_ED25519_PUBLIC_KEYS` map
+parses and contains `CONSENT_AUDIT_ED25519_KID`, and a probe signature verifies
+against the published key. Dev and local log the same condition at ERROR and keep
+serving. Pods are verifier-only and exempt. A lane with the chain off needs no key.
+
+## Enabling (dev)
+
+1. Migrations `904` and `913` apply through the dev-only migration lane.
+2. Mint the audit keypair (generated in one process, seed piped to Secret Manager
+   over stdin, only the kid and public half printed):
+   `uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev --namespace audit`
+3. Redeploy dev. `backend-deploy.sh` binds both secrets and sets
+   `CONSENT_AUDIT_SIGNING_ALG=ed25519`, `CONSENT_AUDIT_ED25519_KID=hushh-audit-dev-1`
+   only when both secrets exist, so deleting them and redeploying is the rollback.
+4. Confirm `signed: true` from `GET /api/consent/receipts/verify` for a subject
+   with a fresh consent event.
+
+Rotating: `--namespace audit --rotate --kid <new>` adds the new public key beside
+the old ones, and the kid literal in `backend-deploy.sh` must move with it.
+
+## Legacy HMAC receipts on dev (known, permanent per subject)
+
+From the dev deploy of 2026-08-26 ~23:00Z (`3debb78b6`, chain on, signed with
+`APP_SIGNING_KEY`) to the dev deploy of 2026-09-01 ~05:30Z (`fca1ac47a`,
+Ed25519 only), any consent event on dev wrote an HMAC-signed receipt. Strict
+verification rejects those rows at their position (normally `seq` 1), and
+`append` continues each subject's existing head, so a subject with such a row
+reports `signed: false`, `unsigned_reason: verification_failed` for good, even
+after the audit key is minted. That is the correct verdict, not a defect.
+Whether any such rows exist was not measured (no read path without the database
+password). Check read-only before minting:
+
+```sql
+SELECT ledger, count(DISTINCT subject_id) AS subjects, count(*) AS receipts,
+       min(created_at) AS first_at, max(created_at) AS last_at
+FROM consent_audit_receipts
+WHERE signature NOT LIKE 'ed25519.%'
+GROUP BY ledger;
+```
+
+If it returns rows, archiving or resetting those dev chains is a founder
+decision; nothing in code rewrites them.
 
 ## Honest limitations (what this is NOT — yet)
 
@@ -66,14 +121,16 @@ the integrity layer.
   A crash in the gap leaves a detectable chain gap, not a silent loss. A future
   hardening moves the consent write onto asyncpg (or a transactional outbox) for
   strict atomicity.
-- **Covers the `consent_audit` primary ledger.** Internal self-activity events
-  (`internal_access_events`) are not yet chained — a follow-up.
+- **Two ledgers, one table.** Person-visible consent events chain on the
+  `consent` ledger; the agent's own internal operations chain on a separate
+  `internal` sequence per subject (migration `913`), so the head an owner pins
+  does not advance on every turn.
 - **The primary `consent_audit` table stays mutable.** This adds an independent
   tamper-evident record to detect tampering; making the primary table itself
   append-only / WORM is a separate, larger step.
-- **Signing key custody.** Integrity is only as strong as `APP_SIGNING_KEY`
-  custody. Moving that key into GCP KMS (envelope encryption + rotation, SC-12 /
-  SC-28) is the paired agency-spine step.
+- **Signing key custody.** Integrity is only as strong as the custody of
+  `CONSENT_AUDIT_ED25519_PRIVATE_KEY` in Secret Manager. Moving it into GCP KMS
+  (asymmetric signing, SC-12 / SC-28) is the paired agency-spine step.
 
 Posture stays **"in pursuit"** — the control is real in code before any 3PAO /
 ATO says otherwise; it is never presented as a held certification.

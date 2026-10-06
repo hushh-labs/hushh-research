@@ -60,9 +60,9 @@ import logging
 from typing import Any
 
 from db.connection import get_pool
+from hushh_mcp.consent.audit_signing import annotate_verification
 from hushh_mcp.consent.token_signing import (
     CONSENT_AUDIT,
-    current_kid,
     sign_payload,
     verify_payload,
 )
@@ -140,24 +140,20 @@ def _sign(hash_hex: str) -> str:
     try:
         signature = sign_payload(
             hash_hex,
-            # Never reached: the audit namespace has no HMAC branch configured, and
-            # an unset key raises below rather than signing with anything. Passed
-            # because the shared signer's contract requires it.
+            # Never used: asymmetric is REQUIRED, so an unset key raises rather than
+            # signing with anything. Passed because the shared signer requires it.
             hmac_key="",
             namespace=CONSENT_AUDIT,
+            # Key present means sign, whatever CONSENT_AUDIT_SIGNING_ALG says. The
+            # startup guard keys on the same fact, so the two cannot disagree.
+            require_asymmetric=True,
         )
     except RuntimeError as exc:
-        # Configured asymmetric with no key. Re-raised as THIS module's error so
-        # the fail-safe mirror logs it as a ledger outage rather than letting it
-        # land in the generic branch beside a dropped connection.
-        raise AuditSigningKeyMissing(str(exc)) from exc
-    if not signature.startswith("ed25519."):
+        # Re-raised as THIS module's error so the fail-safe mirror logs a ledger
+        # outage rather than a generic failure beside a dropped connection.
         raise AuditSigningKeyMissing(
-            f"the consent audit chain is enabled but {CONSENT_AUDIT.private_key_env} is not "
-            f"set, so receipts would be signed with a key that cannot prove anything. "
-            f"Set {CONSENT_AUDIT.alg_env}=ed25519 and mint the key with "
-            f"scripts/ops/mint_consent_ed25519_key.py."
-        )
+            f"{exc}. Mint it with scripts/ops/mint_consent_ed25519_key.py --namespace audit."
+        ) from exc
     return signature
 
 
@@ -175,6 +171,57 @@ def _signature_is_valid(hash_hex: str, signature: str) -> bool:
         namespace=CONSENT_AUDIT,
         require_asymmetric=True,
     )
+
+
+def _walk_chain(subject_id: str, receipts: list[dict[str, Any]], ledger: str) -> dict[str, Any]:
+    """The integrity walk alone: hashes, links and strict signatures, first break wins."""
+    prev_hash = GENESIS_HASH
+    expected_seq = 1
+    for receipt in receipts:
+        if receipt["seq"] != expected_seq:
+            return {"ok": False, "broken_at_seq": receipt["seq"], "reason": "seq_gap"}
+        payload = _canonical_payload(
+            subject_id=subject_id,
+            ledger=str(receipt.get("ledger") or ledger),
+            seq=receipt["seq"],
+            event_type=receipt["event_type"],
+            agent_id=receipt["agent_id"],
+            scope=receipt["scope"],
+            request_id=receipt["request_id"],
+            token_id=receipt["token_id"],
+            audit_event_id=receipt["audit_event_id"],
+            issued_at_ms=receipt["issued_at_ms"],
+            metadata=receipt["metadata"],
+        )
+        expected_hash = _chain_hash(prev_hash, payload)
+        if receipt["prev_hash"] != prev_hash:
+            return {
+                "ok": False,
+                "broken_at_seq": receipt["seq"],
+                "reason": "prev_hash_mismatch",
+            }
+        if receipt["hash"] != expected_hash:
+            return {"ok": False, "broken_at_seq": receipt["seq"], "reason": "hash_mismatch"}
+        if not _signature_is_valid(receipt["hash"], receipt["signature"]):
+            # Covers three cases with one verdict, all of them "do not trust
+            # this row": a forged signature, a row signed under a key this
+            # verifier does not hold, and a legacy HMAC row from before the
+            # key separation. The third is deliberately NOT waved through --
+            # accepting it would restore the downgrade this change closes.
+            return {
+                "ok": False,
+                "broken_at_seq": receipt["seq"],
+                "reason": "signature_mismatch",
+            }
+        prev_hash = receipt["hash"]
+        expected_seq += 1
+    return {
+        "ok": True,
+        "ledger": ledger,
+        "count": len(receipts),
+        "head_seq": len(receipts),
+        "head_hash": prev_hash,
+    }
 
 
 class ConsentAuditChainService:
@@ -236,9 +283,8 @@ class ConsentAuditChainService:
         """Append one receipt in its own per-(subject, ledger) locked transaction.
 
         The advisory lock serializes concurrent appends so two events cannot read
-        the same head and fork the chain. It is keyed on the LEDGER as well as the
-        subject, so an agent's internal operations never serialize behind that
-        person's consent writes, and never advance the head an owner pins.
+        the same head and fork the chain. Keyed on the LEDGER as well as the subject,
+        so internal operations never serialize behind, or advance, consent writes.
         """
         await self.ensure_table()
         meta = dict(metadata or {})
@@ -307,6 +353,7 @@ class ConsentAuditChainService:
             "prev_hash": row["prev_hash"],
             "hash": row["hash"],
             "signature": row["signature"],
+            "signed": True,  # _sign refuses rather than writing an unsigned receipt
         }
 
     async def list_receipts(
@@ -369,59 +416,10 @@ class ConsentAuditChainService:
         """Pure chain verification -- recompute hashes + signatures, report first break.
 
         Separated from the DB fetch so drop / reorder / tamper detection is
-        unit-testable without a database.
+        unit-testable without a database. ``signed`` is stated, never implied: an
+        empty chain verifies and is NOT signed (``audit_signing``).
         """
-        prev_hash = GENESIS_HASH
-        expected_seq = 1
-        for receipt in receipts:
-            if receipt["seq"] != expected_seq:
-                return {"ok": False, "broken_at_seq": receipt["seq"], "reason": "seq_gap"}
-            payload = _canonical_payload(
-                subject_id=subject_id,
-                ledger=str(receipt.get("ledger") or ledger),
-                seq=receipt["seq"],
-                event_type=receipt["event_type"],
-                agent_id=receipt["agent_id"],
-                scope=receipt["scope"],
-                request_id=receipt["request_id"],
-                token_id=receipt["token_id"],
-                audit_event_id=receipt["audit_event_id"],
-                issued_at_ms=receipt["issued_at_ms"],
-                metadata=receipt["metadata"],
-            )
-            expected_hash = _chain_hash(prev_hash, payload)
-            if receipt["prev_hash"] != prev_hash:
-                return {
-                    "ok": False,
-                    "broken_at_seq": receipt["seq"],
-                    "reason": "prev_hash_mismatch",
-                }
-            if receipt["hash"] != expected_hash:
-                return {"ok": False, "broken_at_seq": receipt["seq"], "reason": "hash_mismatch"}
-            if not _signature_is_valid(receipt["hash"], receipt["signature"]):
-                # Covers three cases with one verdict, all of them "do not trust
-                # this row": a forged signature, a row signed under a key this
-                # verifier does not hold, and a legacy HMAC row from before the
-                # key separation. The third is deliberately NOT waved through --
-                # accepting it would restore the downgrade this change closes.
-                return {
-                    "ok": False,
-                    "broken_at_seq": receipt["seq"],
-                    "reason": "signature_mismatch",
-                }
-            prev_hash = receipt["hash"]
-            expected_seq += 1
-        return {
-            "ok": True,
-            "ledger": ledger,
-            "count": len(receipts),
-            "head_seq": len(receipts),
-            "head_hash": prev_hash,
-            # WHICH key vouched for this run. An auditor holding only the public
-            # map can tell a chain they can check from one they merely could not
-            # break, and those are different sentences.
-            "verified_with_kid": current_kid(CONSENT_AUDIT),
-        }
+        return annotate_verification(_walk_chain(subject_id, receipts, ledger), receipts)
 
     async def verify_chain(
         self,
@@ -453,28 +451,23 @@ class ConsentAuditChainService:
 
         head_seq = int(result.get("head_seq") or 0)
         head_hash = str(result.get("head_hash") or "")
+        # A head that regressed or diverged is a failed verification, said as such.
+        anchor = {
+            "ok": False,
+            "broken_at_seq": head_seq,
+            "head_seq": head_seq,
+            "head_hash": head_hash,
+        }
         if expected_head_seq is not None:
             if head_seq < int(expected_head_seq):
-                return {
-                    "ok": False,
-                    "broken_at_seq": head_seq,
-                    "reason": "head_regressed",
-                    "head_seq": head_seq,
-                    "head_hash": head_hash,
-                    "expected_head_seq": int(expected_head_seq),
-                }
+                anchor.update(reason="head_regressed", expected_head_seq=int(expected_head_seq))
+                return annotate_verification(anchor, receipts)
             if (
                 head_seq == int(expected_head_seq)
                 and expected_head_hash is not None
                 and not hmac.compare_digest(head_hash, str(expected_head_hash))
             ):
-                return {
-                    "ok": False,
-                    "broken_at_seq": head_seq,
-                    "reason": "head_diverged",
-                    "head_seq": head_seq,
-                    "head_hash": head_hash,
-                }
+                return annotate_verification({**anchor, "reason": "head_diverged"}, receipts)
         return result
 
 

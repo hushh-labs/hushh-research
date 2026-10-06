@@ -15,11 +15,23 @@ Shapes match ``hushh_mcp/consent/token_signing.py`` exactly:
 ``--rotate`` READS the current public map first and adds the new kid alongside the
 old ones -- never replaces -- so outstanding tokens issued under the previous kid
 keep verifying until they expire and the old kid is dropped deliberately.
+Rotation is two steps, not one: the deploy pins the SIGNING kid as a literal in
+``scripts/deploy/backend-deploy.sh`` (``consent_ed25519_kid`` /
+``consent_audit_ed25519_kid``), so a rotated ``--kid`` signs nothing until that
+literal moves to it too. For the audit namespace a uat/production hub with the
+chain on refuses to start while its signing kid is absent from the published map.
+
+``--namespace audit`` mints the consent-AUDIT chain's key instead
+(``CONSENT_AUDIT_ED25519_PRIVATE_KEY`` / ``CONSENT_AUDIT_ED25519_PUBLIC_KEYS``,
+default kid ``hushh-audit-dev-1``). A separate keypair by design: the key that
+mints a permission must not also sign the record of having minted it.
 
 ``--project`` is required with no default: a key mint must never touch uat or
 production by omission. Usage:
 
     uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev
+    uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev \
+        --namespace audit
     uv run python scripts/ops/mint_consent_ed25519_key.py --project hushh-pda-dev \
         --kid hushh-consent-dev-2 --rotate
 """
@@ -35,6 +47,16 @@ import sys
 DEFAULT_KID = "hushh-consent-dev-1"
 PRIVATE_SECRET = "CONSENT_ED25519_PRIVATE_KEY"  # noqa: S105 - a Secret Manager NAME, not a credential
 PUBLIC_SECRET = "CONSENT_ED25519_PUBLIC_KEYS"  # noqa: S105 - a Secret Manager NAME, not a credential
+AUDIT_DEFAULT_KID = "hushh-audit-dev-1"
+AUDIT_PRIVATE_SECRET = "CONSENT_AUDIT_ED25519_PRIVATE_KEY"  # noqa: S105 - a secret NAME
+AUDIT_PUBLIC_SECRET = "CONSENT_AUDIT_ED25519_PUBLIC_KEYS"  # noqa: S105 - a secret NAME
+
+#: namespace -> (private secret, public secret, default kid). Names must match
+#: ``token_signing.CONSENT_TOKENS`` / ``CONSENT_AUDIT``; a test pins both.
+NAMESPACES: dict[str, tuple[str, str, str]] = {
+    "consent": (PRIVATE_SECRET, PUBLIC_SECRET, DEFAULT_KID),
+    "audit": (AUDIT_PRIVATE_SECRET, AUDIT_PUBLIC_SECRET, AUDIT_DEFAULT_KID),
+}
 
 
 def _secret_exists(name: str, project: str) -> bool:
@@ -97,13 +119,21 @@ def main() -> int:
         required=True,
         help="GCP project holding the secrets. Required, no default -- deliberately.",
     )
-    parser.add_argument("--kid", default=DEFAULT_KID, help=f"Key id (default {DEFAULT_KID}).")
+    parser.add_argument(
+        "--namespace",
+        choices=sorted(NAMESPACES),
+        default="consent",
+        help="Which keypair: consent tokens (default) or the consent-audit chain.",
+    )
+    parser.add_argument("--kid", default=None, help="Key id (default: the namespace's own).")
     parser.add_argument(
         "--rotate",
         action="store_true",
         help="Merge the new kid into the existing public map instead of requiring a fresh start.",
     )
     args = parser.parse_args()
+    private_secret, public_secret, default_kid = NAMESPACES[args.namespace]
+    args.kid = args.kid or default_kid
 
     from cryptography.hazmat.primitives import serialization  # noqa: PLC0415
 
@@ -115,10 +145,10 @@ def main() -> int:
     public_map: dict[str, str] = {}
     if args.rotate:
         try:
-            public_map = dict(json.loads(_read_secret(PUBLIC_SECRET, args.project)))
+            public_map = dict(json.loads(_read_secret(public_secret, args.project)))
         except subprocess.CalledProcessError:
             print(
-                f"--rotate needs an existing {PUBLIC_SECRET} in {args.project}; "
+                f"--rotate needs an existing {public_secret} in {args.project}; "
                 "run once without --rotate first.",
                 file=sys.stderr,
             )
@@ -129,9 +159,9 @@ def main() -> int:
                 file=sys.stderr,
             )
             return 1
-    elif _secret_exists(PUBLIC_SECRET, args.project):
+    elif _secret_exists(public_secret, args.project):
         print(
-            f"{PUBLIC_SECRET} already exists in {args.project}. Re-minting the initial key "
+            f"{public_secret} already exists in {args.project}. Re-minting the initial key "
             "would strand every outstanding token; use --rotate with a NEW --kid instead.",
             file=sys.stderr,
         )
@@ -150,8 +180,8 @@ def main() -> int:
     ).decode("ascii")
     public_map[args.kid] = public_b64
 
-    _write_secret(PRIVATE_SECRET, args.project, seed_b64)
-    _write_secret(PUBLIC_SECRET, args.project, json.dumps(public_map))
+    _write_secret(private_secret, args.project, seed_b64)
+    _write_secret(public_secret, args.project, json.dumps(public_map))
 
     # The private seed is deliberately never printed.
     print(f"kid: {args.kid}")
