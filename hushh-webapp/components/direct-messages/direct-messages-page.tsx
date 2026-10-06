@@ -11,6 +11,7 @@ import {
 } from "react";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
+import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Button } from "@/lib/morphy-ux/button";
@@ -557,6 +558,9 @@ export function DirectMessagesPage() {
         className={styles.page}
         data-one-chat-surface
         data-chat-open="true"
+        data-direct-message-composer-docked={
+          hasRouteSelection && thread.canSend ? "true" : undefined
+        }
         data-native-route="native-route-direct-messages"
       >
         <main className={styles.thread} aria-live="polite">
@@ -842,83 +846,88 @@ export function DirectMessagesPage() {
                 })}
               </div>
 
-              {!thread.canSend ? (
-                messages.length > 0 ? (
-                  <div className={styles.readOnlyNotice} role="status">
-                    {thread.disconnectedNotice || "You are no longer connected."}
-                  </div>
-                ) : null
-              ) : (
-                <form
-                  className={cn(styles.composer, "agent-chat-composer-surface")}
-                  onSubmit={(event) => void sendDraft(event)}
-                >
-                  <label className="sr-only" htmlFor="direct-message-draft">
-                    Message {selectedLabel}
-                  </label>
-                  <textarea
-                    id="direct-message-draft"
-                    value={draft}
-                    onChange={(event) => setDraft(event.target.value)}
-                    placeholder={`Message ${selectedLabel}`}
-                    maxLength={DIRECT_MESSAGE_MAX_LENGTH}
-                    disabled={sending}
-                    rows={1}
-                    className={styles.composerInput}
-                    onKeyDown={(event) => {
-                      if (
-                        event.key !== "Enter" ||
-                        event.shiftKey ||
-                        event.nativeEvent.isComposing
-                      ) {
-                        return;
-                      }
-                      event.preventDefault();
-                      if (draft.trim() && !sending) event.currentTarget.form?.requestSubmit();
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className={styles.composerEmojiButton}
-                    aria-label="Add emoji"
-                    onClick={() =>
-                      setDraft((current) => `${current}${current ? " " : ""}😊`)
-                    }
-                    disabled={sending}
+              {!thread.canSend && messages.length > 0 ? (
+                <div className={styles.readOnlyNotice} role="status">
+                  {thread.disconnectedNotice || "You are no longer connected."}
+                </div>
+              ) : null}
+              <AgentDockPortal
+                enabled={hasRouteSelection}
+                visible={thread.canSend}
+                suppressed={!thread.canSend}
+              >
+                {thread.canSend ? (
+                  <form
+                    className={styles.composer}
+                    onSubmit={(event) => void sendDraft(event)}
                   >
-                    <span aria-hidden="true">☺</span>
-                  </button>
-                  <div className={styles.composerActions}>
+                    <label className="sr-only" htmlFor="direct-message-draft">
+                      Message {selectedLabel}
+                    </label>
+                    <textarea
+                      id="direct-message-draft"
+                      value={draft}
+                      onChange={(event) => setDraft(event.target.value)}
+                      placeholder={`Message ${selectedLabel}`}
+                      maxLength={DIRECT_MESSAGE_MAX_LENGTH}
+                      disabled={sending}
+                      rows={1}
+                      className={styles.composerInput}
+                      onKeyDown={(event) => {
+                        if (
+                          event.key !== "Enter" ||
+                          event.shiftKey ||
+                          event.nativeEvent.isComposing
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        if (draft.trim() && !sending) event.currentTarget.form?.requestSubmit();
+                      }}
+                    />
                     <button
                       type="button"
-                      className={styles.voiceButton}
-                      aria-label="Voice messages are not available in Messages yet"
+                      className={styles.composerEmojiButton}
+                      aria-label="Add emoji"
                       onClick={() =>
-                        morphyToast.info(
-                          "Voice messages are not available in Messages yet.",
-                        )
+                        setDraft((current) => `${current}${current ? " " : ""}😊`)
                       }
+                      disabled={sending}
                     >
-                      <Mic className="h-4 w-4" aria-hidden="true" />
+                      <span aria-hidden="true">☺</span>
                     </button>
-                    <button
-                      type="submit"
-                      className={styles.sendButton}
-                      disabled={sending || !draft.trim()}
-                      aria-label="Send message"
-                    >
-                      {sending ? (
-                        <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
-                      ) : (
-                        <Send className="h-5 w-5" aria-hidden="true" />
-                      )}
-                    </button>
-                  </div>
-                  <span className="sr-only" aria-live="polite">
-                    {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
-                  </span>
-                </form>
-              )}
+                    <div className={styles.composerActions}>
+                      <button
+                        type="button"
+                        className={styles.voiceButton}
+                        aria-label="Voice messages are not available in Messages yet"
+                        onClick={() =>
+                          morphyToast.info(
+                            "Voice messages are not available in Messages yet.",
+                          )
+                        }
+                      >
+                        <Mic className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                      <button
+                        type="submit"
+                        className={styles.sendButton}
+                        disabled={sending || !draft.trim()}
+                        aria-label="Send message"
+                      >
+                        {sending ? (
+                          <Loader2 className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+                        ) : (
+                          <Send className="h-5 w-5" aria-hidden="true" />
+                        )}
+                      </button>
+                    </div>
+                    <span className="sr-only" aria-live="polite">
+                      {draft.length}/{DIRECT_MESSAGE_MAX_LENGTH}
+                    </span>
+                  </form>
+                ) : null}
+              </AgentDockPortal>
         </main>
       </section>
     </AppPageShell>

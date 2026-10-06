@@ -35,6 +35,13 @@
   display: none;
 }
 
+/* A selected connection projects its composer into the same persistent dock
+   that Chat uses. The dock is fixed above the navigation, so keep the last
+   message above it rather than letting it disappear beneath the input. */
+.page[data-direct-message-composer-docked="true"] .messageList {
+  padding-bottom: 5rem;
+}
+
 .inbox,
 .thread {
   display: flex;
@@ -522,23 +529,16 @@ article[data-message-role="peer"] .messageMenu {
 
 .composer {
   display: flex;
-  width: min(
-    calc(
-      100% - var(--app-bottom-shell-inline-inset, 0.75rem) -
-        var(--app-bottom-shell-inline-inset, 0.75rem)
-    ),
-    var(--app-bottom-shell-max-width, 48rem)
-  );
+  width: 100%;
   min-height: 3.25rem;
   align-items: center;
   gap: 0.25rem;
   box-sizing: border-box;
-  margin: 0.5rem auto 0.25rem;
+  margin: 0;
   padding: 0.25rem 0.375rem 0.25rem 1.25rem;
-  border: 1px solid var(--one-chat-composer-border) !important;
-  border-radius: 999px !important;
-  background: var(--one-chat-composer) !important;
-  box-shadow: 0 4px 20px -2px rgb(0 0 0 / 0.07) !important;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .composerInput {
@@ -758,7 +758,6 @@ article[data-message-role="peer"] .messageMenu {
 
   .threadHeaderContent,
   .messageList,
-  .composer,
   .readOnlyNotice {
     width: 100%;
   }
@@ -771,7 +770,6 @@ article[data-message-role="peer"] .messageMenu {
     padding-inline: 0.875rem;
   }
 
-  .composer,
   .readOnlyNotice {
     width: calc(100% - 1rem);
   }

@@ -162,6 +162,9 @@ describe("app bottom navigation", () => {
 
   it("selects the active workspace destination", () => {
     expect(resolveBottomNavActiveKey(ROUTES.HOME, "one")).toBe("chat");
+    expect(resolveBottomNavActiveKey(ROUTES.ONE_MESSAGES, "one")).toBe(
+      "chat",
+    );
     expect(resolveBottomNavActiveKey(ROUTES.KAI_ANALYSIS, "investor")).toBe(
       "dashboard",
     );

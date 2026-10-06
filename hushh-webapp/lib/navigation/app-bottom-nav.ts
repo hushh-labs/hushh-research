@@ -247,6 +247,10 @@ export function resolveBottomNavActiveKey(
   ) {
     return normalizedPathname === ROUTES.HOME ? "chat" : "dashboard";
   }
+  // Connection threads are a Chat destination, not the One dashboard.
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_MESSAGES)) {
+    return "chat";
+  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
     return "connect";
   }
