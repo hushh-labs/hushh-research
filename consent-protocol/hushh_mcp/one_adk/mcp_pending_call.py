@@ -100,9 +100,24 @@ async def _execute(sql: str, params: dict[str, Any]):
         raise PendingCallStorageError("Connector review is temporarily unavailable.") from None
 
 
+async def discard_pending_call(*, owner: str, thread: str, handle: str) -> None:
+    """Remove a record whose call has run. Best effort: it expires and is swept anyway."""
+    if not isinstance(handle, str) or _HANDLE_PATTERN.fullmatch(handle) is None:
+        return
+    try:
+        await _execute(
+            """DELETE FROM one_mcp_pending_calls
+               WHERE user_id = :user AND session_id = :session AND handle = :handle""",
+            {"user": owner, "session": thread, "handle": handle},
+        )
+    except PendingCallStorageError:
+        pass  # already logged with a code only
+
+
 @asynccontextmanager
 async def pending_resume_scope(approval_reference: Any):
     handle = None
+    approval: Any = None
     if approval_reference:
         if not isinstance(approval_reference, str) or not approval_reference.startswith(
             _HANDLE_PREFIX
@@ -117,9 +132,16 @@ async def pending_resume_scope(approval_reference: Any):
         if not isinstance(approval, dict):
             raise review_refusal("approval_reference_invalid", _EXPIRED)
         handle = approval.get("pendingHandle")
+    owner = approval.get("owner") if approval_reference and isinstance(approval, dict) else None
+    thread = approval.get("thread") if approval_reference and isinstance(approval, dict) else None
     token = _CURRENT_HANDLE.set(handle)
     try:
         yield
+        # The resumed turn completed. Every session read inside it needed the record,
+        # so it can only go now; a turn that failed or was cancelled leaves it to its
+        # own expiry and the retention sweep.
+        if handle and owner and thread:
+            await discard_pending_call(owner=owner, thread=thread, handle=handle)
     finally:
         _CURRENT_HANDLE.reset(token)
 

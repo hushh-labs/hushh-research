@@ -315,6 +315,10 @@ async def test_private_connector_setup_is_owner_bound_and_exposes_only_safe_meta
     assert (await module.inspect_private_connectors(context()))["status"] == "unavailable"
 
 
+def typed(text):
+    return SimpleNamespace(parts=[SimpleNamespace(text=text)])
+
+
 async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch):
     authority = AsyncMock(return_value=True)
     probe = AsyncMock(
@@ -324,6 +328,7 @@ async def test_probe_is_owner_bound_and_never_sends_the_owner_token(monkeypatch)
     monkeypatch.setattr(module, "probe_mcp_server", probe)
     candidate = context()
     candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    candidate.user_content = typed("please check https://mcp.example.com/mcp for me")
     result = await module.probe_private_connector("https://mcp.example.com/mcp", candidate)
     assert result["status"] == "ok" and result["probe"] == {"status": "ready", "tools": []}
     # The probe receives the address only: no owner token, header or vault record.
@@ -688,3 +693,56 @@ async def test_a_reused_listing_still_carries_the_review_note_exactly_once(regis
         assert listing[0].description.count(module.REVIEW_CARD_NOTE) == 1
         assert listing[0].description.endswith(module.REVIEW_CARD_NOTE)
     assert write.description == "Create records"
+
+
+async def probe_with(monkeypatch, endpoint, user_content):
+    probe = AsyncMock(return_value=SimpleNamespace(to_dict=lambda: {"status": "ready"}))
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    monkeypatch.setattr(module, "probe_mcp_server", probe)
+    candidate = context()
+    candidate.state["hussh:consent_token"] = "synthetic-owner-token"
+    candidate.user_content = user_content
+    return await module.probe_private_connector(endpoint, candidate), probe
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "check https://mcp.example.com/mcp",
+        "CHECK HTTPS://MCP.EXAMPLE.COM/MCP please",
+        "https://mcp.example.com/mcp/",
+        "my server is at https://mcp.example.com/mcp, can you look?",
+    ],
+)
+async def test_the_probe_runs_for_an_address_the_person_typed(monkeypatch, message):
+    result, probe = await probe_with(monkeypatch, "https://mcp.example.com/mcp", typed(message))
+    assert result["status"] == "ok"
+    probe.assert_awaited_once_with("https://mcp.example.com/mcp")
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "user_content"),
+    [
+        # The model chose the host: nothing the person typed names it.
+        ("https://collector.attacker.example/summary-of-the-last-answer", typed("hello")),
+        ("https://mcp.example.com/mcp", typed("check https://other.example.com/mcp")),
+        # Extending a typed address with a path the person never typed is not the typed address
+        # (this is how a model could carry data out in the path).
+        (
+            "https://mcp.example.com/mcp/leak-the-summary",
+            typed("check https://mcp.example.com/mcp"),
+        ),
+        ("https://mcp.example.com/mcp", None),
+        ("https://mcp.example.com/mcp", SimpleNamespace(parts=[])),
+        ("https://mcp.example.com/mcp", SimpleNamespace(parts=[SimpleNamespace(text=None)])),
+        ("", typed("anything")),
+        ("   ", typed("anything")),
+    ],
+)
+async def test_the_probe_never_contacts_an_address_the_person_did_not_type(
+    monkeypatch, endpoint, user_content
+):
+    result, probe = await probe_with(monkeypatch, endpoint, user_content)
+    assert result["status"] == "blocked"
+    assert "typed" in result["message"]
+    probe.assert_not_awaited()

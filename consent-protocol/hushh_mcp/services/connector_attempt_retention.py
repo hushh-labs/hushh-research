@@ -108,12 +108,29 @@ WITH candidates AS (
 ) SELECT count(*) FROM deleted
 """
 
+# Sealed arguments of connector calls whose review lapsed. The row is also removed once
+# its approved call has run, and an owner's own lapsed rows are purged on their next
+# review; this sweep is what reclaims a review nobody ever answered.
+_PENDING_CALLS_DELETE = """
+WITH candidates AS (
+  SELECT user_id, handle FROM one_mcp_pending_calls
+  WHERE expires_at < clock_timestamp()
+  ORDER BY expires_at, user_id, handle LIMIT :limit FOR UPDATE SKIP LOCKED
+), deleted AS (
+  DELETE FROM one_mcp_pending_calls AS pending
+  USING candidates
+  WHERE pending.user_id = candidates.user_id AND pending.handle = candidates.handle
+  RETURNING 1
+) SELECT count(*) FROM deleted
+"""
+
 _OPERATIONS = (
     ("oauth_scrubbed", _OAUTH_SCRUB),
     ("native_picker_scrubbed", _NATIVE_SCRUB),
     ("oauth_deleted", _OAUTH_DELETE),
     ("native_picker_deleted", _NATIVE_DELETE),
     ("picker_sessions_deleted", _PICKER_DELETE),
+    ("mcp_pending_calls_deleted", _PENDING_CALLS_DELETE),
 )
 
 

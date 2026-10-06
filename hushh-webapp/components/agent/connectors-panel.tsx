@@ -1714,10 +1714,21 @@ function OwnerConnectorsPanel({
       curatedDisconnectId.current = connectorId;
       beginDisconnect(connectorId);
       setCuratedBusy(true);
+      const providerName =
+        overview?.connectors.find((item) => item.connectorId === connectorId)?.displayName ?? "the provider";
       void ExternalConnectorService.disconnect({ vaultOwnerToken: token, connectorId })
-        .then(async () => {
+        .then(async (result) => {
           if (signal.aborted || currentToken.current !== token || curatedRequest.current !== request) return;
-          setCuratedMessage("Disconnected.");
+          // The local credential is always gone. Say whether the provider's copy is too.
+          setCuratedMessage(
+            result?.revocationOutcome === "revoked"
+              ? "Disconnected."
+              : result?.revocationOutcome === "failed"
+                ? `Disconnected in One. ${providerName} did not confirm revoking access; remove it in ${providerName} if needed.`
+                : result?.revocationOutcome === "unavailable"
+                  ? `Disconnected in One. Remove access in ${providerName} if needed.`
+                  : "Disconnected.",
+          );
           await refresh(signal);
           if (signal.aborted || curatedRequest.current !== request) return;
           endDisconnect(connectorId);

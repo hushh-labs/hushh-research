@@ -165,6 +165,24 @@ async def inspect_private_connectors(tool_context: ToolContext) -> dict:
         return {"status": "unavailable", "message": "Could not check connectors. Try again."}
 
 
+def _typed_text(tool_context: ToolContext) -> str:
+    """What the person typed in this turn, and nothing the model or a tool produced."""
+    parts = getattr(getattr(tool_context, "user_content", None), "parts", None) or []
+    return " ".join(text for part in parts if isinstance(text := getattr(part, "text", None), str))
+
+
+def _person_gave_this_address(endpoint: str, tool_context: ToolContext) -> bool:
+    """True only if the address appears in the person's own message this turn.
+
+    The probe is an outbound request from the server to a host the caller names, with
+    no review card. If the model could name the host, content it had read (another
+    person's shared note, a web page) could tell it to contact an attacker's host with
+    a path that carries what it knows. The address must therefore come from the person.
+    """
+    clean = str(endpoint or "").strip().rstrip("/")
+    return bool(clean) and clean.casefold() in _typed_text(tool_context).casefold()
+
+
 async def probe_private_connector(endpoint: str, tool_context: ToolContext) -> dict:
     """Check an MCP server address the owner gave, without connecting or calling it.
 
@@ -186,6 +204,14 @@ async def probe_private_connector(endpoint: str, tool_context: ToolContext) -> d
             return {"status": "blocked", "message": "Connectors are unavailable in this session."}
     except Exception:
         return {"status": "unavailable", "message": "Could not check connectors. Try again."}
+    if not _person_gave_this_address(endpoint, tool_context):
+        return {
+            "status": "blocked",
+            "message": (
+                "Only an address the person typed can be checked. Ask them to share the "
+                "connector address in their message."
+            ),
+        }
     result = await probe_mcp_server(endpoint)
     return {
         "status": "ok",

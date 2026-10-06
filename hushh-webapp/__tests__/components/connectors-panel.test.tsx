@@ -529,6 +529,22 @@ describe("supported connector catalog", () => {
       );
     });
 
+    it.each([
+      ["revoked", "Disconnected."],
+      ["failed", "Disconnected in One. HubSpot did not confirm revoking access; remove it in HubSpot if needed."],
+      ["unavailable", "Disconnected in One. Remove access in HubSpot if needed."],
+    ])("tells the person what happened to the provider's copy of the grant (%s)", async (outcome, message) => {
+      state.disconnect.mockReset().mockResolvedValue({ status: "revoked", connectorId: "hubspot", revocationOutcome: outcome });
+      state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "connected" }]));
+      render(panel());
+      fireEvent.click(await screen.findByRole("button", { name: "HubSpot" }));
+      const details = screen.getByRole("region", { name: "HubSpot details" });
+      fireEvent.click(within(details).getByRole("button", { name: "Disconnect" }));
+      const dialog = await screen.findByRole("alertdialog", { name: "Disconnect this connector?" });
+      fireEvent.click(within(dialog).getByRole("button", { name: "Disconnect" }));
+      expect(await screen.findByText(message)).toBeInTheDocument();
+    });
+
     it("does not offer a stale grant a reconnect path while rollout is off", async () => {
       state.overview.mockResolvedValue(withFlag([{ ...hubspot, status: "verifying" }], false));
       render(panel());

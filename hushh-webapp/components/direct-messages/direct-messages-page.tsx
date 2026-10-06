@@ -14,10 +14,10 @@ import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ArrowLeft,
-  CameraIcon,
   CheckCheck,
   Loader2,
   MessageCircle,
@@ -44,6 +44,7 @@ import {
   buildDirectMessageRoute,
   ROUTES,
 } from "@/lib/navigation/routes";
+import { requestAgentConversationAfterRoute } from "@/lib/agent/agent-voice-settings";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 
@@ -189,6 +190,11 @@ export function DirectMessagesPage() {
 
   const activeConversationId = thread.conversation?.id ?? null;
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
+
+  const openOneVoiceChat = useCallback(() => {
+    requestAgentConversationAfterRoute(ROUTES.HOME);
+    router.push(ROUTES.HOME);
+  }, [router]);
 
   const loadThread = useCallback(
     async (options?: { preserveMessages?: boolean }) => {
@@ -605,16 +611,6 @@ export function DirectMessagesPage() {
                     >
                       <Phone className="h-4 w-4" aria-hidden="true" />
                     </button>
-                    <button
-                      type="button"
-                      className={styles.headerAction}
-                      aria-label="Video calls are not available in Messages yet"
-                      onClick={() =>
-                        morphyToast.info("Calls are not available in Messages yet.")
-                      }
-                    >
-                      <CameraIcon className="h-4 w-4" aria-hidden="true" />
-                    </button>
                   </div>
                 </div>
               </header>
@@ -885,27 +881,18 @@ export function DirectMessagesPage() {
                         if (draft.trim() && !sending) event.currentTarget.form?.requestSubmit();
                       }}
                     />
-                    <button
-                      type="button"
-                      className={styles.composerEmojiButton}
-                      aria-label="Add emoji"
-                      onClick={() =>
-                        setDraft((current) => `${current}${current ? " " : ""}😊`)
-                      }
+                    <DirectMessageEmojiPicker
                       disabled={sending}
-                    >
-                      <span aria-hidden="true">☺</span>
-                    </button>
+                      onEmojiSelect={(emoji) =>
+                        setDraft((current) => `${current}${emoji}`)
+                      }
+                    />
                     <div className={styles.composerActions}>
                       <button
                         type="button"
                         className={styles.voiceButton}
-                        aria-label="Voice messages are not available in Messages yet"
-                        onClick={() =>
-                          morphyToast.info(
-                            "Voice messages are not available in Messages yet.",
-                          )
-                        }
+                        aria-label="Talk to One"
+                        onClick={openOneVoiceChat}
                       >
                         <Mic className="h-4 w-4" aria-hidden="true" />
                       </button>

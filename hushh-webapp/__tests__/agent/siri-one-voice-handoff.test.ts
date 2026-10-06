@@ -6,8 +6,10 @@ import {
   AGENT_CONVERSATION_REQUEST_EVENT,
   acknowledgeAgentConversation,
   cancelAgentConversationRequest,
+  dispatchAgentConversationAfterRoute,
   markAgentConversationOwnerReady,
   requestAgentConversation,
+  requestAgentConversationAfterRoute,
   resetAgentConversationBrokerForTests,
 } from "@/lib/agent/agent-voice-settings";
 import {
@@ -140,6 +142,24 @@ describe("Siri One Voice handoff", () => {
     expect(requestAgentConversation()).toBe("dispatched");
     expect(received).toHaveBeenCalledTimes(2);
     expect((received.mock.calls[1][0] as CustomEvent).detail).toEqual({
+      source: "agent_chat",
+      requestId: undefined,
+    });
+    window.removeEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
+  });
+
+  it("waits for canonical Chat before delivering a route handoff", () => {
+    const received = vi.fn();
+    markAgentConversationOwnerReady();
+    window.addEventListener(AGENT_CONVERSATION_REQUEST_EVENT, received);
+
+    requestAgentConversationAfterRoute("/");
+    expect(dispatchAgentConversationAfterRoute("/one/messages")).toBeNull();
+    expect(received).not.toHaveBeenCalled();
+
+    expect(dispatchAgentConversationAfterRoute("/")).toBe("dispatched");
+    expect(received).toHaveBeenCalledTimes(1);
+    expect((received.mock.calls[0][0] as CustomEvent).detail).toEqual({
       source: "agent_chat",
       requestId: undefined,
     });
