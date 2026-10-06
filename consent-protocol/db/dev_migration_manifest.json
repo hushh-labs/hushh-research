@@ -67,6 +67,7 @@
     "950_personal_agent_standby_placements.sql",
     "951_byoc_setup_job_azure_admission.sql",
     "952_personal_agent_provision_after_detach.sql",
-    "953_personal_agent_key_pull_during_attach.sql"
+    "953_personal_agent_key_pull_during_attach.sql",
+    "954_personal_agent_never_hosted_erasure.sql"
   ]
 }

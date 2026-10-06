@@ -62,6 +62,7 @@ from hushh_mcp.runtime_settings import (
     personal_agent_max_pods,
     personal_agent_upgrade_approval_required,
 )
+from hushh_mcp.services import personal_agent_never_hosted_erasure as never_hosted
 from hushh_mcp.services.compute_backend import (
     BackendHandle,
     ComputeBackend,
@@ -70,6 +71,7 @@ from hushh_mcp.services.compute_backend import (
     PodSpec,
     adoption_expectations,
 )
+from hushh_mcp.services.orphan_erase_backoff import error_fields
 from hushh_mcp.services.personal_agent_feed import (
     _FEED_EVENT_TYPES as _FEED_EVENT_TYPES,
 )
@@ -122,7 +124,6 @@ from hushh_mcp.services.personal_agent_identity_service import (
     mint_billing_space_id,
     mint_hushh_id,
 )
-from hushh_mcp.services.personal_agent_owner_access_erasure import erase_reserved_owner_access
 from hushh_mcp.services.pod_connector_keypair_service import (
     WRAPPING_ALG,
     parse_pod_public_key,
@@ -2660,7 +2661,7 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("erasure substrate inventory readback unconfirmed")
 
-    def _reserved_cleanup_backend(self, snapshot: dict):
+    def _reserved_cleanup_backend(self, snapshot: dict, *, grant_release: bool = False):
         spec = PodSpec(
             hushh_id=snapshot["hushh_id"],
             phone_e164_hash=str(snapshot.get("phone_e164_hash") or ""),
@@ -2670,7 +2671,7 @@ class PersonalAgentProvisioningService:
             **spec_coordinates_from_row(snapshot),
         )
         backend = self._backend_for(spec)
-        if getattr(backend, "backend_id", None) != snapshot.get("backend"):
+        if not never_hosted.cleanup_backend_matches(snapshot, backend, grant_release):
             raise RuntimeError("reserved cleanup backend mismatch")
         return backend
 
@@ -3418,7 +3419,7 @@ class PersonalAgentProvisioningService:
         backend = None
         member = prior.get("recoveryMember")
         if not member:
-            backend = self._reserved_cleanup_backend(snapshot)
+            backend = self._reserved_cleanup_backend(snapshot, grant_release=True)
             member = await asyncio.to_thread(backend.bootstrap_release_member)
         if not await self._registry.reserve_erasure_bootstrap_grants(
             user_id=user_id, reservation=reservation, recovery_member=member
@@ -3505,7 +3506,7 @@ class PersonalAgentProvisioningService:
                     k: v for k, v in receipt.items() if k not in {"ownerId", "attemptId"}
                 }
             if backend is None:
-                backend = self._reserved_cleanup_backend(snapshot)
+                backend = self._reserved_cleanup_backend(snapshot, grant_release=True)
             if await asyncio.to_thread(backend.bootstrap_release_member) != member:
                 raise RuntimeError("bootstrap recovery credential changed")
             await backend.erase_bootstrap_grant(
@@ -3630,7 +3631,7 @@ class PersonalAgentProvisioningService:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
-                    if await erase_reserved_owner_access(self, user_id=user_id, reservation=reservation):  # fmt: skip
+                    if await never_hosted.erase_reserved_outside_chain(self, user_id=user_id, reservation=reservation):  # fmt: skip
                         return {"status": "unprovisioned", "noOp": False, "rowDeleteDeferred": True}
                     if not reservation.get("bootstrapGrantRelease"):
                         if not (reservation.get("accountErasure") or {}).get("admission"):
@@ -3668,8 +3669,7 @@ class PersonalAgentProvisioningService:
                     }
                 except Exception as exc:
                     logger.warning(
-                        "personal_agent.erasure_admission_unavailable error_type=%s",
-                        type(exc).__name__,
+                        "personal_agent.erasure_admission_unavailable %s", error_fields(exc)
                     )
             # Reserved, unavailable, and absent-registry cases all remain incomplete.
             # Storage, keys, grants, and owner identity still require verified cleanup.
