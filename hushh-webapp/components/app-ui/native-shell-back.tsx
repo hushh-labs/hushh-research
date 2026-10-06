@@ -95,6 +95,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         // Also retire an uncertain lease from a previous mount before exposing DOM.
         await retireNativeChrome(activeEpoch);
         if (cancelled) return;
+        const { theme } = current.current;
         setPrepared(null);
         setHidden(false);
         if (!allowed || !theme || document.visibilityState === "hidden" || !slot.current) {

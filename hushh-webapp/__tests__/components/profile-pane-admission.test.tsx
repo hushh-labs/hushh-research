@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { previewProfilePane } from "@/lib/navigation/profile-pane";
@@ -109,7 +109,7 @@ it("tracks an owned Profile close without moving the page and commits exactly on
   let reopen = () => {};
   function ControlledPane() {
     const [open, setOpen] = useState(true);
-    reopen = () => setOpen(true);
+    useLayoutEffect(() => { reopen = () => setOpen(true); }, []);
     return <ProfilePane open={open} onOpenChange={(next) => { close(next); setOpen(next); }} />;
   }
   const view = render(<ControlledPane />);

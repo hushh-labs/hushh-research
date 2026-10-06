@@ -34,7 +34,6 @@ import {
   LocationAgentIcon,
   MarketplaceAgentIcon,
   MemoryAgentIcon,
-  PassphraseRowIcon,
   PhoneRowIcon,
   PreferencesProfileIcon,
   InviteFriendsProfileIcon,
@@ -493,14 +492,6 @@ function readableMethod(method: VaultMethod | null): string {
   return "Unknown";
 }
 
-function readableQuickMethod(method: VaultMethod | null): string {
-  if (method === "generated_default_native_biometric")
-    return "device biometric";
-  if (method === "generated_default_native_passkey_prf") return "passkey";
-  if (method === "generated_default_web_prf") return "passkey";
-  return "quick unlock";
-}
-
 function isPasskeyVaultMethod(method: VaultMethod | null): boolean {
   return (
     method === "generated_default_web_prf" ||
@@ -658,11 +649,6 @@ function ProfilePageContent({
   const [primaryVaultWrapperId, setPrimaryVaultWrapperId] = useState<
     string | null
   >(null);
-  const [availableQuickMethod, setAvailableQuickMethod] =
-    useState<VaultMethod | null>(null);
-  const [availableQuickWrapperId, setAvailableQuickWrapperId] = useState<
-    string | null
-  >(null);
   const [effectiveVaultMethod, setEffectiveVaultMethod] =
     useState<VaultMethod | null>(null);
   const [loadingVaultMethod, setLoadingVaultMethod] = useState(false);
@@ -673,11 +659,13 @@ function ProfilePageContent({
   const vaultMethodMutationRef = useRef<{ epoch: number; toastId: string | number; controller: AbortController; committed: boolean } | null>(null);
   const vaultMethodOwnerRef = useRef(user?.uid);
   const vaultMethodSessionRef = useRef({ key: vaultKey, epoch: 0 });
-  if (vaultMethodOwnerRef.current !== user?.uid || vaultMethodSessionRef.current.key !== vaultKey) {
-    vaultMethodRequestRef.current += 1;
-    vaultMethodSessionRef.current = { key: vaultKey, epoch: vaultMethodSessionRef.current.epoch + 1 };
-  }
-  vaultMethodOwnerRef.current = user?.uid;
+  useLayoutEffect(() => {
+    if (vaultMethodOwnerRef.current !== user?.uid || vaultMethodSessionRef.current.key !== vaultKey) {
+      vaultMethodRequestRef.current += 1;
+      vaultMethodSessionRef.current = { key: vaultKey, epoch: vaultMethodSessionRef.current.epoch + 1 };
+    }
+    vaultMethodOwnerRef.current = user?.uid;
+  }, [user?.uid, vaultKey]);
   const [switchingVaultMethod, setSwitchingVaultMethod] = useState(false);
   useEffect(() => () => {
     vaultMethodSessionRef.current.epoch += 1;
@@ -1152,8 +1140,6 @@ function ProfilePageContent({
       setLocalBiometricWrapperId(localWrapperId);
       setEnrolledVaultWrappers(vaultState.wrappers);
       setPrimaryVaultWrapperId(vaultState.primaryWrapperId ?? "default");
-      setAvailableQuickMethod(quickWrapper?.method ?? null);
-      setAvailableQuickWrapperId(quickWrapper?.wrapperId ?? null);
       setEffectiveVaultMethod(nextEffectiveMethod);
       setVaultMethodsNeedRefresh(false);
       return true;
@@ -1175,8 +1161,6 @@ function ProfilePageContent({
       setVaultMethod(null);
       setEnrolledVaultWrappers([]);
       setPrimaryVaultWrapperId(null);
-      setAvailableQuickMethod(null);
-      setAvailableQuickWrapperId(null);
       setEffectiveVaultMethod(null);
       return;
     }
@@ -2155,10 +2139,6 @@ function ProfilePageContent({
     capabilityMatrix?.recommendedMethod &&
     capabilityMatrix.recommendedMethod !== "passphrase"
       ? capabilityMatrix.recommendedMethod
-      : null;
-  const quickMethodReadyOnCurrentDevice =
-    vaultMethod === "passphrase" && availableQuickMethod
-      ? availableQuickMethod
       : null;
   const enrolledPasskeyWrappers = enrolledVaultWrappers.filter((wrapper) =>
     isPasskeyVaultMethod(wrapper.method),

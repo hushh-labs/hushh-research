@@ -3,6 +3,7 @@
 import React, {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -433,7 +434,7 @@ export function SwipeViews({
     options.findIndex((option) => option.value === activeValue),
   );
   const activeIndexRef = useRef(activeIndex);
-  activeIndexRef.current = activeIndex;
+  useLayoutEffect(() => { activeIndexRef.current = activeIndex; }, [activeIndex]);
   const panelNodesRef = useRef<Record<string, HTMLDivElement | null>>({});
   const [activePanelHeight, setActivePanelHeight] = useState<number | null>(
     null,

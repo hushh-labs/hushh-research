@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { CheckIcon } from "@/components/icons";
 import { FingerprintProfileIcon, PassphraseRowIcon, VaultRowIcon } from "@/components/icons/agents";
 import { SettingsGroup, SettingsRow, SettingsDetailPanel } from "@/components/app-ui/settings-ui";
@@ -24,15 +24,14 @@ export function VaultMethodsPanel({ wrappers, primaryMethod, primaryWrapperId, b
   onSelect: (wrapper: VaultWrapper) => void; onRemove: (wrapper: VaultWrapper) => void;
   onAdd?: () => void; addLabel?: string; onChangePassphrase: () => void; onRefresh: () => void;
 }) {
-  const handles = useRef(new Map<string, string>());
   const [selected, setSelected] = useState<string | null>(null);
   const options = useMemo(() => {
     const labels = wrappers.map((wrapper) => vaultMethodLabel(wrapper, biometricLabel, localBiometricId));
     const occurrences = new Map<string, number>();
     return wrappers.map((wrapper, index) => {
-      const key = `${wrapper.method}:${wrapper.wrapperId ?? "default"}`;
-      const id = handles.current.get(key) ?? crypto.randomUUID();
-      handles.current.set(key, id);
+      // A replaced wrapper snapshot gets new opaque presentation handles.
+      // Neither concurrent render nor an old selection may mutate that snapshot.
+      const id = crypto.randomUUID();
       const label = labels[index] ?? vaultMethodLabel(wrapper, biometricLabel, localBiometricId);
       const ordinal = (occurrences.get(label) ?? 0) + 1;
       occurrences.set(label, ordinal);

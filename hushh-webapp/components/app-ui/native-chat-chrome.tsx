@@ -60,7 +60,7 @@ export function NativeChatChrome(props: Props) {
   const context = JSON.stringify([props.context, "label" in props ? props.label : null,
     "options" in props ? props.options : null, props.kind === "date" ? [props.minimum, props.maximum] : null]);
   const expanded = props.kind === "history" ? props.expanded ?? false : undefined;
-  const current = useRef({ allowed, epoch, context, value, props, owningLayer });
+  const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const focusPending = useRef(false);
@@ -78,7 +78,7 @@ export function NativeChatChrome(props: Props) {
     const old = current.current;
     if (old.allowed !== allowed || old.epoch !== epoch || old.context !== context || (!inPlaceUpdates && old.value !== value)) lease.current?.invalidate();
     if (old.epoch !== epoch || old.context !== context) { heldFocus.current = false; focusPending.current = false; }
-    current.current = { allowed, epoch, context, value, props, owningLayer };
+    current.current = { allowed, epoch, context, value, props, owningLayer, theme, expanded };
   });
 
   useImperativeHandle(handleRef, () => ({ restoreFocus: async () => {
@@ -176,6 +176,7 @@ export function NativeChatChrome(props: Props) {
       try {
         await retireNativeChrome(epoch, undefined, controlId);
         if (cancelled) return;
+        const { theme, expanded, value, props } = current.current;
         setPrepared(null);
         setHidden(false);
         if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) return;
