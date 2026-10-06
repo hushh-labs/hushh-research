@@ -49,6 +49,12 @@ final class AppUITests: XCTestCase {
         let busy = web.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Unlocking")).firstMatch
         print("NATIVE_SESSION_STATE unlock=\(unlock.exists) unlock_hittable=\(unlock.exists && unlock.isHittable) composer=\(composer.exists) sign_in=\(web.buttons["Continue with Google"].exists)")
         print("VAULT_GATE_STATE enabled=\(unlock.exists && unlock.isEnabled) rejected=\(rejected.exists) busy=\(busy.exists)")
+        // Public gate shape only. A token/publication failure is not a wrong
+        // passphrase; neither field values nor provider error text is read.
+        let accessSetupFailure = web.descendants(matching: .any).matching(NSPredicate(
+            format: "label CONTAINS %@", "Vault opened, but we could not complete access setup. Please try again."
+        )).firstMatch.exists
+        print("VAULT_GATE_NOTICE unlock_count=\(web.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).count) access_setup_failure=\(accessSetupFailure)")
         print("NATIVE_AUTOMATION_ADMISSION_CONFIRMED")
     }
 
