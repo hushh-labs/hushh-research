@@ -24,7 +24,9 @@ another navigation stack, WebView, session, or information store.
   and unsupported wrappers keep the DOM navigation path.
 - Document, revision, interaction, privacy and tap-sequence checks reject stale
   native requests. Keyboard, app privacy and registered web overlays isolate the
-  bar. This isolation is navigation-specific, not a universal native-modal manager.
+  bar and admitted native chrome. Named owning layers admit only their own Close;
+  nested or anonymous overlays still block it. This is not a universal manager
+  for provider SDK presentations.
 - [ProfileAvatarEditor](../components/profile/profile-avatar-editor.tsx) opens an
   in-place DOM photo preview with close and existing Photo options. The preview
   itself neither writes a photo nor opens a picker.
@@ -51,11 +53,17 @@ another navigation stack, WebView, session, or information store.
   remain on the accepted DOM controls until physical acceptance is complete.
   Pending History review badges retain DOM presentation. Choices invoke the
   existing drawer and agent-surface handlers, never a native router.
-  History is currently **not admitted by Chat**, including the Debug pilot:
-  opening the modal retired its native trigger and exposed a different DOM
-  Close. Chat now keeps one shared History/Close presentation for the full
-  lifecycle. The native implementation remains available for bounded testing;
-  re-admission requires an owned, verified Close handoff, not an overlay bypass.
+  The candidate now hands History to a native Close at the drawer's authored
+  trailing slot, retiring the underlying header lease before installing the
+  relocated control. Pending review badges retain DOM presentation. This is a
+  Debug candidate, not physical or release acceptance of the Close handoff.
+- [The owned presenter](../ios/App/App/Plugins/HushhNativeChromePresenter.swift)
+  adds a controlled UIKit short action sheet and bounded SwiftUI wheel sheets
+  with Done/Cancel. Native draft selections are transient; React remains the
+  validator and operation owner. The reachable People `ActionMenu` opts into
+  public-label native presentation; complex/rich menus retain their DOM path.
+  Generic date and finite-selection adapters are implemented but have no
+  production consumer in this candidate. They are not claimed as adopted.
 - [AgentDock](../components/agent/agent-dock.tsx) retains one material Agent Bar
   across route changes. Canonical Chat projects its existing form into that bar;
   microphone providers and the voice control remain mounted. Drafts and sends
@@ -98,12 +106,17 @@ The Back pilot has a bounded `UIHostingController` child, not a full-screen
 transparent touch surface. Preparation acknowledges both SwiftUI geometry and
 UIKit layout while hidden and noninteractive. React then hides/disables its DOM
 control before activation. The original layout reservation remains unchanged.
-Retirement is acknowledged only after touch, accessibility and child containment
-are removed. An uncertain acknowledgement quarantines the control until removal
+Retirement is acknowledged only after touch, accessibility, child containment and
+any owned presented controller are removed. Popup retirement waits for actual
+UIKit dismissal completion. An uncertain acknowledgement quarantines the control until removal
 is confirmed; it never retries a navigation action.
 
 Each choice binds to the document, opaque owner epoch, presentation revision,
-current route context, privacy generation and sequence. Owner information and
+current route context, applied update sequence, privacy generation and choice
+sequence. Capability-negotiated appearance, enabled state and finite-value
+updates retain the hosting controller and lease; ordered acknowledgements fence
+choices while an update is pending. Geometry, family, option-set and ownership
+changes retire the lease. Owner information and
 routes stay in React; neither credentials nor protected content enter the bridge.
 Existing session suppression, registered overlay blockers and authored interaction
 layers bound admission. Keyboard, geometry changes and native privacy transitions
@@ -116,7 +129,8 @@ resolved accent/foreground CSS tokens into both the UIKit tabs and SwiftUI Back.
 There is no separate native theme preference or palette. Back uses the text/icon
 accent token, including the darker gold foreground, and a controller-local
 appearance override; the application window is not restyled. A theme change
-retires/reprepares Back and invalidates its old choices. The final action check
+updates an in-place-capable lease and invalidates its old choices; legacy capable
+wrappers retire/reprepare it. The final action check
 also reads committed CSS, closing the interval before React publishes a changed
 projection. Theme-only tab updates do not invalidate intentional tab selections.
 Wrappers lacking version 2 retain DOM controls rather than ignore appearance.
@@ -126,7 +140,7 @@ Color roles are projected from the existing CSS authority, not chosen per featur
 | Eligible control | Glass/accent treatment | Enablement |
 | --- | --- | --- |
 | Stationary Back | Standard glass, app accent tint and readable accent-deep glyph | Existing Debug iPhone pilot; release acceptance remains incomplete. |
-| History utility trigger | Standard glass with the shared secondary-label glyph, preserving light OKLCH and dark RGBA opacity | Projection implemented; Chat admission remains off until the Close handoff is verified. |
+| History utility trigger / owned Close | Standard glass with the shared secondary-label glyph, preserving light OKLCH and dark RGBA opacity | Debug-only handoff candidate; current physical acceptance remains unverified. |
 | Cloud/Puppy selector and destination tabs | Standard segmented Picker / UIKit tab bar, app accent tint and system labels | Existing selector rehearsal / admitted tab bar; no invented foreground palette. |
 | Future primary toolbar action | Standard prominent glass with app accent; retain authored disabled/busy behavior | Not implemented or admitted. Ordinary form, Connect and Send controls remain React. |
 | Destructive or moving/keyboard-coupled actions | Retain semantic role and existing owner; never recolor destructive actions as brand accents | No global native replacement. |
@@ -134,12 +148,65 @@ Color roles are projected from the existing CSS authority, not chosen per featur
 Unresolved utility colors retain DOM presentation. A changed color invalidates an
 old native choice before observer publication, as do existing theme/owner checks.
 
-These families own **no popup**. SwiftUI menus, presented pickers and UIKit action sheets remain
-unimplemented: removing a hosting view does not prove that a presented popup is
-covered or dismissed. Their popup retirement and interaction-layer ownership must
-be proved before adding them to the capability list.
+The candidate owns only its explicit native action sheet and bounded wheel sheets.
+The privacy shield covers the actual application window and retains the cover
+until all owned-popup dismissal completions and session validation finish.
+Removing a hosting view alone does not acknowledge retirement. Provider SDK
+presentations still retain their separate owners. Popup/device acceptance remains
+required before release capability admission.
 
 ## Shared Component Inventory
+
+### Current Candidate and Rollback
+
+The route inventory remains the generated [frontend/native surface map](../../docs/reference/architecture/frontend-native-surface-map.md)
+and its [parity audit](../../docs/reference/mobile/capacitor-parity-audit-report.md);
+this family inventory joins it without becoming another route authority. All new
+families below are iPhone iOS 26 Debug-only, explicitly rehearsed with
+`--hushh-native-chat-chrome`. Release, older iOS, Android, web and unqualified
+iPad retain existing controls. Do not remove a fallback based on compilation.
+
+| Family | State / operation owner | Candidate and retained behavior | Evidence and rollback |
+| --- | --- | --- | --- |
+| Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Lease regressions; prior device proof is historical. Disable capability to retain `NativeShellBack` DOM control. |
+| History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Current bridge/gesture contracts; current device handoff unverified. Disable family capability; same authored DOM actions remain. |
+| Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Admission/drag contracts; current physical acceptance unverified. Disable `close` capability. |
+| More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger, owned UIKit action sheet. Rich labels, desktop dropdown and unauthored menus retained. | Compiled adapter; popup privacy/dismissal device proof outstanding. Remove explicit `nativePresentation` opt-in or capability. |
+| Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Lease contract; accessible segment geometry and physical acceptance outstanding. Disable `agent-surface` capability. |
+| Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |
+| Drawer/pager motion | Existing Profile, History, `SwipeViews` owners | Finger-driven panels/scrims; cancellation, re-grab, single resize reconciliation; inactive panes inert | Focused cancellation/reopen/resize contracts with a resize negative control. Revert bounded shared-owner commits; no route or persistence migration. |
+| Vault methods | Existing owner-authorized `VaultService` operations | Compact method rows + details/default selector. No credential suffixes; acknowledged change remains successful if refresh fails. | Profile contracts and owner/request fences; controlled server/device mutation acceptance outstanding. Revert presentation/mutation-handling commit; no store/schema migration. |
+
+Every existing feature consumer inherits a shared family below; no page-level
+native router or global primitive replacement is introduced. New adoption must
+add its explicit owner, public projection, evidence and rollback here.
+
+### Shared Geometry and Motion
+
+Rendered geometry remains authoritative: `--app-shell-reading` and
+`APP_MEASURE_STYLES.reading` now agree with the existing 720px reading canvas;
+the Agent canvas remains 880px. Existing responsive 16/20/24/28px gutters, header
+slots, row inset/icon columns, and measured dock clearance remain unchanged.
+The former 54rem reference disagreed with the rendered canvas; this correction
+is not a new global width design. Native targets reserve at least 44 points;
+Dynamic Type may increase their height.
+
+Route transitions keep their 60/90ms tier; sheets retain 300/200ms. Drawers and
+finite selections settle with the shared 150ms tier. Keyboard movement retains
+system timing. A re-grab samples the current rendered transform once; move
+frames only change panel transforms and scrim opacity, never the app layout.
+Owner/route changes cancel the presentation generation. Width reconciliation
+waits for pager settlement; height-only streaming/keyboard changes do not
+reinitialize a horizontally active pager. Current phone/tablet/desktop pixel
+alignment and three Release performance runs remain required acceptance, not
+inferred from these source constants.
+
+Vault rows derive friendly known platform labels only. Local biometric methods
+are labelled Face ID/Touch ID only when the wrapper matches capability detection;
+ordinary passkeys are not relabelled as Face ID. Opaque method identifiers remain
+operation inputs, never consumer labels or confirmation suffixes. Completed writes
+apply their known state before refresh; stale owner/session responses cannot
+replace state, clear a newer busy action or publish an older success toast.
 
 Priority is a recommendation based on the existing authority seam, not delivery
 status. **Next** means a small control-level candidate; **conditional** means a
@@ -173,10 +240,11 @@ than acquire separate native implementations.
 The source audit identifies two concrete consumers, not a global button rewrite:
 
 - [ProfilePane](../components/app-ui/profile-pane.tsx): its fixed 44-point header
-  Close is separate from the scrolling body. Admit only settled, nonsecret
-  panels after extending overlay ownership; the current Back adapter correctly
-  rejects all overlays, including Profile. Keep the existing controlled
-  `onOpenChange` and focus-return contract. Credential/security panels stay DOM.
+  Close is separate from the scrolling body. Its candidate has a dedicated
+  identity and admits only its named, settled Profile layer. Back still rejects
+  Profile overlays. Dragging or nested overlays retire Close. The existing
+  controlled `onOpenChange` and focus-return contract remain authoritative;
+  credential bodies and security operations remain React.
 - [LocationImmersiveMap](../components/one-location/location-immersive-map.tsx):
   its stationary 56-point exit invokes the existing `closeMap` owner. It is used
   by Location, its map route and check-in. Close now retains client navigation;
@@ -186,14 +254,12 @@ The source audit identifies two concrete consumers, not a global button rewrite:
   remains required before native admission. Do not bundle Locate:
   that callback can update an already-consented location share.
 
-These controls are **not implemented or enabled natively**. The bridge now has
-independent, allowlisted control identities and scoped retirement. Close still
-requires its own explicit control identity and owning-overlay admission,
-and settlement-aware geometry. A ResizeObserver alone cannot detect translation
-of a sliding Profile pane. Retire before motion or a newer interaction layer;
-restore DOM interaction only after confirmed native removal. The drawer's
-moving Close stays React. Back's outstanding physical accessibility acceptance
-still precedes admission of this family.
+Profile Close is implemented as a Debug-only candidate; map Close deliberately
+remains React. A ResizeObserver alone cannot detect translation of a sliding
+pane: candidate Close is admitted after entry settlement and retired during a
+drag or newer layer. Restore DOM interaction only after confirmed removal.
+Back and each subsequent family's outstanding device/accessibility acceptance
+still precede release admission.
 
 ### Density And Selection Boundaries
 
@@ -328,7 +394,21 @@ its shared label for a second DOM control. Photo proof returns a resumed nested
 Profile setting to home through the existing Back controls.
 iPad is not admitted.
 This is not release-readiness proof.
-The subsequent families are deliberately not enabled or described as delivered.
+The subsequent families are Debug rehearsal candidates only. Historical evidence
+above does not accept this revised bridge, popup or History/Close handoff.
+
+The 2026-10-05 coherent-controls revision passed the combined 157-test frontend
+contract set, the expanded 30-test chrome contract, 32 native support tests,
+typecheck, static plugin/design checks and the 16 focused vault/backend tests.
+The production-targeted static bundle and signed iPhone test build compiled.
+An updated runner then entered a credential-free attach-only test on the running
+iPhone and found its single identified WebView; no product installation, unlock,
+navigation or protected-content capture was needed for that admission check.
+The pager-settlement and vault commit-before-rekey negative controls failed on
+the deliberately broken implementations. These checks do not accept the new
+popup/Close interactions, visual geometry, accessibility or Release frame pacing.
+Exact committed-candidate core CI and physical interaction acceptance remain
+separate gates; the new families are still Debug-only and iPad remains unqualified.
 
 ### Reviewer and Attach-Only Unlock
 
@@ -436,7 +516,7 @@ Short or cancelled gestures settle to the controlled state; completed drags call
 its existing owner once. A horizontal row drag suppresses the trailing pointer
 click without suppressing keyboard activation or a subsequent deliberate tap.
 Cancelled/unmounted gestures remove temporary compositor hints and inline styles.
-Settlement uses the shared sheet tokens and reduced-motion preference. Chromium
+Settlement uses the shared 150ms drawer tier and reduced-motion preference. Chromium
 and WebKit checks cover finger-position samples and stationary body/bottom-bar
 geometry at 390px and 1440px. The latest signed iPhone build also passed a real
 opening and closing pan in one unlocked Chat session on 2026-10-04. This is

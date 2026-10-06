@@ -672,6 +672,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
                   <AppBottomShell model={bottomShellModel} />
                   <ProfilePane
+                    owner={userId}
                     open={profilePaneOpen}
                     onOpenChange={handleProfilePaneOpenChange}
                   />

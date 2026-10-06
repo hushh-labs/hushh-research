@@ -238,7 +238,7 @@ import type { ClientPrompt } from "@/lib/one-location/types";
 import { AgentBar } from "@/components/agent/agent-bar";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { AgentDockPortal, useAgentDockFrame, useAgentDockHost } from "@/components/agent/agent-dock";
-import { NativeChatChrome, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { NativeChatChrome, NativeHistoryClose, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
 import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
@@ -8339,6 +8339,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // header's hamburger-to-cross sits under the panel; the panel carries its
       // own close control instead of leaving a modal with no visible way out.
       hideCloseButton={false}
+      closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
+        context={`${pathname}:${agentSurface}:${isVaultUnlocked}`} onClose={onClose} /> : undefined}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
@@ -8484,6 +8486,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         )}
       >
         <AgentConnectionsDrawer
+          presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
           onGestureOpen={toggleHistoryDrawer}
@@ -8529,14 +8532,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
-            <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
+            {isHistoryDrawerOpen ? <span aria-hidden className="size-11 shrink-0" /> : <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
               context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
-              // History and Close must be one presentation through the entire
-              // drawer lifecycle. The native History-only pilot cannot own
-              // the modal's Close action yet; retain the coherent web control
-              // rather than swap materials or bypass overlay isolation.
-              eligible={false}
+              eligible={isVaultUnlocked}
               onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
@@ -8557,7 +8556,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {driveReviewsPending > 0 && !isHistoryDrawerOpen && !isPuppySurface ?
                 <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
             </ShellActionSurface>
-            </NativeChatChrome>
+            </NativeChatChrome>}
             <div
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"

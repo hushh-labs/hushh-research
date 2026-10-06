@@ -25,6 +25,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const theme = useNativeControlAppearance();
   const layerBlocked = surface?.interactionLayer?.blocksUnderlyingActions === true;
   const [supported, setSupported] = useState(false);
+  const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
   const [hidden, setHidden] = useState(hasOutstandingNativeChrome);
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
@@ -34,12 +35,12 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const allowed = eligible && !!owner && !!theme && !overlay && !layerBlocked && !suppressed;
   const current = useRef({ allowed, context, epoch, theme });
   useLayoutEffect(() => {
-    if (current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch || current.current.theme !== theme) {
+    if (current.current.allowed !== allowed || current.current.context !== context || current.current.epoch !== epoch || (!inPlaceUpdates && current.current.theme !== theme)) {
       lease.current?.invalidate();
     }
     callback.current = onBack;
     current.current = { allowed, context, epoch, theme };
-  }, [allowed, context, epoch, onBack, theme]);
+  }, [allowed, context, epoch, onBack, theme, inPlaceUpdates]);
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
@@ -65,7 +66,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         }));
         await retain(nativeChrome.addListener("invalidated", invalidate));
         await retain(subscribeNativeSessionPrivacy(invalidate));
-        if (!cancelled) setSupported(true);
+        if (!cancelled) { setInPlaceUpdates(capability.inPlaceUpdates === true); setSupported(true); }
       } catch { /* Old wrappers retain the DOM control. No provider errors are logged. */ }
     })();
     document.addEventListener("visibilitychange", invalidate);
@@ -81,6 +82,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     };
   }, []);
 
+  const installationAppearance = inPlaceUpdates ? "in-place" : JSON.stringify(theme);
   useLayoutEffect(() => {
     if (!supported) return;
     let cancelled = false;
@@ -103,7 +105,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (frame.width !== 44 || frame.height !== 44) return;
         const next = new NativeChromeLease({ kind: "back", label, enabled: true, ...theme,
           frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
-          viewport: { width: window.innerWidth, height: window.innerHeight } }, activeEpoch, context);
+          viewport: { width: window.innerWidth, height: window.innerHeight } }, activeEpoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
         if (await next.prepare() && !cancelled) { setHidden(true); setPrepared(next); }
@@ -118,9 +120,9 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     return () => {
       cancelled = true;
       owned?.invalidate();
-      void retireNativeChrome(activeEpoch, owned?.projection).catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
+      if (owned) void retireNativeChrome(activeEpoch, owned.projection).catch(() => console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"));
     };
-  }, [supported, allowed, epoch, context, label, measurement, theme]);
+  }, [supported, allowed, epoch, context, label, measurement, installationAppearance, inPlaceUpdates]);
 
   // Layout effect runs after the DOM button is hidden/inert, not before React commits it.
   useLayoutEffect(() => {
@@ -132,6 +134,16 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
     });
   }, [prepared, hidden]);
+
+  useLayoutEffect(() => {
+    if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
+    void prepared.update({ ...theme, enabled: true }).catch(async () => {
+      if (lease.current !== prepared) return;
+      prepared.invalidate();
+      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      catch { console.warn("NATIVE_CHROME_RETIRE_UNCONFIRMED"); }
+    });
+  }, [prepared, hidden, inPlaceUpdates, theme]);
 
   return <div ref={slot} className="pointer-events-auto -ml-3.5 flex h-11 w-11 items-center justify-center">
     <ShellActionSurface ref={button} variant="icon" aria-label={label} onClick={onBack}

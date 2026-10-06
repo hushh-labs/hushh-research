@@ -50,6 +50,7 @@ export function AgentConnectionsDrawer({
   fallbackFocusRef,
   gestureSurfaceRef,
   gestureEnabled = false,
+  presentationKey,
   onGestureOpen,
 }: {
   open: boolean;
@@ -62,6 +63,7 @@ export function AgentConnectionsDrawer({
   fallbackFocusRef?: RefObject<HTMLButtonElement | null>;
   gestureSurfaceRef?: RefObject<HTMLElement | null>;
   gestureEnabled?: boolean;
+  presentationKey?: string;
   onGestureOpen?: () => void;
 }) {
   const drawer = useRef<HTMLDivElement>(null);
@@ -83,7 +85,7 @@ export function AgentConnectionsDrawer({
     if (node && connectorHost) node.appendChild(connectorHost);
   }, [connectorHost]);
   const historyOpen = open && mode === "chats";
-  useNativeNavigationBlocked(historyOpen);
+  useNativeNavigationBlocked(historyOpen, "chat-history");
   const connectorsOpen = open && mode === "connections";
   const connectorActive = useRef(connectorsOpen);
   useLayoutEffect(() => { connectorActive.current = connectorsOpen; }, [connectorsOpen]);
@@ -201,6 +203,7 @@ export function AgentConnectionsDrawer({
       {gestureSurfaceRef ? <AppChatHistoryEdgeGesture
         enabled={presentationReady && gestureEnabled && mode === "chats" && !externalModalOpen}
         open={historyOpen}
+        presentationKey={presentationKey}
         surfaceRef={gestureSurfaceRef} drawerRef={drawer} scrimRef={scrim}
         onOpen={onGestureOpen ?? (() => onOpenChange(true))}
         onClose={() => onOpenChange(false)} /> : null}

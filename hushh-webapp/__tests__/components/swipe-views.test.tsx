@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { useEffect } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
@@ -11,7 +11,7 @@ import {
   clampSwipePosition,
   measureFillViewportMinHeight,
 } from "@/lib/morphy-ux/ui/swipe-views";
-import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
+import { requestTopShellTabSelection, useTopShellTabSwipeState } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
   selectedIndex: 0,
@@ -19,6 +19,8 @@ const embla = vi.hoisted(() => ({
   scrollTo: vi.fn<(index: number) => void>(),
   reInit: vi.fn(),
   listeners: new Map<string, () => void>(),
+  registrations: new Map<string, Set<() => void>>(),
+  api: null as Record<string, unknown> | null,
   ref: vi.fn(),
   rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
@@ -28,9 +30,7 @@ const embla = vi.hoisted(() => ({
 vi.mock("embla-carousel-react", () => ({
   default: (options: Record<string, unknown>) => {
     embla.options = options;
-    return [
-      embla.ref,
-      {
+    embla.api ??= {
         selectedScrollSnap: () => embla.selectedIndex,
         scrollProgress: () => embla.scrollProgress,
         scrollTo: embla.scrollTo,
@@ -38,13 +38,18 @@ vi.mock("embla-carousel-react", () => ({
         rootNode: () => embla.rootNode ?? document.body,
         ...(embla.engine ? { internalEngine: () => embla.engine } : {}),
         on: (event: string, listener: () => void) => {
-          embla.listeners.set(event, listener);
+          const handlers = embla.registrations.get(event) ?? new Set<() => void>();
+          handlers.add(listener);
+          embla.registrations.set(event, handlers);
+          embla.listeners.set(event, () => handlers.forEach((handler) => handler()));
         },
-        off: (event: string) => {
-          embla.listeners.delete(event);
+        off: (event: string, listener: () => void) => {
+          const handlers = embla.registrations.get(event);
+          handlers?.delete(listener);
+          if (!handlers?.size) embla.listeners.delete(event);
         },
-      },
-    ];
+      };
+    return [embla.ref, embla.api];
   },
 }));
 
@@ -66,6 +71,8 @@ describe("SwipeViews", () => {
     embla.scrollTo.mockClear();
     embla.reInit.mockClear();
     embla.listeners.clear();
+    embla.registrations.clear();
+    embla.api = null;
     embla.rootNode = document.createElement("div");
     embla.options = null;
     embla.engine = undefined;
@@ -188,19 +195,9 @@ describe("SwipeViews", () => {
       dragThreshold: 6,
     });
 
-    // Resize watching stays ON so a stale container measurement can correct
-    // itself, but is scoped to the container: per-slide entries (streaming
-    // content changing height) must not re-trigger the horizontal engine.
-    const watchResize = embla.options?.watchResize as (
-      api: { containerNode: () => Element },
-      entries: { target: Element }[],
-    ) => boolean;
-    expect(typeof watchResize).toBe("function");
-    const containerNode = document.createElement("div");
-    const slideNode = document.createElement("div");
-    const apiStub = { containerNode: () => containerNode };
-    expect(watchResize(apiStub, [{ target: containerNode }])).toBe(true);
-    expect(watchResize(apiStub, [{ target: slideNode }])).toBe(false);
+    // The shared geometry reconciler is the sole resize owner; its real width
+    // and drag behavior is covered below, not a duplicate Embla observer.
+    expect(embla.options?.watchResize).toBe(false);
   });
 
   it("repairs a terminal WebKit snap residual without changing a live in-range drag", () => {
@@ -276,24 +273,34 @@ describe("SwipeViews", () => {
   });
 
   it("does not reset underline progress when optimistic selection updates mid-drag", () => {
+    function OwnershipProbe() {
+      const state = useTopShellTabSwipeState("optimistic");
+      return <span data-testid="pager-owner">{String(state.pagerOwned)}</span>;
+    }
     const view = render(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="first" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
-    embla.listeners.get("pointerDown")?.();
+    act(() => embla.listeners.get("pointerDown")?.());
     embla.scrollProgress = 0.48;
     embla.listeners.get("scroll")?.();
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
 
     view.rerender(
+      <>
       <SwipeViews tabSetId="optimistic" activeValue="second" options={OPTIONS}>
         <div>first panel content</div>
         <div>second panel content</div>
-      </SwipeViews>,
+      </SwipeViews>
+      <OwnershipProbe />
+      </>
     );
 
     expect(
@@ -301,6 +308,9 @@ describe("SwipeViews", () => {
         "--top-shell-tab-swipe-optimistic-position",
       ),
     ).toBe("0.48");
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("true");
+    act(() => embla.listeners.get("settle")?.());
+    expect(screen.getByTestId("pager-owner")).toHaveTextContent("false");
   });
 
   it("keeps inset panel content and shadows inside the page gutter", () => {
@@ -451,13 +461,13 @@ describe("SwipeViews", () => {
     });
 
     it("re-initialises when the container width changes with no window resize", () => {
-      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockReturnValue({
-        width: 800,
-      } as DOMRect);
+      let width = 800;
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
       renderPager();
       embla.reInit.mockClear();
 
-      emitWidth(785); // scrollbar appears; window.innerWidth never changes
+      width = 785;
+      emitWidth(width); // scrollbar appears; window.innerWidth never changes
 
       expect(embla.reInit).toHaveBeenCalledTimes(1);
     });
@@ -472,6 +482,35 @@ describe("SwipeViews", () => {
       emitWidth(800); // taller content, identical width
 
       expect(embla.reInit).not.toHaveBeenCalled();
+    });
+
+    it("defers changed width during a drag and reconciles it once after settlement", () => {
+      let width = 800;
+      const frames = new Map<number, FrameRequestCallback>();
+      let sequence = 0;
+      globalThis.requestAnimationFrame = (callback) => { frames.set(++sequence, callback); return sequence; };
+      vi.spyOn(embla.rootNode!, "getBoundingClientRect").mockImplementation(() => ({ width } as DOMRect));
+      renderPager();
+      const flush = () => {
+        const pending = [...frames.values()]; frames.clear();
+        pending.forEach((callback) => callback(0));
+      };
+      flush();
+      embla.reInit.mockClear();
+      embla.listeners.get("pointerDown")?.();
+      width = 785;
+      emitWidth(width); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.scrollProgress = 0.4;
+      embla.listeners.get("scroll")?.();
+      embla.listeners.get("pointerUp")?.(); flush();
+      expect(embla.reInit).not.toHaveBeenCalled();
+      embla.selectedIndex = 1;
+      embla.listeners.get("select")?.();
+      embla.listeners.get("settle")?.(); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
+      emitWidth(width); flush();
+      expect(embla.reInit).toHaveBeenCalledTimes(1);
     });
 
     it("does not snap a tapped tab back while route state catches up, but still repairs changed geometry", () => {

@@ -4404,6 +4404,7 @@ export function PeopleHub({
       showMobileTitle={false}
       triggerIcon={Plus}
       testId="one-location-add-people"
+      nativePresentation={{ owner: vm.userId, context: "location-people" }}
       items={[
         {
           id: "find-contacts",

@@ -369,6 +369,40 @@ describe("useSheetDragHandle", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it("cancellation and close/reopen cannot commit an older drag settlement", () => {
+    const close = vi.fn();
+    function Header() {
+      const drag = useSheetDragHandle();
+      return <div data-testid="race-grabber" {...drag}>rail</div>;
+    }
+    const content = (open: boolean) => <Sheet open={open} onOpenChange={close}>
+      <SheetContent side="bottom" showDragHandle={false} contentDragDismiss={false} aria-label="Race">
+        <Header />
+      </SheetContent>
+    </Sheet>;
+    vi.useFakeTimers();
+    const view = render(content(true));
+    const drag = (release: "pointerCancel" | "pointerUp") => {
+      const rail = screen.getByTestId("race-grabber");
+      fireEvent.pointerDown(rail, { clientY: 100, pointerId: 1, button: 0 });
+      fireEvent.pointerMove(rail, { clientY: 260, pointerId: 1 });
+      fireEvent[release](rail, { clientY: 260, pointerId: 1 });
+    };
+    try {
+      drag("pointerCancel");
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp");
+      view.rerender(content(false));
+      view.rerender(content(true));
+      vi.advanceTimersByTime(400);
+      expect(close).not.toHaveBeenCalled();
+      drag("pointerUp"); // Negative control: an actual release still closes once.
+      vi.advanceTimersByTime(400);
+      expect(close).toHaveBeenCalledExactlyOnceWith(false);
+    } finally { view.unmount(); vi.useRealTimers(); }
+  });
+
   it("closes on the handle's keyboard affordance, as before", () => {
     const onOpenChange = vi.fn();
     render(

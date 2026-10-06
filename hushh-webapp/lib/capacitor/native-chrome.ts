@@ -6,10 +6,15 @@ import type { NativeControlAppearance } from "@/lib/capacitor/native-control-app
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface";
-export type ChromeFamily = "back" | "history" | "agent-surface";
+export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close";
+export type ChromeFamily = "back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close";
 export type ChromeAgentSurface = "one" | "puppy";
-type ChromeControl = { kind: "back" | "history" } | { kind: "agent-surface"; value: ChromeAgentSurface };
+export type ChromeOption = { value: string; label: string; disabled?: boolean };
+export type ChromeControl = { kind: "back" | "close" } | { kind: "history"; expanded?: boolean } |
+  { kind: "agent-surface"; value: ChromeAgentSurface } |
+  { kind: "more"; options: readonly ChromeOption[] } |
+  { kind: "selection"; value: string; options: readonly ChromeOption[] } |
+  { kind: "date"; value: string; minimum: string; maximum: string };
 export type ChromeIdentity = {
   documentId: string;
   ownerEpoch: string;
@@ -27,10 +32,13 @@ export type ChromeAcknowledgement = ChromeIdentity & {
   phase: "prepared" | "active" | "retired";
   frame?: ChromeFrame;
 };
-export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; value?: ChromeAgentSurface };
+export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string };
+export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
+export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
 
 export interface HushhNativeChromePlugin {
-  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean }>;
+  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean }>;
+  update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
   activate(options: ChromeIdentity): Promise<ChromeAcknowledgement>;
@@ -67,7 +75,25 @@ const outstanding = new Map<ChromeControlId, ChromeIdentity>();
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
   if (kind === "history") return "chat-history-toggle";
   if (kind === "agent-surface") return "chat-agent-surface";
+  if (kind === "more") return "stationary-more";
+  if (kind === "selection") return "bounded-selection";
+  if (kind === "date") return "bounded-date";
+  if (kind === "close") return "profile-close";
   return "top-shell-back";
+}
+
+function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {
+  if (projection.kind === "agent-surface") return value === "one" || value === "puppy";
+  if (projection.kind === "selection" || projection.kind === "more") {
+    return projection.options.some((option) => !option.disabled && option.value === value);
+  }
+  if (projection.kind === "date") {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const instant = Date.parse(value);
+    return Number.isFinite(instant) && new Date(instant).toISOString().slice(0, 10) === value &&
+      value >= projection.minimum && value <= projection.maximum;
+  }
+  return value === undefined;
 }
 export function nextChromeIdentity(ownerEpoch: string, controlId: ChromeControlId = "top-shell-back"): ChromeIdentity {
   return { documentId: nativeDocumentId(), ownerEpoch, controlId, revision: ++revision };
@@ -105,7 +131,10 @@ export class NativeChromeLease {
   private current = true;
   private active = false;
   private sequence = 0;
-  constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "") {
+  private requestedUpdate = 0;
+  private appliedUpdate = 0;
+  private activation: Promise<void> | undefined;
+  constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "", readonly inPlaceUpdates = false) {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
   }
   invalidate() { this.current = false; this.active = false; }
@@ -121,23 +150,54 @@ export class NativeChromeLease {
   }
   async activate(): Promise<void> {
     if (!this.current) return;
-    const ack = await bounded(nativeChrome.activate(this.projection));
-    if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
-    this.active = this.current;
+    this.activation ??= (async () => {
+      const ack = await bounded(nativeChrome.activate(this.projection));
+      if (!matches(ack, this.projection, "active")) throw new Error("NATIVE_CHROME_ACTIVATE_UNCONFIRMED");
+      this.active = this.current;
+    })();
+    await this.activation;
+  }
+  /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
+   * A stale update failure cannot retire or overwrite a newer presentation. */
+  async update(presentation: ChromeUpdate): Promise<boolean> {
+    if (!this.current || !this.inPlaceUpdates) return false;
+    if (this.projection.kind !== "more" && !admittedValue(this.projection, presentation.value) ||
+        this.projection.kind === "more" && presentation.value !== undefined) {
+      throw new Error("NATIVE_CHROME_UPDATE_INVALID");
+    }
+    const updateSequence = ++this.requestedUpdate;
+    await this.activate();
+    if (!this.current || updateSequence !== this.requestedUpdate) return false;
+    try {
+      const ack = await bounded(nativeChrome.update({ ...this.projection, ...presentation, updateSequence }));
+      if (!this.current || updateSequence !== this.requestedUpdate) return false;
+      if (!matches({ ...ack, phase: "active" }, this.projection, "active") || ack.updateSequence !== updateSequence) {
+        throw new Error("NATIVE_CHROME_UPDATE_UNCONFIRMED");
+      }
+      Object.assign(this.projection, presentation);
+      this.appliedUpdate = updateSequence;
+      return true;
+    } catch (error) {
+      if (!this.current || updateSequence !== this.requestedUpdate) return false;
+      throw error;
+    }
   }
   async choose(event: ChromeChoice, allowed: () => boolean, action: () => void): Promise<void> {
     if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
+        (this.inPlaceUpdates && (this.requestedUpdate !== this.appliedUpdate || event.updateSequence !== this.appliedUpdate)) ||
         !matches({ ...event, phase: "active" }, this.projection, "active") ||
         !Number.isSafeInteger(event.sequence) || event.sequence <= this.sequence) return;
-    if (this.projection.kind === "agent-surface" ? event.value !== "one" && event.value !== "puppy" : event.value !== undefined) return;
+    if (!admittedValue(this.projection, event.value)) return;
     // Consume locally before awaiting: duplicate notifications cannot race.
     this.sequence = event.sequence;
     const { valid } = await bounded(nativeChrome.confirmChoice({
       documentId: event.documentId, ownerEpoch: event.ownerEpoch, controlId: event.controlId,
       revision: event.revision, sequence: event.sequence, privacyGeneration: event.privacyGeneration,
+      ...(this.inPlaceUpdates ? { updateSequence: event.updateSequence } : {}),
       ...(event.value === undefined ? {} : { value: event.value }),
     }));
-    if (valid && this.active && this.current && event.sequence === this.sequence && allowed()) {
+    if (valid && this.active && this.current && event.sequence === this.sequence &&
+        (!this.inPlaceUpdates || this.requestedUpdate === this.appliedUpdate && event.updateSequence === this.appliedUpdate) && allowed()) {
       action();
     }
   }

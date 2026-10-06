@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { createRef, useRef } from "react";
-import { NativeChromeLease, hasOutstandingNativeChrome, retireNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, hasOutstandingNativeChrome, retireNativeChrome, syncNativeCanvasAppearance, type ChromeAcknowledgement, type ChromeProjection, type ChromeUpdateAcknowledgement } from "@/lib/capacitor/native-chrome";
 import { NativeShellBack } from "@/components/app-ui/native-shell-back";
-import { NativeChatChrome, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { NativeChatChrome, NativeHistoryClose, type NativeChatChromeHandle } from "@/components/app-ui/native-chat-chrome";
+import { useNativeNavigationBlocked } from "@/lib/capacitor/native-navigation";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 import { writeAccent } from "@/lib/theme/accent";
 import { isCurrentNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -12,7 +13,7 @@ vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }))
 
 const bridge = vi.hoisted(() => ({ platform: "ios", callbacks: new Map<string, (event: unknown) => void>(),
   listeners: new Map<string, Set<(event: unknown) => void>>(),
-  prepare: vi.fn(), activate: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
+  prepare: vi.fn(), activate: vi.fn(), update: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: () => ({ ...bridge, addListener: async (name: string, callback: (event: unknown) => void) => {
@@ -49,9 +50,10 @@ describe("native chrome presentation lease", () => {
     bridge.setCanvasAppearance.mockReset().mockImplementation(async (value) => value);
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.activate.mockReset().mockImplementation(async (value) => ({ ...value, phase: "active" }));
+    bridge.update.mockReset().mockImplementation(async (value) => value);
     bridge.retire.mockReset().mockImplementation(async (value) => ({ ...value, phase: "retired" }));
     bridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
-    await Promise.all(["top-shell-back", "chat-history-toggle", "chat-agent-surface"].map((controlId) =>
+    await Promise.all(["top-shell-back", "chat-history-toggle", "chat-agent-surface", "profile-close", "stationary-more", "bounded-selection", "bounded-date"].map((controlId) =>
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); });
@@ -84,6 +86,32 @@ describe("native chrome presentation lease", () => {
     expect(action).toHaveBeenCalledOnce();
     await lease.choose(choice(lease), () => true, action);
     expect(action).toHaveBeenCalledOnce();
+  });
+  it("fences choices across reordered in-place snapshots without replacing the lease", async () => {
+    const lease = new NativeChromeLease(projection, "owner-a", "context", true);
+    await lease.prepare(); await lease.activate();
+    const first = deferred<ChromeUpdateAcknowledgement>();
+    const second = deferred<ChromeUpdateAcknowledgement>();
+    bridge.update.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const action = vi.fn();
+    const older = lease.update({ ...projection, accentHex: "#334455", enabled: true });
+    await waitFor(() => expect(bridge.update).toHaveBeenCalledOnce());
+    const newer = lease.update({ ...projection, accentHex: "#556677", enabled: true });
+    await waitFor(() => expect(bridge.update).toHaveBeenCalledTimes(2));
+    await lease.choose({ ...choice(lease), updateSequence: 0 }, () => true, action);
+    expect(action).not.toHaveBeenCalled();
+    second.resolve(bridge.update.mock.calls[1][0]); expect(await newer).toBe(true);
+    first.resolve(bridge.update.mock.calls[0][0]); expect(await older).toBe(false);
+    expect(lease.projection.accentHex).toBe("#556677");
+    await lease.choose({ ...choice(lease), updateSequence: 1 }, () => true, action);
+    expect(action).not.toHaveBeenCalled();
+    await lease.choose({ ...choice(lease), updateSequence: 2 }, () => true, action);
+    expect(action).toHaveBeenCalledOnce();
+    await lease.update({ ...projection, enabled: false });
+    await lease.choose({ ...choice(lease, 2), updateSequence: 3 }, () => true, action);
+    expect(action).toHaveBeenCalledOnce();
+    expect(bridge.prepare).toHaveBeenCalledOnce();
+    expect(bridge.activate).toHaveBeenCalledOnce();
   });
   it("keeps an uncertain presentation quarantined until exact retirement is confirmed", async () => {
     const lease = new NativeChromeLease(projection, "owner-a");
@@ -211,6 +239,26 @@ describe("native chrome presentation lease", () => {
   function admitChat() {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back", "history", "agent-surface"], independentControls: true });
   }
+  it("updates a mounted selector without reinstalling and rejects choices before the latest ack", async () => {
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["agent-surface"], independentControls: true, inPlaceUpdates: true });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 2, y: 60, width: 116, height: 44, top: 60, left: 2, right: 118, bottom: 104, toJSON: () => ({}),
+    });
+    const action = vi.fn();
+    const view = render(<ChatHarness kind="agent-surface" value="one" onAction={action} />);
+    await waitFor(() => expect(bridge.update).toHaveBeenCalledOnce());
+    const pending = deferred<ChromeUpdateAcknowledgement>();
+    bridge.update.mockReturnValueOnce(pending.promise);
+    view.rerender(<ChatHarness kind="agent-surface" value="puppy" onAction={action} />);
+    await waitFor(() => expect(bridge.update).toHaveBeenCalledTimes(2));
+    const update = bridge.update.mock.calls.at(-1)![0];
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...update, value: "puppy", sequence: 1, privacyGeneration: 0 }));
+    expect(action).not.toHaveBeenCalled();
+    await act(async () => { pending.resolve(update); await pending.promise; });
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...update, value: "puppy", sequence: 2, privacyGeneration: 0 }));
+    await waitFor(() => expect(action).toHaveBeenCalledExactlyOnceWith("puppy"));
+    expect(bridge.prepare).toHaveBeenCalledOnce(); expect(bridge.activate).toHaveBeenCalledOnce();
+  });
   it("preserves CSS secondary-label color and alpha, fencing unresolved or changed utility colors", async () => {
     admitChat();
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
@@ -339,6 +387,44 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+
+  it("admits History Close only after settlement and never bypasses a newer overlay", async () => {
+    measureSlot();
+    document.documentElement.style.setProperty("--motion-sheet-enter-duration", "300ms");
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true, inPlaceUpdates: true });
+    const close = vi.fn();
+    function CloseHarness({ blocked = false }: { blocked?: boolean }) {
+      useNativeNavigationBlocked(true, "chat-history");
+      useNativeNavigationBlocked(blocked);
+      return <NativeHistoryClose owner="owner-a" context="chat-a" onClose={close} />;
+    }
+    const view = render(<CloseHarness />);
+    expect(bridge.prepare).not.toHaveBeenCalled();
+    expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible();
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(1));
+    expect(view.queryByRole("button", { name: "Close chat history" })).toBeNull();
+    const installed = bridge.activate.mock.calls.at(-1)![0];
+    await waitFor(() => expect(bridge.update.mock.calls.at(-1)?.[0].revision).toBe(installed.revision));
+    await act(async () => { await Promise.resolve(); });
+    const installedUpdate = bridge.update.mock.calls.at(-1)![0].updateSequence;
+    const approval = deferred<{ valid: boolean }>();
+    bridge.confirmChoice.mockReturnValueOnce(approval.promise);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...installed, sequence: 1, privacyGeneration: 0, updateSequence: installedUpdate }));
+    expect(bridge.confirmChoice).toHaveBeenCalledTimes(1);
+    view.rerender(<CloseHarness blocked />);
+    await act(async () => { approval.resolve({ valid: true }); });
+    expect(close).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.getByRole("button", { name: "Close chat history" })).toBeVisible());
+    view.rerender(<CloseHarness />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    const current = bridge.activate.mock.calls.at(-1)![0];
+    await waitFor(() => expect(bridge.update.mock.calls.at(-1)?.[0].revision).toBe(current.revision));
+    await act(async () => { await Promise.resolve(); });
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0, updateSequence: bridge.update.mock.calls.at(-1)![0].updateSequence }));
+    await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
+    view.unmount();
+    document.documentElement.style.removeProperty("--motion-sheet-enter-duration");
+  });
   it("commits DOM isolation before activation and waits for retirement during session checks", async () => {
     measureSlot();
     const onBack = vi.fn();

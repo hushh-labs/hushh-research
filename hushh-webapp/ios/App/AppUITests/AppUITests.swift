@@ -24,6 +24,22 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    func testLocalSessionAutomationAdmissionOnly() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in credential-free attach-only runner admission")
+        }
+        print("NATIVE_AUTOMATION_TEST_BODY_ENTERED")
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("NATIVE_ADMISSION_REQUIRES_RUNNING_APP"); return
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview")
+        XCTAssertTrue(hosts.firstMatch.waitForExistence(timeout: 15), "NATIVE_ADMISSION_HOST_UNAVAILABLE")
+        XCTAssertEqual(hosts.count, 1, "NATIVE_ADMISSION_HOST_COUNT_INVALID")
+        print("NATIVE_AUTOMATION_ADMISSION_CONFIRMED")
+    }
+
     func testLocalSessionVaultUnlockOnly() throws {
         let app = XCUIApplication()
         let environment = ProcessInfo.processInfo.environment
@@ -511,7 +527,7 @@ final class AppUITests: XCTestCase {
 
     func testLocalSessionNativeChatControlsRespectOverlayKeyboardAndSingleHost() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
-            throw XCTSkip("Opt-in native selector proof with retained DOM History; Debug candidate must already admit the selector")
+            throw XCTSkip("Opt-in native History/Close and selector proof; Debug candidate must admit these families")
         }
         let app = XCUIApplication()
         guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
@@ -534,12 +550,10 @@ final class AppUITests: XCTestCase {
                       "Begin on idle Cloud Chat with the existing unlocked session")
         XCTAssertFalse(web.buttons["Stop One"].exists, "Do not change surfaces while an existing turn is active")
         let hostFrame = web.frame
-        // Native History is deliberately unadmitted until its native Close
-        // handoff is qualified. The selector must coexist with the retained
-        // authored DOM History owner, not require promotion of another family.
         let nativeHistory = app.buttons["chat-history-toggle"].firstMatch
         let retainedHistory = web.buttons.matching(identifier: "one-chat-history-trigger")
-        let history = retainedHistory.firstMatch
+        let history = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ AND label BEGINSWITH %@", "chat-history-toggle", "Open chat history")).firstMatch
         let selector = app.segmentedControls["chat-agent-surface"].firstMatch
         func segment(_ value: String) -> XCUIElement {
             let names = value == "one" ? ["Cloud", "One, your cloud agent"] :
@@ -562,9 +576,8 @@ final class AppUITests: XCTestCase {
             "One, your cloud agent", "Puppy One, on your machine, with its own conversation"
         ]))
         print("NATIVE_CHAT_SELECTOR_PROBE roots=\(selectorRoots.count) role=\(selectorRoots.firstMatch.exists ? selectorRoots.firstMatch.elementType.rawValue : 0) fallback_names=\(fallbackNames.count)")
-        XCTAssertFalse(nativeHistory.exists, "Native History was admitted before its owned Close handoff")
         XCTAssertTrue(history.waitForExistence(timeout: 15) && history.isHittable,
-                      "RETAINED_CHAT_HISTORY_UNAVAILABLE")
+                      "NATIVE_CHAT_HISTORY_UNAVAILABLE")
         XCTAssertTrue(selector.waitForExistence(timeout: 15) && selector.isHittable, "NATIVE_CHAT_PICKER_UNAVAILABLE")
         let headerTop = min(history.frame.minY, selector.frame.minY)
         let headerBottom = max(history.frame.maxY, selector.frame.maxY)
@@ -577,9 +590,9 @@ final class AppUITests: XCTestCase {
             title.tap()
         }
         func assertNativeTargets() {
-            XCTAssertEqual(app.buttons.matching(identifier: "chat-history-toggle").count, 0,
-                           "Native History must remain unadmitted")
-            XCTAssertEqual(retainedHistory.count, 1, "Retain exactly one authored DOM History control")
+            XCTAssertEqual(app.buttons.matching(identifier: "chat-history-toggle").count, 1,
+                           "Admit exactly one native History control")
+            XCTAssertEqual(retainedHistory.count, 0, "DOM History must retire before native activation")
             XCTAssertEqual(app.segmentedControls.matching(identifier: "chat-agent-surface").count, 1)
             XCTAssertGreaterThanOrEqual(history.frame.width, 44)
             XCTAssertGreaterThanOrEqual(history.frame.height, 44)
@@ -609,7 +622,8 @@ final class AppUITests: XCTestCase {
         assertNativeTargets()
         let historySurface = web.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@", "Agent chat history")).firstMatch
-        let close = historySurface.buttons["Close chat history"].firstMatch
+        let close = app.buttons.matching(NSPredicate(
+            format: "identifier == %@ AND label == %@", "chat-history-toggle", "Close chat history")).firstMatch
         addTeardownBlock {
             if close.exists && close.isHittable { close.tap() }
             if app.keyboards.firstMatch.exists { blurThroughAuthoredTitle() }
@@ -620,18 +634,23 @@ final class AppUITests: XCTestCase {
         }
         history.tap()
         XCTAssertTrue(historySurface.waitForExistence(timeout: 10), "The authored History dialog did not appear")
-        XCTAssertTrue(close.waitForExistence(timeout: 10) && close.isHittable, "Retained History did not call the existing drawer owner")
+        XCTAssertTrue(close.waitForExistence(timeout: 10) && close.isHittable, "Native History did not hand off to its owned Close")
         let isolatedHistory = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !history.exists || !history.isHittable
         }, object: history)
         XCTAssertEqual(XCTWaiter.wait(for: [isolatedHistory], timeout: 10), .completed,
                        "The underlying header History remained interactive beneath its drawer")
-        XCTAssertFalse(nativeHistory.exists, "Native History appeared under the drawer")
+        XCTAssertEqual(app.buttons.matching(identifier: "chat-history-toggle").count, 1, "Close handoff duplicated the control")
+        XCTAssertGreaterThanOrEqual(close.frame.width, 44)
+        XCTAssertGreaterThanOrEqual(close.frame.height, 44)
+        XCTAssertFalse(historySurface.buttons.matching(NSPredicate(
+            format: "label == %@ AND identifier != %@", "Close chat history", "chat-history-toggle")).firstMatch.exists,
+            "DOM and native Close must not both be accessible")
         awaitAbsent(selector, "Native selector remained accessible under history")
         assertSameHost()
         close.tap()
         awaitAbsent(close, "History did not dismiss")
-        // Parent restores authored DOM focus after dismissal. Release it through
+        // Parent restores authored focus after dismissal. Release it through
         // the inert public title before requiring the native selector to re-admit.
         blurThroughAuthoredTitle()
         XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
@@ -656,7 +675,7 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
         XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
         assertNativeTargets()
-        print("NATIVE_CHAT_CHROME_CONTINUITY retained_dom_history_native_picker_overlay_keyboard_cloud_return_single_host")
+        print("NATIVE_CHAT_CHROME_CONTINUITY owned_history_close_native_picker_overlay_keyboard_cloud_return_single_host")
     }
 
     func testStockControlReference() throws {

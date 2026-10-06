@@ -42,7 +42,7 @@ export const APP_SHELL_FRAME_STYLE: CSSProperties = {
 };
 
 export const APP_MEASURE_STYLES: Record<"reading" | "standard" | "expanded", CSSProperties> = {
-  reading: { maxWidth: "54rem" },
+  reading: { maxWidth: "720px" },
   standard: { maxWidth: "90rem" },
   expanded: { maxWidth: "96rem" },
 } as const;

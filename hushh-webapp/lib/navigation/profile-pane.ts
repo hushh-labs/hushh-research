@@ -10,6 +10,12 @@ import {
 } from "@/lib/navigation/profile-routes";
 
 export const PROFILE_PANE_OPEN_EVENT = "hushh:profile-pane-open";
+// Presentation only: a preview neither admits Profile nor changes URL/focus.
+export const PROFILE_PANE_PREVIEW_EVENT = "hushh:profile-pane-preview";
+export type ProfilePanePreview = { phase: "drag" | "cancel" | "commit"; distance: number };
+export function previewProfilePane(detail: ProfilePanePreview) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(PROFILE_PANE_PREVIEW_EVENT, { detail }));
+}
 export const PROFILE_PANE_QUERY = "profile_pane";
 export const PROFILE_PANE_PANEL_QUERY = "profile_panel";
 export const PROFILE_PANE_DETAIL_QUERY = "profile_detail";

@@ -46,6 +46,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.activate(next))
     }
 
+    func testNativeChromeUpdatesFenceOldChoicesWithoutReplacingTheInstallation() {
+        var state = HushhNativeChromeState()
+        let identity = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 1)
+        XCTAssertTrue(state.prepare(identity))
+        XCTAssertFalse(state.update(identity, sequence: 1))
+        XCTAssertTrue(state.activate(identity))
+        XCTAssertTrue(state.update(identity, sequence: 2))
+        XCTAssertFalse(state.update(identity, sequence: 1))
+        XCTAssertEqual(state.identity, identity)
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true))
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 1))
+        XCTAssertTrue(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 2))
+        XCTAssertFalse(state.confirm(identity, sequence: 1, latestSequence: 1, allowed: true, updateSequence: 2))
+        state.invalidate()
+        XCTAssertFalse(state.update(identity, sequence: 3))
+    }
+
     func testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates() {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))
@@ -440,6 +457,30 @@ final class NativeSupportTests: XCTestCase {
                 appIsActive: true
             )
         )
+    }
+
+    func testPrivacyCannotUncoverBeforeEveryOwnedPresenterRetires() {
+        var state = HushhSessionPrivacyState()
+        let normal = state.beginPresentationRetirement()
+        XCTAssertTrue(state.completePresentationRetirement(normal))
+        XCTAssertFalse(state.shouldPublishRetirementCompletion,
+                       "Normal popup dismissal must not invalidate its pending choice")
+        let first = state.beginPresentationRetirement()
+        let second = state.beginPresentationRetirement()
+        state.protectForAppInactive()
+        XCTAssertTrue(state.shouldPublishRetirementCompletion,
+                      "Shielded retirement must republish validation after actual dismissal")
+        state.markAppActive()
+        let generation = state.generation
+        XCTAssertFalse(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertFalse(state.completePresentationRetirement(UUID()))
+        XCTAssertTrue(state.completePresentationRetirement(first))
+        XCTAssertFalse(state.completePresentationRetirement(first))
+        XCTAssertFalse(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertTrue(state.shielded)
+        XCTAssertTrue(state.completePresentationRetirement(second))
+        XCTAssertTrue(state.completeSessionValidation(generation: generation, appIsActive: true))
+        XCTAssertFalse(state.shielded)
     }
 
     func testSessionPrivacyStatePreservesBackgroundDebtThroughTransientInactivity() {

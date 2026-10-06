@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -408,6 +408,7 @@ vi.mock("@/lib/profile/gmail-receipt-memory-pkm", () => ({
 import ProfileReceiptsPage from "@/components/gmail/gmail-receipts-page";
 import {
   clearCachedGmailReceipts,
+  getCachedGmailReceipts,
   primeCachedGmailReceipts,
 } from "@/lib/profile/gmail-receipts-cache";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
@@ -1827,13 +1828,18 @@ describe("ProfileReceiptsPage", () => {
   });
 
   it("deletes the Gmail receipt cache when disconnecting", async () => {
+    let finishOlder!: (value: Awaited<ReturnType<typeof GmailReceiptsService.listReceipts>>) => void;
+    const pendingOlder = new Promise<Awaited<ReturnType<typeof GmailReceiptsService.listReceipts>>>((resolve) => { finishOlder = resolve; });
     vi.mocked(GmailReceiptsService.listReceipts).mockResolvedValue({
       items: [makeReceipt(1, "Stored Shop")],
       page: 1,
       per_page: 20,
-      total: 1,
-      has_more: false,
+      total: 2,
+      has_more: true,
     });
+    vi.mocked(GmailReceiptsService.listReceipts).mockImplementationOnce(async () => ({
+      items: [makeReceipt(1, "Stored Shop")], page: 1, per_page: 20, total: 2, has_more: true,
+    })).mockImplementationOnce(() => pendingOlder);
     gmailView.disconnectGmail.mockResolvedValue({
       configured: true,
       connected: false,
@@ -1851,6 +1857,8 @@ describe("ProfileReceiptsPage", () => {
     expect((await screen.findAllByText("Stored Shop")).length).toBeGreaterThan(
       0,
     );
+    fireEvent.click(screen.getByRole("button", { name: /load older receipts/i }));
+    await waitFor(() => expect(GmailReceiptsService.listReceipts).toHaveBeenCalledTimes(2));
     // Disconnect is available through Manage on the Mail overview.
     fireEvent.click(screen.getByRole("tab", { name: "Overview" }));
     fireEvent.keyDown(screen.getByRole("button", { name: /^manage$/i }), { key: "ArrowDown" });
@@ -1878,5 +1886,8 @@ describe("ProfileReceiptsPage", () => {
     await waitFor(() => {
       expect(screen.queryByText("Stored Shop")).toBeNull();
     });
+    await act(async () => { finishOlder({ items: [makeReceipt(2, "Late Shop")], page: 2, per_page: 20, total: 2, has_more: false }); await pendingOlder; });
+    expect(getCachedGmailReceipts("user-123")).toBeNull();
+    expect(screen.queryByText("Late Shop")).toBeNull();
   });
 });

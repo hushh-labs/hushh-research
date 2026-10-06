@@ -1,8 +1,9 @@
 "use client";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, hasOutstandingNativeChrome, nativeChrome, retireNativeChrome, type ChromeAgentSurface, type ChromeChoice } from "@/lib/capacitor/native-chrome";
+import { XIcon } from "@/components/icons";
+import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
+import { NativeChromeLease, chromeControlId, hasOutstandingNativeChrome, nativeChrome, retireNativeChrome, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -17,14 +18,19 @@ type Props = {
   /** True only for the visible, unlocked, stationary owning surface. */
   eligible: boolean;
   className: string;
+  style?: CSSProperties;
   children: ReactNode;
   /** The authored fallback button (or selected radio), never an inferred DOM control. */
   focusRef: RefObject<HTMLElement | null>;
   ref?: Ref<NativeChatChromeHandle>;
-} & ({ kind: "history"; onActivate: () => void;
+} & ({ kind: "close"; onActivate: () => void; label: string } |
+  { kind: "history"; onActivate: () => void; expanded?: boolean;
   /** Omission or any nonzero count retains the authored notification/badge DOM. Never bridged. */
   pendingAttention?: number } |
-  { kind: "agent-surface"; value: ChromeAgentSurface; onValueChange: (value: ChromeAgentSurface) => void });
+  { kind: "agent-surface"; value: ChromeAgentSurface; onValueChange: (value: ChromeAgentSurface) => void } |
+  { kind: "more"; label: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
+  { kind: "selection"; label: string; value: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
+  { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
 
 /** Opt-in presentation only. The caller retains its DOM control, layout and action
  * owner. History reserves 44x44; the two-option selector reserves 88..320 x 44.
@@ -36,7 +42,10 @@ export function NativeChatChrome(props: Props) {
   const slot = useRef<HTMLDivElement>(null);
   const kind = props.kind;
   const controlId = chromeControlId(kind);
-  const overlay = useNativeShellOverlayBlocked();
+  // Only the current authored History layer may own Close. Anonymous/nested
+  // overlays and the active drag still block it; Close is not globally exempt.
+  const owningLayer = props.kind === "close" ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
+  const overlay = useNativeShellOverlayBlocked(owningLayer);
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
   const foreground = kind === "history" ? "secondary" : "accent";
@@ -46,26 +55,30 @@ export function NativeChatChrome(props: Props) {
     surface?.interactionLayer?.blocksUnderlyingActions !== true;
   const identity = useMemo(() => ({ owner: props.owner, controlId, epoch: crypto.randomUUID() }), [props.owner, controlId]);
   const epoch = identity.epoch;
-  const value = props.kind === "agent-surface" ? props.value : undefined;
-  const context = props.context;
-  const current = useRef({ allowed, epoch, context, value, props });
+  const value = "value" in props ? props.value : undefined;
+  // Labels/options/family are immutable for a lease; changing them retires it.
+  const context = JSON.stringify([props.context, "label" in props ? props.label : null,
+    "options" in props ? props.options : null, props.kind === "date" ? [props.minimum, props.maximum] : null]);
+  const expanded = props.kind === "history" ? props.expanded ?? false : undefined;
+  const current = useRef({ allowed, epoch, context, value, props, owningLayer });
   const lease = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const focusPending = useRef(false);
   const mounted = useRef(true);
   const [supported, setSupported] = useState(false);
+  const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
   const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome(controlId));
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
 
-  const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked() &&
+  const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
   useLayoutEffect(() => {
     const old = current.current;
-    if (old.allowed !== allowed || old.epoch !== epoch || old.context !== context || old.value !== value) lease.current?.invalidate();
+    if (old.allowed !== allowed || old.epoch !== epoch || old.context !== context || (!inPlaceUpdates && old.value !== value)) lease.current?.invalidate();
     if (old.epoch !== epoch || old.context !== context) { heldFocus.current = false; focusPending.current = false; }
-    current.current = { allowed, epoch, context, value, props };
+    current.current = { allowed, epoch, context, value, props, owningLayer };
   });
 
   useImperativeHandle(handleRef, () => ({ restoreFocus: async () => {
@@ -118,13 +131,14 @@ export function NativeChatChrome(props: Props) {
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
-            if (callback.kind === "history") callback.onActivate();
-            else if (event.value === "one" || event.value === "puppy") callback.onValueChange(event.value);
+            if (callback.kind === "history" || callback.kind === "close") callback.onActivate();
+            else if (callback.kind === "agent-surface") { if (event.value === "one" || event.value === "puppy") callback.onValueChange(event.value); }
+            else if (event.value !== undefined) callback.onValueChange(event.value);
           }).catch(() => undefined);
         }));
         await retain(nativeChrome.addListener("invalidated", invalidate));
         await retain(subscribeNativeSessionPrivacy(invalidate));
-        if (!cancelled) setSupported(true);
+        if (!cancelled) { setInPlaceUpdates(capability.inPlaceUpdates === true); setSupported(true); }
       } catch { /* Unsupported wrappers keep the authored DOM control. */ }
     })();
     const releaseFocus = () => {
@@ -151,6 +165,8 @@ export function NativeChatChrome(props: Props) {
     };
   }, [kind, foreground, canAct]);
 
+  // Legacy wrappers reinstall; capable wrappers preserve containment and focus.
+  const installationPresentation = inPlaceUpdates ? "in-place" : JSON.stringify({ theme, value, expanded });
   useLayoutEffect(() => {
     if (!supported) return;
     let cancelled = false;
@@ -166,12 +182,18 @@ export function NativeChatChrome(props: Props) {
         // Preserve keyboard focus rather than hiding a focused fallback.
         if (slot.current.contains(document.activeElement)) { heldFocus.current = true; return; }
         const frame = slot.current.getBoundingClientRect();
-        if (frame.height !== 44 || (kind === "history" ? frame.width !== 44 : frame.width < 88 || frame.width > 320)) return;
+        if (frame.height !== 44 || (kind === "agent-surface" ? frame.width < 88 || frame.width > 320 : frame.width !== 44)) return;
         if (kind === "agent-surface" && value === undefined) return;
-        const control = value === undefined ? { kind: "history" as const } : { kind: "agent-surface" as const, value };
-        const next = new NativeChromeLease({ ...control, label: kind === "history" ? "Open chat history" : "Agent",
+        const control: ChromeControl & { label: string } =
+          props.kind === "close" ? { kind: "close", label: props.label } :
+          props.kind === "history" ? { kind: "history", expanded, label: "Chat history" } :
+          props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
+          props.kind === "date" ? { kind: "date", value: props.value, minimum: props.minimum, maximum: props.maximum, label: props.label } :
+          props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
+          { kind: "more", options: props.options, label: props.label };
+        const next = new NativeChromeLease({ ...control,
           enabled: true, ...theme, frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
-          viewport: { width: window.innerWidth, height: window.innerHeight } }, epoch, context);
+          viewport: { width: window.innerWidth, height: window.innerHeight } }, epoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
         if (await next.prepare() && !cancelled) { setHidden(true); setPrepared(next); }
@@ -185,9 +207,9 @@ export function NativeChatChrome(props: Props) {
     return () => {
       cancelled = true;
       owned?.invalidate();
-      void retireNativeChrome(epoch, owned?.projection, controlId).catch(() => undefined);
+      if (owned) void retireNativeChrome(epoch, owned.projection, controlId).catch(() => undefined);
     };
-  }, [supported, allowed, epoch, context, controlId, kind, value, measurement, theme, canAct]);
+  }, [supported, allowed, epoch, context, controlId, kind, measurement, installationPresentation, inPlaceUpdates, canAct]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;
@@ -199,7 +221,39 @@ export function NativeChatChrome(props: Props) {
     });
   }, [prepared, hidden]);
 
-  return <div ref={slot} className={className}>
+  useLayoutEffect(() => {
+    if (!prepared || !hidden || !inPlaceUpdates || !theme) return;
+    void prepared.update({ ...theme, enabled: true, ...(value === undefined ? {} : { value }), ...(expanded === undefined ? {} : { expanded }) }).catch(async () => {
+      if (lease.current !== prepared) return;
+      prepared.invalidate();
+      try { await retireNativeChrome(prepared.projection.ownerEpoch, prepared.projection); if (lease.current === prepared) setHidden(false); }
+      catch { /* Uncertain updates cannot restore a duplicate DOM control. */ }
+    });
+  }, [prepared, hidden, inPlaceUpdates, theme, value, expanded]);
+
+  return <div ref={slot} className={className} style={props.style} data-native-chrome-slot={controlId}>
     <div inert={hidden} aria-hidden={hidden || undefined} style={{ visibility: hidden ? "hidden" : undefined }}>{children}</div>
   </div>;
+}
+
+/** Same History control identity, relocated to the modal's authored Close
+ * slot. Geometry changes retire the old lease; no underlying-overlay bypass. */
+export function NativeHistoryClose({ owner, context, onClose }: { owner: string | null; context: string; onClose: () => void }) {
+  const focusRef = useRef<HTMLButtonElement>(null);
+  const key = JSON.stringify([owner, context]);
+  const [stationaryKey, setStationaryKey] = useState<string | null>(null);
+  useEffect(() => {
+    const duration = getComputedStyle(document.documentElement).getPropertyValue("--motion-sheet-enter-duration").trim();
+    const delay = window.matchMedia("(prefers-reduced-motion: reduce)").matches ? 0 :
+      Number.parseFloat(duration) * (duration.endsWith("ms") ? 1 : 1000);
+    const timer = window.setTimeout(() => setStationaryKey(key), Number.isFinite(delay) ? delay : 300);
+    return () => window.clearTimeout(timer);
+  }, [key]);
+  return <NativeChatChrome kind="history" expanded pendingAttention={0} owner={owner} context={context}
+    eligible={stationaryKey === key} onActivate={onClose} focusRef={focusRef} className="relative flex size-11 shrink-0 items-center justify-center">
+    <button ref={focusRef} type="button" aria-label="Close chat history" onClick={onClose}
+      className="inline-flex size-11 items-center justify-center rounded-full text-muted-foreground hover:bg-muted">
+      <XIcon className="size-4" aria-hidden />
+    </button>
+  </NativeChatChrome>;
 }
