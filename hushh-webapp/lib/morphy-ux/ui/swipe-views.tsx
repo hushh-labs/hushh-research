@@ -535,7 +535,9 @@ export function SwipeViews({
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        const measured = Math.ceil(activeNode.scrollHeight);
+        // The panel's in-flow box owns height. Transformed descendants can leave
+        // stale scrollable overflow in WebKit after collapsing a card stack.
+        const measured = activeNode.offsetHeight;
         const floor = heightFloorRef.current;
         const nextHeight =
           floor === null ? measured : Math.max(measured, floor);
@@ -546,11 +548,20 @@ export function SwipeViews({
       });
     };
 
+    // Reconcile the final layout after descendant motion as well as resize.
+    // Painted overflow must never become the pager's reserved height.
+    activeNode.addEventListener("transitionend", measure);
+    activeNode.addEventListener("animationend", measure);
+    const removeMotionListeners = () => {
+      activeNode.removeEventListener("transitionend", measure);
+      activeNode.removeEventListener("animationend", measure);
+    };
     measure();
 
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", measure, { passive: true });
       return () => {
+        removeMotionListeners();
         if (frame) window.cancelAnimationFrame(frame);
         window.removeEventListener("resize", measure);
       };
@@ -559,6 +570,7 @@ export function SwipeViews({
     const observer = new ResizeObserver(measure);
     observer.observe(activeNode);
     return () => {
+      removeMotionListeners();
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
     };

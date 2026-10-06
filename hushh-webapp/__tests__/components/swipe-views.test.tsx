@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { useEffect } from "react";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
@@ -532,6 +532,29 @@ describe("SwipeViews", () => {
     afterEach(() => {
       globalThis.requestAnimationFrame = originalRaf;
     });
+
+    it.each(["transitionend", "animationend"])(
+      "uses collapsed layout height despite stale transformed overflow after %s",
+      (eventName) => {
+        const view = render(
+          <SwipeViews tabSetId="motion-height" activeValue="first" options={OPTIONS} heightMode="active">
+            <div data-testid="animated-content">Cards</div>
+            <div>Other panel</div>
+          </SwipeViews>,
+        );
+        const child = screen.getByTestId("animated-content");
+        const panel = child.closest('[role="tabpanel"]')!;
+        const root = view.container.querySelector('[data-swipe-views-root="true"]')!;
+        let layoutHeight = 900;
+        Object.defineProperty(panel, "offsetHeight", { get: () => layoutHeight });
+        Object.defineProperty(panel, "scrollHeight", { get: () => 900 });
+        act(() => child.dispatchEvent(new Event(eventName, { bubbles: true })));
+        expect(root).toHaveStyle({ height: "900px" });
+        layoutHeight = 600;
+        act(() => child.dispatchEvent(new Event(eventName, { bubbles: true })));
+        expect(root).toHaveStyle({ height: "600px" });
+      },
+    );
 
     it("does not clip the outgoing pane's height mid-transition by default", () => {
       const view = render(
