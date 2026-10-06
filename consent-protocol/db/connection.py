@@ -443,6 +443,37 @@ def _get_database_url() -> str:
     return get_database_url()
 
 
+async def open_dedicated_connection() -> asyncpg.Connection:
+    """Open one unpooled session using the runtime pool's Cloud SQL settings.
+
+    Long-running session-scoped operations can use this instead of reserving a
+    request-pool slot. Pass credentials as kwargs so special characters in a
+    password cannot be misparsed as part of a database URL.
+    """
+    db_user = os.getenv("DB_USER")
+    db_password = os.getenv("DB_PASSWORD")
+    db_host = os.getenv("DB_HOST")
+    db_unix_socket = os.getenv("DB_UNIX_SOCKET")
+    if not db_user or not db_password or not (db_host or db_unix_socket):
+        raise EnvironmentError(
+            "Database credentials not set. Required: DB_USER, DB_PASSWORD, "
+            "and one of DB_HOST/DB_UNIX_SOCKET."
+        )
+
+    options: dict[str, Any] = {
+        "user": db_user,
+        "password": db_password,
+        "database": os.getenv("DB_NAME", "postgres"),
+        "host": db_unix_socket or db_host,
+        "port": int(os.getenv("DB_PORT", "5432")),
+        "timeout": _get_connect_timeout_seconds(),
+        "command_timeout": 60,
+    }
+    if not db_unix_socket:
+        options["ssl"] = get_database_ssl()
+    return await asyncpg.connect(**options)
+
+
 async def get_pool() -> asyncpg.Pool:
     """Get or create the connection pool.
 

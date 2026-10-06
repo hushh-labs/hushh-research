@@ -20,7 +20,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Awaitable, Callable
 
-from db.connection import get_pool
+from db.connection import (
+    _is_offline_mode,
+    get_pool,
+    open_dedicated_connection,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -234,17 +238,39 @@ class MarketCacheStoreService:
         lock_key: int,
         callback: Callable[[], Awaitable[None]],
     ) -> bool:
-        """Run callback only if advisory lock was acquired on this DB connection."""
-        pool = await get_pool()
-        async with pool.acquire() as conn:
+        """Deduplicate refreshes without reserving a request-pool connection."""
+        if _is_offline_mode():
+            # Offline SQLite has no PostgreSQL advisory locks or shared worker
+            # pool. Keep its existing best-effort market warm behavior.
+            await callback()
+            return True
+
+        # Session advisory locks require an open PostgreSQL session throughout
+        # the callback. A pooled session would stay checked out across slow
+        # provider I/O and starve request handlers in small hosted pools.
+        conn = await open_dedicated_connection()
+        primary_error: BaseException | None = None
+        try:
             acquired = await conn.fetchval("SELECT pg_try_advisory_lock($1)", int(lock_key))
             if not acquired:
                 return False
+            await callback()
+            return True
+        except BaseException as exc:
+            primary_error = exc
+            raise
+        finally:
+            # Closing this dedicated session releases its advisory lock even
+            # when the callback fails or is cancelled. Never return it to a pool.
             try:
-                await callback()
-                return True
-            finally:
-                await conn.execute("SELECT pg_advisory_unlock($1)", int(lock_key))
+                await conn.close(timeout=5)
+            except BaseException:
+                try:
+                    conn.terminate()
+                except Exception:
+                    logger.warning("[Kai Market Cache] dedicated lock session termination failed")
+                if primary_error is None:
+                    raise
 
 
 _market_cache_store_service: MarketCacheStoreService | None = None
