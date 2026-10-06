@@ -6255,6 +6255,72 @@
       "note": "no referent or scope: ask, never propose a change"
     },
     {
+      "id": "clarify-013",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Hush Pahal V04"
+      ],
+      "utterance": "no, that's not right",
+      "expected_tools": [
+        "cancel_pending_action"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "cancel_scheduled_mail",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "reply_mail",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "schedule_mail",
+        "send_draft",
+        "send_mail",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "a name called wrong with no fix: cancel the card and ask for the word, never guess another name"
+    },
+    {
       "id": "spelled_name-001",
       "family": "spelled_name",
       "screen": "one_home",
@@ -6613,6 +6679,73 @@
           "name": "Book Club",
           "release_spelled_words": [
             "HUSSH"
+          ]
+        }
+      }
+    },
+    {
+      "id": "spelled_name-013",
+      "family": "spelled_name",
+      "screen": "one_home",
+      "history": [
+        "create a circle called M E E R A Book Club V04"
+      ],
+      "utterance": "only make it V05",
+      "expected_tools": [
+        "cancel_pending_action",
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "confirm_pending_action",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "a change to another word keeps the earlier spelled word; the spelling need not be listed again",
+      "expected_args": {
+        "create_circle": {
+          "name": "MEERA Book Club V05"
+        }
+      }
+    },
+    {
+      "id": "spelled_name-014",
+      "family": "spelled_name",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Joya Runners Club"
+      ],
+      "utterance": "no, the first word is Z O Y A, keep everything else",
+      "expected_tools": [
+        "cancel_pending_action",
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_all_connections",
+        "add_circle_member",
+        "add_circle_members",
+        "confirm_pending_action",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "a spelled first word replaces only that word of the waiting name",
+      "expected_args": {
+        "create_circle": {
+          "name": "ZOYA Runners Club",
+          "spelled_words": [
+            "ZOYA"
           ]
         }
       }

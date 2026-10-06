@@ -17,7 +17,7 @@ export function OneDashboardPage({
   userId?: string | null;
 }) {
   // Warm the lightweight artwork while the user chooses an agent.
-  preload(WALLET_HERO_SRC, { as: "image", fetchPriority: "low" });
+  preload(WALLET_HERO_SRC, { as: "image", fetchPriority: "high" });
   return (
     <AppPageShell
       as="main"

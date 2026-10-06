@@ -14,7 +14,10 @@ from hushh_mcp.one_voice.tools.spelling import (
     clean_spelled_word,
     missing_spelled_words,
     name_tokens,
+    name_word_changes,
+    name_word_slots,
     spell_out,
+    word_keys,
 )
 
 
@@ -80,3 +83,47 @@ def test_clean_spelled_word_accepts_one_word_or_its_letters_spelled_out():
     assert clean_spelled_word("") is None
     assert clean_spelled_word("A" * 40) == "A" * 40
     assert clean_spelled_word("A" * 41) is None
+
+
+# -- what a correction changed in a name -------------------------------------------
+#
+# UAT: "only make it V05" turned the waiting HUSSH GARAGE V04 into HUSH GARAGE V05
+# while no word had been declared as spelled. A correction is compared word by
+# word with the name it corrects, so an untouched word that changed is found
+# whatever the model declared about spelling.
+
+
+def test_word_keys_compare_whole_words_without_case_or_inner_joiners():
+    assert word_keys("HUSSH  Garage V-04") == ["hussh", "garage", "v04"]
+    assert word_keys("O'Brien St.Ives") == ["obrien", "stives"]
+    # A joiner at the edge of a word is not inside it, so it still counts.
+    assert word_keys("-V04") == ["-v04"]
+
+
+def test_name_word_changes_names_each_changed_word_as_it_was_written():
+    assert name_word_changes("HUSSH GARAGE V04", "HUSSH GARAGE V05") == (["V04"], ["V05"], True)
+    assert name_word_changes("HUSSH GARAGE V04", "HUSH GARAGE V04") == (["HUSSH"], ["HUSH"], True)
+    # Case, and a joiner inside a word, are not changes; a leading zero is.
+    assert name_word_changes("HUSSH GARAGE V04", "hussh Garage V-04") == ([], [], True)
+    assert name_word_changes("HUSSH GARAGE V04", "HUSSH GARAGE V4") == (["V04"], ["V4"], True)
+    assert name_word_changes("HUSSH GARAGE", "HUSSH GARAGE V04") == ([], ["V04"], True)
+    assert name_word_changes("HUSSH GARAGE V04", "HUSSH V04") == (["GARAGE"], [], True)
+
+
+def test_name_word_changes_counts_repeated_words_and_checks_their_order():
+    assert name_word_changes("Go Go Team", "Go Team") == (["Go"], [], True)
+    assert name_word_changes("Go Team", "Go Go Team") == ([], ["Go"], True)
+    # The same words in another order: nothing added or removed, order not kept.
+    assert name_word_changes("HUSSH GARAGE V04", "GARAGE HUSSH V04") == ([], [], False)
+
+
+def test_name_word_slots_keep_each_change_with_the_words_it_replaced():
+    assert name_word_slots("HUSSH GARAGE V04", "HUSH GARAGE V05") == [
+        (["HUSSH"], ["HUSH"]),
+        (["V04"], ["V05"]),
+    ]
+    assert name_word_slots("HUSSH GARAGE V04", "HUSSH Garaz V4") == [
+        (["GARAGE", "V04"], ["Garaz", "V4"])
+    ]
+    assert name_word_slots("HUSSH GARAGE", "HUSSH GARAGE V04") == [([], ["V04"])]
+    assert name_word_slots("HUSSH GARAGE V04", "hussh garage v-04") == []

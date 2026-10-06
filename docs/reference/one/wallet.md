@@ -135,3 +135,32 @@ gallery saving. Leaving Add, cancelling, or unmounting aborts the scan; the owne
 are terminated after completion, failure or a 60-second timeout. Unsupported/ambiguous photos fall back to manual
 entry. Existing validation and explicit encrypted WalletService submission remain
 the sole save path. Native camera and bundled worker execution require device QA.
+
+### Sharing: review and manage inside Wallet
+
+Sharing shows real Wallet-specific requests and grants in card-style sections.
+Review and Manage open in shared dialogs inside Wallet. Reviews disclose the
+requester, exact summary/details category, wallet-wide coverage and chosen duration.
+Individual decisions reuse `useConsentActions` and its canonical encrypted export;
+full details require an unlocked vault and explicit approval. Revoke requires
+confirmation and an exact request ID, never a scope-wide fallback. No sample
+grants or card-specific permissions are invented. Reduced motion disables tile
+lift while preserving all controls. Failed reads never appear as empty access.
+
+The sharing guide and Requests/Shared with sections remain visible during reads.
+Reads that exceed 15 seconds show retry rather than an indefinite spinner; late
+results cannot replace a newer read. Recipient search and summary/details filters
+only filter displayed rows, never alter grants or the overall access counts.
+
+### Mail-aligned Wallet surfaces
+
+Cards, Add and Sharing use the shared 820px workspace measure and Mail-style
+feature surface tokens (white surface, blue accent tint, shared border, radius
+and shadow). Desktop feature headings use the same 40px/800 foundation scale.
+Physical card faces remain capped at 420px inside the wider Cards panel.
+
+Wallet onboarding uses the full-resolution preloaded artwork without a blur
+placeholder, centered with its title and Continue action. Stacked cards hide
+their separate detail links while pinned and remeasure after expansion settles;
+the card itself remains the details action. Sharing uses a labelled illustrative
+card instead of the header counters; real access remains in the lists below.

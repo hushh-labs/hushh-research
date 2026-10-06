@@ -15,6 +15,7 @@ import {
   panelHasContent,
   selectPanelResult,
 } from "@/components/one-voice/one-voice-panel";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import {
   executeDirective,
   type DirectiveOutcome,
@@ -23,6 +24,7 @@ import type { ServerFrame } from "@/lib/one-voice/protocol";
 import { reduceVoiceSession } from "@/lib/one-voice/session-reducer";
 import {
   INITIAL_VOICE_SESSION_STATE,
+  type NameEditOutcome,
   type VoiceSessionController,
   type VoiceSessionState,
 } from "@/lib/one-voice/session-types";
@@ -736,6 +738,60 @@ describe("OneVoicePanel", () => {
       "create_circle",
     );
     expect(screen.getByText("Created the Goa Circle.")).toBeInTheDocument();
+  });
+
+  it("shows an Edit name refusal under the input, or as a toast once the relay cancelled the card", async () => {
+    const toastError = vi.spyOn(morphyToast, "error").mockImplementation(() => "toast");
+    const card: ServerFrame = {
+      type: "pending_action",
+      pending_action_id: "pa-edit",
+      tool: "create_circle",
+      gateway_action_id: "location.create_circle",
+      tier: "voice",
+      summary: "create a circle called Hush Garage V04",
+      args: { name: "Hush Garage V04", kind: "other" },
+      status: "pending",
+      shown_at: null,
+      expires_at: null,
+      result: null,
+      risk_level: "medium",
+      requires_tap: false,
+      entities: [],
+    };
+    let state = replay([{ ...ready, features: ["name_edit"] } as ServerFrame, card]);
+    const refusals: Array<(outcome: NameEditOutcome) => void> = [];
+    const control = controller({
+      submitNameEdit: vi.fn(() => new Promise<NameEditOutcome>((resolve) => refusals.push(resolve))),
+    });
+    const view = render(<OneVoicePanel state={state} controller={control} />);
+    fireEvent.click(screen.getByTestId("one-voice-edit-name"));
+    fireEvent.change(screen.getByTestId("one-voice-name-edit-input"), {
+      target: { value: "HUSSH GARAGE V04" },
+    });
+
+    // Refused before the cancel: the card and its editor are still there.
+    fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    await act(async () => {
+      refusals[0]!({ status: "rejected", reasonCode: "invalid_name", message: "Not that name.", pendingActionId: null });
+    });
+    expect(screen.getByTestId("one-voice-name-edit-error")).toHaveTextContent("Not that name.");
+    expect(toastError).not.toHaveBeenCalled();
+
+    // Refused after the relay cancelled the card: the editor has gone with it.
+    fireEvent.click(screen.getByTestId("one-voice-name-edit-review"));
+    state = replay(
+      [{ type: "pending_action.resolved", pending_action_id: "pa-edit", status: "cancelled", result_public: null }],
+      state,
+    );
+    view.rerender(<OneVoicePanel state={state} controller={control} />);
+    expect(screen.queryByTestId("one-voice-name-edit")).toBeNull();
+    const message = "I couldn't prepare a card with that name. Please try again.";
+    await act(async () => {
+      refusals[1]!({ status: "rejected", reasonCode: "storage_unavailable", message, pendingActionId: null });
+    });
+    expect(toastError).toHaveBeenCalledTimes(1);
+    expect(toastError).toHaveBeenCalledWith(message);
+    toastError.mockRestore();
   });
 
   it("routes the candidate picker to chooseCandidate and 'None of these' to null", () => {

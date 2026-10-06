@@ -644,6 +644,20 @@ export class OneLiveClient {
     });
   }
 
+  /** Submit a typed name for an open create_circle card (relay feature `name_edit`). */
+  nameEditSubmit(
+    pendingActionId: string,
+    name: string,
+    operationId: string,
+  ): boolean {
+    return this.sendControl({
+      type: "name_edit.submit",
+      pending_action_id: pendingActionId,
+      name,
+      operation_id: operationId,
+    });
+  }
+
   uiSettled(
     directiveId: string,
     status: "opened" | "failed" | "ignored",

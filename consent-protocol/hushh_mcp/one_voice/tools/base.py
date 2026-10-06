@@ -39,8 +39,12 @@ OFFER_TTL_SECONDS = 10 * 60
 MAX_SPELLED_NAME_WORDS = 8
 # How long a spelled name word is kept after the last proposal that declared
 # or needed it. Long enough to survive a cancel and a re-proposal of the same
-# name, short enough that a different circle later on is not held to it.
+# name, short enough that a different circle later on is not held to it. The
+# circle name the person is reviewing (EntityContext.circle_name_baseline) is
+# kept for the same window, for the same reason.
 SPELLED_WORD_TTL_SECONDS = 3 * 60
+# A stored baseline name longer than create_circle accepts is not trusted.
+MAX_BASELINE_NAME_LENGTH = 80
 # Interim status of a device-executed Location updates step. Never success:
 # the settled result arrives later as its own tool.result once the device
 # reports back.
@@ -337,6 +341,34 @@ def _wellformed_spelled_words(value: Any) -> list[dict[str, Any]]:
     return kept[-MAX_SPELLED_NAME_WORDS:]
 
 
+class CircleNameBaseline(BaseModel):
+    """The circle name the person was last shown on a create_circle card, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, like
+    :class:`SpelledNameWord`, so expiry and pruning use one clock.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    at: float
+
+
+def _wellformed_circle_name_baseline(value: Any) -> dict[str, Any] | None:
+    """The stored baseline when this version can trust it, else none.
+
+    Malformed is dropped on its own, never failing the whole context.
+    """
+    raw = value.model_dump() if isinstance(value, CircleNameBaseline) else value
+    if not isinstance(raw, dict):
+        return None
+    name, at = raw.get("name"), raw.get("at")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_BASELINE_NAME_LENGTH:
+        return None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return {"name": name, "at": float(at)}
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -385,11 +417,22 @@ class EntityContext(BaseModel):
     # declared or needed them, so a re-proposal cannot silently drop one.
     # Words only: never the name, never who it was for.
     spelled_name_words: list[SpelledNameWord] = Field(default_factory=list)
+    # The circle name the last passing create_circle proposal showed the person:
+    # what a correction is compared with, word by word, so it changes only the
+    # words it declares. Kept across a cancel and a reconnect for
+    # SPELLED_WORD_TTL_SECONDS after that proposal; cleared once the circle is
+    # created or already exists.
+    circle_name_baseline: CircleNameBaseline | None = None
 
     @field_validator("spelled_name_words", mode="before")
     @classmethod
     def _restore_spelled_name_words(cls, value: Any) -> list[dict[str, Any]]:
         return _wellformed_spelled_words(value)
+
+    @field_validator("circle_name_baseline", mode="before")
+    @classmethod
+    def _restore_circle_name_baseline(cls, value: Any) -> dict[str, Any] | None:
+        return _wellformed_circle_name_baseline(value)
 
     @staticmethod
     def _now() -> datetime:
@@ -436,6 +479,19 @@ class EntityContext(BaseModel):
     def clear_spelled_words(self) -> None:
         self.spelled_name_words = []
 
+    def live_circle_name_baseline(self, now: float) -> str | None:
+        """The name a create_circle correction is held to, while it is still live."""
+        baseline = self.circle_name_baseline
+        if baseline is None or now - baseline.at > SPELLED_WORD_TTL_SECONDS:
+            return None
+        return baseline.name
+
+    def set_circle_name_baseline(self, name: str, now: float) -> None:
+        self.circle_name_baseline = CircleNameBaseline(name=name, at=now)
+
+    def clear_circle_name_baseline(self) -> None:
+        self.circle_name_baseline = None
+
     def offer_is_fresh(self) -> bool:
         if not self.offered_person_ids:
             return False
@@ -464,7 +520,10 @@ class EntityContext(BaseModel):
             self.offered_mail_selected_ordinal = None
         if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
             self.offered_scheduled_mail = None
-        self.spelled_name_words = self._live_spelled_words(self._now().timestamp())
+        now = self._now().timestamp()
+        self.spelled_name_words = self._live_spelled_words(now)
+        if self.live_circle_name_baseline(now) is None:
+            self.circle_name_baseline = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
@@ -642,6 +701,10 @@ class ToolContext:
     # delivery report is bound to. Server state stays the authority; this is
     # the correlation, never a "sent" flag.
     sos_incident: dict[str, Any] | None = None
+    # The name argument was typed by the person (the card's Edit-name path),
+    # not heard by the model: it is theirs as written, so no spelled word or
+    # earlier name holds it, and it becomes the name later corrections keep.
+    typed_name: bool = False
 
     def service(self, name: str, factory: Callable[[], Any]) -> Any:
         if name not in self.services:
@@ -725,6 +788,14 @@ class ToolSpec:
     # tool itself. A shared gateway action is NOT enough on its own:
     # request_location and withdraw_request share one and do opposite things.
     correction_group: str | None = None
+    # For confirm_* tools: the refusal for a proposal that could not be read
+    # (its arguments failed validation) or prepared (its ``prepare`` hook
+    # raised). Either way the executor retires the open card of the same
+    # correction key first. Given the raw arguments, never logged, and the
+    # names of the top-level arguments that failed validation (empty when the
+    # prepare hook raised); returning a ``Rejected`` replaces the generic
+    # invalid_arguments / prepare_failed answer, and ``None`` keeps it.
+    on_invalid_correction: Callable[[dict[str, Any], frozenset[str]], Rejected | None] | None = None
     # For a tool whose arguments do not name what it acts on -- a position in a
     # list the server offered, or the item open on screen -- the server-side
     # identity of that target, resolved without I/O. Equal arguments against
@@ -786,6 +857,7 @@ def now_iso() -> str:
 
 
 __all__ = [
+    "CircleNameBaseline",
     "CircleRef",
     "ConfirmationRequired",
     "ConfirmationWaiting",

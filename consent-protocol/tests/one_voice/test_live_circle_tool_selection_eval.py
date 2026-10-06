@@ -274,7 +274,14 @@ def make_responder(case: Case) -> support.Responder:
             # The card is shown at once in this world, so a spoken yes on a
             # voice-tier card can proceed; tap-tier still refuses the voice path.
             await pending.mark_shown(user_id=ME, pending_action_id=outcome.pending.id)
-        return outcome.result.public()
+        public = outcome.result.public()
+        if outcome.superseded:
+            # What the relay adds for the model (session.py), so the scorer
+            # replays which card is still open from the results alone.
+            public = dict(
+                public, **{support.SUPERSEDED_KEY: [row.id for row in outcome.superseded]}
+            )
+        return public
 
     return respond
 
@@ -416,6 +423,131 @@ def test_spelled_name_is_scored_on_the_arguments_not_only_the_first_tool():
     assert _expected_hit(recovered, reads)
     assert support.arg_mismatches(recovered) == []
 
+    # A spelled word is judged as the server's guard reads it: letters sent
+    # one by one join into the word (live: spelled_words ["H U S S H"]).
+    spaced = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S S H"]}, card),
+        ],
+    )
+    assert _expected_hit(spaced, reads)
+    one_s = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", {"name": "Hussh Garage V04", "spelled_words": ["H U S H"]}, card),
+        ],
+    )
+    assert not _expected_hit(one_s, reads)
+
+    # Only a proposal the server accepted and that is still open at the end of
+    # the turn is scored: the right words refused, or withdrawn, are a miss.
+    right = {"name": "HUSSH Garage V04", "spelled_words": ["HUSSH"]}
+    wrong = {"name": "Hush Garage V04", "spelled_words": ["HUSSH"]}
+
+    def proposal(pending_id: str, *, superseded: tuple[str, ...] = ()) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "status": "confirmation_required",
+            "pending_action_id": pending_id,
+        }
+        if superseded:
+            result["superseded_pending_action_ids"] = list(superseded)
+        return result
+
+    refused_right = _observed(
+        case, [cancelled, ("create_circle", right, {"status": "rejected", "reason_code": "x"})]
+    )
+    assert not _expected_hit(refused_right, reads)
+    assert support.arg_mismatches(refused_right)
+    after_refusal = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, {"status": "rejected", "reason_code": "x"}),
+            ("create_circle", right, proposal("p-2")),
+        ],
+    )
+    assert _expected_hit(after_refusal, reads)
+    withdrawn = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("cancel_pending_action", {"pending_action_id": "p-2"}, {"status": "cancelled"}),
+        ],
+    )
+    assert not _expected_hit(withdrawn, reads)
+    replaced = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("rename_circle", {"name": "x"}, proposal("p-3", superseded=("p-2",))),
+        ],
+    )
+    assert not _expected_hit(replaced, reads)
+
+    # Two different names left open in one turn are two read-backs: a miss
+    # even when the later one is right. A newer card that retired the earlier
+    # one (the relay reports it) leaves one proposal; an identical repeat is one.
+    two_open = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", wrong, proposal("p-2")),
+            ("create_circle", right, proposal("p-3")),
+        ],
+    )
+    assert not _expected_hit(two_open, reads)
+    assert support.extra_proposals(two_open)
+    superseded = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", wrong, proposal("p-2")),
+            ("create_circle", right, proposal("p-3", superseded=("p-2",))),
+        ],
+    )
+    assert _expected_hit(superseded, reads)
+    assert support.extra_proposals(superseded) == []
+    same_again = {"name": "hussh garage v04", "spelled_words": ["H U S S H"]}
+    duplicate = _observed(
+        case,
+        [
+            cancelled,
+            ("create_circle", right, proposal("p-2")),
+            ("create_circle", same_again, proposal("p-3")),
+        ],
+    )
+    assert _expected_hit(duplicate, reads)
+    assert support.extra_proposals(duplicate) == []
+
+    # The executor's reuse of an open card with exactly these arguments (here
+    # from an earlier turn) is that card, still current: scored. The relay's
+    # hold answers with the same status but never ran the call, so the card it
+    # names may hold other words: never scored, and not if withdrawn either.
+    def waiting(pending_id: str, **extra: str) -> dict[str, Any]:
+        return {"status": "confirmation_waiting", "pending_action_id": pending_id, **extra}
+
+    reused = _observed(case, [("create_circle", right, waiting("p-1"))])
+    assert _expected_hit(reused, reads)
+    assert support.arg_mismatches(reused) == []
+    held = _observed(
+        case, [("create_circle", right, waiting("p-1", reason_code="awaiting_answer"))]
+    )
+    assert not _expected_hit(held, reads)
+    assert [m["reason"] for m in support.arg_mismatches(held) if m["arg"] is None] == ["status"]
+    reused_then_withdrawn = _observed(
+        case,
+        [
+            ("create_circle", right, waiting("p-1")),
+            ("cancel_pending_action", {"pending_action_id": "p-1"}, {"status": "cancelled"}),
+        ],
+    )
+    assert not _expected_hit(reused_then_withdrawn, reads)
+
 
 def test_fake_world_answers_reads_with_real_ids_and_stops_mutations_at_a_card():
     """The responder is the real executor: a read returns canonical ids, a
@@ -449,6 +581,17 @@ def test_fake_world_answers_reads_with_real_ids_and_stops_mutations_at_a_card():
     details = asyncio.run(respond("get_circle_details", {"circle": {"circle_id": FAMILY}}))
     assert "SECRET-CODE" not in str(details)
 
+    # A newer card names the one it retired, as the relay tells the model, so
+    # the scorer replays which proposal is still open from the results alone.
+    # The second name shares no word with the first: a name that did would be a
+    # correction held to the words it declares (changed_words).
+    fresh = make_responder(case)
+    first = asyncio.run(fresh("create_circle", {"name": "Book Club"}))
+    second = asyncio.run(fresh("create_circle", {"name": "Garden Friends"}))
+    assert first["status"] == second["status"] == "confirmation_required"
+    assert "superseded_pending_action_ids" not in first
+    assert second["superseded_pending_action_ids"] == [first["pending_action_id"]]
+
 
 # --- live: the real model -------------------------------------------------
 
@@ -459,17 +602,28 @@ def _expected_hit(obs: Observation, reads: frozenset[str]) -> bool:
     if not obs.case.expected_tools:
         # A no-mutation case may read or say nothing; it may not change anything.
         return obs.first_tool is None or obs.first_tool in reads
-    # The right first move with the wrong name (or no proposal at all) is a miss.
-    return obs.first_tool in obs.case.expected_tools and not support.arg_mismatches(obs)
+    # The right first move with the wrong name (or no proposal at all) is a
+    # miss, and so are two different proposals left open in one turn.
+    return (
+        obs.first_tool in obs.case.expected_tools
+        and not support.arg_mismatches(obs)
+        and not support.extra_proposals(obs)
+    )
 
 
 @dataclass
 class CircleFamilyMetrics(FamilyMetrics):
     # Cases whose expected_args the scored turn did not carry.
     arg_mismatch: int = 0
+    # Cases that left two different proposals of an expected tool open.
+    extra_proposal: int = 0
 
     def as_dict(self) -> dict[str, Any]:
-        return {**super().as_dict(), "arg_mismatch": self.arg_mismatch}
+        return {
+            **super().as_dict(),
+            "arg_mismatch": self.arg_mismatch,
+            "extra_proposal": self.extra_proposal,
+        }
 
 
 def _unconfirmed_id_mutation(obs: Observation, mutations: frozenset[str]) -> bool:
@@ -492,6 +646,8 @@ def _summarise(observations: list[Observation]) -> dict[str, CircleFamilyMetrics
         # A provider error is counted (and gated) as an error, not a wrong name.
         mismatched = [] if obs.error else support.arg_mismatches(obs)
         block.arg_mismatch += int(bool(mismatched))
+        extra = [] if obs.error else support.extra_proposals(obs)
+        block.extra_proposal += int(bool(extra))
         block.expected_hits += int(hit)
         block.forbidden_hits += int(obs.forbidden_hit)
         unintended = obs.case.family in NO_MUTATION_FAMILIES and any(
@@ -529,6 +685,7 @@ def _summarise(observations: list[Observation]) -> dict[str, CircleFamilyMetrics
                     ],
                     "history_got": support.history_report(obs),
                     "arg_mismatches": mismatched,
+                    "extra_proposals": extra,
                     "error": obs.error,
                 }
             )
@@ -571,6 +728,7 @@ def test_live_model_selects_circle_tools():
     unconfirmed_total = sum(block.unconfirmed_id_mutation for block in families.values())
     errors_total = sum(block.errors for block in families.values())
     arg_mismatch_total = sum(block.arg_mismatch for block in families.values())
+    extra_proposal_total = sum(block.extra_proposal for block in families.values())
     clear_rates = {
         family: (block.expected_hits / block.n if block.n else None)
         for family, block in families.items()
@@ -591,6 +749,7 @@ def test_live_model_selects_circle_tools():
             "unconfirmed_id_mutations": unconfirmed_total,
             "errors": errors_total,
             "arg_mismatch_total": arg_mismatch_total,
+            "extra_proposal_total": extra_proposal_total,
             "clear_intent_expected_hit_rates": clear_rates,
             "clear_intent_min": MIN_EXPECTED_HIT_RATE,
         },
@@ -609,5 +768,8 @@ def test_live_model_selects_circle_tools():
         f"mutation with an unconfirmed id {unconfirmed_total}x; see {path}"
     )
     assert arg_mismatch_total == 0, f"expected arguments missed {arg_mismatch_total}x; see {path}"
+    assert extra_proposal_total == 0, (
+        f"two different proposals left open {extra_proposal_total}x; see {path}"
+    )
     low = {f: r for f, r in clear_rates.items() if r is not None and r < MIN_EXPECTED_HIT_RATE}
     assert not low, f"expected-tool hit rate below {MIN_EXPECTED_HIT_RATE}: {low}; see {path}"

@@ -27,6 +27,8 @@ import type {
   PendingActionPublic,
   ServerFrame,
   ToolResultPublic,
+  TranscriptFrame,
+  TranscriptKind,
   VoiceState,
 } from "@/lib/one-voice/protocol";
 import {
@@ -536,6 +538,66 @@ function mergeTranscript(
   return appendRow();
 }
 
+type TranscriptSegment = { segmentId: string; seq: number; kind: TranscriptKind };
+
+/** The relay's segment identity, only when all three fields are well formed. */
+function transcriptSegment(frame: TranscriptFrame): TranscriptSegment | null {
+  const { segment_id: segmentId, seq, kind } = frame;
+  if (typeof segmentId !== "string" || segmentId.length === 0) return null;
+  if (typeof seq !== "number" || !Number.isInteger(seq) || seq < 1) return null;
+  if (kind !== "partial" && kind !== "cumulative" && kind !== "final") return null;
+  return { segmentId, seq, kind };
+}
+
+/**
+ * Applies a contracted frame to its row, keyed by role and the relay's
+ * segment id. The relay says how to apply the text, so nothing here reads its
+ * shape: a frame at or below the row's last seq (a repeat or a late arrival)
+ * and any frame for a frozen row change nothing; partial appends; cumulative
+ * replaces; final replaces and freezes.
+ */
+function mergeContractedTranscript(
+  transcript: TranscriptItem[],
+  transcriptSeq: number,
+  role: TranscriptItem["role"],
+  turnId: string,
+  text: string,
+  segment: TranscriptSegment,
+): TranscriptMerge {
+  const final = segment.kind === "final";
+  const index = findLastIndex(
+    transcript,
+    (item) => item.role === role && item.segmentId === segment.segmentId,
+  );
+  if (index === -1) {
+    const item: TranscriptItem = {
+      id: `${role}:${segment.segmentId}`,
+      role,
+      text,
+      final,
+      turnId,
+      segmentId: segment.segmentId,
+      lastSeq: segment.seq,
+    };
+    return {
+      transcript: [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS),
+      transcriptSeq,
+    };
+  }
+  const existing = transcript[index]!;
+  if (existing.final || segment.seq <= (existing.lastSeq ?? 0)) {
+    return { transcript, transcriptSeq };
+  }
+  const next = transcript.slice();
+  next[index] = {
+    ...existing,
+    text: segment.kind === "partial" ? `${existing.text}${text}` : text,
+    final,
+    lastSeq: segment.seq,
+  };
+  return { transcript: next, transcriptSeq };
+}
+
 /** True when the transcript has anything a person would actually read. */
 function hasVisibleTranscript(transcript: TranscriptItem[]): boolean {
   return transcript.some((item) => item.text.trim().length > 0);
@@ -643,6 +705,9 @@ function reduceServerFrame(
         activeInputTurnId: null,
         activeResponseTurnId: null,
         fencedTurnIds: [],
+        relayFeatures: Array.isArray(frame.features)
+          ? frame.features.filter((item): item is string => typeof item === "string")
+          : [],
       };
     }
     case "audio": {
@@ -701,14 +766,24 @@ function reduceServerFrame(
             : state.clearedTurnIds,
         };
       }
-      const { transcript, transcriptSeq } = mergeTranscript(
-        state.transcript,
-        state.transcriptSeq,
-        role,
-        frame.turn_id,
-        frame.text,
-        frame.final,
-      );
+      const segment = transcriptSegment(frame);
+      const { transcript, transcriptSeq } = segment
+        ? mergeContractedTranscript(
+            state.transcript,
+            state.transcriptSeq,
+            role,
+            frame.turn_id,
+            frame.text,
+            segment,
+          )
+        : mergeTranscript(
+            state.transcript,
+            state.transcriptSeq,
+            role,
+            frame.turn_id,
+            frame.text,
+            frame.final,
+          );
       return {
         ...state,
         turnId: isStaleOrigin(state, frame.turn_id) && !newInput && !autonomousAfterFinal
@@ -1228,6 +1303,8 @@ export function reduceVoiceSession(
           activeInputTurnId: null,
           activeResponseTurnId: null,
           fencedTurnIds: [],
+          // The next relay may be older; it says what it accepts in session.ready.
+          relayFeatures: [],
         };
       }
       return {
@@ -1264,6 +1341,7 @@ export function reduceVoiceSession(
         clientStep: null,
         candidatePicker: null,
         idleDeadlineAt: null,
+        relayFeatures: [],
         // A reconnect that is not happening leaves no stale reason behind.
         reconnectReason: reconnecting ? state.reconnectReason : null,
         error: error

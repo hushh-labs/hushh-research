@@ -68,23 +68,30 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
           ? Math.max(0, Math.min(pinTop - bounds.top, stackBottom - bounds.bottom))
           : 0;
         const progress = reducedMotion.matches ? 0 : Math.min(1, Math.max(0, (pinTop - bounds.top) / Math.max(1, bounds.height)));
-        return { card, lift, scale: 1 - progress * 0.045 };
+        return { card, lift, scale: 1 - progress * 0.045, stacked: lift > 0 || progress > 0 };
       });
-      frames.forEach(({ card, lift, scale }) => {
+      frames.forEach(({ card, lift, scale, stacked }) => {
         card.style.transform = `translateY(${lift}px) scale(${scale})`;
+        const details = card.querySelector<HTMLElement>("[data-stack-details]");
+        if (details) details.style.visibility = stacked ? "hidden" : "";
       });
     };
     const schedule = () => { if (!frame) frame = requestAnimationFrame(update); };
+    const settled = (event: TransitionEvent) => {
+      if (event.propertyName === "transform" && event.target instanceof HTMLElement && event.target.tagName === "LI") schedule();
+    };
+    stack.addEventListener("transitionend", settled);
     target.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     reducedMotion.addEventListener("change", schedule);
     schedule();
     return () => {
       cancelAnimationFrame(frame);
+      stack.removeEventListener("transitionend", settled);
       target.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       reducedMotion.removeEventListener("change", schedule);
-      stack.querySelectorAll<HTMLElement>("[data-card-motion]").forEach((card) => { card.style.transform = ""; });
+      stack.querySelectorAll<HTMLElement>("[data-card-motion]").forEach((card) => { card.style.transform = ""; const details = card.querySelector<HTMLElement>("[data-stack-details]"); if (details) details.style.visibility = ""; });
     };
   }, [isExpanded, selectedCardId, cards.length, scrollStack]);
   const endGesture = (event: TouchEvent) => {
@@ -161,7 +168,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       className="block origin-bottom w-full rounded-[3.72cqw] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
                       {preview ? <WalletDemoCardFace summary={card} /> : <WalletCardFace summary={card} collection />}
                     </button>
-                    {showDetailsLink && isExpanded ? <div className="flex h-10 items-center justify-center"><Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} onClick={() => onOpen?.(card.cardId)} aria-label={`View details for ${card.nickname || cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></Button></div> : null}
+                    {showDetailsLink && isExpanded ? <div data-stack-details className="flex h-10 items-center justify-center"><Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} onClick={() => onOpen?.(card.cardId)} aria-label={`View details for ${card.nickname || cardNetworkLabel(card.brand)}`}>View details <span aria-hidden="true">›</span></Button></div> : null}
                     </div>
                   </li>
                 );

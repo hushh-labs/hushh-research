@@ -141,6 +141,7 @@ export function WalletCardBrowser({ cards, selectedCardId, onSelect, onOverview,
     <Button variant="secondary" size="compact" disabled={isBusy} aria-label="Add a card" onClick={onAdd} className={styles.plus}><Plus aria-hidden="true" className="size-5" /></Button>
   </nav>;
   return <div ref={content} className={styles.browser} data-testid="wallet-card-browser" data-mode={mode}>
+    <h2 className={styles.title}>Your cards</h2>
     {demo ? <div className={styles.demoNotice}><span className={styles.demoBadge}>Demo collection</span><p>Explore sample cards. Your saved cards will appear here.</p></div> : null}
     {mode === "all" ? <>
       {demo ? <div className={styles.overviewSummary}><span className={styles.eyebrow}>SAMPLE TOTAL DUE</span><strong>₹0.00</strong><span>No payment is due — this is a preview.</span></div> : null}

@@ -511,6 +511,8 @@ tests/one_voice/test_relay_sos_lifecycle.py
 tests/one_voice/test_confirm_route_actor_proof.py
 tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
+tests/one_voice/test_spelling.py
+tests/one_voice/test_relay_name_edit.py
 tests/one_voice/test_tools_sos.py
 tests/one_voice/test_tools_mail.py
 tests/one_voice/test_mail_send.py
