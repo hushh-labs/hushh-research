@@ -273,6 +273,43 @@ describe("SwipeViews", () => {
     expect(scrollBody.seek).toHaveBeenCalledOnce();
   });
 
+  it.each([
+    { rendered: -802, destination: 0, boundary: -800 },
+    { rendered: 2, destination: -800, boundary: 0 },
+  ])("preserves an inward tab destination while clamping residual edge motion at $boundary", ({ rendered, destination, boundary }) => {
+    const vector = () => {
+      let value = 0;
+      return { get: () => value, set: (next: number) => { value = next; } };
+    };
+    const target = vector(), location = vector(), previousLocation = vector(), offsetLocation = vector();
+    const translate = { to: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800], limit: { min: -800, max: 0 },
+      target, location, previousLocation, offsetLocation, translate,
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    render(<SwipeViews tabSetId="edge-retarget" activeValue="first" options={[...OPTIONS, { value: "third", label: "Third" }]}>
+      <div>Saved</div><div>Add</div><div>Sharing</div>
+    </SwipeViews>);
+    // A new tab target is legal even while the previous motion overshoots.
+    target.set(destination);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(destination);
+    expect(offsetLocation.get()).toBe(boundary);
+    expect(location.get()).toBe(boundary);
+    expect(previousLocation.get()).toBe(boundary);
+    expect(translate.to).toHaveBeenLastCalledWith(boundary);
+
+    // Outward targets still clamp; preserving a destination must not remove
+    // the empty-space protection at either end of the workspace.
+    target.set(rendered);
+    offsetLocation.set(rendered);
+    act(() => embla.listeners.get("scroll")?.());
+    expect(target.get()).toBe(boundary);
+    expect(offsetLocation.get()).toBe(boundary);
+  });
+
   it("starts pane motion immediately when the shared top tab is pressed", () => {
     render(
       <SwipeViews tabSetId="instant" activeValue="first" options={OPTIONS}>

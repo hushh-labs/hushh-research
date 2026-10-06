@@ -149,7 +149,10 @@ function clampRenderedSwipeBounds(
   const lowerBound = -((optionCount - 1) * slideWidth);
   const clamped = Math.min(0, Math.max(lowerBound, rendered));
   if (Math.abs(clamped - rendered) < 0.5) return;
-  engine.target.set(clamped);
+  // Residual velocity can overshoot after a newer tab has retargeted inward.
+  // Bound that destination independently; the rendered edge does not own it.
+  const target = engine.target.get();
+  engine.target.set(Math.min(0, Math.max(lowerBound, target)));
   engine.location.set(clamped);
   engine.offsetLocation.set(clamped);
   engine.previousLocation.set(clamped);
