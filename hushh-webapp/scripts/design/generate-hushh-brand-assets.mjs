@@ -11,10 +11,10 @@ const REPO_ROOT = resolve(WEB_ROOT, "..");
 const SOURCE_PATH = resolve(WEB_ROOT, "assets/brand/hushh-mark-source.png");
 const CHECK_ONLY = process.argv.includes("--check");
 const APP_ICON_BACKGROUND = "#1d1d1f";
-// Android system surfaces can mask the adaptive launcher artwork. Keep its
-// required background separate and light so the transparent Hussh mark does
-// not acquire a dark circular plate on a light system sheet.
-const ANDROID_APP_ICON_BACKGROUND = "#ffffff";
+// Android launcher and Google Play surfaces retain the existing premium dark
+// production treatment. The transparent mark is kept separate so Android can
+// apply its own mask without introducing an extra plate, border, or shadow.
+const ANDROID_APP_ICON_BACKGROUND = APP_ICON_BACKGROUND;
 const LIGHT_SPLASH_BACKGROUND = "#ffffff";
 const IOS_DARK_SPLASH_BACKGROUND = "#111111";
 const ANDROID_DARK_SPLASH_BACKGROUND = "#151515";
@@ -196,12 +196,17 @@ async function emitRepo(path, buffer) {
 }
 
 const source = await readFile(SOURCE_PATH);
-const trimmedMark = await sharp(source)
+const { data: trimmedMark, info: trimmedMarkInfo } = await sharp(source)
   .trim({ background: TRANSPARENT })
   .png()
-  .toBuffer();
+  .toBuffer({ resolveWithObject: true });
 
-async function markLayer(canvasWidth, canvasHeight, markWidth, markHeight) {
+async function markLayer(
+  canvasWidth,
+  canvasHeight,
+  markWidth,
+  markHeight,
+) {
   const mark = await sharp(trimmedMark)
     .resize(markWidth, markHeight, {
       fit: "contain",
@@ -253,6 +258,33 @@ async function opaqueIcon(
   })
     .composite([{ input: layer, left: 0, top: 0 }])
     .removeAlpha()
+    .png()
+    .toBuffer();
+}
+
+async function opaqueIconWithAlpha(
+  canvasWidth,
+  canvasHeight,
+  markWidth,
+  markHeight,
+  background = APP_ICON_BACKGROUND,
+) {
+  const layer = await markLayer(
+    canvasWidth,
+    canvasHeight,
+    markWidth,
+    markHeight,
+  );
+  return sharp({
+    create: {
+      width: canvasWidth,
+      height: canvasHeight,
+      channels: 4,
+      background,
+    },
+  })
+    .composite([{ input: layer, left: 0, top: 0 }])
+    .ensureAlpha(1)
     .png()
     .toBuffer();
 }
@@ -425,11 +457,14 @@ for (const filename of [
   );
 }
 
-// Android launcher files retain every existing canvas and optical footprint.
+// Android launcher files retain every legacy canvas and optical footprint.
 // Legacy launchers need an opaque canvas, while adaptive launchers require a
-// transparent foreground and a separate solid background. Baking the dark
-// canvas into the foreground would surface as an unintended black circle when
-// a system surface applies its own mask.
+// transparent foreground and a separate solid background. Adaptive layers are
+// 108dp square (rather than the 48dp legacy size); keep the actual artwork in
+// the centered 66dp safe zone so circular, squircle, and rounded-square masks
+// neither crop nor double-shrink it. Baking a dark canvas into the foreground
+// would surface as an unintended black circle when a system surface applies
+// its own mask.
 const androidLaunchers = [
   ["ldpi", 36, 20, 22],
   ["mdpi", 48, 26, 28],
@@ -446,10 +481,20 @@ for (const [density, size, markWidth, markHeight] of androidLaunchers) {
     markHeight,
     ANDROID_APP_ICON_BACKGROUND,
   );
-  const adaptiveForeground = await markLayer(size, size, markWidth, markHeight);
+  const adaptiveCanvas = Math.round(size * 2.25);
+  const adaptiveMarkHeight = Math.round((62 / 108) * adaptiveCanvas);
+  const adaptiveMarkWidth = Math.round(
+    (trimmedMarkInfo.width / trimmedMarkInfo.height) * adaptiveMarkHeight,
+  );
+  const adaptiveForeground = await markLayer(
+    adaptiveCanvas,
+    adaptiveCanvas,
+    adaptiveMarkWidth,
+    adaptiveMarkHeight,
+  );
   const adaptiveBackground = await solidPng(
-    size,
-    size,
+    adaptiveCanvas,
+    adaptiveCanvas,
     ANDROID_APP_ICON_BACKGROUND,
   );
 
@@ -470,6 +515,25 @@ for (const [density, size, markWidth, markHeight] of androidLaunchers) {
     adaptiveBackground,
   );
 }
+
+await emit(
+  "android/app/src/main/res/drawable/ic_launcher_foreground_inset.xml",
+  Buffer.from(
+    `<?xml version="1.0" encoding="utf-8"?>\n` +
+      `<bitmap xmlns:android="http://schemas.android.com/apk/res/android"\n` +
+      `    android:gravity="fill"\n` +
+      `    android:src="@mipmap/ic_launcher_foreground" />\n`,
+  ),
+);
+
+// Google Play listing artwork is Console-managed, but it must stay visually
+// identical to the established dark Android identity. Keep a ready-to-upload,
+// full-bleed 512px RGBA PNG in an Android-only path; the release workflow
+// deliberately uploads only the AAB and never mutates the store listing.
+await emit(
+  "assets/android/play-store-icon-512.png",
+  await opaqueIconWithAlpha(512, 512, 280, 292, ANDROID_APP_ICON_BACKGROUND),
+);
 
 await emit(
   "android/app/src/main/res/values/ic_launcher_background.xml",

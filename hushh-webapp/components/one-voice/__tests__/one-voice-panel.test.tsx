@@ -547,6 +547,9 @@ describe("OneVoicePanel", () => {
     await waitFor(() =>
       expect(control.confirmPending).toHaveBeenCalledTimes(1),
     );
+    await waitFor(() =>
+      expect(screen.getByTestId("one-voice-pending-cancel")).toBeEnabled(),
+    );
     fireEvent.click(screen.getByTestId("one-voice-pending-cancel"));
     expect(control.cancelPending).toHaveBeenCalledTimes(1);
     expect(

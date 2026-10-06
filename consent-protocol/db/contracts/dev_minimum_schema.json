@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 280,
+  "expected_migration_version": 281,
   "migration_version_policy": "minimum",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1403,6 +1403,17 @@
       "default_action",
       "created_at",
       "updated_at"
+    ],
+    "one_mcp_pending_calls": [
+      "user_id",
+      "handle",
+      "session_id",
+      "payload_ciphertext",
+      "payload_iv",
+      "payload_tag",
+      "payload_algorithm",
+      "expires_at",
+      "created_at"
     ],
     "one_model_preferences": [
       "user_id",

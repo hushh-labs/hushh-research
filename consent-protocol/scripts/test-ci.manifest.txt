@@ -60,6 +60,7 @@ tests/services/test_drive_suggestions.py
 tests/services/test_drive_suggestion_coverage.py
 tests/services/test_drive_suggestion_recency.py
 tests/services/test_document_review_authority_postgres.py
+tests/services/test_mcp_pending_call_postgres.py
 tests/services/test_drive_sharing_store.py
 tests/services/test_drive_sharing_retention.py
 tests/services/test_drive_permission_executor.py
@@ -526,6 +527,7 @@ tests/test_governed_mcp_toolset.py
 tests/test_one_turn_location.py
 # Owner standing style: closed schema, template-only prompt section, no authority.
 tests/test_one_owner_style.py
+tests/test_mcp_pending_call.py
 tests/test_mcp_review_service.py
 tests/test_mcp_review_wire_contract.py
 # Custom connectors: reads free, writes reviewed. The review policy follows the

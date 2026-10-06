@@ -8561,12 +8561,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
             >
-              {/* Hidden on phones: the title beside it and the toggle's active
-                  segment already say which agent is on screen, and the 48px
-                  this tile costs is better spent on the agent's name. */}
+              {/* Keep the active agent's mark visible at every viewport. The
+                  compact phone tile leaves the identity label room to clip
+                  before it can overlap the trailing controls. */}
               <div
                 data-agent-chat-brand-tile
-                className="grid h-9 w-9 shrink-0 place-items-center max-sm:hidden"
+                className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"
               >
                 {isPuppySurface ? (
                   <Laptop
@@ -8576,7 +8576,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 ) : (
                   <HushhMark
                     aria-hidden="true"
-                    className="h-[24px] w-[24px]"
+                    className="h-7 w-7 items-center justify-center overflow-visible"
+                    imageClassName="!h-[23px] !w-[23px]"
                   />
                 )}
               </div>

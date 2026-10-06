@@ -288,7 +288,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         session = self._decode(row, app_name=app_name, user_id=user_id, session_id=session_id)
         from hushh_mcp.one_adk.mcp_pending_call import restore_current_pending_call
 
-        session = restore_current_pending_call(session)
+        session = await restore_current_pending_call(session)
         full_event_count = len(session.events)
         if config:
             if config.num_recent_events is not None:

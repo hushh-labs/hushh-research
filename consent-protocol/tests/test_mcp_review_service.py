@@ -307,7 +307,7 @@ async def test_review_fails_closed_and_never_dispatches(harness, failure):
 
 
 @pytest.fixture
-def pending_harness(harness):
+async def pending_harness(harness, shared_pending_store):
     from google.adk.events import Event
     from google.genai import types
 
@@ -336,7 +336,7 @@ def pending_harness(harness):
         )
     ]
     h.directive = "dir_" + "d" * 32
-    h.handle = capture_pending_call(
+    h.handle = await capture_pending_call(
         SimpleNamespace(
             user_id="owner",
             function_call_id="call",

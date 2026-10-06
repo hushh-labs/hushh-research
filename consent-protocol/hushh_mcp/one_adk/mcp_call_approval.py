@@ -3,7 +3,8 @@
 This module is not an authorization store or model-facing confirmation tool.
 The authenticated Chat review endpoint owns confirmation; the native tool's
 approval port consumes that receipt immediately before provider dispatch.
-Only HMACs enter the ledger. Review arguments stay in request/browser memory.
+Only HMACs enter the ledger. Review arguments are sealed with the owner's chat key
+and held only until the review expires (see mcp_pending_call).
 """
 
 from __future__ import annotations
@@ -21,7 +22,11 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     McpConnectionBinding,
     mcp_tool_name,
 )
-from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call, pending_call_details
+from hushh_mcp.one_adk.mcp_pending_call import (
+    PendingCallStorageError,
+    capture_pending_call,
+    pending_call_details,
+)
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
     MCP_ACTION_ID,
@@ -57,17 +62,22 @@ async def review_or_resume_call(context, binding, tool_name, revision, arguments
         # the person declined or an approval expired.
         return {"status": "unavailable", "error": "MCP_REVIEW_UNAVAILABLE", "retryable": False}
     public_name = mcp_tool_name(binding.connector_id, tool_name)
-    pending = capture_pending_call(
-        context,
-        tool_name=public_name,
-        arguments=arguments,
-        review={
-            "directiveId": issued.directive_id,
-            "connectorId": binding.connector_id,
-            "catalogRevision": revision,
-            "expiresAt": issued.expires_at.isoformat(),
-        },
-    )
+    try:
+        pending = await capture_pending_call(
+            context,
+            tool_name=public_name,
+            arguments=arguments,
+            review={
+                "directiveId": issued.directive_id,
+                "connectorId": binding.connector_id,
+                "catalogRevision": revision,
+                "expiresAt": issued.expires_at.isoformat(),
+            },
+        )
+    except PendingCallStorageError:
+        # The reviewed call could not be kept for the decision. Nothing was
+        # dispatched, and a card that could never be confirmed is not shown.
+        return {"status": "unavailable", "error": "MCP_REVIEW_UNAVAILABLE", "retryable": False}
     context.request_confirmation(
         hint="Review this connector call before continuing.",
         payload={
@@ -136,7 +146,7 @@ async def consume_resume_receipt(
     ):
         raise ActionDirectiveAuthorityError("Connector review changed.")
     if require_pending or value.get("pendingHandle"):
-        pending = pending_call_details(
+        pending = await pending_call_details(
             Session(
                 id=context.state["hussh:conversation_id"],
                 user_id=context.user_id,

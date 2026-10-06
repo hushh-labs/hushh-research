@@ -218,6 +218,7 @@ async def test_chat_configuration_admission_requires_unlock_and_scrubs_input(
     assert run.forwarded_props == {}
 
 
+@pytest.mark.usefixtures("shared_pending_store")
 async def test_first_call_uses_native_confirmation_without_executing(monkeypatch):
     from datetime import UTC, datetime, timedelta
 
@@ -347,3 +348,54 @@ async def test_review_ledger_outage_is_reported_as_review_unavailable(monkeypatc
     context.state["temp:one_execution_surface"] = "voice"
     with pytest.raises(ActionDirectiveAuthorityError):
         await approval.review_or_resume_call(context, binding, "write", "revision", {})
+
+
+async def test_unstorable_review_shows_no_card_and_dispatches_nothing(monkeypatch):
+    """A card that could never be confirmed is not shown (nothing was sent)."""
+    from datetime import UTC, datetime, timedelta
+
+    from google.adk.agents.context import Context
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.sessions import InMemorySessionService, Session
+
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+    from hushh_mcp.one_adk.mcp_pending_call import PendingCallStorageError
+
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id="turn",
+            session=Session(
+                id="thread",
+                user_id="owner",
+                app_name="hussh_one",
+                state={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "thread",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        ),
+        function_call_id="call",
+    )
+    issued = SimpleNamespace(
+        directive_id="dir_" + "a" * 32, expires_at=datetime.now(UTC) + timedelta(minutes=5)
+    )
+    monkeypatch.setattr(approval.McpCallApproval, "issue", AsyncMock(return_value=issued))
+    monkeypatch.setattr(
+        approval,
+        "capture_pending_call",
+        AsyncMock(
+            side_effect=PendingCallStorageError("Connector review is temporarily unavailable.")
+        ),
+    )
+    binding = McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp")
+    result = await approval.review_or_resume_call(
+        context, binding, "search", "revision", {"q": "PRIVATE_ARGUMENT"}
+    )
+    assert result == {
+        "status": "unavailable",
+        "error": "MCP_REVIEW_UNAVAILABLE",
+        "retryable": False,
+    }
+    assert "call" not in context.actions.requested_tool_confirmations

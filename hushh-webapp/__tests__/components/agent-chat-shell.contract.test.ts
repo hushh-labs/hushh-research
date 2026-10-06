@@ -205,6 +205,19 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain('title={statusText || undefined}');
   });
 
+  it("keeps the active-agent mark visible in the compact chat header", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    const brandTileStart = workspace.indexOf('data-agent-chat-brand-tile');
+    const brandTile = workspace.slice(brandTileStart, brandTileStart + 700);
+
+    expect(brandTileStart).toBeGreaterThan(0);
+    expect(brandTile).toContain("<HushhMark");
+    expect(brandTile).toContain('className="grid h-8 w-8 shrink-0 place-items-center sm:h-9 sm:w-9"');
+    expect(brandTile).toContain('className="h-7 w-7 items-center justify-center overflow-visible"');
+    expect(brandTile).toContain('imageClassName="!h-[23px] !w-[23px]"');
+    expect(brandTile).not.toContain("max-sm:hidden");
+  });
+
   it("keeps One's cloud model picker out of the Puppy One surface", () => {
     // The founder-reported defect: the header read "Puppy One / On your
     // machine" with a Gemini chip beside it, over a transcript whose model is

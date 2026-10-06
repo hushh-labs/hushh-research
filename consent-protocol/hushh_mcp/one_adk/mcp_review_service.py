@@ -282,8 +282,8 @@ async def prepare_pending_review(
     )
     if session is None:
         raise ActionDirectiveAuthorityError("Conversation unavailable.")
-    pending = pending_call_details(session, pending_handle)
-    restore_pending_call(session, pending_handle)  # Require both native call identities.
+    pending = await pending_call_details(session, pending_handle)
+    await restore_pending_call(session, pending_handle)  # Require both native call identities.
     review = pending.get("review")
     if (
         not isinstance(review, dict)

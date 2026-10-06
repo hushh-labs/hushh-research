@@ -1,8 +1,26 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { MailOverview } from "@/components/gmail/mail-overview";
+import {
+  MailConnectedAccount,
+  MailOverview,
+} from "@/components/gmail/mail-overview";
 
 describe("Mail overview", () => {
+  it("shows only the envelope for a connected Mail account", () => {
+    render(
+      <MailConnectedAccount
+        onReconnect={vi.fn()}
+        onDisconnect={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen
+        .getByTestId("mail-connected-account-icon")
+        .querySelectorAll("svg"),
+    ).toHaveLength(1);
+  });
+
   it("removes the fetching indicator when receipts finish and keeps the receipt panel read-only", () => {
     const onOpenChat = vi.fn();
     const props = { receiptUpdated: "Last updated just now.", onOpenChat };

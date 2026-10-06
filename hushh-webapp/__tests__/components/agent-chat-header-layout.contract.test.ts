@@ -95,17 +95,23 @@ describe("agent chat header layout", () => {
     expect(toggleTag).toContain("icon: Cloud");
     expect(toggleTag).toContain("icon: Laptop");
     expect(toggleTag.match(/accessibleLabel:/g)).toHaveLength(2);
-    // The brand tile repeats what the title and the toggle already say; on a
-    // phone its width goes to the agent's name instead.
+    // Keep the mark visible at phone widths and allow the text slot to absorb
+    // pressure before it can overlap the trailing controls.
     expect(openingTag(header, "data-agent-chat-brand-tile")).toContain(
+      "h-8 w-8 shrink-0 place-items-center",
+    );
+    expect(openingTag(header, "data-agent-chat-brand-tile")).not.toContain(
       "max-sm:hidden",
     );
   });
 
-  it("renders the canonical Hussh mark at the existing 24px size", () => {
+  it("matches the canonical One header mark size", () => {
     const header = headerBlock();
     expect(header).toContain("<HushhMark");
-    expect(header).toContain('className="h-[24px] w-[24px]"');
+    expect(header).toContain(
+      'className="h-7 w-7 items-center justify-center overflow-visible"',
+    );
+    expect(header).toContain('imageClassName="!h-[23px] !w-[23px]"');
     expect(header).not.toContain("🤫");
   });
 });

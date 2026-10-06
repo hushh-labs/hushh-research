@@ -43,6 +43,14 @@ if _XDIST_WORKER and os.environ.get("OFFLINE_DB_PATH"):
         os.environ["OFFLINE_DB_PATH"] = f"{_offline_root}.{_XDIST_WORKER}{_offline_ext}"
 
 
+@pytest.fixture
+def shared_pending_store(monkeypatch: pytest.MonkeyPatch):
+    """Pending connector reviews against an in-memory stand-in for their table."""
+    from tests.helpers.pending_calls import install_fake_pending_store
+
+    return install_fake_pending_store(monkeypatch)
+
+
 @pytest.fixture(autouse=True)
 def isolate_runtime_env(monkeypatch: pytest.MonkeyPatch):
     # Local import: hushh_mcp.config resolves APP_SIGNING_KEY at import time,
