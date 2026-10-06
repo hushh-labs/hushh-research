@@ -120,6 +120,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/setup/calendar`
 - `/one/setup/[capability]`
 - `/one/calendar`
+- `/one/todos` — owner-added to-do items and a read-only upcoming Calendar agenda
 - `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
 - `/one/pkm/recent`
 - `/one/pkm/location` — readable saved places, visits and Location memory details

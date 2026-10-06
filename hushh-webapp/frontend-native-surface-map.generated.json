@@ -8072,6 +8072,73 @@
       "thread_and_consent_contract": null
     },
     {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/todos/todo-list-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader",
+          "SurfaceCard"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.todos",
+          "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+          "screen": "app",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+          "next_route": null,
+          "return_policy": "stay",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/todos",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Ftodos",
+        "expectedMarker": "native-route-one-todos",
+        "expectedRoute": "/one/todos",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "loading"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/wallet",
       "page_file": "app/one/wallet/page.tsx",
       "physical_page_exists": true,
@@ -9753,5 +9820,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "79ad31a0818b41a8d67b8e138c28e1000f3f38c278d8d2f48fa3439330b79d89"
+  "content_sha256": "f6e86c673df2cdcb36b7a028785543e7aaf72a0bc900c9bf8235318c2347ef6a"
 }

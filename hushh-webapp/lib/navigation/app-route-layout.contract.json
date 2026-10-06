@@ -851,6 +851,42 @@
     }
   },
   {
+    "route": "/one/todos",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/todos/todo-list-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceCard"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.todos",
+      "purpose": "Review private to-do items and the safe, read-only Calendar agenda. Calendar changes remain in the Calendar agent and owner-added items remain encrypted in the private agent.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Owner-added items are saved only after the owner confirms them; calendar items remain read-only projections of Calendar.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/pkm",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/pkm surface.",

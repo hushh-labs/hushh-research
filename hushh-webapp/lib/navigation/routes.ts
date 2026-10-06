@@ -173,6 +173,8 @@ export const ROUTES = {
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
   CALENDAR: "/one/calendar",
+  /** Owner's to-do items and safe read-only Calendar agenda. */
+  ONE_TODOS: "/one/todos",
   PKM: "/one/pkm",
   PKM_RECENT: "/one/pkm/recent",
   PKM_LOCATION: "/one/pkm/location",
