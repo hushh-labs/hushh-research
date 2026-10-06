@@ -449,8 +449,17 @@ the field height and reserves a transparent 44px visibility target, retaining
 the small glyph, masking and normal authentication handlers. Six focused
 Chromium/WebKit checks pass, including upper-edge taps with empty input,
 phone handoff, split-window resizing and enlarged supporting text. The physical
-vault check also asserts those native-accessibility target dimensions; its
-new candidate must be built and rerun before counting device acceptance.
+vault check also asserts those native-accessibility target dimensions.
+The production-targeted Debug product built and installed at `77dffc907` passed
+that attach-only iPad check: the actual input was 54 points high, the visibility
+control met the 44-point minimum, and Unlock, Recovery key and Sign out remained
+reachable through rest/focus, portrait/landscape and background/resume. Recovery
+was independently DOM-hit-testable after each transition. No credential was read
+or submitted and no account operation was invoked. The software keyboard did
+not appear; physical keyboard overlap, real split-window interaction, visual
+acceptance and protected route continuity remain unqualified. This current
+reachability result does not establish the original older runtime's clipping
+cause or authorize new native families on iPad.
 
 Opt-in Debug-only `--hushh-vault-layout-diagnostics` provides bounded numeric
 geometry and boolean hit results through `native-vault-layout`. It admits no
