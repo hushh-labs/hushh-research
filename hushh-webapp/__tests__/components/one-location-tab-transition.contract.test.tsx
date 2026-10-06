@@ -149,7 +149,7 @@ const LOCATION_TAB_SET: TopShellTabSet = {
 };
 
 let reduceMotion = false;
-let scrollHeightDescriptor: PropertyDescriptor | undefined;
+let offsetHeightDescriptor: PropertyDescriptor | undefined;
 
 /** Places the pager at a fractional index and fires the frame handler. */
 function scrollTo(position: number) {
@@ -292,14 +292,14 @@ beforeEach(() => {
   document.documentElement.removeAttribute("style");
   for (const id of ["location", "ria"]) setTopShellTabSwipeState(id, 0, false);
 
-  // The measurement path is `scrollHeight` on the panel node, which jsdom
+  // The measurement path is `offsetHeight` on the panel node, which jsdom
   // always reports as 0. Resolve it from the panel's own id instead so the
   // three panes have the different heights this contract is about.
-  scrollHeightDescriptor = Object.getOwnPropertyDescriptor(
+  offsetHeightDescriptor = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
-    "scrollHeight",
+    "offsetHeight",
   );
-  Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
     configurable: true,
     get(this: HTMLElement) {
       return PANEL_HEIGHTS[this.id] ?? 0;
@@ -334,11 +334,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  if (scrollHeightDescriptor) {
+  if (offsetHeightDescriptor) {
     Object.defineProperty(
       HTMLElement.prototype,
-      "scrollHeight",
-      scrollHeightDescriptor,
+      "offsetHeight",
+      offsetHeightDescriptor,
     );
   }
   vi.unstubAllGlobals();
