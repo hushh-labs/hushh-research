@@ -16,13 +16,31 @@ describe("direct-path turn errors", () => {
   it("names a moved agent, a wake that timed out, and an agent that could not be reached", () => {
     expect(formatAgentChatErrorMessage("POD_ASSIGNMENT_CHANGED")).toMatch(/^Your private agent moved/);
     expect(formatAgentChatErrorMessage("x", "POD_ASSIGNMENT_CHANGED")).toMatch(/Open Hosting in Settings/);
-    expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:409")).toMatch(/^Your private agent moved/);
+    expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:409:POD_ASSIGNMENT_CHANGED")).toMatch(/^Your private agent moved/);
     expect(formatAgentChatErrorMessage("POD_WAKE_TIMEOUT", "POD_WAKE_TIMEOUT"))
       .toBe("Your private agent did not wake up in time, so your message was not sent. Try again in a minute.");
     expect(formatAgentChatErrorMessage("POD_NOT_REACHED", "POD_NOT_REACHED")).toMatch(/could not be reached, so your message was not sent/);
     expect(formatAgentChatErrorMessage("POD_CHAT_AUTHORITY_UNAVAILABLE:403")).toMatch(/^Hussh could not confirm this chat/);
     expect(formatAgentChatErrorMessage("Failed to fetch")).toBe("One could not be reached. Check your internet connection, then try again.");
     expect(formatAgentChatErrorMessage("Load failed")).toMatch(/^One could not be reached/);
+  });
+
+  it("never calls a hub 409 a move unless the hub said the agent moved", () => {
+    const code = (hubCode: string) => `POD_CHAT_AUTHORITY_UNAVAILABLE:409:${hubCode}`;
+    expect(formatAgentChatErrorMessage(code("AGENT_NOT_READY"), code("AGENT_NOT_READY")))
+      .toBe("Your private agent isn't ready to chat yet. Try again in a moment. If this keeps happening, open Hosting in Settings.");
+    const hubSentence = "Your agent is moving to your cloud. This takes a minute or two.";
+    expect(formatAgentChatErrorMessage(hubSentence, code("AGENT_MIGRATING"))).toBe(hubSentence);
+    expect(formatAgentChatErrorMessage("Moving \u2014 see https://x.example", code("AGENT_MIGRATING"))).toBe(hubSentence);
+    // A 409 with no hub code, or any other code, is not evidence of a move.
+    for (const text of ["POD_CHAT_AUTHORITY_UNAVAILABLE:409", code("POD_IDENTITY_NOT_DURABLE")]) {
+      expect(formatAgentChatErrorMessage(text)).toMatch(/^Hussh could not confirm this chat/);
+    }
+  });
+
+  it("is honest about a send that may or may not have arrived, and about an offline device", () => {
+    expect(formatAgentChatErrorMessage("POD_SEND_UNCONFIRMED", "POD_SEND_UNCONFIRMED")).toMatch(/may not have been sent/);
+    expect(formatAgentChatErrorMessage("POD_DEVICE_OFFLINE", "POD_DEVICE_OFFLINE")).toMatch(/^This device is offline/);
   });
 
   it("keeps the earlier direct-path copy and never echoes unknown text", () => {
@@ -39,7 +57,8 @@ describe("direct-path turn errors", () => {
   });
 
   it("uses calm copy without dashes", () => {
-    for (const text of ["POD_ASSIGNMENT_CHANGED", "POD_WAKE_TIMEOUT", "POD_NOT_REACHED", "Failed to fetch", "POD_OWNER_CHANGED"]) {
+    for (const text of ["POD_ASSIGNMENT_CHANGED", "POD_WAKE_TIMEOUT", "POD_NOT_REACHED", "Failed to fetch", "POD_OWNER_CHANGED",
+      "POD_SEND_UNCONFIRMED", "POD_DEVICE_OFFLINE", "POD_CHAT_AUTHORITY_UNAVAILABLE:409:AGENT_NOT_READY"]) {
       expect(formatAgentChatErrorMessage(text)).not.toMatch(/[–—]/);
     }
   });

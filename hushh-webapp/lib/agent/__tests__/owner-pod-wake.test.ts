@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AgentWakeTimeoutError,
+  DeviceOfflineError,
   PodNotReachedError,
+  PodSendUnconfirmedError,
   WAKE_BUDGET_MS,
   beforeTurnIsSent,
   isAgentStillWaking,
@@ -113,6 +115,9 @@ describe("waking a sleeping private agent", () => {
     const ambiguous = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
     await expect(sendWhileAgentWakes(ambiguous, ports().ports)).rejects.toThrow("Failed to fetch");
     expect(ambiguous).toHaveBeenCalledOnce();
+    const unconfirmed = vi.fn(async () => { throw new PodSendUnconfirmedError(); });
+    await expect(sendWhileAgentWakes(unconfirmed, ports().ports)).rejects.toBeInstanceOf(PodSendUnconfirmedError);
+    expect(unconfirmed).toHaveBeenCalledOnce();
     // A real refusal is not a wake either.
     const revoked = vi.fn(async () => { throw new Error("POD_ADMISSION_REFUSED:revoked"); });
     await expect(sendWhileAgentWakes(revoked, ports().ports)).rejects.toThrow("POD_ADMISSION_REFUSED:revoked");
@@ -154,5 +159,17 @@ describe("what counts as still waking", () => {
     await expect(beforeTurnIsSent(async () => { throw new Error("POD_SESSION_REVOKED"); }))
       .rejects.toThrow("POD_SESSION_REVOKED");
     await expect(beforeTurnIsSent(async () => 7)).resolves.toBe(7);
+  });
+
+  it("tells an offline device it is offline, which is never retried as a wake", async () => {
+    const online = vi.spyOn(navigator, "onLine", "get").mockReturnValue(false);
+    try {
+      const error = await beforeTurnIsSent(async () => { throw new TypeError("Failed to fetch"); }).catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(DeviceOfflineError);
+      expect(isAgentStillWaking(error)).toBe(false);
+      expect(isAgentStillWaking(new PodSendUnconfirmedError())).toBe(false);
+    } finally {
+      online.mockRestore();
+    }
   });
 });

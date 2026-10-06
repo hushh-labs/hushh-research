@@ -1,6 +1,12 @@
 import { AuthService } from "./auth-service";
 import type { OwnerPodTransport, PinnedEndpoint, PodSessionRecord } from "./owner-pod-endpoint";
-import { beforeTurnIsSent } from "@/lib/agent/owner-pod-wake";
+import {
+  PodNotReachedError,
+  PodSendUnconfirmedError,
+  beforeTurnIsSent,
+  isAgentStillWaking,
+  notReachedBeforeSend,
+} from "@/lib/agent/owner-pod-wake";
 type AccessPorts = {
   transport: () => Promise<OwnerPodTransport>;
   fetch: (url: string, init: RequestInit) => Promise<Response>;
@@ -52,9 +58,11 @@ export async function ownerPodRequest(
   const ownerPod = await import("./owner-pod-endpoint");
   const transport = await ports.transport();
   const chatTurn = route === "agent-chat" && init.method?.toUpperCase() === "POST";
+  // Admission is shared, so a cancelled caller stops waiting without cancelling it.
   const connect = async () => {
-    if (!(await ownerPod.loadPinnedEndpoint(uid))) await ownerPod.refreshEndpointFromHub(uid, transport);
-    return ownerPod.currentPodConnection(uid, transport);
+    if (!(await ownerPod.loadPinnedEndpoint(uid)))
+      await untilCancelled(ownerPod.refreshEndpointFromHub(uid, transport), init.signal);
+    return untilCancelled(ownerPod.currentPodConnection(uid, transport), init.signal);
   };
   // A chat turn's admission happens before the turn is handed over: a network
   // failure there (an agent still waking) proves nothing was sent.
@@ -93,17 +101,97 @@ export async function ownerPodRequest(
     if (AuthService.getCurrentUser()?.uid !== uid) throw new Error("POD_OWNER_CHANGED");
   }
   refuseCancelled();
-  const response = await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, {
-    ...init,
-    credentials: "omit",
-    body,
-    headers,
-    cache: "no-store",
-  });
+  const request: RequestInit = { ...init, credentials: "omit", body, headers, cache: "no-store" };
+  const response = chatTurn
+    ? await sendChatTurn(endpoint.url, request, ports.fetch)
+    : await ports.fetch(`${endpoint.url}/api/one/pod/${path}`, request);
+  if (!isAgentStillWaking(response)) agentAnswered.set(endpoint.url, Date.now());
   if (AuthService.getCurrentUser()?.uid !== uid)
     throw new Error("POD_OWNER_CHANGED");
   if (response.ok && route === "agent-chat") ports.onChatAdmission?.(endpoint.hushhId);
   return response;
+}
+
+/** Stop waiting when the caller cancels; the shared work itself keeps running. */
+function untilCancelled<T>(work: Promise<T>, signal?: AbortSignal | null): Promise<T> {
+  if (!signal) return work;
+  const reason = () => signal.reason ?? new DOMException("Agent request cancelled", "AbortError");
+  if (signal.aborted) {
+    void work.catch(() => undefined);
+    return Promise.reject(reason());
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(reason());
+    signal.addEventListener("abort", onAbort, { once: true });
+    work.then(
+      (value) => { signal.removeEventListener("abort", onAbort); resolve(value); },
+      (error: unknown) => { signal.removeEventListener("abort", onAbort); reject(error); },
+    );
+  });
+}
+
+/**
+ * When each agent address last gave a real answer. An agent that answered this
+ * recently is awake, so its next turn goes straight out. Scale-to-zero waits
+ * minutes of idle time (Azure Container Apps defaults to 300 s), well past this.
+ */
+const agentAnswered = new Map<string, number>();
+const AGENT_AWAKE_MS = 60_000;
+
+/** Forget which agents answered recently. Tests start from a cold agent. */
+export function forgetAgentAnswers(): void {
+  agentAnswered.clear();
+}
+
+function isCancellation(error: unknown, signal?: AbortSignal | null): boolean {
+  return Boolean(signal?.aborted) || (error instanceof DOMException && error.name === "AbortError");
+}
+
+/**
+ * Send a chat turn so that a failure is classified honestly. A sleeping agent
+ * whose ingress resets the first connection would otherwise fail the turn's own
+ * POST, where nothing proves whether it arrived. So an agent not heard from
+ * recently is asked a cheap, side-effect-free question first (capabilities): if
+ * that gets no answer, or only a gateway page, the turn provably was never sent
+ * and can wait for the wake. A failure of the POST itself stays ambiguous.
+ */
+async function sendChatTurn(url: string, request: RequestInit, fetch: AccessPorts["fetch"]): Promise<Response> {
+  const answeredAt = agentAnswered.get(url);
+  if (answeredAt === undefined || Date.now() - answeredAt > AGENT_AWAKE_MS) {
+    let probe: Response;
+    try {
+      probe = await fetch(`${url}/api/one/pod/agent-chat/capabilities`, {
+        method: "GET", headers: request.headers, credentials: "omit", cache: "no-store", signal: request.signal,
+      });
+    } catch (error) {
+      if (isCancellation(error, request.signal)) throw error;
+      throw notReachedBeforeSend();
+    }
+    void probe.body?.cancel().catch(() => undefined);
+    if (isAgentStillWaking(probe)) throw new PodNotReachedError();
+    agentAnswered.set(url, Date.now());
+  }
+  try {
+    return await fetch(`${url}/api/one/pod/agent-chat`, request);
+  } catch (error) {
+    if (isCancellation(error, request.signal)) throw error;
+    throw new PodSendUnconfirmedError();
+  }
+}
+
+/**
+ * The hub refused chat grants. Its 409s say different things (not ready yet,
+ * migrating, moved), so the hub's code travels with the error. Only the
+ * migrating refusal carries a hub-written sentence, and the copy layer
+ * re-checks it before showing it.
+ */
+async function chatAuthorityRefusal(response: Response): Promise<Error> {
+  const body = (await response.json().catch(() => null)) as { detail?: unknown } | null;
+  const detail = body?.detail && typeof body.detail === "object" ? body.detail as Record<string, unknown> : {};
+  const hubCode = typeof detail.code === "string" && /^[A-Z][A-Z_]{0,63}$/.test(detail.code) ? detail.code : "";
+  const code = `POD_CHAT_AUTHORITY_UNAVAILABLE:${response.status}${hubCode ? `:${hubCode}` : ""}`;
+  const sentence = hubCode === "AGENT_MIGRATING" && typeof detail.message === "string" ? detail.message : "";
+  return Object.assign(new Error(sentence || code), { code });
 }
 
 /**
@@ -140,8 +228,8 @@ async function chatGrantsFollowingEndpoint(
     if (!(error instanceof EndpointAdvancedError)) throw error;
     const ownerPod = await import("./owner-pod-endpoint");
     const next = await beforeTurnIsSent(async () => {
-      await ownerPod.refreshEndpointFromHub(uid, transport);
-      return ownerPod.currentPodConnection(uid, transport);
+      await untilCancelled(ownerPod.refreshEndpointFromHub(uid, transport), signal);
+      return untilCancelled(ownerPod.currentPodConnection(uid, transport), signal);
     });
     if (next.endpoint.hushhId !== connection.endpoint.hushhId ||
         next.endpoint.endpointVersion !== error.endpointVersion) {
@@ -167,7 +255,7 @@ async function directChatGrants(
     return {};
   }
   if (response.status >= 500) return {};
-  if (!response.ok) throw new Error(`POD_CHAT_AUTHORITY_UNAVAILABLE:${response.status}`);
+  if (!response.ok) throw await chatAuthorityRefusal(response);
   const value = await response.json() as {
     endpoint?: Record<string, unknown>; dataDoorGrants?: Record<string, unknown>;
   };

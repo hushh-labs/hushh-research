@@ -9,7 +9,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PodNotReachedError } from "@/lib/agent/owner-pod-wake";
-import { ownerPodRequest } from "@/lib/services/pod-app-access";
+import { forgetAgentAnswers, ownerPodRequest } from "@/lib/services/pod-app-access";
 
 const pod = vi.hoisted(() => ({
   loadPinnedEndpoint: vi.fn(),
@@ -45,6 +45,7 @@ function harness(hubEndpoint: Record<string, unknown>) {
 describe("a chat turn follows its agent's re-versioned endpoint", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    forgetAgentAnswers();
     pod.loadPinnedEndpoint.mockResolvedValue(V1);
     pod.currentPodConnection.mockResolvedValueOnce({ endpoint: V1, session: { session: "pst1.old" } });
   });
@@ -58,8 +59,10 @@ describe("a chat turn follows its agent's re-versioned endpoint", () => {
 
     expect(pod.refreshEndpointFromHub).toHaveBeenCalledOnce();
     expect(hub).toHaveBeenCalledTimes(2);
-    expect(fetch).toHaveBeenCalledOnce();
-    const [url, init] = fetch.mock.calls[0];
+    // A cold agent is asked a side-effect-free question first, at the followed address.
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[0][0]).toBe(`${URL}/api/one/pod/agent-chat/capabilities`);
+    const [url, init] = fetch.mock.calls[1];
     expect(url).toBe(`${URL}/api/one/pod/agent-chat`);
     expect(new Headers(init.headers).get("Authorization")).toBe("Bearer pst1.new");
     expect(JSON.parse(String(init.body)).forwardedProps.dataDoorGrants).toEqual({ memory: "scoped" });
@@ -91,6 +94,7 @@ describe("a chat turn follows its agent's re-versioned endpoint", () => {
 describe("a waking agent during admission", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    forgetAgentAnswers();
     pod.loadPinnedEndpoint.mockResolvedValue(V2);
   });
 

@@ -11,8 +11,9 @@
  * a network failure before the turn was handed over (`PodNotReachedError`),
  * a refused admission with a gateway status, or a gateway status on the send
  * itself that is not the agent's own JSON answer. A network failure on the send
- * is ambiguous (the agent may already be running the turn), so it is reported,
- * never resent.
+ * is ambiguous (the agent may already be running the turn), so it is reported
+ * as `PodSendUnconfirmedError`, never resent. A device that reports itself
+ * offline is told so (`DeviceOfflineError`) instead of being shown a wake.
  */
 
 /** Waiting this long for the agent's first byte means it is starting up. */
@@ -24,6 +25,8 @@ const WAKE_RETRY_DELAYS_MS: readonly number[] = [2_000, 4_000, WAKE_MAX_DELAY_MS
 
 export const POD_NOT_REACHED = "POD_NOT_REACHED";
 export const POD_WAKE_TIMEOUT = "POD_WAKE_TIMEOUT";
+export const POD_SEND_UNCONFIRMED = "POD_SEND_UNCONFIRMED";
+export const POD_DEVICE_OFFLINE = "POD_DEVICE_OFFLINE";
 
 /** The agent could not be reached before the turn was handed to it. */
 export class PodNotReachedError extends Error {
@@ -46,6 +49,40 @@ export class AgentWakeTimeoutError extends Error {
 }
 
 /**
+ * The turn was handed to the transport and no answer came back (a connection
+ * reset, a dropped network). The agent may or may not have received it, so it
+ * is never resent automatically.
+ */
+export class PodSendUnconfirmedError extends Error {
+  readonly code = POD_SEND_UNCONFIRMED;
+
+  constructor() {
+    super(POD_SEND_UNCONFIRMED);
+    this.name = "PodSendUnconfirmedError";
+  }
+}
+
+/** The device reported itself offline when a step before the send failed. */
+export class DeviceOfflineError extends Error {
+  readonly code = POD_DEVICE_OFFLINE;
+
+  constructor() {
+    super(POD_DEVICE_OFFLINE);
+    this.name = "DeviceOfflineError";
+  }
+}
+
+/** `navigator.onLine` is only trusted when it says false. */
+function deviceIsOffline(): boolean {
+  return typeof navigator !== "undefined" && navigator.onLine === false;
+}
+
+/** A step before the send got no answer: offline, or the agent is not reachable yet. */
+export function notReachedBeforeSend(): PodNotReachedError | DeviceOfflineError {
+  return deviceIsOffline() ? new DeviceOfflineError() : new PodNotReachedError();
+}
+
+/**
  * Run one step that happens before the turn is handed to the agent (admission,
  * session renewal). A network failure there proves the turn was never sent.
  */
@@ -53,7 +90,7 @@ export async function beforeTurnIsSent<T>(step: () => Promise<T>): Promise<T> {
   try {
     return await step();
   } catch (error) {
-    if (error instanceof TypeError) throw new PodNotReachedError();
+    if (error instanceof TypeError) throw notReachedBeforeSend();
     throw error;
   }
 }
