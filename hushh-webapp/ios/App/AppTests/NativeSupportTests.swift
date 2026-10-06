@@ -164,6 +164,23 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(state.phase, "active")
     }
 
+    func testNativeNavigationRequiresCompleteBundledTemplateArtwork() throws {
+        let items = try XCTUnwrap(HushhNativeNavigationArtwork.items())
+        XCTAssertEqual(items.map(\.accessibilityIdentifier), HushhNativeNavigationState.tabs.map { "one-native-tab-\($0)" })
+        for item in items {
+            for image in [item.image, item.selectedImage] {
+                let image = try XCTUnwrap(image)
+                XCTAssertEqual(image.renderingMode, .alwaysTemplate)
+                XCTAssertEqual(image.size, CGSize(width: 24, height: 24))
+            }
+        }
+        // Negative control: one missing state must prevent native admission,
+        // not produce a blank tab or silently restore a different SF glyph.
+        XCTAssertNil(HushhNativeNavigationArtwork.items { name in
+            name == "HushhNav-connect-selected" ? nil : UIImage(named: name)
+        })
+    }
+
     func testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates() {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))

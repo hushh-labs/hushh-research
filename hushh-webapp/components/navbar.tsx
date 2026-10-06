@@ -6,10 +6,7 @@
 import React, { useEffect, useMemo, type CSSProperties } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Compass as PhosphorCompass,
-  Search as MagnifyingGlass,
-  MessageCircle as ChatCircle,
-  Grid2x2 as SquaresFour,
+  BOTTOM_NAVIGATION_ICONS,
   Briefcase,
   BarChart3 as ChartBar,
   ChartColumnIncreasing as ChartLineUp,
@@ -17,14 +14,12 @@ import {
   Mail as EnvelopeSimple,
   FolderSearch as FolderSimple,
   MapPin,
-  Newspaper,
   ShieldCheck,
   Store as Storefront,
   Table,
   UserRound as UserCircle,
   UsersRound as UsersThree,
   Wallet,
-  type CanonicalIconProps as PhosphorIconProps,
 } from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
@@ -59,22 +54,6 @@ import { useNativeNavigation, NATIVE_NAVIGATION_TABS, type NativeNavigationTab }
 import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
-function FilledSquaresFourIcon(props: PhosphorIconProps) {
-  return <SquaresFour {...props} weight="fill" />;
-}
-
-function FilledCompassIcon(props: PhosphorIconProps) {
-  return <PhosphorCompass {...props} weight="fill" />;
-}
-
-function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
-  return <MagnifyingGlass {...props} weight="fill" />;
-}
-
-function FilledChatCircleIcon(props: PhosphorIconProps) {
-  return <ChatCircle {...props} weight="fill" />;
-}
-
 const BOTTOM_GAP_PX = 4;
 
 const BOTTOM_NAV_OPTION_META: Record<
@@ -84,15 +63,13 @@ const BOTTOM_NAV_OPTION_META: Record<
   dashboard: {
     value: "dashboard",
     label: "One",
-    icon: SquaresFour,
-    activeIcon: FilledSquaresFourIcon,
+    ...BOTTOM_NAVIGATION_ICONS.dashboard,
     dataTourId: "nav-one-dashboard",
   },
   chat: {
     value: "chat",
     label: "Chat",
-    icon: ChatCircle,
-    activeIcon: FilledChatCircleIcon,
+    ...BOTTOM_NAVIGATION_ICONS.chat,
     dataTourId: "nav-chat",
   },
   finance: {
@@ -116,8 +93,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   connect: {
     value: "connect",
     label: "Connect",
-    icon: PhosphorCompass,
-    activeIcon: FilledCompassIcon,
+    ...BOTTOM_NAVIGATION_ICONS.connect,
     dataTourId: "nav-connect",
   },
   "ria-home": {
@@ -165,7 +141,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   feed: {
     value: "feed",
     label: "Feed",
-    icon: Newspaper,
+    ...BOTTOM_NAVIGATION_ICONS.feed,
     dataTourId: "nav-one-feed",
   },
   pkm: {
@@ -189,8 +165,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   search: {
     value: "search",
     label: "Search",
-    icon: MagnifyingGlass,
-    activeIcon: FilledMagnifyingGlassIcon,
+    ...BOTTOM_NAVIGATION_ICONS.search,
     dataTourId: "nav-search",
   },
   profile: {

@@ -4,6 +4,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Navbar } from "@/components/navbar";
 import { ROUTES } from "@/lib/navigation/routes";
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
+import { BOTTOM_NAVIGATION_ICONS } from "@/components/icons";
+import definitions from "@/components/icons/bottom-navigation-icons.json";
+import { renderNavigationArtwork } from "@/components/icons/native-navigation-artwork.mjs";
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one",
@@ -58,6 +61,35 @@ describe("Navbar bottom utilities", () => {
     navigationMock.push.mockReset();
     notificationMock.feedUnreadCount = 0;
     notificationMock.pendingConsents = 0;
+  });
+
+  it("projects the actual web glyphs and selected weights into native artwork without cropping", () => {
+    function geometry(element: Element): unknown {
+      return {
+        tag: element.localName,
+        attributes: Object.fromEntries(Array.from(element.attributes)
+          .filter((attribute) => attribute.name !== "xmlns")
+          .map((attribute) => [attribute.name, attribute.value])),
+        children: Array.from(element.children).map(geometry),
+      };
+    }
+    for (const key of Object.keys(definitions) as (keyof typeof definitions)[]) {
+      for (const selected of [false, true]) {
+        const option = BOTTOM_NAVIGATION_ICONS[key];
+        const Icon = selected ? option.activeIcon ?? option.icon : option.icon;
+        const view = render(<Icon />);
+        const svg = view.container.querySelector("svg")!;
+        const native = new DOMParser().parseFromString(
+          renderNavigationArtwork(definitions[key], selected), "image/svg+xml",
+        ).documentElement;
+        expect(svg.getAttribute("viewBox")).toBe("0 0 256 256");
+        expect(native.getAttribute("viewBox")).toBe(svg.getAttribute("viewBox"));
+        // Compare two independent renderers, not a markup snapshot. Registry
+        // alias/weight drift must fail even when regenerated assets are fresh.
+        expect(Array.from(native.children).map(geometry)).toEqual(Array.from(svg.children).map(geometry));
+        view.unmount();
+      }
+    }
   });
 
   it("retires route navigation while the owning shell hides it", () => {

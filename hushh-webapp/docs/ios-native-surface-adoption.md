@@ -17,6 +17,16 @@ another navigation stack, WebView, session, or information store.
   presents a standard UIKit `UITabBar` on iOS 26+. It does not use SwiftUI `TabView`
   or `UITabBarController`; controller-only Search, minimization and accessory
   behaviors are not implemented by this standalone bar.
+  Bottom glyphs and selected weights are authored once in
+  [the shared icon descriptor](../components/icons/bottom-navigation-icons.json).
+  Web/Android render through the icon registry; `build:brand-assets` projects
+  the same official Phosphor paths into native 1x/2x/3x template images.
+  The full viewBox and duotone alpha remain intact. UIKit still owns the standard
+  tab material and app-projected tint; no SF Symbol substitutes remain in this
+  bar. Incomplete native artwork declines admission and keeps DOM navigation.
+  `verify:brand-assets` checks generation; the focused Navbar parity contract
+  compares actual web geometry with the native projection, while native support
+  tests require every bundled state and reject a missing-image negative control.
 - [The bridge](../lib/capacitor/native-navigation.ts) passes bounded presentation
   metadata. [Navbar](../components/navbar.tsx) retains destination/action authority;
   [AppBottomShell](../components/app-ui/app-bottom-shell.tsx) reserves measured
@@ -730,9 +740,13 @@ pass. Production-targeted static assets, signed Debug build-for-testing, strict
 codesign and actual bundled-asset verification pass; unsigned Release compilation
 also passes. These are build/source checks, not physical UX acceptance.
 
-The app and matching attach-only runner were installed on the iPhone 16e. iOS
-then rejected launch because the device was locked; no current-candidate warm
-preference journey has run. The abandoned runner produced no test result and
-its temporary diagnostics were removed. Appearance/Accent remain explicitly
-opt-in Debug iPhone families; full accessibility, visual and Release performance
-admission remain outstanding. No merge, deployment or distribution is implied.
+The app and matching attach-only runner were installed on the iPhone 16e. Initial
+launch was blocked by the device lock. After the device was unlocked, credential-free
+XCTest admission and the normal reviewer vault unlock passed. The warm preferences
+journey reached Light/Dark/System and the existing accent choices, then failed when
+the reopened Accent menu's Cancel was unavailable. This is an unresolved presentation
+or query boundary, not physical acceptance; diagnostics contain only static stages
+and public control counts. Temporary raw test diagnostics were removed.
+Appearance/Accent remain explicitly opt-in Debug iPhone families; full accessibility,
+visual and Release performance admission remain outstanding. No merge, deployment
+or distribution is implied.
