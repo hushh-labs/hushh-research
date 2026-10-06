@@ -171,6 +171,9 @@ describe("DirectMessagesPage", () => {
       }),
     );
     await waitFor(() => expect(mocks.router.replace).toHaveBeenCalled());
+    // Navigation may settle on a later frame. The server-accepted message
+    // must remain visible on the source route too, not blink out meanwhile.
+    expect(screen.getByText("Hello Ankit")).toBeVisible();
     mocks.search = "conversation=conversation-1";
     mocks.getConversationMessages.mockImplementationOnce(() => new Promise(() => undefined));
     view.rerender(connectionThread());
@@ -247,5 +250,66 @@ describe("DirectMessagesPage", () => {
     }));
     expect(screen.queryByText("Old owner connection")).not.toBeInTheDocument();
     expect(mocks.getConversationMessages).not.toHaveBeenCalled();
+  });
+
+  it("does not re-admit the previous owner's messages when the new owner's same-route read fails", async () => {
+    mocks.search = "conversation=conversation-1";
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation,
+      items: [{ id: "old-message", conversationId: "conversation-1", senderIsViewer: false,
+        content: "Previous owner's private message", createdAt: "2026-10-06T10:01:00.000Z", readAt: null }],
+      canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    const view = renderConnectionThread();
+    expect(await screen.findByText("Previous owner's private message")).toBeVisible();
+
+    mocks.user = { ...mocks.user, uid: "viewer-2" };
+    mocks.getConversationMessages.mockRejectedValueOnce(new Error("synthetic read failure"));
+    view.rerender(connectionThread());
+    expect(screen.queryByText("Previous owner's private message")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "error"));
+    expect(screen.queryByText("Previous owner's private message")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: "Message Ankit Kumar Singh" })).not.toBeInTheDocument();
+  });
+
+  it.each(["send", "pagination"] as const)("ignores a %s completion from an owner that no longer owns the screen", async (operation) => {
+    mocks.search = "conversation=conversation-1";
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [], canSend: true,
+      disconnectedNotice: null, nextBefore: "earlier-page",
+    });
+    const view = renderConnectionThread();
+    const composer = await screen.findByRole("textbox", { name: "Message Ankit Kumar Singh" });
+    let finishOldOperation!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finishOldOperation = resolve; });
+    if (operation === "send") {
+      mocks.sendMessage.mockReturnValueOnce(pending);
+      fireEvent.change(composer, { target: { value: "Old owner's draft" } });
+      fireEvent.submit(composer.closest("form")!);
+      await waitFor(() => expect(mocks.sendMessage).toHaveBeenCalled());
+    } else {
+      mocks.getConversationMessages.mockReturnValueOnce(pending);
+      fireEvent.click(screen.getByRole("button", { name: "Load older messages" }));
+      await waitFor(() => expect(mocks.getConversationMessages).toHaveBeenCalledTimes(2));
+    }
+    mocks.user = { ...mocks.user, uid: "viewer-2" };
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [], canSend: true,
+      disconnectedNotice: null, nextBefore: null,
+    });
+    view.rerender(connectionThread());
+    await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid"));
+    await act(async () => finishOldOperation({
+      conversation: mocks.conversation,
+      message: { id: "late-message", conversationId: "conversation-1", senderIsViewer: true,
+        content: "Old owner's private result", createdAt: "2026-10-06T10:01:00.000Z", readAt: null },
+      items: [{ id: "late-message", conversationId: "conversation-1", senderIsViewer: false,
+        content: "Old owner's private result", createdAt: "2026-10-06T10:01:00.000Z", readAt: null }],
+      canSend: true, disconnectedNotice: null, nextBefore: null,
+    }));
+    expect(screen.queryByText("Old owner's private result")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue("");
+    expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid");
+    expect(mocks.router.replace).not.toHaveBeenCalled();
   });
 });
