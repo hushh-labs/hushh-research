@@ -1,6 +1,6 @@
 "use client";
 
-import { Copy, Lock } from "@/components/icons";
+import { Check, Copy, KycAgentIcon, Lock } from "@/components/icons";
 
 import {
   Dialog,
@@ -50,7 +50,10 @@ export function KycPasteDetailsDialog({
         srDescription="Paste your profile details so One can prepare future KYC replies."
         className="gap-0 p-6 text-center sm:max-w-xl sm:p-8"
       >
-        <DialogTitle className="px-8 text-2xl font-bold leading-tight tracking-tight text-foreground">
+        <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-2xl border border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent)] shadow-sm sm:size-14">
+          <KycAgentIcon className="size-6 sm:size-7" />
+        </div>
+        <DialogTitle className="px-4 text-2xl font-bold leading-tight tracking-tight text-foreground sm:text-3xl">
           Paste your profile details
         </DialogTitle>
         <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -61,7 +64,7 @@ export function KycPasteDetailsDialog({
           value={details}
           onChange={(event) => onDetailsChange(event.target.value)}
           placeholder="Paste your profile details here…"
-          className="mt-6 min-h-36 resize-none rounded-2xl border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-4 text-left shadow-none"
+          className="mt-6 min-h-36 resize-none rounded-2xl border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] p-4 text-left shadow-none transition-[border-color,box-shadow] focus-visible:border-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)]/20"
           aria-label="KYC details"
           disabled={saving}
         />
@@ -73,7 +76,11 @@ export function KycPasteDetailsDialog({
               aria-label="Copy prompt to clipboard"
               className={TEXT_ACTION_CLASSNAME}
             >
-              <Copy aria-hidden="true" className="mr-2 size-[17px] shrink-0" />
+              {copied ? (
+                <Check aria-hidden="true" className="mr-2 size-[17px] shrink-0 text-emerald-500" />
+              ) : (
+                <Copy aria-hidden="true" className="mr-2 size-[17px] shrink-0" />
+              )}
               {copied ? "Copied" : "Copy AI prompt"}
             </button>
             <span className="text-xs text-muted-foreground">· Optional</span>
@@ -101,11 +108,12 @@ export function KycPasteDetailsDialog({
             Skip for now
           </button>
         </div>
-        <p className="mt-3 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
-          <Lock aria-hidden="true" className="size-3.5 shrink-0" />
+        <p className="mt-4 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+          <Lock aria-hidden="true" className="size-3.5 shrink-0 text-emerald-500" />
           Encrypted with 256-bit AES · Stored in your private vault
         </p>
       </DialogContent>
     </Dialog>
   );
 }
+
