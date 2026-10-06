@@ -299,8 +299,12 @@ class _Gmail(GmailReceiptsService):
     def db(self):  # pragma: no cover - a call is itself the regression
         raise AssertionError("live receipt reads must not access the legacy receipt database")
 
-    async def get_read_access_token(self, *, user_id):
+    async def get_read_access_token(self, *, user_id, force_refresh=False):
         assert user_id == "owner"
+        if force_refresh:
+            self.forced_refreshes = getattr(self, "forced_refreshes", 0) + 1
+            self.row["token_updated_at"] = f"synthetic-version-{self.forced_refreshes + 1}"
+            return "refreshed-access"
         return "synthetic-access"
 
     async def read_grant_binding(self, *, user_id):
@@ -920,7 +924,10 @@ async def test_model_timeout_is_typed_and_never_returns_partial_rows(monkeypatch
     assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_TIMEOUT"
 
 
-async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
+@pytest.mark.parametrize("failure", ["unavailable", "timeout", "unverifiable"])
+async def test_one_message_model_failure_is_asked_once_more(monkeypatch, failure):
+    # Measured on a live mailbox: one slow or unverifiable answer failed the
+    # whole page. The message is asked again and the answer validated in full.
     message = _message(
         "msg-model-retry",
         subject="Receipt for order #RETRY-100",
@@ -933,6 +940,10 @@ async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
         nonlocal attempts
         attempts += 1
         if attempts == 1:
+            if failure == "timeout":
+                await asyncio.sleep(1)
+            if failure == "unverifiable":
+                return {**_model_for(payload), "receipt_evidence_ids": ["receipt:invented"]}
             raise GmailApiError(
                 "Receipt extraction is temporarily unavailable.",
                 status_code=503,
@@ -943,6 +954,7 @@ async def test_transient_extractor_unavailable_is_retried_once(monkeypatch):
     service = _service([message])
     service._extractor = transient_extractor
     monkeypatch.setattr(live_receipts_module, "_EXTRACTOR_RETRY_DELAY_SECONDS", 0)
+    monkeypatch.setattr(live_receipts_module, "_EXTRACTOR_TIMEOUT_SECONDS", 0.05)
 
     result = await _scan(service)
 
@@ -978,6 +990,65 @@ async def test_persistent_extractor_unavailable_remains_typed(monkeypatch):
 
     assert attempts == 2
     assert caught.value.code == "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE"
+
+
+@pytest.mark.parametrize("refresh_outcome", ["accepted", "still_rejected", "other_account"])
+async def test_gmail_rejecting_an_unexpired_token_refreshes_once_for_the_same_grant(
+    refresh_outcome,
+):
+    # Measured on UAT: Gmail answered 401 to a token whose recorded expiry had
+    # not passed, and every scan failed as "reconnect" without a refresh.
+    message = _message(
+        "msg-token-refresh",
+        subject="Receipt for order #TOKEN-100",
+        sender="Apple <orders@apple.com>",
+        body="Order total: USD 10.00",
+    )
+    seen_tokens: list[str] = []
+
+    def handler(request: httpx.Request):
+        token = request.headers["Authorization"].removeprefix("Bearer ")
+        seen_tokens.append(token)
+        if token != "refreshed-access" or refresh_outcome == "still_rejected":
+            return _response({"error": "invalid_credentials"}, status=401)
+        if request.url.path.endswith("/messages"):
+            return _response({"messages": [{"id": message["id"]}]})
+        return _response(message)
+
+    gmail = _Gmail()
+    if refresh_outcome == "other_account":
+        original = gmail.get_read_access_token
+
+        async def switching_refresh(*, user_id, force_refresh=False):
+            token = await original(user_id=user_id, force_refresh=force_refresh)
+            if force_refresh:
+                gmail.row["google_sub"] = "different-account"
+            return token
+
+        gmail.get_read_access_token = switching_refresh
+    service = GmailLiveReceiptsService(
+        gmail=gmail,
+        transport=httpx.MockTransport(handler),
+        source_secret=b"s" * 32,
+        extractor=_extractor,
+    )
+
+    if refresh_outcome == "accepted":
+        result = await _scan(service)
+        assert result["returned_count"] == 1
+        assert gmail.forced_refreshes == 1
+        assert seen_tokens[0] == "synthetic-access"
+        assert set(seen_tokens[1:]) == {"refreshed-access"}
+        return
+
+    with pytest.raises(GmailApiError) as caught:
+        await _scan(service)
+    assert gmail.forced_refreshes == 1
+    assert caught.value.code == (
+        "GMAIL_REAUTH_REQUIRED"
+        if refresh_outcome == "still_rejected"
+        else "GMAIL_CONNECTION_CHANGED"
+    )
 
 
 async def test_overall_timeout_releases_owner_even_when_child_delays_cancellation(monkeypatch):

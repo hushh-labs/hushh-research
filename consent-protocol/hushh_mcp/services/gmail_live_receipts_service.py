@@ -18,7 +18,7 @@ import json
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parseaddr, parsedate_to_datetime
 from typing import Any, Literal
@@ -103,7 +103,18 @@ _FETCH_CONCURRENCY = 6
 _EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
-_EXTRACTOR_UNAVAILABLE_RETRIES = 1
+_EXTRACTOR_RETRIES = 1
+# A model failure for one message (timeout, unavailable provider, malformed or
+# unverifiable answer) asks the model once more for that message. Every answer
+# is still fully validated, and a second failure still fails the page typed.
+_RETRYABLE_EXTRACTION_CODES = frozenset(
+    {
+        "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+        "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+        "GMAIL_RECEIPT_EXTRACTION_INVALID",
+        "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
+    }
+)
 _EXTRACTOR_RETRY_DELAY_SECONDS = 1.0
 _CANCEL_DRAIN_SECONDS = 1.0
 _SCAN_STALE_SECONDS = _DEADLINE_SECONDS + _CANCEL_DRAIN_SECONDS + 4.0
@@ -152,13 +163,22 @@ _MERCHANT_RULES = (
 _NON_MERCHANT_SENDER_LABELS = frozenset({"delivery", "shipping", "ship-confirm", "tracking"})
 
 
-@dataclass(frozen=True)
+@dataclass
 class _ReadAuthority:
     user_id: str
     account: str
     connected_at: str
     binding: tuple[str, ...]
     access_token: str
+    require_access: RequireAccess | None = None
+    # Google can reject a token before its recorded expiry. One request may
+    # refresh it once and re-pin the same account's grant; never more.
+    token_refreshed: bool = False
+    refresh_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+
+class _GmailTokenRejected(GmailApiError):
+    """Gmail answered 401 for the access token this request is using."""
 
 
 @dataclass(frozen=True)
@@ -1143,7 +1163,9 @@ class GmailLiveReceiptsService:
         # before returning data. Repeating the same database-backed check at
         # every internal phase adds no authority and can exhaust the small UAT
         # pool long enough for an otherwise healthy bounded scan to time out.
-        return _ReadAuthority(user_id, binding[2], binding[3], binding, access_token)
+        return _ReadAuthority(
+            user_id, binding[2], binding[3], binding, access_token, require_access
+        )
 
     async def _require_current(
         self, *, authority: _ReadAuthority, require_access: RequireAccess
@@ -1157,7 +1179,65 @@ class GmailLiveReceiptsService:
                 code="GMAIL_CONNECTION_CHANGED",
             )
 
+    async def _refresh_rejected_token(
+        self, *, authority: _ReadAuthority, rejected_token: str
+    ) -> None:
+        """Refresh a token Gmail rejected early, once, for this same grant."""
+
+        async with authority.refresh_lock:
+            if authority.access_token != rejected_token:
+                return  # A concurrent read of this request already refreshed it.
+            if authority.token_refreshed:
+                raise GmailApiError(
+                    "Reconnect Gmail to continue scanning receipts.",
+                    status_code=401,
+                    code="GMAIL_REAUTH_REQUIRED",
+                )
+            authority.token_refreshed = True
+            if authority.require_access is not None:
+                await authority.require_access()
+            try:
+                access_token = await self._gmail.get_read_access_token(
+                    user_id=authority.user_id, force_refresh=True
+                )
+            except GmailApiError as exc:
+                if exc.status_code != 409:
+                    raise
+                # Another reader refreshed the same row first; use its token.
+                access_token = await self._gmail.get_read_access_token(user_id=authority.user_id)
+            binding = await self._gmail.read_grant_binding(user_id=authority.user_id)
+            # Only the row revision may move (this refresh wrote it). A
+            # different account or a reconnected grant is never adopted.
+            if not binding or binding[:4] != authority.binding[:4] or not all(binding):
+                raise GmailApiError(
+                    "The Gmail connection changed. Retry the receipt request.",
+                    status_code=409,
+                    code="GMAIL_CONNECTION_CHANGED",
+                )
+            authority.access_token = access_token
+            authority.binding = binding
+
     async def _get(
+        self,
+        *,
+        client: httpx.AsyncClient,
+        authority: _ReadAuthority,
+        path: str,
+        params: dict[str, Any],
+        budget: list[int],
+    ) -> dict[str, Any]:
+        token = authority.access_token
+        try:
+            return await self._get_once(
+                client=client, authority=authority, path=path, params=params, budget=budget
+            )
+        except _GmailTokenRejected:
+            await self._refresh_rejected_token(authority=authority, rejected_token=token)
+            return await self._get_once(
+                client=client, authority=authority, path=path, params=params, budget=budget
+            )
+
+    async def _get_once(
         self,
         *,
         client: httpx.AsyncClient,
@@ -1176,7 +1256,13 @@ class GmailLiveReceiptsService:
                     "Accept-Encoding": "identity",
                 },
             ) as response:
-                if response.status_code in {401, 403}:
+                if response.status_code == 401:
+                    raise _GmailTokenRejected(
+                        "Reconnect Gmail to continue scanning receipts.",
+                        status_code=401,
+                        code="GMAIL_REAUTH_REQUIRED",
+                    )
+                if response.status_code == 403:
                     raise GmailApiError(
                         "Reconnect Gmail to continue scanning receipts.",
                         status_code=401,
@@ -1377,6 +1463,44 @@ class GmailLiveReceiptsService:
         # together removes queueing without widening any per-call budget.
         semaphore = asyncio.Semaphore(_EXTRACTOR_CONCURRENCY)
 
+        async def extract(
+            message: dict[str, Any], evidence: dict[str, Any], model_input: dict[str, Any]
+        ) -> dict[str, Any] | None:
+            try:
+                async with asyncio.timeout(_EXTRACTOR_TIMEOUT_SECONDS):
+                    model = await self._extractor(model_input, authority.user_id, consent_token)
+            except TimeoutError:
+                raise GmailApiError(
+                    "Receipt extraction timed out. Please try again.",
+                    status_code=504,
+                    code="GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+                ) from None
+            if not isinstance(model, dict):
+                raise GmailApiError(
+                    "Receipt extraction returned an invalid result.",
+                    status_code=502,
+                    code="GMAIL_RECEIPT_EXTRACTION_INVALID",
+                )
+            try:
+                return _validated_projection(
+                    message=message,
+                    evidence=evidence,
+                    model=model,
+                    source_id=self._source_id(authority, str(message["id"])),
+                )
+            except GmailApiError as exc:
+                # Only fixed validator labels enter logs, never model/email fields.
+                field = {
+                    "Receipt amount could not be verified from an explicit total.": "amount",
+                    "Receipt order could not be verified from the message.": "order",
+                    "Receipt merchant could not be verified from the sender domain.": "merchant",
+                    "Receipt category could not be verified against the message.": "category",
+                    "Receipt extraction returned an unsupported event.": "event",
+                    "Receipt extraction could not be verified against the message.": "receipt",
+                }.get(str(exc), "schema")
+                _logger.warning("live_receipt_validation_failed field=%s", field)
+                raise
+
         async def one(message: dict[str, Any]):
             evidence = _evidence(message)
             if not evidence["receipt_signals"]:
@@ -1402,51 +1526,18 @@ class GmailLiveReceiptsService:
                 "event_candidates": evidence["event_candidates"],
             }
             async with semaphore:
-                for attempt in range(_EXTRACTOR_UNAVAILABLE_RETRIES + 1):
+                for attempt in range(_EXTRACTOR_RETRIES + 1):
                     try:
-                        async with asyncio.timeout(_EXTRACTOR_TIMEOUT_SECONDS):
-                            model = await self._extractor(
-                                model_input, authority.user_id, consent_token
-                            )
+                        item = await extract(message, evidence, model_input)
                         break
-                    except TimeoutError:
-                        raise GmailApiError(
-                            "Receipt extraction timed out. Please try again.",
-                            status_code=504,
-                            code="GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
-                        ) from None
                     except GmailApiError as exc:
                         if (
-                            exc.code != "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE"
-                            or attempt >= _EXTRACTOR_UNAVAILABLE_RETRIES
+                            exc.code not in _RETRYABLE_EXTRACTION_CODES
+                            or attempt >= _EXTRACTOR_RETRIES
                         ):
                             raise
+                        _logger.info("live_receipt_extraction_retried code=%s", exc.code)
                         await asyncio.sleep(_EXTRACTOR_RETRY_DELAY_SECONDS)
-            if not isinstance(model, dict):
-                raise GmailApiError(
-                    "Receipt extraction returned an invalid result.",
-                    status_code=502,
-                    code="GMAIL_RECEIPT_EXTRACTION_INVALID",
-                )
-            try:
-                item = _validated_projection(
-                    message=message,
-                    evidence=evidence,
-                    model=model,
-                    source_id=self._source_id(authority, str(message["id"])),
-                )
-            except GmailApiError as exc:
-                # Only fixed validator labels enter logs, never model/email fields.
-                field = {
-                    "Receipt amount could not be verified from an explicit total.": "amount",
-                    "Receipt order could not be verified from the message.": "order",
-                    "Receipt merchant could not be verified from the sender domain.": "merchant",
-                    "Receipt category could not be verified against the message.": "category",
-                    "Receipt extraction returned an unsupported event.": "event",
-                    "Receipt extraction could not be verified against the message.": "receipt",
-                }.get(str(exc), "schema")
-                _logger.warning("live_receipt_validation_failed field=%s", field)
-                raise
             return item, evidence, None if item else "extractor_not_receipt"
 
         tasks = [asyncio.create_task(one(message)) for message in messages]

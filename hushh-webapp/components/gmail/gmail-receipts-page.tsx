@@ -92,7 +92,7 @@ import {
 const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 const RECEIPT_SCAN_MAX_PAGES = 50;
 const RECEIPT_SCAN_ACTIVE_RETRIES = 2;
-const RECEIPT_SCAN_PAGE_RETRIES = 1;
+const RECEIPT_SCAN_PAGE_RETRIES = 2;
 const RECEIPT_SCAN_ACTIVE_RETRY_MS = 750;
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
@@ -556,9 +556,10 @@ export default function GmailReceiptsPage({
               await waitForReceiptScanRetry(controller.signal);
               continue;
             }
-            // A transient page failure (a concurrent connection-row update or
-            // one unverifiable model answer) is read once more with the same
-            // signed cursor; the retried page is validated in full again.
+            // A transient page failure (a concurrent connection-row update, or
+            // a model failure that outlasted the backend's own re-ask) is read
+            // again with the same signed cursor, up to twice; every retried
+            // page is validated in full again.
             if (
               isRetryableReceiptScanPageError(error) &&
               pageRetries < RECEIPT_SCAN_PAGE_RETRIES &&

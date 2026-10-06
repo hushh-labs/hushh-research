@@ -1583,11 +1583,20 @@ class GmailReceiptsService:
             str(row["grant_revision"]),
         )
 
-    async def get_read_access_token(self, *, user_id: str) -> str:
-        """Admit owner-bound Gmail reads without granting send authority."""
+    async def get_read_access_token(self, *, user_id: str, force_refresh: bool = False) -> str:
+        """Admit owner-bound Gmail reads without granting send authority.
+
+        ``force_refresh`` is for a caller whose token Google just rejected
+        before its recorded expiry; it never widens the granted scopes.
+        """
 
         await self.assert_read_ready(user_id=user_id)
-        access_token, current_row = await self._ensure_access_token(user_id=user_id)
+        if force_refresh:
+            access_token, current_row = await self._ensure_access_token(
+                user_id=user_id, force_refresh=True
+            )
+        else:
+            access_token, current_row = await self._ensure_access_token(user_id=user_id)
         if _GMAIL_READONLY_SCOPE not in self._granted_scopes(current_row):
             raise GmailApiError(
                 "Reconnect Gmail to grant email reading permission.",
@@ -2292,7 +2301,9 @@ class GmailReceiptsService:
             return False
         return _clean_text(result.data[0].get("status")) in {"queued", "running"}
 
-    async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
+    async def _ensure_access_token(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> tuple[str, dict[str, Any]]:
         row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not row:
             raise GmailApiError("Gmail is not connected for this user", status_code=404)
@@ -2308,7 +2319,12 @@ class GmailReceiptsService:
         )
         expires_at = _parse_iso(row.get("access_token_expires_at"))
 
-        if access_token and expires_at and expires_at > (_utcnow() + timedelta(seconds=90)):
+        if (
+            not force_refresh
+            and access_token
+            and expires_at
+            and expires_at > (_utcnow() + timedelta(seconds=90))
+        ):
             return access_token, row
 
         refresh_token = self._decrypt_token(
