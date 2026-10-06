@@ -1428,7 +1428,7 @@ async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
     monkeypatch.setattr(service, "_delete_full_account_transaction", transaction)
     monkeypatch.setattr(
         "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
-        lambda: SimpleNamespace(deprovision=cleanup),
+        lambda *, registry, backend: SimpleNamespace(deprovision=cleanup),  # the real signature
     )
     result = await service._delete_full_account("owner-one", requested_target="investor")
     if outcome in {"already_complete", "database_failure"}:

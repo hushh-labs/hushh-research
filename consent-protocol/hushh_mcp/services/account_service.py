@@ -1864,12 +1864,16 @@ class AccountService:
             # cloud resources is exactly that, so it fails closed and leaves the
             # deprovision to an explicit operator step.
             return result
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
         from hushh_mcp.services.personal_agent_provisioning_service import (
-            PersonalAgentProvisioningService,
+            PersonalAgentProvisioningService as Service,
         )
+        from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
-        try:
-            await PersonalAgentProvisioningService().deprovision(user_id=user_id)
+        try:  # built as the route builds it; a bare Service() raised TypeError from 2026-09-08
+            await Service(
+                registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+            ).deprovision(user_id=user_id)
         except Exception as exc:
             logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)
             return result

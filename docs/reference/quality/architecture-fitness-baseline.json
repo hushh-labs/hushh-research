@@ -95,7 +95,7 @@
       "limit": 250,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": "AccountService",
-      "value": 2705
+      "value": 2709
     },
     {
       "detail": "class exceeds the advisory operon budget",
@@ -11867,7 +11867,7 @@
       "limit": 500,
       "path": "consent-protocol/hushh_mcp/services/account_service.py",
       "symbol": null,
-      "value": 2793
+      "value": 2797
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18752,7 +18752,8 @@
         "hushh-webapp/components/connections/byoc-cloud-setup-page.tsx": "793 to 802: re-read where the agent lives when a watched setup job records (founder-hit 2026-10-05: stuck on still in progress)"
       }
     },
-    "azure_model_eval_harness": "Reviewed 2026-10-05: the on-demand Azure model evaluation harness (consent-protocol/scripts/azure_model_eval/, run inside the person's own Azure to choose the default model) entered from its measurement branch; analyze.py is 511 lines with two report functions at 86 and 82. Measurement tooling, not product code; split it if it grows further."
+    "azure_model_eval_harness": "Reviewed 2026-10-05: the on-demand Azure model evaluation harness (consent-protocol/scripts/azure_model_eval/, run inside the person's own Azure to choose the default model) entered from its measurement branch; analyze.py is 511 lines with two report functions at 86 and 82. Measurement tooling, not product code; split it if it grows further.",
+    "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08."
   },
   "status": "advisory"
 }
