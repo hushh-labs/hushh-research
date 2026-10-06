@@ -52,11 +52,14 @@ export function PuppyOneSurface({
   // owner's Mac. Resolve after hydration so server and client render agree.
   const [localBridge, setLocalBridge] = useState<boolean | null>(null);
   useEffect(() => setLocalBridge(isLocalHost()), []);
+  // On a deployed origin the readings control shares the chat's header row,
+  // so the chat opens on one quiet line instead of two stacked strips.
+  const sheet = <PuppyMachineSheet className="shrink-0" active={active} />;
   const panel = (activePanel: boolean, panelClassName?: string) =>
     localBridge === null ? null : localBridge ? (
       <HermesChatPanel active={activePanel} className={panelClassName} />
     ) : (
-      <PrivatePuppyInferencePanel className={panelClassName} />
+      <PrivatePuppyInferencePanel className={panelClassName} accessory={sheet} />
     );
   return (
     <div
@@ -90,7 +93,7 @@ export function PuppyOneSurface({
             through your private pod.
           </p>
         ) : null}
-        <PuppyMachineSheet className="shrink-0" active={active} />
+        {localBridge ? sheet : null}
         {/* No card frame: One's transcript sits directly on the workspace
             surface, and a bordered box here read as a widget inside the page
             rather than the conversation itself. */}
@@ -112,6 +115,7 @@ export function PuppyOneSurface({
                 <PrivatePuppyInferencePanel
                   key={conversation.id}
                   conversationId={conversation.id}
+                  accessory={activeConversationId === conversation.id ? sheet : undefined}
                   className={cn(activeConversationId !== conversation.id && "hidden")}
                 />
               ))}

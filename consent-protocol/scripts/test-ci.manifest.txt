@@ -779,6 +779,7 @@ tests/test_pod_wake_reachability.py
 tests/test_product_agent_registry_v2.py
 tests/test_provision_uses_the_persons_own_cloud.py
 tests/test_puppy_relay.py
+tests/test_puppy_reasoning_stream.py
 tests/test_rca_runner_can_say_it_did_not_look.py
 tests/test_relay_ticket_nonces.py
 tests/test_scheduler_identity.py

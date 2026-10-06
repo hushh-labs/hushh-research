@@ -18,6 +18,7 @@ from typing import Any, AsyncGenerator, AsyncIterator
 from .base import ProviderTransport
 from .normalized import NormalizedChunk, NormalizedFunctionCall, NormalizedResponse
 from .openai_transport import tool_json
+from .puppy_reasoning import publish_reasoning, reasoning_text
 from .translate import NeutralRequest
 
 DEFAULT_TIMEOUT_SECONDS = 120.0
@@ -376,6 +377,9 @@ class PuppyRelayTransport(ProviderTransport):
             async for frame in frames:
                 kind = str(frame.get("type") or "")
                 reported = _reported_model(frame) or reported
+                if kind == "inference.delta":
+                    # Display-only; never becomes model content (see puppy_reasoning).
+                    await publish_reasoning(reasoning_text(frame))
                 if kind in {"inference.delta", "inference.result"}:
                     value = frame.get("text")
                     if isinstance(value, str) and value:

@@ -28,6 +28,8 @@ export type PuppyPodTurnInput = {
   signal?: AbortSignal;
   onDispatch?: () => void;
   onToken: (text: string) => void;
+  /** Display-only reasoning from the local model, when the device forwards it. */
+  onThinking?: (text: string) => void;
 };
 
 /** One request identity ties the admitted stream to its explicit stop. */
@@ -40,6 +42,7 @@ export function streamDirectPuppyTurn(input: PuppyPodTurnInput, transport: {
   return consumePuppyPodStream({
     signal: input.signal,
     onToken: input.onToken,
+    onThinking: input.onThinking,
     cancel: () => dispatched ? transport.stop(requestId) : Promise.resolve(true),
     open: (signal, startInference) => transport.open(JSON.stringify({
       message: input.message, conversationId: input.conversationId,
@@ -78,11 +81,51 @@ async function openWhileActive(open: (signal: AbortSignal) => Promise<Response |
   }
 }
 
+/** Apply one SSE event; returns the terminal result, or null to keep reading. */
+function readStreamEvent(
+  event: { event?: string; data: string },
+  totals: { text: number; thinking: number },
+  handlers: { onToken: (text: string) => void; onThinking?: (text: string) => void },
+): PuppyPodStreamResult | null {
+  if (event.event === "token" || event.event === "thinking") {
+    const delta = JSON.parse(event.data) as { text?: unknown };
+    if (typeof delta.text !== "string") throw new Error("PUPPY_STREAM_INVALID");
+    if (event.event === "token") {
+      totals.text += delta.text.length;
+      if (totals.text > 262_144) throw new Error("PUPPY_STREAM_TOO_LARGE");
+      handlers.onToken(delta.text);
+      return null;
+    }
+    // The pod bounds the trail at 64k; past this it is a broken peer.
+    totals.thinking += delta.text.length;
+    if (totals.thinking > 131_072) throw new Error("PUPPY_STREAM_TOO_LARGE");
+    handlers.onThinking?.(delta.text);
+    return null;
+  }
+  if (event.event === "error") {
+    const failure = JSON.parse(event.data) as { code?: unknown };
+    throw new Error(typeof failure.code === "string" ? failure.code : "PUPPY_STREAM_FAILED");
+  }
+  if (event.event !== "done") return null;
+  const result = JSON.parse(event.data) as Record<string, unknown>;
+  if (typeof result.model !== "string" || typeof result.modelReported !== "boolean")
+    throw new Error("PUPPY_STREAM_INVALID");
+  return {
+    model: result.model,
+    modelReported: result.modelReported,
+    provider: String(result.provider ?? "puppy"),
+    grounded: result.grounded === true,
+    runtimeMode: String(result.runtimeMode ?? "puppy_relay"),
+    ...(typeof result.degraded === "string" ? { degraded: result.degraded } : {}),
+  };
+}
+
 /** Own the abort listener until the stream reaches a terminal event or fails. */
 export async function consumePuppyPodStream(input: {
   signal?: AbortSignal;
   open: (signal: AbortSignal, startInference: () => void) => Promise<Response | null>;
   onToken: (text: string) => void;
+  onThinking?: (text: string) => void;
   cancel?: () => Promise<boolean>;
 }): Promise<PuppyPodStreamResult> {
   const controller = new AbortController();
@@ -108,8 +151,8 @@ export async function consumePuppyPodStream(input: {
     if (!response?.body) throw new Error("PUPPY_DIRECT_BYOC_REQUIRED");
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
+    const totals = { text: 0, thinking: 0 };
     let remainder = "";
-    let totalText = 0;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -118,28 +161,8 @@ export async function consumePuppyPodStream(input: {
         remainder = parsed.remainder;
         if (remainder.length > 131_072) throw new Error("PUPPY_STREAM_INVALID");
         for (const event of parsed.events) {
-          if (event.event === "token") {
-            const token = JSON.parse(event.data) as { text?: unknown };
-            if (typeof token.text !== "string") throw new Error("PUPPY_STREAM_INVALID");
-            totalText += token.text.length;
-            if (totalText > 262_144) throw new Error("PUPPY_STREAM_TOO_LARGE");
-            input.onToken(token.text);
-          } else if (event.event === "error") {
-            const failure = JSON.parse(event.data) as { code?: unknown };
-            throw new Error(typeof failure.code === "string" ? failure.code : "PUPPY_STREAM_FAILED");
-          } else if (event.event === "done") {
-            const result = JSON.parse(event.data) as Record<string, unknown>;
-            if (typeof result.model !== "string" || typeof result.modelReported !== "boolean")
-              throw new Error("PUPPY_STREAM_INVALID");
-            return {
-              model: result.model,
-              modelReported: result.modelReported,
-              provider: String(result.provider ?? "puppy"),
-              grounded: result.grounded === true,
-              runtimeMode: String(result.runtimeMode ?? "puppy_relay"),
-              ...(typeof result.degraded === "string" ? { degraded: result.degraded } : {}),
-            };
-          }
+          const result = readStreamEvent(event, totals, input);
+          if (result) return result;
         }
       }
       throw new Error("PUPPY_STREAM_INTERRUPTED");

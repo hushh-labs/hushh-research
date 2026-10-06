@@ -4145,7 +4145,7 @@ export class ApiService {
     return access.ownerPodRequest(path, init, { transport: () => this.ownerPodTransport(), fetch: fetcher, onChatAdmission }, expectedHushhId);
   }
 
-  static async getPuppyDirectModels(hushhId: string, deviceId: string, vaultOwnerToken: string, signal?: AbortSignal): Promise<{
+  static async getPuppyDirectModels(hushhId: string, deviceId: string, vaultOwnerToken: string, signal?: AbortSignal, onAgentAnswered?: () => void): Promise<{
     status: "available" | "unavailable" | "offline";
     defaultModel: string;
     models: Array<{ id: string }>;
@@ -4154,11 +4154,11 @@ export class ApiService {
     receivedAt: number | null;
   }> {
     const read = () => this.ownerPodRequest(`puppy/models?deviceId=${encodeURIComponent(deviceId)}`, { method: "GET", signal, cache: "no-store" }, false, undefined, hushhId);
-    // Establish the owner session first; it wakes a sleeping pod without
-    // granting the device any broader authority. Activation then asks the
-    // existing trusted device to connect and publish its live catalog.
+    // Establish the owner session first (it wakes a sleeping pod, granting the device no broader
+    // authority); activation then asks the existing trusted device to publish its live catalog.
     const first = await read();
     if (!first.ok) throw new Error(`PUPPY_MODELS_UNAVAILABLE:${first.status}`);
+    onAgentAnswered?.(); // awake: any further wait is the machine sharing its list
     const catalog = await first.json() as Awaited<ReturnType<typeof ApiService.getPuppyDirectModels>>;
     if (catalog.status === "available") return catalog;
     await this.activatePuppyWhenIdle(deviceId, vaultOwnerToken, signal);

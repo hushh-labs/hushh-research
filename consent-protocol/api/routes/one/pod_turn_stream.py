@@ -16,6 +16,8 @@ from typing import Any
 
 import anyio
 
+from hushh_mcp.runtime_providers.puppy_reasoning import bind_reasoning_sink
+
 logger = logging.getLogger(__name__)
 TokenSink = Callable[[str], Awaitable[None]]
 Turn = Callable[[TokenSink], Awaitable[dict[str, Any]]]
@@ -32,6 +34,8 @@ _METADATA = (
     "degraded",
     "directiveCount",
 )
+# Display-only reasoning is bounded apart from the answer; past it, drop quietly.
+MAX_THINKING_CHARS = 65_536
 
 
 def _settled(task: asyncio.Task[None]) -> None:
@@ -54,13 +58,48 @@ async def _stop(task: asyncio.Task[None]) -> None:
             logger.error("pod_turn.stream_cleanup_pending update_handoff=held")
 
 
+class _ReasoningChannel:
+    """Display-only reasoning on a turn's event queue: bounded, never waiting, no gaps.
+
+    It never waits because a slow browser must not stall the device frames
+    behind it (the broker closes a link whose buffer fills), and a stray task
+    that outlives the turn must not block on a queue nobody reads. While the
+    queue is full, deltas are joined and go out together once there is room;
+    whatever is still held goes out just before the first answer word.
+    """
+
+    def __init__(self, queue: asyncio.Queue[tuple[str, dict[str, Any]]], budget: int) -> None:
+        self._queue = queue
+        self._budget = budget
+        self._held = ""
+
+    async def publish(self, value: str) -> None:
+        if self._budget <= 0:
+            return
+        value = value[: self._budget]
+        self._budget -= len(value)
+        self._held += value
+        if self._held and not self._queue.full():
+            self._queue.put_nowait(("thinking", {"text": self._held}))
+            self._held = ""
+
+    async def send_tail(self) -> None:
+        if self._held:
+            held, self._held = self._held, ""
+            await self._queue.put(("thinking", {"text": held}))
+
+
 async def stream_turn_events(
     turn: Turn,
     *,
     public_error: Callable[[Exception], dict[str, str]],
     cancellation_key: TurnKey | None = None,
 ) -> AsyncIterator[str]:
-    """Stream bounded tokens and one terminal; stop the producer on disconnect."""
+    """Stream bounded tokens, display-only thinking and one terminal.
+
+    The producer is stopped on disconnect. ``thinking`` events carry the local
+    model's reasoning only when the device forwarded it; none is synthesised.
+    """
     queue: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue(maxsize=8)
     emitted = False
     if cancellation_key is not None and (
@@ -69,14 +108,18 @@ async def stream_turn_events(
         yield 'event: error\ndata: {"code":"PUPPY_BUSY","message":"Puppy is finishing other work."}\n\n'
         return
 
+    reasoning = _ReasoningChannel(queue, MAX_THINKING_CHARS)
+
     async def on_token(value: str) -> None:
         nonlocal emitted
+        await reasoning.send_tail()
         await queue.put(("token", {"text": value}))
         emitted = True
 
     async def run() -> None:
         try:
-            result = await turn(on_token)
+            with bind_reasoning_sink(reasoning.publish):
+                result = await turn(on_token)
             # A bounded refusal may be text without a model token. Emit it once;
             # the terminal carries metadata only.
             if not emitted and result.get("text"):

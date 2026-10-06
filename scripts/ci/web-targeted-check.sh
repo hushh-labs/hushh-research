@@ -186,7 +186,7 @@ fi
 # sitting over the on-device transcript. Kept separate from the voice-gateway
 # lane above: that one is the Kai action-gateway generator check, and folding
 # them together would hide which contract failed.
-if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/puppy-one-service\.ts|lib/agent/agent-voice-settings\.ts|lib/morphy-ux/ui/segmented-control\.tsx|app/api/hermes/|app/one/puppy/|__tests__/agent/)'; then
+if has_match '^hushh-webapp/(components/agent/|lib/hermes/|lib/services/(puppy-one-service|puppy-pod-stream|pod-app-access)\.ts|lib/agent/(puppy-|use-puppy-|use-pod-memory-consent-word)|lib/agent/agent-voice-settings\.ts|lib/morphy-ux/ui/segmented-control\.tsx|app/api/hermes/|app/one/puppy/|__tests__/agent/)'; then
   run_full_suite_check "agent surface" npm run verify:agent-surface
   # And the same question asked of a real browser. JSDOM cannot report that a
   # cloud model picker is SITTING on the on-device screen, or that the mode
