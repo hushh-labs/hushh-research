@@ -105,7 +105,7 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // precisely the drift this pin exists for. It did its job: the branch
     // carrying that change had this test red until the Python constant moved
     // with it.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(60);
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(62);
   });
 
   it("never lets a crowded screen trade away a global-nav slot", () => {

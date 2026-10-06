@@ -175,7 +175,8 @@
         "enable_flag": null,
         "environments": [
           "development",
-          "uat"
+          "uat",
+          "production"
         ],
         "loopback_only": false
       },
@@ -253,7 +254,8 @@
             "enable_flag": null,
             "environments": [
               "development",
-              "uat"
+              "uat",
+              "production"
             ],
             "loopback_only": false
           },
@@ -314,7 +316,7 @@
         "chat": false,
         "ios": false,
         "mcp": false,
-        "not_applicable_reason": "Chat routing, voice, remote A2A and MCP arrive with the Career Agent chat change; this version is the Career screen only.",
+        "not_applicable_reason": "No roster tile and no chat specialist. Agent One itself lists hussh roles and applies from chat (careers.list_roles, careers.apply); this agent only reads resumes. Voice, remote A2A and MCP are not offered.",
         "voice": false,
         "web": true
       },

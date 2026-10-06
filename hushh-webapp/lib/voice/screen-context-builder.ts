@@ -109,6 +109,10 @@ export const GLOBAL_SESSION_ACTION_IDS: readonly string[] = [
   // Both halves are required: a global slot for an unmounted handler is still
   // filtered out, and a mounted handler nobody is told about is never called.
   "consent.request",
+  // hussh careers from chat (no Career tile on the roster). Mounted app-wide
+  // in components/agent/global-career-action-handlers.tsx.
+  "careers.list_roles",
+  "careers.apply",
 ];
 /**
  * available_action_ids carries the screen-ranked local segment PLUS the

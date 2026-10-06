@@ -319,6 +319,9 @@ SERVER_DIRECT_ACTION_IDS: frozenset[str] = frozenset(SERVER_DIRECT_CAPABILITY_BI
 HARD_CARD_CONFIRMATION_ACTION_IDS: frozenset[str] = frozenset(
     {
         "profile.delete_account",
+        # Sends the owner's resume to careers.hushh.ai. Only a tap on the
+        # card that shows exactly what is sent applies; a spoken yes does not.
+        "careers.apply",
     }
 )
 

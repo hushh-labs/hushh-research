@@ -64,6 +64,28 @@ export const CareerService = {
     return Array.isArray(body.roles) ? body.roles : [];
   },
 
+  /**
+   * Record the owner's tap on "confirm" with hussh. careers.hushh.ai keeps the
+   * consent (who, which role, what is sent, when) and returns the receipt the
+   * application must present; the device never makes one up.
+   */
+  async issueConsentReceipt(params: {
+    role: Pick<CareerRole, "slug" | "family">;
+    shared: { name: string; location: string; resume_chars: number; linkedin?: string; github?: string };
+  }): Promise<string> {
+    const idToken = await AuthService.getIdTokenWithRetry();
+    if (!idToken) throw new Error("Sign in again to apply.");
+    const res = await fetch(`${careersOrigin()}/api/careers/agent/consent`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${idToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: params.role.slug, family: params.role.family, shared: params.shared }),
+    });
+    if (!res.ok) throw new Error(await errorMessage(res, "We couldn't record your confirmation. Nothing was sent."));
+    const body = (await res.json()) as { receiptId?: string };
+    if (!body.receiptId) throw new Error("We couldn't record your confirmation. Nothing was sent.");
+    return body.receiptId;
+  },
+
   async applyToRole(params: {
     role: Pick<CareerRole, "slug" | "family">;
     firstName: string;
