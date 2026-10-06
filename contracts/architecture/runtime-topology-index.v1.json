@@ -3806,10 +3806,10 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "memory-only+sse-background",
+        "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
         "resource_classes": [
-          "unknown"
+          "realtime_stream"
         ]
       },
       "implementation_override": null,
@@ -5941,7 +5941,7 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "agent_registry": "2805f379716689e1655feaa4e53d083ca27e80a2e1b9b873d2379a998bce2fc0",
-    "cache_manifest": "dcf4ad2bdc42263d49cd3b0bd66b51695e9b2a45c6bbf8c570f54d494c11c1d7",
+    "cache_manifest": "5705ed86647ee27b69495d351fb60fec639e405f9e6809808570de56dc3506a1",
     "data_plane": "18071853b380377320df6e2ae2c2e9e6b349abfee747c7fc96cca7a2b4db2c64",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
