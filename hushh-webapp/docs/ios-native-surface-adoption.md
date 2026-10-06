@@ -60,10 +60,11 @@ another navigation stack, WebView, session, or information store.
 - [The owned presenter](../ios/App/App/Plugins/HushhNativeChromePresenter.swift)
   adds a controlled UIKit short action sheet and bounded SwiftUI wheel sheets
   with Done/Cancel. Native draft selections are transient; React remains the
-  validator and operation owner. The reachable People `ActionMenu` opts into
-  public-label native presentation; complex/rich menus retain their DOM path.
-  Generic date and finite-selection adapters are implemented but have no
-  production consumer in this candidate. They are not claimed as adopted.
+  validator and operation owner. People's Add menu belongs to a scrolling search
+  row, so it retains its authored React trigger and sheet. More, generic date
+  and finite-selection adapters are implemented but have no eligible production
+  consumer in this candidate. They are not claimed as adopted; complex/rich
+  menus also retain their DOM path.
 - [AgentDock](../components/agent/agent-dock.tsx) retains one material Agent Bar
   across route changes. Canonical Chat projects its existing form into that bar;
   microphone providers and the voice control remain mounted. Drafts and sends
@@ -209,7 +210,7 @@ three Release performance runs remain required before native-family promotion.
 | Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |
 | History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Current bridge/gesture contracts and device drawer proof; complete native handoff unverified. Disable family capability; same authored DOM actions remain. |
 | Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Current device photo preview/pull-to-close passed; native Close admission and visual acceptance remain unverified. Disable `close` capability. |
-| More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger, owned UIKit action sheet. Rich labels, desktop dropdown and unauthored menus retained. | Compiled adapter; popup privacy/dismissal device proof outstanding. Remove explicit `nativePresentation` opt-in or capability. |
+| More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger and owned UIKit action-sheet adapter; no eligible product consumer yet. Scrolling People's Add, rich labels, desktop dropdown and unauthored menus retain React. | Compiled adapter, not adoption; popup privacy/dismissal device proof outstanding. Capabilities remain Debug-only. |
 | Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Lease contract; accessible segment geometry and physical acceptance outstanding. Disable `agent-surface` capability. |
 | Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |
 | Drawer/pager motion | Existing Profile, History, `SwipeViews` owners | Finger-driven panels/scrims; cancellation, re-grab, single resize reconciliation; inactive panes inert | Focused cancellation/reopen/resize contracts with a resize negative control. Revert bounded shared-owner commits; no route or persistence migration. |
