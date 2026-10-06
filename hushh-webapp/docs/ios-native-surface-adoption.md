@@ -357,14 +357,69 @@ add its explicit owner, public projection, evidence and rollback here.
 
 ### Route Coverage and Device Admission
 
-The current surface map contains 145 page entries: 75 standard, 47 redirects,
-17 hidden and 6 flow layouts. This is source coverage, not 145 native screens or
-145 passing device journeys. The authored native inventory separately classifies
-125 routes: 101 native-required and 24 excluded. Finance Portfolio aliases now expect the query-tabbed workspace;
-RIA Profile expects its actual Advisor marker and canonical destination. Localhost
-CRM destinations are web-only because Capacitor export rejects them. Callback,
-token, role-dependent and fixture-dependent paths require their own valid entry
-conditions; an empty/error screen is not proof that holdings or client details loaded.
+#### Complete screen accounting and batch order — 2026-10-06
+
+The existing [generated surface map](../frontend-native-surface-map.generated.json)
+accounts for **145 route entries / 144 physical pages**: 75 standard, 47 redirect,
+17 hidden and 6 flow layouts. `/agent` is a virtual compatibility entry. There are
+98 nonredirect physical pages, not 145 distinct native screens. The authored
+[native inventory](../native-route-inventory.json) has 125 rows: 98 functional,
+3 callback and 24 excluded; 20 required rows are explicitly legacy inputs.
+These counts describe source obligations, not passing device journeys.
+
+The metadata-only runtime topology projection now includes Connect's two query
+views and Mail's two admitted deep links. Mail Overview is the physical route's
+local default, not an invented `workspace=overview` contract. Location Inbox is
+not a canonical view. Memory Saved/Add/Sharing remains local state. Query views,
+local tabs, owned overlays and physical routes must all be recorded separately.
+Five stale native expectations now target actual source destinations: `/ria`
+resolves to Advisor Profile; Connect settings resolves to Gemini preferences;
+the three legacy Profile Gmail entrypoints resolve to Mail with its existing
+canonical loaded/empty/unavailable states. No route or action authority changed.
+
+| Batch | Required interaction coverage | Current physical evidence / remaining gate |
+| --- | --- | --- |
+| Shell and Chat | Five bottom destinations, Search, History open/close/reopen, keyboard, dock, voice | iPhone navigation, native History/reopen and keyboard passed; complete speech/echo and Release performance remain open. |
+| Profile and vault | Account, preferences, security, methods, support, photo; nested Back/Close | iPhone stack/photo and appearance/accent return passed; all nested settings and accessibility states still need acceptance. Vault operations remain separate authorized tests. |
+| Connect and Consent | Connections/Circles, all four Consent tabs, person and request details | Connect and isolated Consent tab/return checks passed; record-level fixtures and complete native presentation coverage remain open. |
+| Memory | Saved → Add → Sharing; immediate return tap; detail/save/share | Both iPhone swipes passed, immediate Saved return failed. This remains an interruption regression, not a passed Memory journey. |
+| Mail, Calendar and Drive | Mail's three panes and keyboard, provider connection return, read/detail | Mail pager/keyboard passed; authenticated provider calls and return paths require separate current evidence. |
+| Finance, Wallet and RIA | Workspace taps/swipes, holdings detail, Wallet Back, authorized advisor/client details | Wallet Back/return passed. Finance's Portfolio was absent; setup versus workspace destination is unverified. RIA detail fixtures remain unavailable. |
+| Public, auth and setup | Welcome/claim, login/back, invites, callback return, recovery | Source/fixture coverage exists; cold flows must not replace or reset the warm device session. |
+
+The following **20 map entries have no native-inventory row**. Together with
+the 125 classified rows, this accounts for every map entry without hiding gaps:
+
+| Entries | Accounting and required proof |
+| --- | --- |
+| `/agent`, `/connected-systems/[systemId]`, `/kai/funding-trade`, `/kai/investments`, `/one/kai/funding-trade`, `/one/kai/investments`, `/one/setup/[capability]`, `/profile/google/oauth/return`, `/r/[slug]` | Nine compatibility inputs, not new destination screens. Validate actual targets and valid callback/slug conditions; redirect source alone is not an exercised return flow. |
+| `/one/profile/connectors/oauth/return` | Functional OAuth callback despite its redirect layout: it completes provider authentication or saves custom OAuth configuration before returning. Native classification and authorized callback proof remain missing. |
+| `/c/[token]`, `/one/location/invite/[token]`, `/one/location/request/[token]`, `/one/location/view/[token]` | Four hidden token flows; authorized live fixtures required. Never invent or persist private tokens for coverage. |
+| `/products/hushh-tech/launch` | Hidden external-authorization flow; requires its owning launch prerequisites. |
+| `/one/connected-systems/[systemId]` | Localhost-only CRM detail; Capacitor export rejects it. Web proof, not a native acceptance obligation. |
+| `/one/messages` | Functional selected-conversation surface; current-owner selection and an authorized conversation fixture required. |
+| `/ria/clients/[userId]`, `/ria/clients/[userId]/accounts/[accountId]`, `/ria/clients/[userId]/requests/[requestId]` | Three functional role-bound detail templates; authorized RIA/client fixtures required before accepted device journeys. |
+
+Use one combined source candidate, nearest family contracts, core, export/sync,
+packaged-runtime verification and installation. Installation is preparation, not
+continuity evidence. Then attach once per device for warm family batches, serial
+within a device and parallel across independent devices. Check actual entry and
+destination before expecting content. A blocked family does not hide later
+journeys: record them as not reached, restore through authored Back/Chat, verify
+admission, and exercise those isolated paths. Preserve the original failure.
+Rebuild only the runner for harness changes. Record final source/binary identities
+and do not redeploy or enable new families from a partial batch.
+
+On the `77dffc907` production-targeted Debug product, the eight-test iPhone
+batch passed six tests and failed two. Independent Consent (four tabs) and Wallet
+Back/return then passed after authored Chat recovery and admission verification.
+The iPad's complete mask-length acknowledgement did not reach protected Chat;
+its outcome remains unobserved, not a proven wrong passphrase or missed tap.
+The harness now requires a unique enabled/hittable Unlock before a single tap;
+this closes an admission gap, but does not retrospectively explain that failure.
+The shared detail Close was 40px. Six actual-component Chromium/WebKit checks
+failed on that source, then passed with a 44px target and matching title clearance.
+New SwiftUI families remain unqualified on iPad and disabled for Release.
 
 Warm XCUI now includes the Profile account/preferences/security/vault/support
 stack, Connect/Finance/Consent/Wallet tab and Back selection, Memory's Saved → Add

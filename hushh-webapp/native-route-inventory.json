@@ -343,8 +343,8 @@
       "route": "/one/connect/settings",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-      "expectedMarker": "native-route-connect-settings",
-      "expectedRoute": "/one/connect/settings",
+      "expectedMarker": "native-route-profile",
+      "expectedRoute": "/one/profile/preferences/gemini",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -764,36 +764,42 @@
       "route": "/one/profile/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
       "route": "/one/profile/gmail/actions",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail/actions",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
       "route": "/one/profile/gmail/connection",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/gmail/connection",
+      "expectedMarker": "native-route-gmail",
+      "expectedRoute": "/one/gmail",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
-        "loaded"
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
       ]
     },
     {
@@ -1301,8 +1307,8 @@
       "route": "/ria",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria",
-      "expectedMarker": "native-route-ria-home",
-      "expectedRoute": "/ria",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

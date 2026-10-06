@@ -2603,8 +2603,8 @@
         "route": "/one/connect/settings",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fconnect%2Fsettings",
-        "expectedMarker": "native-route-connect-settings",
-        "expectedRoute": "/one/connect/settings",
+        "expectedMarker": "native-route-profile",
+        "expectedRoute": "/one/profile/preferences/gemini",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -5474,12 +5474,14 @@
         "route": "/one/profile/gmail",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -5534,12 +5536,14 @@
         "route": "/one/profile/gmail/actions",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/actions",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -5594,12 +5598,14 @@
         "route": "/one/profile/gmail/connection",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
-        "expectedMarker": "native-route-profile",
-        "expectedRoute": "/one/profile/gmail/connection",
+        "expectedMarker": "native-route-gmail",
+        "expectedRoute": "/one/gmail",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
-          "loaded"
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
         ]
       },
       "shell": {
@@ -8868,8 +8874,8 @@
         "route": "/ria",
         "classification": "native-required-functional",
         "initialRoute": "/login?redirect=%2Fria",
-        "expectedMarker": "native-route-ria-home",
-        "expectedRoute": "/ria",
+        "expectedMarker": "ria-profile-page",
+        "expectedRoute": "/ria/profile",
         "autoReviewerLogin": true,
         "expectedAuth": "authenticated",
         "allowedDataStates": [
@@ -9724,5 +9730,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "5b28293ff4af5930ac05b9d0afd96731ebc5cb1904f37d37ace9c9259503701b"
+  "content_sha256": "6dfec5f984ff318ca728205df3c78b8c60b4fd69092743c2110987f87d56978d"
 }

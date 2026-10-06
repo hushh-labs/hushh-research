@@ -48,3 +48,31 @@ another reviewer store or a privileged app-unlock route.
 - Once admitted, continue warm journeys without sign-out, reset or direct cold
   route jumps. Preserve passcode and privacy protection; do not promise the OS
   will keep its authorization forever.
+
+## Account for screens, then batch the candidate
+
+1. Join the existing generated surface map, native route inventory and semantic
+   route projection. Account separately for physical pages, query/local tabs,
+   legacy redirects, callbacks, exclusions and missing authorized fixtures.
+   Do not create another route registry or count source coverage as interaction.
+2. Group by shared family: shell/Chat, Profile/vault, Connect/Consent, Memory,
+   Mail/Calendar/Drive, Finance/Wallet/RIA and public/auth flows. Keep every
+   required row tied to current source, destination and prerequisites.
+3. Correct verified shared defects together; run nearest contracts and core at
+   the combined SHA. Prepare one product per runtime target, verify its actual
+   packaged identity, then install separately from continuity testing.
+4. Run one attach-only batch per physical device, serially within that device;
+   independent devices may run concurrently. Keep credentials out of subsequent
+   warm batches once normal admission is established.
+5. Check destination/admission before content. Finance setup is not a passed
+   Finance workspace; missing fixtures are not successful empty states. Keep
+   rapid interruption tests, and distinguish tap delivery from later settlement.
+6. If one journey stops a family batch, account for its remaining steps as not
+   reached. Restore through authored Back/Chat, verify admission, and run only
+   those isolated journeys. Never hide the original failure with a green retry.
+7. Record exact candidate/runtime, actions reached, assertions, exclusions and
+   blockers. Rebuild the runner alone for harness-only corrections. Preserve
+   unrelated edits and keep physical iPad, iPhone and simulator acceptance distinct.
+8. Route landing and redeployment through the full Admin SOP in `repo-operations`.
+   Local install, source checks and a partial device batch do not authorize or
+   prove a successful deployment.

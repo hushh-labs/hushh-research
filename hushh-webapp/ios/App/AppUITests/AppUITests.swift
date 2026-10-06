@@ -1592,6 +1592,15 @@ final class AppUITests: XCTestCase {
                 select("Circles"); select("Connections")
             case "finance":
                 openAgent("Finance")
+                let setupQuestion = web.staticTexts["How long will this stay invested?"].firstMatch
+                let setupContinue = web.buttons["Continue finance setup"].firstMatch
+                let destination = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                    tab("Portfolio").exists || setupQuestion.exists || setupContinue.exists
+                }, object: web)
+                XCTAssertEqual(XCTWaiter.wait(for: [destination], timeout: 15), .completed, "WORKSPACE_FINANCE_DESTINATION_UNOBSERVED")
+                let setup = setupQuestion.exists || setupContinue.exists
+                print("WORKSPACE_FINANCE_ADMISSION setup=\(setup) workspace=\(tab("Portfolio").exists)")
+                XCTAssertFalse(setup, "WORKSPACE_FINANCE_SETUP_REQUIRED")
                 select("Portfolio"); select("Analysis"); select("Market")
             case "consent":
                 openAgent("Consent")
@@ -1660,8 +1669,14 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(sharing.isSelected, "The first swipe must not skip Add")
         swipeLeft()
         XCTAssertTrue(waitForSelected(sharing), "The next Memory swipe must land on Sharing")
+        // Keep the interruption test immediate. Selected state is not proof
+        // that the compositor has settled or the original tab is reachable.
+        print("MEMORY_RETURN_ADMISSION hittable=\(saved.exists && saved.isHittable)")
+        XCTAssertTrue(saved.exists && saved.isHittable, "MEMORY_RETURN_TAB_NOT_HITTABLE")
         saved.tap()
-        XCTAssertTrue(waitForSelected(saved), "Memory tap must settle on the same pane as its swipe")
+        let returned = waitForSelected(saved)
+        print("MEMORY_RETURN_SELECTION saved=\(saved.isSelected) add=\(add.isSelected) sharing=\(sharing.isSelected)")
+        XCTAssertTrue(returned, "Memory tap must settle on the same pane as its swipe")
         XCTAssertFalse(webView.buttons["Unlock"].exists, "Memory paging lost the unlocked session")
         XCTAssertEqual(hosts.count, 1)
         print("MEMORY_PAGER_CONTINUITY saved_add_sharing_warm_single_host")
@@ -2306,7 +2321,9 @@ final class AppUITests: XCTestCase {
             }
         }
 
-        let unlockButtons = [app.buttons["Unlock"], app.buttons["Unlock with passphrase"]]
+        let unlockControls = app.buttons.matching(NSPredicate(
+            format: "label IN %@", ["Unlock", "Unlock with passphrase"]
+        ))
         let fieldQueries: [XCUIElementQuery] = [
             app.webViews.secureTextFields,
             app.secureTextFields,
@@ -2390,13 +2407,22 @@ final class AppUITests: XCTestCase {
             // require protected content and absence of the gate in the caller.
             // Never bootstrap or retry a rejected credential to pass a test.
             print("VAULT_ENTRY_MASK length_matched=true")
-            for unlockButton in unlockButtons {
-                if unlockButton.waitForExistence(timeout: 2), unlockButton.isHittable {
-                    vaultUnlockSubmitted = true
-                    unlockButton.tap()
-                    return true
-                }
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                unlockControls.count == 1 && unlockControls.firstMatch.isEnabled && unlockControls.firstMatch.isHittable
+            }, object: app)
+            guard XCTWaiter.wait(for: [ready], timeout: 5) == .completed,
+                  unlockControls.count == 1,
+                  unlockControls.firstMatch.isEnabled,
+                  unlockControls.firstMatch.isHittable else {
+                print("VAULT_SUBMISSION_RECEIPT stage=readiness_timeout_no_tap")
+                XCTFail("Vault Unlock readiness was not acknowledged; unlock was not submitted")
+                return false
             }
+            print("VAULT_SUBMISSION_RECEIPT stage=ready")
+            vaultUnlockSubmitted = true
+            unlockControls.firstMatch.tap()
+            print("VAULT_SUBMISSION_RECEIPT stage=tap_dispatched")
+            return true
         }
 
         return false

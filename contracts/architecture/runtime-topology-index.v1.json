@@ -2764,7 +2764,28 @@
       "page_file": "app/one/connect/page.tsx",
       "pathname": "/one/connect",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/connect?tab=circles",
+          "id": "connect.circles",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "circles"
+          },
+          "tab_set": "connect"
+        },
+        {
+          "canonical_url": "/one/connect?tab=all",
+          "id": "connect.connections",
+          "lifecycle": "canonical",
+          "pathname": "/one/connect",
+          "query": {
+            "tab": "all"
+          },
+          "tab_set": "connect"
+        }
+      ],
       "voice": {
         "action_ids": [
           "connect.accept_request",
@@ -2990,7 +3011,28 @@
       "page_file": "app/one/gmail/page.tsx",
       "pathname": "/one/gmail",
       "route_mode": "standard",
-      "semantic_routes": [],
+      "semantic_routes": [
+        {
+          "canonical_url": "/one/gmail?workspace=kyc",
+          "id": "mail.kyc",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "kyc"
+          },
+          "tab_set": "gmail-workspace"
+        },
+        {
+          "canonical_url": "/one/gmail?workspace=receipts",
+          "id": "mail.receipts",
+          "lifecycle": "canonical",
+          "pathname": "/one/gmail",
+          "query": {
+            "workspace": "receipts"
+          },
+          "tab_set": "gmail-workspace"
+        }
+      ],
       "voice": {
         "action_ids": [
           "route.one_gmail_kyc",
@@ -3493,16 +3535,6 @@
       "pathname": "/one/location",
       "route_mode": "standard",
       "semantic_routes": [
-        {
-          "canonical_url": "/one/location?view=inbox",
-          "id": "location.inbox",
-          "lifecycle": "canonical",
-          "pathname": "/one/location",
-          "query": {
-            "view": "inbox"
-          },
-          "tab_set": "location"
-        },
         {
           "canonical_url": "/one/location?view=links",
           "id": "location.links",
@@ -5948,8 +5980,8 @@
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "13aa94374eb537f398a27144d2cd73e526409d5e3f6719b40e5af68588cc91f9",
     "route_layout": "5a77364b3aca34fca4d2249ae26fc5d8dc85c33fcf34ce2ae8d7cddd4be2fa46",
-    "surface_map": "876acd22e9751773c98f4c2f72e219d22f20647572da3647c6cb31b6062a7412",
-    "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
+    "surface_map": "3ec23cf4132056143b3303ff913bace9f004b63ad7ba540d09485ab5c583fbad",
+    "topology_contract": "58ba11f84a774c8b3daa916d2985f8ec81e04413aa050c9fff4785be3b246df0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -5961,7 +5993,7 @@
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
     "physical_routes": 145,
-    "semantic_routes": 14,
+    "semantic_routes": 17,
     "table_families": 89
   }
 }
