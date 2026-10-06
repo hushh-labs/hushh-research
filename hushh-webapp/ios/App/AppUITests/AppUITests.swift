@@ -545,6 +545,14 @@ final class AppUITests: XCTestCase {
         }
         perfTapNav(app, label: "Chat")
         dismissRehearsalChatKeyboard(app)
+        // Drawer dismissal intentionally restores DOM focus even with no
+        // keyboard. Leave that public fallback before requiring native chrome.
+        let entryTitles = web.staticTexts.matching(NSPredicate(format: "label == %@", "One"))
+            .allElementsBoundByIndex.filter {
+                $0.isHittable && $0.frame.minY >= web.frame.minY && $0.frame.maxY <= web.frame.minY + 160
+            }
+        guard entryTitles.count == 1 else { XCTFail("NATIVE_CHAT_HEADER_TITLE_UNAVAILABLE"); return }
+        entryTitles[0].tap()
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable,
                       "Begin on idle Cloud Chat with the existing unlocked session")

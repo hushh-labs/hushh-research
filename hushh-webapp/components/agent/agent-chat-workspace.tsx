@@ -2437,6 +2437,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     getVaultOwnerToken,
   } = useVault();
   const vaultSessionEpoch = snapshotVaultSessionEpoch();
+  // Authority changes retire chrome; a selector's value uses ordered updates.
+  const chatChromeContext = `${pathname}:${isVaultUnlocked}:${vaultSessionEpoch}`;
   // Chat history is sealed with a key derived from this; read it at call time so
   // history requests never capture a stale (or locked) vault.
   const vaultKeyRef = useRef<string | null>(vaultKey);
@@ -8340,7 +8342,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // own close control instead of leaving a modal with no visible way out.
       hideCloseButton={false}
       closeControl={isHistoryDrawerOpen && onClose ? <NativeHistoryClose owner={renderedWorkspaceOwnerId}
-        context={`${pathname}:${agentSurface}:${isVaultUnlocked}`} onClose={onClose} /> : undefined}
+        context={`${chatChromeContext}:${agentSurface}`} onClose={onClose} /> : undefined}
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
@@ -8534,7 +8536,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 fixed navigation in place. */}
             {isHistoryDrawerOpen ? <span aria-hidden className="size-11 shrink-0" /> : <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
-              context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
+              context={`${chatChromeContext}:${agentSurface}`}
               eligible={isVaultUnlocked}
               onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
@@ -8687,7 +8689,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 word removes nothing from a screen reader.
               */}
               <NativeChatChrome kind="agent-surface" owner={renderedWorkspaceOwnerId}
-                context={`${pathname}:${isVaultUnlocked}:${agentSurface}`}
+                context={chatChromeContext}
                 eligible={isCanonicalChatRoute && hasChatAccess && !isHistoryDrawerOpen}
                 value={agentSurface} onValueChange={(next) => {
                   if (next === "puppy") enterPuppySurface();

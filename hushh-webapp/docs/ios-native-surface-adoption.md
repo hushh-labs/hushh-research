@@ -111,6 +111,14 @@ any owned presented controller are removed. Popup retirement waits for actual
 UIKit dismissal completion. An uncertain acknowledgement quarantines the control until removal
 is confirmed; it never retries a navigation action.
 
+Focus-return attempts have a separate generation fence. Failed retirement never
+focuses a duplicate DOM control, and it cannot latch a hold for focus that was
+not transferred or clear a newer attempt. Chat chrome's authority context includes
+the existing vault-session epoch. Selector value changes use ordered updates
+rather than becoming a new lease identity; History still follows its owning
+agent surface. Device admission starts only after the public fallback loses
+focus, independently of software-keyboard visibility.
+
 Each choice binds to the document, opaque owner epoch, presentation revision,
 current route context, applied update sequence, privacy generation and choice
 sequence. Capability-negotiated appearance, enabled state and finite-value

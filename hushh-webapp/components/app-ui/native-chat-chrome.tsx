@@ -64,6 +64,7 @@ export function NativeChatChrome(props: Props) {
   const lease = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
   const focusPending = useRef(false);
+  const focusAttempt = useRef(0);
   const mounted = useRef(true);
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
@@ -77,12 +78,15 @@ export function NativeChatChrome(props: Props) {
   useLayoutEffect(() => {
     const old = current.current;
     if (old.allowed !== allowed || old.epoch !== epoch || old.context !== context || (!inPlaceUpdates && old.value !== value)) lease.current?.invalidate();
-    if (old.epoch !== epoch || old.context !== context) { heldFocus.current = false; focusPending.current = false; }
+    if (old.epoch !== epoch || old.context !== context) { focusAttempt.current += 1; heldFocus.current = false; focusPending.current = false; }
     current.current = { allowed, epoch, context, value, props, owningLayer, theme, expanded };
   });
 
   useImperativeHandle(handleRef, () => ({ restoreFocus: async () => {
     const request = current.current;
+    const attempt = ++focusAttempt.current;
+    const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
+      current.current.epoch === request.epoch && current.current.context === request.context;
     heldFocus.current = true;
     lease.current?.invalidate();
     remeasure((count) => count + 1);
@@ -90,8 +94,8 @@ export function NativeChatChrome(props: Props) {
       if (supported || hasOutstandingNativeChrome(controlId)) {
         await retireNativeChrome(request.epoch, lease.current?.projection, controlId);
       }
-      if (!mounted.current || current.current.epoch !== request.epoch || current.current.context !== request.context || !canAct()) {
-        if (current.current.epoch === request.epoch && current.current.context === request.context) heldFocus.current = false;
+      if (!isCurrentAttempt() || !canAct()) {
+        if (isCurrentAttempt()) { heldFocus.current = false; focusPending.current = false; }
         return false;
       }
       focusPending.current = true;
@@ -99,7 +103,16 @@ export function NativeChatChrome(props: Props) {
       setHidden(false);
       remeasure((count) => count + 1);
       return true; // Focus is applied after React commits removal of inert/hidden.
-    } catch { return false; } // Never focus a duplicate control after uncertain removal.
+    } catch {
+      // Quarantine still requires confirmed retirement. A failed attempt must
+      // not leave a focus hold when it never transferred focus to the fallback.
+      if (isCurrentAttempt()) {
+        heldFocus.current = false;
+        focusPending.current = false;
+        remeasure((count) => count + 1);
+      }
+      return false;
+    }
   } }));
   useLayoutEffect(() => {
     if (!hidden && focusPending.current && canAct()) {
@@ -110,7 +123,7 @@ export function NativeChatChrome(props: Props) {
 
   useEffect(() => {
     mounted.current = true;
-    return () => { mounted.current = false; };
+    return () => { mounted.current = false; focusAttempt.current += 1; };
   }, []);
   useEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;

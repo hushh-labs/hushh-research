@@ -378,6 +378,23 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(preparations));
   });
 
+  it("does not latch an untransferred focus hold after rejected retirement", async () => {
+    admitChat(); measureSlot();
+    const handle = createRef<NativeChatChromeHandle>();
+    const action = vi.fn();
+    const view = render(<ChatHarness handle={handle} onAction={action} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const preparations = bridge.prepare.mock.calls.length;
+    bridge.retire.mockRejectedValueOnce(new Error("NATIVE_CHROME_ACK_UNCERTAIN"));
+    await act(async () => { expect(await handle.current!.restoreFocus()).toBe(false); });
+    // Recovery may confirm retirement, not replay the authored operation or
+    // focus a control beneath an uncertain native presentation.
+    await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(preparations));
+    expect(action).not.toHaveBeenCalled();
+    expect(view.getByText("Authored history")).not.toHaveFocus();
+    await waitFor(() => expect(view.getByText("Authored history").parentElement).toHaveAttribute("inert"));
+  });
+
   function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn() }) {
     useSessionChromeSuppression(suppressed);
     return <NativeShellBack label="Go back" onBack={onBack} owner={owner} context={context} eligible />;
