@@ -35,9 +35,11 @@ export type ChromeAcknowledgement = ChromeIdentity & {
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string };
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
+export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
 
 export interface HushhNativeChromePlugin {
-  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean; rehearsalDiagnostics?: boolean }>;
+  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean }>;
+  restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;
@@ -134,6 +136,7 @@ export class NativeChromeLease {
   private requestedUpdate = 0;
   private appliedUpdate = 0;
   private activation: Promise<void> | undefined;
+  private focusSequence = 0;
   constructor(projection: ChromeControlProjection, ownerEpoch: string, readonly context = "", readonly inPlaceUpdates = false) {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
   }
@@ -156,6 +159,20 @@ export class NativeChromeLease {
       this.active = this.current;
     })();
     await this.activation;
+  }
+  /** Presentation only; a focus transfer cannot replay an authored action. */
+  async restoreFocus(allowed: () => boolean): Promise<boolean> {
+    if (!this.active || !this.current || !this.projection.enabled || !allowed() ||
+        this.requestedUpdate !== this.appliedUpdate) return false;
+    const updateSequence = this.appliedUpdate;
+    const focusSequence = ++this.focusSequence;
+    const ack = await bounded(nativeChrome.restoreFocus({ ...this.projection, updateSequence, focusSequence }));
+    if (!matches({ ...ack, phase: "active" }, this.projection, "active") ||
+        ack.updateSequence !== updateSequence || ack.focusSequence !== focusSequence || ack.restored !== true) {
+      throw new Error("NATIVE_CHROME_FOCUS_UNCONFIRMED");
+    }
+    return this.current && this.active && allowed() && this.focusSequence === focusSequence &&
+      this.requestedUpdate === updateSequence && this.appliedUpdate === updateSequence;
   }
   /** Fence choices synchronously; only the latest acknowledged snapshot is usable.
    * A stale update failure cannot retire or overwrite a newer presentation. */

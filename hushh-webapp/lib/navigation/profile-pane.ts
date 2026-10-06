@@ -466,6 +466,8 @@ export type ProfilePaneOpenResult = "opening" | "already_open" | "unavailable";
 
 export type ProfilePaneOpenDetail = {
   source: ProfilePaneOpenSource;
+  /** Transient authored opener, not inferred DOM or persisted state. */
+  returnFocus?: HTMLElement;
   /** Called synchronously by the shell listener with what it did. */
   onResult?: (result: ProfilePaneOpenResult) => void;
 };
@@ -480,6 +482,7 @@ export type ProfilePaneOpenDetail = {
  */
 export function requestProfilePaneOpen(
   source: ProfilePaneOpenSource = "tap",
+  returnFocus?: HTMLElement,
 ): ProfilePaneOpenResult | null {
   if (typeof window === "undefined") return null;
   let result: ProfilePaneOpenResult | null = null;
@@ -487,6 +490,7 @@ export function requestProfilePaneOpen(
     new CustomEvent<ProfilePaneOpenDetail>(PROFILE_PANE_OPEN_EVENT, {
       detail: {
         source,
+        returnFocus,
         onResult: (value) => {
           result = value;
         },

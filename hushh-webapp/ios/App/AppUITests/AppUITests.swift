@@ -685,12 +685,30 @@ final class AppUITests: XCTestCase {
         assertSameHost()
         close.tap()
         awaitAbsent(close, "History did not dismiss")
-        // Parent restores authored focus after dismissal. Release it through
-        // the inert public title before requiring the native selector to re-admit.
-        blurThroughAuthoredTitle()
+        // Native/gesture return must not pin a focused DOM hamburger. No
+        // unrelated blur tap may be used to make the handoff pass.
         XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
         XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
         assertNativeTargets()
+        for _ in 0..<2 {
+            let openProfile = web.buttons["Open Profile"].firstMatch
+            XCTAssertTrue(openProfile.exists && openProfile.isHittable)
+            openProfile.tap()
+            let nativeClose = app.buttons.matching(NSPredicate(
+                format: "identifier == %@ AND label == %@", "profile-close", "Close Profile")).firstMatch
+            XCTAssertTrue(nativeClose.waitForExistence(timeout: 10) && nativeClose.isHittable,
+                          "Profile Close must remain native across repeated opens")
+            XCTAssertGreaterThanOrEqual(nativeClose.frame.width, 44)
+            XCTAssertGreaterThanOrEqual(nativeClose.frame.height, 44)
+            XCTAssertFalse(web.buttons.matching(NSPredicate(
+                format: "label == %@ AND identifier != %@", "Close Profile", "profile-close")).firstMatch.exists,
+                "Profile must not expose duplicate native and web Close controls")
+            nativeClose.tap()
+            awaitAbsent(nativeClose, "Native Profile Close did not retire after dismissal")
+            XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
+            XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
+            assertSameHost()
+        }
         segment("puppy").tap()
         let puppyComposer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch
         XCTAssertTrue(puppyComposer.waitForExistence(timeout: 15), "Native selector did not enter the authored Puppy surface")

@@ -1,9 +1,10 @@
 "use client";
 
-import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import { ProfilePaneDrag } from "@/components/app-ui/profile-pane-drag";
 import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { presentationMotionDuration } from "@/components/app-ui/drawer-motion";
+import { nativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 
 import {
   ArrowLeftIcon as ArrowLeft,
@@ -150,6 +151,7 @@ type ProfilePaneProps = {
   open: boolean;
   owner?: string | null;
   onOpenChange: (open: boolean) => void;
+  returnFocusRef?: RefObject<{ owner: string | null; target: HTMLElement } | null>;
 };
 
 /**
@@ -157,12 +159,13 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange, returnFocusRef }: ProfilePaneProps) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const previewScrimRef = useRef<HTMLDivElement>(null);
   const previewOffset = useRef<number | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
   const [stationaryKey, setStationaryKey] = useState<string | null>(null);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
     panelRef.current = node;
@@ -177,6 +180,8 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   }, []);
   const scrimRef = useRef<HTMLDivElement>(null);
   const { isVaultUnlocked } = useVault();
+  const focusOwner = useRef({ owner, open, isVaultUnlocked });
+  useLayoutEffect(() => { focusOwner.current = { owner, open, isVaultUnlocked }; });
   useLayoutEffect(() => {
     const preview = previewRef.current;
     const scrim = previewScrimRef.current;
@@ -304,6 +309,22 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         className="w-full max-w-none transform-gpu gap-0 overflow-hidden p-0 data-[state=open]:will-change-transform data-[state=closed]:will-change-transform sm:w-[min(92vw,560px)] sm:max-w-[560px]"
         aria-label="Profile"
         data-testid="profile-pane"
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          // Name the modal before its content is ready; Close must not become
+          // a permanently focused web fallback merely because it is first.
+          if (focusOwner.current.isVaultUnlocked && !nativeShellOverlayBlocked("profile-pane")) {
+            titleRef.current?.focus({ preventScroll: true });
+          }
+        }}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const target = returnFocusRef?.current;
+          const current = focusOwner.current;
+          if (target && !current.open && current.isVaultUnlocked && target.owner === current.owner &&
+              target.target.isConnected && !target.target.closest("[inert], [hidden]") &&
+              !nativeShellOverlayBlocked("profile-pane")) target.target.focus({ preventScroll: true });
+        }}
       >
         <ProfilePaneDrag open={open} presentationKey={JSON.stringify([owner, pathname, profilePaneLocationKey(location), isVaultUnlocked])} panelRef={panelRef} scrimRef={scrimRef} onClose={() => onOpenChange(false)} />
         <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
@@ -320,7 +341,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
-            <SheetTitle className="truncate font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
+            <SheetTitle ref={titleRef} tabIndex={-1} className="truncate outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
               {title}
             </SheetTitle>
           </div>

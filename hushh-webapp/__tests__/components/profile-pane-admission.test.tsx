@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { useLayoutEffect, useState } from "react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { previewProfilePane } from "@/lib/navigation/profile-pane";
@@ -245,6 +245,37 @@ it("anchors the custom close button and keeps the nested back control separate",
   expect(onOpenChange).toHaveBeenCalledWith(false);
 
   vault.isVaultUnlocked = false;
+});
+
+it("focuses the Profile heading rather than pinning Close and returns only to the current owner's opener", async () => {
+  vault.isVaultUnlocked = true;
+  url.query = "profile_pane=1";
+  let replaceOwner = () => {};
+  function FocusPane() {
+    const [open, setOpen] = useState(false);
+    const [owner, setOwner] = useState("owner-a");
+    const returnFocus = useRef<{ owner: string; target: HTMLElement } | null>(null);
+    useLayoutEffect(() => { replaceOwner = () => setOwner("owner-b"); }, []);
+    return <>
+      <button onClick={(event) => {
+        returnFocus.current = { owner, target: event.currentTarget }; setOpen(true);
+      }}>Open authored Profile</button>
+      <ProfilePane open={open} owner={owner} onOpenChange={setOpen} returnFocusRef={returnFocus} />
+    </>;
+  }
+  render(<FocusPane />);
+  const opener = screen.getByRole("button", { name: "Open authored Profile" });
+  fireEvent.click(opener);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Profile" })).toHaveFocus());
+  expect(screen.getByRole("button", { name: "Close Profile" })).not.toHaveFocus();
+  fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+  await waitFor(() => expect(opener).toHaveFocus());
+  fireEvent.click(opener);
+  await waitFor(() => expect(screen.getByRole("heading", { name: "Profile" })).toHaveFocus());
+  act(() => replaceOwner());
+  fireEvent.click(screen.getByRole("button", { name: "Close Profile" }));
+  await waitFor(() => expect(screen.queryByTestId("profile-pane")).toBeNull());
+  expect(opener).not.toHaveFocus(); // A stale owner's close cannot steal focus.
 });
 
 it("holds the open location while the pane closes, so the exit is one motion", () => {

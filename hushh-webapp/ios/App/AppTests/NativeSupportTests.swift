@@ -1,7 +1,36 @@
 import XCTest
+import SwiftUI
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    @MainActor
+    func testHiddenSegmentedPickerReportsItsReservedGeometryBeforeInteraction() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass family requires iOS 26") }
+        let measured = expectation(description: "Actual SwiftUI geometry equals the reserved slot")
+        measured.assertForOverFulfill = false
+        let theme = HushhNativeControlAppearance(appearance: "light", accentHex: "#007aff", foregroundHex: "#222222")!
+        let host = UIHostingController(rootView: NativeAgentSurfaceSelector(selected: "one", width: 88,
+            theme: theme, action: { _ in XCTFail("Hidden preparation cannot choose a value") },
+            layout: { size in if size == CGSize(width: 88, height: 44) { measured.fulfill() } }))
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 844))
+        let parent = UIViewController()
+        window.rootViewController = parent
+        window.isHidden = false
+        defer { window.isHidden = true }
+        parent.addChild(host)
+        host.view.isHidden = true
+        host.view.isUserInteractionEnabled = false
+        host.safeAreaRegions = []
+        parent.view.addSubview(host.view)
+        host.view.frame = CGRect(x: 280, y: 60, width: 88, height: 44)
+        host.didMove(toParent: parent)
+        host.view.setNeedsLayout()
+        host.view.layoutIfNeeded()
+        wait(for: [measured], timeout: 2)
+        XCTAssertEqual(host.view.bounds.size, CGSize(width: 88, height: 44))
+        XCTAssertFalse(host.view.isUserInteractionEnabled)
+    }
+
     func testNativeControlAppearanceRejectsMalformedProjectionAndDecodesCSSAlphaLast() {
         let theme = HushhNativeControlAppearance(appearance: "dark", accentHex: "#123", foregroundHex: "#44556680")
         XCTAssertEqual(theme?.style, .dark)

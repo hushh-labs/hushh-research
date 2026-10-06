@@ -114,6 +114,8 @@ private struct NativeChromeButton: View {
     let theme: HushhNativeControlAppearance
     let action: () -> Void
     let layout: (CGSize) -> Void
+    @ObservedObject var focus: ChromeFocusRequest
+    @AccessibilityFocusState private var accessibilityFocused: Bool
     var body: some View {
         Button(action: action) {
             Image(systemName: symbol)
@@ -128,19 +130,24 @@ private struct NativeChromeButton: View {
         .buttonBorderShape(.circle)
         .accessibilityLabel(label)
         .accessibilityIdentifier(controlId)
+        .accessibilityFocused($accessibilityFocused)
+        .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
         .frame(width: 44, height: 44)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: ChromeLayoutSize.self, value: proxy.size)
-        })
-        .onPreferenceChange(ChromeLayoutSize.self, perform: layout)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
     }
+}
+
+/// Transient presentation intent, never a route or operation. The plugin
+/// acknowledges assistive focus from UIKit's actual focused-element event.
+private final class ChromeFocusRequest: ObservableObject {
+    @Published var sequence = 0
 }
 
 /// Apple's segmented Picker, with no second selection store. React owns value.
 /// The 44pt host is a reservation, not proof of each system segment's hit region.
 /// Characterize large-control hit geometry on iPhone before family promotion.
 @available(iOS 26.0, *)
-private struct NativeAgentSurfaceSelector: View {
+struct NativeAgentSurfaceSelector: View {
     let selected: String
     let width: CGFloat
     let theme: HushhNativeControlAppearance
@@ -158,16 +165,8 @@ private struct NativeAgentSurfaceSelector: View {
         .tint(Color(uiColor: theme.accent))
         .accessibilityIdentifier("chat-agent-surface")
         .frame(width: width, height: 44)
-        .background(GeometryReader { proxy in
-            Color.clear.preference(key: ChromeLayoutSize.self, value: proxy.size)
-        })
-        .onPreferenceChange(ChromeLayoutSize.self, perform: layout)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
     }
-}
-
-private struct ChromeLayoutSize: PreferenceKey {
-    static var defaultValue = CGSize.zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) { value = nextValue() }
 }
 
 /// UIKit containment and actual layout are the integration boundary. No full-
@@ -221,6 +220,9 @@ private final class ChromeSlot {
     var state = HushhNativeChromeState()
     var hosting: ChromeHostingController?
     var pendingLayout: CAPPluginCall?
+    var pendingFocus: CAPPluginCall?
+    var focus = ChromeFocusRequest()
+    var focusPrivacyGeneration = -1
     var viewport = CGSize.zero
     var sequence = 0
     var choiceValue: String?
@@ -270,6 +272,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "retire", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "confirmChoice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "restoreFocus", returnType: CAPPluginReturnPromise),
     ]
     private var slots = [String: ChromeSlot]()
     private var document: String?
@@ -294,9 +297,29 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     self.invalidatePresentation()
                 })
             }
+            self.observers.append(NotificationCenter.default.addObserver(forName: UIAccessibility.elementFocusedNotification,
+                object: nil, queue: .main) { [weak self] note in
+                    guard let element = note.userInfo?[UIAccessibility.focusedElementUserInfoKey] as? UIAccessibilityIdentification,
+                          let controlId = element.accessibilityIdentifier,
+                          let host = self?.slots[controlId]?.hosting?.view,
+                          Self.focusedElement(element, belongsTo: host) else { return }
+                    self?.completeFocus(controlId)
+                })
         }
     }
     deinit { observers.forEach(NotificationCenter.default.removeObserver) }
+
+    private static func focusedElement(_ element: Any, belongsTo host: UIView) -> Bool {
+        var current: Any? = element
+        // Only walk public UIKit containers; unknown SwiftUI accessibility
+        // representations fail closed and preserve the web focus fallback.
+        for _ in 0..<16 {
+            if let view = current as? UIView { return view === host || view.isDescendant(of: host) }
+            guard let accessible = current as? UIAccessibilityElement else { return false }
+            current = accessible.accessibilityContainer
+        }
+        return false
+    }
 
     @objc func getCapabilities(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -308,6 +331,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
                           "inPlaceUpdates": true,
+                          "focusReturn": true,
                           "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
                               ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics")])
         }
@@ -383,6 +407,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             slot.kind = kind
             slot.label = label
             slot.presentation = ChromePresentation(call)
+            slot.focus = ChromeFocusRequest()
             slot.viewport = parent.view.bounds.size
             var swiftUILayout = false
             let layout: (CGSize) -> Void = { [weak slot] size in
@@ -396,7 +421,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             } else {
                 root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
                     symbol: self.symbol(kind, expanded: call.getBool("expanded") == true), theme: theme,
-                    action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout))
+                    action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus))
             }
             let controller = ChromeHostingController(rootView: root)
             slot.hosting = controller
@@ -492,7 +517,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 } else {
                     root = AnyView(NativeChromeButton(label: slot.kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : slot.label, controlId: identity.controlId,
                         symbol: self.symbol(slot.kind, expanded: presentation.expanded), theme: presentation.theme,
-                        action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }).disabled(!presentation.enabled))
+                        action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
                 }
             } else { call.reject("NATIVE_CHROME_UPDATE_REFUSED"); return }
             slot.presentation = presentation
@@ -505,6 +530,48 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             ack["updateSequence"] = sequence
             call.resolve(ack)
         }
+    }
+
+    @objc func restoreFocus(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, let identity = self.identity(call), let slot = self.slots[identity.controlId],
+                  slot.kind != "agent-surface", self.canPresent, self.geometryIsCurrent(slot),
+                  slot.state.identity == identity, slot.state.phase == "active",
+                  slot.presentation?.enabled == true, slot.pendingFocus == nil,
+                  let sequence = call.getInt("focusSequence"), sequence > slot.focus.sequence,
+                  sequence < HushhSessionPrivacyState.maximumJavaScriptSafeGeneration,
+                  call.getInt("updateSequence") == slot.state.updateSequence,
+                  HushhSessionPrivacyShield.shared.acceptsDocument(identity.document) else {
+                call.reject("NATIVE_CHROME_FOCUS_REFUSED"); return
+            }
+            slot.pendingFocus = call
+            slot.focusPrivacyGeneration = HushhSessionPrivacyShield.shared.snapshot().generation
+            slot.focus.sequence = sequence
+            // Without assistive navigation the admitted native control itself
+            // is the return target. Never manufacture DOM keyboard focus.
+            if !UIAccessibility.isVoiceOverRunning && !UIAccessibility.isSwitchControlRunning {
+                self.completeFocus(identity.controlId)
+            }
+        }
+    }
+
+    private func completeFocus(_ controlId: String) {
+        guard let slot = slots[controlId], let call = slot.pendingFocus else { return }
+        guard let identity = identity(call), slot.state.identity == identity, slot.state.phase == "active",
+              canPresent, geometryIsCurrent(slot), slot.presentation?.enabled == true,
+              slot.focus.sequence == call.getInt("focusSequence"),
+              slot.state.updateSequence == call.getInt("updateSequence"),
+              HushhSessionPrivacyShield.shared.acceptsDocument(identity.document),
+              HushhSessionPrivacyShield.shared.snapshot().generation == slot.focusPrivacyGeneration else {
+            slot.pendingFocus = nil
+            call.reject("NATIVE_CHROME_FOCUS_RETIRED"); return
+        }
+        slot.pendingFocus = nil
+        var ack = payload(identity, phase: "active")
+        ack["updateSequence"] = slot.state.updateSequence
+        ack["focusSequence"] = slot.focus.sequence
+        ack["restored"] = true
+        call.resolve(ack)
     }
 
     @objc func confirmChoice(_ call: CAPPluginCall) {
@@ -650,6 +717,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func removeHosting(_ slot: ChromeSlot) {
         slot.pendingLayout?.reject("NATIVE_CHROME_LAYOUT_RETIRED")
         slot.pendingLayout = nil
+        slot.pendingFocus?.reject("NATIVE_CHROME_FOCUS_RETIRED")
+        slot.pendingFocus = nil
         slot.choiceValue = nil
         guard let hosting = slot.hosting else { return }
         hosting.didLayout = nil

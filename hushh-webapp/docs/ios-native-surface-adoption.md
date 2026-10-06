@@ -112,13 +112,27 @@ any owned presented controller are removed. Popup retirement waits for actual
 UIKit dismissal completion. An uncertain acknowledgement quarantines the control until removal
 is confirmed; it never retries a navigation action.
 
-Focus-return attempts have a separate generation fence. Failed retirement never
+Focus-return attempts have a separate generation fence. The additive version-2
+`focusReturn` capability preserves native History on an authored native/gesture
+return. Its ordered acknowledgement binds the active control and applied update;
+assistive return waits for an actual UIKit focused-element event belonging to the
+hosting view. Unknown accessibility containers fail closed. DOM keyboard return
+still holds the web fallback until blur. History retains its React slot while
+open and has one return-focus owner, rather than independent drawer and workspace
+restorations. Profile enters on its named heading and returns to its explicit,
+current-owner opener only when no newer overlay or vault gate owns interaction.
+Failed retirement never
 focuses a duplicate DOM control, and it cannot latch a hold for focus that was
-not transferred or clear a newer attempt. Chat chrome's authority context includes
+not transferred or clear a newer attempt. Native focus failure restores web focus
+only after confirmed retirement; it never retries an action. Chat chrome's authority context includes
 the existing vault-session epoch. Selector value changes use ordered updates
 rather than becoming a new lease identity; History still follows its owning
 agent surface. Device admission starts only after the public fallback loses
-focus, independently of software-keyboard visibility.
+focus, independently of software-keyboard visibility. SwiftUI preparation now
+measures the reserved frame with Apple's `onGeometryChange`; the earlier segmented
+Picker preference reported zero on iPhone while UIKit had the correct 88×44 host.
+A real hidden-host regression fails with that old preference and passes with the
+geometry observer. This corrects measurement without relaxing the layout gate.
 
 Each choice binds to the document, opaque owner epoch, presentation revision,
 current route context, applied update sequence, privacy generation and choice
@@ -430,6 +444,22 @@ never convert selecting a row into an unreviewed provider write or information s
    reduced motion and reduced transparency rather than layering custom motion.
 
 ## Verification and Promotion
+
+The 2026-10-06 focus-return candidate passes 44 nearest frontend contracts,
+typecheck, focused lint and 34 native-support simulator tests. The new History
+test fails against the previous DOM-only return implementation; the hidden-host
+geometry test fails against the previous preference measurement. These are
+regression evidence, not physical VoiceOver, visual or release acceptance.
+The attach-only Chat rehearsal now requires native History return without an
+unrelated blur tap and two consecutive native Profile Close presentations.
+
+Bounded public single-choice/action menus are candidates for the existing owned
+presenter. True multiselect requires an authored array-value/commit contract;
+the single-value wheel adapter is not a multiselect implementation. Searchable,
+rich, protected-information and scrolling menus deliberately retain React.
+Circles Create/Join and fixed Reason/Duration rosters are inventory candidates,
+not adopted controls: stationarity, ownership and device popup/privacy evidence
+must be established before enabling them.
 
 The 2026-10-04 Back implementation has focused lease/bridge regressions, plugin
 contract checks, frontend typecheck, design/performance checks and a signed native

@@ -13,7 +13,7 @@ vi.mock("next-themes", () => ({ useTheme: () => ({ resolvedTheme: "light" }) }))
 
 const bridge = vi.hoisted(() => ({ platform: "ios", callbacks: new Map<string, (event: unknown) => void>(),
   listeners: new Map<string, Set<(event: unknown) => void>>(),
-  prepare: vi.fn(), activate: vi.fn(), update: vi.fn(), retire: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
+  prepare: vi.fn(), activate: vi.fn(), update: vi.fn(), retire: vi.fn(), restoreFocus: vi.fn(), confirmChoice: vi.fn(), getCapabilities: vi.fn(), setCanvasAppearance: vi.fn() }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => bridge.platform !== "web", getPlatform: () => bridge.platform },
   registerPlugin: () => ({ ...bridge, addListener: async (name: string, callback: (event: unknown) => void) => {
@@ -51,6 +51,7 @@ describe("native chrome presentation lease", () => {
     bridge.prepare.mockReset().mockImplementation(async (value: ChromeProjection) => ({ ...value, phase: "prepared" }));
     bridge.activate.mockReset().mockImplementation(async (value) => ({ ...value, phase: "active" }));
     bridge.update.mockReset().mockImplementation(async (value) => value);
+    bridge.restoreFocus.mockReset().mockImplementation(async (value) => ({ ...value, restored: true }));
     bridge.retire.mockReset().mockImplementation(async (value) => ({ ...value, phase: "retired" }));
     bridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
     await Promise.all(["top-shell-back", "chat-history-toggle", "chat-agent-surface", "profile-close", "stationary-more", "bounded-selection", "bounded-date"].map((controlId) =>
@@ -414,6 +415,32 @@ describe("native chrome presentation lease", () => {
     expect(action).not.toHaveBeenCalled();
     expect(view.getByText("Authored history")).not.toHaveFocus();
     await waitFor(() => expect(view.getByText("Authored history").parentElement).toHaveAttribute("inert"));
+  });
+
+  it("returns native History focus without latching DOM fallback and rejects stale owner focus", async () => {
+    admitChat(); measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["history"], independentControls: true,
+      inPlaceUpdates: true, focusReturn: true });
+    const handle = createRef<NativeChatChromeHandle>();
+    const view = render(<ChatHarness handle={handle} />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    let result!: Promise<boolean>;
+    act(() => { result = handle.current!.restoreFocus(true); });
+    await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledOnce());
+    expect(await result).toBe(true);
+    expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
+    expect(bridge.restoreFocus.mock.calls[0][0]).toMatchObject({
+      controlId: "chat-history-toggle", updateSequence: 1, focusSequence: 1,
+    });
+    const pending = deferred<Record<string, unknown>>();
+    bridge.restoreFocus.mockReturnValueOnce(pending.promise);
+    act(() => { result = handle.current!.restoreFocus(true); });
+    await waitFor(() => expect(bridge.restoreFocus).toHaveBeenCalledTimes(2));
+    const old = bridge.restoreFocus.mock.calls.at(-1)![0];
+    view.rerender(<ChatHarness handle={handle} owner="replacement-owner" />);
+    await act(async () => { pending.resolve({ ...old, restored: true }); });
+    expect(await result).toBe(false);
+    expect(view.getByText("Authored history")).not.toHaveFocus();
   });
 
   function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn() }) {

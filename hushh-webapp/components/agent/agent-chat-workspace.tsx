@@ -2815,12 +2815,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyChromeRef = useRef<NativeChatChromeHandle | null>(null);
   const agentSurfaceFocusRef = useRef<HTMLButtonElement | null>(null);
-  const historyWasOpen = useRef(false);
-  useEffect(() => {
-    const dismissed = historyWasOpen.current && !isHistoryDrawerOpen;
-    historyWasOpen.current = isHistoryDrawerOpen;
-    if (dismissed) void historyChromeRef.current?.restoreFocus();
-  }, [isHistoryDrawerOpen]);
+  const historyPrefersNativeFocus = useRef(false);
+  const restoreHistoryFocus = useCallback(() => {
+    void historyChromeRef.current?.restoreFocus(historyPrefersNativeFocus.current);
+  }, []);
   const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   useLayoutEffect(() => {
     // Next.js can hide and preserve this route instead of unmounting it.
@@ -8491,9 +8489,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           presentationKey={`${pathname}:${renderedWorkspaceOwnerId}:${agentSurface}:${isVaultUnlocked}`}
           gestureSurfaceRef={transcriptRef}
           gestureEnabled={isCanonicalChatRoute && hasChatAccess && !isPuppySurface}
-          onGestureOpen={toggleHistoryDrawer}
+          onGestureOpen={() => { historyPrefersNativeFocus.current = true; toggleHistoryDrawer(); }}
           triggerRef={historyDrawerTriggerRef}
           fallbackFocusRef={historyDrawerFallbackRef}
+          onRestoreHistoryFocus={restoreHistoryFocus}
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
@@ -8534,17 +8533,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             */}
             {/* The same overlay drawer on every width keeps the transcript and
                 fixed navigation in place. */}
-            {isHistoryDrawerOpen ? <span aria-hidden className="size-11 shrink-0" /> : <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
+            <NativeChatChrome kind="history" owner={renderedWorkspaceOwnerId}
               pendingAttention={driveReviewsPending}
               context={`${chatChromeContext}:${agentSurface}`}
-              eligible={isVaultUnlocked}
-              onActivate={toggleHistoryDrawer} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
+              eligible={isVaultUnlocked && !isHistoryDrawerOpen}
+              style={{ visibility: isHistoryDrawerOpen ? "hidden" : undefined }}
+              onActivate={() => { historyPrefersNativeFocus.current = true; toggleHistoryDrawer(); }} focusRef={historyDrawerFallbackRef} ref={historyChromeRef}
               className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
               id="one-chat-history-trigger"
               ref={historyDrawerFallbackRef}
               onClick={(event) => {
+                historyPrefersNativeFocus.current = false;
                 historyDrawerTriggerRef.current = event.currentTarget;
                 toggleHistoryDrawer();
               }}
@@ -8558,7 +8559,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               {driveReviewsPending > 0 && !isHistoryDrawerOpen && !isPuppySurface ?
                 <span aria-hidden="true" className="pointer-events-none absolute right-0 top-0 size-2 rounded-full bg-[color:var(--app-warning)]" /> : null}
             </ShellActionSurface>
-            </NativeChatChrome>}
+            </NativeChatChrome>
             <div
               data-agent-chat-header-region="identity"
               className="flex min-w-0 flex-1 items-center gap-3 overflow-x-clip"
@@ -8734,7 +8735,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 variant="avatar"
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
-                onClick={() => requestProfilePaneOpen("tap")}
+                onClick={(event) => requestProfilePaneOpen("tap", event.currentTarget)}
               >
                 <Avatar className="h-8 w-8">
                   {userAvatarUrl ? (
