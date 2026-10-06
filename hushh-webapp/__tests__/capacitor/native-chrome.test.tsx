@@ -441,6 +441,29 @@ describe("native chrome presentation lease", () => {
     await act(async () => { pending.resolve({ ...old, restored: true }); });
     expect(await result).toBe(false);
     expect(view.getByText("Authored history")).not.toHaveFocus();
+    await waitFor(() => expect(bridge.activate.mock.calls.at(-1)?.[0].ownerEpoch).not.toBe(old.ownerEpoch));
+    const preparations = bridge.prepare.mock.calls.length;
+    const preparation = deferred<ChromeAcknowledgement>();
+    bridge.prepare.mockReturnValueOnce(preparation.promise);
+    act(() => { result = handle.current!.restoreFocus(true); });
+    await waitFor(() => expect(bridge.prepare.mock.calls.length).toBeGreaterThan(preparations));
+    await waitFor(() => expect(view.getByRole("button", { name: "Authored history" })).toBeVisible());
+    await act(async () => { preparation.reject(new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED")); });
+    expect(await result).toBe(true);
+    expect(view.getByRole("button", { name: "Authored history" })).toHaveFocus();
+    act(() => { view.getByRole("button", { name: "Authored history" }).blur(); });
+    await waitFor(() => expect(bridge.activate.mock.calls.length).toBeGreaterThan(3));
+    const delayedFocus = deferred<Record<string, unknown>>();
+    bridge.restoreFocus.mockReturnValueOnce(delayedFocus.promise);
+    const focusCalls = bridge.restoreFocus.mock.calls.length;
+    act(() => { result = handle.current!.restoreFocus(true); });
+    await waitFor(() => expect(bridge.restoreFocus.mock.calls.length).toBe(focusCalls + 1));
+    const resized = bridge.restoreFocus.mock.calls.at(-1)![0];
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(bridge.restoreFocus.mock.calls.length).toBe(focusCalls + 2));
+    expect(await result).toBe(true);
+    await act(async () => { delayedFocus.resolve({ ...resized, restored: true }); });
+    expect(view.queryByRole("button", { name: "Authored history" })).toBeNull();
   });
 
   function Harness({ context = "/one/profile/security", owner = "synthetic-owner", suppressed = false, onBack = vi.fn() }) {

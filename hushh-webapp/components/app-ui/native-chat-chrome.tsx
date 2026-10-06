@@ -80,7 +80,10 @@ export function NativeChatChrome(props: Props) {
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
   const [nativeFocusReturn, setNativeFocusReturn] = useState(false);
-  const nativeFocusPending = useRef<{ attempt: number; started: boolean; resolve: (restored: boolean) => void } | null>(null);
+  type FocusRequest = { attempt: number; binding: NativeChromeLease | null; resolve: (restored: boolean) => void };
+  const nativeFocusPending = useRef<FocusRequest | null>(null);
+  const domFocusPending = useRef<FocusRequest | null>(null);
+  const [, commitFocus] = useState(0);
   const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome(controlId));
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
@@ -110,19 +113,20 @@ export function NativeChatChrome(props: Props) {
     if (old.epoch !== epoch || old.context !== context || !allowed) {
       focusAttempt.current += 1; heldFocus.current = false; focusPending.current = false;
       nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
+      domFocusPending.current?.resolve(false); domFocusPending.current = null;
     }
     current.current = { allowed, epoch, context, value, props, owningLayer, theme, expanded };
   });
 
   useImperativeHandle(handleRef, () => ({ restoreFocus: async (preferNative = false) => {
     nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
+    domFocusPending.current?.resolve(false); domFocusPending.current = null;
     const request = current.current;
     const attempt = ++focusAttempt.current;
     const isCurrentAttempt = () => mounted.current && focusAttempt.current === attempt &&
       current.current.epoch === request.epoch && current.current.context === request.context;
     heldFocus.current = true;
     lease.current?.invalidate();
-    remeasure((count) => count + 1);
     try {
       if (supported || hasOutstandingNativeChrome(controlId)) {
         // The authored Close can own this control ID while the retained opener
@@ -138,7 +142,7 @@ export function NativeChatChrome(props: Props) {
         // Only the authored native/gesture return path opts in. DOM keyboard
         // activation retains the existing focus hold rather than being hidden.
         heldFocus.current = false;
-        const result = new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, started: false, resolve }; });
+        const result = new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, binding: null, resolve }; });
         setPrepared(null); setHidden(false); remeasure((count) => count + 1);
         return result;
       }
@@ -163,25 +167,41 @@ export function NativeChatChrome(props: Props) {
     nativeFocusPending.current = null;
     if (!pending) return;
     const allowed = mounted.current && pending.attempt === focusAttempt.current && canAct();
-    if (allowed) { heldFocus.current = true; focusPending.current = true; }
-    pending.resolve(allowed);
+    if (!allowed) { pending.resolve(false); return; }
+    heldFocus.current = true; focusPending.current = true;
+    domFocusPending.current = pending;
+    // Preparation already exposes fallback. A ref change and setHidden(false)
+    // alone do not schedule the commit needed to apply its actual focus.
+    commitFocus((count) => count + 1);
   }, [canAct]);
   const restoreNativeFocus = useCallback(async (active: NativeChromeLease) => {
     const pending = nativeFocusPending.current;
-    if (!pending || pending.started || lease.current !== active) return;
-    pending.started = true;
+    if (!pending || pending.binding || lease.current !== active) return;
+    pending.binding = active;
     const isCurrent = () => mounted.current && nativeFocusPending.current === pending &&
-      focusAttempt.current === pending.attempt && lease.current === active && canAct();
+      focusAttempt.current === pending.attempt && pending.binding === active && lease.current === active && canAct();
     try {
       if (await active.restoreFocus(isCurrent) && isCurrent()) {
         nativeFocusPending.current = null; pending.resolve(true); return;
       }
     } catch { /* Unsupported/uncertain focus never replays an action. */ }
-    if (!isCurrent()) { pending.resolve(false); return; }
+    if (!isCurrent()) {
+      // Cleanup can rebind the same current attempt to a resized replacement.
+      // Completion from its retired predecessor must not settle that request.
+      if (nativeFocusPending.current === pending && pending.binding === active) {
+        nativeFocusPending.current = null; pending.resolve(false);
+      }
+      return;
+    }
     active.invalidate();
     try {
       await retireNativeChrome(active.projection.ownerEpoch, active.projection, controlId);
-      if (!isCurrent()) { pending.resolve(false); return; }
+      if (!isCurrent()) {
+        if (nativeFocusPending.current === pending && pending.binding === active) {
+          nativeFocusPending.current = null; pending.resolve(false);
+        }
+        return;
+      }
       restorePendingDomFocus(); setPrepared(null); setHidden(false);
     } catch {
       if (nativeFocusPending.current === pending) nativeFocusPending.current = null;
@@ -191,7 +211,11 @@ export function NativeChatChrome(props: Props) {
   useLayoutEffect(() => {
     if (!hidden && focusPending.current && canAct()) {
       focusPending.current = false;
-      props.focusRef.current?.focus({ preventScroll: true });
+      const target = props.focusRef.current;
+      target?.focus({ preventScroll: true });
+      const pending = domFocusPending.current;
+      domFocusPending.current = null;
+      pending?.resolve(pending.attempt === focusAttempt.current && !!target && document.activeElement === target);
     }
   });
 
@@ -200,6 +224,7 @@ export function NativeChatChrome(props: Props) {
     return () => {
       mounted.current = false; focusAttempt.current += 1;
       nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
+      domFocusPending.current?.resolve(false); domFocusPending.current = null;
     };
   }, []);
   useEffect(() => {
@@ -328,6 +353,7 @@ export function NativeChatChrome(props: Props) {
     return () => {
       cancelled = true;
       owned?.invalidate();
+      if (owned && nativeFocusPending.current?.binding === owned) nativeFocusPending.current.binding = null;
       if (owned) void retireNativeChrome(epoch, owned.projection, controlId).catch(() => undefined);
     };
   }, [supported, allowed, epoch, context, controlId, kind, measurement, installationPresentation, inPlaceUpdates, canAct, reportRehearsal, restorePendingDomFocus]);
