@@ -63,6 +63,38 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.update(identity, sequence: 3))
     }
 
+    func testRejectedChromePreparationPreservesActiveOptionsAndDateBounds() {
+        var state = HushhNativeChromeState()
+        var configuration = HushhChromeConfiguration()
+        let active = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 20)
+        let admitted = HushhChromeConfiguration.parse(kind: "selection", value: "current",
+            options: [["value": "current", "label": "Current"]], minimum: nil, maximum: nil)
+        XCTAssertTrue(configuration.prepare(active, parsed: admitted, state: &state))
+        XCTAssertTrue(state.activate(active))
+        let stale = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 19)
+        let replacement = HushhChromeConfiguration.parse(kind: "selection", value: "stale",
+            options: [["value": "stale", "label": "Stale"]], minimum: nil, maximum: nil)
+        XCTAssertFalse(configuration.prepare(stale, parsed: replacement, state: &state))
+        XCTAssertEqual(configuration.options.map(\.value), ["current"])
+        XCTAssertEqual(state.identity, active)
+        XCTAssertEqual(state.phase, "active")
+
+        let dateIdentity = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 21)
+        let date = HushhChromeConfiguration.parse(kind: "date", value: "2026-10-05", options: nil,
+            minimum: "2026-10-01", maximum: "2026-10-31")
+        XCTAssertTrue(configuration.prepare(dateIdentity, parsed: date, state: &state))
+        XCTAssertTrue(state.activate(dateIdentity))
+        let bounds = configuration.dateBounds
+        let invalid = HushhChromeConfiguration.parse(kind: "date", value: "2026-02-30", options: nil,
+            minimum: "2026-10-01", maximum: "2026-10-31")
+        let newer = HushhNativeChromeState.Identity(document: "a", ownerEpoch: "owner-a", revision: 22)
+        XCTAssertNil(invalid)
+        XCTAssertFalse(configuration.prepare(newer, parsed: invalid, state: &state))
+        XCTAssertEqual(configuration.dateBounds, bounds)
+        XCTAssertEqual(state.identity, dateIdentity)
+        XCTAssertEqual(state.phase, "active")
+    }
+
     func testNativeNavigationRejectsStaleUnknownAndRetiredDocumentStates() {
         var state = HushhNativeNavigationState()
         XCTAssertTrue(state.apply(document: "first", revision: 1, visible: true, selected: "chat"))

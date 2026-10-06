@@ -398,14 +398,17 @@ The subsequent families are Debug rehearsal candidates only. Historical evidence
 above does not accept this revised bridge, popup or History/Close handoff.
 
 The 2026-10-05 coherent-controls revision passed the combined 157-test frontend
-contract set, the expanded 30-test chrome contract, 32 native support tests,
+contract set, the expanded 30-test chrome contract, 33 native support tests,
 typecheck, static plugin/design checks and the 16 focused vault/backend tests.
 The production-targeted static bundle and signed iPhone test build compiled.
 An updated runner then entered a credential-free attach-only test on the running
 iPhone and found its single identified WebView; no product installation, unlock,
 navigation or protected-content capture was needed for that admission check.
-The pager-settlement and vault commit-before-rekey negative controls failed on
-the deliberately broken implementations. These checks do not accept the new
+After the main freshness merge, 72 focused Mail tests passed with the live
+receipt scanner and account-scoped cache retained. Pager settlement, vault
+commit-before-rekey, delayed receipt/disconnect and stale native preparation
+negative controls failed on deliberately broken implementations. Rejected native
+preparation now preserves the active options and date bounds. These checks do not accept the new
 popup/Close interactions, visual geometry, accessibility or Release frame pacing.
 Exact committed-candidate core CI and physical interaction acceptance remain
 separate gates; the new families are still Debug-only and iPad remains unqualified.

@@ -180,6 +180,43 @@ private final class ChromeHostingController: UIHostingController<AnyView> {
     }
 }
 
+/// Validated immutable input is committed only with its accepted revision.
+/// Rejected preparation must leave the active popup's configuration intact.
+struct HushhChromeConfiguration {
+    var options = [HushhChromeOption]()
+    var dateBounds: ClosedRange<Date>?
+
+    mutating func prepare(_ identity: HushhNativeChromeState.Identity, parsed: Self?, state: inout HushhNativeChromeState) -> Bool {
+        guard let parsed, state.prepare(identity) else { return false }
+        self = parsed
+        return true
+    }
+
+    static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?) -> Self? {
+        var result = Self()
+        if kind == "date" {
+            guard let minimum = HushhNativeChromePresenter.parseDate(minimum),
+                  let maximum = HushhNativeChromePresenter.parseDate(maximum), minimum <= maximum,
+                  let value = HushhNativeChromePresenter.parseDate(value),
+                  (minimum...maximum).contains(value) else { return nil }
+            result.dateBounds = minimum...maximum
+            return result
+        }
+        guard kind == "more" || kind == "selection" else { return result }
+        guard let options, !options.isEmpty, options.count <= 32 else { return nil }
+        var ids = Set<String>()
+        for option in options {
+            guard let value = option["value"] as? String, !value.isEmpty, value.count <= 64,
+                  value.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }),
+                  ids.insert(value).inserted, let label = option["label"] as? String,
+                  !label.isEmpty, label.count <= 80 else { return nil }
+            result.options.append(.init(value: value, label: label, disabled: option["disabled"] as? Bool ?? false))
+        }
+        guard kind == "more" || result.options.contains(where: { $0.value == value && !$0.disabled }) else { return nil }
+        return result
+    }
+}
+
 private final class ChromeSlot {
     var state = HushhNativeChromeState()
     var hosting: ChromeHostingController?
@@ -190,8 +227,9 @@ private final class ChromeSlot {
     var kind = "back"
     var label = ""
     var presentation: ChromePresentation?
-    var options = [HushhChromeOption]()
-    var dateBounds: ClosedRange<Date>?
+    var configuration = HushhChromeConfiguration()
+    var options: [HushhChromeOption] { configuration.options }
+    var dateBounds: ClosedRange<Date>? { configuration.dateBounds }
     var presenter: HushhNativeChromePresenter?
 }
 
@@ -335,10 +373,10 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                 id != identity.controlId && slot.hosting?.view.frame.intersects(frame) == true
             }) else { call.reject("NATIVE_CHROME_OVERLAPPING_CONTROLS"); return }
             let slot = self.slot(identity.controlId)
-            guard slot.presenter == nil, self.readOptions(call, kind: kind, slot: slot) else {
+            guard slot.presenter == nil, let configuration = self.readOptions(call, kind: kind) else {
                 call.reject("NATIVE_CHROME_OPTIONS_INVALID"); return
             }
-            guard slot.state.prepare(identity) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
+            guard slot.configuration.prepare(identity, parsed: configuration, state: &slot.state) else { call.reject("NATIVE_CHROME_PREPARE_REFUSED"); return }
             self.removeHosting(slot)
             slot.kind = kind
             slot.label = label
@@ -534,28 +572,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         default: return "line.3.horizontal"
         }
     }
-    private func readOptions(_ call: CAPPluginCall, kind: String, slot: ChromeSlot) -> Bool {
-        slot.options = []
-        slot.dateBounds = nil
-        if kind == "date" {
-            guard let minimum = HushhNativeChromePresenter.parseDate(call.getString("minimum")),
-                  let maximum = HushhNativeChromePresenter.parseDate(call.getString("maximum")), minimum <= maximum,
-                  let value = HushhNativeChromePresenter.parseDate(call.getString("value")),
-                  (minimum...maximum).contains(value) else { return false }
-            slot.dateBounds = minimum...maximum
-            return true
-        }
-        guard kind == "more" || kind == "selection" else { return true }
-        guard let options = call.getArray("options", JSObject.self), !options.isEmpty, options.count <= 32 else { return false }
-        var ids = Set<String>()
-        for option in options {
-            guard let value = option["value"] as? String, !value.isEmpty, value.count <= 64,
-                  value.utf8.allSatisfy({ (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0) || $0 == 45 || $0 == 95 }),
-                  ids.insert(value).inserted, let label = option["label"] as? String,
-                  !label.isEmpty, label.count <= 80 else { return false }
-            slot.options.append(.init(value: value, label: label, disabled: option["disabled"] as? Bool ?? false))
-        }
-        return kind == "more" || slot.options.contains { $0.value == call.getString("value") && !$0.disabled }
+    private func readOptions(_ call: CAPPluginCall, kind: String) -> HushhChromeConfiguration? {
+        HushhChromeConfiguration.parse(kind: kind, value: call.getString("value"),
+            options: call.getArray("options", JSObject.self), minimum: call.getString("minimum"), maximum: call.getString("maximum"))
     }
     private func admittedValue(_ value: String?, slot: ChromeSlot, forUpdate: Bool) -> Bool {
         switch slot.kind {
