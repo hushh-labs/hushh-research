@@ -3,7 +3,7 @@
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { XIcon } from "@/components/icons";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, hasOutstandingNativeChrome, nativeChrome, retireNativeChrome, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -39,6 +39,8 @@ type Props = {
   /** Omission or any nonzero count retains the authored notification/badge DOM. Never bridged. */
   pendingAttention?: number } |
   { kind: "agent-surface"; value: ChromeAgentSurface; onValueChange: (value: ChromeAgentSurface) => void } |
+  { kind: "appearance"; value: "light" | "dark" | "system"; onValueChange: (value: "light" | "dark" | "system") => void } |
+  { kind: "accent"; value: "blue" | "gold"; onValueChange: (value: "blue" | "gold") => void } |
   { kind: "more"; label: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
   { kind: "selection"; label: string; value: string; options: readonly ChromeOption[]; onValueChange: (value: string) => void } |
   { kind: "date"; label: string; value: string; minimum: string; maximum: string; onValueChange: (value: string) => void });
@@ -55,7 +57,8 @@ export function NativeChatChrome(props: Props) {
   const controlId = chromeControlId(kind);
   // Only the current authored History layer may own Close. Anonymous/nested
   // overlays and the active drag still block it; Close is not globally exempt.
-  const owningLayer = props.kind === "close" ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
+  const preference = kind === "appearance" || kind === "accent";
+  const owningLayer = props.kind === "close" || preference ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
   const overlay = useNativeShellOverlayBlocked(owningLayer);
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
@@ -74,6 +77,7 @@ export function NativeChatChrome(props: Props) {
   const current = useRef({ allowed, epoch, context, value, props, owningLayer, theme, expanded });
   const lease = useRef<NativeChromeLease | null>(null);
   const heldFocus = useRef(false);
+  const moving = useRef(false);
   const focusPending = useRef(false);
   const focusAttempt = useRef(0);
   const mounted = useRef(true);
@@ -84,7 +88,8 @@ export function NativeChatChrome(props: Props) {
   const nativeFocusPending = useRef<FocusRequest | null>(null);
   const domFocusPending = useRef<FocusRequest | null>(null);
   const [, commitFocus] = useState(0);
-  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome(controlId));
+  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome(controlId) ||
+    supportsNativeChrome(kind) && badgeAdmitted && props.eligible && !!props.owner && !overlay && !suppressed);
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const rehearsalDiagnostics = useRef(false);
@@ -105,6 +110,7 @@ export function NativeChatChrome(props: Props) {
   }, [kind, supported]);
 
   const canAct = useCallback(() => current.current.allowed && !nativeShellOverlayBlocked(current.current.owningLayer) &&
+    !moving.current && !slot.current?.closest("[inert]") &&
     !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
     document.visibilityState !== "hidden", []);
   useLayoutEffect(() => {
@@ -143,7 +149,7 @@ export function NativeChatChrome(props: Props) {
         // activation retains the existing focus hold rather than being hidden.
         heldFocus.current = false;
         const result = new Promise<boolean>((resolve) => { nativeFocusPending.current = { attempt, binding: null, resolve }; });
-        setPrepared(null); setHidden(false); remeasure((count) => count + 1);
+        setPrepared(null); setHidden(true); remeasure((count) => count + 1);
         return result;
       }
       focusPending.current = true;
@@ -227,38 +233,47 @@ export function NativeChatChrome(props: Props) {
       domFocusPending.current?.resolve(false); domFocusPending.current = null;
     };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     let cancelled = false;
+    let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
     const retain = async (pending: Promise<PluginListenerHandle>) => {
       const handle = await pending;
-      if (cancelled) await handle.remove(); else handles.push(handle);
+      if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((count) => count + 1); };
     void (async () => {
       try {
-        const capability = await nativeChrome.getCapabilities();
-        if (cancelled || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
+        const capability = await getNativeChromeCapabilities();
+        if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
             capability.independentControls !== true || !capability.families.includes(kind)) return;
         rehearsalDiagnostics.current = capability.rehearsalDiagnostics === true;
-        await retain(nativeChrome.addListener("choiceRequested", (event: ChromeChoice) => {
+        await Promise.all([retain(nativeChrome.addListener("choiceRequested", (event: ChromeChoice) => {
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
             if (callback.kind === "history" || callback.kind === "close") callback.onActivate();
             else if (callback.kind === "agent-surface") { if (event.value === "one" || event.value === "puppy") callback.onValueChange(event.value); }
+            else if (callback.kind === "appearance") { if (event.value === "light" || event.value === "dark" || event.value === "system") callback.onValueChange(event.value); }
+            else if (callback.kind === "accent") { if (event.value === "blue" || event.value === "gold") callback.onValueChange(event.value); }
             else if (event.value !== undefined) callback.onValueChange(event.value);
           }).catch(() => undefined);
-        }));
-        await retain(nativeChrome.addListener("invalidated", invalidate));
-        await retain(subscribeNativeSessionPrivacy(invalidate));
+        })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) {
           setInPlaceUpdates(capability.inPlaceUpdates === true);
           setNativeFocusReturn(capability.focusReturn === true && kind !== "agent-surface"); setSupported(true);
         }
-      } catch { /* Unsupported wrappers keep the authored DOM control. */ }
+      } catch {
+        if (cancelled) return;
+        subscriptionsFailed = true;
+        handles.splice(0).forEach((handle) => { void handle.remove(); });
+        try {
+          await retireNativeChrome(current.current.epoch, undefined, controlId);
+          if (!cancelled) setHidden(false);
+        } catch { /* Retain quarantine until native retirement is confirmed. */ }
+      }
     })();
     const releaseFocus = () => {
       if (!slot.current?.contains(document.activeElement) && heldFocus.current) {
@@ -283,7 +298,74 @@ export function NativeChatChrome(props: Props) {
       window.removeEventListener("resize", invalidate);
       setSupported(false);
     };
-  }, [kind, foreground, canAct]);
+  }, [kind, controlId, foreground, canAct]);
+
+  // Content preferences are public, but their coordinates are not stationary
+  // while a retained Profile stack or scroll root moves. Fence choices at the
+  // event, publish only burst boundaries, and remeasure after settlement.
+  useLayoutEffect(() => {
+    if (!preference || !slot.current) return;
+    const node = slot.current;
+    const ancestors: HTMLElement[] = [];
+    for (let parent = node.parentElement; parent; parent = parent.parentElement) ancestors.push(parent);
+    let timer = 0;
+    const transitions = new Set<EventTarget>();
+    const animations = new Map<EventTarget, Set<string>>();
+    const transformRunning = () => ancestors.some((ancestor) => ancestor.getAnimations?.().some((animation) =>
+      animation.playState === "running" && animation.effect instanceof KeyframeEffect &&
+      animation.effect.getKeyframes().some((frame) => "transform" in frame)));
+    const settle = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        // A 300ms pane transition must not be admitted after a 150ms quiet
+        // interval. Also catch a transition already running when we mounted.
+        if (transitions.size || animations.size || transformRunning()) { settle(); return; }
+        moving.current = false; remeasure((count) => count + 1);
+      }, 150);
+    };
+    const move = () => {
+      if (!moving.current) { moving.current = true; lease.current?.invalidate(); remeasure((count) => count + 1); }
+      settle();
+    };
+    const transition = (event: TransitionEvent) => {
+      if (event.target !== event.currentTarget || event.propertyName !== "transform") return;
+      if (event.type === "transitionrun") transitions.add(event.currentTarget!);
+      else transitions.delete(event.currentTarget!);
+      move();
+    };
+    const animation = (event: AnimationEvent) => {
+      if (event.target !== event.currentTarget || !event.currentTarget) return;
+      const names = animations.get(event.currentTarget) ?? new Set<string>();
+      if (event.type === "animationstart") names.add(event.animationName);
+      else names.delete(event.animationName);
+      if (names.size) animations.set(event.currentTarget, names);
+      else animations.delete(event.currentTarget);
+      move();
+    };
+    for (const ancestor of ancestors) {
+      ancestor.addEventListener("scroll", move, { passive: true });
+      ancestor.addEventListener("transitionrun", transition);
+      ancestor.addEventListener("transitionend", transition);
+      ancestor.addEventListener("transitioncancel", transition);
+      ancestor.addEventListener("animationstart", animation);
+      ancestor.addEventListener("animationend", animation);
+      ancestor.addEventListener("animationcancel", animation);
+    }
+    move(); // Account for the owning pane/stack's first settlement, not just resize.
+    return () => {
+      window.clearTimeout(timer);
+      moving.current = false;
+      for (const ancestor of ancestors) {
+        ancestor.removeEventListener("scroll", move);
+        ancestor.removeEventListener("transitionrun", transition);
+        ancestor.removeEventListener("transitionend", transition);
+        ancestor.removeEventListener("transitioncancel", transition);
+        ancestor.removeEventListener("animationstart", animation);
+        ancestor.removeEventListener("animationend", animation);
+        ancestor.removeEventListener("animationcancel", animation);
+      }
+    };
+  }, [preference, context]);
 
   // Legacy wrappers reinstall; capable wrappers preserve containment and focus.
   const installationPresentation = inPlaceUpdates ? "in-place" : JSON.stringify({ theme, value, expanded });
@@ -300,26 +382,41 @@ export function NativeChatChrome(props: Props) {
         if (cancelled) return;
         const { theme, expanded, value, props } = current.current;
         setPrepared(null);
-        setHidden(false);
         if (!allowed || !theme || !canAct() || heldFocus.current || !slot.current) {
+          setHidden(false);
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "not-admitted"); return;
         }
         // Preserve keyboard focus rather than hiding a focused fallback.
         if (slot.current.contains(document.activeElement)) {
+          setHidden(false);
           heldFocus.current = true; nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "focused"); return;
         }
         const frame = slot.current.getBoundingClientRect();
-        if (frame.height !== 44 || (kind === "agent-surface" ? frame.width < 88 || frame.width > 320 : frame.width !== 44)) {
+        const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
+        const widthAdmitted = kind === "agent-surface" || kind === "appearance" ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
+        let clipped = !!slot.current.closest("[inert]");
+        if (preference) {
+          for (let parent = slot.current.parentElement; parent; parent = parent.parentElement) {
+            const style = getComputedStyle(parent);
+            const bounds = parent.getBoundingClientRect();
+            if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (frame.top < bounds.top || frame.bottom > bounds.bottom) ||
+                /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left || frame.right > bounds.right)) clipped = true;
+          }
+        }
+        if (frame.height !== 44 || !widthAdmitted || clipped) {
+          setHidden(false);
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "geometry"); return;
         }
-        if (kind === "agent-surface" && value === undefined) return;
+        if (kind === "agent-surface" && value === undefined) { setHidden(false); return; }
         const control: ChromeControl & { label: string } =
           props.kind === "close" ? { kind: "close", label: props.label } :
           props.kind === "history" ? { kind: "history", expanded, label: "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
+          props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :
+          props.kind === "accent" ? { kind: "accent", value: props.value, label: "App accent color" } :
           props.kind === "date" ? { kind: "date", value: props.value, minimum: props.minimum, maximum: props.maximum, label: props.label } :
           props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
           { kind: "more", options: props.options, label: props.label };
@@ -329,6 +426,9 @@ export function NativeChatChrome(props: Props) {
         owned = next;
         lease.current = next;
         stage = "prepare";
+        // Keep the same reserved slot concealed across a native-to-native
+        // handoff. Do not paint an intermediate, clickable web replacement.
+        setHidden(true);
         reportRehearsal(stage, "pending");
         if (await next.prepare() && !cancelled) { reportRehearsal(stage, "acknowledged"); setHidden(true); setPrepared(next); }
       } catch (error) {
@@ -356,7 +456,7 @@ export function NativeChatChrome(props: Props) {
       if (owned && nativeFocusPending.current?.binding === owned) nativeFocusPending.current.binding = null;
       if (owned) void retireNativeChrome(epoch, owned.projection, controlId).catch(() => undefined);
     };
-  }, [supported, allowed, epoch, context, controlId, kind, measurement, installationPresentation, inPlaceUpdates, canAct, reportRehearsal, restorePendingDomFocus]);
+  }, [supported, allowed, epoch, context, controlId, kind, preference, measurement, installationPresentation, inPlaceUpdates, canAct, reportRehearsal, restorePendingDomFocus]);
 
   useLayoutEffect(() => {
     if (!prepared || !hidden) return;

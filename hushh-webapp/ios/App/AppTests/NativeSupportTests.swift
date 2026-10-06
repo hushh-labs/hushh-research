@@ -118,6 +118,20 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertFalse(state.update(identity, sequence: 3))
     }
 
+    func testPublicPreferenceConfigurationRejectsUnknownValuesAndAuthoredOptions() {
+        for value in ["light", "dark", "system"] {
+            XCTAssertNotNil(HushhChromeConfiguration.parse(kind: "appearance", value: value, options: nil, minimum: nil, maximum: nil))
+        }
+        let accent = HushhChromeConfiguration.parse(kind: "accent", value: "blue",
+            options: [["value": "unknown", "label": "Untrusted label"]], minimum: nil, maximum: nil)
+        XCTAssertEqual(accent?.options.map(\.value), ["blue", "gold"])
+        for kind in ["appearance", "accent"] {
+            for value: String? in [nil, "unknown"] {
+                XCTAssertNil(HushhChromeConfiguration.parse(kind: kind, value: value, options: nil, minimum: nil, maximum: nil))
+            }
+        }
+    }
+
     func testRejectedChromePreparationPreservesActiveOptionsAndDateBounds() {
         var state = HushhNativeChromeState()
         var configuration = HushhChromeConfiguration()

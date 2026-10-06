@@ -969,6 +969,84 @@ final class AppUITests: XCTestCase {
         assertStatusCanvasMatchesHeader()
     }
 
+    func testLocalSessionNativePublicPreferencesRetireAndRestore() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in native public preferences proof")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            throw XCTSkip("Preferences proof must attach to the existing session")
+        }
+        app.activate()
+        let hosts = app.webViews.matching(identifier: "native-webview"), web = hosts.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15))
+        XCTAssertFalse(web.buttons["Unlock"].exists, "Normal vault unlock is required")
+        let picker = app.segmentedControls["profile-appearance"].firstMatch
+        let accent = app.buttons["profile-accent"].firstMatch
+        func openPreferences() {
+            let close = app.buttons["Close Profile"].firstMatch
+            if !close.exists { app.buttons["Open Profile"].firstMatch.tap() }
+            XCTAssertTrue(close.waitForExistence(timeout: 10))
+            let row = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Appearance & preferences")).firstMatch
+            XCTAssertTrue(row.waitForExistence(timeout: 10))
+            if !row.isHittable { web.swipeUp() }
+            XCTAssertTrue(row.isHittable)
+            row.tap()
+            XCTAssertTrue(picker.waitForExistence(timeout: 10) && picker.isHittable, "NATIVE_APPEARANCE_UNAVAILABLE")
+            XCTAssertTrue(accent.waitForExistence(timeout: 10) && accent.isHittable, "NATIVE_ACCENT_UNAVAILABLE")
+        }
+        func selectedTheme(_ name: String) -> Bool { picker.buttons[name].exists && picker.buttons[name].isSelected }
+        func selectTheme(_ name: String) {
+            let segment = picker.buttons[name]
+            XCTAssertTrue(segment.exists && segment.isHittable)
+            if !selectedTheme(name) { segment.tap() }
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in selectedTheme(name) }, object: picker)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_APPEARANCE_NOT_ACKNOWLEDGED")
+        }
+        func selectAccent(_ name: String) {
+            if (accent.value as? String) == name { return }
+            accent.tap()
+            let option = app.buttons[name].firstMatch
+            XCTAssertTrue(option.waitForExistence(timeout: 10) && option.isHittable, "NATIVE_ACCENT_MENU_UNAVAILABLE")
+            option.tap()
+            let changed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == %@", name), object: accent)
+            XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, "NATIVE_ACCENT_NOT_ACKNOWLEDGED")
+        }
+        openPreferences()
+        guard let originalTheme = ["Light", "Dark", "System"].first(where: selectedTheme),
+              let originalAccent = accent.value as? String, ["iOS Blue", "Molten Gold"].contains(originalAccent) else {
+            XCTFail("NATIVE_PREFERENCE_ORIGINAL_UNKNOWN"); return
+        }
+        addTeardownBlock {
+            if !picker.exists { openPreferences() }
+            selectTheme(originalTheme); selectAccent(originalAccent)
+            app.buttons["Close Profile"].firstMatch.tap()
+            self.perfTapNav(app, label: "Chat")
+            XCTAssertFalse(web.buttons["Unlock"].exists)
+        }
+        for name in ["Light", "Dark", "System"] {
+            let segment = picker.buttons[name]
+            XCTAssertGreaterThanOrEqual(segment.frame.width, 44, "NATIVE_APPEARANCE_SEGMENT_WIDTH_UNADMITTED")
+            XCTAssertGreaterThanOrEqual(segment.frame.height, 44, "NATIVE_APPEARANCE_SEGMENT_HEIGHT_UNADMITTED")
+            selectTheme(name)
+            XCTAssertTrue(accent.isHittable)
+        }
+        for name in ["iOS Blue", "Molten Gold"] { selectAccent(name) }
+        let value = accent.value as? String
+        accent.tap()
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 10)); cancel.tap()
+        XCTAssertEqual(accent.value as? String, value, "Native Cancel changed the preference")
+        app.buttons["Close Profile"].firstMatch.tap()
+        let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: picker)
+        XCTAssertEqual(XCTWaiter.wait(for: [retired], timeout: 5), .completed, "NATIVE_PREFERENCES_NOT_RETIRED")
+        openPreferences()
+        XCTAssertEqual(hosts.count, 1)
+        XCTAssertEqual(app.webViews.count, 1 + web.webViews.count)
+        XCTAssertFalse(web.buttons["Unlock"].exists)
+        print("NATIVE_PUBLIC_PREFERENCES_CONTINUITY icons_theme_accent_cancel_reopen_single_host")
+    }
+
     func testLocalSessionNativeChromeFollowsAppTheme() throws {
         guard ProcessInfo.processInfo.environment["HUSHH_RUN_NATIVE_CHROME_SMOKE"] == "true" else {
             throw XCTSkip("Opt-in appearance proof; temporarily changes and restores the existing app preference")
@@ -1010,9 +1088,11 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(themeOption("System").waitForExistence(timeout: 10), "THEME_OPTIONS_UNAVAILABLE")
         }
         func themeOption(_ label: String) -> XCUIElement {
+            let native = app.segmentedControls["profile-appearance"].firstMatch
+            if native.exists { return native.buttons[label].firstMatch }
             // WebKit maps authored role=radio differently across OS releases.
             // Match the explicit accessible name, not an assumed XCUI type.
-            web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+            return web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
         }
         func selected(_ label: String) -> Bool {
             let radio = themeOption(label)

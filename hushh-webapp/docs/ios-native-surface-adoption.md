@@ -53,6 +53,13 @@ another navigation stack, WebView, session, or information store.
   remain on the accepted DOM controls until physical acceptance is complete.
   Pending History review badges retain DOM presentation. Choices invoke the
   existing drawer and agent-surface handlers, never a native router.
+  The selector uses cloud/machine symbols with spoken names, not repeated text
+  labels. Wrapper capabilities are discovered once per document and prewarmed
+  independently of route/auth readiness. Only that immutable metadata is cached;
+  owner, permission, layout and privacy admission are still checked per lease.
+  Eligible warm slots remain concealed across retirement/preparation, avoiding
+  a briefly interactive web replacement. Failed listener installation restores
+  fallback only after confirmed retirement; uncertain removal stays quarantined.
   The candidate now hands History to a native Close at the drawer's authored
   trailing slot, retiring the underlying header lease before installing the
   relocated control. Pending review badges retain DOM presentation. This is a
@@ -65,6 +72,21 @@ another navigation stack, WebView, session, or information store.
   and finite-selection adapters are implemented but have no eligible production
   consumer in this candidate. They are not claimed as adopted; complex/rich
   menus also retain their DOM path.
+- Profile Appearance and Accent are explicit Debug iPhone candidates with
+  independent `profile-appearance` and `profile-accent` IDs. Appearance uses an
+  icon segmented SwiftUI Picker for Light/Dark/System; System remains the selected
+  preference even when its resolved canvas is light or dark. Accent uses the
+  owned UIKit short menu for the existing Blue/Gold values. Choices invoke
+  `setTheme`/`writeAccent`; no native preference store is introduced. The owning
+  Profile pane must be open and stationary. Scroll, ancestor animation/transition,
+  clipped geometry, inactive retained panes and nested overlays retire admission;
+  native restoration waits for settlement and acknowledged layout. Release/iPad
+  enablement and physical acceptance remain separate gates.
+
+  Other bounded public candidates include Location's activity range, RIA tier
+  filter and rows-per-page. They are assessed, not adopted. Record-derived
+  statement pickers, vault method handles and complex multiselect stay React;
+  the single-value presentation contract is not an array-value multiselect.
 - [AgentDock](../components/agent/agent-dock.tsx) retains one material Agent Bar
   across route changes. Canonical Chat projects its existing form into that bar;
   microphone providers and the voice control remain mounted. Drafts and sends
@@ -305,6 +327,7 @@ Earlier core/device results do not certify this newly combined candidate.
 | Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Two native Close cycles, photo preview and pull-to-close passed on that candidate; visual/accessibility/performance qualification remains open. Disable `close` capability. |
 | More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger and owned UIKit action-sheet adapter; no eligible product consumer yet. Scrolling People's Add, rich labels, desktop dropdown and unauthored menus retain React. | Compiled adapter, not adoption; popup privacy/dismissal device proof outstanding. Capabilities remain Debug-only. |
 | Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Native choice and value-return checks passed on that candidate, with 44-by-49-point accessibility frames; full visual/accessibility/performance qualification remains open. Disable `agent-surface` capability. |
+| Appearance / Accent | Existing `setTheme` / `writeAccent` | Public icon Picker / owned short menu, independent IDs; scroll and animation retirement | Focused public-value and lifecycle contracts pass. Current candidate requires iPhone proof; Release/iPad stay DOM. Disable the two capabilities to retain web operations. |
 | Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |
 | Drawer/pager motion | Existing Profile, History, `SwipeViews` owners | Finger-driven panels/scrims; cancellation, re-grab, single resize reconciliation; inactive panes inert | Focused cancellation/reopen/resize contracts with a resize negative control. Revert bounded shared-owner commits; no route or persistence migration. |
 | Vault methods | Existing owner-authorized `VaultService` operations | Compact method rows + details/default selector. No credential suffixes; acknowledged change remains successful if refresh fails. | Profile contracts and owner/request fences; controlled server/device mutation acceptance outstanding. Revert presentation/mutation-handling commit; no store/schema migration. |
@@ -696,3 +719,20 @@ Native Chat History admission was observed after keyboard dismissal; the
 SwiftUI agent selector remains unaccepted pending its accessible-control proof.
 Voice cancellation is not Live speech-completion or echo-loop acceptance.
 Keep those separate from the working shared dock and retained DOM fallback.
+
+### Document Prewarm and Public Preferences — 2026-10-06
+
+The handoff and public-preference candidate passes 41 focused frontend tests,
+17 adjacent Profile/stack contracts and 36 native support tests. Reinstating the
+old intermediate web handoff fails its focused regression. Typecheck, design and
+render-performance checks, cache coherence, plugin/static parity and docs checks
+pass. Production-targeted static assets, signed Debug build-for-testing, strict
+codesign and actual bundled-asset verification pass; unsigned Release compilation
+also passes. These are build/source checks, not physical UX acceptance.
+
+The app and matching attach-only runner were installed on the iPhone 16e. iOS
+then rejected launch because the device was locked; no current-candidate warm
+preference journey has run. The abandoned runner produced no test result and
+its temporary diagnostics were removed. Appearance/Accent remain explicitly
+opt-in Debug iPhone families; full accessibility, visual and Release performance
+admission remain outstanding. No merge, deployment or distribution is implied.

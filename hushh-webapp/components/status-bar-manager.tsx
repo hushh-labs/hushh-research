@@ -8,7 +8,7 @@ import {
   SystemBarType,
 } from "@capacitor/core";
 import { useTheme } from "next-themes";
-import { syncNativeCanvasAppearance } from "@/lib/capacitor/native-chrome";
+import { getNativeChromeCapabilities, syncNativeCanvasAppearance } from "@/lib/capacitor/native-chrome";
 import { useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 import {
   AMBIENT_CHROME_TOP_SURFACE_ATTR,
@@ -89,6 +89,7 @@ export function StatusBarManager() {
 
   // Wait for theme to be mounted to avoid hydration mismatch
   useEffect(() => {
+    void getNativeChromeCapabilities().catch(() => undefined);
     setMounted(true);
   }, []);
 

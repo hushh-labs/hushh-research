@@ -1,17 +1,19 @@
 "use client";
 
-import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 import { nativeDocumentId } from "@/lib/capacitor/session-privacy";
 import type { NativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close";
-export type ChromeFamily = "back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close";
+export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
+export type ChromeFamily = "back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
 export type ChromeOption = { value: string; label: string; disabled?: boolean };
 export type ChromeControl = { kind: "back" | "close" } | { kind: "history"; expanded?: boolean } |
   { kind: "agent-surface"; value: ChromeAgentSurface } |
+  { kind: "appearance"; value: "light" | "dark" | "system" } |
+  { kind: "accent"; value: "blue" | "gold" } |
   { kind: "more"; options: readonly ChromeOption[] } |
   { kind: "selection"; value: string; options: readonly ChromeOption[] } |
   { kind: "date"; value: string; minimum: string; maximum: string };
@@ -36,9 +38,13 @@ export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneratio
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
 export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
+export type NativeChromeCapabilities = {
+  contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
+  independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean;
+};
 
 export interface HushhNativeChromePlugin {
-  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean; focusReturn?: boolean; rehearsalDiagnostics?: boolean }>;
+  getCapabilities(): Promise<NativeChromeCapabilities>;
   restoreFocus(options: ChromeIdentity & { updateSequence: number; focusSequence: number }): Promise<ChromeFocusAcknowledgement>;
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
@@ -53,6 +59,32 @@ export interface HushhNativeChromePlugin {
 export const nativeChrome = registerPlugin<HushhNativeChromePlugin>("HushhNativeChrome");
 let revision = 0;
 let canvasRevision = 0;
+// Immutable wrapper metadata only, scoped to this WebView document. Never
+// cache a lease, owner, geometry, permission or presentation admission here.
+let discovery: { documentId: string; promise: Promise<NativeChromeCapabilities>; value?: NativeChromeCapabilities } | undefined;
+export function peekNativeChromeCapabilities(): NativeChromeCapabilities | undefined {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return undefined;
+  return discovery?.documentId === nativeDocumentId() ? discovery.value : undefined;
+}
+export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities | null> {
+  if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return Promise.resolve(null);
+  const documentId = nativeDocumentId();
+  if (discovery?.documentId === documentId) return discovery.promise;
+  const pending: NonNullable<typeof discovery> = { documentId, promise: bounded(nativeChrome.getCapabilities()).then((value) => {
+    const snapshot = Object.freeze({ ...value, families: Object.freeze([...value.families]) });
+    if (discovery === pending && nativeDocumentId() === documentId) pending.value = snapshot;
+    return snapshot;
+  }).catch((error: unknown) => {
+    if (discovery === pending) discovery = undefined;
+    throw error; // A later request may recover; an uncertain operation is never replayed.
+  }) };
+  discovery = pending;
+  return pending.promise;
+}
+export function supportsNativeChrome(family: ChromeFamily): boolean {
+  const capability = peekNativeChromeCapabilities();
+  return capability?.contractVersion === 2 && capability.independentControls === true && capability.families.includes(family);
+}
 
 /** The existing CSS canvas is authoritative even when no native control is visible. */
 export async function syncNativeCanvasAppearance(): Promise<boolean> {
@@ -61,8 +93,8 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
   // Reserve ordering before discovery: a delayed older request must never
   // repaint a theme that React has already replaced.
   const projection = { documentId: nativeDocumentId(), revision: ++canvasRevision, backgroundHex };
-  const capability = await bounded(nativeChrome.getCapabilities());
-  if (capability.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
+  const capability = await getNativeChromeCapabilities();
+  if (capability?.canvasAppearance !== true) return false; // Older wrappers retain their existing canvas.
   if (projection.revision !== canvasRevision ||
       getComputedStyle(document.documentElement).getPropertyValue("--background").trim() !== backgroundHex) return false;
   const ack = await bounded(nativeChrome.setCanvasAppearance(projection));
@@ -77,6 +109,8 @@ const outstanding = new Map<ChromeControlId, ChromeIdentity>();
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
   if (kind === "history") return "chat-history-toggle";
   if (kind === "agent-surface") return "chat-agent-surface";
+  if (kind === "appearance") return "profile-appearance";
+  if (kind === "accent") return "profile-accent";
   if (kind === "more") return "stationary-more";
   if (kind === "selection") return "bounded-selection";
   if (kind === "date") return "bounded-date";
@@ -86,6 +120,8 @@ export function chromeControlId(kind: ChromeFamily): ChromeControlId {
 
 function admittedValue(projection: ChromeControlProjection, value: string | undefined): boolean {
   if (projection.kind === "agent-surface") return value === "one" || value === "puppy";
+  if (projection.kind === "appearance") return value === "light" || value === "dark" || value === "system";
+  if (projection.kind === "accent") return value === "blue" || value === "gold";
   if (projection.kind === "selection" || projection.kind === "more") {
     return projection.options.some((option) => !option.disabled && option.value === value);
   }

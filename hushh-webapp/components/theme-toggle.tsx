@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { NativeChatChrome } from "@/components/app-ui/native-chat-chrome";
 import { MoonIcon as Moon, DesktopIcon as Monitor, SunIcon as Sun } from "@/components/icons";
 import { useTheme } from "next-themes";
 
@@ -50,7 +51,7 @@ function useStableThemeSelection() {
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [activeTheme, setActiveTheme] = useState<ThemeOption | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     setActiveTheme(readPersistedThemeOption() ?? resolveThemePreference(theme));
   }, [theme]);
 
@@ -164,12 +165,15 @@ export function ThemeToggleLean({
   className,
   size = "expanded",
   showLabels,
+  nativeContext,
 }: {
   className?: string;
   size?: ThemeToggleLeanSize;
   showLabels?: boolean;
+  nativeContext?: { owner: string | null; context: string; eligible: boolean };
 }) {
   const { activeTheme, isDark, selectTheme } = useStableThemeSelection();
+  const selectedRef = useRef<HTMLButtonElement>(null);
 
   const sizeIntent = THEME_TOGGLE_LEAN_SIZE[size];
   const resolvedShowLabels = showLabels ?? sizeIntent.showLabels;
@@ -189,7 +193,7 @@ export function ThemeToggleLean({
     );
   }
 
-  return (
+  const control = (
     <div
       data-theme-control
       role="radiogroup"
@@ -217,6 +221,7 @@ export function ThemeToggleLean({
         return (
           <button
             key={option.value}
+            ref={isActive ? selectedRef : undefined}
             type="button"
             role="radio"
             aria-checked={isActive}
@@ -248,6 +253,12 @@ export function ThemeToggleLean({
       })}
     </div>
   );
+  if (!nativeContext) return control;
+  return <NativeChatChrome kind="appearance" value={activeTheme} onValueChange={selectTheme}
+    {...nativeContext} focusRef={selectedRef}
+    className={cn("flex h-11 min-w-[132px] max-w-[320px] items-center justify-center", sizeIntent.width, className)}>
+    {control}
+  </NativeChatChrome>;
 }
 
 /**

@@ -133,7 +133,7 @@ function ProfilePaneShell() {
  * after each close: every open starts from the shell, and a close (or a move
  * between panels while open) never shows it again.
  */
-function ProfilePaneBody({ location }: { location: ProfilePaneLocation }) {
+function ProfilePaneBody({ location, nativeControlsEligible }: { location: ProfilePaneLocation; nativeControlsEligible: boolean }) {
   const firstFramePainted = useProfilePaneFirstFramePainted();
   // Mounted once per open, inside the committed sheet content: the evidence a
   // requested open is actually showing (voice settles on this, not the ask).
@@ -144,7 +144,7 @@ function ProfilePaneBody({ location }: { location: ProfilePaneLocation }) {
     if (firstFramePainted) markProfilePane("hushh:profile-pane-content");
   }, [firstFramePainted]);
   if (!firstFramePainted) return <ProfilePaneShell />;
-  return <ProfilePage presentation="pane" paneLocation={location} />;
+  return <ProfilePage presentation="pane" paneLocation={location} nativeControlsEligible={nativeControlsEligible} />;
 }
 
 type ProfilePaneProps = {
@@ -381,7 +381,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(1.5rem,env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch]"
           data-profile-pane-scroll-root="true"
         >
-          <ProfilePaneBody location={location} />
+          <ProfilePaneBody location={location} nativeControlsEligible={open && stationaryKey === presentationKey} />
         </div>
       </SheetContent>
     </Sheet>

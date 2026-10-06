@@ -1,10 +1,10 @@
 "use client";
 
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, hasOutstandingNativeChrome, nativeChrome, retireNativeChrome } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -26,7 +26,7 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
   const layerBlocked = surface?.interactionLayer?.blocksUnderlyingActions === true;
   const [supported, setSupported] = useState(false);
   const [inPlaceUpdates, setInPlaceUpdates] = useState(false);
-  const [hidden, setHidden] = useState(hasOutstandingNativeChrome);
+  const [hidden, setHidden] = useState(() => hasOutstandingNativeChrome() || supportsNativeChrome("back") && eligible && !!owner && !overlay && !suppressed && !layerBlocked);
   const [prepared, setPrepared] = useState<NativeChromeLease | null>(null);
   const [measurement, remeasure] = useState(0);
   const lease = useRef<NativeChromeLease | null>(null);
@@ -42,32 +42,39 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
     current.current = { allowed, context, epoch, theme };
   }, [allowed, context, epoch, onBack, theme, inPlaceUpdates]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "ios") return;
     let cancelled = false;
+    let subscriptionsFailed = false;
     const handles: PluginListenerHandle[] = [];
     const retain = async (promise: Promise<PluginListenerHandle>) => {
       const handle = await promise;
-      if (cancelled) await handle.remove(); else handles.push(handle);
+      if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((value) => value + 1); };
     void (async () => {
       try {
-        const capability = await nativeChrome.getCapabilities();
-        if (cancelled || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
+        const capability = await getNativeChromeCapabilities();
+        if (cancelled || !capability || capability.contractVersion !== NATIVE_CONTROL_CONTRACT_VERSION ||
             capability.independentControls !== true || !capability.families.includes("back")) return;
-        await retain(nativeChrome.addListener("choiceRequested", (event) => {
+        await Promise.all([retain(nativeChrome.addListener("choiceRequested", (event) => {
           const active = lease.current;
           void active?.choose(event, () => lease.current === active && current.current.context === active.context &&
             current.current.allowed && current.current.epoch === active.projection.ownerEpoch &&
             isCurrentNativeControlAppearance(active.projection) &&
             !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() && !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions &&
             document.visibilityState !== "hidden", () => callback.current()).catch(() => undefined);
-        }));
-        await retain(nativeChrome.addListener("invalidated", invalidate));
-        await retain(subscribeNativeSessionPrivacy(invalidate));
+        })), retain(nativeChrome.addListener("invalidated", invalidate)), retain(subscribeNativeSessionPrivacy(invalidate))]);
         if (!cancelled) { setInPlaceUpdates(capability.inPlaceUpdates === true); setSupported(true); }
-      } catch { /* Old wrappers retain the DOM control. No provider errors are logged. */ }
+      } catch {
+        if (cancelled) return;
+        subscriptionsFailed = true;
+        handles.splice(0).forEach((handle) => { void handle.remove(); });
+        // Capability support does not prove listener installation. A concealed
+        // slot recovers only after any outstanding native view is retired.
+        try { await retireNativeChrome(current.current.epoch); if (!cancelled) setHidden(false); }
+        catch { /* Retain quarantine; no provider error body is logged. */ }
+      }
     })();
     document.addEventListener("visibilitychange", invalidate);
     window.addEventListener("resize", invalidate);
@@ -97,18 +104,19 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
         if (cancelled) return;
         const { theme } = current.current;
         setPrepared(null);
-        setHidden(false);
         if (!allowed || !theme || document.visibilityState === "hidden" || !slot.current) {
+          setHidden(false);
           if (wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
         const frame = slot.current.getBoundingClientRect();
-        if (frame.width !== 44 || frame.height !== 44) return;
+        if (frame.width !== 44 || frame.height !== 44) { setHidden(false); return; }
         const next = new NativeChromeLease({ kind: "back", label, enabled: true, ...theme,
           frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
           viewport: { width: window.innerWidth, height: window.innerHeight } }, activeEpoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
+        setHidden(true);
         if (await next.prepare() && !cancelled) { setHidden(true); setPrepared(next); }
       } catch {
         if (cancelled || (owned && lease.current !== owned)) return;

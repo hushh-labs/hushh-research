@@ -86,6 +86,8 @@ import {
 } from "@/components/profile/profile-legal-section";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
+import { NativeAccentChoice } from "@/components/app-ui/native-accent-choice";
+import { snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -242,7 +244,7 @@ import {
 import { useVault } from "@/lib/vault/vault-context";
 import { resolveVaultAvailabilityState } from "@/lib/vault/vault-access-policy";
 import { useConsentActions } from "@/lib/consent";
-import { useAccent, writeAccent, type AppAccent } from "@/lib/theme/accent";
+import { useAccent } from "@/lib/theme/accent";
 
 type FinancialContextCategory =
   "general" | "portfolio" | "risk" | "kyc" | "tax" | "documents";
@@ -541,10 +543,12 @@ export type ProfilePagePresentation = "route" | "pane";
 function ProfilePageContent({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
 }: {
   presentation?: ProfilePagePresentation;
   /** Pane only: the location to show, when the host holds it (see ProfilePane). */
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
 }) {
   const isPanePresentation = presentation === "pane";
   const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
@@ -739,6 +743,11 @@ function ProfilePageContent({
       ? null
       : profileRouteState.panel;
   const activeDetail = activePanel ? profileRouteState.detail : null;
+  const preferenceChrome = {
+    owner: user?.uid ?? null,
+    context: JSON.stringify([pathname, isPanePresentation, activePanel, activeDetail, snapshotVaultSessionEpoch()]),
+    eligible: nativeControlsEligible && !!user && !authLoading && activePanel === "preferences" && !activeDetail && (!isPanePresentation || isVaultUnlocked),
+  };
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
@@ -3478,6 +3487,7 @@ function ProfilePageContent({
             <ThemeToggleLean
               size="expanded"
               className="w-full sm:w-60 min-w-0"
+              nativeContext={preferenceChrome}
             />
           }
           stackTrailingOnMobile
@@ -3488,41 +3498,7 @@ function ProfilePageContent({
           title="Accent"
           description="Choose the app accent."
           trailing={
-            <Select
-              value={appAccent}
-              onValueChange={(value) => {
-                writeAccent(value as AppAccent);
-              }}
-            >
-              <SelectTrigger
-                className="w-full sm:w-60 min-w-[11rem]"
-                aria-label="App accent color"
-              >
-                <SelectValue placeholder="iOS Blue" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="blue">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
-                    />
-                    iOS Blue
-                  </span>
-                </SelectItem>
-                <SelectItem value="gold">
-                  <span className="flex items-center gap-2">
-                    <span
-                      aria-hidden
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
-                    />
-                    Molten Gold
-                  </span>
-                </SelectItem>
-              </SelectContent>
-            </Select>
+            <NativeAccentChoice value={appAccent} {...preferenceChrome} />
           }
           stackTrailingOnMobile
         />
@@ -4712,15 +4688,18 @@ function ProfilePageContent({
 export function ProfilePage({
   presentation = "route",
   paneLocation,
+  nativeControlsEligible = true,
 }: {
   presentation?: ProfilePagePresentation;
   paneLocation?: ProfilePaneLocation;
+  nativeControlsEligible?: boolean;
 }) {
   return (
     <Suspense fallback={null}>
       <ProfilePageContent
         presentation={presentation}
         paneLocation={paneLocation}
+        nativeControlsEligible={nativeControlsEligible}
       />
     </Suspense>
   );

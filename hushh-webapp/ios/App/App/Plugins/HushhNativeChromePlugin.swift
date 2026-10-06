@@ -110,6 +110,7 @@ struct HushhNativeChromeState {
 private struct NativeChromeButton: View {
     let label: String
     let controlId: String
+    var value: String? = nil
     let symbol: String
     let theme: HushhNativeControlAppearance
     let action: () -> Void
@@ -129,6 +130,7 @@ private struct NativeChromeButton: View {
         .tint(Color(uiColor: theme.accent))
         .buttonBorderShape(.circle)
         .accessibilityLabel(label)
+        .accessibilityValue(value ?? "")
         .accessibilityIdentifier(controlId)
         .accessibilityFocused($accessibilityFocused)
         .onChange(of: focus.sequence) { _, _ in accessibilityFocused = true }
@@ -155,15 +157,38 @@ struct NativeAgentSurfaceSelector: View {
     let layout: (CGSize) -> Void
     var body: some View {
         Picker("Agent", selection: Binding(get: { selected }, set: action)) {
-            Text("Cloud").tag("one")
+            Image(systemName: "cloud").tag("one")
                 .accessibilityLabel("One, your cloud agent")
-            Text("Puppy").tag("puppy")
+            Image(systemName: "laptopcomputer").tag("puppy")
                 .accessibilityLabel("Puppy One, on your machine, with its own conversation")
         }
         .pickerStyle(.segmented)
         .controlSize(.large)
         .tint(Color(uiColor: theme.accent))
         .accessibilityIdentifier("chat-agent-surface")
+        .frame(width: width, height: 44)
+        .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
+    }
+}
+
+/// Public app preference only. System is a preference, not resolved darkness.
+@available(iOS 26.0, *)
+struct NativeAppearanceSelector: View {
+    let selected: String
+    let width: CGFloat
+    let theme: HushhNativeControlAppearance
+    let action: (String) -> Void
+    let layout: (CGSize) -> Void
+    var body: some View {
+        Picker("Appearance", selection: Binding(get: { selected }, set: action)) {
+            Image(systemName: "sun.max").tag("light").accessibilityLabel("Light")
+            Image(systemName: "moon").tag("dark").accessibilityLabel("Dark")
+            Image(systemName: "desktopcomputer").tag("system").accessibilityLabel("System")
+        }
+        .pickerStyle(.segmented)
+        .controlSize(.large)
+        .tint(Color(uiColor: theme.accent))
+        .accessibilityIdentifier("profile-appearance")
         .frame(width: width, height: 44)
         .onGeometryChange(for: CGSize.self, of: { $0.size }, action: layout)
     }
@@ -193,6 +218,12 @@ struct HushhChromeConfiguration {
 
     static func parse(kind: String, value: String?, options: [JSObject]?, minimum: String?, maximum: String?) -> Self? {
         var result = Self()
+        if kind == "appearance" { return ["light", "dark", "system"].contains(value ?? "") ? result : nil }
+        if kind == "accent" {
+            guard ["blue", "gold"].contains(value ?? "") else { return nil }
+            result.options = [.init(value: "blue", label: "iOS Blue", disabled: false), .init(value: "gold", label: "Molten Gold", disabled: false)]
+            return result
+        }
         if kind == "date" {
             guard let minimum = HushhNativeChromePresenter.parseDate(minimum),
                   let maximum = HushhNativeChromePresenter.parseDate(maximum), minimum <= maximum,
@@ -341,7 +372,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             var families = [String]()
             if self?.backAdmitted == true {
                 families.append("back")
-                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "more", "selection", "date"] }
+                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "more", "selection", "date", "appearance", "accent"] }
             }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
@@ -433,8 +464,12 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             if kind == "agent-surface" {
                 root = AnyView(NativeAgentSurfaceSelector(selected: call.getString("value") ?? "one", width: frame.width,
                     theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
+            } else if kind == "appearance" {
+                root = AnyView(NativeAppearanceSelector(selected: call.getString("value") ?? "system", width: frame.width,
+                    theme: theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) }, layout: layout))
             } else {
                 root = AnyView(NativeChromeButton(label: kind == "history" ? (call.getBool("expanded") == true ? "Close chat history" : "Open chat history") : label, controlId: identity.controlId,
+                    value: kind == "accent" ? (call.getString("value") == "gold" ? "Molten Gold" : "iOS Blue") : nil,
                     symbol: self.symbol(kind, expanded: call.getBool("expanded") == true), theme: theme,
                     action: { [weak self] in self?.activateControl(identity.controlId) }, layout: layout, focus: slot.focus))
             }
@@ -529,8 +564,13 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
                     root = AnyView(NativeAgentSurfaceSelector(selected: presentation.value ?? "one", width: hosting.view.frame.width,
                         theme: presentation.theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) },
                         layout: { _ in }).disabled(!presentation.enabled))
+                } else if slot.kind == "appearance" {
+                    root = AnyView(NativeAppearanceSelector(selected: presentation.value ?? "system", width: hosting.view.frame.width,
+                        theme: presentation.theme, action: { [weak self] value in self?.requestChoice(identity.controlId, value: value) },
+                        layout: { _ in }).disabled(!presentation.enabled))
                 } else {
                     root = AnyView(NativeChromeButton(label: slot.kind == "history" ? (presentation.expanded ? "Close chat history" : "Open chat history") : slot.label, controlId: identity.controlId,
+                        value: slot.kind == "accent" ? (presentation.value == "gold" ? "Molten Gold" : "iOS Blue") : nil,
                         symbol: self.symbol(slot.kind, expanded: presentation.expanded), theme: presentation.theme,
                         action: { [weak self] in self?.activateControl(identity.controlId) }, layout: { _ in }, focus: slot.focus).disabled(!presentation.enabled))
                 }
@@ -637,7 +677,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         return chatControlsAdmitted && ((kind == "history" && controlId == "chat-history-toggle") ||
             (kind == "agent-surface" && controlId == "chat-agent-surface") ||
             (kind == "more" && controlId == "stationary-more") || (kind == "selection" && controlId == "bounded-selection") ||
-            (kind == "date" && controlId == "bounded-date") || (kind == "close" && controlId == "profile-close"))
+            (kind == "date" && controlId == "bounded-date") || (kind == "close" && controlId == "profile-close") ||
+            (kind == "appearance" && controlId == "profile-appearance") || (kind == "accent" && controlId == "profile-accent"))
     }
     private func slot(_ id: String) -> ChromeSlot {
         if let slot = slots[id] { return slot }
@@ -653,6 +694,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         case "more": return "ellipsis"
         case "selection": return "chevron.up.chevron.down"
         case "date": return "calendar"
+        case "accent": return "circle.lefthalf.filled"
         default: return "line.3.horizontal"
         }
     }
@@ -663,6 +705,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func admittedValue(_ value: String?, slot: ChromeSlot, forUpdate: Bool) -> Bool {
         switch slot.kind {
         case "agent-surface": return ["one", "puppy"].contains(value ?? "")
+        case "appearance": return ["light", "dark", "system"].contains(value ?? "")
+        case "accent": return ["blue", "gold"].contains(value ?? "")
         case "more": return forUpdate ? value == nil : slot.options.contains { $0.value == value && !$0.disabled }
         case "selection": return slot.options.contains { $0.value == value && !$0.disabled }
         case "date":
@@ -674,7 +718,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private func activateControl(_ controlId: String) {
         guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
               slot.state.phase == "active", presentation.enabled, canPresent, geometryIsCurrent(slot) else { return }
-        guard ["more", "selection", "date"].contains(slot.kind) else { requestChoice(controlId); return }
+        guard ["more", "selection", "date", "accent"].contains(slot.kind) else { requestChoice(controlId); return }
         guard slot.presenter == nil, let parent = bridge?.viewController, parent.presentedViewController == nil,
               let source = slot.hosting?.view else { return }
         let privacyGeneration = HushhSessionPrivacyShield.shared.snapshot().generation
@@ -684,7 +728,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             self.requestChoice(controlId, value: value)
         }
         let presenter: HushhNativeChromePresenter
-        if slot.kind == "more" {
+        if slot.kind == "more" || slot.kind == "accent" {
             presenter = .menu(parent: parent, source: source, title: slot.label, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
         } else if slot.kind == "selection", let value = presentation.value {
             presenter = .selection(parent: parent, title: slot.label, value: value, options: slot.options, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
@@ -746,7 +790,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "chat-history-toggle", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close"].contains(controlId),
+              ["top-shell-back", "chat-history-toggle", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,
@@ -763,7 +807,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         guard let value = call.getObject("frame"), let x = value["x"] as? Double, let y = value["y"] as? Double,
               let width = value["width"] as? Double, let height = value["height"] as? Double,
               let viewport = viewport(call), [x, y, width, height].allSatisfy({ $0.isFinite }),
-              (kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
+              (kind == "appearance" ? width >= 132 && width <= 320 : kind == "agent-surface" ? width >= 88 && width <= 320 : width == 44),
               height == 44, x >= 0, y >= 0,
               x + width <= viewport.width, y + height <= viewport.height else { return nil }
         return CGRect(x: x, y: y, width: width, height: height)
