@@ -1,32 +1,19 @@
-"""The private relay: the hub is the ONLY door to a pod, and only for its owner.
+"""The hub's owner doors to a pod, and the turns they must never carry.
 
-A pod is ``internal`` ingress with no ``allUsers`` binding, so nothing outside
-the project can reach it. That is the property to preserve: the pod stays
-unreachable from the internet, and this route is the single authorized bridge.
+An own-cloud agent (``user_gcp``, ``user_azure``) is chatted with browser to agent:
+the hub only issues body-less ``/chat-grants``. ``/turn`` and the conversation-close
+door refuse those owners with 409 ``AGENT_PRIVATE_RUNTIME_REQUIRED`` before a grant is
+minted or a pod dialled, so the hub cannot carry their words, records or model key.
+Both stay open for Hussh-hosted pods (``gcp``): ``internal`` ingress, hub-only invoker.
 
-``GET /api/one/u/{hushh_id}/info`` resolves a HusshID to its owner's registry
-row, proves the caller is that owner, and proxies to the pod's ``/pod/info`` at
-the URL the HUB recorded in ``backend_metadata`` at service creation. Three
-guards, in order, each fail-closed:
-
-1. **Authenticated owner.** ``require_firebase_auth`` gives the caller's user id;
-   there is no path here for an anonymous caller.
-2. **Ownership, audited.** ``PodAccessAuditService.authorize_owner_read`` checks
-   the caller owns THIS HusshID and writes a POD_ACCESS receipt either way -- so
-   a valid session for user A can never reach user B's pod, and every attempt is
-   on the ledger. This is the audit guard that was built and tested with zero
-   callers; the relay is its caller.
-3. **Hub-minted identity.** The hub calls the pod as itself (the pod SA grants
-   ``run.invoker`` to the hub runtime), so no shared secret crosses the boundary
-   and the pod authenticates the hub without either holding the other's key.
-
-The address is never supplied by the caller -- it comes only from the row the
-hub wrote. Missing hub identity refuses before network access. Redirects are not
-followed and are normalized to a safe 502, so a pod response cannot forward the
-owner's projection, model credential or consent grant to another destination.
-
-Flag-gated: 404 while ``PERSONAL_AGENT_ENABLED`` is off, the same posture as
-every other personal-agent surface.
+Every door applies three fail-closed guards, in order: an authenticated owner
+(``require_firebase_auth``); ownership of THIS HusshID, audited either way on the
+POD_ACCESS ledger (``PodAccessAuditService.authorize_owner_read``); and the hub calling
+the pod as itself (``run.invoker``), so no shared secret crosses the boundary.
+The address comes only from the row the hub wrote; missing hub identity refuses before
+network access; redirects are refused as a safe 502, so a pod response cannot forward
+the owner's projection, model credential or consent grant elsewhere.
+404 while ``PERSONAL_AGENT_ENABLED`` is off, like every personal-agent surface.
 """
 
 from __future__ import annotations
@@ -41,6 +28,7 @@ from starlette.concurrency import run_in_threadpool
 from api.middleware import require_firebase_auth
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
+from hushh_mcp.services.compute_backend import is_owner_cloud_target
 from hushh_mcp.services.personal_agent_grant_service import PersonalAgentDisabledError
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 from hushh_mcp.services.pod_access_audit import (
@@ -78,6 +66,12 @@ POD_DATA_DOOR_NAMES: tuple[str, ...] = (
 def _require_enabled() -> None:
     if not personal_agent_enabled():
         raise HTTPException(status_code=404, detail="personal agent is not available")
+
+
+def _refuse_own_cloud(row: dict) -> None:
+    """Own-cloud chat is browser to agent; the hub never carries its content."""
+    if is_owner_cloud_target(row.get("deployment_target")):
+        raise HTTPException(409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
 
 
 def _pod_url(row: dict) -> Optional[str]:
@@ -579,9 +573,9 @@ async def relay_pod_turn(
         raise HTTPException(status_code=404, detail="personal agent is not available") from exc
 
     row = await repo.get(user_id) or {}
-    # A frozen pod still HAS a url, so the url check below would happily serve a
-    # turn into a log that is being exported. The freeze has to be read from the
-    # status, and it has to be read before anything else touches the pod.
+    _refuse_own_cloud(row)
+    # A frozen pod still HAS a url, so the url check would serve a turn into a log
+    # being exported: read the freeze from status before anything touches the pod.
     if str(row.get("status") or "") == "migrating":
         raise _not_ready("migrating")
     url = _pod_url(row)
@@ -901,6 +895,7 @@ async def _owner_pod_target(
     registry: Optional[PersonalAgentRegistryRepo] = None,
     audit: Optional[PodAccessAuditService] = None,
     grants: Any = None,
+    refuse_own_cloud: bool = False,
 ) -> tuple[str, str]:
     """Authorize the owner, resolve their pod URL, mint the pkm.read grant."""
     _require_enabled()
@@ -920,6 +915,8 @@ async def _owner_pod_target(
     except PersonalAgentDisabledError as exc:
         raise HTTPException(status_code=404, detail="personal agent is not available") from exc
     row = await repo.get(user_id) or {}
+    if refuse_own_cloud:
+        _refuse_own_cloud(row)
     if str(row.get("status") or "") == "migrating":
         raise _not_ready("migrating")
     url = _pod_url(row)
@@ -981,6 +978,7 @@ async def relay_pod_conversation_close(
         registry=registry,
         audit=audit,
         grants=grants,
+        refuse_own_cloud=True,
     )
     body: dict[str, Any] = {
         "runtimeCredential": payload.runtime_credential,

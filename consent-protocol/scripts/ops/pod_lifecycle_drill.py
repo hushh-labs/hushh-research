@@ -1271,9 +1271,9 @@ class ExistingPodFleet:
 
     ``auth="direct"`` posts to the pod URL as an authorised invoker (operator ID
     token) with a ``pkm.read`` consent token, exactly as ``GcpFleet._turn`` does.
-    ``auth="hub-proxy"`` posts to the hub relay with the owner's Firebase token,
-    which is the only door a Puppy-relayed turn has today; the Puppy inference
-    grant is minted through the hub's trusted-device route and carried per turn.
+    ``auth="hub-proxy"`` posts to the hub relay with the owner's Firebase token; only
+    a Hussh-hosted (``gcp``) pod is reachable that way: own-cloud pods get 409
+    ``AGENT_PRIVATE_RUNTIME_REQUIRED`` and the hub refuses Puppy, so use ``direct``.
 
     ``restart`` replaces the revision in place on the SAME image by bumping a
     harmless env var through ``gcloud run services update`` and waits until

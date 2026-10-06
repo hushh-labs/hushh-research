@@ -331,6 +331,20 @@ export async function agentChatRequest(path: string, init: RequestInit, ports: {
   return usePod ? ports.direct(path.slice("/api/one/".length), init) : ports.fetch(path, init);
 }
 
+/**
+ * Pre-unlock words may reach the hub's public tier only when no private agent owns them:
+ * an anonymous visitor, or confirmed Shared / Hussh-hosted. A pinned agent, own-cloud,
+ * setup in progress or an unreadable status keeps them on this device.
+ */
+export async function introMayReachHub(hosting: () => Promise<{ hostingMode?: string }>): Promise<boolean> {
+  const uid = AuthService.getCurrentUser()?.uid;
+  if (!uid) return true;
+  const ownerPod = await import("./owner-pod-endpoint");
+  if (await ownerPod.loadPinnedEndpoint(uid).catch(() => null)) return false;
+  const mode = await hosting().then((status) => status.hostingMode, () => undefined);
+  return mode === "shared" || mode === "hussh_pods";
+}
+
 /** Shared by chat and review; a direct failure must never fall back to the hub. */
 export async function usesOwnerPod(hosting: () => Promise<{ hostingMode?: string }>): Promise<boolean> {
   const uid = AuthService.getCurrentUser()?.uid;

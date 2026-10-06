@@ -9,8 +9,8 @@ execution rather than degrade to an ungrounded provider request.
 The existing text runtime collects events into a JSON response. Its transient
 ADK session uses InMemorySessionService; persistent agent experience belongs to
 the separately resolved pod memory service. PKM remains the information authority.
-The hub currently forwards the browser's plaintext projection, so this transport
-is not evidence that the control plane cannot observe turn context.
+Own-cloud owners reach this route browser to agent (the hub relay refuses them);
+a Hussh-hosted pod is still reached through the hub relay, which sees that turn.
 
 Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
 shared turn implementation is separate. The pod Live endpoint reuses the existing

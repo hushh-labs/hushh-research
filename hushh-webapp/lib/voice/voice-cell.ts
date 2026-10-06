@@ -1,7 +1,7 @@
 /**
  * Which cell holds the current voice session: the person's own pod, or the shared hub.
  *
- * Typed turns already carry their cell (`AgentTurnResult.cell`); voice did not, and a
+ * Voice did not say which cell held it, so a
  * person whose chat runs on their pod had no way to know their voice session was held
  * by the hub. The relay-session mint is the one place the backend states it, so the
  * value is recorded there and read by the Agent Bar through `useSyncExternalStore`.

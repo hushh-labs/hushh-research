@@ -309,41 +309,27 @@ def test_the_route_is_reachable():
     assert "/api/one/u/{hushh_id}/turn" in paths
 
 
-# -- the client half exists ----------------------------------------------------------
+# -- no client composes this door ---------------------------------------------------
 #
-# The lesson of `/managed/readiness`: a mounted route with no caller is not a
-# feature. That surface sat mounted for months with zero callers anywhere in the
-# webapp, and it is why the default onboarding path silently never provisioned.
+# The browser half (`runPodTurn`) had no production caller, and its hub fallback would
+# have sent an own-cloud owner's plaintext turn through the hub. Own-cloud chat is
+# browser to agent and the relay refuses those owners; no webapp code may dial it.
 
 
-def test_the_webapp_can_actually_call_this():
-    from pathlib import Path
-
-    api_service = (
-        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
-    ).read_text(encoding="utf-8")
-
-    assert "/api/one/u/" in api_service
-    assert "runPodTurn" in api_service
-
-
-def test_the_client_never_sends_a_consent_token():
-    """The browser holds the vault-owner MASTER grant. If the client attached a
-    token, that is the one it would have to attach -- handing the pod everything
-    its person has, in the one request where least privilege matters most."""
+def test_the_webapp_never_composes_the_hub_turn_or_close_relay():
     import re
     from pathlib import Path
 
-    api_service = (
-        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
-    ).read_text(encoding="utf-8")
-    body = re.search(r"static async runPodTurn\(.*?\n  \}\n", api_service, re.S)
-    assert body, "runPodTurn not found"
-    assert "X-Consent-Token" not in body.group(0)
-    # The vault owner token goes to the hub (45f93a2b9), never in the pod payload.
-    payload = re.search(r"const body = JSON\.stringify\(\{.*?\}\);", body.group(0), re.S)
-    assert payload, "runPodTurn no longer builds the pod payload in one place"
-    assert "vaultOwnerToken" not in payload.group(0)
+    webapp = Path(__file__).resolve().parents[2] / "hushh-webapp"
+    door = re.compile(r"/api/one/u/\$\{[^}]*\}/(?:turn\b|conversation/)")
+    offenders = [
+        str(path.relative_to(webapp))
+        for root in ("lib", "components", "app", "hooks")
+        for path in (webapp / root).rglob("*.ts*")
+        if door.search(path.read_text(encoding="utf-8"))
+        or "runPodTurn" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
 
 
 def test_the_client_surfaces_the_typed_not_ready_state():
@@ -351,11 +337,15 @@ def test_the_client_surfaces_the_typed_not_ready_state():
     the window when a person is most likely to assume the product is broken."""
     from pathlib import Path
 
-    api_service = (
-        Path(__file__).resolve().parents[2] / "hushh-webapp" / "lib" / "services" / "api-service.ts"
+    errors = (
+        Path(__file__).resolve().parents[2]
+        / "hushh-webapp"
+        / "lib"
+        / "agent"
+        / "owner-pod-turn-errors.ts"
     ).read_text(encoding="utf-8")
 
-    assert "AGENT_NOT_READY" in api_service
+    assert "AGENT_NOT_READY" in errors
 
 
 # -- the data-door grants (Phase 5) ------------------------------------------------
