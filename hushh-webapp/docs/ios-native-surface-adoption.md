@@ -178,6 +178,17 @@ Removing a hosting view alone does not acknowledge retirement. Provider SDK
 presentations still retain their separate owners. Popup/device acceptance remains
 required before release capability admission.
 
+The iPhone reviewer input rehearsal uses the existing attach-only UITest, never
+an authentication bypass. On this device, public mixed-character input proved
+that bulk `typeText` dropped characters while its secure accessibility mask
+reported the actual partial value. An explicitly selected
+`HUSHH_UI_TEST_SOFTWARE_KEY_ENTRY=true` runner path uses the visible keyboard and
+acknowledges every insertion before one normal Unlock. The public synthetic
+probe and normal protected-Chat unlock passed; temporary probe code was removed.
+Credentials remain process-memory-only. No partial input is submitted, mode is
+never switched automatically after failure, and this input proof does not qualify
+native controls, visual appearance or session continuity after installation.
+
 ## Shared Component Inventory
 
 ### Current Candidate and Rollback

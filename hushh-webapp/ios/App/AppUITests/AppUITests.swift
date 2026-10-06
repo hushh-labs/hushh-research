@@ -1755,6 +1755,39 @@ final class AppUITests: XCTestCase {
         field.typeText(value)
     }
 
+    /// Explicit physical-run alternative to typeText, characterized with public
+    /// mixed input. Stay on the named secure field and visible reviewer; never
+    /// reveal entry, bootstrap authentication, or retry an unacknowledged key.
+    private func enterSecureValueWithSoftwareKeyboard(_ value: String, field: XCUIElement, app: XCUIApplication) -> Bool {
+        let email = ProcessInfo.processInfo.environment["HUSHH_UI_TEST_REVIEWER_EMAIL"] ?? ""
+        guard !email.isEmpty else { return false }
+        var expectedLength = 0
+        for character in value {
+            guard field.exists, field.isHittable, field.elementType == .secureTextField,
+                  app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", email)).firstMatch.exists else { return false }
+            let literal = String(character)
+            let keyNames = literal == "#" ? ["#", "number sign", "Number sign", "hash", "Hash", "pound", "Pound", "pound sign"] : [literal]
+            let aliases = character.isLetter ? ["letters", "ABC", "shift", "Shift"] :
+                character.isNumber ? ["numbers", "123", "more"] : ["symbols", "#+=", "numbers", "123", "more"]
+            var inserted = false
+            for _ in 0..<3 {
+                let key = app.keyboards.keys.matching(NSPredicate(format: "label IN %@ OR identifier IN %@", keyNames, keyNames)).firstMatch
+                if key.exists && key.isHittable { key.tap(); inserted = true; break }
+                let choices = aliases.flatMap { [app.keyboards.keys[$0].firstMatch, app.keyboards.buttons[$0].firstMatch] }
+                guard let change = choices.first(where: { $0.exists && $0.isHittable }) else { break }
+                change.tap()
+            }
+            guard inserted else { return false }
+            expectedLength += literal.utf16.count
+            let count = expectedLength
+            let receipt = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (field.value as? String)?.utf16.count == count
+            }, object: field)
+            guard XCTWaiter.wait(for: [receipt], timeout: 3) == .completed else { return false }
+        }
+        return true
+    }
+
     @discardableResult
     private func attemptVaultPassphraseUnlock(app: XCUIApplication) -> Bool {
         guard !vaultUnlockSubmitted else {
@@ -1829,10 +1862,17 @@ final class AppUITests: XCTestCase {
                 XCTFail("Vault secure entry could not be cleared; unlock was not submitted")
                 return false
             }
-            // One standard whole-value entry, after verified empty state.
-            // The runner's background pasteboard is not available on-device.
-            // Never submit or replay a partially delivered credential.
-            field.typeText(passphrase)
+            // Whole-value entry is the default. An explicit physical run can
+            // use the publicly characterized software-key path instead; never
+            // switch modes after failure or replay a partial credential.
+            if ProcessInfo.processInfo.environment["HUSHH_UI_TEST_SOFTWARE_KEY_ENTRY"] == "true" {
+                guard enterSecureValueWithSoftwareKeyboard(passphrase, field: field, app: app) else {
+                    XCTFail("Vault software-key entry was not acknowledged; unlock was not submitted")
+                    return false
+                }
+            } else {
+                field.typeText(passphrase)
+            }
             let inserted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 entryLength() == passphrase.utf16.count
             }, object: field)
