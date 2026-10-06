@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/services/vault-service", () => ({
   VaultService: {
@@ -74,13 +75,27 @@ describe("VaultMethodService.changePassphrase", () => {
 
   it("updates passphrase wrapper without changing primary method by default", async () => {
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    let acknowledge!: () => void;
+    let acknowledged = false;
+    let observed: { acknowledged: boolean; beforeRekey: boolean } | undefined;
+    upsertWrapperMock.mockImplementationOnce(() => new Promise<void>((resolve) => { acknowledge = resolve; }));
+    const committed = vi.fn(() => {
+      observed = { acknowledged, beforeRekey: !dispatchSpy.mock.calls.some(([event]) => event.type === "vault-rekeyed") };
+    });
 
-    const result = await VaultMethodService.changePassphrase({
+    const pending = VaultMethodService.changePassphrase({
       userId: "uid-1",
       currentVaultKey:
         "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       newPassphrase: "new-passphrase-123",
+      onCommitted: committed,
     });
+    await waitFor(() => expect(upsertWrapperMock).toHaveBeenCalledTimes(1));
+    expect(committed).not.toHaveBeenCalled();
+    acknowledged = true;
+    acknowledge();
+    const result = await pending;
+    expect(observed).toEqual({ acknowledged: true, beforeRekey: true });
 
     expect(upsertWrapperMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -93,6 +108,9 @@ describe("VaultMethodService.changePassphrase", () => {
       }),
     );
     expect(setPrimaryMock).not.toHaveBeenCalled();
+    expect(committed).toHaveBeenCalledExactlyOnceWith({
+      primaryMethod: "generated_default_native_passkey_prf", passphraseUpdated: true,
+    });
     expect(hashVaultKeyMock).toHaveBeenCalledWith(
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       "vault-hash",
@@ -111,6 +129,22 @@ describe("VaultMethodService.changePassphrase", () => {
         },
       })
     );
+  });
+
+  it("cancels before persistence but does not report an acknowledged write as failed after cancellation", async () => {
+    const controller = new AbortController();
+    const committed = vi.fn();
+    const material = { encryptedVaultKey: "synthetic-ciphertext", salt: "synthetic-salt", iv: "synthetic-iv" };
+    rewrapMock.mockImplementationOnce(async () => { controller.abort(); return material; });
+    const input = { userId: "uid-1", currentVaultKey: "ab".repeat(32), newPassphrase: "synthetic-passphrase",
+      signal: controller.signal, onCommitted: committed };
+    await expect(VaultMethodService.changePassphrase(input)).rejects.toThrow();
+    expect(upsertWrapperMock).not.toHaveBeenCalled();
+    expect(committed).not.toHaveBeenCalled();
+    const afterCommit = new AbortController();
+    upsertWrapperMock.mockImplementationOnce(async () => { afterCommit.abort(); });
+    await expect(VaultMethodService.changePassphrase({ ...input, signal: afterCommit.signal })).resolves.toMatchObject({ passphraseUpdated: true });
+    expect(committed).toHaveBeenCalledTimes(1);
   });
 
   it("can set passphrase as primary when keepPrimaryMethod is false", async () => {

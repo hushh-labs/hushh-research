@@ -277,10 +277,14 @@ export class VaultMethodService {
     currentVaultKey: string;
     newPassphrase: string;
     keepPrimaryMethod?: boolean;
+    signal?: AbortSignal;
+    /** Called after acknowledged persistence, before the intentional rekey lock. */
+    onCommitted?: (result: { primaryMethod: VaultMethod; passphraseUpdated: true }) => void;
   }): Promise<{ primaryMethod: VaultMethod; passphraseUpdated: true }> {
     try {
       const canonicalVaultKey = ensureVaultKeyHex(params.currentVaultKey);
       const state = await VaultService.getVaultState(params.userId);
+      params.signal?.throwIfAborted();
       const vaultKeyHash = await VaultService.hashVaultKey(canonicalVaultKey, state.vaultKeyHash);
 
       if (state.vaultKeyHash && state.vaultKeyHash !== vaultKeyHash) {
@@ -297,6 +301,8 @@ export class VaultMethodService {
         vaultKeyHex: canonicalVaultKey,
         wrappingSecret: nextPassphrase,
       });
+
+      params.signal?.throwIfAborted();
 
       await VaultService.upsertVaultWrapper({
         userId: params.userId,
@@ -319,15 +325,15 @@ export class VaultMethodService {
           "default",
           vaultOwnerToken,
         );
-        dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-        return { primaryMethod: "passphrase", passphraseUpdated: true };
       }
-
-      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
-      return {
-        primaryMethod: state.primaryMethod,
+      const result: { primaryMethod: VaultMethod; passphraseUpdated: true } = {
+        primaryMethod: keepPrimaryMethod ? state.primaryMethod : "passphrase",
         passphraseUpdated: true,
       };
+      try { params.onCommitted?.(result); }
+      catch { console.warn("VAULT_METHOD_POST_COMMIT_OBSERVER_FAILED"); }
+      dispatchVaultRekeyed(params.userId, "vault_passphrase_changed");
+      return result;
     } catch (error) {
       throw normalizeVaultMethodError(error);
     }
