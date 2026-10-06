@@ -163,7 +163,7 @@ Color roles are projected from the existing CSS authority, not chosen per featur
 | Eligible control | Glass/accent treatment | Enablement |
 | --- | --- | --- |
 | Stationary Back | Standard glass, app accent tint and readable accent-deep glyph | Existing Debug iPhone pilot; release acceptance remains incomplete. |
-| History utility trigger / owned Close | Standard glass with the shared secondary-label glyph, preserving light OKLCH and dark RGBA opacity | Debug-only handoff candidate; current physical acceptance remains unverified. |
+| History utility trigger / owned Close | Standard glass with the shared secondary-label glyph, preserving light OKLCH and dark RGBA opacity | Debug-only handoff; repeated physical interaction passed. Visual/accessibility/performance qualification remains open. |
 | Cloud/Puppy selector and destination tabs | Standard segmented Picker / UIKit tab bar, app accent tint and system labels | Existing selector rehearsal / admitted tab bar; no invented foreground palette. |
 | Future primary toolbar action | Standard prominent glass with app accent; retain authored disabled/busy behavior | Not implemented or admitted. Ordinary form, Connect and Send controls remain React. |
 | Destructive or moving/keyboard-coupled actions | Retain semantic role and existing owner; never recolor destructive actions as brand accents | No global native replacement. |
@@ -249,8 +249,24 @@ and web geometry completed. Chrome now remains retired until UIKit's
 [keyboard dismissal completion](https://developer.apple.com/documentation/uikit/uiresponder/keyboarddidhidenotification),
 with an interrupted-dismissal guard. The actual notification regression fails
 on the old release point; all 35 native-support simulator checks pass with the
-correction. The corrected physical journey and final-head gates are still
-required; this event-order fix alone is not device acceptance.
+correction. The `5f56359fe` Debug iPhone candidate subsequently passed the full
+native journey twice: History Open/Close/return, two consecutive Profile Close
+cycles, Cloud/Puppy value projection, overlay isolation and native restoration
+after keyboard dismissal. Warm tabs/Search, Back/background-resume, photo
+preview/pull-to-close, History dragging and Mail/software-keyboard also passed.
+Its canonical core and exact-head CI passed, as did a separate unsigned Release
+compile. These are interaction and build checks, not Release-family acceptance.
+
+The tightened appearance audit still fails on an unidentified 390-by-10-point
+hit region outside Back. It remains a failure, not an ignored issue. The current
+run proved Light canvas matching on four routes and restored the original
+preference; it did not reach Dark. Stock Calculator's public mode locator also
+requires characterization before claiming a physical comparison. VoiceOver,
+Dynamic Type, reduced transparency, rotation, literal WebView/document identity
+and three physical Release performance runs remain open. New families stay
+Debug-only, and iPad is not qualified. Exact runtime details remain in the
+ignored verification handoff; subsequent source combinations need their own
+head-bound gates rather than inheriting this SHA's acceptance.
 
 The combined branch also repairs early tab reversal at the shared pager: a
 rounded visible pane no longer hides its different pending destination. Both
@@ -285,10 +301,10 @@ Earlier core/device results do not certify this newly combined candidate.
 | Family | State / operation owner | Candidate and retained behavior | Evidence and rollback |
 | --- | --- | --- | --- |
 | Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |
-| History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Current bridge/gesture contracts and device drawer proof; complete native handoff unverified. Disable family capability; same authored DOM actions remain. |
-| Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Current device photo preview/pull-to-close passed; native Close admission and visual acceptance remain unverified. Disable `close` capability. |
+| History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Repeated native Open/Close/return and keyboard restoration passed on the Debug iPhone candidate above; visual/accessibility/performance qualification remains open. Disable family capability; same authored DOM actions remain. |
+| Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Two native Close cycles, photo preview and pull-to-close passed on that candidate; visual/accessibility/performance qualification remains open. Disable `close` capability. |
 | More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger and owned UIKit action-sheet adapter; no eligible product consumer yet. Scrolling People's Add, rich labels, desktop dropdown and unauthored menus retain React. | Compiled adapter, not adoption; popup privacy/dismissal device proof outstanding. Capabilities remain Debug-only. |
-| Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Lease contract; accessible segment geometry and physical acceptance outstanding. Disable `agent-surface` capability. |
+| Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Native choice and value-return checks passed on that candidate, with 44-by-49-point accessibility frames; full visual/accessibility/performance qualification remains open. Disable `agent-surface` capability. |
 | Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |
 | Drawer/pager motion | Existing Profile, History, `SwipeViews` owners | Finger-driven panels/scrims; cancellation, re-grab, single resize reconciliation; inactive panes inert | Focused cancellation/reopen/resize contracts with a resize negative control. Revert bounded shared-owner commits; no route or persistence migration. |
 | Vault methods | Existing owner-authorized `VaultService` operations | Compact method rows + details/default selector. No credential suffixes; acknowledged change remains successful if refresh fails. | Profile contracts and owner/request fences; controlled server/device mutation acceptance outstanding. Revert presentation/mutation-handling commit; no store/schema migration. |
@@ -335,7 +351,7 @@ than acquire separate native implementations.
 | Bottom navigation — [Navbar](../components/navbar.tsx), [native plugin](../ios/App/App/Plugins/HushhNativeNavigationPlugin.swift) | UIKit on supported iOS; DOM fallback | Implemented. Keep standard appearance and React selection authority. |
 | Top bar, back, Profile — [TopAppBar](../components/app-ui/top-app-bar.tsx), [ShellActionSurface](../components/app-ui/shell-action-surface.tsx) | SwiftUI Back Debug pilot; otherwise DOM | Back interaction verified on iPhone; visual/accessibility promotion remains incomplete. Close/More/utility buttons follow only after full Back acceptance. Retain Profile photos and rich labels. No whole native bar. |
 | Shell option menus — [TopShellDropdown](../components/app-ui/top-shell-dropdown.tsx) | DOM anchored menu/popover | Unused candidate, not shipped reuse: the dropdown has no production caller, and the popover's AgentSectionDropdown caller is itself unreferenced. Do not add a native family solely for this abstraction. |
-| Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Next menu candidate: the reachable People actions in LocationRedesignHub. Use serializable item IDs and labels; arbitrary React labels stay DOM. Preserve disabled/busy state and separate destructive confirmation. The named-circle-flows instance is not current adoption evidence because its enclosing CirclesSection has no production caller. |
+| Section action menus — [ActionMenu](../components/app-ui/action-menu.tsx) | Mobile Sheet; desktop dropdown | Retain scrolling People's Add actions in LocationRedesignHub. A future stationary public trigger needs serializable item IDs/labels, disabled/busy state and separate destructive confirmation. Rich labels stay DOM. The named-circle-flows instance is not current adoption evidence because its enclosing CirclesSection has no production caller. |
 | Agent/voice controls — [AgentBar](../components/agent/agent-bar.tsx), [OneVoiceControl](../components/one-voice/one-voice-control.tsx) | DOM controls over existing runtime providers | Conditional: launcher/cancel chrome only. Keep tap/hold, slide-to-cancel, recording, readiness and task state with existing owners; retain transcript/waveform content. |
 | Search field and close — [KaiCommandPalette](../components/kai/kai-command-palette.tsx), [SearchClearButton](../components/app-ui/search-clear-button.tsx) | DOM controlled palette | Conditional: native search chrome. Existing query, results and action runtime remain authoritative; prove IME, keyboard and dismissal before replacing the field. |
 | Chat history and connectors — [AgentHistorySidebar](../components/agent/agent-history-sidebar.tsx), [AgentConnectionsDrawer](../components/agent/agent-connections-drawer.tsx) | DOM panels and shared overlays | Conditional: header/close/action controls first. Keep chat list, connector forms, tools and credential handling in existing owners. Do not remount the conversation. |
