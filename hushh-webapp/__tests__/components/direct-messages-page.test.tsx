@@ -37,6 +37,9 @@ const mocks = vi.hoisted(() => {
     markConversationRead: vi.fn(),
     openEvents: vi.fn(),
     sendMessage: vi.fn(),
+    editMessage: vi.fn(),
+    deleteMessage: vi.fn(),
+    reactToMessage: vi.fn(),
     requestAgentConversationAfterRoute: vi.fn(),
   };
 });
@@ -86,6 +89,9 @@ vi.mock("@/lib/services/direct-messages-service", () => ({
       mocks.markConversationRead(...args),
     openEvents: (...args: unknown[]) => mocks.openEvents(...args),
     sendMessage: (...args: unknown[]) => mocks.sendMessage(...args),
+    editMessage: (...args: unknown[]) => mocks.editMessage(...args),
+    deleteMessage: (...args: unknown[]) => mocks.deleteMessage(...args),
+    reactToMessage: (...args: unknown[]) => mocks.reactToMessage(...args),
   },
 }));
 
@@ -141,6 +147,26 @@ describe("DirectMessagesPage", () => {
         createdAt: "2026-10-06T10:01:00.000Z",
         readAt: null,
       },
+    });
+    mocks.editMessage.mockResolvedValue({
+      id: "message-1",
+      conversationId: "conversation-1",
+      senderIsViewer: true,
+      content: "Edited message",
+      createdAt: "2026-10-06T10:01:00.000Z",
+      readAt: null,
+      editedAt: "2026-10-06T10:02:00.000Z",
+      reactions: [],
+    });
+    mocks.deleteMessage.mockResolvedValue({ scope: "me", message: null });
+    mocks.reactToMessage.mockResolvedValue({
+      id: "message-1",
+      conversationId: "conversation-1",
+      senderIsViewer: true,
+      content: "Hello Ankit",
+      createdAt: "2026-10-06T10:01:00.000Z",
+      readAt: null,
+      reactions: [{ emoji: "😀", count: 1, reactedByViewer: true }],
     });
   });
 
@@ -311,5 +337,42 @@ describe("DirectMessagesPage", () => {
     expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveValue("");
     expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid");
     expect(mocks.router.replace).not.toHaveBeenCalled();
+  });
+
+  it("exposes message reactions and replies after a bubble is tapped", async () => {
+    const message = {
+      id: "message-1",
+      conversationId: "conversation-1",
+      senderIsViewer: true,
+      content: "Hello Ankit",
+      createdAt: "2026-10-06T10:01:00.000Z",
+      readAt: null,
+      reactions: [],
+    };
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [message],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+    fireEvent.click(await screen.findByText("Hello Ankit"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose a reaction" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
+    await waitFor(() =>
+      expect(mocks.reactToMessage).toHaveBeenCalledWith({
+        idToken: "test-token",
+        conversationId: "conversation-1",
+        messageId: "message-1",
+        emoji: "😀",
+      }),
+    );
+
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
+    expect(screen.getByText("Replying to yourself")).toBeVisible();
   });
 });

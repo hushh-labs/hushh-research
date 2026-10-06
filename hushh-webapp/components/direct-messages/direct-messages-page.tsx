@@ -16,6 +16,22 @@ import { AgentDockPortal } from "@/components/agent/agent-dock";
 import { OneChatBubble } from "@/components/agent/chat-message-styles";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { DirectMessageEmojiPicker } from "@/components/direct-messages/direct-message-emoji-picker";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ArrowLeft,
@@ -185,13 +201,21 @@ export function DirectMessagesPage() {
   const [sending, setSending] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [openMessageMenu, setOpenMessageMenu] = useState<string | null>(null);
-  const [openReactionPicker, setOpenReactionPicker] = useState<string | null>(null);
+  const [activeMessageActions, setActiveMessageActions] = useState<string | null>(null);
+  const [replyingTo, setReplyingTo] = useState<DirectMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<DirectMessage | null>(null);
+  const [editingContent, setEditingContent] = useState("");
+  const [deleteRequest, setDeleteRequest] = useState<{
+    message: DirectMessage;
+    scope: "me" | "everyone";
+  } | null>(null);
   const loadGeneration = useRef(0);
   const loadedReadScopes = useRef<readonly string[]>([]);
   const operationGeneration = useRef(0);
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
   const invalidateOperations = useCallback(() => { ++operationGeneration.current; }, []);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
   const selectedRouteKey = requestedPersonRef
@@ -526,9 +550,11 @@ export function DirectMessagesPage() {
         idToken,
         content,
         recipientPersonRef,
+        replyToMessageId: replyingTo?.id,
       });
       if (!isCurrentOperation()) return;
       setDraft("");
+      setReplyingTo(null);
       setMessages((current) => mergeMessages(current, [result.message]));
       setThread((current) =>
         threadFromConversation(result.conversation, {
@@ -605,10 +631,94 @@ export function DirectMessagesPage() {
     }
   };
 
-  const showUnavailableMessageAction = (action: string) => {
+  const replaceMessage = (updated: DirectMessage) => {
+    setMessages((current) =>
+      current.map((message) => (message.id === updated.id ? updated : message)),
+    );
+  };
+
+  const startReply = (message: DirectMessage) => {
     setOpenMessageMenu(null);
-    setOpenReactionPicker(null);
-    morphyToast.info(`${action} is not available in Messages yet.`);
+    setActiveMessageActions(message.id);
+    setReplyingTo(message);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  };
+
+  const startEditing = (message: DirectMessage) => {
+    setOpenMessageMenu(null);
+    setActiveMessageActions(message.id);
+    setEditingMessage(message);
+    setEditingContent(message.content);
+  };
+
+  const saveEdit = () => {
+    if (!user || !editingMessage || !editingContent.trim()) return;
+    const message = editingMessage;
+    const operation = (async () => {
+      const idToken = await user.getIdToken();
+      return DirectMessagesService.editMessage({
+        idToken,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        content: editingContent,
+      });
+    })();
+    void operation.then((updated) => {
+      replaceMessage(updated);
+      setEditingMessage(null);
+      setEditingContent("");
+    }).catch(() => undefined);
+    void morphyToast.promise(operation, {
+      loading: "Saving message…",
+      success: "Message edited",
+      error: "Message could not be edited. Try again.",
+    });
+  };
+
+  const saveReaction = (message: DirectMessage, emoji: string) => {
+    if (!user) return;
+    const operation = (async () => {
+      const idToken = await user.getIdToken();
+      return DirectMessagesService.reactToMessage({
+        idToken,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        emoji,
+      });
+    })();
+    void operation.then(replaceMessage).catch(() => undefined);
+    void morphyToast.promise(operation, {
+      loading: "Adding reaction…",
+      success: "Reaction added",
+      error: "Reaction could not be saved. Try again.",
+    });
+  };
+
+  const confirmDelete = () => {
+    if (!user || !deleteRequest) return;
+    const { message, scope } = deleteRequest;
+    const operation = (async () => {
+      const idToken = await user.getIdToken();
+      return DirectMessagesService.deleteMessage({
+        idToken,
+        conversationId: message.conversationId,
+        messageId: message.id,
+        scope,
+      });
+    })();
+    void operation.then((result) => {
+      if (result.message) replaceMessage(result.message);
+      else setMessages((current) => current.filter((item) => item.id !== message.id));
+      setDeleteRequest(null);
+      setActiveMessageActions(null);
+    }).catch(() => undefined);
+    void morphyToast.promise(operation, {
+      loading: "Deleting message…",
+      success: deleteRequest.scope === "everyone"
+        ? "Message deleted for everyone"
+        : "Message deleted for you",
+      error: "Message could not be deleted. Try again.",
+    });
   };
 
   if (!user && !authLoading) {
@@ -753,6 +863,13 @@ export function DirectMessagesPage() {
                         )}
                         data-message-role={message.senderIsViewer ? "user" : "peer"}
                         data-message-sent-at={message.createdAt}
+                        data-actions-visible={
+                          activeMessageActions === message.id ? "true" : undefined
+                        }
+                        onClick={(event) => {
+                          if ((event.target as HTMLElement).closest("button, textarea")) return;
+                          setActiveMessageActions(message.id);
+                        }}
                       >
                         <div
                           className={cn(
@@ -780,111 +897,149 @@ export function DirectMessagesPage() {
                                   !message.senderIsViewer && styles.peerMessageBubble,
                                 )}
                               >
-                                <p className="whitespace-pre-wrap break-words">
-                                  {message.content}
-                                </p>
+                                {editingMessage?.id === message.id ? (
+                                  <div className={styles.messageEditForm}>
+                                    <label className="sr-only" htmlFor={`edit-message-${message.id}`}>
+                                      Edit message
+                                    </label>
+                                    <textarea
+                                      id={`edit-message-${message.id}`}
+                                      value={editingContent}
+                                      maxLength={DIRECT_MESSAGE_MAX_LENGTH}
+                                      className={styles.messageEditInput}
+                                      onChange={(event) => setEditingContent(event.target.value)}
+                                      onKeyDown={(event) => {
+                                        if (event.key === "Enter" && !event.shiftKey) {
+                                          event.preventDefault();
+                                          saveEdit();
+                                        }
+                                      }}
+                                      autoFocus
+                                    />
+                                    <div className={styles.messageEditActions}>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setEditingMessage(null);
+                                          setEditingContent("");
+                                        }}
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={!editingContent.trim()}
+                                        onClick={saveEdit}
+                                      >
+                                        Save
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : message.deletedForEveryoneAt ? (
+                                  <p className={styles.deletedMessage}>This message was deleted.</p>
+                                ) : (
+                                  <>
+                                    {message.replyTo ? (
+                                      <div className={styles.replyPreview}>
+                                        <span>{message.replyTo.senderIsViewer ? "You" : selectedLabel}</span>
+                                        <p>{message.replyTo.content}</p>
+                                      </div>
+                                    ) : null}
+                                    <p className="whitespace-pre-wrap break-words">
+                                      {message.content}
+                                    </p>
+                                    {message.editedAt ? <span className={styles.editedLabel}>Edited</span> : null}
+                                  </>
+                                )}
                               </OneChatBubble>
                               <div className={styles.messageActions}>
-                                <button
-                                  type="button"
-                                  className={styles.messageActionButton}
-                                  aria-label="Choose a reaction"
-                                  aria-expanded={
-                                    openReactionPicker === message.id
-                                  }
-                                  onClick={() => {
-                                    setOpenReactionPicker((current) =>
-                                      current === message.id ? null : message.id,
-                                    );
-                                    setOpenMessageMenu(null);
+                                {!message.deletedForEveryoneAt ? (
+                                  <DirectMessageEmojiPicker
+                                    label="Choose a reaction"
+                                    triggerClassName={styles.messageActionButton}
+                                    compact
+                                    onEmojiSelect={(emoji) => saveReaction(message, emoji)}
+                                  />
+                                ) : null}
+                                <DropdownMenu
+                                  modal={false}
+                                  open={openMessageMenu === message.id}
+                                  onOpenChange={(open) => {
+                                    setOpenMessageMenu(open ? message.id : null);
+                                    if (open) setActiveMessageActions(message.id);
                                   }}
                                 >
-                                  <span aria-hidden="true">☺</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.messageActionButton}
-                                  aria-label="Message options"
-                                  aria-expanded={openMessageMenu === message.id}
-                                  onClick={() => {
-                                    setOpenMessageMenu((current) =>
-                                      current === message.id ? null : message.id,
-                                    );
-                                    setOpenReactionPicker(null);
-                                  }}
-                                >
-                                  <MoreVertical className="h-4 w-4" aria-hidden="true" />
-                                </button>
-                              </div>
-                              {openReactionPicker === message.id ? (
-                                <div
-                                  className={styles.reactionPicker}
-                                  aria-label="Choose a reaction"
-                                >
-                                  {["❤️", "👍", "😂", "😮"].map((reaction) => (
+                                  <DropdownMenuTrigger asChild>
                                     <button
-                                      key={reaction}
                                       type="button"
-                                      aria-label={`React ${reaction}`}
-                                      onClick={() =>
-                                        showUnavailableMessageAction("Reactions")
-                                      }
+                                      className={styles.messageActionButton}
+                                      aria-label="Message options"
+                                      aria-expanded={openMessageMenu === message.id}
                                     >
-                                      {reaction}
+                                      <MoreVertical className="h-4 w-4" aria-hidden="true" />
                                     </button>
-                                  ))}
-                                </div>
-                              ) : null}
-                              {openMessageMenu === message.id ? (
-                                <div className={styles.messageMenu} role="menu">
-                                  <button
-                                    type="button"
-                                    role="menuitem"
-                                    onClick={() =>
-                                      showUnavailableMessageAction("Replies")
-                                    }
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent
+                                    side="top"
+                                    align={message.senderIsViewer ? "end" : "start"}
+                                    collisionPadding={12}
+                                    className={styles.messageMenu}
                                   >
-                                    <Quote className="h-3.5 w-3.5" aria-hidden="true" />
-                                    Reply
-                                  </button>
-                                  {message.senderIsViewer ? (
-                                    <>
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() =>
-                                          showUnavailableMessageAction("Editing")
-                                        }
-                                      >
+                                    {!message.deletedForEveryoneAt ? (
+                                      <DropdownMenuItem onSelect={() => startReply(message)}>
+                                        <Quote className="h-3.5 w-3.5" aria-hidden="true" />
+                                        Reply
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    {message.senderIsViewer && !message.deletedForEveryoneAt ? (
+                                      <DropdownMenuItem onSelect={() => startEditing(message)}>
                                         <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
                                         Edit
-                                      </button>
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        onClick={() =>
-                                          showUnavailableMessageAction("Deleting messages")
-                                        }
-                                      >
-                                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                                        Delete for me
-                                      </button>
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        className={styles.destructiveMessageAction}
-                                        onClick={() =>
-                                          showUnavailableMessageAction("Deleting messages")
-                                        }
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                    <DropdownMenuItem
+                                      variant="destructive"
+                                      onSelect={() => {
+                                        setOpenMessageMenu(null);
+                                        setDeleteRequest({ message, scope: "me" });
+                                      }}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                                      Delete for me
+                                    </DropdownMenuItem>
+                                    {message.senderIsViewer && !message.deletedForEveryoneAt ? (
+                                      <DropdownMenuItem
+                                        variant="destructive"
+                                        onSelect={() => {
+                                          setOpenMessageMenu(null);
+                                          setDeleteRequest({ message, scope: "everyone" });
+                                        }}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                                         Delete for everyone
-                                      </button>
-                                    </>
-                                  ) : null}
-                                </div>
-                              ) : null}
+                                      </DropdownMenuItem>
+                                    ) : null}
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
                             </div>
+                            {message.reactions?.length ? (
+                              <div className={styles.messageReactions} aria-label="Message reactions">
+                                {message.reactions.map((reaction) => (
+                                  <button
+                                    key={reaction.emoji}
+                                    type="button"
+                                    className={styles.reactionChip}
+                                    data-reacted-by-viewer={reaction.reactedByViewer || undefined}
+                                    aria-label={`${reaction.emoji} reaction, ${reaction.count}`}
+                                    onClick={() => saveReaction(message, reaction.emoji)}
+                                  >
+                                    <span>{reaction.emoji}</span>
+                                    <span>{reaction.count}</span>
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
                             <time
                               className={cn(
                                 styles.messageMeta,
@@ -925,11 +1080,27 @@ export function DirectMessagesPage() {
                     className={styles.composer}
                     onSubmit={(event) => void sendDraft(event)}
                   >
+                    {replyingTo ? (
+                      <div className={styles.composerReplyPreview}>
+                        <div>
+                          <strong>Replying to {replyingTo.senderIsViewer ? "yourself" : selectedLabel}</strong>
+                          <span>{replyingTo.content}</span>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Cancel reply"
+                          onClick={() => setReplyingTo(null)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : null}
                     <label className="sr-only" htmlFor="direct-message-draft">
                       Message {selectedLabel}
                     </label>
                     <textarea
                       id="direct-message-draft"
+                      ref={composerRef}
                       value={draft}
                       onChange={(event) => setDraft(event.target.value)}
                       placeholder={`Message ${selectedLabel}`}
@@ -983,6 +1154,33 @@ export function DirectMessagesPage() {
                   </form>
                 ) : null}
               </AgentDockPortal>
+              <AlertDialog
+                open={Boolean(deleteRequest)}
+                onOpenChange={(open) => {
+                  if (!open) setDeleteRequest(null);
+                }}
+              >
+                <AlertDialogContent size="sm">
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>
+                      {deleteRequest?.scope === "everyone"
+                        ? "Delete for everyone?"
+                        : "Delete this message?"}
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                      {deleteRequest?.scope === "everyone"
+                        ? "This removes the message for both people in this conversation."
+                        : "This removes the message from your view of this conversation."}
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Keep message</AlertDialogCancel>
+                    <AlertDialogAction variant="destructive" onClick={confirmDelete}>
+                      Delete message
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
         </main>
       </section>
     </AppPageShell>

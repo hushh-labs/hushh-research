@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 281,
+  "expected_migration_version": 282,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -42,6 +42,7 @@
     "guard_direct_message_block_write",
     "guard_direct_message_conversation_write",
     "guard_direct_message_message_write",
+    "guard_direct_message_reaction_write",
     "touch_direct_message_conversation",
     "notify_direct_message_recipient",
     "project_direct_message_feed_event",
@@ -644,6 +645,13 @@
       "blocker_user_id",
       "blocked_user_id",
       "created_at"
+    ],
+    "direct_message_reactions": [
+      "message_id",
+      "user_id",
+      "emoji",
+      "created_at",
+      "updated_at"
     ],
     "directory_listing_claims": [
       "id",
@@ -1404,7 +1412,12 @@
       "content_iv",
       "content_algorithm",
       "created_at",
-      "read_at"
+      "read_at",
+      "edited_at",
+      "reply_to_message_id",
+      "deleted_for_sender_at",
+      "deleted_for_recipient_at",
+      "deleted_for_everyone_at"
     ],
     "one_action_directive_ledger": [
       "adk_app_name",
