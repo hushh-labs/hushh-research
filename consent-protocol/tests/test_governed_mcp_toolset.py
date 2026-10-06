@@ -2095,5 +2095,87 @@ def test_allowlist_drops_are_logged_once_per_change(caplog):
         policy([{"name": "keep"}])
     lines = [r.getMessage() for r in caplog.records if "mcp_catalog_filtered" in r.getMessage()]
     assert len(lines) == 2
-    assert "dropped_names=['surprise']" in lines[0]
-    assert "missing=['gone']" in lines[0]
+    assert "dropped_names=surprise" in lines[0]
+    assert "missing=gone" in lines[0]
+
+
+@pytest.mark.parametrize(
+    ("failure", "code"),
+    [
+        (("reconnect_required", 401), "MCP_CREDENTIAL_EXPIRED"),
+        (("grant_rejected", 401), "MCP_CREDENTIAL_EXPIRED"),
+        (("connection_changed", 409), "MCP_CONNECTION_CHANGED"),
+        # The person's connection is fine in all of these: never ask them to reconnect.
+        (("provider_unavailable", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("connector_configuration_invalid", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("connector_unavailable", 503), "MCP_CONNECTOR_UNAVAILABLE"),
+        (("provider_response_invalid", 502), "MCP_CONNECTOR_UNAVAILABLE"),
+    ],
+)
+async def test_curated_failures_are_mapped_by_cause_not_lumped_into_reconnect(
+    registry_harness, monkeypatch, caplog, failure, code
+):
+    from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
+
+    _, adapter, _ = _wire_curated(registry_harness, monkeypatch, row={}, credential={})
+    adapter.current_credential.side_effect = CuratedConnectorOAuthError(
+        failure[0], status_code=failure[1]
+    )
+    with caplog.at_level("WARNING"):
+        with pytest.raises(ExternalMcpError) as error:
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert error.value.code == code
+    # The real cause survives in the logs, in a form the redactor keeps.
+    line = next(r.getMessage() for r in caplog.records if "mcp_curated_resolve" in r.getMessage())
+    assert f"cause={failure[0].replace('_', '.')}" in line and "connector=hubspot" in line
+
+
+async def test_a_token_refresh_is_never_abandoned_when_the_callers_budget_lapses(
+    registry_harness, monkeypatch
+):
+    """The provider may rotate a single-use refresh token; losing the new one forces a reconnect."""
+    import asyncio
+
+    row = dict(
+        status="connected", connection_generation=1, credential_version=1, verified_policy_hash=None
+    )
+    _, adapter, hash_ = _wire_curated(
+        registry_harness, monkeypatch, row=row, credential={"accessToken": "synthetic-token"}
+    )
+    row["verified_policy_hash"] = hash_
+    finished = asyncio.Event()
+
+    async def slow_refresh(**_kwargs):
+        await asyncio.sleep(0.2)  # provider answered; the new token is being stored
+        finished.set()
+        return row, {"accessToken": "synthetic-token"}
+
+    adapter.current_credential = slow_refresh
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.05):
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    assert not finished.is_set()
+    await asyncio.wait_for(finished.wait(), 2)  # it still ran to completion
+
+
+async def test_a_refresh_that_fails_after_the_caller_gave_up_is_not_an_unhandled_error(
+    registry_harness, monkeypatch, recwarn
+):
+    import asyncio
+    import gc
+
+    from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
+
+    _, adapter, _ = _wire_curated(registry_harness, monkeypatch, row={}, credential={})
+
+    async def failing(**_kwargs):
+        await asyncio.sleep(0.1)
+        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
+
+    adapter.current_credential = failing
+    with pytest.raises(TimeoutError):
+        async with asyncio.timeout(0.02):
+            await resolve_registered_connection(registry_harness.context, "hubspot")
+    await asyncio.sleep(0.2)
+    gc.collect()
+    assert not [w for w in recwarn.list if "never retrieved" in str(w.message)]

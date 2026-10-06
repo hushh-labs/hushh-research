@@ -1573,3 +1573,17 @@ async def test_release_fence_refusal_is_reported_as_paused(monkeypatch, message,
     assert result["account_deleted"] is False
     assert result["error_code"] == expected_code
     release.assert_not_called()
+
+
+def test_account_reset_and_deletion_erase_pending_connector_reviews(monkeypatch):
+    """Sealed review arguments must not outlive a reset, which keeps the actor_profiles row."""
+    service = AccountService()
+    assert "user_id = :user_id" in str(service._delete_by_user_queries["one_mcp_pending_calls"])
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    monkeypatch.setattr(service, "_clear_external_connector_data", lambda *_args, **_kwargs: None)
+    results: dict[str, bool] = {}
+    service._clear_user_data_tables(conn, "user_123", results)
+    executed = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM one_mcp_pending_calls" in executed
+    assert results.get("one_mcp_pending_calls") is True

@@ -93,6 +93,13 @@ class GmailReceiptIdentifier(BaseModel):
     value: str = Field(min_length=1, max_length=100)
 
 
+class GmailLiveReceiptSourceEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["merchant", "category", "amount", "document", "status", "recurrence", "attention"]
+    text: str = Field(min_length=3, max_length=240)
+
+
 class GmailLiveReceiptItem(BaseModel):
     """Normalized, evidence-backed receipt returned only to its authorized owner."""
 
@@ -174,6 +181,9 @@ class GmailLiveReceiptItem(BaseModel):
     ) = None
     identifiers: list[GmailReceiptIdentifier] = Field(default_factory=list, max_length=9)
     transaction_date: str | None = Field(default=None, max_length=64)
+    source_evidence: list[GmailLiveReceiptSourceEvidence] = Field(
+        default_factory=list, max_length=8
+    )
 
 
 class GmailLiveReceiptRejectionCounts(BaseModel):
@@ -232,13 +242,6 @@ class GmailLiveReceiptExcerpt(BaseModel):
     label: Literal["Email preview"]
     text: str = Field(min_length=1, max_length=4_000)
     truncated: bool
-
-
-class GmailLiveReceiptSourceEvidence(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["merchant", "category", "amount", "document", "status", "recurrence", "attention"]
-    text: str = Field(min_length=3, max_length=240)
 
 
 class GmailLiveReceiptDetailResponse(BaseModel):

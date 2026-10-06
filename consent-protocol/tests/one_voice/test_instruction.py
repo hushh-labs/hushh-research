@@ -82,6 +82,11 @@ def test_rule_four_answers_a_waiting_card_with_its_id_not_a_new_proposal():
     # UAT 2026-10-02: a restated detail was read as a correction and re-asked.
     assert "it is not a correction, so never cancel it and propose the same thing again" in rule
     assert "repeats_cancelled means you cancelled this exact proposal" in rule
+    # UAT 2026-10-06: the head re-proposed and re-asked with no answer between.
+    assert (
+        "say so and wait. After you ask, wait for their answer: never propose again or "
+        'repeat the question on your own. "No", "stop"'
+    ) in rule
 
 
 def test_rule_four_confirms_first_when_a_yes_also_asks_for_more():
@@ -99,6 +104,20 @@ def test_rule_four_confirms_first_when_a_yes_also_asks_for_more():
     )
     assert "A change to the waiting action itself" in rule and "is a correction" in rule
     assert "pending_action_exists means a different action is still waiting" in rule
+    # UAT 2026-10-06: a spelled correction to a waiting circle name cancelled
+    # the card and asked "What is the name again?" instead of re-proposing.
+    assert (
+        '"no, it\'s spelled K A Y R A") is a correction: cancel it and propose the '
+        "corrected one in the same turn, changing only what they corrected; do not ask again "
+        "for anything they already gave clearly."
+    ) in rule
+    # Re-proposing at once never skips rule 3: a different person is resolved
+    # and confirmed before anything is proposed for them.
+    assert (
+        'A different person still follows rule 3: resolve the new name and ask "Is that who '
+        'you mean?" before proposing.'
+    ) in rule
+    assert "never ask again for what they already gave" not in rule
 
 
 def test_opening_screens_rule_says_opened_only_after_the_app_reports_it():
@@ -137,6 +156,22 @@ def test_authored_policy_from_agent_yaml_is_present():
     assert "do not ask for a prescribed phrase or exact wording" in flat
     assert "Do not claim completion before the tool's final execution result supports it" in flat
     assert "Select a declared tool whose documented effect matches that outcome" in flat
+    # Spelled letters are the name; the brand spelling applies only to the company.
+    # The examples are words no evaluation case spells, so the eval stays held out.
+    assert (
+        "Names are exact. When the person spells a word letter by letter "
+        '("k a y r a", "double l", "B zero seven"), use exactly those letters and digits '
+        "for that word and keep the rest of the name as they gave it."
+    ) in flat
+    assert (
+        "The company is Hussh, spelled with two s's; use that spelling only when they mean "
+        "the company."
+    ) in flat
+    # UAT 2026-10-06: an unclear word was guessed again instead of spelled.
+    assert (
+        "If a word of a name is unclear, or they say a name is wrong without giving the fix, "
+        "ask them to spell just that word instead of guessing again."
+    ) in flat
 
 
 def test_context_lines_name_the_person_and_screen():

@@ -97,7 +97,10 @@ _QUERY = (
 _MAX_PAGE = 50
 _MAX_PER_PAGE = 6
 _FETCH_CONCURRENCY = 6
-_EXTRACTOR_CONCURRENCY = 2
+# One page's candidates are assessed together. The owner scan lease already
+# allows one receipt scan per owner, so this caps receipt model calls at one
+# page (six) per owner without touching any shared model or Mail limit.
+_EXTRACTOR_CONCURRENCY = _MAX_PER_PAGE
 _DEADLINE_SECONDS = 55.0
 _EXTRACTOR_TIMEOUT_SECONDS = 15.0
 _EXTRACTOR_UNAVAILABLE_RETRIES = 1
@@ -1369,10 +1372,9 @@ class GmailLiveReceiptsService:
         authority: _ReadAuthority,
         consent_token: str,
     ) -> list[tuple[dict[str, Any] | None, dict[str, Any], str | None]]:
-        # Managed extraction is intentionally narrower than Gmail hydration.
-        # Bursting one model call per fetched message can queue otherwise
-        # healthy requests behind the provider deadline. Two workers keep the
-        # scan bounded while pagination still exposes every matching page.
+        # Each call keeps its own provider deadline inside the semaphore, and a
+        # page holds at most _MAX_PER_PAGE candidates, so assessing the page
+        # together removes queueing without widening any per-call budget.
         semaphore = asyncio.Semaphore(_EXTRACTOR_CONCURRENCY)
 
         async def one(message: dict[str, Any]):
@@ -1574,7 +1576,10 @@ class GmailLiveReceiptsService:
                     if item is None:
                         continue
                     public_item = dict(item)
-                    public_item.pop("_source_evidence", None)
+                    # The same validated, URL-free passages the detail read
+                    # returns, so an open receipt reuses this one model answer
+                    # instead of re-reading and re-classifying the message.
+                    public_item["source_evidence"] = public_item.pop("_source_evidence", [])
                     items.append(public_item)
                 items.sort(
                     key=lambda item: (str(item.get("receipt_date") or ""), item["source_id"]),
@@ -1728,6 +1733,7 @@ class GmailLiveReceiptsService:
                 item, evidence, _reason = projected[0]
                 public_item = dict(item)
                 source_evidence = public_item.pop("_source_evidence", [])
+                public_item["source_evidence"] = source_evidence
                 # The dedicated extractor selects a bounded, source-verified passage.
                 # Never fall back to a raw email body with tracking links and footers.
                 excerpt = item.get("cleaned_preview")

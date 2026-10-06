@@ -38,7 +38,7 @@ import secrets
 from datetime import UTC, datetime, timedelta
 from os import getenv
 from typing import Any, Protocol
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 
@@ -83,6 +83,22 @@ _FEATURE = "curated_mcp_connectors"
 # see curated_connector_manifest.py). A provider with no valid manifest is
 # never served, and its tools never skip review.
 logger = logging.getLogger(__name__)
+
+# RFC 6749 section 5.2 (plus RFC 6750/7009 additions). A provider-controlled value is
+# logged only when it is one of these.
+_OAUTH_ERROR_TOKENS = frozenset(
+    {
+        "invalid_request",
+        "invalid_client",
+        "invalid_grant",
+        "unauthorized_client",
+        "unsupported_grant_type",
+        "invalid_scope",
+        "access_denied",
+        "server_error",
+        "temporarily_unavailable",
+    }
+)
 
 
 def curated_free_read_tools(connector_id: str) -> frozenset[str]:
@@ -152,6 +168,31 @@ def registered_redirect_uris(connector: ExternalMcpConnectorDefinition) -> tuple
     # Same runtime rule as Drive: the shared registry row's URIs, plus the
     # loopback web return only in a development runtime on a loopback origin.
     return _runtime_redirect_uris(connector)
+
+
+async def post_revocation(*, url: str, data: dict[str, str]) -> None:
+    """One RFC 7009 request. Any 2xx is success; the body is never read or logged.
+
+    Shared by disconnect and by account deletion, so both reach a provider the same
+    bounded, public-HTTPS-only way.
+    """
+    try:
+        validate_mcp_endpoint(url)
+        async with (
+            asyncio.timeout(10),
+            create_public_mcp_http_client(
+                timeout=httpx.Timeout(8), max_response_bytes=RESPONSE_LIMIT
+            ) as client,
+        ):
+            async with client.stream(
+                "POST", url, data=data, headers={"Accept": "application/json"}
+            ) as response:
+                async for _ in response.aiter_bytes():
+                    pass  # drained within the response cap, never retained
+                if not 200 <= response.status_code < 300:
+                    raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
+    except (httpx.HTTPError, McpResponseLimitError, TimeoutError, UnsafeMcpEndpoint):
+        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503) from None
 
 
 def is_curated_oauth_connector(connector: ExternalMcpConnectorDefinition | None) -> bool:
@@ -346,7 +387,18 @@ class ExternalConnectorCuratedOAuth:
                     if not isinstance(parsed, dict):
                         raise CuratedConnectorOAuthError("provider_unavailable", status_code=502)
                     if response.status_code != 200:
-                        if response.status_code == 400 and parsed.get("error") == "invalid_grant":
+                        # Only the HTTP status and the standard OAuth error token are kept:
+                        # a wrong client secret and a provider outage otherwise look alike.
+                        oauth_error = parsed.get("error")
+                        logger.warning(
+                            "curated_oauth.token_endpoint host=%s status=%s error=%s",
+                            urlsplit(url).hostname,
+                            response.status_code,
+                            oauth_error.replace("_", ".")
+                            if oauth_error in _OAUTH_ERROR_TOKENS
+                            else "other",
+                        )
+                        if response.status_code == 400 and oauth_error == "invalid_grant":
                             raise CuratedConnectorOAuthError("grant_rejected", status_code=401)
                         raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
                     return parsed
@@ -469,12 +521,13 @@ class ExternalConnectorCuratedOAuth:
         the review policy before/after any tool call. `connector` is the live
         registry row when the caller already holds it."""
         row = await self.lifecycle.read(user_id=user_id, connector_id=connector_id, purge=False)
-        if (
-            not row
-            or row["status"] not in {"connected", "verifying"}
-            or row["envelope_version"] != 2
-        ):
+        if not row or row["status"] == "revoked":
+            # Never connected, or the person disconnected it: nothing to report.
             raise CuratedNotConnectedError()
+        if row["status"] not in {"connected", "verifying"} or row["envelope_version"] != 2:
+            # needs_reauth (the provider rejected the refresh token), error, or a legacy
+            # envelope: the person did connect it and it stopped working, so say so.
+            raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
         connector, client_id, client_secret = await self._configuration(connector_id, connector)
         # Check the registry hasn't drifted from what was consented to BEFORE
         # any decrypt or provider call: an operator edit (endpoint, token
@@ -505,6 +558,7 @@ class ExternalConnectorCuratedOAuth:
                 generation=row["connection_generation"],
                 client_id=client_id,
             )
+        refreshed: dict[str, Any] | None = None
         try:
             token = await self._post(
                 connector.oauth_token_url,
@@ -535,6 +589,10 @@ class ExternalConnectorCuratedOAuth:
             await self.lifecycle.settle_refresh(
                 **common, lease_id=lease_id, rejected=str(error) == "grant_rejected"
             )
+            if str(error) == "connection_changed" and refreshed is not None:
+                # The person disconnected while the provider was rotating the token. The
+                # new pair was never stored, so nothing here can ever revoke it later.
+                await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
             raise
         except BaseException:
             # Cancellation (the chat turn's deadline) or a storage failure: never
@@ -547,10 +605,40 @@ class ExternalConnectorCuratedOAuth:
             or updated["connection_generation"] != common["generation"]
             or updated["status"] not in {"connected", "verifying"}
         ):
+            await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
             raise CuratedConnectorOAuthError("connection_changed", status_code=409)
         return updated, self.credentials.open_credential(
             user_id=user_id, connector_id=connector_id, row=updated
         )
+
+    async def _revoke_unstored(
+        self,
+        connector_id: str,
+        client_id: str,
+        client_secret: str | None,
+        refreshed: dict[str, Any],
+    ) -> None:
+        """Best-effort release of a rotated token this process obtained but cannot keep.
+
+        Never raises and never logs a token: the refresh result is already being refused.
+        """
+        manifest = get_manifest(connector_id)
+        token = refreshed.get("refreshToken") or refreshed.get("accessToken")
+        if manifest is None or manifest.revocation_url is None or not isinstance(token, str):
+            return
+        try:
+            await self._revoke(
+                url=manifest.revocation_url,
+                data={
+                    "token": token,
+                    "token_type_hint": (
+                        "refresh_token" if refreshed.get("refreshToken") else "access_token"
+                    ),
+                    **self._client_auth(client_id, client_secret),
+                },
+            )
+        except Exception:  # noqa: BLE001 - the caller is already failing on purpose
+            logger.warning("curated_connector_oauth.unstored_revoke_failed")
 
     async def _persist_refresh(self, common: dict[str, Any], lease_id: str, envelope: dict) -> None:
         """Store the rotated credential. The provider has already spent the old
@@ -615,24 +703,7 @@ class ExternalConnectorCuratedOAuth:
         )
 
     async def _revoke(self, *, url: str, data: dict[str, str]) -> None:
-        """One RFC 7009 request. Any 2xx is success; the body is never read or logged."""
-        try:
-            validate_mcp_endpoint(url)
-            async with (
-                asyncio.timeout(10),
-                create_public_mcp_http_client(
-                    timeout=httpx.Timeout(8), max_response_bytes=RESPONSE_LIMIT
-                ) as client,
-            ):
-                async with client.stream(
-                    "POST", url, data=data, headers={"Accept": "application/json"}
-                ) as response:
-                    async for _ in response.aiter_bytes():
-                        pass  # drained within the response cap, never retained
-                    if not 200 <= response.status_code < 300:
-                        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
-        except (httpx.HTTPError, McpResponseLimitError, TimeoutError, UnsafeMcpEndpoint):
-            raise CuratedConnectorOAuthError("provider_unavailable", status_code=503) from None
+        await post_revocation(url=url, data=data)
 
     async def disconnect(self, *, connector_id: str, user_id: str) -> dict[str, str]:
         old = await self.lifecycle.disconnect(user_id=user_id, connector_id=connector_id)
@@ -670,9 +741,18 @@ class ExternalConnectorCuratedOAuth:
             credential = self.credentials.open_credential(
                 user_id=user_id, connector_id=connector_id, row=old
             )
-            _, client_id, client_secret = await self._configuration(connector_id)
-            if credential.get("oauthClientId") != client_id:
+            # Not `_configuration`: that refuses a deactivated or drifted registry row,
+            # and an operator deactivating a provider must not stop a person's own
+            # grant being revoked. The client is the reviewed manifest's, from the
+            # environment, and the credential must be bound to it.
+            client_id = getenv(manifest.client_id_env, "").strip() if manifest else ""
+            client_secret = (
+                getenv(manifest.client_secret_env or "", "").strip() if manifest else ""
+            ) or None
+            if not client_id or credential.get("oauthClientId") != client_id:
                 raise CuratedConnectorOAuthError("revocation_identity_unverified", status_code=409)
+            if manifest is not None and not manifest.is_public_client and not client_secret:
+                raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
             refresh = credential.get("refreshToken")
             token = refresh or credential.get("accessToken")
             if isinstance(token, str) and token:

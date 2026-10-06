@@ -3806,10 +3806,10 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "policy": "memory-only+sse-background",
+        "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
         "resource_classes": [
-          "unknown"
+          "realtime_stream"
         ]
       },
       "implementation_override": null,
@@ -5200,6 +5200,30 @@
       "alias": null,
       "api_dependencies": [],
       "cache": {
+        "policy": "secure-resource",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "pkm_projection",
+          "calendar_events"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-todos",
+      "page_file": "app/one/todos/page.tsx",
+      "pathname": "/one/todos",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.todos"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
         "policy": "memory-only",
         "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
@@ -5940,14 +5964,14 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
-    "agent_registry": "2805f379716689e1655feaa4e53d083ca27e80a2e1b9b873d2379a998bce2fc0",
-    "cache_manifest": "dcf4ad2bdc42263d49cd3b0bd66b51695e9b2a45c6bbf8c570f54d494c11c1d7",
-    "data_plane": "18071853b380377320df6e2ae2c2e9e6b349abfee747c7fc96cca7a2b4db2c64",
+    "agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
+    "cache_manifest": "ccd08c267d6ae66e4d2d3e04cdbded3bf447a7adc3d963a08d3e81bc9890351d",
+    "data_plane": "7346e15f32e4b1a2aaffbe1335e6f8a342636438d3fc313c7c4fed987974855c",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
-    "route_index": "13aa94374eb537f398a27144d2cd73e526409d5e3f6719b40e5af68588cc91f9",
-    "route_layout": "5a77364b3aca34fca4d2249ae26fc5d8dc85c33fcf34ce2ae8d7cddd4be2fa46",
-    "surface_map": "8d9345199a7e4e262f388c539c03d65f6b967590154eb305263e7a029473693f",
+    "route_index": "61997dcd9594becaf7fa952f7988767b948d853733883bfa2859cd8e055c6513",
+    "route_layout": "04147ca9ea7310246953de6db378e3abc51d9e4368a16546987fd2a113fae961",
+    "surface_map": "f3d9dca15687511a4bea868d49a163bbcf74bc4ebeb7c090121ea57716da0529",
     "topology_contract": "b803d58913d6ce2094f193ed837d89a6a08b09f172abd7857c760406ece82003",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5959,7 +5983,7 @@
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 145,
+    "physical_routes": 146,
     "semantic_routes": 14,
     "table_families": 89
   }

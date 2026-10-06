@@ -154,13 +154,31 @@ describe("GmailReceiptsService live backend receipt contract", () => {
       .mockResolvedValueOnce(
         jsonResponse(scanPayload({ items: [{ ...liveItem, amount: "2499" }] })),
       )
-      .mockResolvedValueOnce(jsonResponse(scanPayload({ returned_count: 2 })));
+      .mockResolvedValueOnce(jsonResponse(scanPayload({ returned_count: 2 })))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          scanPayload({
+            items: [
+              {
+                ...liveItem,
+                // Scan evidence is held to the detail read's passage contract.
+                source_evidence: [
+                  { kind: "amount", text: "Pay at https://example.test/pay" },
+                ],
+              },
+            ],
+          }),
+        ),
+      );
 
     const request = {
       idToken: "firebase-id-token",
       vaultOwnerToken: "vault-owner-token",
       userId: "owner-uid",
     };
+    await expect(GmailReceiptsService.scanReceipts(request)).rejects.toThrow(
+      "invalid response",
+    );
     await expect(GmailReceiptsService.scanReceipts(request)).rejects.toThrow(
       "invalid response",
     );

@@ -584,7 +584,8 @@ async def test_scan_caps_page_size_and_extraction_concurrency():
     assert result["coverage"]["listed_count"] == 6
     assert result["coverage"]["max_messages"] == 6
     assert result["returned_count"] == 6
-    assert peak == 2
+    # One page is assessed together; the owner scan lease bounds it to one page.
+    assert peak == 6
 
 
 async def test_valid_myntra_receipt_uses_domain_mapping_and_preferred_total():
@@ -1355,6 +1356,9 @@ async def test_detail_is_account_bound_and_returns_only_labelled_bounded_excerpt
 
     assert detail["item"]["source_id"] == item["source_id"]
     assert detail["item"]["gmail_message_id"] == "msg-detail"
+    # The scan publishes the same validated evidence, so opening a scanned
+    # receipt can reuse it instead of re-reading and re-classifying the mail.
+    assert item["source_evidence"] and item["source_evidence"] == detail["source_evidence"]
     assert detail["email_excerpt"]["kind"] == "email_excerpt"
     assert detail["email_excerpt"]["label"] == "Email preview"
     assert "Private receipt excerpt" in detail["email_excerpt"]["text"]

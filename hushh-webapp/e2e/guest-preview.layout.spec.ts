@@ -86,16 +86,32 @@ test.beforeAll(async () => {
       .join("\n");
 });
 
+test.beforeEach(async ({ page }) => {
+  await page.route("http://one-preview.test/onboarding/figma/*", async (route) => {
+    const name = new URL(route.request().url()).pathname.split("/").pop()!;
+    await route.fulfill({ path: path.join(process.cwd(), "public/onboarding/figma", name) });
+  });
+});
+
 test("Circle and agent tours animate, repeat, and respect reduced motion", async ({
   page,
 }) => {
   await page.setViewportSize({ width: 393, height: 852 });
   await page.emulateMedia({ reducedMotion: "no-preference" });
   await page.setContent(
-    `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; }</style></head><body><div id="root"></div></body></html>`,
+    `<html><head><base href="http://one-preview.test/"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; }</style></head><body><div id="root"></div></body></html>`,
   );
   await page.addScriptTag({ content: script });
   const preview = page.getByTestId("guest-preview");
+  const tile = preview.locator('[data-welcome-artwork="light"] [data-welcome-tile]').first();
+  await expect(tile).toHaveCSS("animation-iteration-count", "1");
+  expect(await tile.evaluate(node => getComputedStyle(node).animationName)).not.toBe("none");
+  await expect(tile).toHaveCSS("opacity", "1");
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(tile).toHaveCSS("animation-name", "none");
+  await expect(tile).toHaveCSS("transform", "none");
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await preview.getByRole("button", { name: "Create your One", exact: true }).click();
   await preview.getByRole("button", { name: "Finance", exact: true }).click();
   const icon = preview.locator('[data-circle-selected="true"]');
   // Real GSAP writes a finite transform tween; no simulated video/player UI.
@@ -219,7 +235,7 @@ for (const viewport of [
   { width: 1440, height: 900, top: 0, bottom: 0 },
 ]) {
   for (const dark of [false, true]) {
-    test(`three uncluttered screens ${viewport.width}x${viewport.height} ${dark ? "dark" : "light"}`, async ({
+    test(`four uncluttered screens ${viewport.width}x${viewport.height} ${dark ? "dark" : "light"}`, async ({
       page,
     }, testInfo) => {
       const errors: string[] = [];
@@ -227,12 +243,12 @@ for (const viewport of [
       await page.setViewportSize(viewport);
       await page.emulateMedia({ reducedMotion: "reduce" });
       await page.setContent(
-        `<html class="${dark ? "dark" : ""}" data-invite="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; --app-safe-area-top-effective: ${viewport.top}px; --app-safe-area-bottom-effective: ${viewport.bottom}px; }</style></head><body><div id="root"></div></body></html>`,
+        `<html class="${dark ? "dark" : ""}" data-invite="true"><head><base href="http://one-preview.test/"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}:root { --app-fullscreen-flow-content-offset: 0px; --app-scroll-bottom-pad: 0px; --app-safe-area-top-effective: ${viewport.top}px; --app-safe-area-bottom-effective: ${viewport.bottom}px; }</style></head><body><div id="root"></div></body></html>`,
       );
       await page.addScriptTag({ content: script });
       await awaitProductFont(page);
       const screen = page.getByTestId("guest-preview");
-      for (let step = 1; step <= 3; step++) {
+      for (let step = 1; step <= 4; step++) {
         await expect(screen).toHaveAttribute("data-preview-step", String(step));
         await expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
         const supportingInk = await screen.evaluate((element) => {
@@ -252,7 +268,7 @@ for (const viewport of [
         expect(
           supportingInk.colors,
           "readable supporting copy in both themes",
-        ).toEqual([supportingInk.expected]);
+        ).toEqual(step === 1 ? [] : [supportingInk.expected]);
         expect(
           (await screen.locator("header").boundingBox())!.y,
         ).toBeGreaterThanOrEqual(viewport.top);
@@ -274,8 +290,10 @@ for (const viewport of [
         const next = screen.getByRole("button", {
           name:
             step === 1
-              ? "Meet your agents"
+              ? "Create your One"
               : step === 2
+              ? "Meet your agents"
+              : step === 3
                 ? "See what’s next"
                 : "Join this Circle",
           exact: true,
@@ -288,7 +306,7 @@ for (const viewport of [
         expect(
           await page.locator("html").getAttribute("data-started"),
         ).toBeNull();
-        if (step === 1) {
+        if (step === 2) {
           await screen
             .getByRole("button", { name: "Friends", exact: true })
             .click();
@@ -329,7 +347,7 @@ for (const viewport of [
               ).toBe(true);
             }
         }
-        if (step === 2) {
+        if (step === 3) {
           // Keep the longest single-word label intact even at 320px in WebKit.
           expect(
             await screen
@@ -358,7 +376,7 @@ for (const viewport of [
             ).toBeLessThanOrEqual(viewport.height - viewport.bottom + 1);
           }
         }
-        if (step === 3) {
+        if (step === 4) {
           const scenes = screen.locator("[data-chat-scenes]");
           for (const name of ["Calendar", "Location"]) {
             await screen.getByRole("button", { name, exact: true }).click();

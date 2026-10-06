@@ -3,7 +3,8 @@
 The executor is where the hallucination contract becomes mechanical:
 
 * unknown tool → ``rejected/unknown_tool``;
-* arguments that do not parse → ``rejected/invalid_arguments``;
+* arguments that do not parse → ``rejected/invalid_arguments``; for a
+  ``confirm_*`` tool the open card that proposal was correcting is retired too;
 * a person/circle id not confirmed in this conversation → ``rejected/*_not_confirmed``;
 * a ``confirm_*`` policy → a pending row and ``confirmation_required``; the
   handler runs only after :meth:`ToolExecutor.execute_pending`.
@@ -149,6 +150,18 @@ def _person_visible(args: dict[str, Any] | None) -> dict[str, Any]:
     return {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
 
 
+def _changed_fields(spec: ToolSpec, parsed: Any, replaced: PendingAction) -> list[str]:
+    """Names of the public arguments a new proposal changed from the card it
+    replaced, sorted. Names only: a value never reaches a log line."""
+    new = {
+        key: value
+        for key, value in parsed.model_dump(mode="json").items()
+        if key not in spec.private_args
+    }
+    old = _person_visible(replaced.args)
+    return sorted(key for key in set(new) | set(old) if new.get(key) != old.get(key))
+
+
 class ToolExecutor:
     def __init__(
         self,
@@ -262,10 +275,12 @@ class ToolExecutor:
                     "Call get_circle_details with no argument to read the circle on screen, "
                     "then use its circle_id."
                 )
-            return ToolCallOutcome(
-                result=Rejected(reason_code="invalid_arguments", spoken_facts=facts),
-                spec=spec,
-            )
+            invalid = Rejected(reason_code="invalid_arguments", spoken_facts=facts)
+            if spec.policy.needs_confirmation:
+                return await self._refuse_correction(
+                    ctx, spec, args or {}, invalid, phase="arguments", failed=frozenset(missing)
+                )
+            return ToolCallOutcome(result=invalid, spec=spec)
         problem = self._entity_problem(spec, ctx, parsed)
         if problem is not None:
             return ToolCallOutcome(result=problem, spec=spec, parsed=parsed)
@@ -381,19 +396,47 @@ class ToolExecutor:
                         spec.name,
                         type(exc).__name__,
                     )
-                    return ToolCallOutcome(
-                        result=Rejected(
-                            reason_code="prepare_failed",
-                            spoken_facts=[
-                                "I couldn't check what that would do right now, so I "
-                                "haven't prepared it. Nothing was changed."
-                            ],
-                        ),
-                        spec=spec,
+                    unprepared = Rejected(
+                        reason_code="prepare_failed",
+                        spoken_facts=[
+                            "I couldn't check what that would do right now, so I "
+                            "haven't prepared it. Nothing was changed."
+                        ],
+                    )
+                    return await self._refuse_correction(
+                        ctx,
+                        spec,
+                        args or {},
+                        unprepared,
+                        phase="prepare",
                         parsed=parsed,
                         superseded=superseded,
                     )
                 if isinstance(prepared, ToolResult):
+                    if isinstance(prepared, Rejected) and prepared.retire_open_proposal:
+                        # The refusal asks the person a question, so the next
+                        # yes answers that question, never the card the model
+                        # cancelled earlier: that re-proposal is asked fresh.
+                        self._recent_cancels.pop(ctx.conversation_id, None)
+                        # The refused proposal was a correction of the open
+                        # card; a yes to that card would now act on what the
+                        # person just corrected, so it is retired with the
+                        # refusal and reported like any superseded card.
+                        retired, complete = await self._retire_corrected(ctx, spec)
+                        superseded = [*superseded, *retired]
+                        if not complete:
+                            # The card may still be open, so no question is
+                            # asked over it: fail closed, as a lookup does when
+                            # it cannot retire the card it corrects.
+                            return ToolCallOutcome(
+                                result=_storage_unavailable(
+                                    "I couldn't prepare that right now. Nothing was changed. "
+                                    "Please try again in a moment."
+                                ),
+                                spec=spec,
+                                parsed=parsed,
+                                superseded=superseded,
+                            )
                     return ToolCallOutcome(
                         result=prepared, spec=spec, parsed=parsed, superseded=superseded
                     )
@@ -436,6 +479,13 @@ class ToolExecutor:
                     parsed=parsed,
                 )
             timings["create"] = _elapsed_ms(create_started)
+            for replaced in superseded:
+                if replaced.id != row.id:
+                    logger.info(
+                        "one_voice.pending.superseded tool=%s fields=%s",
+                        spec.name,
+                        ",".join(_changed_fields(spec, parsed, replaced)),
+                    )
             repeated = self._repeats_recent_cancel(ctx, spec, parsed)
             if repeated:
                 logger.info("one_voice.pending.repeat_after_cancel tool=%s", spec.name)
@@ -635,6 +685,96 @@ class ToolExecutor:
             if done is not None:
                 cancelled.append(done)
         return cancelled
+
+    async def _retire_corrected(
+        self, ctx: ToolContext, spec: ToolSpec
+    ) -> tuple[list[PendingAction], bool]:
+        """Cancel the open cards a refused correction from ``spec`` was aimed at.
+
+        Only cards that share its correction key: an unrelated card is still the
+        person's to answer. Like a lookup's supersede, these cancels are not the
+        model's own and are not remembered by the recent-cancel guard.
+
+        Returns the cards actually cancelled and whether every one was reached.
+        Storage failing here never ends the session; it returns ``False`` so the
+        caller fails closed, and the cards cancelled before the failure are
+        still reported as retired.
+        """
+        retired: list[PendingAction] = []
+        try:
+            open_rows = await self.pending.list_open(
+                user_id=ctx.user_id, conversation_id=ctx.conversation_id
+            )
+            for row in open_rows:
+                open_spec = registry.get_tool(row.tool_name)
+                if open_spec is None or open_spec.correction_key != spec.correction_key:
+                    continue
+                done = await self.pending.cancel(user_id=ctx.user_id, pending_action_id=row.id)
+                if done is not None:
+                    retired.append(done)
+        except PendingActionStorageError:
+            logger.warning("one_voice.pending.storage_failed phase=retire tool=%s", spec.name)
+            return retired, False
+        return retired, True
+
+    async def _refuse_correction(
+        self,
+        ctx: ToolContext,
+        spec: ToolSpec,
+        raw_args: dict[str, Any],
+        default: Rejected,
+        *,
+        phase: Literal["arguments", "prepare"],
+        parsed: Any = None,
+        superseded: list[PendingAction] | None = None,
+        failed: frozenset[str] = frozenset(),
+    ) -> ToolCallOutcome:
+        """Refuse a confirm-tier proposal that could not be read or prepared.
+
+        It was aimed at the open card of its own correction key just as a
+        well-formed correction is, so that card is retired with the refusal: a
+        yes must not reach what the person was correcting. If it cannot be
+        retired, nothing is asked over it (fail closed). The answer is the
+        tool's own ``on_invalid_correction`` refusal when it gives one, else
+        ``default``. ``raw_args`` go only to that hook, never to a log, with
+        ``failed``: the names of the top-level arguments that failed validation.
+        """
+        retired, complete = await self._retire_corrected(ctx, spec)
+        if retired:
+            # The next yes answers this refusal's question, never a card the
+            # model cancelled earlier: a re-proposal is asked fresh.
+            self._recent_cancels.pop(ctx.conversation_id, None)
+            logger.info(
+                "one_voice.pending.retired phase=%s tool=%s count=%d",
+                phase,
+                spec.name,
+                len(retired),
+            )
+        cancelled = [*(superseded or []), *retired]
+        if not complete:
+            return ToolCallOutcome(
+                result=_storage_unavailable(
+                    "I couldn't prepare that right now. Nothing was changed. "
+                    "Please try again in a moment."
+                ),
+                spec=spec,
+                parsed=parsed,
+                superseded=cancelled,
+            )
+        result = default
+        if spec.on_invalid_correction is not None:
+            try:
+                specific = spec.on_invalid_correction(dict(raw_args), failed)
+            except Exception as exc:  # noqa: BLE001 - a broken hook keeps the generic refusal
+                logger.warning(
+                    "one_voice.tool.refusal_failed tool=%s error=%s",
+                    spec.name,
+                    type(exc).__name__,
+                )
+                specific = None
+            if isinstance(specific, Rejected):
+                result = specific
+        return ToolCallOutcome(result=result, spec=spec, parsed=parsed, superseded=cancelled)
 
     async def _resolve_failed(
         self,

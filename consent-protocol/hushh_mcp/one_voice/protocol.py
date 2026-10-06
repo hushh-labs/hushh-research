@@ -25,13 +25,16 @@ PROTOCOL_VERSION = "one-voice-v1"
 # Additive client capabilities this relay accepts, advertised in session.ready.
 # A client sends the matching keys or frames only when its relay lists them, so
 # a newer app never has a whole frame refused by an older or rolled-back relay.
-RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery")
+# "name_edit": the typed Edit name on an open create_circle card.
+RELAY_FEATURES: tuple[str, ...] = ("active_mail", "mail_delivery", "name_edit")
 INPUT_MIME = "audio/pcm;rate=16000"
 OUTPUT_MIME = "audio/pcm;rate=24000"
 MAX_AUDIO_FRAME_B64_CHARS = 1_000_000
 MAX_AUDIO_FRAME_BYTES = 512 * 1024
 MAX_TEXT_CHARS = 4_000
 MAX_CONTEXT_JSON_CHARS = 48_000
+# Wire bound for a typed name; the relay applies the tool's own 1-80 rule.
+MAX_NAME_EDIT_CHARS = 400
 
 # Interim status of a device-executed Location updates step (resume/pause
 # tools); defined with the tool contract, re-exported here for the wire.
@@ -209,6 +212,20 @@ class EndFrame(_Frame):
     type: Literal["end"]
 
 
+class NameEditSubmitFrame(_Frame):
+    """The person typed a new name on an open create_circle card.
+
+    The name is bounded loosely here and validated by the relay, so a refusal
+    reaches the editor as a ``name_edit.result`` the person can read rather
+    than as a protocol error. ``operation_id`` makes a resend idempotent.
+    """
+
+    type: Literal["name_edit.submit"]
+    pending_action_id: str = Field(min_length=36, max_length=36)
+    name: str = Field(max_length=MAX_NAME_EDIT_CHARS)
+    operation_id: str = Field(min_length=8, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
 ClientFrame = Annotated[
     AuthFrame
     | AudioFrame
@@ -224,7 +241,8 @@ ClientFrame = Annotated[
     | InterruptFrame
     | PingFrame
     | PerfFrame
-    | EndFrame,
+    | EndFrame
+    | NameEditSubmitFrame,
     Field(discriminator="type"),
 ]
 _client_adapter: TypeAdapter[Any] = TypeAdapter(ClientFrame)
@@ -309,6 +327,10 @@ def audio_out(
     return frame
 
 
+# How a client applies a contracted transcript frame to its segment's row.
+TranscriptKind = Literal["partial", "cumulative", "final"]
+
+
 def transcript(
     kind: Literal["input", "output"],
     text: str,
@@ -316,10 +338,29 @@ def transcript(
     final: bool,
     turn_id: str,
     request_id: str | None = None,
+    segment_id: str | None = None,
+    seq: int | None = None,
+    segment_kind: TranscriptKind | None = None,
 ) -> dict[str, Any]:
-    frame = {"type": f"transcript.{kind}", "text": text, "final": final, "turn_id": turn_id}
+    """One transcript frame.
+
+    ``segment_id``/``seq``/``kind`` are additive and travel together: the relay
+    names the segment, numbers its frames from 1, and says how to apply the
+    text (``partial`` appends it, ``cumulative`` replaces the row, ``final``
+    replaces and freezes it). A client that ignores them keeps its own merge.
+    """
+    frame: dict[str, Any] = {
+        "type": f"transcript.{kind}",
+        "text": text,
+        "final": final,
+        "turn_id": turn_id,
+    }
     if request_id:
         frame["request_id"] = request_id
+    if segment_id is not None and seq is not None and segment_kind is not None:
+        frame["segment_id"] = segment_id
+        frame["seq"] = seq
+        frame["kind"] = segment_kind
     return frame
 
 
@@ -462,6 +503,25 @@ def client_step_request(
     if confirmed_pending_action_id:
         frame["confirmed_pending_action_id"] = confirmed_pending_action_id
     return frame
+
+
+def name_edit_result(
+    *,
+    operation_id: str,
+    status: Literal["accepted", "rejected"],
+    reason_code: str | None = None,
+    message: str | None = None,
+    pending_action_id: str | None = None,
+) -> dict[str, Any]:
+    """The answer to one ``name_edit.submit``; the same frame on a resend."""
+    return {
+        "type": "name_edit.result",
+        "operation_id": operation_id,
+        "status": status,
+        "reason_code": reason_code,
+        "message": message,
+        "pending_action_id": pending_action_id,
+    }
 
 
 def reconnect_required(reason: Literal["go_away", "max_duration"]) -> dict[str, Any]:

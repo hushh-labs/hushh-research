@@ -166,6 +166,8 @@ export interface ReceiptListItem {
   transaction_date?: string | null;
   document_kind?: "invoice" | "receipt" | "payment_confirmation" | "order_confirmation" | "booking" | "fulfillment" | null;
   identifiers?: Array<{ kind: "order" | "invoice" | "receipt" | "pnr" | "payment"; value: string }>;
+  /** Validated passages from the scan's single extraction, reused by detail. */
+  source_evidence?: GmailReceiptSourceEvidence[];
   category?: ReceiptCategory | null;
   category_confidence?: number | null;
   merchant_domain?: string | null;
@@ -364,6 +366,28 @@ export function isReceiptScanInProgressError(
   );
 }
 
+// A page that failed for one of these reasons can be read again with the same
+// signed cursor; every value is still fully validated. Authority, vault,
+// connection-required and continuation errors are never retried here.
+const RETRYABLE_RECEIPT_SCAN_CODES = new Set([
+  "GMAIL_CONNECTION_CHANGED",
+  "GMAIL_PROVIDER_UNAVAILABLE",
+  "GMAIL_RECEIPT_SCAN_TIMEOUT",
+  "GMAIL_RECEIPT_EXTRACTION_TIMEOUT",
+  "GMAIL_RECEIPT_EXTRACTION_UNAVAILABLE",
+  "GMAIL_RECEIPT_EXTRACTION_INVALID",
+  "GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
+]);
+
+export function isRetryableReceiptScanPageError(
+  error: unknown,
+): error is GmailReceiptRequestError {
+  return (
+    error instanceof GmailReceiptRequestError &&
+    RETRYABLE_RECEIPT_SCAN_CODES.has(String(error.code))
+  );
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -389,8 +413,35 @@ function invalidLiveReceiptResponse(): Error {
   return new Error("Mail receipt scan returned an invalid response.");
 }
 
+function isSourceEvidenceList(value: unknown): value is GmailReceiptSourceEvidence[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 8 &&
+    value.every(
+      (entry) =>
+        isRecord(entry) &&
+        [
+          "merchant",
+          "category",
+          "amount",
+          "document",
+          "status",
+          "recurrence",
+          "attention",
+        ].includes(String(entry.kind)) &&
+        typeof entry.text === "string" &&
+        entry.text.trim().length >= 3 &&
+        entry.text.length <= 240 &&
+        !/https?:\/\/|www\.|mailto:/i.test(entry.text),
+    )
+  );
+}
+
 function parseLiveReceiptItem(value: unknown): GmailLiveReceiptItem {
   if (!isRecord(value)) throw invalidLiveReceiptResponse();
+  if (value.source_evidence != null && !isSourceEvidenceList(value.source_evidence)) {
+    throw invalidLiveReceiptResponse();
+  }
   if (
     (value.document_kind != null && !["invoice", "receipt", "payment_confirmation", "order_confirmation", "booking", "fulfillment"].includes(String(value.document_kind))) ||
     (value.identifiers != null && (!Array.isArray(value.identifiers) || value.identifiers.length > 9 || value.identifiers.some(
@@ -588,27 +639,7 @@ function parseLiveReceiptDetailResponse(
   const item = parseLiveReceiptItem(payload.item);
   if (item.source_id !== expectedSourceId) throw invalidLiveReceiptResponse();
   const sourceEvidence = payload.source_evidence ?? [];
-  if (
-    !Array.isArray(sourceEvidence) ||
-    sourceEvidence.length > 8 ||
-    sourceEvidence.some(
-      (entry) =>
-        !isRecord(entry) ||
-        ![
-          "merchant",
-          "category",
-          "amount",
-          "document",
-          "status",
-          "recurrence",
-          "attention",
-        ].includes(String(entry.kind)) ||
-        typeof entry.text !== "string" ||
-        entry.text.trim().length < 3 ||
-        entry.text.length > 240 ||
-        /https?:\/\/|www\.|mailto:/i.test(entry.text),
-    )
-  ) {
+  if (!isSourceEvidenceList(sourceEvidence)) {
     throw invalidLiveReceiptResponse();
   }
   const excerpt = payload.email_excerpt;
@@ -616,7 +647,7 @@ function parseLiveReceiptDetailResponse(
     return {
       item,
       email_excerpt: null,
-      source_evidence: sourceEvidence as GmailReceiptSourceEvidence[],
+      source_evidence: sourceEvidence,
     };
   }
   if (
@@ -632,7 +663,7 @@ function parseLiveReceiptDetailResponse(
   return {
     item,
     email_excerpt: excerpt as unknown as GmailReceiptEmailExcerpt,
-    source_evidence: sourceEvidence as GmailReceiptSourceEvidence[],
+    source_evidence: sourceEvidence,
   };
 }
 

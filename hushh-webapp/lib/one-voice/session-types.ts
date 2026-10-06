@@ -34,6 +34,10 @@ export type TranscriptItem = {
   text: string;
   final: boolean;
   turnId: string;
+  /** Relay-owned segment of a contracted row (row id `role:segmentId`). */
+  segmentId?: string;
+  /** Highest frame seq applied to a contracted row; older frames are ignored. */
+  lastSeq?: number;
 };
 
 export type ToolTimelineItem = {
@@ -97,6 +101,11 @@ export type VoiceSessionState = {
   level: number;
   transcript: TranscriptItem[];
   /**
+   * Monotonic counter behind transcript row ids. It only grows within a
+   * conversation, so ids stay unique after the row cap or a view clear.
+   */
+  transcriptSeq: number;
+  /**
    * Turns that were still streaming when the view was cleared. Their later
    * chunks and their finalization stay out of the displayed history; a turn
    * drops off this list once it ends, so it cannot grow without bound.
@@ -114,6 +123,21 @@ export type VoiceSessionState = {
   idleTimeoutMs: number | null;
   idleDeadlineAt: number | null;
   reconnectReason: "go_away" | "max_duration" | null;
+  /**
+   * What the connected relay advertised in session.ready (`features`). Empty
+   * until it does and after the socket closes, so a surface never offers a
+   * frame an older relay would refuse.
+   */
+  relayFeatures: string[];
+};
+
+/** The relay's answer to a typed name edit, or the client's own refusal. */
+export type NameEditOutcome = {
+  status: "accepted" | "rejected";
+  reasonCode: string | null;
+  message: string | null;
+  /** The new card on `accepted`. */
+  pendingActionId: string | null;
 };
 
 export type VoiceSessionEvent =
@@ -152,6 +176,7 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   halfDuplex: false,
   level: 0,
   transcript: [],
+  transcriptSeq: 0,
   clearedTurnIds: [],
   historyCleared: false,
   entities: [],
@@ -164,6 +189,7 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   idleTimeoutMs: null,
   idleDeadlineAt: null,
   reconnectReason: null,
+  relayFeatures: [],
 };
 
 /** What the provider exposes to the control, the panel, and the screens. */
@@ -228,6 +254,13 @@ export type VoiceSessionController = {
    * used. Carries no outcome on purpose; the relay re-reads the send action.
    */
   reportMailDelivery?: (deliveryRef: string, actionId: string) => void;
+  /**
+   * Replace an open create_circle card with a name the person typed. Resolves
+   * with the relay's `name_edit.result` for this submission, or a local
+   * refusal when no relay that accepts it is live. Never routes through the
+   * model.
+   */
+  submitNameEdit?: (pendingActionId: string, name: string) => Promise<NameEditOutcome>;
 };
 
 /** Screen hooks subscribe to tool results and directives by tool name/kind. */

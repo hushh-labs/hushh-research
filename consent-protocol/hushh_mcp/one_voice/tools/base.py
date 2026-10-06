@@ -20,18 +20,31 @@ Rules encoded here, not in prose:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import math
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from hushh_mcp.one_voice.tools.spelling import clean_spelled_word, spelling_key
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
 # How long a resolve_* candidate list stays selectable. Minutes, not the
 # entity TTL: "the second one" must refer to a list the person can still see.
 OFFER_TTL_SECONDS = 10 * 60
+# How many spelled name words a conversation keeps (see EntityContext).
+MAX_SPELLED_NAME_WORDS = 8
+# How long a spelled name word is kept after the last proposal that declared
+# or needed it. Long enough to survive a cancel and a re-proposal of the same
+# name, short enough that a different circle later on is not held to it. The
+# circle name the person is reviewing (EntityContext.circle_name_baseline) is
+# kept for the same window, for the same reason.
+SPELLED_WORD_TTL_SECONDS = 3 * 60
+# A stored baseline name longer than create_circle accepts is not trusted.
+MAX_BASELINE_NAME_LENGTH = 80
 # Interim status of a device-executed Location updates step. Never success:
 # the settled result arrives later as its own tool.result once the device
 # reports back.
@@ -141,6 +154,12 @@ class ToolResult(BaseModel):
 
 class Rejected(ToolResult):
     status: Literal["rejected"] = "rejected"
+    # Server-only instruction to the executor, never part of any payload: when a
+    # ``prepare`` hook refuses a proposal with this set, the open card that
+    # proposal was correcting is retired too, so a yes cannot reach what the
+    # person just corrected. Excluded from every dump, so neither the client nor
+    # the model ever sees it.
+    retire_open_proposal: bool = Field(default=False, exclude=True)
 
 
 class Unsupported(ToolResult):
@@ -288,6 +307,68 @@ class OfferedScheduledMail(BaseModel):
     revision: int = 0
 
 
+class SpelledNameWord(BaseModel):
+    """One word the person spelled letter by letter for a name, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, the clock ``prune``
+    uses, so the retention window and pruning always agree.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    word: str
+    at: float
+
+
+def _wellformed_spelled_words(value: Any) -> list[dict[str, Any]]:
+    """Keep the stored entries this version can trust, one by one.
+
+    A malformed entry is dropped on its own. Failing validation would fail the
+    whole context, and every confirmed person and circle with it.
+    """
+    if not isinstance(value, list):
+        return []
+    kept: list[dict[str, Any]] = []
+    for item in value:
+        raw = item.model_dump() if isinstance(item, SpelledNameWord) else item
+        if not isinstance(raw, dict):
+            continue
+        word, at = raw.get("word"), raw.get("at")
+        if not isinstance(word, str) or clean_spelled_word(word) != word:
+            continue
+        if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+            continue
+        kept.append({"word": word, "at": float(at)})
+    return kept[-MAX_SPELLED_NAME_WORDS:]
+
+
+class CircleNameBaseline(BaseModel):
+    """The circle name the person was last shown on a create_circle card, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, like
+    :class:`SpelledNameWord`, so expiry and pruning use one clock.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str
+    at: float
+
+
+def _wellformed_circle_name_baseline(value: Any) -> dict[str, Any] | None:
+    """The stored baseline when this version can trust it, else none.
+
+    Malformed is dropped on its own, never failing the whole context.
+    """
+    raw = value.model_dump() if isinstance(value, CircleNameBaseline) else value
+    if not isinstance(raw, dict):
+        return None
+    name, at = raw.get("name"), raw.get("at")
+    if not isinstance(name, str) or not name.strip() or len(name) > MAX_BASELINE_NAME_LENGTH:
+        return None
+    if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+        return None
+    return {"name": name, "at": float(at)}
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -330,10 +411,86 @@ class EntityContext(BaseModel):
     # separate from ``offered_mail``: a position in the scheduled list must
     # never resolve against an inbox list, or the reverse.
     offered_scheduled_mail: OfferedScheduledMail | None = None
+    # Words the person spelled letter by letter for a name One is proposing
+    # ("h u s s h"), as the model declared them. Kept across a cancel and a
+    # reconnect for SPELLED_WORD_TTL_SECONDS after the last proposal that
+    # declared or needed them, so a re-proposal cannot silently drop one.
+    # Words only: never the name, never who it was for.
+    spelled_name_words: list[SpelledNameWord] = Field(default_factory=list)
+    # The circle name the last passing create_circle proposal showed the person:
+    # what a correction is compared with, word by word, so it changes only the
+    # words it declares. Kept across a cancel and a reconnect for
+    # SPELLED_WORD_TTL_SECONDS after that proposal; cleared once the circle is
+    # created or already exists.
+    circle_name_baseline: CircleNameBaseline | None = None
+
+    @field_validator("spelled_name_words", mode="before")
+    @classmethod
+    def _restore_spelled_name_words(cls, value: Any) -> list[dict[str, Any]]:
+        return _wellformed_spelled_words(value)
+
+    @field_validator("circle_name_baseline", mode="before")
+    @classmethod
+    def _restore_circle_name_baseline(cls, value: Any) -> dict[str, Any] | None:
+        return _wellformed_circle_name_baseline(value)
 
     @staticmethod
     def _now() -> datetime:
         return datetime.now(timezone.utc)
+
+    def _live_spelled_words(self, now: float) -> list[SpelledNameWord]:
+        return [
+            entry for entry in self.spelled_name_words if now - entry.at <= SPELLED_WORD_TTL_SECONDS
+        ]
+
+    def retained_spelled_words(self, now: float) -> list[str]:
+        """The spelled words still inside their retention window, first seen first."""
+        return [entry.word for entry in self._live_spelled_words(now)]
+
+    def remember_spelled_words(self, words: Sequence[str], now: float) -> None:
+        """Keep each word; one entry per word compared without case.
+
+        The first spelling seen is kept and its time refreshed when the word is
+        declared or needed again. Expired entries go first, then the oldest past
+        the cap.
+        """
+        self.spelled_name_words = self._live_spelled_words(now)
+        for word in words:
+            if clean_spelled_word(word) != word:
+                continue
+            key = spelling_key(word)
+            existing = next(
+                (e for e in self.spelled_name_words if spelling_key(e.word) == key), None
+            )
+            if existing is not None:
+                existing.at = now
+            else:
+                self.spelled_name_words.append(SpelledNameWord(word=word, at=now))
+        while len(self.spelled_name_words) > MAX_SPELLED_NAME_WORDS:
+            self.spelled_name_words.remove(min(self.spelled_name_words, key=lambda e: e.at))
+
+    def release_spelled_words(self, words: Sequence[str]) -> None:
+        """Forget words the person changed or dropped, compared without case."""
+        released = {spelling_key(word) for word in words}
+        self.spelled_name_words = [
+            entry for entry in self.spelled_name_words if spelling_key(entry.word) not in released
+        ]
+
+    def clear_spelled_words(self) -> None:
+        self.spelled_name_words = []
+
+    def live_circle_name_baseline(self, now: float) -> str | None:
+        """The name a create_circle correction is held to, while it is still live."""
+        baseline = self.circle_name_baseline
+        if baseline is None or now - baseline.at > SPELLED_WORD_TTL_SECONDS:
+            return None
+        return baseline.name
+
+    def set_circle_name_baseline(self, name: str, now: float) -> None:
+        self.circle_name_baseline = CircleNameBaseline(name=name, at=now)
+
+    def clear_circle_name_baseline(self) -> None:
+        self.circle_name_baseline = None
 
     def offer_is_fresh(self) -> bool:
         if not self.offered_person_ids:
@@ -363,6 +520,10 @@ class EntityContext(BaseModel):
             self.offered_mail_selected_ordinal = None
         if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
             self.offered_scheduled_mail = None
+        now = self._now().timestamp()
+        self.spelled_name_words = self._live_spelled_words(now)
+        if self.live_circle_name_baseline(now) is None:
+            self.circle_name_baseline = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
@@ -540,6 +701,10 @@ class ToolContext:
     # delivery report is bound to. Server state stays the authority; this is
     # the correlation, never a "sent" flag.
     sos_incident: dict[str, Any] | None = None
+    # The name argument was typed by the person (the card's Edit-name path),
+    # not heard by the model: it is theirs as written, so no spelled word or
+    # earlier name holds it, and it becomes the name later corrections keep.
+    typed_name: bool = False
 
     def service(self, name: str, factory: Callable[[], Any]) -> Any:
         if name not in self.services:
@@ -623,6 +788,14 @@ class ToolSpec:
     # tool itself. A shared gateway action is NOT enough on its own:
     # request_location and withdraw_request share one and do opposite things.
     correction_group: str | None = None
+    # For confirm_* tools: the refusal for a proposal that could not be read
+    # (its arguments failed validation) or prepared (its ``prepare`` hook
+    # raised). Either way the executor retires the open card of the same
+    # correction key first. Given the raw arguments, never logged, and the
+    # names of the top-level arguments that failed validation (empty when the
+    # prepare hook raised); returning a ``Rejected`` replaces the generic
+    # invalid_arguments / prepare_failed answer, and ``None`` keeps it.
+    on_invalid_correction: Callable[[dict[str, Any], frozenset[str]], Rejected | None] | None = None
     # For a tool whose arguments do not name what it acts on -- a position in a
     # list the server offered, or the item open on screen -- the server-side
     # identity of that target, resolved without I/O. Equal arguments against
@@ -684,6 +857,7 @@ def now_iso() -> str:
 
 
 __all__ = [
+    "CircleNameBaseline",
     "CircleRef",
     "ConfirmationRequired",
     "ConfirmationWaiting",
@@ -691,6 +865,7 @@ __all__ = [
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
     "LOCATION_UPDATES_PENDING",
+    "MAX_SPELLED_NAME_WORDS",
     "OFFER_TTL_SECONDS",
     "EntityContext",
     "Needs",
@@ -699,7 +874,9 @@ __all__ = [
     "PendingActionExists",
     "PersonRef",
     "Rejected",
+    "SPELLED_WORD_TTL_SECONDS",
     "ScreenContext",
+    "SpelledNameWord",
     "ToolContext",
     "ToolHandler",
     "ToolInput",

@@ -1,0 +1,39 @@
+.face [data-testid="wallet-card-face"] {
+  background-image: var(--demo-finish);
+}
+
+.face [data-testid="wallet-card-face"]::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  background: repeating-linear-gradient(115deg, transparent 0 3px, rgb(255 255 255 / 2%) 3px 4px);
+}
+
+.platinum {
+  --demo-finish: radial-gradient(ellipse at 85% 5%, #c251ff 0%, transparent 55%), linear-gradient(125deg, #a000e6 0%, #8200cc 48%, #4c0786 100%);
+}
+
+.gold {
+  --demo-finish: radial-gradient(ellipse at 80% 15%, #815376 0%, transparent 65%), linear-gradient(125deg, #482440, #241e2e);
+}
+
+.graphite {
+  --demo-finish: radial-gradient(ellipse at 90% 80%, #73245d 0%, transparent 50%), linear-gradient(125deg, #14233e, #101525);
+}
+
+.details {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--card);
+  color: var(--card-foreground);
+}
+
+.face [data-slot="wallet-card-number"] { text-shadow:0 1px 1px rgb(0 0 0 / 40%); font-family:ui-monospace,monospace; font-size:clamp(13px,4.1cqw,18px); }
+.face [data-slot="wallet-card-top"] > span:first-child { font-size:clamp(16px,5cqw,22px); letter-spacing:-.025em; }
+.face [data-testid="wallet-card-face"]::after { content:""; position:absolute; pointer-events:none; z-index:-1; width:85%; aspect-ratio:1; right:-28%; bottom:-65%; border:1px solid rgb(255 255 255 / 12%); border-radius:50%; box-shadow:0 0 0 18px rgb(255 255 255 / 3%),0 0 0 38px rgb(255 255 255 / 3%),0 0 0 65px rgb(255 255 255 / 2%); transform:rotate(-25deg) scaleX(.8); }
+.gold [data-testid="wallet-card-face"]::after { border-radius:8%; bottom:-50%; transform:rotate(35deg); }
+.face svg[viewBox="0 0 48 36"] { color:#e5d1a0; filter:drop-shadow(0 1px 1px rgb(0 0 0 / 30%)); }

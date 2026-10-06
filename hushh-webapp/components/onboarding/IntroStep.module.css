@@ -14,6 +14,9 @@
   font-family: var(--font-app-body);
 }
 
+/* The original welcome owns its stage gutters and safe-area padding. */
+.shell[data-preview-step="1"] { padding: 0; }
+
 :global(.dark) .shell {
   background: #000;
   color: #fff;
@@ -38,6 +41,56 @@
   align-items: center;
   width: 100%;
   margin: auto 0;
+}
+
+.welcomeBrand {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.welcomeContent { width: 100%; }
+
+.hero:focus { outline: none; }
+
+.darkArtwork { display: none; }
+:global(.dark) .darkArtwork { display: block; }
+:global(.dark) .lightArtwork { display: none; }
+
+.popTile {
+  transform-box: view-box;
+  animation: welcome-pop 750ms cubic-bezier(0.16, 1, 0.3, 1) var(--pop-delay) both;
+}
+
+@keyframes welcome-pop {
+  from {
+    opacity: 0;
+    transform: translate(var(--pop-x), var(--pop-y)) scale(0.18);
+  }
+  to {
+    opacity: 1;
+    transform: translate(0, 0) scale(1);
+  }
+}
+
+.welcomeContent[data-motion="static"] .popTile { animation: none; }
+
+/* Once the tiles settle, paint the untouched export over the clipped layers.
+   This removes raster-mask seams in WebKit without changing the source art. */
+.restingArtwork {
+  animation: welcome-settle 150ms linear 1155ms both;
+}
+
+@keyframes welcome-settle {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.welcomeContent[data-motion="static"] .restingArtwork { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .popTile { animation: none; }
+  .restingArtwork { animation: none; }
 }
 
 .shell .brand {
@@ -176,6 +229,27 @@
 :global(.dark) .shell .privacy > div { color: #bfbfc8; }
 
 .ctaLabel { position: relative; }
+
+.shell .welcomeCta {
+  min-height: 52px;
+  background: transparent;
+  font-size: 17px;
+  font-weight: 510;
+  line-height: 18px;
+}
+
+.welcomeCta::before {
+  position: absolute;
+  inset: -0.5px;
+  content: "";
+  pointer-events: none;
+  border-radius: inherit;
+  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
+}
+
+:global(.dark) .welcomeCta::before {
+  background-image: url("/onboarding/figma/intro-dark-cta-material.png");
+}
 
 .link:focus-visible { outline: 2px solid var(--app-accent); outline-offset: 4px; }
 

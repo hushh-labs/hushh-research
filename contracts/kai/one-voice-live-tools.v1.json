@@ -719,13 +719,36 @@
     },
     {
       "circle_args": [],
-      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name.",
+      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name. Use the name exactly as the person said or spelled it. When correcting a name you proposed, even after cancelling its card, change only what they asked: the letters they spell replace the word they correct and go in spelled_words, and each other changed word goes in changed_words; a word they spelled stays until they change it. If it answers name_changed or spelled_word_missing for a change they did ask for, call it again with that change declared (changed_words or release_spelled_words).",
       "firebase_plane": false,
       "gateway_action_id": "location.create_circle",
       "name": "create_circle",
       "parameters": {
         "additionalProperties": false,
         "properties": {
+          "changed_words": {
+            "description": "When correcting a name you proposed, even after cancelling its card: each word you changed, added or removed that they did not spell \u2014 old as on the card (empty if added), new as in name (empty if removed). A word neither listed here nor spelled stays exactly as on the card.",
+            "items": {
+              "additionalProperties": false,
+              "description": "One word a correction changes: ``old`` as on the waiting card, ``new`` as\nit becomes. An empty ``old`` is an added word, an empty ``new`` a removed one.",
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "maxItems": 8,
+            "title": "Changed Words",
+            "type": "array"
+          },
           "kind": {
             "default": "other",
             "enum": [
@@ -737,11 +760,29 @@
             "type": "string"
           },
           "name": {
-            "description": "The circle's name.",
+            "description": "The circle's name, exactly as the person said or spelled it.",
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "release_spelled_words": {
+            "description": "An earlier spelled word the person changed or dropped, or every earlier spelled word when they now name a different circle.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Release Spelled Words",
+            "type": "array"
+          },
+          "spelled_words": {
+            "description": "Each word of this name the person spelled letter by letter, as one word of letters and digits (k a y r a -> KAYRA). Keep them in every correction.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Spelled Words",
+            "type": "array"
           }
         },
         "required": [
@@ -2010,7 +2051,7 @@
             "type": "object"
           },
           "name": {
-            "description": "The new name.",
+            "description": "The new name, exactly as the person said or spelled it.",
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",

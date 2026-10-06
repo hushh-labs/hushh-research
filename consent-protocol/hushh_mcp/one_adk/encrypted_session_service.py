@@ -163,7 +163,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             # errors, so only stable metadata may cross this boundary.
             logger.error(
                 "one_adk_session.storage_failed code=%s operation=%s",
-                getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
+                str(getattr(exc, "code", "DATABASE_EXECUTION_ERROR")).lower().replace("_", "."),
                 getattr(exc, "operation", "unknown"),
             )
             raise EncryptedAdkSessionUnavailableError(

@@ -1433,3 +1433,29 @@ async def test_review_409_with_a_known_reason_is_not_logged_twice(caplog):
     assert [r.getMessage() for r in caplog.records] == [
         "one.mcp_review_refused reason=pending.handle.missing"
     ]
+
+
+async def test_a_review_failure_leaves_a_cause_without_leaking_its_message(caplog):
+    from fastapi import HTTPException
+
+    from api.routes import external_connectors as routes
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    async def unexpected(**_kwargs):
+        raise KeyError("PRIVATE_SQL_FRAGMENT")
+
+    async def provider_down(**_kwargs):
+        raise ExternalMcpError("x", code="MCP_CONNECTOR_UNAVAILABLE", status_code=503)
+
+    with caplog.at_level("WARNING", logger=routes.logger.name):
+        with pytest.raises(HTTPException) as caught:
+            await routes._mcp_review_response(unexpected)
+        assert caught.value.status_code == 503
+        with pytest.raises(HTTPException):
+            await routes._mcp_review_response(provider_down)
+    lines = [r.getMessage() for r in caplog.records if "one.mcp_review_failed" in r.getMessage()]
+    assert lines == [
+        "one.mcp_review_failed type=KeyError",
+        "one.mcp_review_failed code=mcp.connector.unavailable status=503",
+    ]
+    assert "PRIVATE_SQL_FRAGMENT" not in caplog.text

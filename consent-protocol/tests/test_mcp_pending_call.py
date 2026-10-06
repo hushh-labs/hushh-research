@@ -154,7 +154,8 @@ async def test_pending_call_needs_the_owners_key_to_open_or_store(monkeypatch):
         open = seal
 
     monkeypatch.setattr(mcp_pending_call, "ChatCipher", Locked)
-    with pytest.raises(ActionDirectiveAuthorityError):
+    # A locked vault is not an expired review: the chat-key refusal reaches the person.
+    with pytest.raises(ChatKeyUnavailableError):
         await pending_call_details(session(), handle)
     with pytest.raises(PendingCallStorageError):
         await capture_pending_call(context(), tool_name=TOOL, arguments={"q": "private"})
@@ -173,7 +174,9 @@ async def test_pending_call_lapses_with_its_review(shared_pending_store):
     await capture_pending_call(context(), tool_name=TOOL, arguments={}, review=review)
     (row,) = shared_pending_store.rows.values()
     remaining = row["expires_at"] - datetime.now(timezone.utc)
-    assert timedelta(minutes=5) < remaining <= timedelta(minutes=6)
+    # Exactly the review's own lifetime: the ledger refuses an expired directive, so a
+    # longer-lived record would only keep sealed arguments that can never be used.
+    assert timedelta(minutes=4, seconds=50) < remaining <= timedelta(minutes=5)
 
 
 @pytest.mark.parametrize(
@@ -273,3 +276,57 @@ async def test_unreadable_pending_record_logs_its_reason(caplog, monkeypatch):
             await pending_call_details(session(), handle)
     assert refused.value.reason == "pending_record_unreadable"
     assert _refusal_logs(caplog) == ["one.mcp_review_refused reason=pending.record.unreadable"]
+
+
+def approval_reference(handle, owner="owner", thread="thread"):
+    return store_request_secret(
+        json.dumps({"pendingHandle": handle, "owner": owner, "thread": thread})
+    )
+
+
+async def test_the_record_is_removed_once_the_resumed_turn_completes(shared_pending_store):
+    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={"q": "private"})
+    async with mcp_pending_call.pending_resume_scope(approval_reference(handle)):
+        # Every session read inside the turn still needs it.
+        assert (await pending_call_details(session(), handle))["arguments"] == {"q": "private"}
+        assert len(shared_pending_store.rows) == 1
+    assert shared_pending_store.rows == {}
+
+
+@pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
+async def test_a_failed_or_cancelled_turn_leaves_the_record_to_its_expiry(
+    shared_pending_store, failure
+):
+    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={"q": "private"})
+    with pytest.raises(failure):
+        async with mcp_pending_call.pending_resume_scope(approval_reference(handle)):
+            raise failure()
+    assert len(shared_pending_store.rows) == 1
+
+
+async def test_a_scope_without_a_handle_deletes_nothing(shared_pending_store):
+    await capture_pending_call(context(), tool_name=TOOL, arguments={})
+    async with mcp_pending_call.pending_resume_scope(None):
+        pass
+    assert len(shared_pending_store.rows) == 1
+
+
+async def test_discarding_is_bound_to_owner_conversation_and_handle(shared_pending_store):
+    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={})
+    await mcp_pending_call.discard_pending_call(owner="other", thread="thread", handle=handle)
+    await mcp_pending_call.discard_pending_call(owner="owner", thread="other", handle=handle)
+    await mcp_pending_call.discard_pending_call(owner="owner", thread="thread", handle="garbage")
+    assert len(shared_pending_store.rows) == 1
+    await mcp_pending_call.discard_pending_call(owner="owner", thread="thread", handle=handle)
+    assert shared_pending_store.rows == {}
+
+
+async def test_a_storage_failure_while_discarding_never_breaks_the_turn(monkeypatch):
+    handle = "one_secret_ref:" + "a" * 32
+
+    def fail(*_args, **_kwargs):
+        raise DatabaseExecutionError(table_name="<raw_sql>", operation="execute_raw", details="x")
+
+    monkeypatch.setattr(mcp_pending_call, "get_db", lambda: SimpleNamespace(execute_raw=fail))
+    async with mcp_pending_call.pending_resume_scope(approval_reference(handle)):
+        pass  # completes; the record simply lapses on its own

@@ -919,7 +919,7 @@ function FeedPageSession({
               : null}
 
             {hasHistory && pagination.nextCursor ? (
-              <div className="flex flex-col items-center gap-1 py-3">
+              <div className="flex flex-col items-center gap-1 pt-2">
                 {loadMoreError ? (
                   <p role="alert" className="text-xs text-muted-foreground">
                     {loadMoreError} Try again.
@@ -945,7 +945,7 @@ function FeedPageSession({
                 history, never under a "Needs you" row where it read as a
                 reply to that request. It turns destructive only once armed. */}
             {canClear ? (
-              <div className="flex w-full justify-center pt-4" aria-live="polite">
+              <div className="flex w-full justify-center pt-1" aria-live="polite">
                 <StockButton
                   type="button"
                   variant="secondary"

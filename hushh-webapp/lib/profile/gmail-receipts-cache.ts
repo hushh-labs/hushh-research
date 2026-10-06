@@ -7,11 +7,21 @@ import type {
 } from "@/lib/services/gmail-receipts-service";
 
 const RECEIPTS_CACHE_TTL_MS = 5 * 60 * 1000;
+// The backend signs each continuation for two hours from the pass's first
+// page. Resume well inside that window; an older pass restarts at page one.
+const RECEIPT_SCAN_RESUME_WINDOW_MS = 100 * 60 * 1000;
 
 interface CachedReceiptEntry extends ReceiptListResponse {
   next_cursor?: string | null;
   fetched_at: number;
   receipt_scan_reached_limit: boolean;
+  /** When this scan pass requested page one (its continuation window). */
+  scan_started_at?: number;
+  /**
+   * Rows from the previous completed pass that this unfinished pass has not
+   * re-read yet. They stay visible until the pass completes.
+   */
+  previous_items?: ReceiptListItem[];
 }
 
 // Live Gmail receipt DTOs are owner-scoped, vault-gated information. Keep the
@@ -120,11 +130,14 @@ export function primeCachedGmailReceipts(params: {
     next_cursor?: string | null;
   };
   fetchedAt?: number;
+  scanStartedAt?: number;
+  previousItems?: readonly ReceiptListItem[] | null;
 }): void {
   const cacheKey = ownerAccountKey(params.userId, params.accountKey);
   if (!cacheKey) return;
 
   const items = params.response.items.filter(isAuthoritativeLiveReceipt);
+  const previousItems = params.previousItems?.filter(isAuthoritativeLiveReceipt);
 
   receiptCache.set(cacheKey, {
     ...params.response,
@@ -138,7 +151,40 @@ export function primeCachedGmailReceipts(params: {
       typeof params.fetchedAt === "number" && Number.isFinite(params.fetchedAt)
         ? params.fetchedAt
         : Date.now(),
+    ...(typeof params.scanStartedAt === "number" &&
+    Number.isFinite(params.scanStartedAt)
+      ? { scan_started_at: params.scanStartedAt }
+      : {}),
+    ...(previousItems?.length ? { previous_items: previousItems } : {}),
   });
+}
+
+/** Rows to show for a cached pass: re-read rows first, then unconfirmed ones. */
+export function cachedGmailReceiptDisplayItems(
+  cached: CachedReceiptEntry,
+): ReceiptListItem[] {
+  return cached.previous_items?.length
+    ? mergeCachedReceiptItems({
+        existing: cached.previous_items,
+        incoming: cached.items,
+        mode: "prepend_refresh",
+      })
+    : cached.items;
+}
+
+/** Whether an unfinished cached pass can continue from its signed cursor. */
+export function isCachedGmailReceiptScanResumable(
+  cached: CachedReceiptEntry | null,
+  now = Date.now(),
+): cached is CachedReceiptEntry & { next_cursor: string; scan_started_at: number } {
+  return Boolean(
+    cached &&
+      cached.has_more &&
+      cached.next_cursor &&
+      typeof cached.scan_started_at === "number" &&
+      now - cached.scan_started_at >= 0 &&
+      now - cached.scan_started_at < RECEIPT_SCAN_RESUME_WINDOW_MS,
+  );
 }
 
 export function upsertCachedGmailReceipt(params: {

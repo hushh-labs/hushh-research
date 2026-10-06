@@ -10,19 +10,19 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 145,
-    "physical_page_count": 144,
-    "route_contract_count": 145,
-    "surface_map_count": 145,
+    "total_screens": 146,
+    "physical_page_count": 145,
+    "route_contract_count": 146,
+    "surface_map_count": 146,
     "class_counts": {
       "public/auth-split": 1,
       "redirect/alias": 47,
-      "vault-backed": 58,
+      "vault-backed": 57,
       "hidden flow": 19,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
-      "realtime/SSE": 1,
-      "PKM-secure": 5,
+      "realtime/SSE": 2,
+      "PKM-secure": 6,
       "public/static": 1
     },
     "pages_missing_route_contract": [],
@@ -3003,27 +3003,29 @@
       "route": "/one/messages",
       "page_file": "app/one/messages/page.tsx",
       "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
+      "screen_class": "realtime/SSE",
+      "cache_policy": "memory-only+sse-background",
       "cache_keys": [],
       "resource_classes": [
-        "unknown"
+        "realtime_stream"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
+      "ttl_class": "CACHE_TTL.SHORT with active stream patching",
       "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "background refresh",
+        "cold loader when missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "stream patch latency through route_refresh_completed"
       ],
-      "realtime_policy": "not realtime",
+      "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
       "reviewer_fixture": "/one/messages",
       "surface_map_present": true,
       "route_contract_present": true,
@@ -3037,7 +3039,7 @@
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
-        "sse_or_streaming": false,
+        "sse_or_streaming": true,
         "native_beacon": false
       },
       "findings": [
@@ -5344,6 +5346,57 @@
       ]
     },
     {
+      "route": "/one/todos",
+      "page_file": "app/one/todos/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "PKM_DOMAIN_RESOURCE(one_todos)",
+        "Calendar event projection (memory-only)"
+      ],
+      "resource_classes": [
+        "pkm_projection",
+        "calendar_events"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Ftodos",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/wallet",
       "page_file": "app/one/wallet/page.tsx",
       "route_contract_mode": "standard",
@@ -6511,5 +6564,5 @@
       ]
     }
   ],
-  "content_sha256": "44cda307774d5c0ea30af847ced08c802979e4db82e0b5045cdbf33b16b4089b"
+  "content_sha256": "141be5d6a617e676d84b21a4950e315e7b5a19e85faf0a05c1d7a14353cbb401"
 }
