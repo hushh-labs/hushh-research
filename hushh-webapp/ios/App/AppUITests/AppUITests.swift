@@ -2379,7 +2379,7 @@ final class AppUITests: XCTestCase {
                 return value == field.placeholderValue ? 0 : value.utf16.count
             }
             let cleared = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                entryLength() == 0 && unlockButtons.contains(where: { $0.exists && !$0.isEnabled })
+                entryLength() == 0 && unlockControls.count == 1 && !unlockControls.firstMatch.isEnabled
             }, object: field)
             guard XCTWaiter.wait(for: [cleared], timeout: 3) == .completed else {
                 XCTFail("Vault secure entry could not be cleared; unlock was not submitted")
