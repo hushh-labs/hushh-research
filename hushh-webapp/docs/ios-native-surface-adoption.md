@@ -205,6 +205,25 @@ or overflow assertions. This test/documentation correction does not change the
 installed product bundle. Full-head CI, visual/accessibility qualification and
 three Release performance runs remain required before native-family promotion.
 
+At `6f8663c9b`, canonical core passed in 787 seconds and the separately installed
+iPhone candidate passed normal unlock plus all five warm regression journeys.
+The dedicated check admitted native History after releasing authored fallback
+focus; Cloud/Puppy still remained on React. No selector-specific cause is yet
+confirmed. An explicit `--hushh-native-chrome-diagnostics` argument now enables
+a Debug-only memory-resident selector probe: admission/focus booleans, bounded
+public dimensions, presentation stage and allowlisted failure codes only. It
+does not project identities, context, credentials, protected content or raw
+provider errors. Ordinary Debug and all Release wrappers omit the marker.
+
+The subsequent normal merge retains `main`'s Wallet/referral changes through
+`8ddcebc03`. Controlled tab taps now notify the existing pager before publishing
+local selection, preserving one indicator writer without adding route navigation.
+The nearest ordering regression fails on the incoming early-return path; the
+combined pager/Wallet contracts pass with the correction. A temporary frame
+probe did not reproduce the reviewed Wallet clipping risk in its existing WebKit
+fixture and was removed; tall-content/re-grab device acceptance remains open.
+Earlier core/device results do not certify this newly combined candidate.
+
 | Family | State / operation owner | Candidate and retained behavior | Evidence and rollback |
 | --- | --- | --- | --- |
 | Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |

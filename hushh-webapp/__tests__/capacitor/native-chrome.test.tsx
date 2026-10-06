@@ -239,6 +239,27 @@ describe("native chrome presentation lease", () => {
   function admitChat() {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back", "history", "agent-surface"], independentControls: true });
   }
+  it("exposes only allowlisted public rehearsal status with explicit Debug capability", async () => {
+    const capability = { contractVersion: 2, families: ["agent-surface"], independentControls: true };
+    bridge.getCapabilities.mockResolvedValue(capability);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 2, y: 60, width: 116, height: 44, top: 60, left: 2, right: 118, bottom: 104, toJSON: () => ({}),
+    });
+    bridge.prepare.mockRejectedValue(new Error("synthetic-private-response-must-not-appear"));
+    const ordinary = render(<ChatHarness kind="agent-surface" />);
+    await waitFor(() => expect(bridge.prepare).toHaveBeenCalled());
+    expect(ordinary.queryByTestId("native-selector-rehearsal-status")).toBeNull();
+    ordinary.unmount();
+    bridge.getCapabilities.mockResolvedValue({ ...capability, rehearsalDiagnostics: true });
+    const rehearsal = render(<ChatHarness kind="agent-surface" />);
+    await waitFor(() => expect(rehearsal.getByTestId("native-selector-rehearsal-status")).toHaveTextContent('"outcome":"rejected"'));
+    const status = rehearsal.getByTestId("native-selector-rehearsal-status").textContent!;
+    expect(status).toContain('"code":"other"');
+    expect(status).not.toContain("synthetic-private-response");
+    expect(status).not.toContain("synthetic-owner");
+    expect(status).not.toContain("document-a");
+    expect(status).not.toContain("vault-epoch");
+  });
   it("updates a mounted selector without reinstalling and rejects choices before the latest ack", async () => {
     bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["agent-surface"], independentControls: true, inPlaceUpdates: true });
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({

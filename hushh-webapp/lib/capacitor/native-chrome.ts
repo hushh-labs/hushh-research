@@ -37,7 +37,7 @@ export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?:
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
 
 export interface HushhNativeChromePlugin {
-  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean }>;
+  getCapabilities(): Promise<{ contractVersion: number; families: ChromeFamily[]; canvasAppearance?: boolean; independentControls?: boolean; inPlaceUpdates?: boolean; rehearsalDiagnostics?: boolean }>;
   update(options: ChromeIdentity & ChromeUpdate & { updateSequence: number }): Promise<ChromeUpdateAcknowledgement>;
   setCanvasAppearance(options: { documentId: string; revision: number; backgroundHex: string }): Promise<{ documentId: string; revision: number }>;
   prepare(options: ChromeProjection): Promise<ChromeAcknowledgement>;

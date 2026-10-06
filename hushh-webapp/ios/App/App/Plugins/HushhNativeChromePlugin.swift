@@ -307,7 +307,9 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
-                          "inPlaceUpdates": true])
+                          "inPlaceUpdates": true,
+                          "rehearsalDiagnostics": self?.chatControlsAdmitted == true &&
+                              ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics")])
         }
     }
 

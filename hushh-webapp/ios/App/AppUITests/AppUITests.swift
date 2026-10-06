@@ -584,6 +584,33 @@ final class AppUITests: XCTestCase {
             "One, your cloud agent", "Puppy One, on your machine, with its own conversation"
         ]))
         print("NATIVE_CHAT_SELECTOR_PROBE roots=\(selectorRoots.count) role=\(selectorRoots.firstMatch.exists ? selectorRoots.firstMatch.elementType.rawValue : 0) fallback_names=\(fallbackNames.count)")
+        let status = web.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "NATIVE_SELECTOR_STATUS ")).firstMatch
+        if status.exists {
+            let fields = String(status.label.dropFirst("NATIVE_SELECTOR_STATUS ".count))
+            if fields.utf8.count <= 1024,
+               let data = fields.data(using: .utf8),
+               let snapshot = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                let stages = ["skip", "retire", "prepare", "activate", "update"]
+                let outcomes = ["pending", "acknowledged", "rejected"]
+                let codes = ["none", "other", "not-admitted", "focused", "geometry",
+                    "NATIVE_CHROME_ACK_UNCERTAIN", "NATIVE_CHROME_PREPARE_REFUSED",
+                    "NATIVE_CHROME_DOCUMENT_OR_GEOMETRY_STALE", "NATIVE_CHROME_OVERLAPPING_CONTROLS",
+                    "NATIVE_CHROME_OPTIONS_INVALID", "NATIVE_CHROME_LAYOUT_UNCONFIRMED",
+                    "NATIVE_CHROME_LAYOUT_RETIRED", "NATIVE_CHROME_ACTIVATE_REFUSED",
+                    "NATIVE_CHROME_ACTIVATE_UNCONFIRMED", "NATIVE_CHROME_RETIRE_UNCONFIRMED",
+                    "NATIVE_CHROME_UPDATE_INVALID", "NATIVE_CHROME_UPDATE_UNCONFIRMED"]
+                var safe: [String: Any] = [:]
+                for (key, values) in [("stage", stages), ("outcome", outcomes), ("code", codes)] {
+                    safe[key] = (snapshot[key] as? String).flatMap { values.contains($0) ? $0 : nil } ?? "other"
+                }
+                for key in ["eligible", "supported", "allowed", "focusInside", "heldFocus", "inViewport"] {
+                    safe[key] = snapshot[key] as? Bool ?? false
+                }
+                for key in ["width", "height"] { safe[key] = max(0, min(10000, snapshot[key] as? Int ?? 0)) }
+                if let encoded = try? JSONSerialization.data(withJSONObject: safe, options: [.sortedKeys]),
+                   let literal = String(data: encoded, encoding: .utf8) { print("NATIVE_SELECTOR_REHEARSAL \(literal)") }
+            }
+        }
         XCTAssertTrue(history.waitForExistence(timeout: 15) && history.isHittable,
                       "NATIVE_CHAT_HISTORY_UNAVAILABLE")
         XCTAssertTrue(selector.waitForExistence(timeout: 15) && selector.isHittable, "NATIVE_CHAT_PICKER_UNAVAILABLE")
