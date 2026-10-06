@@ -79,3 +79,25 @@ never sent to the model (`consent-protocol/docs/reference/personal-knowledge-mod
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`
 and the LlmAgent `name="wallet"` were the two the first pass missed and they crashed boot.
+
+
+## Wallet entry and card collection
+
+Each visit to `/one/wallet` starts with the Wallet illustration and Continue,
+without a duplicate Wallet page heading. Continue opens the workspace for that
+visit; moving between its tabs does not replay the introduction. This is a
+presentation step, not a persisted onboarding or consent gate.
+
+Cards owns the animated collection, safe summary search, and the existing
+explicit reveal/removal actions. An empty collection shows labelled demo
+summaries; these never enter Wallet storage or invoke reveal/remove services.
+Add opens the encrypted card-entry form directly. Save and Cancel return to
+Cards, while switching tabs preserves and masks an unfinished draft. Vault lock
+discards the form and revealed details. Chat and Secrets handoffs wait until
+Continue, then use the existing card-entry flow.
+
+The One dashboard preloads the same preprocessed WebP URL rendered by Wallet.
+The illustration loads eagerly at high priority with an inline blur placeholder;
+it does not wait for the card summary request or a server image transform.
+Cold connections can still require an image download. The PNG remains the
+source artwork.

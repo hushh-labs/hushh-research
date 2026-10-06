@@ -12,7 +12,7 @@ import type { WalletCardSummary } from "@/lib/services/wallet-service";
 /** Sample summaries are presentation-only and never enter workspace state or storage. */
 const PREVIEW_CARDS: WalletCardSummary[] = ["Everyday", "Travel", "Rewards"].map((name, index) => ({
   cardId: `demo-${index}`, nickname: `${name} - Demo`, brand: index === 1 ? "mastercard" : "visa",
-  last4: "", expiryMonth: 12, expiryYear: 2030, issuingRegion: "Sample card", createdAt: "",
+  last4: (["4242", "4444", "1234"][index] ?? "4242"), expiryMonth: 12, expiryYear: 2030, issuingRegion: "Sample card", createdAt: "",
 }));
 function EmptyCardPreview() {
   const [selected, setSelected] = useState<string | null>(null);
@@ -25,8 +25,9 @@ function EmptyCardPreview() {
   );
 }
 
-/** Add-only presentation of the workspace's summaries; never fetches or reveals secrets. */
-export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, preview = false }: {
+/** Cards collection presentation of the workspace's summaries; never fetches or reveals secrets. */
+export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, onRemove, busyCardId, disabled = false, preview = false }: {
+  disabled?: boolean;
   preview?: boolean;
   cards: WalletCardSummary[];
   selectedCardId: string | null;
@@ -136,7 +137,7 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       zIndex: cards.length - rank, opacity: hidden || busyCardId === card.cardId ? 0 : 1,
                       pointerEvents: hidden ? "none" : undefined }}>
                     <button type="button" data-card-motion
-                      disabled={Boolean(busyCardId)}
+                      disabled={disabled || Boolean(busyCardId)}
                       aria-label={preview ? card.nickname : `${card.nickname || cardNetworkLabel(card.brand)}, ${cardNetworkLabel(card.brand)} ending in ${card.last4}`}
                       aria-pressed={active}
                       onClick={(event) => {
@@ -153,18 +154,18 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
             </ul>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-2">
-            {canExpand ? <Button variant="ghost" size="compact" aria-expanded={isExpanded} aria-controls={stackId}
+            {canExpand ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)} aria-expanded={isExpanded} aria-controls={stackId}
               onClick={() => setExpanded(!isExpanded)}>
               {isExpanded ? "Collapse cards" : `View all ${cards.length} cards`}
             </Button> : <span />}
-            {!preview ? <Button variant="ghost" size="compact" disabled={Boolean(busyCardId)}
+            {!preview ? <Button variant="ghost" size="compact" disabled={disabled || Boolean(busyCardId)}
               onClick={() => { setExpanded(false); onRemove(selected); }}>
               Remove card
             </Button> : null}
           </div>
         </>
       ) : null}
-      {!preview ? <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={Boolean(busyCardId)}>
+      {!preview ? <Button variant="secondary" size="standard" className="w-full" onClick={onAdd} disabled={disabled || Boolean(busyCardId)}>
         <Plus aria-hidden="true" />{cards.length ? "Add another card" : "Add your first card"}
       </Button> : null}
     </section>

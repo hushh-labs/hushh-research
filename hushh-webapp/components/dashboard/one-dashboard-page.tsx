@@ -1,3 +1,5 @@
+import { preload } from "react-dom";
+import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -14,6 +16,8 @@ export function OneDashboardPage({
   capabilityStatusById?: Record<string, CapabilityStatus>;
   userId?: string | null;
 }) {
+  // Warm the lightweight artwork while the user chooses an agent.
+  preload(WALLET_HERO_SRC, { as: "image", fetchPriority: "low" });
   return (
     <AppPageShell
       as="main"
