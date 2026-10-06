@@ -168,6 +168,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [stationaryKey, setStationaryKey] = useState<string | null>(null);
+  const [paneStationaryKey, setPaneStationaryKey] = useState<string | null>(null);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
     panelRef.current = node;
     if (node && previewOffset.current !== null) {
@@ -244,12 +245,24 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
     setHeldLocation(paneState.location);
   }
   const location = paneState.open ? paneState.location : heldLocation;
+  // Close owns the outer pane, not its inner stack. Its fixed header slot and
+  // operation do not change when a settings panel slides underneath it.
+  // Back/content retain their location-bound settlement and action context.
+  const panePresentationKey = JSON.stringify([owner, pathname, open, isVaultUnlocked]);
   const presentationKey = JSON.stringify([owner, pathname, profilePaneLocationKey(location), open, isVaultUnlocked]);
+  useEffect(() => {
+    setPaneStationaryKey(null);
+    if (!open || !isVaultUnlocked) return;
+    const timer = window.setTimeout(() => {
+      panelRef.current?.style.removeProperty("--profile-entry-offset");
+      setPaneStationaryKey(panePresentationKey);
+    }, presentationMotionDuration("--motion-sheet-enter-duration", 300));
+    return () => window.clearTimeout(timer);
+  }, [panePresentationKey, open, isVaultUnlocked]);
   useEffect(() => {
     setStationaryKey(null);
     if (!open || !isVaultUnlocked) return;
     const timer = window.setTimeout(() => {
-      panelRef.current?.style.removeProperty("--profile-entry-offset");
       setStationaryKey(presentationKey);
     }, presentationMotionDuration("--motion-sheet-enter-duration", 300));
     return () => window.clearTimeout(timer);
@@ -373,7 +386,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
           </SheetDescription>
         </SheetHeader>
         <NativeChatChrome kind="close" owner={owner ?? null} label="Close Profile" focusRef={closeRef}
-          context={`${pathname}:${profilePaneLocationKey(location)}`} eligible={open && stationaryKey === presentationKey}
+          context={panePresentationKey} eligible={open && paneStationaryKey === panePresentationKey}
           onActivate={() => onOpenChange(false)}
           style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
           className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10 flex size-11 items-center justify-center">

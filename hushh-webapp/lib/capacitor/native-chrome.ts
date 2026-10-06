@@ -37,6 +37,7 @@ export type ChromeAcknowledgement = ChromeIdentity & {
 export type ChromeChoice = ChromeIdentity & { sequence: number; privacyGeneration: number; updateSequence?: number; value?: string };
 export type ChromeUpdate = NativeControlAppearance & { enabled: boolean; value?: string; expanded?: boolean };
 export type ChromeUpdateAcknowledgement = ChromeIdentity & { updateSequence: number };
+type ChromeGeometry = Pick<ChromeControlProjection, "frame" | "viewport">;
 export type ChromeFocusAcknowledgement = ChromeIdentity & { updateSequence: number; focusSequence: number; restored: boolean };
 export type NativeChromeCapabilities = {
   contractVersion: number; families: readonly ChromeFamily[]; canvasAppearance?: boolean;
@@ -84,6 +85,29 @@ export function getNativeChromeCapabilities(): Promise<NativeChromeCapabilities 
 export function supportsNativeChrome(family: ChromeFamily): boolean {
   const capability = peekNativeChromeCapabilities();
   return capability?.contractVersion === 2 && capability.independentControls === true && capability.families.includes(family);
+}
+
+/** Measure only the authored slot. Resize notifications are not proof that
+ * its admitted geometry changed; clipping and inert ancestors still matter. */
+export function measureNativeChromeGeometry(slot: HTMLElement, kind: ChromeFamily): ChromeGeometry | null {
+  if (slot.closest("[inert]")) return null;
+  const frame = slot.getBoundingClientRect();
+  const viewport = { width: window.innerWidth, height: window.innerHeight };
+  const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
+  const widthAdmitted = kind === "agent-surface" || kind === "appearance"
+    ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
+  if (!widthAdmitted || frame.height !== 44 ||
+      ![frame.x, frame.y, viewport.width, viewport.height].every(Number.isFinite) ||
+      frame.left < 0 || frame.top < 0 || frame.right > viewport.width || frame.bottom > viewport.height) return null;
+  if (kind === "appearance" || kind === "accent") {
+    for (let parent = slot.parentElement; parent; parent = parent.parentElement) {
+      const style = getComputedStyle(parent);
+      const bounds = parent.getBoundingClientRect();
+      if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (frame.top < bounds.top || frame.bottom > bounds.bottom) ||
+          /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left || frame.right > bounds.right)) return null;
+    }
+  }
+  return { frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height }, viewport };
 }
 
 /** The existing CSS canvas is authoritative even when no native control is visible. */
@@ -169,6 +193,7 @@ export class NativeChromeLease {
   readonly projection: ChromeProjection;
   private current = true;
   private active = false;
+  private layoutConfirmed = false;
   private sequence = 0;
   private requestedUpdate = 0;
   private appliedUpdate = 0;
@@ -178,6 +203,14 @@ export class NativeChromeLease {
     this.projection = { ...projection, ...nextChromeIdentity(ownerEpoch, chromeControlId(projection.kind)) };
   }
   invalidate() { this.current = false; this.active = false; }
+  /** Exact equality, not the one-pixel acknowledgement tolerance. A real move,
+   * changed viewport, or unconfirmed/invalidated lease must be re-admitted. */
+  matchesGeometry(geometry: ChromeGeometry): boolean {
+    return this.current && this.layoutConfirmed &&
+      (Object.keys(this.projection.frame) as (keyof ChromeFrame)[]).every((key) =>
+        geometry.frame[key] === this.projection.frame[key]) &&
+      geometry.viewport.width === this.projection.viewport.width && geometry.viewport.height === this.projection.viewport.height;
+  }
   async prepare(): Promise<boolean> {
     outstanding.set(this.projection.controlId, this.projection);
     const ack = await bounded(nativeChrome.prepare(this.projection));
@@ -186,6 +219,7 @@ export class NativeChromeLease {
           !Number.isFinite(ack.frame![key]) || Math.abs(ack.frame![key] - this.projection.frame[key]) > 1)) {
       throw new Error("NATIVE_CHROME_LAYOUT_UNCONFIRMED");
     }
+    this.layoutConfirmed = true;
     return this.current;
   }
   async activate(): Promise<void> {
@@ -219,6 +253,11 @@ export class NativeChromeLease {
         this.projection.kind === "more" && presentation.value !== undefined) {
       throw new Error("NATIVE_CHROME_UPDATE_INVALID");
     }
+    if (this.active && this.requestedUpdate === this.appliedUpdate &&
+        presentation.appearance === this.projection.appearance && presentation.accentHex === this.projection.accentHex &&
+        presentation.foregroundHex === this.projection.foregroundHex && presentation.enabled === this.projection.enabled &&
+        presentation.value === ("value" in this.projection ? this.projection.value : undefined) &&
+        presentation.expanded === ("expanded" in this.projection ? this.projection.expanded : undefined)) return true;
     const updateSequence = ++this.requestedUpdate;
     await this.activate();
     if (!this.current || updateSequence !== this.requestedUpdate) return false;

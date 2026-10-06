@@ -3,7 +3,7 @@
 import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { XIcon } from "@/components/icons";
 import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type RefObject } from "react";
-import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, chromeControlId, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry, type ChromeAgentSurface, type ChromeChoice, type ChromeOption, type ChromeControl } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { isCurrentNativeControlAppearance, NATIVE_CONTROL_CONTRACT_VERSION, useNativeControlAppearance } from "@/lib/capacitor/native-control-appearance";
@@ -244,6 +244,11 @@ export function NativeChatChrome(props: Props) {
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((count) => count + 1); };
+    const reconcileGeometry = () => {
+      const geometry = slot.current && measureNativeChromeGeometry(slot.current, kind);
+      if (geometry && canAct() && !heldFocus.current && lease.current?.matchesGeometry(geometry)) return;
+      invalidate();
+    };
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
@@ -286,8 +291,8 @@ export function NativeChatChrome(props: Props) {
     const node = slot.current;
     node?.addEventListener("focusout", onFocusOut);
     document.addEventListener("visibilitychange", invalidate);
-    window.addEventListener("resize", invalidate);
-    const observer = new ResizeObserver(invalidate);
+    window.addEventListener("resize", reconcileGeometry);
+    const observer = new ResizeObserver(reconcileGeometry);
     if (node) observer.observe(node);
     return () => {
       cancelled = true;
@@ -296,7 +301,7 @@ export function NativeChatChrome(props: Props) {
       observer.disconnect();
       node?.removeEventListener("focusout", onFocusOut);
       document.removeEventListener("visibilitychange", invalidate);
-      window.removeEventListener("resize", invalidate);
+      window.removeEventListener("resize", reconcileGeometry);
       setSupported(false);
     };
   }, [kind, controlId, foreground, canAct]);
@@ -394,19 +399,8 @@ export function NativeChatChrome(props: Props) {
           heldFocus.current = true; nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "focused"); return;
         }
-        const frame = slot.current.getBoundingClientRect();
-        const minimumWidth = kind === "appearance" ? 132 : kind === "agent-surface" ? 88 : 44;
-        const widthAdmitted = kind === "agent-surface" || kind === "appearance" ? frame.width >= minimumWidth && frame.width <= 320 : frame.width === 44;
-        let clipped = !!slot.current.closest("[inert]");
-        if (preference) {
-          for (let parent = slot.current.parentElement; parent; parent = parent.parentElement) {
-            const style = getComputedStyle(parent);
-            const bounds = parent.getBoundingClientRect();
-            if (/(auto|scroll|hidden|clip)/.test(style.overflowY) && (frame.top < bounds.top || frame.bottom > bounds.bottom) ||
-                /(auto|scroll|hidden|clip)/.test(style.overflowX) && (frame.left < bounds.left || frame.right > bounds.right)) clipped = true;
-          }
-        }
-        if (frame.height !== 44 || !widthAdmitted || clipped) {
+        const geometry = measureNativeChromeGeometry(slot.current, kind);
+        if (!geometry) {
           setHidden(false);
           nativeFocusPending.current?.resolve(false); nativeFocusPending.current = null;
           reportRehearsal("skip", "acknowledged", "geometry"); return;
@@ -422,8 +416,7 @@ export function NativeChatChrome(props: Props) {
           props.kind === "selection" ? { kind: "selection", value: props.value, options: props.options, label: props.label } :
           { kind: "more", options: props.options, label: props.label };
         const next = new NativeChromeLease({ ...control,
-          enabled: true, ...theme, frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
-          viewport: { width: window.innerWidth, height: window.innerHeight } }, epoch, context, inPlaceUpdates);
+          enabled: true, ...theme, ...geometry }, epoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
         stage = "prepare";

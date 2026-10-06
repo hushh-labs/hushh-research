@@ -4,7 +4,7 @@ import { Capacitor, type PluginListenerHandle } from "@capacitor/core";
 import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeftIcon } from "@/components/icons";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
-import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome } from "@/lib/capacitor/native-chrome";
+import { NativeChromeLease, getNativeChromeCapabilities, hasOutstandingNativeChrome, supportsNativeChrome, nativeChrome, retireNativeChrome, measureNativeChromeGeometry } from "@/lib/capacitor/native-chrome";
 import { nativeShellOverlayBlocked, useNativeShellOverlayBlocked } from "@/lib/capacitor/native-navigation";
 import { subscribeNativeSessionPrivacy } from "@/lib/capacitor/session-privacy";
 import { useVoiceSurfaceMetadata, getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -52,6 +52,13 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       if (cancelled || subscriptionsFailed) await handle.remove(); else handles.push(handle);
     };
     const invalidate = () => { lease.current?.invalidate(); remeasure((value) => value + 1); };
+    const reconcileGeometry = () => {
+      const geometry = slot.current && measureNativeChromeGeometry(slot.current, "back");
+      if (geometry && current.current.allowed && document.visibilityState !== "hidden" &&
+          !nativeShellOverlayBlocked() && !isSessionChromeSuppressed() &&
+          !getVoiceSurfaceMetadata()?.interactionLayer?.blocksUnderlyingActions && lease.current?.matchesGeometry(geometry)) return;
+      invalidate();
+    };
     void (async () => {
       try {
         const capability = await getNativeChromeCapabilities();
@@ -77,14 +84,14 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
       }
     })();
     document.addEventListener("visibilitychange", invalidate);
-    window.addEventListener("resize", invalidate);
-    const observer = new ResizeObserver(invalidate);
+    window.addEventListener("resize", reconcileGeometry);
+    const observer = new ResizeObserver(reconcileGeometry);
     if (slot.current) observer.observe(slot.current);
     return () => {
       cancelled = true;
       handles.forEach((handle) => { void handle.remove(); });
       observer.disconnect();
-      window.removeEventListener("resize", invalidate);
+      window.removeEventListener("resize", reconcileGeometry);
       document.removeEventListener("visibilitychange", invalidate);
     };
   }, []);
@@ -109,11 +116,10 @@ export function NativeShellBack({ label, onBack, owner, context, eligible }: {
           if (wasFocused) button.current?.focus({ preventScroll: true });
           return;
         }
-        const frame = slot.current.getBoundingClientRect();
-        if (frame.width !== 44 || frame.height !== 44) { setHidden(false); return; }
+        const geometry = measureNativeChromeGeometry(slot.current, "back");
+        if (!geometry) { setHidden(false); return; }
         const next = new NativeChromeLease({ kind: "back", label, enabled: true, ...theme,
-          frame: { x: frame.x, y: frame.y, width: frame.width, height: frame.height },
-          viewport: { width: window.innerWidth, height: window.innerHeight } }, activeEpoch, context, inPlaceUpdates);
+          ...geometry }, activeEpoch, context, inPlaceUpdates);
         owned = next;
         lease.current = next;
         setHidden(true);
