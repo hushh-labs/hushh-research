@@ -78,6 +78,31 @@ final class AppUITests: XCTestCase {
         app.activate()
         let web = app.webViews.firstMatch
         XCTAssertTrue(web.waitForExistence(timeout: 15), "Vault WebView unavailable")
+        let publicReceipt = app.buttons["native-vault-layout"]
+        var receiptSequence = -1
+        func reportReceipt(_ stage: String) {
+            guard publicReceipt.exists else { return }
+            var observation: [String: NSNumber]?
+            let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let json = publicReceipt.value as? String, let data = json.data(using: .utf8),
+                      let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
+                      let sequence = packet["sequence"]?.intValue, sequence > receiptSequence,
+                      packet["unlockClicks"] != nil, packet["unlockAccepted"] != nil else { return false }
+                receiptSequence = sequence
+                observation = packet
+                return true
+            }, object: publicReceipt)
+            guard XCTWaiter.wait(for: [fresh], timeout: 5) == .completed, let packet = observation,
+                  let clicks = packet["unlockClicks"]?.intValue,
+                  let accepted = packet["unlockAccepted"]?.intValue,
+                  (0...100000).contains(clicks), (0...100000).contains(accepted) else {
+                XCTFail("VAULT_PUBLIC_RECEIPT_UNAVAILABLE"); return
+            }
+            let hit = packet["unlockHits"].map { $0.boolValue ? "hit" : "miss" } ?? "unknown"
+            print("VAULT_PUBLIC_RECEIPT stage=\(stage) clicks=\(clicks) accepted=\(accepted) hit=\(hit)")
+        }
+        reportReceipt("before")
+        defer { reportReceipt("after") }
         let unlock = web.buttons["Unlock"].firstMatch
         let composer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         let signIn = web.buttons["Continue with Google"].firstMatch
@@ -185,6 +210,19 @@ final class AppUITests: XCTestCase {
             }
         }
         let rest = settledGeometry(after: 0)
+        guard let initialClicks = rest?["unlockClicks"]?.intValue,
+              let initialAccepted = rest?["unlockAccepted"]?.intValue,
+              let initialSequence = rest?["sequence"]?.intValue else {
+            XCTFail("VAULT_LAYOUT_RECEIPT_UNAVAILABLE"); return
+        }
+        defer {
+            if let latest = settledGeometry(after: initialSequence) {
+                XCTAssertEqual(latest["unlockClicks"]?.intValue, initialClicks, "VAULT_LAYOUT_IDLE_PRODUCED_CLICK")
+                XCTAssertEqual(latest["unlockAccepted"]?.intValue, initialAccepted, "VAULT_LAYOUT_IDLE_PRODUCED_ADMISSION")
+            } else {
+                XCTFail("VAULT_LAYOUT_RECEIPT_UNAVAILABLE")
+            }
+        }
         report("rest", packet: rest)
         entry.tap()
         // A connected hardware keyboard is a valid tablet state. Do not

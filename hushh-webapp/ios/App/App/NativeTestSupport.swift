@@ -724,7 +724,8 @@ final class NativeTestStatusLabel: UIButton {
 
 #if DEBUG
 /// Attach-only layout evidence, separate from reviewer bootstrap and its
-/// persistent status store. Opt-in snapshots contain public geometry only.
+/// persistent status store. Opt-in snapshots contain public geometry and passive
+/// event counts only; they cannot invoke unlock or inspect credential values.
 final class NativeVaultLayoutProbe {
     private let label = NativeTestStatusLabel(frame: .zero, showOverlay: false)
     private var timer: Timer?
@@ -765,7 +766,8 @@ final class NativeVaultLayoutProbe {
             let keys = Set(["presentCount", "innerHeight", "visualHeight", "visualTop", "visualScale",
                             "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
                             "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
-                            "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits"])
+                            "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits",
+                            "unlockHits", "unlockClicks", "unlockAccepted"])
             var payload = [String: Any]()
             for (key, value) in values where keys.contains(key) {
                 guard let number = value as? NSNumber,
@@ -787,6 +789,22 @@ final class NativeVaultLayoutProbe {
 
     private static let script = """
     (() => {
+      const receiptKey = Symbol.for('hushh.native.vault.public-receipt');
+      if (!window[receiptKey]) {
+        const receipt = { clicks: 0, accepted: 0 };
+        window[receiptKey] = receipt;
+        document.addEventListener('click', event => {
+          const button = event.target instanceof Element ? event.target.closest('button') : null;
+          if (event.isTrusted && button?.closest('[data-vault-unlock-surface]') &&
+              button.textContent?.trim() === 'Unlock') receipt.clicks = Math.min(100000, receipt.clicks + 1);
+        }, { capture: true, passive: true });
+        // Occurrence only, never the event detail. This is not proof that React
+        // rendered protected content; the normal Chat assertion remains required.
+        window.addEventListener('vault-unlocked', () => {
+          receipt.accepted = Math.min(100000, receipt.accepted + 1);
+        });
+      }
+      const receipt = window[receiptKey];
       const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
       const root = document.documentElement;
       const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
@@ -794,12 +812,18 @@ final class NativeVaultLayoutProbe {
         presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
         visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
         cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
-        kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes')
+        kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes'),
+        unlockClicks: receipt.clicks, unlockAccepted: receipt.accepted
       };
       const surface = surfaces.length === 1 ? surfaces[0] : null;
       const scroll = surface?.querySelector('[data-vault-flow-content]');
       const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');
       if (surface && scroll) {
+        const unlock = Array.from(scroll.querySelectorAll('button')).find(button => button.textContent?.trim() === 'Unlock');
+        if (unlock) {
+          const u = unlock.getBoundingClientRect();
+          result.unlockHits = unlock.contains(document.elementFromPoint(u.left + u.width / 2, u.top + u.height / 2));
+        }
         const s = scroll.getBoundingClientRect();
         Object.assign(result, { surfaceTop: surface.getBoundingClientRect().top,
           surfaceMaxHeight: finite(getComputedStyle(surface).maxHeight), scrollTopEdge: s.top, scrollBottomEdge: s.bottom,

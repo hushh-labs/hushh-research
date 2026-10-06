@@ -70,7 +70,9 @@ another reviewer store or a privileged app-unlock route.
 6. If one journey stops a family batch, account for its remaining steps as not
    reached. Restore through authored Back/Chat, verify admission, and run only
    those isolated journeys. Never hide the original failure with a green retry.
-7. Record exact candidate/runtime, actions reached, assertions, exclusions and
+7. Require the requested family/test identity and its observed completion receipt,
+   not merely exit zero or a passing count: an incorrectly selected generic smoke
+   does not prove the requested workspace. Record exact candidate/runtime, actions reached, assertions, exclusions and
    blockers. Rebuild the runner alone for harness-only corrections. Preserve
    unrelated edits and keep physical iPad, iPhone and simulator acceptance distinct.
 8. Route landing and redeployment through the full Admin SOP in `repo-operations`.
