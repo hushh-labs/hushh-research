@@ -223,6 +223,28 @@ tests/test_contact_sync_postgres_integration.py
 tests/services/test_actor_identity_service.py
 tests/services/test_connection_graph_service.py
 
+# Referral program: attribution integrity (self-referral, predates-link,
+# duplicate, expiry), the qualification pipeline (onboarding-completion is
+# the whole bar), the gamification foundation (program settings + weekly
+# reward round schedule, migration 270), cumulative scoring (base/flash/
+# streak points, the durable worker, leaderboard snapshots, migration 271),
+# and circles/milestones (team contest selection, event-time contribution
+# snapshots, lifetime entitlements, fulfillment foundation, migration 272).
+# Absent from this manifest means collect-only, not run.
+tests/services/test_one_referral_service_bind_attribution.py
+tests/services/test_one_referral_service_qualification.py
+tests/services/test_one_referral_program_settings_service.py
+tests/test_one_referral_scoring_points.py
+tests/services/test_one_referral_scoring_service.py
+tests/test_referral_scoring_drain_routes.py
+tests/test_one_referral_scoring_milestones.py
+tests/services/test_one_referral_circle_service.py
+tests/services/test_one_referral_rewards_service.py
+tests/test_one_referral_handle.py
+tests/services/test_one_referral_display_handle_service.py
+tests/services/test_one_referral_leaderboard_service.py
+tests/services/test_one_referral_weekly_award_service.py
+
 # One Location Circles, and the migration guards that protect them.
 #
 # Every file below was written to lock a behaviour that had already broken

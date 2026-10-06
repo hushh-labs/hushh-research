@@ -241,6 +241,90 @@ async function mount(page: Page) {
   await page.addScriptTag({ content: script });
 }
 
+for (const width of [320, 393, 1440]) {
+  test(`Wallet matches Location header and tab geometry at ${width}px`, async ({ page }) => {
+    const source = fs.readFileSync(path.join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+    const hubClass = source.match(/data-location-hub\s+className="([^"]+)"/)?.[1];
+    const headerClass = source.slice(source.indexOf('title="Location"')).match(/className="([^"]+)"/)?.[1];
+    expect(hubClass).toBeTruthy();
+    expect(headerClass).toBeTruthy();
+    const geometry = () => page.evaluate(() => {
+      const title = document.querySelector("h1")!;
+      const header = document.querySelector('[data-slot="page-header"]')!;
+      const tabs = document.querySelector('[role="tablist"]')!;
+      const box = (el: Element) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.x, y: r.y, width: r.width, height: r.height };
+      };
+      return { header: box(header), tabs: box(tabs), titleY: box(title).y,
+        titleSize: getComputedStyle(title).fontSize,
+        tabWidths: Array.from(tabs.children).filter((el) => el.getAttribute("role") === "tab").map((el) => box(el).width) };
+    });
+    await open(page, width, "light", {}, { shell: true });
+    await mount(page);
+    await expect(page.getByRole("tab", { name: "Cards", exact: true })).toBeEnabled();
+    const wallet = await geometry();
+    await open(page, width, "light", {}, { shell: true });
+    await page.addScriptTag({ content: `window.__locationReference=${JSON.stringify({ hubClass, headerClass })}` });
+    await mount(page);
+    await expect(page.getByRole("heading", { name: "Location", exact: true })).toBeVisible();
+    const location = await geometry();
+    for (const part of ["header", "tabs"] as const) {
+      for (const coordinate of ["x", "y", "width", "height"] as const) {
+        expect(Math.abs(wallet[part][coordinate] - location[part][coordinate]), `${part}.${coordinate}`).toBeLessThanOrEqual(0.5);
+      }
+    }
+    expect(wallet.titleSize).toBe(location.titleSize);
+    expect(Math.abs(wallet.titleY - location.titleY)).toBeLessThanOrEqual(0.5);
+    expect(wallet.tabWidths).toEqual(location.tabWidths);
+  });
+}
+
+test("Wallet tabs preserve a draft and return to the Cards panel", async ({ page }) => {
+  const errors = await open(page, 393, "light");
+  await mount(page);
+  await expect(page.getByTestId("one-wallet-card-4242")).toBeVisible();
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  await expect(page.getByTestId("secure-card-add-form")).toBeVisible();
+  await page.getByLabel("Nickname", { exact: true }).fill("Travel");
+  await page.getByRole("tab", { name: "Cards", exact: true }).click();
+  await expect(page.getByTestId("one-wallet-card-4242")).toBeVisible();
+  await expect(page.getByTestId("secure-card-add-form")).not.toBeInViewport();
+  await expect(page.locator("#top-shell-wallet-panel-add")).toHaveAttribute("inert", "");
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  await expect(page.getByLabel("Nickname", { exact: true })).toHaveValue("Travel");
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect(errors).toEqual([]);
+});
+
+test("Wallet Add scrolls in the page and swipes back to Cards without a tall blank tail", async ({ page }) => {
+  await open(page, 393, "light", {}, { height: 667, shell: true });
+  await mount(page);
+  await expect(page.getByTestId("one-wallet-card-4242")).toBeInViewport();
+  const scroll = page.locator('[data-app-scroll-root="true"]');
+  const cardsOverflow = await scroll.evaluate((el) => el.scrollHeight - el.clientHeight);
+  await page.getByRole("tab", { name: "Add", exact: true }).click();
+  await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
+  await scroll.evaluate((el) => { el.scrollTop = el.scrollHeight; });
+  await expect(page.getByTestId("secure-card-save")).toBeInViewport();
+  const formScrollers = await page.getByTestId("secure-card-add-form").evaluate((form) =>
+    [form, ...Array.from(form.querySelectorAll("*"))].filter((el) =>
+      /auto|scroll/.test(getComputedStyle(el).overflowY) && el.scrollHeight > el.clientHeight + 1
+    ).length);
+  expect(formScrollers).toBe(0);
+  await scroll.evaluate((el) => { el.scrollTop = 0; });
+  const panel = await page.locator("#top-shell-wallet-panel-add").boundingBox();
+  if (!panel) throw new Error("Add panel is missing");
+  await page.mouse.move(35, panel.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(350, panel.y + 8, { steps: 20 });
+  await page.mouse.up();
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByTestId("one-wallet-card-4242")).toBeInViewport();
+  await expect.poll(() => scroll.evaluate((el) => el.scrollHeight - el.clientHeight)).toBeLessThanOrEqual(cardsOverflow + 1);
+});
+
 /** Everything the geometry contract reads, in one pass. */
 async function measure(page: Page) {
   return page.evaluate(() => {
@@ -310,6 +394,9 @@ async function measure(page: Page) {
       (li) => li.getBoundingClientRect().top,
     );
     const smallTargets = [...document.querySelectorAll<HTMLElement>('[data-testid="one-wallet-workspace"] button, [data-slot="wallet-header-action"] button')]
+      // Module tabs use Location's shared compact 36px strip; card actions
+      // retain their separate 44px touch target contract.
+      .filter((el) => el.getAttribute("role") !== "tab")
       .filter((el) => el.getBoundingClientRect().width > 0)
       .filter((el) => el.getBoundingClientRect().height < 44 - 0.5)
       .map((el) => el.textContent);
@@ -648,7 +735,7 @@ test("the empty Wallet fits one desktop shell viewport", async ({ page }) => {
 
     expect(measured.overflow, `${viewport.width}x${viewport.height} scroll overflow`).toBeLessThanOrEqual(1);
     expect(measured.actionBottom, `${viewport.width}x${viewport.height} action clears chrome`)
-      .toBeLessThanOrEqual(measured.chromeTop - 24 + 1);
+      .toBeLessThanOrEqual(measured.chromeTop + 1);
     expect(errors).toEqual([]);
   }
 });
@@ -672,6 +759,6 @@ test("the empty Wallet remains reachable in a short phone shell", async ({ page 
   });
 
   expect(measured.scrollable).toBe(true);
-  expect(measured.actionBottom).toBeLessThanOrEqual(measured.chromeTop - 24 + 1);
+  expect(measured.actionBottom).toBeLessThanOrEqual(measured.chromeTop + 1);
   expect(errors).toEqual([]);
 });

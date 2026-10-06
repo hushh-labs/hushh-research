@@ -30,7 +30,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
   AppPageContentRegion,
-  AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
@@ -65,6 +64,8 @@ import { WalletCardStack } from "@/components/wallet/wallet-card-stack";
 import { useAuth } from "@/hooks/use-auth";
 import { prefersReducedMotion } from "@/lib/morphy-ux/gsap";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { trackEvent } from "@/lib/observability/client";
 import {
   WalletService,
@@ -81,9 +82,15 @@ import {
 import { takeReservedOfferPrefill } from "@/lib/pkm/reserved-offer";
 
 const WALLET_PAGE_SIZE = 10;
+const WALLET_TABS = [
+  { value: "cards", label: "Cards" },
+  { value: "add", label: "Add" },
+  { value: "sharing", label: "Sharing" },
+];
+type WalletTab = "cards" | "add" | "sharing";
 
 /** One column for header and content, so both share a start line. */
-const WALLET_COLUMN = "mx-auto w-full max-w-[26.5rem]";
+const WALLET_COLUMN = "mx-auto w-full max-w-[820px] space-y-1.5 sm:space-y-3.5";
 
 const CARD_SLOT_RADIUS = { borderRadius: `calc(100cqw * ${CARD_CORNER_RADIUS_RATIO})` };
 
@@ -126,7 +133,7 @@ function StateMessage({ title, body }: { title: string; body: string }) {
 function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
   return (
     <section
-      className="flex w-full flex-col items-center pt-12 text-center lg:pt-6"
+      className="flex w-full flex-col items-center pt-12 text-center lg:pt-2"
       aria-labelledby="one-wallet-empty-title"
       data-testid={loading ? "one-wallet-loading" : "one-wallet-empty"}
       aria-busy={loading}
@@ -204,6 +211,10 @@ export function WalletWorkspace() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [view, dispatch] = useReducer(walletViewReducer, INITIAL_WALLET_VIEW);
+  const [tab, setTab] = useState<WalletTab>("cards");
+  const [addDraftOpen, setAddDraftOpen] = useState(false);
+  const ready = view.kind === "list" || view.kind === "add" || view.kind === "reveal";
+  const activeTab = view.kind === "add" ? "add" : tab;
   const [cards, setCards] = useState<WalletCardSummary[]>([]);
   const [busyCardId, setBusyCardId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<WalletCardSummary | null>(null);
@@ -214,6 +225,27 @@ export function WalletWorkspace() {
   // A card kept in Secrets that the owner chose to file here, decrypted from
   // the vault on this device. Memory only; cleared on save or cancel.
   const [filing, setFiling] = useState<{ secretId: string; pan: string } | null>(null);
+  useEffect(() => {
+    if (view.kind === "add") setAddDraftOpen(true);
+    if (!ready) {
+      setAddDraftOpen(false);
+      setTab("cards");
+      setFiling(null);
+      setOfferNickname(null);
+    }
+  }, [ready, view.kind]);
+
+  const selectTab = (value: string) => {
+    if (!ready || value === activeTab || !WALLET_TABS.some((option) => option.value === value)) return;
+    // Drop revealed values and reject an in-flight reveal when leaving Cards.
+    dispatch({ type: "unfocus" });
+    if (value === "add") {
+      dispatch({ type: "open_add" });
+    } else {
+      dispatch({ type: "close_add" });
+    }
+    setTab(value as WalletTab);
+  };
   const stackRef = useRef<HTMLDivElement | null>(null);
   const detailsId = useId();
   // Search and page live in the URL (same shape as Consent Center's list), so a
@@ -420,10 +452,10 @@ export function WalletWorkspace() {
     }
   };
 
-  const hasCards = view.kind === "list" && cards.length > 0;
+  const hasCards = ready && cards.length > 0;
   const showSearch = hasCards && !focusedCardId && cards.length > WALLET_PAGE_SIZE;
 
-  const headerAction = focusedCardId ? (
+  const headerAction = activeTab !== "cards" ? null : focusedCardId ? (
     <Button
       variant="secondary"
       size="compact"
@@ -451,38 +483,35 @@ export function WalletWorkspace() {
   return (
     <AppPageShell
       as="div"
-      width="reading"
-      fitContent={view.kind === "loading" || (view.kind === "list" && cards.length === 0)}
+      width="agent"
+      fitContent
+      className="relative isolate [--app-page-content-bottom-gap:0px]"
     >
-      <AppPageHeaderRegion>
-        <div className={WALLET_COLUMN}>
-          <PageHeader
-            // Centred in the same 44px line as the header action, so the two
-            // share one centre line at every width.
-            title={
-              <span className="flex min-h-11 items-center" data-slot="wallet-heading-line">
-                Wallet
-              </span>
-            }
-            actionsInlineMobile
-            // The slot keeps its 44px height with or without an action, so
-            // the header never changes height when the cards arrive.
-            actions={
-              <span className="flex h-11 items-center" data-slot="wallet-header-action">
-                {headerAction}
-              </span>
-            }
-          />
-        </div>
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion>
+      <AppPageContentRegion className="min-w-0 space-y-4 overflow-x-hidden">
         <div
-          className={cn(WALLET_COLUMN, "flex flex-col gap-6")}
+          className={WALLET_COLUMN}
+          data-wallet-hub
           data-testid="one-wallet-workspace"
           data-view={view.kind}
           onKeyDown={onKeyDown}
         >
+          <PageHeader
+            title={
+              <span className="block" data-slot="wallet-heading-line">
+                Wallet
+              </span>
+            }
+            actionsInlineMobile
+            titleRole="agent"
+            className="[&>div:first-child]:!gap-2.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
+            // Match Location's 31px switch + 4px gap + 18px status row.
+            // Reserve it even without an action so loading never shifts tabs.
+            actions={
+              <span className="flex h-[53px] items-center" data-slot="wallet-header-action">
+                {headerAction}
+              </span>
+            }
+          />
           <NativeTestBeacon
             routeId="/one/wallet"
             marker="native-route-one-wallet"
@@ -502,11 +531,34 @@ export function WalletWorkspace() {
             }
           />
 
+          <TopShellTabs
+            tabSet={{
+              id: "wallet",
+              label: "Wallet",
+              queryParam: "view",
+              activeValue: activeTab,
+              tabs: WALLET_TABS.map((option) => ({ ...option, href: pathname })),
+            }}
+            onValueChange={selectTab}
+            disabled={!ready}
+          />
+          <div className="-mx-[var(--page-inline-gutter-standard)]">
+          <SwipeViews
+            disabled={!ready}
+            options={WALLET_TABS}
+            tabSetId="wallet"
+            activeValue={activeTab}
+            onSelectionChange={selectTab}
+            viewportMinHeight="fill"
+            heightMode="active"
+            holdHeightDuringTransition={false}
+          >
+          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
           {view.kind === "disabled" ? (
             <p className={TYPOGRAPHY_CLASSNAMES.helperText}>Wallet is not available here yet.</p>
           ) : null}
 
-          {view.kind === "loading" || (view.kind === "list" && cards.length === 0) ? (
+          {view.kind === "loading" || (ready && cards.length === 0) ? (
             <WalletIntroduction
               loading={view.kind === "loading"}
               onConnect={() => dispatch({ type: "open_add" })}
@@ -565,7 +617,7 @@ export function WalletWorkspace() {
             </p>
           ) : null}
 
-          {(view.kind === "list" || view.kind === "reveal") && pageCards.length > 0 ? (
+          {ready && pageCards.length > 0 ? (
             <WalletCardStack
               ref={stackRef}
               cards={pageCards}
@@ -636,10 +688,13 @@ export function WalletWorkspace() {
             />
           ) : null}
 
-          {view.kind === "add" ? (
-            <div className="motion-step-enter">
+          </div>
+          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
+          {ready && (addDraftOpen || view.kind === "add") ? (
+            <div>
               <SecureCardAddForm
-                key={filing?.secretId ?? "new"}
+                key={`${renderedOwnerId}:${filing?.secretId ?? "new"}`}
+                active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
                 initialPan={filing?.pan}
                 onSubmit={async (card) => {
@@ -661,6 +716,8 @@ export function WalletWorkspace() {
                     }
                     throw error;
                   }
+                  setAddDraftOpen(false);
+                  setTab("cards");
                   setOfferNickname(null);
                   if (filing) {
                     clearSecretOffer();
@@ -670,6 +727,8 @@ export function WalletWorkspace() {
                   await refresh();
                 }}
                 onCancel={() => {
+                  setAddDraftOpen(false);
+                  setTab("cards");
                   setOfferNickname(null);
                   clearSecretOffer();
                   setFiling(null);
@@ -678,6 +737,10 @@ export function WalletWorkspace() {
               />
             </div>
           ) : null}
+          </div>
+          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing" />
+          </SwipeViews>
+          </div>
         </div>
 
         <AlertDialog

@@ -59,6 +59,15 @@ const OPTIONS = [
 ] as const;
 
 describe("SwipeViews", () => {
+  it("updates a retained drag guard when a loading workspace becomes ready", () => {
+    const view = render(<SwipeViews disabled options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    const watchDrag = embla.options!.watchDrag as (api: unknown, event: Event) => boolean;
+    const api = { rootNode: () => document.body };
+    const event = new MouseEvent("mousedown");
+    expect(watchDrag(api, event)).toBe(false);
+    view.rerender(<SwipeViews options={OPTIONS} tabSetId="guard" activeValue="first"><div>First</div><div>Second</div></SwipeViews>);
+    expect(watchDrag(api, event)).toBe(true);
+  });
   it("clamps shared tab progress at the first and last workspace pane", () => {
     expect(clampSwipePosition(-0.24, 3)).toBe(0);
     expect(clampSwipePosition(0.65, 3)).toBe(0.65);

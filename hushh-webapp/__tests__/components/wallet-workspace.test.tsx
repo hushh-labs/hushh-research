@@ -84,6 +84,55 @@ function makeCards(count: number) {
 }
 
 describe("WalletWorkspace at scale", () => {
+  it("links all three tabs to their panels and supports keyboard selection", async () => {
+    render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-list");
+    for (const name of ["Cards", "Add", "Sharing"]) {
+      const tab = screen.getByRole("tab", { name });
+      const panel = document.getElementById(tab.getAttribute("aria-controls")!);
+      expect(panel).toHaveAttribute("aria-labelledby", tab.id);
+    }
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Cards" }), { key: "ArrowRight" });
+    expect(screen.getByRole("tab", { name: "Add" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByTestId("secure-card-add-form")).toBeTruthy();
+    fireEvent.keyDown(screen.getByRole("tab", { name: "Add" }), { key: "Home" });
+    expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("keeps a draft across tabs, masks it on departure, and drops it on vault lock", async () => {
+    const workspace = render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-list");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(screen.getByLabelText("Nickname"), { target: { value: "Travel" } });
+    fireEvent.change(screen.getByLabelText("CVV"), { target: { value: "123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Show CVV and PIN" }));
+    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "text");
+    fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    expect(screen.getByLabelText("Nickname")).toHaveValue("Travel");
+    expect(screen.getByLabelText("CVV")).toHaveAttribute("type", "password");
+    vaultMock.locked = true;
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    expect(screen.queryByTestId("secure-card-add-form")).toBeNull();
+  });
+
+  it("rejects a reveal that completes after leaving Cards", async () => {
+    let finish!: (value: unknown) => void;
+    serviceMock.getCard.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-list");
+    fireEvent.click(screen.getByTestId("one-wallet-card-1000"));
+    fireEvent.click(screen.getByTestId("one-wallet-reveal-1000"));
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    await act(async () => finish({
+      summary: makeCards(1)[0],
+      secrets: { pan: "4242424242421000", cvv: "123", pin: "", cardholderName: "Test" },
+    }));
+    fireEvent.click(screen.getByRole("tab", { name: "Cards" }));
+    expect(screen.queryByTestId("secure-card-reveal")).toBeNull();
+  });
+
   it("keeps post-mutation refresh outside Wallet outcome catches", () => {
     const source = readFileSync(
       join(process.cwd(), "components/wallet/wallet-workspace.tsx"),
