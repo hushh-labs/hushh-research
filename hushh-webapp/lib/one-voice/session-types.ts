@@ -97,6 +97,11 @@ export type VoiceSessionState = {
   level: number;
   transcript: TranscriptItem[];
   /**
+   * Monotonic counter behind transcript row ids. It only grows within a
+   * conversation, so ids stay unique after the row cap or a view clear.
+   */
+  transcriptSeq: number;
+  /**
    * Turns that were still streaming when the view was cleared. Their later
    * chunks and their finalization stay out of the displayed history; a turn
    * drops off this list once it ends, so it cannot grow without bound.
@@ -152,6 +157,7 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   halfDuplex: false,
   level: 0,
   transcript: [],
+  transcriptSeq: 0,
   clearedTurnIds: [],
   historyCleared: false,
   entities: [],

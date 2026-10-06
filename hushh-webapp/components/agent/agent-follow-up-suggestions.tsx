@@ -26,7 +26,7 @@ export function visibleFollowUps(
 }
 
 /**
- * Tapping a follow-up fills the composer, exactly like welcome suggestions: the
+ * Tapping a follow-up fills the composer: the
  * person can read, edit, or discard it before anything is sent.
  *
  * Each suggestion is a semantic button with a quiet text-row presentation and
@@ -51,7 +51,7 @@ export function AgentFollowUpSuggestions({
 }
 
 /** Welcome uses equal grid tracks; follow-ups keep a compact list. Both retain
- * the same edit-before-send selection, focus and flat ripple contracts. */
+ * the same selection, focus and flat ripple presentation; callers own submission. */
 export function AgentSuggestionList({ suggestions, label, testId, disabled = false, layout = "list", onSelect }: {
   suggestions: readonly string[];
   label: string;

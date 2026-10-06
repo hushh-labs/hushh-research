@@ -24,6 +24,8 @@ import {
 
 export interface WalletCardFaceProps {
   summary: WalletCardSummary;
+  /** Add collection finish; the default Cards surface remains unchanged. */
+  collection?: boolean;
   revealed?: { pan: string; cardholderName: string } | null;
   /** Overlay slot (the press ripple), clipped to the card's corners. */
   children?: ReactNode;
@@ -58,7 +60,7 @@ function FaceField({
   );
 }
 
-export function WalletCardFace({ summary, revealed, children, className }: WalletCardFaceProps) {
+export function WalletCardFace({ summary, revealed, children, className, collection = false }: WalletCardFaceProps) {
   const tone = cardFaceTone(summary.cardId);
   const network = cardNetworkLabel(summary.brand);
   const title = summary.nickname || network;
@@ -88,6 +90,16 @@ export function WalletCardFace({ summary, revealed, children, className }: Walle
           <CardNetworkWordmark brand={summary.brand} />
         </span>
 
+        {collection ? <span className="flex items-center gap-3" aria-hidden="true">
+          <svg viewBox="0 0 48 36" className="h-[7cqw] w-[9cqw] text-white/70" fill="none">
+            <rect x="1" y="1" width="46" height="34" rx="7" fill="currentColor" fillOpacity=".16" stroke="currentColor" />
+            <rect x="16" y="9" width="16" height="18" rx="4" stroke="currentColor" />
+            <path d="M16 13H1m15 10H1m31-10h15M32 23h15M20 9V1m8 8V1M20 27v8m8-8v8" stroke="currentColor" />
+          </svg>
+          <svg viewBox="0 0 24 28" className="h-[6cqw] w-[5cqw] text-white/60" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+            <path d="M5 10a8 8 0 0 1 0 8m5-12a15 15 0 0 1 0 16m5-20a22 22 0 0 1 0 24" />
+          </svg>
+        </span> : null}
         <span className="flex flex-col gap-3">
           <span
             data-slot="wallet-card-number"

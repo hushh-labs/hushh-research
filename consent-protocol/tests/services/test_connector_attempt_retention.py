@@ -24,6 +24,27 @@ from tests.services.test_external_connector_lifecycle_postgres import (  # noqa:
 )
 
 
+@pytest.fixture(autouse=True)
+def _pending_calls_table(request):
+    """The retention sweep also reclaims lapsed connector reviews (migration 281).
+
+    The synthetic schema holds only the connector tables, so this adds that one table
+    with the real columns, minus the actor_profiles foreign key it does not have.
+    """
+    if "lifecycle" not in request.fixturenames:
+        return
+    lifecycle = request.getfixturevalue("lifecycle")
+    with lifecycle.db.engine.begin() as connection:
+        connection.exec_driver_sql(
+            "CREATE TABLE IF NOT EXISTS one_mcp_pending_calls ("
+            "user_id TEXT NOT NULL, handle TEXT NOT NULL, session_id TEXT NOT NULL, "
+            "payload_ciphertext TEXT NOT NULL, payload_iv TEXT NOT NULL, "
+            "payload_tag TEXT NOT NULL, payload_algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm', "
+            "expires_at TIMESTAMPTZ NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), "
+            "PRIMARY KEY (user_id, handle))"
+        )
+
+
 async def _seed(lifecycle):
     await lifecycle.start_attempt(
         user_id="retention-owner",
@@ -131,6 +152,7 @@ async def test_expired_attempts_are_scrubbed_then_hard_deleted_without_touching_
         "oauth_deleted": 0,
         "native_picker_deleted": 0,
         "picker_sessions_deleted": 0,
+        "mcp_pending_calls_deleted": 0,
     }
     with lifecycle.db.engine.connect() as connection:
         oauth = (
@@ -214,6 +236,7 @@ async def test_expired_attempts_are_scrubbed_then_hard_deleted_without_touching_
         "oauth_deleted": 1,
         "native_picker_deleted": 1,
         "picker_sessions_deleted": 1,
+        "mcp_pending_calls_deleted": 0,
     }
     with lifecycle.db.engine.connect() as connection:
         assert (
@@ -277,6 +300,7 @@ def test_aggregate_projection_rejects_unbounded_or_missing_counts():
         "oauth_deleted": 1,
         "native_picker_deleted": 2,
         "picker_sessions_deleted": 2,
+        "mcp_pending_calls_deleted": 3,
         "private_token": "must-not-leak",
     }
     assert safe_retention_result(valid) == {
@@ -285,7 +309,44 @@ def test_aggregate_projection_rejects_unbounded_or_missing_counts():
         "oauth_deleted": 1,
         "native_picker_deleted": 2,
         "picker_sessions_deleted": 2,
+        "mcp_pending_calls_deleted": 3,
     }
-    for invalid in ({**valid, "oauth_scrubbed": 101}, {**valid, "oauth_scrubbed": True}, {}):
+    for invalid in (
+        {**valid, "oauth_scrubbed": 101},
+        {**valid, "oauth_scrubbed": True},
+        {**valid, "mcp_pending_calls_deleted": 101},
+        {key: value for key, value in valid.items() if key != "mcp_pending_calls_deleted"},
+        {},
+    ):
         with pytest.raises(ConnectorAttemptRetentionUnavailable):
             safe_retention_result(invalid)
+
+
+@pytest.mark.asyncio
+async def test_only_lapsed_connector_reviews_are_swept(lifecycle):
+    """An abandoned review's sealed arguments are reclaimed; a live one is untouched."""
+    with lifecycle.db.engine.begin() as connection:
+        for user, handle, interval in (
+            ("a", "lapsed-1", "-1 minute"),
+            ("b", "lapsed-2", "-2 hours"),
+            ("a", "live", "+10 minutes"),
+        ):
+            connection.execute(
+                text(
+                    "INSERT INTO one_mcp_pending_calls "
+                    "(user_id, handle, session_id, payload_ciphertext, payload_iv, payload_tag, "
+                    "expires_at) VALUES (:user, :handle, 'thread', 'c', 'i', 't', "
+                    "NOW() + CAST(:interval AS interval))"
+                ),
+                {"user": user, "handle": handle, "interval": interval},
+            )
+    retention = ConnectorAttemptRetention(db=SimpleNamespace(engine=lifecycle.db.engine))
+    assert (await retention.purge_batch())["mcp_pending_calls_deleted"] == 2
+    with lifecycle.db.engine.connect() as connection:
+        remaining = (
+            connection.execute(text("SELECT handle FROM one_mcp_pending_calls ORDER BY handle"))
+            .scalars()
+            .all()
+        )
+    assert remaining == ["live"]
+    assert (await retention.purge_batch())["mcp_pending_calls_deleted"] == 0

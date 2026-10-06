@@ -35,7 +35,7 @@ function countdownFor(expiresAt: string, now: number): { label: string; urgent: 
 }
 
 /** A transient authority-bearing review, deliberately excluded from chat history. */
-export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivityOutcome, onActionableChange }: {
+export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivityOutcome, onActionableChange, onDecidingChange }: {
   review: McpChatReview;
   vaultOwnerToken: string;
   onDismiss: () => void;
@@ -43,6 +43,8 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
   onActivityOutcome?: (outcome: McpReviewActivityOutcome) => void;
   /** True only while Allow once / Cancel can actually be pressed. */
   onActionableChange?: (actionable: boolean) => void;
+  /** True from the moment Allow once / Cancel is pressed until its resume settles. */
+  onDecidingChange?: (deciding: boolean) => void;
 }) {
   const [preview, setPreview] = useState<McpCallPreview | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
@@ -53,6 +55,9 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
   // Set only once the resume has been handed to the chat. Before that nothing was sent,
   // so "could not verify the outcome" would be untrue.
   const dispatched = useRef(false);
+  // The expiry timer. Once a decision starts it is moot (the server has consumed or
+  // refused the receipt) and firing it would abort the approved resume mid-flight.
+  const expiryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const reportedOutcome = useRef<McpReviewActivityOutcome | null>(null);
   const outcomeListener = useRef(onActivityOutcome);
   useEffect(() => {
@@ -76,8 +81,10 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
     setPhase("loading");
     const remainingNow = () => Date.parse(review.reference.expiresAt) - serverNow();
     const remaining = remainingNow();
-    let timeout: ReturnType<typeof setTimeout> | undefined;
     const expire = (reason: GoneReason = "expired") => {
+      // A decision already started: the time to decide has passed, but the outcome is
+      // the resume's to report. Aborting here would cut off an approved write.
+      if (attempted.current) return;
       controller.abort();
       setPreview(null);
       // Say why it is gone, rather than a generic failure or a wrong "expired".
@@ -103,8 +110,11 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
     }
     // Re-armed once the first response has taught us the server's clock.
     const arm = () => {
-      clearTimeout(timeout);
-      timeout = setTimeout(expire, Math.min(Math.max(remainingNow(), 0), 2_147_483_647));
+      clearTimeout(expiryTimer.current);
+      expiryTimer.current = setTimeout(
+        () => expire(),
+        Math.min(Math.max(remainingNow(), 0), 2_147_483_647),
+      );
     };
     if (remaining > 0) arm();
     void (async () => ExternalConnectorService.reviewMcpCall({
@@ -128,15 +138,19 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
         setPhase("unavailable");
       }
     });
-    return () => { clearTimeout(timeout); controller.abort(); };
+    return () => { clearTimeout(expiryTimer.current); controller.abort(); };
   }, [reportOutcome, review, vaultOwnerToken]);
 
   // The chat points a typed "yes" back at this card only while it can be used; a
   // dead card (unavailable, unknown, busy) has no buttons to point at.
   const actionableChange = useRef(onActionableChange);
+  const decidingChange = useRef(onDecidingChange);
   useEffect(() => {
     actionableChange.current = onActionableChange;
+    decidingChange.current = onDecidingChange;
   });
+  // A card that unmounts mid-decision must not leave the chat believing one is in flight.
+  useEffect(() => () => decidingChange.current?.(false), []);
   useEffect(() => {
     actionableChange.current?.(phase === "ready");
     return () => actionableChange.current?.(false);
@@ -147,15 +161,28 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
   useEffect(() => {
     if (!ticking) return;
     setNow(serverNow());
-    const timer = setInterval(() => setNow(serverNow()), 1000);
+    const timer = setInterval(() => {
+      setNow(serverNow());
+      if (!review.isCurrent()) {
+        // Another turn or a reloaded history took this card over: it can never be
+        // answered, so say so now (with a Close button) instead of when it expires.
+        lifetime.current?.abort();
+        setPreview(null);
+        setGone("replaced");
+        reportOutcome("unavailable");
+        setPhase("unavailable");
+      }
+    }, 1000);
     return () => clearInterval(timer);
-  }, [ticking]);
+  }, [ticking, review, reportOutcome]);
   const countdown = ticking ? countdownFor(review.reference.expiresAt, now) : null;
 
   const decide = async (confirmed: boolean) => {
     const controller = lifetime.current;
     if (attempted.current || !preview || !controller || controller.signal.aborted || !review.isCurrent()) return;
     attempted.current = true;
+    clearTimeout(expiryTimer.current);
+    decidingChange.current?.(true);
     setPhase("busy");
     // Keep the reviewed arguments only in this operation's memory.
     setPreview(null);
@@ -179,8 +206,10 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
     });
     try {
       await operation;
+      decidingChange.current?.(false);
       if (!controller.signal.aborted && review.isCurrent()) onDismiss();
     } catch {
+      decidingChange.current?.(false);
       if (!controller.signal.aborted && review.isCurrent()) {
         const outcome = resumeStarted ? "unknown" : "unavailable";
         reportOutcome(outcome);

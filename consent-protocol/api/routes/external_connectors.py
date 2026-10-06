@@ -361,6 +361,11 @@ async def _mcp_review_response(operation, **kwargs):
             status_code=409, detail="This review changed or expired. Review the call again."
         ) from None
     except ExternalMcpError as error:
+        logger.warning(
+            "one.mcp_review_failed code=%s status=%s",
+            str(error.code).lower().replace("_", "."),
+            error.status_code,
+        )
         raise HTTPException(
             status_code=error.status_code,
             detail={
@@ -368,7 +373,9 @@ async def _mcp_review_response(operation, **kwargs):
                 "message": "The connector call is unavailable. Reconnect or review it again.",
             },
         ) from None
-    except Exception:
+    except Exception as error:
+        # Class name only: the message can carry SQL or provider text.
+        logger.warning("one.mcp_review_failed type=%s", type(error).__name__)
         raise HTTPException(
             status_code=503,
             detail="Connector review is temporarily unavailable. No automatic retry was made.",

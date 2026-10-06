@@ -267,12 +267,19 @@ def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
                 connector_id,
                 len(offered),
                 len(dropped),
-                sorted(names - {str(item.get("name")) for item in catalog})[:40],
-                list(dropped)[:60],
+                # One joined string: the redactor masks a long snake_case token passed alone.
+                ", ".join(sorted(names - {str(item.get("name")) for item in catalog})[:40]),
+                ", ".join(dropped[:60]),
             )
         return offered
 
     return admitted
+
+
+def _consume_outcome(task: "asyncio.Future[Any]") -> None:
+    """Retrieve a detached task's result so a late failure is never an unhandled one."""
+    if not task.cancelled():
+        task.exception()
 
 
 async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcpConnection:
@@ -288,15 +295,47 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
     )
 
     adapter = get_external_connector_oauth_service().curated()
-    try:
-        row, secret = await adapter.current_credential(
+    # A token refresh can rotate a single-use refresh token at the provider. If the
+    # caller's budget lapsed (or the turn was cancelled) between the provider answering
+    # and the new token being stored, the person would have to sign in again. Run it as
+    # its own task so cancelling the caller never abandons it half-done; it is bounded
+    # by its own provider timeout, and its outcome is always consumed.
+    refresh = asyncio.ensure_future(
+        adapter.current_credential(
             connector_id=connector.connector_id, user_id=owner, connector=connector
         )
+    )
+    try:
+        row, secret = await asyncio.shield(refresh)
+    except asyncio.CancelledError:
+        refresh.add_done_callback(_consume_outcome)
+        raise
     except CuratedNotConnectedError:
         raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
     except CuratedConnectorOAuthError as error:
-        code = "MCP_CREDENTIAL_EXPIRED" if error.status_code == 401 else "MCP_CONNECTION_CHANGED"
-        raise ExternalMcpError("Reconnect this service.", code=code) from None
+        # The adapter's own code is the only place the real cause survives (secret not
+        # mounted, registry drift, provider down); the chat error below stays generic.
+        logger.warning(
+            "mcp_curated_resolve connector=%s cause=%s status=%s",
+            connector.connector_id,
+            str(error).replace("_", "."),
+            error.status_code,
+        )
+        if error.status_code == 401:
+            # reconnect_required / grant_rejected: sign in again.
+            raise ExternalMcpError(
+                "Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED"
+            ) from None
+        if str(error) == "connection_changed":
+            raise ExternalMcpError(
+                "Reconnect this service.", code="MCP_CONNECTION_CHANGED"
+            ) from None
+        # The provider is down or slow, or the operator side is misconfigured (registry
+        # drift, missing client): the person's connection is fine, so never ask them to
+        # reconnect for it.
+        raise ExternalMcpError(
+            "Connector temporarily unavailable.", code="MCP_CONNECTOR_UNAVAILABLE"
+        ) from None
     except ExternalConnectorCredentialError:
         raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID") from None
     if row.get("status") != "connected" or row.get("verified_policy_hash") != curated_policy_hash(

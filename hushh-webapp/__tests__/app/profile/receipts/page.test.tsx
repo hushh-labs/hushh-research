@@ -2367,7 +2367,7 @@ describe("ProfileReceiptsPage", () => {
 
     fireEvent.click(
       within(screen.getByRole("alertdialog")).getByRole("button", {
-        name: /^disconnect mail$/i,
+        name: /^disconnect$/i,
       }),
     );
 

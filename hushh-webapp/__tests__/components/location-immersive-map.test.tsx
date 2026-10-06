@@ -4464,6 +4464,9 @@ describe("LocationImmersiveMap reported map defects", () => {
   ])(
     "keeps the owner marker anchored during bounds-only web motion on %s",
     async (_name, surface) => {
+      // Exercise camera motion without crossing the independent 15-second
+      // staleness clock, which legitimately refreshes incoming markers.
+      vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-07-23T00:00:07Z"));
       // This regression was reported on both routes. Capacitor web derives
       // move-start from centre changes, but wheel/pinch zoom can emit only
       // bounds changes. The first bounds event must therefore hide the manually

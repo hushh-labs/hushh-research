@@ -719,7 +719,7 @@
     },
     {
       "circle_args": [],
-      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name.",
+      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name. Use the name exactly as the person said or spelled it; a spelled word stays in every correction until they change it. If it answers spelled_word_missing for a word they changed, or for a different circle, call it again with that word in release_spelled_words.",
       "firebase_plane": false,
       "gateway_action_id": "location.create_circle",
       "name": "create_circle",
@@ -737,11 +737,29 @@
             "type": "string"
           },
           "name": {
-            "description": "The circle's name.",
+            "description": "The circle's name, exactly as the person said or spelled it.",
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",
             "type": "string"
+          },
+          "release_spelled_words": {
+            "description": "An earlier spelled word the person changed or dropped, or every earlier spelled word when they now name a different circle.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Release Spelled Words",
+            "type": "array"
+          },
+          "spelled_words": {
+            "description": "Each word of this name the person spelled letter by letter, as one word of letters and digits (k a y r a -> KAYRA). Keep them in every correction.",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Spelled Words",
+            "type": "array"
           }
         },
         "required": [
@@ -2010,7 +2028,7 @@
             "type": "object"
           },
           "name": {
-            "description": "The new name.",
+            "description": "The new name, exactly as the person said or spelled it.",
             "maxLength": 80,
             "minLength": 1,
             "title": "Name",

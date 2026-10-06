@@ -463,37 +463,77 @@ function mapServerStateToPhase(
   return state;
 }
 
+/**
+ * Whitespace-insensitive form of one row's text. Used ONLY to compare a row
+ * with an incoming frame of the same role and turn; it never classifies what
+ * was said and never matches across turns or roles.
+ */
+function normalizeTranscriptText(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+type TranscriptMerge = { transcript: TranscriptItem[]; transcriptSeq: number };
+
+/**
+ * Renders a transcript frame idempotently per identity (role + turn). A frame
+ * carries no chunk id, so the latest row of the same identity decides whether
+ * the incoming text restates it (replace), repeats a settled final (no-op),
+ * continues it (append to the row) or starts a new line (append a row).
+ */
 function mergeTranscript(
   transcript: TranscriptItem[],
+  transcriptSeq: number,
   role: TranscriptItem["role"],
   turnId: string,
   text: string,
   final: boolean,
-): TranscriptItem[] {
-  const index = findLastIndex(
-    transcript,
-    (item) => item.turnId === turnId && item.role === role && !item.final,
-  );
-  if (index === -1) {
+): TranscriptMerge {
+  const appendRow = (): TranscriptMerge => {
     const item: TranscriptItem = {
-      id: `${role}:${turnId}:${transcript.length}`,
+      // A monotonic sequence keeps ids unique after the cap drops old rows.
+      id: `${role}:${turnId}:${transcriptSeq}`,
       role,
       text,
       final,
       turnId,
     };
-    return [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS);
-  }
+    return {
+      transcript: [...transcript, item].slice(-MAX_TRANSCRIPT_ITEMS),
+      transcriptSeq: transcriptSeq + 1,
+    };
+  };
+  const replaceRow = (index: number, merged: string): TranscriptMerge => {
+    const next = transcript.slice();
+    next[index] = { ...transcript[index]!, text: merged, final };
+    return { transcript: next, transcriptSeq };
+  };
+
+  const index = findLastIndex(
+    transcript,
+    (item) => item.turnId === turnId && item.role === role,
+  );
+  if (index === -1) return appendRow();
   const existing = transcript[index]!;
-  // Cumulative transcripts replace; incremental ones append.
-  const merged =
-    !existing.text ||
-    (text.length >= existing.text.length && text.startsWith(existing.text))
-      ? text
-      : `${existing.text}${text}`;
-  const next = transcript.slice();
-  next[index] = { ...existing, text: merged, final };
-  return next;
+  const incoming = normalizeTranscriptText(text);
+  const current = normalizeTranscriptText(existing.text);
+  const isPrefix = incoming.startsWith(current);
+  const longer = incoming.length > current.length;
+  // A chunk that begins with whitespace is incremental by its own shape: it
+  // continues the row ("H" + " Hussh garage"), so it can never restate it.
+  const continues = /^\s/.test(text);
+  const restates = !continues && isPrefix;
+
+  if (!existing.final) {
+    // A cumulative restatement replaces the row. A chunk equal to the row so
+    // far is not strictly longer, so it is incremental and appends ("S","S").
+    if (restates && (longer || final)) return replaceRow(index, text);
+    return replaceRow(index, `${existing.text}${text}`);
+  }
+  // The row is settled. Re-sending the same final changes nothing.
+  if (final && incoming === current) return { transcript, transcriptSeq };
+  if (restates && longer) return replaceRow(index, text);
+  // Anything else (e.g. speech after a tool result) is its own line.
+  return appendRow();
 }
 
 /** True when the transcript has anything a person would actually read. */
@@ -661,8 +701,9 @@ function reduceServerFrame(
             : state.clearedTurnIds,
         };
       }
-      const transcript = mergeTranscript(
+      const { transcript, transcriptSeq } = mergeTranscript(
         state.transcript,
+        state.transcriptSeq,
         role,
         frame.turn_id,
         frame.text,
@@ -704,6 +745,7 @@ function reduceServerFrame(
             : state.phase,
         idleDeadlineAt: null,
         transcript,
+        transcriptSeq,
         historyCleared: hasVisibleTranscript(transcript)
           ? false
           : state.historyCleared,

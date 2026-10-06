@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
+import regex
 from jsonschema import Draft7Validator, Draft202012Validator, validators
 from jsonschema.exceptions import SchemaError, ValidationError
 from referencing import Registry
@@ -365,11 +366,14 @@ def schema_validator_class(schema: Any) -> Any | None:
 # ends the call as "too costly" instead of stalling the worker.
 _MAX_EVALUATION_STEPS = 20_000
 _MAX_PATTERN_LENGTH = 512
-_MAX_PATTERN_SUBJECT = 2_048
-# Exponential backtracking needs a repeated group whose body is itself repeated, and
-# a subject long enough to matter; a short string is always cheap.
-_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[*+](?:[^()\\]|\\.)*\)(?:[*+]|\{\d+,\d*\})")
-_BACKTRACKING_SUBJECT = 24
+# A call's arguments are capped at 32 KB, so no legitimate string is longer than this.
+_MAX_PATTERN_SUBJECT = 32_768
+# A provider's pattern is matched with the `regex` engine, which can stop a match from
+# the inside; `re` cannot be interrupted, and on the shared event loop a single
+# catastrophic match such as ^(a|a)+$ would stall every request on the instance. A
+# heuristic that guessed at catastrophic shapes both missed this one and refused
+# ordinary email and hostname patterns, so the match itself is bounded instead.
+_PATTERN_TIMEOUT_SECONDS = 0.25
 _EVALUATION_BUDGET: ContextVar[list[int] | None] = ContextVar(
     "mcp_schema_evaluation_budget", default=None
 )
@@ -394,11 +398,15 @@ def _bounded_search(pattern: Any, subject: str) -> bool:
         not isinstance(pattern, str)
         or len(pattern) > _MAX_PATTERN_LENGTH
         or len(subject) > _MAX_PATTERN_SUBJECT
-        or (len(subject) > _BACKTRACKING_SUBJECT and _NESTED_QUANTIFIER.search(pattern))
     ):
         raise _too_costly()
     _spend(1 + len(subject) // 64)
-    return re.search(pattern, subject) is not None
+    try:
+        return regex.search(pattern, subject, timeout=_PATTERN_TIMEOUT_SECONDS) is not None
+    except TimeoutError:
+        raise _too_costly() from None
+    except regex.error:
+        raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID") from None
 
 
 def _pattern(validator, patrn, instance, schema):  # type: ignore[no-untyped-def]

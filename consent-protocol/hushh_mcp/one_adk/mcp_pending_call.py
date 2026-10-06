@@ -42,10 +42,11 @@ _CURRENT_HANDLE: ContextVar[str | None] = ContextVar("mcp_pending_handle", defau
 
 _HANDLE_PREFIX = "one_secret_ref:"
 _HANDLE_PATTERN = re.compile(r"one_secret_ref:[A-Za-z0-9_-]{32}")
-# A review is useless once its directive has expired; the grace covers a decision
-# made on the last second. The cap keeps a missing or far-future expiry bounded.
+# A review is useless once its directive has expired, so the record lives exactly as
+# long. (A grace past the directive's expiry bought nothing: the ledger refuses an
+# expired directive however long the record is kept.) The cap keeps a missing or
+# far-future expiry bounded.
 _MAX_LIFETIME = timedelta(minutes=20)
-_EXPIRY_GRACE = timedelta(seconds=60)
 _EXPIRED = "Connector review expired. Review again."
 
 
@@ -82,7 +83,7 @@ def _expires_at(review: dict | None) -> datetime:
         issued_until = datetime.fromisoformat(str((review or {}).get("expiresAt")))
         if issued_until.tzinfo is None:
             return cap
-        return min(cap, issued_until + _EXPIRY_GRACE)
+        return min(cap, issued_until)
     except ValueError:
         return cap
 
@@ -94,15 +95,30 @@ async def _execute(sql: str, params: dict[str, Any]):
         # The exception details can carry the SQL and every bound value.
         logger.error(
             "mcp_pending_call.storage_failed code=%s operation=%s",
-            getattr(exc, "code", "DATABASE_EXECUTION_ERROR"),
+            str(getattr(exc, "code", "DATABASE_EXECUTION_ERROR")).lower().replace("_", "."),
             getattr(exc, "operation", "unknown"),
         )
         raise PendingCallStorageError("Connector review is temporarily unavailable.") from None
 
 
+async def discard_pending_call(*, owner: str, thread: str, handle: str) -> None:
+    """Remove a record whose call has run. Best effort: it expires and is swept anyway."""
+    if not isinstance(handle, str) or _HANDLE_PATTERN.fullmatch(handle) is None:
+        return
+    try:
+        await _execute(
+            """DELETE FROM one_mcp_pending_calls
+               WHERE user_id = :user AND session_id = :session AND handle = :handle""",
+            {"user": owner, "session": thread, "handle": handle},
+        )
+    except PendingCallStorageError:
+        pass  # already logged with a code only
+
+
 @asynccontextmanager
 async def pending_resume_scope(approval_reference: Any):
     handle = None
+    approval: Any = None
     if approval_reference:
         if not isinstance(approval_reference, str) or not approval_reference.startswith(
             _HANDLE_PREFIX
@@ -117,9 +133,16 @@ async def pending_resume_scope(approval_reference: Any):
         if not isinstance(approval, dict):
             raise review_refusal("approval_reference_invalid", _EXPIRED)
         handle = approval.get("pendingHandle")
+    owner = approval.get("owner") if approval_reference and isinstance(approval, dict) else None
+    thread = approval.get("thread") if approval_reference and isinstance(approval, dict) else None
     token = _CURRENT_HANDLE.set(handle)
     try:
         yield
+        # The resumed turn completed. Every session read inside it needed the record,
+        # so it can only go now; a turn that failed or was cancelled leaves it to its
+        # own expiry and the retention sweep.
+        if handle and owner and thread:
+            await discard_pending_call(owner=owner, thread=thread, handle=handle)
     finally:
         _CURRENT_HANDLE.reset(token)
 
@@ -222,13 +245,12 @@ async def pending_call_details(session: Session, handle: str) -> dict:
                 aad=_aad(session.user_id, session.id, handle),
             )
         )
-    except (
-        ChatKeyUnavailableError,
-        ChatKeyMismatchError,
-        LegacyChatCiphertextError,
-        ValueError,
-    ):
-        # Wrong or absent chat key, or a record that does not open.
+    except ChatKeyUnavailableError:
+        # A locked vault is not an expired review: let the chat-key refusal reach the
+        # person ("unlock and try again") instead of telling them to start over.
+        raise
+    except (ChatKeyMismatchError, LegacyChatCiphertextError, ValueError):
+        # A different key than the one that sealed it, or a record that does not open.
         raise review_refusal("pending_record_unreadable", _EXPIRED) from None
     if (
         not isinstance(pending, dict)

@@ -443,6 +443,105 @@ async def test_late_provider_end_is_not_assigned_to_the_next_transcript(caplog):
     assert "phase=provider_activity_end_to_transcript" not in caplog.text
 
 
+async def test_model_cancel_of_a_card_is_counted_as_a_cancelled_confirmation(caplog):
+    """UAT circle naming: three model cancel_pending_action calls and one
+    supersede were logged as confirmation_cancelled=1. A model cancel that
+    really cancelled a card counts; one that found nothing pending does not."""
+    session, transport, _fake, _pending = await _voice_card_session()
+    await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+    card = transport.frames("pending_action")[-1]["pending_action_id"]
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _model_calls(session, "c2", "cancel_pending_action", {"pending_action_id": card})
+        assert session._counters.get("pending_cancelled", 0) == 1
+        # Negative control: nothing left to cancel, so nothing is counted.
+        await _model_calls(session, "c3", "cancel_pending_action", {"pending_action_id": card})
+        session._log_session_perf()
+    assert session._counters.get("pending_cancelled", 0) == 1
+    assert "confirmation_cancelled=1 " in caplog.text
+    assert "Priya" not in caplog.text and card not in caplog.text
+
+
+async def test_confirm_tool_in_a_turn_without_its_own_input_is_logged(caplog):
+    """UAT circle naming: a proposal came from a provider turn that received no
+    input of its own; the relay attributed it to the previous input silently."""
+    session, _transport, _fake, _pending = await _voice_card_session()
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        # Negative controls: a confirm tool in the input's own turn, and a read
+        # tool in a model-only continuation, are not unprompted proposals.
+        await _model_calls(session, "c1", "ask", {"person": {"user_id": "u-priya"}})
+        await session._handle_live_event(LiveEvent(kind="turn_complete"))
+        # Live answers the tool result in its own turn; after that nothing is owed.
+        await _speak_and_end(session, "QUJD")
+        await _model_calls(session, "c2", "echo", {"text": "private echo words"})
+        assert "one_voice.tool.no_input" not in caplog.text
+        await _model_calls(session, "c3", "delete_thing", {"thing_id": "private-thing-id"})
+        session._log_session_perf()
+    lines = [r.message for r in caplog.records if "one_voice.tool.no_input" in r.message]
+    assert len(lines) == 1 and "tool=delete_thing after=none" in lines[0]
+    assert session._counters.get("unprompted", 0) == 1
+    assert "unprompted=1 chained=0" in caplog.text
+    for private in ("Priya", "private echo words", "private-thing-id", "Ask Priya"):
+        assert private not in caplog.text
+
+
+async def test_confirm_tool_chained_after_a_tool_or_event_is_not_unprompted(caplog):
+    """A lookup then a proposal, or a reply to an injected event, is Live
+    answering what it was handed: logged with what opened the turn, counted as
+    chained, never as unprompted."""
+    session, _transport, _fake, _pending = await _voice_card_session()
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _model_calls(session, "c1", "echo", {"text": "private echo words"})
+        await session._handle_live_event(LiveEvent(kind="turn_complete"))
+        await _model_calls(session, "c2", "delete_thing", {"thing_id": "private-thing-id"})
+        await session._handle_live_event(LiveEvent(kind="turn_complete"))
+        await _speak_and_end(session, "QUJD")
+        await session._inject_event({"kind": "private_event_kind"})
+        await _model_calls(session, "c3", "delete_thing", {"thing_id": "private-other-id"})
+        session._log_session_perf()
+    lines = [r.message for r in caplog.records if "one_voice.tool.no_input" in r.message]
+    assert len(lines) == 2
+    assert "tool=delete_thing after=tool" in lines[0]
+    assert "tool=delete_thing after=event" in lines[1]
+    assert session._counters.get("unprompted", 0) == 0
+    assert "unprompted=0 chained=2" in caplog.text
+    for private in ("Priya", "private echo words", "private-thing-id", "private-other-id"):
+        assert private not in caplog.text
+    assert "private_event_kind" not in caplog.text
+
+
+async def test_output_transcript_after_its_final_is_counted_at_turn_end(caplog):
+    """The output transcript shape behind the UAT circle naming is unknown:
+    count frames forwarded after a turn already forwarded an output final."""
+    session, transport, _fake = await _relay_on_live()
+    with caplog.at_level(logging.INFO, logger="hushh_mcp.one_voice.session"):
+        await _say(session, "private question")
+        # Negative control: partials then one final is the ordinary shape.
+        for text, finished in (("Private ", False), ("answer one.", True)):
+            await session._handle_live_event(
+                LiveEvent(kind="output_transcript", text=text, finished=finished)
+            )
+        await session._handle_live_event(LiveEvent(kind="turn_complete"))
+        assert "one_voice.transcript_shape" not in caplog.text
+        for text, finished in (("Private reply.", True), (" More private words", False)):
+            await session._handle_live_event(
+                LiveEvent(kind="output_transcript", text=text, finished=finished)
+            )
+        await session._handle_live_event(
+            LiveEvent(kind="output_transcript", text="Last private words.", finished=True)
+        )
+        await session._handle_live_event(LiveEvent(kind="turn_complete"))
+        # An interrupted turn ends without turn_complete; its shape still counts.
+        for text in ("Private early final.", "Private late words."):
+            await session._handle_live_event(
+                LiveEvent(kind="output_transcript", text=text, finished=True)
+            )
+        await session._handle_live_event(LiveEvent(kind="interrupted"))
+    assert len(transport.frames("transcript.output")) == 7
+    lines = [r.message for r in caplog.records if "one_voice.transcript_shape" in r.message]
+    assert len(lines) == 2 and "after_final=2" in lines[0] and "after_final=1" in lines[1]
+    assert "private" not in caplog.text.lower()
+
+
 async def test_provider_audio_and_transcripts_reach_the_client():
     transport = FakeTransport([AUTH])
     fake = FakeLive(
@@ -3183,6 +3282,39 @@ def test_a_stored_context_written_by_a_newer_server_keeps_what_it_can():
     assert "u-priya" in restored.people
     assert restored.people["u-priya"].display_name == "Priya Nair"
     assert not hasattr(restored, "a_field_from_a_later_version")
+
+
+def test_spelled_name_words_survive_a_reconnect_and_an_older_row_still_restores():
+    """A spelled word must outlive the session it was said in (a cancel, a
+    reconnect), and the key must never cost an older or damaged row its people."""
+    entities = EntityContext()
+    now = entities._now().timestamp()
+    entities.remember_spelled_words(["HUSSH", "hussh", "V04"], now)
+    stored = entities.model_dump(mode="json")
+
+    restored = restore_context(EntityContext, stored)
+    assert restored.retained_spelled_words(now) == ["HUSSH", "V04"]
+
+    person = ConfirmedPerson(
+        user_id="u-priya", display_name="Priya Nair", confirmed_at=now_iso()
+    ).model_dump(mode="json")
+    older = restore_context(EntityContext, {"people": {"u-priya": person}})
+    assert "u-priya" in older.people and older.spelled_name_words == []
+
+    damaged = restore_context(
+        EntityContext,
+        {
+            "people": {"u-priya": person},
+            "spelled_name_words": [
+                {"word": "HUSSH", "at": now},
+                {"word": "h u s s h", "at": now},
+                {"word": "V04"},
+                "HUSSH",
+            ],
+        },
+    )
+    assert "u-priya" in damaged.people
+    assert damaged.retained_spelled_words(now) == ["HUSSH"]
 
 
 def test_a_genuinely_corrupt_stored_context_is_dropped_and_never_trusted():

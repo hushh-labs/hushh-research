@@ -854,6 +854,109 @@ describe("reduceVoiceSession: transcript", () => {
     expect(state.transcript[0]?.final).toBe(true);
   });
 
+  // Rendering is idempotent per identity (role + turn). Regression: a
+  // restated final doubled "Shall I create HUSSH GARAGE V04?" in one line.
+  const lines = (state: VoiceSessionState) =>
+    state.transcript.map((item) => [item.role, item.text]);
+  const out = (text: string, final: boolean, turn_id = "t1") =>
+    server({ type: "transcript.output", text, final, turn_id });
+  const said = (text: string, final: boolean, turn_id = "t1") =>
+    server({ type: "transcript.input", text, final, turn_id });
+
+  it("a re-sent final for the same role and turn shows once", () => {
+    const state = run(
+      [out("Shall I create it?", true), out("Shall I create it?", true)],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", "Shall I create it?"]]);
+  });
+
+  it("negative control: the same sentence in a later turn still shows", () => {
+    const state = run(
+      [
+        said("yes", true, "t1"),
+        out("Done.", true, "t1"),
+        server({ type: "turn", state: "model_end", turn_id: "t1" }),
+        said("yes", true, "t2"),
+        out("Done.", true, "t2"),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([
+      ["you", "yes"],
+      ["one", "Done."],
+      ["you", "yes"],
+      ["one", "Done."],
+    ]);
+  });
+
+  it("negative control: post-final speech in the same turn is its own line", () => {
+    const state = run(
+      [out("Creating it.", true), out(" Done.", true)],
+      connected(),
+    );
+    expect(lines(state)).toEqual([
+      ["one", "Creating it."],
+      ["one", " Done."],
+    ]);
+  });
+
+  it("a final restating the line without a byte prefix replaces it", () => {
+    const state = run(
+      [
+        out(" Shall I create", false),
+        out(" HUSSH GARAGE V04?", false),
+        out("Shall I create HUSSH GARAGE V04?", true),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", "Shall I create HUSSH GARAGE V04?"]]);
+    expect(state.transcript[0]?.final).toBe(true);
+  });
+
+  it("spelled chunks accumulate; a repeated letter is not a restatement", () => {
+    const spelled = run(
+      [
+        ...["H", "U", "S", "S", "H"].map((letter) => said(letter, false)),
+        said("HUSSH", true),
+      ],
+      connected(),
+    );
+    expect(lines(spelled)).toEqual([["you", "HUSSH"]]);
+    const doubled = run([said("S", false), said("S", false)], connected());
+    expect(lines(doubled)).toEqual([["you", "SS"]]);
+  });
+
+  // Regression: whitespace-normalized prefix matching let a chunk that
+  // begins with a space replace the row, dropping what was already heard.
+  it("a chunk that begins with a space continues the row, never replaces it", () => {
+    const spelled = run([said("S", false), said(" S", true)], connected());
+    expect(lines(spelled)).toEqual([["you", "S S"]]);
+    const named = run([said("H", false), said(" Hussh garage", false)], connected());
+    expect(lines(named)).toEqual([["you", "H Hussh garage"]]);
+    const settled = run(
+      [out("Creating it.", true), out(" Creating it. Done.", true)],
+      connected(),
+    );
+    expect(lines(settled)).toEqual([
+      ["one", "Creating it."],
+      ["one", " Creating it. Done."],
+    ]);
+  });
+
+  it("row ids stay unique once the 200-row cap is reached", () => {
+    const fill = Array.from({ length: 200 }, (_, index) =>
+      out(`line ${index}`, true, `f${index}`),
+    );
+    const state = run(
+      [...fill, out("Creating it.", true, "tx"), out(" Done.", true, "tx")],
+      connected(),
+    );
+    expect(state.transcript).toHaveLength(200);
+    const ids = state.transcript.map((item) => item.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
   it("property: no transcript frame ever produces a success-looking phase or receipt", () => {
     const phrases = [
       "done, you are now sharing with Priya",

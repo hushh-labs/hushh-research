@@ -2777,6 +2777,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   pendingMcpReviewsRef.current = pendingMcpReviews;
   // Directive ids of review cards whose Allow once / Cancel can be pressed now.
   const actionableMcpReviewsRef = useRef(new Set<string>());
+  // Reviews whose Allow once / Cancel was pressed and whose resume has not settled.
+  const decidingMcpReviewsRef = useRef(new Set<string>());
   const [specialistBusy, setSpecialistBusy] = useState(false);
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
     string | null
@@ -5479,6 +5481,20 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
    * message (nothing is sent, nothing is cleared).
    */
   const interceptBareReviewReply = (text: string): boolean => {
+    if (decidingMcpReviewsRef.current.size > 0) {
+      // An approval is being carried out. A new turn would delete the card and cut off
+      // the approved call (the write may still happen with no result shown, and a
+      // repeat request could duplicate it), so wait for it to settle.
+      appendMessage({
+        id: `msg-${Date.now()}-review-busy`,
+        role: "assistant",
+        text: "Still finishing your approval. Send that again in a moment.",
+        ...stampNow(),
+        status: "done",
+        renderAsPlainAssistantMessage: true,
+      });
+      return true;
+    }
     const review = pendingMcpReviewsRef.current[0];
     if (!review || !isBareReviewReply(text)) return false;
     // A card that is loading, busy or dead has no buttons to point at.
@@ -8259,7 +8275,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       },
     });
   };
-  const handleWelcomePromptSelect = useCallback((prompt: string) => {
+  const handleWelcomePromptSelect = (prompt: string) => {
+    if (recoveryInspectionPending || isVoiceConnecting || voiceActive || isChatLoading || isStreaming) return;
+    transcriptUserScrollRef.current = false;
+    scrollToSubmittedTurnRef.current = true;
+    void enqueueGuardedTurn({ typedText: prompt, attachments: [], fromPaste: false });
+  };
+  const handlePromptDraftSelect = useCallback((prompt: string) => {
     pendingDriveSearchSelectionRef.current = null;
     setPendingDriveSearchSelection(null);
     generatedDriveSearchDraftRef.current = false;
@@ -8934,13 +8956,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   <AgentWelcomePanel
                     name={displayName}
                     prompts={welcomePrompts}
-                    disabled={isChatLoading || isStreaming}
+                    disabled={recoveryInspectionPending || isVoiceConnecting || isChatLoading || isStreaming}
                     onPromptSelect={handleWelcomePromptSelect}
                   />
                   {chatOnboarding.dailyTip ? (
                     <ChatOnboardingDailyTip
                       tip={chatOnboarding.dailyTip}
-                      onUse={handleWelcomePromptSelect}
+                      onUse={handlePromptDraftSelect}
                       onDismiss={chatOnboarding.dismissDailyTip}
                     />
                   ) : null}
@@ -9240,7 +9262,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     suggestions={visibleFollowUps(
                       message, visibleMessages.at(-1)?.id, isChatLoading || isStreaming,
                     )}
-                    onSelect={handleWelcomePromptSelect}
+                    onSelect={handlePromptDraftSelect}
                   />
                   {message.id === emailDraftAnchorMessageId
                     ? renderEmailDraftCard()
@@ -9382,6 +9404,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   onActionableChange={(actionable) => {
                     const ids = actionableMcpReviewsRef.current;
                     if (actionable) ids.add(review.reference.directiveId);
+                    else ids.delete(review.reference.directiveId);
+                  }}
+                  onDecidingChange={(deciding) => {
+                    const ids = decidingMcpReviewsRef.current;
+                    if (deciding) ids.add(review.reference.directiveId);
                     else ids.delete(review.reference.directiveId);
                   }}
                 />

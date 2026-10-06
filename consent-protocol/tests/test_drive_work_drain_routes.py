@@ -167,6 +167,7 @@ def test_production_worker_accepts_only_exact_prod_identity(client, monkeypatch)
                         "oauth_deleted": 0,
                         "native_picker_deleted": 0,
                         "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
                     }
                 )
             },
@@ -219,6 +220,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "oauth_deleted": 0,
             "native_picker_deleted": 1,
             "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
             "private_email": "must-not-leak@example.invalid",
         }
     )
@@ -260,6 +262,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             "oauth_deleted": 0,
             "native_picker_deleted": 1,
             "picker_sessions_deleted": 1,
+            "mcp_pending_calls_deleted": 0,
         },
         "schema_version": "drive.work_drain.v1",
         "workers": {
@@ -298,6 +301,7 @@ def test_route_accepts_only_fixed_authorized_stages(client, monkeypatch, stage):
                         "oauth_deleted": 0,
                         "native_picker_deleted": 0,
                         "picker_sessions_deleted": 0,
+                        "mcp_pending_calls_deleted": 0,
                     }
                 )
             },

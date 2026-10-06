@@ -144,6 +144,58 @@ async def _release_gmail_receipts(snapshot: ProviderCredentialSnapshot) -> list[
     ]
 
 
+async def _release_curated_connector(
+    user_id: str, connector_id: str, row: dict[str, Any]
+) -> str | None:
+    """Revoke a curated provider's grant, or None when it publishes no endpoint.
+
+    The credential must be a verified v2 envelope bound to the OAuth client this
+    deployment holds for the provider; anything else is never presented to it.
+    """
+    from os import getenv
+
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+    from hushh_mcp.services.external_connector_credentials_service import (
+        get_external_connector_credentials_service,
+    )
+    from hushh_mcp.services.external_connector_curated_oauth import post_revocation
+
+    manifest = get_manifest(connector_id)
+    if manifest is None or manifest.revocation_url is None:
+        return None
+    try:
+        credential = get_external_connector_credentials_service().open_credential(
+            user_id=user_id, connector_id=connector_id, row=row
+        )
+        client_id = getenv(manifest.client_id_env, "").strip()
+        client_secret = getenv(manifest.client_secret_env or "", "").strip()
+        if not client_id or credential.get("oauthClientId") != client_id:
+            return "failed"
+        if not manifest.is_public_client and not client_secret:
+            return "failed"
+        refresh = credential.get("refreshToken")
+        token = refresh or credential.get("accessToken")
+        if not isinstance(token, str) or not token:
+            return "none"
+        await post_revocation(
+            url=manifest.revocation_url,
+            data={
+                "token": token,
+                "token_type_hint": "refresh_token" if refresh else "access_token",
+                "client_id": client_id,
+                **({"client_secret": client_secret} if client_secret else {}),
+            },
+        )
+        return "revoked"
+    except Exception as exc:  # noqa: BLE001 - account deletion must never fail on a provider
+        logger.warning(
+            "account_deletion.curated_revoke_failed provider=%s error=%s",
+            connector_id,
+            type(exc).__name__,
+        )
+        return "failed"
+
+
 async def _release_external_connectors(snapshot: ProviderCredentialSnapshot) -> list[str]:
     from hushh_mcp.services.external_connector_credentials_service import (
         get_external_connector_credentials_service,
@@ -155,6 +207,13 @@ async def _release_external_connectors(snapshot: ProviderCredentialSnapshot) -> 
         if not row.get("credential_ciphertext"):
             outcomes.append("none")
             continue
+        # A curated provider that publishes a revocation endpoint (declared in its
+        # reviewed manifest) is released the same way a disconnect would release it.
+        if connector_id != DRIVE_CONNECTOR_ID and int(row.get("envelope_version") or 1) == 2:
+            curated = await _release_curated_connector(snapshot.user_id, connector_id, row)
+            if curated is not None:
+                outcomes.append(curated)
+                continue
         # Only the verified Google Drive envelope has a provider revocation
         # endpoint and a proven OAuth client binding. A legacy envelope's grant
         # may belong to another client (it could include Mail), and API-key

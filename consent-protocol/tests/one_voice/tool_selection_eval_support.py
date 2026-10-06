@@ -56,6 +56,13 @@ SESSION_READS = frozenset({"get_pending_action"})
 CASE_KEYS = frozenset(
     {"id", "family", "screen", "history", "utterance", "expected_tools", "forbidden_tools", "note"}
 )
+# ``expected_args``: {tool: {arg: str | [str, ...]}}. A str is the exact value
+# (compared after normalize_spoken_name: speech carries no case or
+# punctuation); a list names items the argument's list must contain.
+OPTIONAL_CASE_KEYS = frozenset({"expected_args"})
+
+ArgExpectation = str | tuple[str, ...]
+Call = tuple[str, dict[str, Any], dict[str, Any]]
 
 
 @dataclass(frozen=True)
@@ -68,6 +75,12 @@ class Case:
     expected_tools: tuple[str, ...]
     forbidden_tools: tuple[str, ...]
     note: str
+    # ((tool, ((arg, expectation), ...)), ...): tuples keep the case hashable.
+    expected_args: tuple[tuple[str, tuple[tuple[str, ArgExpectation], ...]], ...] = ()
+
+    @property
+    def expected_args_by_tool(self) -> dict[str, dict[str, ArgExpectation]]:
+        return {tool: dict(args) for tool, args in self.expected_args}
 
 
 @dataclass
@@ -76,9 +89,12 @@ class Observation:
     first_tool: str | None
     first_args: dict[str, Any] | None
     # Every (tool, args, result_public) on the final turn, in order.
-    calls: list[tuple[str, dict[str, Any], dict[str, Any]]]
+    calls: list[Call]
     latency_ms: float
     error: str | None = None
+    # Every call the replayed history turns made, so a miss shows whether the
+    # earlier card the utterance answers was really staged.
+    history_calls: list[Call] = field(default_factory=list)
 
     @property
     def all_tools(self) -> list[str]:
@@ -98,15 +114,89 @@ class Observation:
         return None
 
 
+def _normalized(value: str) -> str:
+    from hushh_mcp.services.spoken_name_resolver import normalize_spoken_name
+
+    return normalize_spoken_name(value)
+
+
+def _arg_matches(expected: ArgExpectation, actual: Any) -> bool:
+    if isinstance(expected, str):
+        return isinstance(actual, str) and _normalized(actual) == _normalized(expected)
+    if not isinstance(actual, list) or not all(isinstance(item, str) for item in actual):
+        return False
+    present = {_normalized(item) for item in actual}
+    return all(_normalized(item) in present for item in expected)
+
+
+def arg_mismatches(obs: Observation) -> list[dict[str, Any]]:
+    """Each expected argument the scored (final) turn did not carry.
+
+    The LAST call of each expected tool in that turn is compared, so a call
+    the executor refused and the model then corrected is judged on the
+    correction. No call of the tool is a mismatch. Empty means all matched.
+    """
+    mismatches: list[dict[str, Any]] = []
+    for tool, expected_args in obs.case.expected_args_by_tool.items():
+        last = next((args for name, args, _ in reversed(obs.calls) if name == tool), None)
+        for arg, expected in expected_args.items():
+            actual = None if last is None else last.get(arg)
+            if last is None or not _arg_matches(expected, actual):
+                mismatches.append(
+                    {
+                        "tool": tool,
+                        "arg": arg,
+                        "expected": expected if isinstance(expected, str) else list(expected),
+                        "got": actual,
+                        "called": last is not None,
+                    }
+                )
+    return mismatches
+
+
+def history_report(obs: Observation) -> list[dict[str, Any]]:
+    return [
+        {"tool": name, "args": args, "status": result.get("status")}
+        for name, args, result in obs.history_calls
+    ]
+
+
 # A responder answers one function call. ``(tool, args) -> result_public``.
 Responder = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 # ``(case) -> responder`` so every case starts from a clean fake world.
 ResponderFactory = Callable[[Case], Responder]
-# ``(case) -> (first tool, first args, calls)``
+# ``(case) -> (first tool, first args, calls[, history calls])``; a probe that
+# returns three items reports no history calls.
 ProbeFn = Callable[
     [Case],
-    tuple[str | None, dict[str, Any] | None, list[tuple[str, dict[str, Any], dict[str, Any]]]],
+    tuple[str | None, dict[str, Any] | None, list[Call]]
+    | tuple[str | None, dict[str, Any] | None, list[Call], list[Call]],
 ]
+
+
+def _load_expected_args(
+    case_id: str, raw: Any
+) -> tuple[tuple[str, tuple[tuple[str, ArgExpectation], ...]], ...]:
+    assert isinstance(raw, dict) and raw, (case_id, "expected_args")
+    tools: list[tuple[str, tuple[tuple[str, ArgExpectation], ...]]] = []
+    for tool, args in raw.items():
+        assert isinstance(tool, str) and tool.strip(), (case_id, "expected_args tool")
+        assert isinstance(args, dict) and args, (case_id, tool)
+        parsed: list[tuple[str, ArgExpectation]] = []
+        for arg, expected in args.items():
+            assert isinstance(arg, str) and arg.strip(), (case_id, tool, "arg name")
+            if isinstance(expected, str):
+                assert expected.strip(), (case_id, tool, arg)
+                parsed.append((arg, expected))
+                continue
+            assert (
+                isinstance(expected, list)
+                and expected
+                and all(isinstance(item, str) and item.strip() for item in expected)
+            ), (case_id, tool, arg)
+            parsed.append((arg, tuple(expected)))
+        tools.append((tool, tuple(parsed)))
+    return tuple(tools)
 
 
 def load_cases(
@@ -119,7 +209,9 @@ def load_cases(
     cases: list[Case] = []
     for index, raw in enumerate(raw_cases):
         assert isinstance(raw, dict), f"case #{index} is not an object"
-        assert set(raw) == CASE_KEYS, f"case #{index} has unexpected keys: {sorted(raw)}"
+        assert CASE_KEYS <= set(raw) <= CASE_KEYS | OPTIONAL_CASE_KEYS, (
+            f"case #{index} has unexpected keys: {sorted(raw)}"
+        )
         case_id = raw["id"]
         assert isinstance(case_id, str) and case_id.strip(), f"case #{index} has no id"
         assert raw["family"] in families, (case_id, raw["family"])
@@ -146,6 +238,11 @@ def load_cases(
                 expected_tools=tuple(raw["expected_tools"]),
                 forbidden_tools=tuple(raw["forbidden_tools"]),
                 note=raw["note"],
+                expected_args=(
+                    _load_expected_args(case_id, raw["expected_args"])
+                    if "expected_args" in raw
+                    else ()
+                ),
             )
         )
     return cases
@@ -286,21 +383,23 @@ def make_live_probe(model_id: str, location: str, responders: ResponderFactory) 
             voice_name=voice_name(),
             resumption_handle=None,
         )
+        history_seen: list[Call] = []
         async with client.aio.live.connect(model=model_id, config=config) as raw_session:
             session = GeminiLiveSession(raw_session)
             for text in case.history:
                 await session.send_text(text)
                 await asyncio.wait_for(
-                    _drain_turn(raw_session, session, respond, []), timeout=TURN_TIMEOUT_S + 5
+                    _drain_turn(raw_session, session, respond, history_seen),
+                    timeout=TURN_TIMEOUT_S + 5,
                 )
-            seen: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+            seen: list[Call] = []
             await session.send_text(case.utterance)
             await asyncio.wait_for(
                 _drain_turn(raw_session, session, respond, seen), timeout=TURN_TIMEOUT_S + 5
             )
         if not seen:
-            return None, None, []
-        return seen[0][0], seen[0][1], seen
+            return None, None, [], history_seen
+        return seen[0][0], seen[0][1], seen, history_seen
 
     def _probe(case: Case):
         return asyncio.run(_run(case))
@@ -348,7 +447,8 @@ def make_text_probe(model_id: str, responders: ResponderFactory) -> ProbeFn:
             system_instruction=instruction_for(case), tools=[tool], temperature=0
         )
         contents: list[Any] = []
-        seen: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+        seen: list[Call] = []
+        history_seen: list[Call] = []
         turns = [*case.history, case.utterance]
         for index, text in enumerate(turns):
             contents.append(types.Content(role="user", parts=[types.Part(text=text)]))
@@ -366,13 +466,12 @@ def make_text_probe(model_id: str, responders: ResponderFactory) -> ProbeFn:
                 parts = []
                 for name, args in calls:
                     result = await respond(name, args)
-                    if final:
-                        seen.append((name, args, dict(result)))
+                    (seen if final else history_seen).append((name, args, dict(result)))
                     parts.append(types.Part.from_function_response(name=name, response=result))
                 contents.append(types.Content(role="user", parts=parts))
         if not seen:
-            return None, None, []
-        return seen[0][0], seen[0][1], seen
+            return None, None, [], history_seen
+        return seen[0][0], seen[0][1], seen, history_seen
 
     def _probe(case: Case):
         return asyncio.run(_run(case))
@@ -385,7 +484,7 @@ def observe(probe: ProbeFn, case: Case) -> Observation:
     for attempt in range(1, QUOTA_RETRY_ATTEMPTS + 1):
         started = time.monotonic()
         try:
-            first_tool, first_args, calls = probe(case)
+            first_tool, first_args, calls, *rest = probe(case)
         except Exception as exc:  # noqa: BLE001 - a provider failure is a result
             last_error = exc
             if is_transient(exc) and attempt < QUOTA_RETRY_ATTEMPTS:
@@ -398,6 +497,7 @@ def observe(probe: ProbeFn, case: Case) -> Observation:
             first_args=first_args,
             calls=calls,
             latency_ms=(time.monotonic() - started) * 1000,
+            history_calls=list(rest[0]) if rest else [],
         )
     return Observation(
         case=case,

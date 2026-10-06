@@ -76,6 +76,14 @@ _REASON_RECONNECT = "reconnect"
 _REASON_UNAVAILABLE = "unavailable"
 
 
+# Per-connector and per-turn bounds on what reaches the model. A provider (or a person's
+# own server) can advertise any number of tools with any amount of text; one of them must
+# cost that connector its place, never every other connector or the whole turn.
+_MAX_TOOLS_PER_CONNECTOR = 200
+_MAX_TOOLS_PER_TURN = 500
+_MAX_DESCRIPTION_CHARS = 2_000
+
+
 def _still_current(toolset: Any, tools: Any) -> bool:
     """True while every listed tool still belongs to the toolset's current catalog epoch.
 
@@ -165,6 +173,24 @@ async def inspect_private_connectors(tool_context: ToolContext) -> dict:
         return {"status": "unavailable", "message": "Could not check connectors. Try again."}
 
 
+def _typed_text(tool_context: ToolContext) -> str:
+    """What the person typed in this turn, and nothing the model or a tool produced."""
+    parts = getattr(getattr(tool_context, "user_content", None), "parts", None) or []
+    return " ".join(text for part in parts if isinstance(text := getattr(part, "text", None), str))
+
+
+def _person_gave_this_address(endpoint: str, tool_context: ToolContext) -> bool:
+    """True only if the address appears in the person's own message this turn.
+
+    The probe is an outbound request from the server to a host the caller names, with
+    no review card. If the model could name the host, content it had read (another
+    person's shared note, a web page) could tell it to contact an attacker's host with
+    a path that carries what it knows. The address must therefore come from the person.
+    """
+    clean = str(endpoint or "").strip().rstrip("/")
+    return bool(clean) and clean.casefold() in _typed_text(tool_context).casefold()
+
+
 async def probe_private_connector(endpoint: str, tool_context: ToolContext) -> dict:
     """Check an MCP server address the owner gave, without connecting or calling it.
 
@@ -186,6 +212,14 @@ async def probe_private_connector(endpoint: str, tool_context: ToolContext) -> d
             return {"status": "blocked", "message": "Connectors are unavailable in this session."}
     except Exception:
         return {"status": "unavailable", "message": "Could not check connectors. Try again."}
+    if not _person_gave_this_address(endpoint, tool_context):
+        return {
+            "status": "blocked",
+            "message": (
+                "Only an address the person typed can be checked. Ask them to share the "
+                "connector address in their message."
+            ),
+        }
     result = await probe_mcp_server(endpoint)
     return {
         "status": "ok",
@@ -309,7 +343,7 @@ class RegisteredMcpToolset(BaseToolset):
                                 connector_id,
                                 reason,
                                 type(error).__name__,
-                                getattr(error, "code", None),
+                                str(getattr(error, "code", None)).lower().replace("_", "."),
                             )
                         return note_unavailable(connector_id, display_name, reason)
                 if tools:
@@ -321,7 +355,8 @@ class RegisteredMcpToolset(BaseToolset):
                 # provider tool retained by another catalog view.
                 labeled_tool = copy(tool)
                 labeled_tool.description = (
-                    f"Connected app: {json.dumps(display_name)}. {tool.description or ''}"
+                    f"Connected app: {json.dumps(display_name)}. "
+                    f"{(tool.description or '')[:_MAX_DESCRIPTION_CHARS]}"
                 )
                 if _requires_review_card(toolset, tool):
                     labeled_tool.description += REVIEW_CARD_NOTE
@@ -345,7 +380,25 @@ class RegisteredMcpToolset(BaseToolset):
                 results.append(note_unavailable(connector_id, display_name, _REASON_UNAVAILABLE))
             else:
                 results.append(task.result())
-        tools = [tool for result in results for tool in result]
-        if len(tools) > 500 or len({tool.name for tool in tools}) != len(tools):
-            raise ExternalMcpError("Connector catalog limit reached.", code="MCP_CATALOG_CHANGED")
+        tools: list[Any] = []
+        seen: set[str] = set()
+        for (connector_id, display_name), result in zip(admitted, results, strict=True):
+            names = [tool.name for tool in result]
+            if (
+                len(result) > _MAX_TOOLS_PER_CONNECTOR
+                or len(set(names)) != len(names)
+                or not seen.isdisjoint(names)
+                or len(tools) + len(result) > _MAX_TOOLS_PER_TURN
+            ):
+                # Too many tools, a name that collides with another's, or no room left
+                # this turn: this one connector steps aside; everything else carries on.
+                logger.warning(
+                    "mcp_connector_unavailable connector=%s reason=catalog.limit tools=%d",
+                    connector_id,
+                    len(result),
+                )
+                result = note_unavailable(connector_id, display_name, _REASON_UNAVAILABLE)
+                names = [tool.name for tool in result]
+            tools.extend(result)
+            seen.update(names)
         return tools

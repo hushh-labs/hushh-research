@@ -40,6 +40,7 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { roleSolid } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { useAuth } from "@/hooks/use-auth";
 import { useHeldValue } from "@/hooks/use-held-value";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
@@ -2530,9 +2531,8 @@ export default function GmailReceiptsPage({
           <AlertDialogHeader>
             <AlertDialogTitle>Disconnect Mail?</AlertDialogTitle>
             <AlertDialogDescription>
-              This revokes Mail access, stops future receipt sync, and deletes
-              Mail-derived receipts and receipt summaries from Hushh.
-              Information you explicitly saved to private memory remains there.
+              Stops Mail access and receipt sync, and deletes Mail receipts and
+              summaries from Hussh. Information saved to private memory stays.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
@@ -2540,7 +2540,8 @@ export default function GmailReceiptsPage({
               Keep connected
             </AlertDialogCancel>
             <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="destructive"
+              className={`${roleSolid("danger").fill} ${roleSolid("danger").fg} hover:bg-[color:var(--app-destructive)] hover:opacity-90`}
               disabled={gmailActionBusy === "disconnect"}
               onClick={(event) => {
                 event.preventDefault();
@@ -2550,7 +2551,7 @@ export default function GmailReceiptsPage({
               {gmailActionBusy === "disconnect" ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : null}
-              Disconnect Mail
+              Disconnect
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

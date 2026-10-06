@@ -55,6 +55,7 @@ describe("One interactive audio ownership", () => {
     expect(providers).toContain("<AgentOwnerGate>");
     expect(providers).not.toContain("<LocationCommandProvider>");
     expect(providers).toContain("<OneVoiceReadinessProvider>");
+    expect(gate).toContain("dispatchAgentConversationAfterRoute(pathname);");
 
     // One stable launcher, two owners; never a NEXT_PUBLIC build flag.
     expect(bar).toContain("export function AgentBar");

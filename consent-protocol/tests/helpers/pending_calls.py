@@ -40,6 +40,11 @@ class FakePendingCallTable:
                 "expires_at": datetime.fromisoformat(params["expires"]),
             }
             return SimpleNamespace(data=[])
+        if sql.lstrip().startswith("DELETE FROM one_mcp_pending_calls"):
+            row = self.rows.get((params["user"], params["handle"]))
+            if row is not None and row["session_id"] == params["session"]:
+                del self.rows[(params["user"], params["handle"])]
+            return SimpleNamespace(data=[])
         if "FROM one_mcp_pending_calls" in sql:
             row = self.rows.get((params["user"], params["handle"]))
             if (

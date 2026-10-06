@@ -277,6 +277,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   );
 
   const hasActions = item.actions.length > 0;
+  const isMeetJoin = item.actions.length === 1 && item.actions[0]?.key === "join-meet";
   const leading = item.person ? (
     <FeedActionableIdentity person={item.person} />
   ) : undefined;
@@ -287,6 +288,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     iconTone: leading ? undefined : item.iconTone,
     leading,
     title: item.title,
+    textOverflow: isMeetJoin ? "truncate" : "wrap",
     description,
     trailing: <ActionButtons actions={item.actions} />,
     trailingInteractive: hasActions,
@@ -296,8 +298,9 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
     // row. The title then wrapped one character per line — a 307px-tall row of
     // single letters at 320px — and the description had nowhere to go.
     // Stacking gives the text the full width and the buttons their own line.
-    // Only rows that HAVE actions stack; a chevron row is 16px and fine inline.
-    stackTrailingOnMobile: hasActions,
+    // A single meeting CTA fits beside truncated event details; wider action
+    // groups retain their own line. Chevron-only rows also stay inline.
+    stackTrailingOnMobile: hasActions && !isMeetJoin,
     testId: `feed-actionable-${item.id}`,
   } as const;
 

@@ -103,6 +103,11 @@ class AccountService:
             "one_action_directive_ledger": text(
                 "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
             ),
+            # Sealed arguments of connector calls awaiting review. A reset keeps the
+            # actor_profiles row, so the FK cascade alone would leave them behind.
+            "one_mcp_pending_calls": text(
+                "DELETE FROM one_mcp_pending_calls WHERE user_id = :user_id"
+            ),
             "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
             "agent_chat_conversations": text(
                 "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
@@ -1414,6 +1419,7 @@ class AccountService:
             conn,
             table_names=[
                 "one_action_directive_ledger",
+                "one_mcp_pending_calls",
                 "agent_chat_messages",
                 "agent_chat_conversations",
                 "messages",
@@ -1939,6 +1945,7 @@ class AccountService:
                     conn,
                     table_names=[
                         "one_action_directive_ledger",
+                        "one_mcp_pending_calls",
                         "agent_chat_messages",
                         "agent_chat_conversations",
                         "messages",

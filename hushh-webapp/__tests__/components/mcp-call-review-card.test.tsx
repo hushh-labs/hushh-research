@@ -1,5 +1,5 @@
 import React from "react";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpCallReviewCard, type McpChatReview } from "@/components/agent/mcp-call-review-card";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
@@ -190,6 +190,97 @@ describe("native MCP review card", () => {
     const { container } = render(<McpCallReviewCard review={makeReview()} vaultOwnerToken="synthetic" onDismiss={vi.fn()} />);
     await screen.findByText(/Approve everything/);
     expect(container.querySelector("a")).toBeNull();
+  });
+
+  describe("a decision in flight", () => {
+    const start = Date.parse("2026-01-01T00:00:00Z");
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "setTimeout", "clearTimeout", "Date"] });
+      vi.setSystemTime(start);
+    });
+    afterEach(() => { resetServerClock(); vi.useRealTimers(); });
+    const expiringIn = (seconds: number) => {
+      const review = makeReview();
+      review.reference = { ...reference, expiresAt: new Date(start + seconds * 1000).toISOString() };
+      return review;
+    };
+
+    it("is not cut off when the expiry passes while the approved resume is still running", async () => {
+      // UAT audit: Allow once with 10 s left, the resume takes longer, the still-armed timer
+      // aborted it and the card claimed it could not verify the outcome.
+      let finish!: () => void;
+      const review = expiringIn(10);
+      vi.mocked(review.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const onDismiss = vi.fn();
+      const onActivityOutcome = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={onDismiss} onActivityOutcome={onActivityOutcome} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(review.resume).toHaveBeenCalledTimes(1);
+      const signal = vi.mocked(review.resume).mock.calls[0][1]!;
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(signal.aborted).toBe(false);
+      expect(screen.queryByText(/could not verify the outcome/)).toBeNull();
+      expect(onActivityOutcome).not.toHaveBeenCalledWith("unknown");
+      await act(async () => finish());
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+    });
+
+    it("tells the chat while a decision is in flight and when it settles", async () => {
+      let finish!: () => void;
+      const review = expiringIn(300);
+      vi.mocked(review.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const onDecidingChange = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={onDecidingChange} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange).toHaveBeenLastCalledWith(true);
+      await act(async () => finish());
+      expect(onDecidingChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("clears the in-flight flag when a failed decision settles or the card unmounts", async () => {
+      const failing = expiringIn(300);
+      vi.mocked(ExternalConnectorService.confirmMcpCall).mockRejectedValueOnce(new Error("refused"));
+      const onDecidingChange = vi.fn();
+      render(<McpCallReviewCard review={failing} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={onDecidingChange} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(screen.getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(onDecidingChange.mock.calls.map((call) => call[0])).toEqual([true, false]);
+
+      let finish!: () => void;
+      const hanging = expiringIn(300);
+      vi.mocked(hanging.resume).mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+      const unmounted = vi.fn();
+      const view = render(<McpCallReviewCard review={hanging} vaultOwnerToken="synthetic" onDismiss={vi.fn()} onDecidingChange={unmounted} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      fireEvent.click(within(view.container).getByRole("button", { name: "Allow once" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      view.unmount();
+      expect(unmounted).toHaveBeenLastCalledWith(false);
+      await act(async () => finish());
+    });
+
+    it("turns into a closable 'replaced' card within a second when another turn takes it over", async () => {
+      const review = expiringIn(300);
+      let current = true;
+      review.isCurrent = vi.fn(() => current);
+      const onDismiss = vi.fn();
+      render(<McpCallReviewCard review={review} vaultOwnerToken="synthetic" onDismiss={onDismiss} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByRole("button", { name: "Allow once" })).toBeEnabled();
+      current = false;
+      await act(async () => { await vi.advanceTimersByTimeAsync(1_100); });
+      expect(screen.getByText(/This review was replaced/)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
+      fireEvent.click(screen.getByRole("button", { name: "Close review" }));
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(screen.queryByRole("timer")).toBeNull();
+    });
   });
 
   describe("expiry countdown", () => {

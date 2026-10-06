@@ -474,3 +474,53 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   is `send_mail`) sampled several times per case on the UAT Live model, plus a
   consented UAT session that schedules a near-future send, lists and cancels
   one, and lets one fire through the drain.
+
+### Declared: One Voice spelled name words
+
+- Owning agent: the One Voice Live head. It decides that the person spelled a
+  word of a circle's name letter by letter ("h u s s h", "double s", "V zero
+  four"), joins exactly those letters and digits, keeps the rest of the name
+  as given, and declares the word in `spelled_words`. It decides when the
+  person changed or dropped an earlier spelled word, or is now naming a
+  different circle, and declares it in `release_spelled_words`. Host code never
+  reads letters out of a transcript, never decides whether two names are the
+  same circle, and never changes the name.
+- Manifest path: the voice head instruction in
+  `consent-protocol/hushh_mcp/agents/one/agent.yaml`
+  (`capabilities.voice_head.instruction`, "Names are exact"), narration rule 4
+  in `consent-protocol/hushh_mcp/one_voice/instruction.py` (a correction is
+  proposed again in the same turn, changing only what was corrected), and the
+  `create_circle` declaration in
+  `consent-protocol/hushh_mcp/one_voice/tools/circles.py`.
+- Structured output: `CreateCircleInput.spelled_words` and
+  `CreateCircleInput.release_spelled_words`, each at most 4 words of 1 to 40
+  letters, digits or combining marks, beside the model's own `name`. As
+  storage-safe structure normalization of the declared field only, letters
+  sent one by one ("H-U-S-S-H") are joined and apostrophes, hyphens and periods
+  inside a word are dropped; any other space makes the word invalid.
+- Validator: `consent-protocol/hushh_mcp/one_voice/tools/spelling.py` checks
+  that every spelled word (those declared now and those retained from earlier
+  in the conversation in `EntityContext.spelled_name_words`, kept for 3 minutes
+  after their last use and cleared once a circle is created or already exists)
+  is a whole word of the name, ignoring case only. The declared word and the
+  name are normalized the same way (combining marks are part of a word;
+  apostrophes, hyphens and periods inside a word are ignored; letters spelled
+  one by one are joined). There is no fuzzy or accent-folded matching. A name
+  without one is refused (`spelled_word_missing`, `needs=repeat_name`) with one
+  spoken question per word, and the open `create_circle` card is retired in the
+  same step so a later yes cannot approve the rejected name; if the card cannot
+  be retired the call fails closed (`storage_unavailable`). The same check runs
+  again when a card is confirmed, against the card's own words and the words
+  retained at that moment. The guard logs that it fired
+  (`one_voice.spelling.refused`, a count only). The card and the spoken
+  confirmation spell each word out ("..., with HUSSH spelled H-U-S-S-H") as the
+  person's check. The name the model returned is never rewritten.
+- Live eval before production promotion: the circle tool-selection eval's
+  `spelled_name` family, which scores the `name`, `spelled_words` and
+  `release_spelled_words` arguments as well as the tool choice, sampled
+  several times per case on the UAT Live model against a main baseline. Its
+  spelled examples share no words with the production prompt (a held-out
+  check rejects any 6-token overlap). It includes real "Hush" and "Hash" names
+  that must not become "Hussh", near-brand spellings (HUSS, HUSSHH), an
+  intentional change back to one S, a different circle after a cancel, and a
+  later correction that must keep the spelled word.

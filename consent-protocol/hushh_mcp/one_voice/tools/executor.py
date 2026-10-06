@@ -149,6 +149,18 @@ def _person_visible(args: dict[str, Any] | None) -> dict[str, Any]:
     return {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
 
 
+def _changed_fields(spec: ToolSpec, parsed: Any, replaced: PendingAction) -> list[str]:
+    """Names of the public arguments a new proposal changed from the card it
+    replaced, sorted. Names only: a value never reaches a log line."""
+    new = {
+        key: value
+        for key, value in parsed.model_dump(mode="json").items()
+        if key not in spec.private_args
+    }
+    old = _person_visible(replaced.args)
+    return sorted(key for key in set(new) | set(old) if new.get(key) != old.get(key))
+
+
 class ToolExecutor:
     def __init__(
         self,
@@ -394,6 +406,30 @@ class ToolExecutor:
                         superseded=superseded,
                     )
                 if isinstance(prepared, ToolResult):
+                    if isinstance(prepared, Rejected) and prepared.retire_open_proposal:
+                        # The refusal asks the person a question, so the next
+                        # yes answers that question, never the card the model
+                        # cancelled earlier: that re-proposal is asked fresh.
+                        self._recent_cancels.pop(ctx.conversation_id, None)
+                        # The refused proposal was a correction of the open
+                        # card; a yes to that card would now act on what the
+                        # person just corrected, so it is retired with the
+                        # refusal and reported like any superseded card.
+                        retired, complete = await self._retire_corrected(ctx, spec)
+                        superseded = [*superseded, *retired]
+                        if not complete:
+                            # The card may still be open, so no question is
+                            # asked over it: fail closed, as a lookup does when
+                            # it cannot retire the card it corrects.
+                            return ToolCallOutcome(
+                                result=_storage_unavailable(
+                                    "I couldn't prepare that right now. Nothing was changed. "
+                                    "Please try again in a moment."
+                                ),
+                                spec=spec,
+                                parsed=parsed,
+                                superseded=superseded,
+                            )
                     return ToolCallOutcome(
                         result=prepared, spec=spec, parsed=parsed, superseded=superseded
                     )
@@ -436,6 +472,13 @@ class ToolExecutor:
                     parsed=parsed,
                 )
             timings["create"] = _elapsed_ms(create_started)
+            for replaced in superseded:
+                if replaced.id != row.id:
+                    logger.info(
+                        "one_voice.pending.superseded tool=%s fields=%s",
+                        spec.name,
+                        ",".join(_changed_fields(spec, parsed, replaced)),
+                    )
             repeated = self._repeats_recent_cancel(ctx, spec, parsed)
             if repeated:
                 logger.info("one_voice.pending.repeat_after_cancel tool=%s", spec.name)
@@ -635,6 +678,37 @@ class ToolExecutor:
             if done is not None:
                 cancelled.append(done)
         return cancelled
+
+    async def _retire_corrected(
+        self, ctx: ToolContext, spec: ToolSpec
+    ) -> tuple[list[PendingAction], bool]:
+        """Cancel the open cards a refused correction from ``spec`` was aimed at.
+
+        Only cards that share its correction key: an unrelated card is still the
+        person's to answer. Like a lookup's supersede, these cancels are not the
+        model's own and are not remembered by the recent-cancel guard.
+
+        Returns the cards actually cancelled and whether every one was reached.
+        Storage failing here never ends the session; it returns ``False`` so the
+        caller fails closed, and the cards cancelled before the failure are
+        still reported as retired.
+        """
+        retired: list[PendingAction] = []
+        try:
+            open_rows = await self.pending.list_open(
+                user_id=ctx.user_id, conversation_id=ctx.conversation_id
+            )
+            for row in open_rows:
+                open_spec = registry.get_tool(row.tool_name)
+                if open_spec is None or open_spec.correction_key != spec.correction_key:
+                    continue
+                done = await self.pending.cancel(user_id=ctx.user_id, pending_action_id=row.id)
+                if done is not None:
+                    retired.append(done)
+        except PendingActionStorageError:
+            logger.warning("one_voice.pending.storage_failed phase=retire tool=%s", spec.name)
+            return retired, False
+        return retired, True
 
     async def _resolve_failed(
         self,

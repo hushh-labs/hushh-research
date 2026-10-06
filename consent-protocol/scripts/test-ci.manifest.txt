@@ -549,6 +549,18 @@ tests/test_one_output_privacy.py
 # named, delimited document and history restores it as a chip, not message text.
 tests/test_one_text_attachments.py
 tests/test_governed_mcp_toolset.py
+tests/one_adk/test_mcp_oauth_storage.py
+tests/services/test_external_mcp_client.py
+tests/services/test_external_mcp_result.py
+tests/services/test_external_mcp_safe_logging.py
+tests/services/test_mcp_catalog_cache.py
+tests/services/test_mcp_connector_probe.py
+tests/services/test_mcp_public_http.py
+tests/test_workspace_mcp_tools.py
+tests/services/test_google_calendar_mcp_service.py
+tests/services/test_google_gmail_mcp_service.py
+tests/test_registered_connector_keys.py
+tests/test_connector_crypto_profiles.py
 tests/test_external_mcp_schema_dialects.py
 tests/test_external_mcp_client_failure_logging.py
 tests/test_external_mcp_schema_evaluation_budget.py

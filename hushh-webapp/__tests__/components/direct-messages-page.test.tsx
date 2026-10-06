@@ -7,6 +7,7 @@ import {
 } from "@/components/agent/agent-dock";
 import { AgentBarSurface } from "@/components/agent/agent-bar-surface";
 import { DirectMessagesPage } from "@/components/direct-messages/direct-messages-page";
+import { ROUTES } from "@/lib/navigation/routes";
 
 const mocks = vi.hoisted(() => {
   const conversation = {
@@ -21,7 +22,7 @@ const mocks = vi.hoisted(() => {
   };
 
   return {
-    router: { replace: vi.fn() },
+    router: { push: vi.fn(), replace: vi.fn() },
     user: {
       uid: "viewer-1",
       getIdToken: vi.fn().mockResolvedValue("test-token"),
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => {
     markConversationRead: vi.fn(),
     openEvents: vi.fn(),
     sendMessage: vi.fn(),
+    requestAgentConversationAfterRoute: vi.fn(),
   };
 });
 
@@ -59,6 +61,11 @@ vi.mock("@/components/agent/chat-message-styles", () => ({
 vi.mock("@/lib/direct-messages/direct-message-events", () => ({
   dispatchDirectMessagesUpdated: vi.fn(),
   subscribeToDirectMessagesUpdated: () => () => undefined,
+}));
+
+vi.mock("@/lib/agent/agent-voice-settings", () => ({
+  requestAgentConversationAfterRoute: (...args: unknown[]) =>
+    mocks.requestAgentConversationAfterRoute(...args),
 }));
 
 vi.mock("@/lib/services/direct-messages-service", () => ({
@@ -90,6 +97,7 @@ function renderConnectionThread() {
 
 describe("DirectMessagesPage", () => {
   beforeEach(() => {
+    mocks.router.push.mockReset();
     mocks.router.replace.mockReset();
     mocks.user.getIdToken.mockClear();
     mocks.getConversationWithPerson.mockResolvedValue({
@@ -148,5 +156,31 @@ describe("DirectMessagesPage", () => {
         recipientPersonRef: "person-1",
       }),
     );
+  });
+
+  it("offers the full emoji picker and opens One chat for voice", async () => {
+    renderConnectionThread();
+
+    const composer = await screen.findByRole("textbox", {
+      name: "Message Ankit Kumar Singh",
+    });
+    expect(
+      screen.queryByLabelText("Video calls are not available in Messages yet"),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Choose emoji" }));
+    expect(screen.getByLabelText("Emoji picker")).toBeVisible();
+    expect(screen.getAllByRole("tab")).toHaveLength(8);
+    expect(
+      screen.getByRole("tab", { name: "Animals and nature" }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
+    expect(composer).toHaveValue("😀");
+
+    fireEvent.click(screen.getByRole("button", { name: "Talk to One" }));
+    expect(mocks.requestAgentConversationAfterRoute).toHaveBeenCalledWith(
+      ROUTES.HOME,
+    );
+    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
   });
 });

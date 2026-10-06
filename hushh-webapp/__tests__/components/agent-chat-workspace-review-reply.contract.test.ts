@@ -48,4 +48,19 @@ describe("typed reply to a connector review card", () => {
   it("reads the live card from a ref, not a stale closure", () => {
     expect(source).toContain("pendingMcpReviewsRef.current = pendingMcpReviews;");
   });
+
+  it("holds a new typed turn while an approved review is still being carried out", () => {
+    // A new turn deletes the card and aborts the approved resume; the write can still
+    // happen with no result shown, and a repeat request could duplicate it.
+    const handler = source.slice(
+      source.indexOf("const interceptBareReviewReply ="),
+      source.indexOf("const runAgentTurn = async ("),
+    );
+    expect(source).toContain("decidingMcpReviewsRef");
+    expect(handler.indexOf("decidingMcpReviewsRef.current.size > 0")).toBeGreaterThan(-1);
+    expect(handler.indexOf("decidingMcpReviewsRef.current.size > 0")).toBeLessThan(
+      handler.indexOf("pendingMcpReviewsRef.current[0]"),
+    );
+    expect(source).toContain("onDecidingChange={(deciding)");
+  });
 });

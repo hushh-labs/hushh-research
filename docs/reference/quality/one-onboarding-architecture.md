@@ -26,11 +26,15 @@ journey's detailed visual map follows the guest invitation contract below.
 ## Guest introduction and invitation continuity
 
 Before sign-in, `/?invite=one`, `/circle/join?code=…`, and
-`/one/location/invite/[token]` share `GuestPreview`: three short screens for
-Circles, the enabled public agent catalog, and asking One by voice or text.
+`/one/location/invite/[token]` share `GuestPreview`: four short screens for
+the original One welcome artwork and privacy assurance, followed by Circles,
+the enabled public agent catalog, and asking One by voice or text. The welcome
+uses the existing light/dark exports and readable, unscaled copy; its icon
+reveal settles once and respects reduced motion. `Create your One` on this
+first screen advances to Circles without signing in.
 Circles and agent selections are examples only. They do not create an account,
 join a Circle, connect a provider, or grant access. Guests advance through all
-three screens before sign-in controls appear; progress dots revisit only seen
+four screens before sign-in controls appear; progress dots revisit only seen
 screens. The final account action opens sign-in with the original invitation
 as its internal redirect target. Already-authenticated recipients skip this
 introduction and use the existing invitation confirmation and prerequisites.

@@ -20,18 +20,27 @@ Rules encoded here, not in prose:
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+import math
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from hushh_mcp.one_voice.tools.spelling import clean_spelled_word, spelling_key
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
 # How long a resolve_* candidate list stays selectable. Minutes, not the
 # entity TTL: "the second one" must refer to a list the person can still see.
 OFFER_TTL_SECONDS = 10 * 60
+# How many spelled name words a conversation keeps (see EntityContext).
+MAX_SPELLED_NAME_WORDS = 8
+# How long a spelled name word is kept after the last proposal that declared
+# or needed it. Long enough to survive a cancel and a re-proposal of the same
+# name, short enough that a different circle later on is not held to it.
+SPELLED_WORD_TTL_SECONDS = 3 * 60
 # Interim status of a device-executed Location updates step. Never success:
 # the settled result arrives later as its own tool.result once the device
 # reports back.
@@ -141,6 +150,12 @@ class ToolResult(BaseModel):
 
 class Rejected(ToolResult):
     status: Literal["rejected"] = "rejected"
+    # Server-only instruction to the executor, never part of any payload: when a
+    # ``prepare`` hook refuses a proposal with this set, the open card that
+    # proposal was correcting is retired too, so a yes cannot reach what the
+    # person just corrected. Excluded from every dump, so neither the client nor
+    # the model ever sees it.
+    retire_open_proposal: bool = Field(default=False, exclude=True)
 
 
 class Unsupported(ToolResult):
@@ -288,6 +303,40 @@ class OfferedScheduledMail(BaseModel):
     revision: int = 0
 
 
+class SpelledNameWord(BaseModel):
+    """One word the person spelled letter by letter for a name, and when.
+
+    ``at`` is epoch seconds from :meth:`EntityContext._now`, the clock ``prune``
+    uses, so the retention window and pruning always agree.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    word: str
+    at: float
+
+
+def _wellformed_spelled_words(value: Any) -> list[dict[str, Any]]:
+    """Keep the stored entries this version can trust, one by one.
+
+    A malformed entry is dropped on its own. Failing validation would fail the
+    whole context, and every confirmed person and circle with it.
+    """
+    if not isinstance(value, list):
+        return []
+    kept: list[dict[str, Any]] = []
+    for item in value:
+        raw = item.model_dump() if isinstance(item, SpelledNameWord) else item
+        if not isinstance(raw, dict):
+            continue
+        word, at = raw.get("word"), raw.get("at")
+        if not isinstance(word, str) or clean_spelled_word(word) != word:
+            continue
+        if isinstance(at, bool) or not isinstance(at, (int, float)) or not math.isfinite(at):
+            continue
+        kept.append({"word": word, "at": float(at)})
+    return kept[-MAX_SPELLED_NAME_WORDS:]
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -330,10 +379,62 @@ class EntityContext(BaseModel):
     # separate from ``offered_mail``: a position in the scheduled list must
     # never resolve against an inbox list, or the reverse.
     offered_scheduled_mail: OfferedScheduledMail | None = None
+    # Words the person spelled letter by letter for a name One is proposing
+    # ("h u s s h"), as the model declared them. Kept across a cancel and a
+    # reconnect for SPELLED_WORD_TTL_SECONDS after the last proposal that
+    # declared or needed them, so a re-proposal cannot silently drop one.
+    # Words only: never the name, never who it was for.
+    spelled_name_words: list[SpelledNameWord] = Field(default_factory=list)
+
+    @field_validator("spelled_name_words", mode="before")
+    @classmethod
+    def _restore_spelled_name_words(cls, value: Any) -> list[dict[str, Any]]:
+        return _wellformed_spelled_words(value)
 
     @staticmethod
     def _now() -> datetime:
         return datetime.now(timezone.utc)
+
+    def _live_spelled_words(self, now: float) -> list[SpelledNameWord]:
+        return [
+            entry for entry in self.spelled_name_words if now - entry.at <= SPELLED_WORD_TTL_SECONDS
+        ]
+
+    def retained_spelled_words(self, now: float) -> list[str]:
+        """The spelled words still inside their retention window, first seen first."""
+        return [entry.word for entry in self._live_spelled_words(now)]
+
+    def remember_spelled_words(self, words: Sequence[str], now: float) -> None:
+        """Keep each word; one entry per word compared without case.
+
+        The first spelling seen is kept and its time refreshed when the word is
+        declared or needed again. Expired entries go first, then the oldest past
+        the cap.
+        """
+        self.spelled_name_words = self._live_spelled_words(now)
+        for word in words:
+            if clean_spelled_word(word) != word:
+                continue
+            key = spelling_key(word)
+            existing = next(
+                (e for e in self.spelled_name_words if spelling_key(e.word) == key), None
+            )
+            if existing is not None:
+                existing.at = now
+            else:
+                self.spelled_name_words.append(SpelledNameWord(word=word, at=now))
+        while len(self.spelled_name_words) > MAX_SPELLED_NAME_WORDS:
+            self.spelled_name_words.remove(min(self.spelled_name_words, key=lambda e: e.at))
+
+    def release_spelled_words(self, words: Sequence[str]) -> None:
+        """Forget words the person changed or dropped, compared without case."""
+        released = {spelling_key(word) for word in words}
+        self.spelled_name_words = [
+            entry for entry in self.spelled_name_words if spelling_key(entry.word) not in released
+        ]
+
+    def clear_spelled_words(self) -> None:
+        self.spelled_name_words = []
 
     def offer_is_fresh(self) -> bool:
         if not self.offered_person_ids:
@@ -363,6 +464,7 @@ class EntityContext(BaseModel):
             self.offered_mail_selected_ordinal = None
         if self.offered_scheduled_mail is not None and not self.offered_scheduled_mail_is_fresh():
             self.offered_scheduled_mail = None
+        self.spelled_name_words = self._live_spelled_words(self._now().timestamp())
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
@@ -691,6 +793,7 @@ __all__ = [
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
     "LOCATION_UPDATES_PENDING",
+    "MAX_SPELLED_NAME_WORDS",
     "OFFER_TTL_SECONDS",
     "EntityContext",
     "Needs",
@@ -699,7 +802,9 @@ __all__ = [
     "PendingActionExists",
     "PersonRef",
     "Rejected",
+    "SPELLED_WORD_TTL_SECONDS",
     "ScreenContext",
+    "SpelledNameWord",
     "ToolContext",
     "ToolHandler",
     "ToolInput",
