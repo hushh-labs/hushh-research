@@ -1033,9 +1033,13 @@ final class AppUITests: XCTestCase {
         }
         for name in ["iOS Blue", "Molten Gold"] { selectAccent(name) }
         let value = accent.value as? String
+        print("NATIVE_ACCENT_REOPEN before_hittable=\(accent.isHittable) sheets=\(app.sheets.count) alerts=\(app.alerts.count)")
         accent.tap()
         let cancel = app.buttons["Cancel"].firstMatch
-        XCTAssertTrue(cancel.waitForExistence(timeout: 10)); cancel.tap()
+        let cancelAvailable = cancel.waitForExistence(timeout: 10)
+        let cancelAny = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Cancel")).count
+        print("NATIVE_ACCENT_REOPEN cancel=\(cancelAvailable) after_hittable=\(accent.isHittable) sheets=\(app.sheets.count) alerts=\(app.alerts.count) cancel_any=\(cancelAny)")
+        XCTAssertTrue(cancelAvailable, "NATIVE_ACCENT_CANCEL_UNAVAILABLE"); cancel.tap()
         XCTAssertEqual(accent.value as? String, value, "Native Cancel changed the preference")
         app.buttons["Close Profile"].firstMatch.tap()
         let retired = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: picker)
