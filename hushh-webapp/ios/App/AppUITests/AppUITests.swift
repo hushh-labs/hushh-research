@@ -131,6 +131,14 @@ final class AppUITests: XCTestCase {
             format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
         )).firstMatch
         XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
+        func assertFieldHitRegions() {
+            XCTAssertGreaterThanOrEqual(entry.frame.height, 44, "VAULT_LAYOUT_ENTRY_TARGET_TOO_SMALL")
+            let visibility = web.buttons["Show passphrase"].firstMatch
+            XCTAssertTrue(visibility.exists && visibility.isHittable, "VAULT_LAYOUT_VISIBILITY_CLIPPED")
+            XCTAssertGreaterThanOrEqual(visibility.frame.width, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_NARROW")
+            XCTAssertGreaterThanOrEqual(visibility.frame.height, 44, "VAULT_LAYOUT_VISIBILITY_TARGET_TOO_SHORT")
+        }
+        assertFieldHitRegions()
         let probe = app.buttons["native-vault-layout"]
         func geometry() -> [String: NSNumber]? {
             guard probe.exists, let json = probe.value as? String,
@@ -224,6 +232,7 @@ final class AppUITests: XCTestCase {
             sequence = packet?["sequence"]?.intValue ?? sequence
             report(stage, packet: packet)
             XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_ROTATED_ENTRY_CLIPPED")
+            assertFieldHitRegions()
             XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_ROTATED_ESCAPE_UNREACHABLE")
             XCTAssertTrue(packet?["recoveryInside"]?.boolValue == true && packet?["recoveryHits"]?.boolValue == true,
                           "VAULT_LAYOUT_ROTATED_RECOVERY_CLIPPED")
@@ -236,6 +245,7 @@ final class AppUITests: XCTestCase {
         let resumed = settledGeometry(after: sequence, matchingHeight: web.frame.height)
         report("resumed", packet: resumed)
         XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_RESUME_ENTRY_CLIPPED")
+        assertFieldHitRegions()
         XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_RESUME_ESCAPE_UNREACHABLE")
         XCTAssertTrue(resumed?["recoveryInside"]?.boolValue == true && resumed?["recoveryHits"]?.boolValue == true,
                       "VAULT_LAYOUT_RESUME_RECOVERY_CLIPPED")

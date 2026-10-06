@@ -442,6 +442,16 @@ card is checked on Circles, not Connections. Synthetic identity/network values
 make these layout checks independent of reviewer credentials. They do not
 qualify protected access, new native families or the complete route inventory.
 
+Actual vault input targets, rather than their 56px decorative field shells,
+are now measured. The former input and visibility button both failed the 44px
+minimum in WebKit. The shared creation/confirmation/unlock recipe now fills
+the field height and reserves a transparent 44px visibility target, retaining
+the small glyph, masking and normal authentication handlers. Six focused
+Chromium/WebKit checks pass, including upper-edge taps with empty input,
+phone handoff, split-window resizing and enlarged supporting text. The physical
+vault check also asserts those native-accessibility target dimensions; its
+new candidate must be built and rerun before counting device acceptance.
+
 Opt-in Debug-only `--hushh-vault-layout-diagnostics` provides bounded numeric
 geometry and boolean hit results through `native-vault-layout`. It admits no
 reviewer bootstrap, account reset, credential read, authentication bypass or

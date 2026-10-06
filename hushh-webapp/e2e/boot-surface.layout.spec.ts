@@ -455,6 +455,8 @@ test("hands the vault stage to the interactive unlock screen", async ({ page }) 
   await expect(surface).toHaveAttribute("aria-hidden", "true");
   await expect(surface).toHaveCSS("pointer-events", "none");
   const passphrase = page.getByLabel("Vault passphrase");
+  const target = await passphrase.boundingBox();
+  expect(target!.height).toBeGreaterThanOrEqual(44);
   await passphrase.click();
   await expect(passphrase).toBeFocused();
   await shot(page, "handoff-vault-unlock-393-light");
@@ -468,6 +470,25 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
     const content = page.locator("[data-vault-flow-content]");
     await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
     await settleIdle(page);
+    const passphrase = page.getByLabel("Vault passphrase");
+    const visibility = page.getByRole("button", { name: "Show passphrase", exact: true });
+    const inputTarget = await passphrase.boundingBox();
+    const visibilityTarget = await visibility.boundingBox();
+    expect({
+      entry: inputTarget!.height >= 44,
+      visibility: visibilityTarget!.height >= 44 && visibilityTarget!.width >= 44,
+    }).toEqual({ entry: true, visibility: true });
+    // Measure the actual controls, not their larger decorative field shell.
+    // Edge taps must focus/toggle without submitting any credential.
+    await expect(passphrase).toHaveValue("");
+    await passphrase.evaluate((node) => node.blur());
+    await passphrase.click({ position: { x: 10, y: 4 } });
+    await expect(passphrase).toBeFocused();
+    await visibility.click({ position: { x: 4, y: 4 } });
+    await expect(passphrase).toHaveAttribute("type", "text");
+    await page.getByRole("button", { name: "Hide passphrase", exact: true }).click();
+    await expect(passphrase).toHaveAttribute("type", "password");
+    await expect(passphrase).toHaveValue("");
     const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
     const supportingText = content.locator("[data-vault-flow-header] p").first();
     const originalTextSize = await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
@@ -483,6 +504,11 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
       }, keyboard);
       expect(await surface!.evaluate((node) => node.isConnected)).toBe(true);
       expect(await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThan(originalTextSize);
+      const resizedInput = await passphrase.boundingBox();
+      const resizedVisibility = await visibility.boundingBox();
+      expect(resizedInput!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.height).toBeGreaterThanOrEqual(44);
+      expect(resizedVisibility!.width).toBeGreaterThanOrEqual(44);
       const recovery = page.getByRole("button", { name: "Recovery key", exact: true });
       await content.evaluate((node) => { node.scrollTop = 0; });
       const scroll = await content.boundingBox();
