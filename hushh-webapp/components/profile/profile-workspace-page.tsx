@@ -4309,7 +4309,7 @@ function ProfilePageContent({
       <AppPageContentRegion>
         <SurfaceStack compact>
           <div className="profile-home-content">
-            <SettingsGroup title="Your settings" separatorInset>
+            <SettingsGroup title="Your settings" separatorInset rowSizing="uniform">
               <SettingsRow
                 icon={AccountProfileIcon}
                 iconTone="capability"
@@ -4348,7 +4348,6 @@ function ProfilePageContent({
                 icon={ConnectedSystemsAgentIcon}
                 iconTone="capability"
                 title="Connectors"
-                description="Google Workspace and finance connections"
                 chevron
                 onClick={() => openVaultBackedPanel("connectors")}
               />
@@ -4389,7 +4388,7 @@ function ProfilePageContent({
               ) : null}
             </SettingsGroup>
 
-            <SettingsGroup title="Legal" separatorInset>
+            <SettingsGroup title="Legal" separatorInset rowSizing="uniform">
               {/* Read in place: Profile never leaves the pane for /terms. */}
               <ProfileLegalRows
                 onOpen={(document) =>

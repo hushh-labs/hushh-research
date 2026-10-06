@@ -303,6 +303,19 @@ function DetailTarget() {
   );
 }
 
+function UniformNavigation({ uniform = true }: { uniform?: boolean }) {
+  return <SettingsGroup title="Navigation" separatorInset rowSizing={uniform ? "uniform" : "content"}
+    testId={uniform ? "uniform-navigation" : "content-navigation"}>
+    <SettingsRow icon={User} title="Account" chevron onClick={() => record("uniform:account")} />
+    <SettingsRow asChild icon={Bell} title="Preferences" description="Theme and accent" chevron>
+      <a href="#preferences">Preferences</a>
+    </SettingsRow>
+    <SettingsRow icon={Lock} title="Security" description="Review your vault methods and trusted devices."
+      chevron onClick={() => record("uniform:security")}
+      trailing={<Switch aria-label="Synthetic security switch" checked onCheckedChange={() => record("uniform:switch")} />} />
+  </SettingsGroup>;
+}
+
 function Fixture() {
   return (
     <main className="min-h-dvh space-y-8 bg-[color:var(--app-grouped-background,var(--background))] p-4 text-foreground">
@@ -312,6 +325,8 @@ function Fixture() {
       <ChatRequestCard />
       <LegacySplitRow />
       <DetailTarget />
+      <UniformNavigation />
+      <UniformNavigation uniform={false} />
     </main>
   );
 }

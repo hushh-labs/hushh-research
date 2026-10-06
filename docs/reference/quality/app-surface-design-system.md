@@ -348,6 +348,13 @@ Rules:
     reading column: three desktop tracks and one phone track. Keep text left
     aligned, surfaces borderless, and press feedback flat. Response follow-ups
     remain compact text rows. Both fill the composer for review; neither sends.
+12. Bounded settings/navigation lists prefer concise, single-line supporting
+    copy—or title-only rows when a subtitle adds nothing. If related siblings
+    need mixed line counts, `SettingsGroup rowSizing="uniform"` gives them the
+    tallest readable sibling's height at the current width and text size. The
+    real inner action/ripple surface must fill that height. Do not add filler
+    descriptions, fixed maximum heights or global truncation to force symmetry.
+    Information-heavy lists retain the default `content` sizing and wrapping.
 
 ## Agent Chat Stream Surface Contract
 

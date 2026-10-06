@@ -345,6 +345,49 @@ for (const width of [393, 1440]) {
   });
 }
 
+for (const width of [320, 393, 834, 1440]) {
+  test(`navigation siblings preserve uniform readable full-row surfaces at ${width}px`, async ({ page }) => {
+    await openFixture(page, width);
+    const group = page.getByTestId("uniform-navigation");
+    const rows = group.getByTestId("settings-row");
+    const measure = () => rows.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    const spread = (heights: number[]) => Math.max(...heights) - Math.min(...heights);
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const originalHeight = (await measure())[0]!;
+    // Enlarged text makes two-line support copy grow rather than disappear.
+    await page.addStyleTag({ content: '[data-testid$="navigation"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    expect(spread(await measure())).toBeLessThanOrEqual(1);
+    expect((await measure())[0]!).toBeGreaterThan(originalHeight);
+    for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
+    const description = group.locator('[data-slot="settings-row-description"]').last();
+    expect(await description.evaluate((node) => getComputedStyle(node).fontSize)).toBe("24px");
+    expect(await description.evaluate((node) => getComputedStyle(node).lineHeight)).toBe("32px");
+    expect(await description.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+    for (const row of await rows.all()) {
+      expect(await row.evaluate((node) => {
+        const bounds = node.getBoundingClientRect();
+        return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+          .every((text) => {
+            const box = text.getBoundingClientRect();
+            return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+              box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1;
+          });
+      }), "readable text remains inside its row, not clipped by an ancestor").toBe(true);
+    }
+    // The same mixed-content group without uniform sizing detects the defect.
+    const contentHeights = await page.getByTestId("content-navigation").getByTestId("settings-row")
+      .evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+    expect(spread(contentHeights)).toBeGreaterThan(1);
+    await clearEvents(page);
+    await clickAt(page, rows.first(), "trailing");
+    expect(await events(page)).toEqual(["uniform:account"]);
+    await clearEvents(page);
+    await group.getByRole("switch", { name: "Synthetic security switch" }).click();
+    expect(await events(page)).toEqual(["uniform:switch"]);
+  });
+}
+
 for (const width of [393, 834, 1440]) {
   test(`detail Close has a reachable 44px target at ${width}px`, async ({ page }) => {
     await openFixture(page, width);
