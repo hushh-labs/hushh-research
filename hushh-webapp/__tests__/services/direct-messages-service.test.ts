@@ -218,4 +218,16 @@ describe("DirectMessagesService", () => {
       expect.objectContaining({ method: "GET", cache: "no-store" }),
     );
   });
+
+  it.each(["scope", "conversation", "message"] as const)("rejects a deletion acknowledgement with mismatched %s", async (mismatch) => {
+    const message = { ...conversation.latestMessage, senderIsViewer: true, deletedForEveryoneAt: "2026-10-06T10:01:00.000Z" };
+    apiFetch.mockResolvedValue(new Response(JSON.stringify({
+      scope: mismatch === "scope" ? "me" : "everyone",
+      message: { ...message, conversationId: mismatch === "conversation" ? "another-conversation" : message.conversationId,
+        id: mismatch === "message" ? "another-message" : message.id },
+    }), { status: 200, headers: { "Content-Type": "application/json" } }));
+    await expect(DirectMessagesService.deleteMessage({
+      idToken: "firebase-token", conversationId: "conversation-1", messageId: "message-1", scope: "everyone",
+    })).rejects.toThrow("The deleted message could not be verified.");
+  });
 });

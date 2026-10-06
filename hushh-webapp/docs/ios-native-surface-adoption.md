@@ -476,6 +476,14 @@ Messages' cancellation fails the owner-bound negative control. These source
 repairs do not supply the missing authorized device fixtures. Token and
 callback entries likewise do not become native destinations by inference.
 
+The subsequent `main` Messages-actions sync preserves the owner-bound read and
+first-send handoff. Edit/reaction/delete calls now share its operation-generation
+fence; scope changes retire their selections, focus callbacks and notifications.
+Acknowledgements must match the requested deletion scope and record identity.
+Five old-source regressions failed; 22 focused frontend contracts and 19 backend
+route/service/migration checks pass on the combined working candidate. Those are
+synthetic contract checks, not deployed migration or device-action acceptance.
+
 ### Shared Geometry and Motion
 
 Rendered geometry remains authoritative: `--app-shell-reading` and

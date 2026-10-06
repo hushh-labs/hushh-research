@@ -212,9 +212,14 @@ export function DirectMessagesPage() {
   const loadGeneration = useRef(0);
   const loadedReadScopes = useRef<readonly string[]>([]);
   const operationGeneration = useRef(0);
+  const actionToastIds = useRef(new Set<number>());
   const messageListRef = useRef<HTMLDivElement | null>(null);
   const invalidateThreadRead = useCallback(() => { ++loadGeneration.current; }, []);
-  const invalidateOperations = useCallback(() => { ++operationGeneration.current; }, []);
+  const invalidateOperations = useCallback(() => {
+    ++operationGeneration.current;
+    for (const id of actionToastIds.current) morphyToast.dismiss(id);
+    actionToastIds.current.clear();
+  }, []);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
 
   const hasRouteSelection = Boolean(requestedPersonRef || requestedConversationId);
@@ -238,6 +243,12 @@ export function DirectMessagesPage() {
     invalidateOperations();
     setSending(false);
     setLoadingOlder(false);
+    setOpenMessageMenu(null);
+    setActiveMessageActions(null);
+    setReplyingTo(null);
+    setEditingMessage(null);
+    setEditingContent("");
+    setDeleteRequest(null);
     return invalidateOperations;
   }, [invalidateOperations, readScope]);
 
@@ -633,15 +644,30 @@ export function DirectMessagesPage() {
 
   const replaceMessage = (updated: DirectMessage) => {
     setMessages((current) =>
-      current.map((message) => (message.id === updated.id ? updated : message)),
+      current.map((message) => (message.id === updated.id && message.conversationId === updated.conversationId ? updated : message)),
     );
+  };
+
+  const showActionToast = <T,>(operation: Promise<T>, generation: number, labels: { loading: string; success: string; error: string }) => {
+    let id: number;
+    const handle = morphyToast.promise(operation, {
+      ...labels,
+      isCurrent: () => generation === operationGeneration.current,
+      finally: () => { actionToastIds.current.delete(id); },
+    });
+    // Sonner's generated numeric handle is boxed with an unwrap method.
+    id = Number(handle);
+    if (Number.isFinite(id)) actionToastIds.current.add(id);
   };
 
   const startReply = (message: DirectMessage) => {
     setOpenMessageMenu(null);
     setActiveMessageActions(message.id);
     setReplyingTo(message);
-    requestAnimationFrame(() => composerRef.current?.focus());
+    const generation = operationGeneration.current;
+    requestAnimationFrame(() => {
+      if (generation === operationGeneration.current) composerRef.current?.focus();
+    });
   };
 
   const startEditing = (message: DirectMessage) => {
@@ -652,10 +678,13 @@ export function DirectMessagesPage() {
   };
 
   const saveEdit = () => {
-    if (!user || !editingMessage || !editingContent.trim()) return;
+    if (!user || !isCurrentRead || !editingMessage || editingMessage.conversationId !== activeConversationId || !editingContent.trim()) return;
     const message = editingMessage;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.editMessage({
         idToken,
         conversationId: message.conversationId,
@@ -664,11 +693,12 @@ export function DirectMessagesPage() {
       });
     })();
     void operation.then((updated) => {
+      if (!isCurrentOperation()) return;
       replaceMessage(updated);
       setEditingMessage(null);
       setEditingContent("");
     }).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    showActionToast(operation, generation, {
       loading: "Saving message…",
       success: "Message edited",
       error: "Message could not be edited. Try again.",
@@ -676,9 +706,12 @@ export function DirectMessagesPage() {
   };
 
   const saveReaction = (message: DirectMessage, emoji: string) => {
-    if (!user) return;
+    if (!user || !isCurrentRead || message.conversationId !== activeConversationId) return;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.reactToMessage({
         idToken,
         conversationId: message.conversationId,
@@ -686,8 +719,10 @@ export function DirectMessagesPage() {
         emoji,
       });
     })();
-    void operation.then(replaceMessage).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    void operation.then((updated) => {
+      if (isCurrentOperation()) replaceMessage(updated);
+    }).catch(() => undefined);
+    showActionToast(operation, generation, {
       loading: "Adding reaction…",
       success: "Reaction added",
       error: "Reaction could not be saved. Try again.",
@@ -695,10 +730,13 @@ export function DirectMessagesPage() {
   };
 
   const confirmDelete = () => {
-    if (!user || !deleteRequest) return;
+    if (!user || !isCurrentRead || !deleteRequest || deleteRequest.message.conversationId !== activeConversationId) return;
     const { message, scope } = deleteRequest;
+    const generation = operationGeneration.current;
+    const isCurrentOperation = () => generation === operationGeneration.current;
     const operation = (async () => {
       const idToken = await user.getIdToken();
+      if (!isCurrentOperation()) throw new Error("Message action retired");
       return DirectMessagesService.deleteMessage({
         idToken,
         conversationId: message.conversationId,
@@ -707,12 +745,13 @@ export function DirectMessagesPage() {
       });
     })();
     void operation.then((result) => {
+      if (!isCurrentOperation()) return;
       if (result.message) replaceMessage(result.message);
-      else setMessages((current) => current.filter((item) => item.id !== message.id));
+      else setMessages((current) => current.filter((item) => item.id !== message.id || item.conversationId !== message.conversationId));
       setDeleteRequest(null);
       setActiveMessageActions(null);
     }).catch(() => undefined);
-    void morphyToast.promise(operation, {
+    showActionToast(operation, generation, {
       loading: "Deleting message…",
       success: deleteRequest.scope === "everyone"
         ? "Message deleted for everyone"

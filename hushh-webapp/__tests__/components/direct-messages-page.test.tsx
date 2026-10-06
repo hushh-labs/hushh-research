@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { toast } from "sonner";
 
 import {
   AgentDockProvider,
@@ -114,6 +115,7 @@ function renderConnectionThread() {
 
 describe("DirectMessagesPage", () => {
   beforeEach(() => {
+    for (const item of toast.getToasts()) toast.dismiss(item.id);
     mocks.user = { ...mocks.user, uid: "viewer-1" };
     mocks.search = "person=person-1";
     mocks.signedIn = true;
@@ -374,5 +376,78 @@ describe("DirectMessagesPage", () => {
     fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
     fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
     expect(screen.getByText("Replying to yourself")).toBeVisible();
+  });
+
+  it.each(["edit", "reaction", "delete"] as const)("retires an old owner's %s selection, result and notification", async (action) => {
+    mocks.search = "conversation=conversation-1";
+    const message = { id: "message-1", conversationId: "conversation-1", senderIsViewer: true,
+      content: "Synthetic owner A message", createdAt: "2026-10-06T10:01:00.000Z", readAt: null };
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [message], canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    const view = renderConnectionThread();
+    fireEvent.click(await screen.findByText(message.content));
+    let finish!: (value: unknown) => void;
+    const pending = new Promise((resolve) => { finish = resolve; });
+    const operation = action === "edit" ? mocks.editMessage : action === "reaction" ? mocks.reactToMessage : mocks.deleteMessage;
+    operation.mockReturnValueOnce(pending);
+    if (action === "reaction") {
+      fireEvent.click(screen.getByRole("button", { name: "Choose a reaction" }));
+      fireEvent.click(screen.getAllByRole("button", { name: "Use 😀" })[0]!);
+    } else {
+      fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+      fireEvent.click(await screen.findByRole("menuitem", { name: action === "edit" ? "Edit" : "Delete for me" }));
+      if (action === "edit") {
+        fireEvent.change(screen.getByRole("textbox", { name: "Edit message" }), { target: { value: "Synthetic A edit" } });
+        fireEvent.click(screen.getByRole("button", { name: "Save", exact: true }));
+      } else fireEvent.click(screen.getByRole("button", { name: "Delete message", exact: true }));
+    }
+    await waitFor(() => expect(operation).toHaveBeenCalled());
+    mocks.user = { ...mocks.user, uid: "viewer-2" };
+    // The same identifier makes stale replacement/deletion observable.
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [{ ...message, senderIsViewer: false, content: "Synthetic owner B message" }],
+      canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    view.rerender(connectionThread());
+    expect(await screen.findByText("Synthetic owner B message")).toBeVisible();
+    expect(screen.queryByRole("textbox", { name: "Edit message" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await act(async () => finish(action === "delete" ? { scope: "me", message: null } : { ...message, content: "Synthetic stale A result" }));
+    expect(screen.getByText("Synthetic owner B message")).toBeVisible();
+    expect(screen.queryByText("Synthetic stale A result")).not.toBeInTheDocument();
+    expect(toast.getToasts().map((item) => item.title)).not.toContain(
+      action === "edit" ? "Message edited" : action === "reaction" ? "Reaction added" : "Message deleted for you",
+    );
+  });
+
+  it.each(["owner", "route"] as const)("retires reply and deletion presentations when the %s changes", async (change) => {
+    mocks.search = "conversation=conversation-1";
+    const message = { id: "message-1", conversationId: "conversation-1", senderIsViewer: true,
+      content: "Synthetic selected reply", createdAt: "2026-10-06T10:01:00.000Z", readAt: null };
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: mocks.conversation, items: [message], canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    const view = renderConnectionThread();
+    await screen.findByText(message.content);
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Reply" }));
+    expect(screen.getByText("Replying to yourself")).toBeVisible();
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "Message Ankit Kumar Singh" })).toHaveFocus());
+    fireEvent.keyDown(screen.getByRole("button", { name: "Message options" }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete for me" }));
+    expect(await screen.findByRole("alertdialog")).toBeVisible();
+    if (change === "owner") mocks.user = { ...mocks.user, uid: "viewer-2" };
+    else mocks.search = "conversation=conversation-2";
+    mocks.getConversationMessages.mockResolvedValueOnce({
+      conversation: { ...mocks.conversation, id: change === "route" ? "conversation-2" : "conversation-1" },
+      items: [], canSend: true, disconnectedNotice: null, nextBefore: null,
+    });
+    view.rerender(connectionThread());
+    await waitFor(() => expect(screen.getByTestId("route-readiness")).toHaveAttribute("data-state", "empty-valid"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.queryByText("Replying to yourself")).not.toBeInTheDocument();
+    expect(mocks.deleteMessage).not.toHaveBeenCalled();
   });
 });
