@@ -428,6 +428,20 @@ under-avoidance defect, not the unconfirmed cause of the older physical clipping
 The iPad plugin's own overlap reporting and physical software-keyboard states
 still require device verification.
 
+The production-targeted Debug product built at `a0ff9c9ba` subsequently passed
+the credential-free, attach-only iPad vault check at rest/focus, both orientations
+and background/resume. Unlock, Recovery key and Sign out remained reachable.
+No software keyboard appeared, so this does not qualify its physical overlap
+or protected route/session continuity.
+
+Broader source-derived fixtures also exercise Profile's shared nested gutter,
+Connect at tablet width in both themes, Mail receipt actions, Memory detail/save
+surfaces and shared dock clearance. Connect's fixture retains the real in-memory
+voice metadata projection and now observes URL-backed tab choices; its Circle
+card is checked on Circles, not Connections. Synthetic identity/network values
+make these layout checks independent of reviewer credentials. They do not
+qualify protected access, new native families or the complete route inventory.
+
 Opt-in Debug-only `--hushh-vault-layout-diagnostics` provides bounded numeric
 geometry and boolean hit results through `native-vault-layout`. It admits no
 reviewer bootstrap, account reset, credential read, authentication bypass or
