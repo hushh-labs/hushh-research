@@ -415,8 +415,18 @@ which is what makes the leftover set honest: an orphan leaves behind exactly wha
 person's own deletion leaves behind (the retained accountability tables listed in
 `ACCOUNT_ERASURE_RETAINED_TABLES`, nothing that bills). The pod, the substrate where the
 lane allows teardown, the HusshID tombstone and every user-keyed table go together. A
-result without `success: true` is counted as `orphan_erase_failed` and retried next pass;
-the failing owner stays on the absence clock.
+result without `success: true` is counted as `orphan_erase_failed`; the failing owner
+stays on the absence clock.
+
+**A failing owner backs off (2026-10-06).** Each failure holds that owner back for 5
+minutes, doubling to 6 hours, and logs one `personal_agent.orphan_erase_blocked
+reason=<code> attempt=<n> retry_in_s=<s>` line per step; while held back the owner takes
+none of the 5 slots, so one stuck erasure cannot starve the rest. Success, or the
+identity coming back, clears it; the reason is a bounded code such as `POD_REFUSED_403`
+or else the error type, and `personal_agent.erasure_admission_unavailable` now carries
+the same `code=` (never the message). The backoff lives in memory in the sweep holder,
+so a new holder starts fresh: that only retries sooner, never erases sooner, because the
+10-minute absence confirmation still gates every attempt.
 
 The absence clock is worker-local (the loop runs in every gunicorn worker), so two
 workers can each erase the same orphan; erasure is idempotent, so the second one counts

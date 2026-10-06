@@ -103,6 +103,7 @@ from hushh_mcp.runtime_settings import (
     pod_idle_reap_hours,
 )
 from hushh_mcp.services.fleet_sweep_lock import FleetSweepLock, fleet_turn
+from hushh_mcp.services.orphan_erase_backoff import OrphanEraseBackoff
 from hushh_mcp.services.personal_agent_provisioning_service import (
     FEED_EVENT_PROVISIONING,
     FEED_EVENT_REAPED,
@@ -385,6 +386,7 @@ class PersonalAgentReconcileWorker:
         #: change). ``_reconcile_loop`` clears it when the fleet turn returns after a gap: that
         #: delays an erasure, never hastens one. Erasure is idempotent, so redoing one is a no-op.
         self._absent_first_seen: dict[str, datetime] = {}
+        self._erase_backoff = OrphanEraseBackoff()  # per holder; see orphan_erase_backoff
 
     async def scan_and_reconcile(self) -> ReconcileReport:
         """
@@ -554,7 +556,7 @@ class PersonalAgentReconcileWorker:
            refuse the whole pass and say so loudly; that is the identity backend
            answering for the wrong project, not an orphan wave.
         5. Absent for at least ``orphan_confirm_after`` -> erase, bounded by
-           ``_ORPHAN_ERASE_BATCH`` per pass.
+           ``_ORPHAN_ERASE_BATCH`` per pass; a failing owner backs off (5 min to 6 h).
 
         The erasure is the account route's own cascade, so what an orphan leaves
         behind is exactly what a person's own deletion would leave behind: the
@@ -597,6 +599,7 @@ class PersonalAgentReconcileWorker:
             checked += 1
             if exists:
                 self._absent_first_seen.pop(user_id, None)
+                self._erase_backoff.forget(user_id)
                 continue
             self._absent_first_seen.setdefault(user_id, now)
             absent.append(candidate)
@@ -606,6 +609,7 @@ class PersonalAgentReconcileWorker:
         live_ids = {c.user_id for c in candidates}
         for stale_id in [k for k in self._absent_first_seen if k not in live_ids]:
             self._absent_first_seen.pop(stale_id, None)
+        self._erase_backoff.retain(live_ids)
 
         if not absent:
             return 0, 0, 0
@@ -626,7 +630,8 @@ class PersonalAgentReconcileWorker:
             if now - self._absent_first_seen[c.user_id] >= self._orphan_confirm_after
         ]
         pending = len(absent) - len(confirmed)
-        batch = confirmed[:_ORPHAN_ERASE_BATCH]
+        ready = self._erase_backoff.ready(confirmed, now)
+        batch = ready[:_ORPHAN_ERASE_BATCH]
         erased = 0
         failed = 0
         for candidate in batch:
@@ -635,6 +640,7 @@ class PersonalAgentReconcileWorker:
                 await self._erase_orphan(candidate.user_id)
                 erased += 1
                 self._absent_first_seen.pop(candidate.user_id, None)
+                self._erase_backoff.forget(candidate.user_id)
                 logger.warning(
                     "[%s] personal_agent.orphan_erased hushh_id=%s status=%s absent_for_s=%d",
                     _LABEL,
@@ -644,18 +650,12 @@ class PersonalAgentReconcileWorker:
                 )
             except Exception as exc:
                 failed += 1
-                logger.warning(
-                    "[%s] personal_agent.orphan_erase_failed hushh_id=%s error=%s detail=%s",
-                    _LABEL,
-                    candidate.hushh_id or "<none>",
-                    type(exc).__name__,
-                    _safe_detail(exc),
-                )
-        if len(confirmed) > len(batch):
+                self._erase_backoff.failed(_LABEL, candidate, exc, now, _safe_detail(exc))
+        if len(ready) > len(batch):
             logger.warning(
                 "[%s] %d confirmed orphans remain after this batch",
                 _LABEL,
-                len(confirmed) - len(batch),
+                len(ready) - len(batch),
             )
         return erased, failed, pending
 
