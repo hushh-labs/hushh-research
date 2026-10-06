@@ -207,6 +207,8 @@ def seal_range_bundle(
     """
     if not records:
         raise PodSyncBundleError("refusing to seal an empty range")
+    if any(record.get("kind") == "browser_session_v1" for record in records):
+        raise PodSyncBundleError("browser session object transfer is not qualified")
     if not str(recipient_key_id or "").strip():
         raise PodSyncBundleError("a range is addressed to a recipient key id")
     chain = chain_from(base_seq, base_head_sha, records)
@@ -340,6 +342,8 @@ def open_range_bundle(
     records = body.get("records")
     if not isinstance(records, list) or not all(isinstance(r, dict) for r in records):
         raise PodSyncBundleError("the range carries no records")
+    if any(record.get("kind") == "browser_session_v1" for record in records):
+        raise PodSyncBundleError("browser session object transfer is not qualified")
     base_seq, base_head_sha, head_seq, head_sha = coordinates
     chain = chain_from(base_seq, base_head_sha, records)
     if base_seq + len(records) != head_seq or chain[head_seq] != head_sha:

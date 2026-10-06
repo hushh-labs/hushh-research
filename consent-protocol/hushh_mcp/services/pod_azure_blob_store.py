@@ -232,6 +232,17 @@ class AzureBlobObjectStore:
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         return await asyncio.to_thread(self.get_with_generation_blocking, key)
 
+    async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
+        from hushh_mcp.services.pod_bounded_object import read_bounded_response
+
+        def read():
+            response = self._send(
+                "get", self._url(key), {"Accept-Encoding": "identity"}, stream=True
+            )
+            return read_bounded_response(response, max_bytes=max_bytes)
+
+        return await asyncio.to_thread(read)
+
     async def put(self, key: str, data: bytes) -> None:
         if await self.put_if_generation(key, data, ABSENT) is None:
             raise FileExistsError(f"record object already exists: {key}")

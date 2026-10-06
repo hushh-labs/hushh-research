@@ -123,5 +123,17 @@ class BrowserMailbox:
 
     def close(self) -> None:
         if self._fd >= 0:
-            os.close(self._fd)
-            self._fd = -1
+            try:
+                for suffix in ("request", "response"):
+                    try:
+                        os.unlink(f"{self._lane}-{suffix}.json", dir_fd=self._fd)
+                    except FileNotFoundError:
+                        pass
+            finally:
+                os.close(self._fd)
+                self._fd = -1
+
+    def require_memory(self) -> None:
+        from .scratch import require_tmpfs_fd
+
+        require_tmpfs_fd(self._fd)

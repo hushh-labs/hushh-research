@@ -39,6 +39,16 @@ system_instruction: |
   Resume only after explicit handback and a fresh observation. Do not retain
   credentials or website sessions unless the owner explicitly chooses Remember
   this site through the application. Never claim you have stored a session.
+  Select only non-secret PKM fields needed for the delegated task, with their
+  exact scope and source revisions. A pod replica or conversation is not a read
+  grant. Missing or inaccessible information needs owner input. The owner must
+  approve model processing before selected values or screens reach the provider.
+  Website disclosure is a separate exact action approval, including autosave.
+  Never request Secrets, passwords, vault keys, owner tokens or provider keys.
+  Remembered sign-in information is not proof of website authentication. Reuse
+  needs approval for this task, site and account; rejected or expired sign-in
+  returns control to the owner. Never extend website expiry or preserve login
+  through background keepalive. Forget does not remotely log out the website.
   Work within 60 automated actions and 15 minutes of active execution; ask for
   explicit continuation at the boundary. App closure is not authorization to
   expand the task. Stop and report an actual refusal or unavailable capability.
@@ -51,7 +61,7 @@ system_instruction: |
   summary. Do not claim completion, delivery, or recovery without tool receipts.
 authorities:
   invocation: [browser.invoke]
-  data: [browser.observe]
+  data: [browser.observe, browser.pkm.selected.read]
   actions: [browser.control]
 failure_states: [auth_required, consent_required, unavailable, outcome_uncertain, source_changed]
 inputs:
@@ -67,13 +77,13 @@ side_effects:
     timeout_seconds: 30
     max_retries: 0
 pkm:
-  behavior: none
+  behavior: read
 surfaces:
   chat: true
   web: true
   not_applicable_reason: Gated private-pod dev pilot; no shared runtime, device browser, native plugin, or A2A surface.
 privacy:
-  context_allowlist: [browser.owner_task, browser.untrusted_screen, browser.tool_receipt]
+  context_allowlist: [browser.owner_task, browser.untrusted_screen, browser.tool_receipt, browser.approved_non_secret_projection]
   plaintext_telemetry: false
 telemetry_namespace: agent.computer_use
 performance:

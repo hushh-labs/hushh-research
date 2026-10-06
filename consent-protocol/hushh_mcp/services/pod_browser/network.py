@@ -9,11 +9,10 @@ from __future__ import annotations
 
 import asyncio
 from typing import Protocol
-from urllib.parse import urlsplit
 
 import httpcore
 
-from hushh_mcp.services.mcp_public_http import PublicNetworkBackend, validate_mcp_endpoint
+from hushh_mcp.services.mcp_public_http import PublicNetworkBackend
 
 from .contracts import (
     BrowserBinding,
@@ -22,6 +21,7 @@ from .contracts import (
     BrowserRequest,
     BrowserResponse,
 )
+from .origin import public_origin as public_origin
 
 
 class BrowserNetworkAuthorityPort(Protocol):
@@ -44,24 +44,6 @@ class BrowserNetworkAuthorityPort(Protocol):
     async def settle_dispatch(
         self, binding: BrowserBinding, request: BrowserRequest, commitment: str, *, uncertain: bool
     ) -> None: ...
-
-
-def public_origin(url: str) -> str:
-    try:
-        parsed = urlsplit(url)
-        if len(url) > 4096 or any(ord(c) <= 32 or ord(c) == 127 for c in url) or "\\" in url:
-            raise ValueError()
-        if parsed.fragment or not parsed.hostname:
-            raise ValueError()
-        # Reuse the authored HTTPS host validation while allowing browser paths
-        # and queries. DNS is revalidated at the actual TCP connect, not here.
-        origin = f"https://{parsed.netloc}"
-        if parsed.scheme != "https":
-            raise ValueError()
-        validate_mcp_endpoint(origin)
-        return f"https://{parsed.hostname.lower()}"
-    except ValueError:
-        raise BrowserRefused("BROWSER_DESTINATION_REFUSED") from None
 
 
 class BrowserNetworkBroker:

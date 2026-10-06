@@ -10,6 +10,7 @@ RUN /opt/venv/bin/pip install --no-cache-dir playwright==1.63.0 pydantic==2.12.5
     && /opt/venv/bin/playwright install --with-deps chromium \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/browser
+COPY hushh_mcp/services/public_endpoint_policy.py /opt/browser/hushh_mcp/services/
 # Deliberately no COPY . ., /app, pod_server, environment files or credentials.
 COPY hushh_mcp/services/pod_browser/__init__.py \
      hushh_mcp/services/pod_browser/contracts.py \
@@ -18,6 +19,9 @@ COPY hushh_mcp/services/pod_browser/__init__.py \
      hushh_mcp/services/pod_browser/sandbox_runner.py \
      hushh_mcp/services/pod_browser/gcp_probe.py \
      hushh_mcp/services/pod_browser/worker_identity.py \
+     hushh_mcp/services/pod_browser/scratch.py \
+     hushh_mcp/services/pod_browser/session_state.py \
+     hushh_mcp/services/pod_browser/origin.py \
      /opt/browser/hushh_mcp/services/pod_browser/
 RUN groupadd --system --gid 10002 browser \
     && useradd --system --uid 10002 --gid browser --home-dir /tmp/browser browser

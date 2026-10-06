@@ -2,13 +2,12 @@
 
 ## Status and evidence
 
-**2026-10-06 — disabled foundation; not a usable browser capability.**
-Inspected infrastructure base: `1d8b74998141db83b0dbe5d4c87fc6fd61601719`.
-The accompanying changes add an experimental manifest, native ADK adapter,
-typed execution/control boundary, restricted HTTPS broker and sandbox-only
-Chromium runner. They do not register a One child, issue browser scopes, expose
-routes, provision owner resources or provide an owner preview. Isolated synthetic
-probe resources were created only to test the first gate.
+**2026-10-06 — disabled pilot; not a usable owner browser capability.**
+The information/session change starts at `9a3d5f043469` and preserves concurrent
+infrastructure commits through `f1bda1eb5`. Local ports extend the existing native
+ADK, control, broker and sandbox foundation. They do not register a One child,
+issue browser grants, expose owner routes or provide a preview. Earlier isolated
+cloud probes did not qualify Chromium; no owner pod changed in this slice.
 
 The [agent-development procedure](./agent-development.md) owns registration;
 the [readiness memo](../../../docs/reference/quality/adk-orchestration-docs-audit.md)
@@ -28,7 +27,10 @@ flowchart TD
     Broker["Foundation: HTTPS broker and dispatch receipts"]
     Cloud["Unverified: isolated Chromium launcher in owner cloud"]
     Web["Task-authorized public HTTPS origins"]
-    Ledger["Existing approval/action authority; browser adapter missing"]
+    Ledger["Existing action ledger; local browser adapter, not wired"]
+    Information["Local port: selected non-secret PKM exports"]
+    Sessions["Local port: encrypted remembered sign-in"]
+    Store["Existing owner object store and sealed recovery log"]
     UI -. "owner task" .-> One
     UI -. "exclusive manual takeover; task-bound input" .-> Control
     One -. "AgentTool; not registered" .-> Agent
@@ -39,6 +41,11 @@ flowchart TD
     Cloud -. "no direct egress; bounded request bridge" .-> Broker
     Broker -. "DNS-pinned authorized requests" .-> Web
     Control -. "exact action approval" .-> Ledger
+    Information -. "exact model-processing / disclosure approval" .-> Ledger
+    Information -. "approved fields and source revisions only" .-> Agent
+    Sessions -. "remember / per-task reuse approval" .-> Ledger
+    Sessions -. "encrypted objects; metadata-only log" .-> Store
+    Sessions -. "approved state through private memory bridge" .-> Cloud
     Broker -. "exact transmission approval / outcome receipt" .-> Ledger
     Cloud -. "private frames through task bridge" .-> Control
     Control -. "validated frames; preview not implemented" .-> UI
@@ -49,18 +56,102 @@ flowchart TD
 | Owner | Current contract |
 | --- | --- |
 | `hushh_mcp/agents/computer_use/agent.yaml` | Manifest-owned task instructions; development only, discovery withheld, rollout off. Invocation, observation and control are distinct declarations, not issued grants. |
-| `one_adk/computer_use_agent.py` | Requires the explicit gate and exact native Gemini model/transport readiness. Uses pinned ADK `BaseComputer` / `ComputerUseToolset`; no function-only provider fallback. |
+| `one_adk/computer_use_agent.py` | Requires the gate, exact native Gemini transport and task-bound processing terms. ADK observations pause during owner control; only approved-origin frames and origin-only URLs reach the model. No function-only fallback. |
 | `services/pod_browser/control.py` | Owner/incarnation/expiry checks, sequence fencing, exclusive takeover and explicit handback, dispatch-before-execution, uncertain-outcome stop. Sixty agent calls or fifteen active minutes require continuation; unattended observation cannot extend the ten-minute idle grace. |
 | `services/pod_browser/network.py` | Exact-origin HTTPS policy, public DNS/IP enforcement through the existing transport, bounded request/response sizes, no ambient proxy or automatic retry. Redirects and subresources need their own admission. Transmission commitments cover destination, method, headers and body. |
 | `services/pod_browser/mailbox_executor.py` | Task-bound strict envelopes and an out-of-band termination port. Host-side receipt checks reject unresolved network effects even if the sandbox returns a valid screenshot. |
-| `services/pod_browser/playwright_executor.py` | One fixed viewport/page, Chromium sandbox enabled, service workers and WebSockets blocked, downloads disabled. Routed requests must use the broker; there is no direct or unsandboxed fallback. |
+| `services/pod_browser/playwright_executor.py` | One page, Chromium sandbox enabled, service workers/WebSockets blocked, downloads disabled. Chromium Fetch interception brokers each redirect hop and preserves response-header multiplicity. Frames/workers/objects are restricted; multi-target authentication is unqualified. No direct or unsandboxed fallback. |
 | `services/pod_browser/worker_identity.py` | Before worker IPC or Chromium, require the fixed non-root identity, zero permitted/effective/ambient capabilities and `no_new_privs`. Refuse unavailable privilege dropping; never run the browser as root. |
 | `browser_runtime/Dockerfile` | Browser-only probe definition, pinned Playwright, explicit source copies and fixed UID/GID. No core pod, recovery, provider SDK or credentials. The earlier probe image was built; the revised identity guard is not image-qualified. |
+| `services/pod_browser/information.py`, `consent.py` | Typed selected-field exports and exact private commitments over the existing ledger. Export revision, PKM content revision and PKM manifest revision are distinct. Runtime grant-loader and authenticated route wiring remain required. |
+| `services/pod_browser/session_state.py`, `sessions.py` | Bounded encrypted persistent sign-in objects, current-admission reuse, metadata-only recovery, CAS publication and generation-fenced Forget. Core ports only; no customer retention control is exposed. |
+| `services/pod_browser/scratch.py`, `mailbox.py` | Require Linux tmpfs on the actual open descriptor, private task scratch, and command/network cleanup on close. macOS fixtures do not qualify native cloud scratch. |
 
 The broker's authority ports must be backed by the **existing** approval/action
 ledger. Synthetic test adapters are not runtime authority. A typed `completed`
 model result is not a verified submission receipt. Pending/uncertain effects
 must survive recovery and prohibit replay.
+
+## Information and sign-in boundary
+
+One's manifest instructs the specialist to select the task's non-secret fields.
+`ScopedProjectionReader` requires a current V2 scoped export from the existing
+grant owner: exact owner/task/incarnation, recipient, scope, export revision,
+source content/manifest revisions, expiry and revocation. The pilot accepts
+bounded scalar projections only; Secrets, runtime credentials, wallet and identity
+domains are refused. Neither a replica nor conversational memory authorizes reads.
+The production loader must perform these checks against its authoritative sources.
+
+Model processing and website disclosure are independent exact reviews. Private
+values stay in pod/browser memory; the action ledger stores keyed commitments.
+Processing binds the provider/transport and screen origins. Disclosure additionally
+binds the destination, source revisions, action sequence/control epoch and request
+commitment. Changed terms need renewed approval, including autosaving input.
+No pod principal can confirm a review. Cached task approvals recheck current
+admission and their consumed ledger receipt; website disclosure is single use.
+
+Manual takeover suppresses model screenshots, URLs, page text, tools and errors.
+Only explicit handback and a fresh observation allow processing again. Model URLs
+contain the origin only, excluding callback codes. Runtime routes must use the
+owner-only session control port, never expose state through ADK tools, and drain
+browser tasks through the existing update permit before replacing an image.
+
+Remembering requires opt-in for the selected origins/account. The initial adapter
+retains persistent cookies and local storage, preserving cookie scope/security and
+website expiry. Session-only cookies remain live and end with the browser. There
+is no product expiry extension or keepalive. IndexedDB, passkeys, profiles, caches,
+popups, iframe/worker authentication and arbitrary SSO recipients are unsupported.
+Each additional SSO origin needs admission and processing consent. Restored state
+is stored sign-in information; website rejection still requires owner login.
+
+Serialized state is limited to **1 MiB**, then AES-GCM sealed with a browser-purpose
+key derived from existing owner custody. Bounded cloud reads reject excess bytes
+before materializing the body. Oversized retention fails without stopping the
+current browser task. No session values enter model context, hub storage, telemetry
+or the sealed log; that log holds opaque intents, object references and lifecycle
+metadata. Publication uses the observed log sequence. Lost publication responses
+retain inventoried ciphertext until quiescent cleanup can establish its status.
+
+Forget immediately blocks reuse and closes affected live contexts, then records
+a generation tombstone and requests deletion of every inventoried object, including
+failed saves. Pending saves/restores cannot supersede it. The receipt distinguishes
+live fencing, durable persistence and deletion requests. Physical removal remains
+subject to cloud retention; Forget does not remotely log out a website. Erasure
+inventory includes these objects and requires drained/fenced writers.
+
+Same-custody restart can rebuild metadata and restore current encrypted objects
+with fresh admission and per-task site/account reuse approval. Record-only
+cross-custody migration and standby synchronization **refuse browser-session
+history on both send and receive**, including forgotten history, until encrypted
+object/key transfer is qualified. This blocks those operations; it does not claim
+update/recovery parity. Update drain, object continuity, and orphan cleanup still
+need runtime integration and immutable-image acceptance.
+
+## Local verification
+
+The nearest browser/ledger/erasure suites exercise exact processing/disclosure,
+revocation, owner/incarnation mismatch, login observation suppression, approved
+screen origins, altered ciphertext, bounded state, Forget races and restart
+metadata. A separate synthetic Chromium fixture verifies redirect interception,
+multiple `Set-Cookie` headers, official expiry, local-storage restoration and
+unapproved recipients without owner credentials or real network responses. It
+also proves that an admitted secondary origin cannot load an embedded frame under
+the pilot's conjunctive CSP:
+
+```bash
+cd consent-protocol
+# Optional local tool: pinned Playwright 1.63.0 and its Chromium must be installed.
+.venv/bin/python scripts/ops/browser_privacy_fixture.py
+```
+
+The fixture uses the browser image's namespace packages and does not hydrate the
+core pod's environment. Its pinned SDK can also run in an isolated local tool
+environment; it is not a dependency installed on the private agent.
+
+The original fixture failed because Playwright route interception missed redirect
+hops; Chromium Fetch interception corrected it. These results qualify the local
+adapter only. They do not prove native sandbox isolation, owner-cloud storage/IAM,
+real login/SSO compatibility, provider retention or live update acceptance.
 
 ## Isolation gate
 
@@ -141,13 +232,14 @@ Native cloud contracts: [GCP sandbox execution](https://docs.cloud.google.com/ru
    session record budget or persist screens in One transcripts or hub storage.
 3. Register the child only after the native model and cloud capability pass.
    Add task status/preview/control through existing pod routes, a responsive
-   One task card and explicit takeover. Pause model observation during login;
-   explicit handback requires a fresh observation. Render frames separately
+   One task card and explicit takeover. Wire the local observation-suppression
+   and session-control ports; handback requires a fresh observation. Render frames separately
    from model calls and enforce preview lease expiry.
-4. Implement opt-in encrypted site retention, forgetting/expiry, bounded
-   background continuation, explicit budget continuation and scoped Files
-   transfer. No credential entry, remembered session or download is supported
-   by the foundation. Cookies and redirect behavior require real-browser tests.
+4. Wire and qualify the local encrypted session/information ports, runtime grant
+   loader, account erasure, orphan cleanup and update continuity. Complete bounded
+   background continuation, budget continuation and scoped Files transfer. Local
+   cookie/redirect fixtures pass; real owner preview, authentication and cloud
+   recovery remain unverified. No customer login or retention is enabled.
 5. Prove controlled research, preparation and reviewed submission, uncertain
    outcomes, revocation/recovery, malicious pages, cross-owner refusal, update
    draining and idle wake. Measure cold/warm latency, 429 outcomes, memory,

@@ -16,6 +16,8 @@ from .contracts import (
 )
 from .mailbox import BrowserMailbox
 from .playwright_executor import SandboxedPlaywrightExecutor
+from .scratch import require_tmpfs
+from .session_state import RememberedState
 from .worker_identity import prepare_worker_identity
 
 
@@ -51,14 +53,41 @@ class _NetworkBridge:
 
 
 async def run(directory: Path) -> None:
-    prepare_worker_identity()
-    commands = BrowserMailbox(directory, lane="command")
-    network = _NetworkBridge(BrowserMailbox(directory, lane="network"))
-    # This entrypoint is started only by the native sandbox launcher. There is
-    # no production direct-process mode or unsandboxed retry in the launcher.
-    executor = SandboxedPlaywrightExecutor(network=network, sandbox_verified=True)
-    previous = None
+    scratch = prepare_worker_identity()
     try:
+        require_tmpfs(directory)
+        await _serve(directory)
+    finally:
+        scratch.close()
+
+
+def _command_binding(payload: dict, current: BrowserBinding | None) -> BrowserBinding:
+    is_session = payload.get("operation") in {"session_export", "session_import"}
+    expected = (
+        {"binding", "operation", "origins", "state"}
+        if is_session
+        else {"binding", "operation", "action"}
+    )
+    if set(payload) != expected:
+        raise BrowserRefused("BROWSER_BRIDGE_INVALID")
+    bound = BrowserBinding.model_validate_json(json.dumps(payload["binding"]))
+    if current is not None and current != bound:
+        raise BrowserRefused("BROWSER_BINDING_REFUSED")
+    return bound
+
+
+async def _serve(directory: Path) -> None:
+    commands = BrowserMailbox(directory, lane="command")
+    network = None
+    executor = None
+    try:
+        network = _NetworkBridge(BrowserMailbox(directory, lane="network"))
+        commands.require_memory()
+        network.mailbox.require_memory()
+        # This entrypoint is started only by the native sandbox launcher. There is
+        # no production direct-process mode or unsandboxed retry in the launcher.
+        executor = SandboxedPlaywrightExecutor(network=network, sandbox_verified=True)
+        previous = None
         async with asyncio.timeout(20 * 60):
             while True:
                 received = commands.receive(previous)
@@ -68,14 +97,21 @@ async def run(directory: Path) -> None:
                 message_id, payload = received
                 previous = message_id
                 try:
-                    if set(payload) != {"binding", "operation", "action"}:
-                        raise BrowserRefused("BROWSER_BRIDGE_INVALID")
-                    bound = BrowserBinding.model_validate_json(json.dumps(payload["binding"]))
-                    if network.binding is None:
-                        network.binding = bound
-                    if network.binding != bound:
-                        raise BrowserRefused("BROWSER_BINDING_REFUSED")
+                    network.binding = _command_binding(payload, network.binding)
                     match payload["operation"]:
+                        case "session_export" if payload["state"] is None:
+                            if not isinstance(payload["origins"], list):
+                                raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED")
+                            state = await executor.export_session(frozenset(payload["origins"]))
+                            result = state.model_dump(mode="json")
+                        case "session_import":
+                            if not isinstance(payload["origins"], list):
+                                raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED")
+                            state = RememberedState.model_validate_json(
+                                json.dumps(payload["state"])
+                            )
+                            await executor.import_session(state, frozenset(payload["origins"]))
+                            result = {"imported": True}
                         case "initialize" if payload["action"] is None:
                             await executor.initialize()
                             result = {"initialized": True}
@@ -102,9 +138,13 @@ async def run(directory: Path) -> None:
                     )
                     commands.reply(message_id, {"error": code})
     finally:
-        await executor.close()
-        network.mailbox.close()
-        commands.close()
+        try:
+            if executor is not None:
+                await executor.close()
+        finally:
+            if network is not None:
+                network.mailbox.close()
+            commands.close()
 
 
 if __name__ == "__main__":

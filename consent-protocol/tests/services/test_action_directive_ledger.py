@@ -49,6 +49,19 @@ class _StatefulDirectiveDb:
                 )
             ):
                 return SimpleNamespace(data=[])
+            if "SELECT directive_id" in sql and "state='consumed'" in sql:
+                expected = {
+                    "expected_contract": "action_contract_digest",
+                    "expected_slots": "slots_hmac",
+                    "expected_binding": "resource_binding_hmac",
+                }
+                if (
+                    self.state != "consumed"
+                    or params["receipt_hash"] != self.receipt_hash
+                    or any(params[name] != self.issued[target] for name, target in expected.items())
+                ):
+                    return SimpleNamespace(data=[])
+                return SimpleNamespace(data=[{"directive_id": params["directive_id"]}])
             if "SET state = 'confirmed'" in sql:
                 if self.state != "issued" or (
                     self.requires_trusted_activation and not params["trusted_activation"]
@@ -408,3 +421,60 @@ async def test_connection_receipt_rejects_wrong_owner_and_receipt_without_consum
         assert db.state == "confirmed"
     await store.consume(**context, directive_id=issued.directive_id, receipt=confirmation.receipt)
     assert db.state == "consumed"
+
+
+@pytest.mark.parametrize("purpose", ["disclose", "model_process"])
+async def test_browser_reviews_use_existing_ledger_exact_terms_and_cannot_impersonate_mcp(purpose):
+    from hushh_mcp.services.pod_browser.consent import BrowserApprovalReceipt, LedgerBrowserConsent
+    from hushh_mcp.services.pod_browser.contracts import BrowserRefused
+    from tests.helpers.pod_browser import Authority, binding
+
+    db = _StatefulDirectiveDb()
+    store = ActionDirectiveStore(db=db, hmac_key="test-key-at-least-32-characters-long")
+    consent = LedgerBrowserConsent(
+        store=store, key=b"B" * 32, check_binding=Authority().check_binding, clock=lambda: 1000
+    )
+    private = {"destination": "https://example.com/", "selected": "synthetic-private"}
+    review = consent.review(binding(), purpose, private)
+    with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+        await consent.require(binding(), purpose, private)
+    issued = await consent.offer(review)
+    assert "synthetic-private" not in str(db.params) and "example.com" not in str(db.params)
+    with pytest.raises(ActionDirectiveAuthorityError, match="exact current terms"):
+        await store.confirm(
+            **review.identity,
+            directive_id=issued.directive_id,
+            trusted_activation=True,
+            expected_channel="pod_chat",
+        )
+    confirmed = await store.confirm(
+        **review.identity,
+        directive_id=issued.directive_id,
+        trusted_activation=True,
+        terms=review.terms,
+        expected_channel="pod_chat",
+    )
+    await consent.accept_owner_receipt(
+        review, BrowserApprovalReceipt(confirmed.directive_id, confirmed.receipt)
+    )
+    with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+        await consent.require(binding(), purpose, {**private, "selected": "changed"})
+    await consent.require(binding(), purpose, private)
+    assert db.state == "consumed"
+    if purpose == "disclose":
+        with pytest.raises(BrowserRefused, match="APPROVAL_REQUIRED"):
+            await consent.require(binding(), purpose, private)
+    else:
+        await consent.require(binding(), purpose, private)
+        db.state = "cancelled"  # admission remains valid; revoke only this receipt
+        with pytest.raises(ActionDirectiveAuthorityError, match="revoked"):
+            await consent.require(binding(), purpose, private)
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await store.issue(
+            **{**review.identity, "action_id": "connector.mcp.invoke"},
+            channel="pod_chat",
+            action_contract=review.terms.action_contract,
+            slots=review.terms.slots,
+            resource_binding=review.terms.resource_binding,
+            trusted_activation_required=True,
+        )

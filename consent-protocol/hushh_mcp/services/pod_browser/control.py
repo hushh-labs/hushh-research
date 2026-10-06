@@ -17,6 +17,7 @@ from .contracts import (
     BrowserRefused,
 )
 from .network import public_origin
+from .session_state import RememberedState
 
 
 class BrowserControl:
@@ -146,6 +147,44 @@ class BrowserControl:
             self._epoch += 1
             self._last_activity = self._clock()
             return self._epoch
+
+    async def require_model_observation(self, *, expected_epoch: int | None = None) -> int:
+        """Recheck before ADK sees a tool frame AND before each provider request."""
+        await self._check()
+        if self._mode != "agent" or (expected_epoch is not None and self._epoch != expected_epoch):
+            raise BrowserRefused("BROWSER_MODEL_OBSERVATION_PAUSED")
+        return self._epoch
+
+    async def export_session(self, approved_origins: frozenset[str]) -> RememberedState:
+        """Owner-only retention path, excluded from ADK tools and observations."""
+        async with self._lock:
+            await self._check()
+            if self._mode != "owner" or not self._initialized:
+                raise BrowserRefused("BROWSER_OWNER_CONTROL_REQUIRED")
+            export = getattr(self._executor, "export_session", None)
+            if export is None:
+                raise BrowserRefused("BROWSER_SESSION_UNAVAILABLE")
+            async with asyncio.timeout(30):
+                state = await export(approved_origins)
+            await self._check()
+            if not isinstance(state, RememberedState):
+                raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED")
+            return state.for_origins(approved_origins)
+
+    async def import_session(
+        self, state: RememberedState, approved_origins: frozenset[str]
+    ) -> None:
+        """Pass as BrowserSessions' guarded installation callback after reuse approval."""
+        async with self._lock:
+            await self._check()
+            if self._mode != "owner" or not self._initialized:
+                raise BrowserRefused("BROWSER_OWNER_CONTROL_REQUIRED")
+            install = getattr(self._executor, "import_session", None)
+            if install is None:
+                raise BrowserRefused("BROWSER_SESSION_UNAVAILABLE")
+            async with asyncio.timeout(30):
+                await install(state.for_origins(approved_origins), approved_origins)
+            await self._check()
 
     async def resume_agent(self) -> BrowserFrame:
         async with self._lock:

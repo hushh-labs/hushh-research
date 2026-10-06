@@ -48,6 +48,30 @@ async def _records(tmp_path) -> list[dict]:
     return await log.replay()
 
 
+async def test_browser_range_refuses_export_and_authenticated_older_peer_import(
+    tmp_path, monkeypatch
+):
+    records = await _records(tmp_path)
+    standby, signer = generate_pod_keypair(), Ed25519PrivateKey.generate()
+    browser_records = copy.deepcopy(records)
+    browser_records[0]["kind"] = "browser_session_v1"
+    with pytest.raises(PodSyncBundleError, match="object transfer is not qualified"):
+        _seal(browser_records, 0, standby, signer)
+
+    canonical = pod_sync_bundle._canonical
+
+    def older_payload(value):
+        if "records" in value:
+            value = copy.deepcopy(value)
+            value["records"][0]["kind"] = "browser_session_v1"
+        return canonical(value)
+
+    monkeypatch.setattr(pod_sync_bundle, "_canonical", older_payload)
+    envelope = _seal(records, 0, standby, signer)
+    with pytest.raises(PodSyncBundleError, match="object transfer is not qualified"):
+        _open(envelope, standby, signer)
+
+
 def _seal(records, base_seq, standby, signer, **overrides):
     base_sha = records[base_seq - 1]["sha"] if base_seq else ""
     kwargs = dict(

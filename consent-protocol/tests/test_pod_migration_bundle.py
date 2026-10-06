@@ -23,6 +23,7 @@ import copy
 import pytest
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 
+from hushh_mcp.services import pod_migration_bundle
 from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 from hushh_mcp.services.pod_migration_bundle import (
@@ -39,6 +40,38 @@ _FACTS = [
     ("memory_record", {"text": "allergic to shellfish", "at": 2}),
     ("agent_chat_message", {"role": "user", "text": "remind me about the visa"}),
 ]
+
+
+async def test_browser_history_refuses_record_only_export_and_older_peer_import(
+    tmp_path, monkeypatch
+):
+    source = await _log_with_history(tmp_path, b"S" * 32, "source")
+    records = await source.replay()
+    keys = generate_pod_keypair()
+    terms = dict(
+        head_sha=head_sha_of(records),
+        recipient_public_key_b64=keys.public_key_b64,
+        recipient_key_id=keys.key_id,
+    )
+    browser_records = copy.deepcopy(records)
+    browser_records[0]["kind"] = "browser_session_v1"
+    with pytest.raises(PodMigrationBundleError, match="object transfer is not qualified"):
+        seal_bundle(records=browser_records, **terms)
+
+    # Model an older exporter that authenticated browser metadata without carrying
+    # its encrypted objects. Successful decryption must still refuse that history.
+    canonical = pod_migration_bundle._canonical
+
+    def older_payload(value):
+        if "records" in value:
+            value = copy.deepcopy(value)
+            value["records"][0]["kind"] = "browser_session_v1"
+        return canonical(value)
+
+    monkeypatch.setattr(pod_migration_bundle, "_canonical", older_payload)
+    envelope, _ = seal_bundle(records=records, **terms)
+    with pytest.raises(PodMigrationBundleError, match="object transfer is not qualified"):
+        open_bundle(envelope, private_key=keys.private_key, expected_key_id=keys.key_id)
 
 
 async def _log_with_history(tmp_path, key: bytes, name: str) -> PodCommitLog:

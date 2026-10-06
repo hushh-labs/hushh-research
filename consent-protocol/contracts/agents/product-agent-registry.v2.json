@@ -169,7 +169,8 @@
           "browser.control"
         ],
         "data": [
-          "browser.observe"
+          "browser.observe",
+          "browser.pkm.selected.read"
         ],
         "invocation": [
           "browser.invoke"
@@ -243,14 +244,15 @@
         "max_output_tokens": 2048
       },
       "pkm": {
-        "behavior": "none",
+        "behavior": "read",
         "mutation_contract": null
       },
       "privacy": {
         "context_allowlist": [
           "browser.owner_task",
           "browser.untrusted_screen",
-          "browser.tool_receipt"
+          "browser.tool_receipt",
+          "browser.approved_non_secret_projection"
         ],
         "plaintext_telemetry": false
       },
@@ -290,7 +292,7 @@
         "voice": false,
         "web": true
       },
-      "system_instruction_sha256": "5337bd7cb8604ac334126b62daf5073a6b3860401bbbb007c724f7668936d7d3",
+      "system_instruction_sha256": "93b492e49f84fccd6de9f930922c768f9cff5bb918134d00e12b0c576405b52b",
       "telemetry_namespace": "agent.computer_use",
       "tools": [],
       "ui_type": "chat",

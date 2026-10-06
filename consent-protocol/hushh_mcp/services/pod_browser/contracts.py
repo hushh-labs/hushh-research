@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    from .session_state import RememberedState
 
 
 class BrowserRefused(RuntimeError):
@@ -25,6 +28,7 @@ class StrictContract(BaseModel):
         extra="forbid",
         strict=True,
         frozen=True,
+        hide_input_in_errors=True,
         ser_json_bytes="base64",
         val_json_bytes="base64",
     )
@@ -76,12 +80,12 @@ class BrowserAction(StrictContract):
     operation: Operation
     sequence: int = Field(ge=1)
     control_epoch: int = Field(ge=1)
-    url: str | None = Field(default=None, max_length=4096)
+    url: str | None = Field(default=None, max_length=4096, repr=False)
     x: int | None = Field(default=None, ge=0, le=1919)
     y: int | None = Field(default=None, ge=0, le=1079)
     destination_x: int | None = Field(default=None, ge=0, le=1919)
     destination_y: int | None = Field(default=None, ge=0, le=1079)
-    text: str | None = Field(default=None, max_length=4096)
+    text: str | None = Field(default=None, max_length=4096, repr=False)
     press_enter: bool = False
     clear_before_typing: bool = True
     direction: Literal["up", "down", "left", "right"] | None = None
@@ -122,8 +126,8 @@ class BrowserFrame(StrictContract):
     sequence: int = Field(ge=0)
     width: int = Field(ge=320, le=1920)
     height: int = Field(ge=240, le=1080)
-    png: bytes = Field(min_length=8, max_length=4 * 1024 * 1024)
-    url: str = Field(max_length=4096)
+    png: bytes = Field(min_length=8, max_length=4 * 1024 * 1024, repr=False)
+    url: str = Field(max_length=4096, repr=False)
 
     @model_validator(mode="after")
     def require_png(self) -> BrowserFrame:
@@ -140,11 +144,19 @@ class BrowserExecutionPort(Protocol):
     async def close(self) -> None: ...
 
 
+class BrowserSessionExecutionPort(BrowserExecutionPort, Protocol):
+    async def export_session(self, approved_origins: frozenset[str]) -> RememberedState: ...
+
+    async def import_session(
+        self, state: RememberedState, approved_origins: frozenset[str]
+    ) -> None: ...
+
+
 class BrowserRequest(StrictContract):
-    url: str = Field(max_length=4096)
+    url: str = Field(max_length=4096, repr=False)
     method: str = Field(max_length=16)
-    headers: tuple[tuple[str, str], ...] = ()
-    body: bytes = Field(default=b"", max_length=65536)
+    headers: tuple[tuple[str, str], ...] = Field(default=(), repr=False)
+    body: bytes = Field(default=b"", max_length=65536, repr=False)
 
     def commitment(self) -> str:
         terms = json.dumps(
@@ -157,8 +169,8 @@ class BrowserRequest(StrictContract):
 
 class BrowserResponse(StrictContract):
     status: int = Field(ge=100, le=599)
-    headers: tuple[tuple[str, str], ...]
-    body: bytes = Field(max_length=4 * 1024 * 1024)
+    headers: tuple[tuple[str, str], ...] = Field(repr=False)
+    body: bytes = Field(max_length=4 * 1024 * 1024, repr=False)
 
 
 class BrowserNetworkPermit(StrictContract):

@@ -11,7 +11,8 @@ only after the pod confirms. Nothing here authenticates a request; the route doe
 ORDER, AND WHY
 --------------
 1. A **tombstone** is written create-only before anything is deleted. It binds the
-   attempt and a digest of the owner, and lists the chained record keys, read while
+   attempt and a digest of the owner, and lists chained records and inventoried
+   browser session objects (including unpublished/forgotten intents), read while
    the key could still open the log. It is the durable marker: a retry finishes from
    it without the key, and key custody refuses to mint a replacement key while it
    exists (``pod_key_vault_custody``), so the next request cannot quietly start a
@@ -30,12 +31,15 @@ ORDER, AND WHY
 NOT ENUMERATED: orphan records from lost append races (never chained) and Files
 objects (Files is off for owner Azure agents). Both are sealed under the destroyed
 key; the person's receipt names the storage account that still holds them.
+Browser object deletion also requires drained/fenced writers; a cloud delete
+acknowledgement does not prove physical removal under retention policies.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -78,15 +82,21 @@ def _owner_digest(owner_id: str) -> str:
     return hashlib.sha256(owner_id.encode("utf-8")).hexdigest()
 
 
-def _tombstone(owner_id: str, attempt_id: str, record_keys: list[str]) -> bytes:
+def _tombstone(
+    owner_id: str, attempt_id: str, record_keys: list[str], browser_keys: list[str]
+) -> bytes:
     body = {
         "kind": _TOMBSTONE_KIND,
-        "version": 1,
+        "version": 2,
         "ownerDigest": _owner_digest(owner_id),
         "attemptId": attempt_id,
         "records": record_keys,
+        "browserObjects": browser_keys,
     }
-    return json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(body, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    if len(raw) > _MAX_TOMBSTONE_BYTES:
+        raise PodCryptoEraseRefused("the erasure inventory exceeds its bound")
+    return raw
 
 
 def _valid_record_key(key: Any) -> bool:
@@ -105,12 +115,28 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
         body = json.loads(raw) if len(raw) <= _MAX_TOMBSTONE_BYTES else None
         if (
             not isinstance(body, dict)
-            or set(body) != {"kind", "version", "ownerDigest", "attemptId", "records"}
+            or set(body)
+            != (
+                {"kind", "version", "ownerDigest", "attemptId", "records"}
+                | ({"browserObjects"} if body.get("version") == 2 else set())
+            )
             or body["kind"] != _TOMBSTONE_KIND
             or type(body["version"]) is not int
-            or body["version"] != 1
+            or body["version"] not in {1, 2}
             or not isinstance(body["records"], list)
             or not all(_valid_record_key(key) for key in body["records"])
+            or (
+                body["version"] == 2
+                and (
+                    not isinstance(body["browserObjects"], list)
+                    or len(body["browserObjects"]) > 10000
+                    or not all(
+                        isinstance(key, str)
+                        and re.fullmatch(r"browser/sessions/[a-f0-9]{32}\.bin", key)
+                        for key in body["browserObjects"]
+                    )
+                )
+            )
         ):
             raise ValueError("shape")
     except ValueError:
@@ -118,6 +144,11 @@ def bound_record_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str
     if body["ownerDigest"] != _owner_digest(owner_id) or body["attemptId"] != attempt_id:
         raise PodCryptoEraseRefused("the pod was erased under a different attempt")
     return list(body["records"])
+
+
+def bound_browser_keys(raw: bytes, *, owner_id: str, attempt_id: str) -> list[str]:
+    bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
+    return json.loads(raw).get("browserObjects", [])
 
 
 async def _claim_tombstone(
@@ -129,8 +160,29 @@ async def _claim_tombstone(
 ) -> bytes:
     """Write the tombstone once; a concurrent erase that won it is adopted, never raced."""
     log = await open_fenced_log()
-    keys = await log.fenced_record_keys(owner_id=owner_id, attempt_id=attempt_id)
-    tombstone = _tombstone(owner_id, attempt_id, keys)
+    browser = set()
+
+    def collect(record):
+        if record["kind"] != "browser_session_v1":
+            return
+        entry = record["payload"]
+        if not isinstance(entry, dict) or entry.get("operation") not in {
+            "intent",
+            "publish",
+            "forget",
+        }:
+            raise PodCryptoEraseRefused("the browser inventory is malformed")
+        if entry["operation"] == "forget":
+            return
+        key = entry.get("object")
+        if not isinstance(key, str) or not re.fullmatch(r"browser/sessions/[a-f0-9]{32}\.bin", key):
+            raise PodCryptoEraseRefused("the browser inventory is malformed")
+        browser.add(key)
+        if len(browser) > 10000:
+            raise PodCryptoEraseRefused("the browser inventory exceeds its bound")
+
+    keys = await log.fold_fenced(owner_id=owner_id, attempt_id=attempt_id, visit_reverse=collect)
+    tombstone = _tombstone(owner_id, attempt_id, keys, sorted(browser))
     if await store.put_if_generation(ERASURE_TOMBSTONE_OBJECT, tombstone, ABSENT) is not None:
         return tombstone
     winner, _ = await store.get_with_generation(ERASURE_TOMBSTONE_OBJECT)
@@ -196,7 +248,8 @@ async def crypto_erase(
             store, owner_id=owner_id, attempt_id=attempt_id, open_fenced_log=open_fenced_log
         )
     records = bound_record_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
-    targets = (*owned_objects(wrapped_key_object), *records)
+    browser = bound_browser_keys(raw, owner_id=owner_id, attempt_id=attempt_id)
+    targets = (*owned_objects(wrapped_key_object), *records, *browser)
     deleted = 0
     for key in targets:
         deleted += int(await store.delete(key))

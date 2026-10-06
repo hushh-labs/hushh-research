@@ -5,15 +5,15 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-import tempfile
 from pathlib import Path
 
 from .contracts import BrowserRefused
+from .scratch import MemoryScratch
 
 WORKER_ID = 10002
 
 
-def prepare_worker_identity() -> None:
+def prepare_worker_identity() -> MemoryScratch:
     if sys.platform != "linux":
         raise BrowserRefused("BROWSER_WORKER_IDENTITY_REFUSED")
     # Invoke before threads, IPC or browser startup. The native GCP probe started
@@ -39,7 +39,10 @@ def prepare_worker_identity() -> None:
         ):
             raise ValueError()
         # Native scratch is ephemeral; no fixed shared HOME or retained session.
-        os.environ["HOME"] = tempfile.mkdtemp(prefix="browser-home-")
+        scratch = MemoryScratch()
+        os.environ["HOME"] = str(scratch.path)
+        os.environ["TMPDIR"] = str(scratch.path)
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = "/opt/browser/browsers"
+        return scratch
     except (AttributeError, OSError, ValueError, KeyError):
         raise BrowserRefused("BROWSER_WORKER_IDENTITY_REFUSED") from None

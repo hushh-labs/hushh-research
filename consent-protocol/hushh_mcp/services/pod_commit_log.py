@@ -360,6 +360,12 @@ class LocalObjectStore:
         data, _ = await self.get_with_generation(key)
         return data
 
+    async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
+        from hushh_mcp.services.pod_bounded_object import read_local_bounded
+
+        with self._lock():
+            return read_local_bounded(self._path(key), max_bytes=max_bytes)
+
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], ObjectVersion]:
         with self._lock():
             data, generation = self._read_pair(self._path(key))
@@ -625,6 +631,14 @@ class GcsObjectStore:
         data, generation = await asyncio.to_thread(self._get_with_generation, key)
         return data, decimal_version(generation)
 
+    async def get_bounded(self, key: str, *, max_bytes: int) -> bytes | None:
+        from hushh_mcp.services.pod_bounded_object import read_gcs_bounded
+
+        url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{urllib.parse.quote(self._key(key), safe='')}"
+        return await asyncio.to_thread(
+            read_gcs_bounded, self._session, self._authorized, url, max_bytes
+        )
+
     def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
         url = f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}"
@@ -632,23 +646,14 @@ class GcsObjectStore:
             # This egress path already proved it strips the header. Probing it
             # again would download the whole body only to discard it.
             return self._get_pinned(url)
-        # ONE object round trip. A media response states the generation of the
-        # very bytes it returned (``x-goog-generation``), so a preceding
-        # metadata GET buys nothing but latency and a second billed Class B
-        # operation, and it is strictly weaker: two calls can straddle a write,
-        # one cannot.
-        media = self._object_get(url, {"alt": "media"}, 60)
-        if getattr(media, "status_code", 0) == 404:
-            return None, 0
-        if media.status_code != 200:
-            raise RuntimeError("pod storage content unavailable")
-        generation = self._stated_generation(media)
+        from hushh_mcp.services.pod_bounded_object import read_stated_gcs_media
+
+        data, generation = read_stated_gcs_media(
+            self._object_get(url, {"alt": "media"}, 60), self._stated_generation
+        )
         if generation is not None:
-            return media.content, generation
-        # A response that states no usable generation cannot prove which
-        # version it is, and the compare-and-swap rides on that number. Fall
-        # back to the pinned read rather than guess it, and remember, so the
-        # body is downloaded twice ONCE per store rather than on every read.
+            return data, generation
+        # This path strips generation headers; use the existing pinned read.
         self._media_states_generation = False
         return self._get_pinned(url)
 
@@ -794,36 +799,16 @@ class PodCommitLog:
 
     def _read_fence(self, raw: bytes) -> Optional[dict[str, Any]]:
         """Authenticate the lifecycle marker; never expose its owner or prior head."""
-        try:
-            envelope = json.loads(raw)
-            if not isinstance(envelope, dict) or "sealedFence" not in envelope:
-                return None
-            if (
-                set(envelope) != {"version", "state", "seq", "sealedFence"}
-                or type(envelope["version"]) is not int
-                or envelope["version"] != 2
-                or envelope["state"] != "fenced"
-                or envelope["seq"] != "fenced"
-            ):
-                raise ValueError("shape")
-            fence = self._unseal(base64.b64decode(envelope["sealedFence"], validate=True))
-            if (
-                not isinstance(fence, dict)
-                or set(fence) != {"kind", "owner_id", "attempt_id", "prior_head"}
-                or fence["kind"] != "pod_log_erasure_fence"
-                or not self._valid_identity(fence["owner_id"])
-                or not self._valid_identity(fence["attempt_id"])
-                or (self._owner_id is not None and fence["owner_id"] != self._owner_id)
-            ):
-                raise ValueError("binding")
-            prior = fence["prior_head"]
-            if prior is not None:
-                if not isinstance(prior, dict) or set(prior) != {"seq", "key", "sha"}:
-                    raise ValueError("predecessor")
-                self._read_head(_canonical(prior))
-            return fence
-        except Exception:  # noqa: BLE001 - encrypted lifecycle metadata stays private
-            raise PodLogTampered("the log erasure fence did not verify") from None
+        from hushh_mcp.services.pod_log_inventory import read_erasure_fence
+
+        return read_erasure_fence(
+            raw,
+            unseal=self._unseal,
+            valid_identity=self._valid_identity,
+            configured_owner=self._owner_id,
+            read_head=self._read_head,
+            canonical=_canonical,
+        )
 
     @staticmethod
     def _valid_identity(value: Any) -> bool:
@@ -844,32 +829,35 @@ class PodCommitLog:
         await self._verified_fence(owner_id=owner_id, attempt_id=attempt_id)
 
     async def _verified_fence(self, *, owner_id: str, attempt_id: str) -> dict[str, Any]:
-        if (
-            not self._valid_identity(owner_id)
-            or owner_id != self._owner_id
-            or not self._valid_identity(attempt_id)
-        ):
-            raise PodLogFenced("log erasure authority unavailable")
-        raw, _ = await self._store.get_with_generation(self.HEAD)
-        fence = self._read_fence(raw) if raw is not None else None
-        if fence is None or fence["attempt_id"] != attempt_id:
-            raise PodLogFenced("log erasure fence does not match")
-        return fence
+        from hushh_mcp.services.pod_log_inventory import verified_erasure_fence
+
+        return await verified_erasure_fence(
+            owner_id=owner_id,
+            configured_owner=self._owner_id,
+            attempt_id=attempt_id,
+            read_head=lambda: self._store.get_with_generation(self.HEAD),
+            read_fence=self._read_fence,
+            valid_identity=self._valid_identity,
+        )
 
     async def fenced_record_keys(self, *, owner_id: str, attempt_id: str) -> list[str]:
         """Every chained record key behind this attempt's fence, chain-verified, for erasure."""
-        prior = (await self._verified_fence(owner_id=owner_id, attempt_id=attempt_id))["prior_head"]
-        keys = [prior["key"]] if prior else []
-        await replay_chain(
-            prior,
+        return await self.fold_fenced(
+            owner_id=owner_id, attempt_id=attempt_id, visit_reverse=lambda _: None
+        )
+
+    async def fold_fenced(
+        self, *, owner_id: str, attempt_id: str, visit_reverse: Callable[[dict], None]
+    ) -> list[str]:
+        from hushh_mcp.services.pod_log_inventory import inventory_fenced_log
+
+        return await inventory_fenced_log(
+            verified_fence=lambda: self._verified_fence(owner_id=owner_id, attempt_id=attempt_id),
             read_record=self._store.get,
             unseal=self._unseal,
             record_sha=_record_sha,
-            visit_reverse=lambda record: (
-                keys.append(record["prev_key"]) if record.get("prev_key") else None
-            ),
+            visit_reverse=visit_reverse,
         )
-        return keys
 
     async def fence_for_erasure(self, *, owner_id: str, attempt_id: str) -> None:
         """Close committed appends and ordinary replay on the existing head CAS.

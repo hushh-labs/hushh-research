@@ -146,6 +146,8 @@ def seal_bundle(
         # reporting success. Refusing costs a person one retry; succeeding
         # quietly costs them their agent's memory.
         raise PodMigrationBundleError("refusing to seal an empty log")
+    if any(record.get("kind") == "browser_session_v1" for record in records):
+        raise PodMigrationBundleError("browser session object transfer is not qualified")
 
     try:
         recipient_raw = base64.b64decode(recipient_public_key_b64, validate=True)
@@ -236,6 +238,11 @@ def open_bundle(
 
     body = json.loads(plaintext)
     records = list(body.get("records") or [])
+    if any(
+        isinstance(record, dict) and record.get("kind") == "browser_session_v1"
+        for record in records
+    ):
+        raise PodMigrationBundleError("browser session object transfer is not qualified")
     head_sha = str(body.get("headSha") or "")
     count = int(body.get("recordCount") or 0)
     if len(records) != count:

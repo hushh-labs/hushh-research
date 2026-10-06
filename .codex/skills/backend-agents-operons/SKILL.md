@@ -58,6 +58,7 @@ Non-owned surfaces:
 4. For pod support, follow `agent-development.md`'s "One authored fleet, explicit runtime dependencies" procedure: reuse the agent and inject dependencies; verify authority and fail-closed behavior through the existing pod ledger.
 5. Separate portable shared-runtime corrections from pod wiring before any ADK worktree transfer. Registration or local synthetic tests alone do not establish pod completion.
 6. For Computer Use, read `consent-protocol/docs/reference/private-browser-runtime.md`. Keep the withheld specialist disabled until exact cloud isolation, native model transport, authority and ephemeral-screen gates pass; never substitute an unsandboxed executor or a second approval ledger.
+7. Browser PKM selection requires independent model-processing and website-disclosure consent. Use the existing scoped-export and action-ledger ports; keep remembered sign-in state outside ADK context. The browser runtime reference owns manual login, Forget and recovery restrictions.
 
 ## Handoff Rules
 

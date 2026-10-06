@@ -311,3 +311,52 @@ async def test_the_route_fences_erases_and_answers_a_retry_identically(azure_pod
             "Bearer proof",
         )
     assert wrong_revision.value.status_code == 403
+
+
+async def test_browser_intents_include_unpublished_and_forgotten_objects_before_key_deletion(store):
+    log = await _agent(store)
+    keys = [f"browser/sessions/{char * 32}.bin" for char in ("a", "b")]
+    for key in keys:
+        await log.append(
+            "browser_session_v1",
+            {"operation": "intent", "site": "c" * 64, "generation": 0, "object": key},
+        )
+        await store.put(key, b"sealed-fixture")
+    await log.append(
+        "browser_session_v1", {"operation": "forget", "site": "c" * 64, "generation": 1}
+    )
+    recorded = _Recording(store, fail_at=1)
+    with pytest.raises(RuntimeError):
+        await crypto_erase(
+            store=recorded,
+            owner_id=OWNER,
+            attempt_id=ATTEMPT,
+            wrapped_key_object=WRAPPED,
+            open_fenced_log=_fencer(log),
+        )
+    raw = await store.get(ERASURE_TOMBSTONE_OBJECT)
+    assert json.loads(raw)["browserObjects"] == keys
+    assert recorded.deleted[0] == WRAPPED
+    await crypto_erase(
+        store=store,
+        owner_id=OWNER,
+        attempt_id=ATTEMPT,
+        wrapped_key_object=WRAPPED,
+        open_fenced_log=_never,
+    )
+    assert all([await store.get(key) is None for key in keys])
+
+
+async def test_browser_erasure_inventory_cannot_delete_an_arbitrary_object(store):
+    log = await _agent(store)
+    await log.append("browser_session_v1", {"operation": "intent", "object": "keys/unrelated.bin"})
+    with pytest.raises(PodCryptoEraseRefused, match="malformed"):
+        await crypto_erase(
+            store=store,
+            owner_id=OWNER,
+            attempt_id=ATTEMPT,
+            wrapped_key_object=WRAPPED,
+            open_fenced_log=_fencer(log),
+        )
+    assert await store.get(WRAPPED) == b"wrapped-dek"
+    assert await store.get(ERASURE_TOMBSTONE_OBJECT) is None

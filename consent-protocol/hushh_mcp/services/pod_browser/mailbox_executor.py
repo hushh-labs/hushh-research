@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from .contracts import BrowserAction, BrowserBinding, BrowserFrame, BrowserRefused, BrowserRequest
 from .mailbox import BrowserMailbox
 from .network import BrowserNetworkBroker
+from .session_state import RememberedState
 
 
 class MailboxExecutor:
@@ -63,6 +64,41 @@ class MailboxExecutor:
             await self._terminate()
         finally:
             self._mailbox.close()
+
+    async def _session_call(self, operation: str, origins: frozenset[str], state=None) -> dict:
+        self._mailbox.require_memory()
+        await self._broker.check_observation()
+        response = await self._mailbox.exchange(
+            {
+                "binding": self._binding.model_dump(mode="json"),
+                "operation": operation,
+                "origins": sorted(origins),
+                "state": state,
+            }
+        )
+        await self._broker.check_observation()
+        if response.get("error"):
+            raise BrowserRefused("BROWSER_SESSION_EXECUTOR_REFUSED")
+        return response
+
+    async def export_session(self, approved_origins: frozenset[str]) -> RememberedState:
+        response = await self._session_call("session_export", approved_origins)
+        try:
+            return RememberedState.model_validate_json(json.dumps(response)).for_origins(
+                approved_origins
+            )
+        except ValueError:
+            raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED") from None
+
+    async def import_session(
+        self, state: RememberedState, approved_origins: frozenset[str]
+    ) -> None:
+        state = state.for_origins(approved_origins)
+        response = await self._session_call(
+            "session_import", approved_origins, state.model_dump(mode="json")
+        )
+        if response != {"imported": True}:
+            raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED")
 
 
 async def serve_network_bridge(

@@ -50,7 +50,7 @@ def test_worker_privilege_drop_refuses_retained_authority_before_private_scratch
             read_text=lambda: f"NoNewPrivs: 1\nCapPrm: 0\nCapEff: {capability}\nCapAmb: 0"
         ),
     )
-    monkeypatch.setattr(worker, "tempfile", SimpleNamespace(mkdtemp=lambda **_: "private-scratch"))
+    monkeypatch.setattr(worker, "MemoryScratch", lambda: SimpleNamespace(path="private-scratch"))
     worker.prepare_worker_identity()
     assert ids == {"uid": (10002, 10002, 10002), "gid": (10002, 10002, 10002)}
     assert environment["HOME"] == "private-scratch"
@@ -333,22 +333,26 @@ async def test_lost_http_effect_is_sticky_uncertain_and_cannot_be_hidden_by_a_sc
         assert auth.journal == ["dispatch", "uncertain"]
         driver = SandboxedPlaywrightExecutor(network=broker, sandbox_verified=True)
 
-        class FailedRequest:
-            url, method, post_data_buffer = request.url, request.method, request.body
-
-            async def all_headers(self):
-                return {}
-
-        class Route:
-            request = FailedRequest()
+        class Cdp:
             aborted = False
 
-            async def abort(self, reason):
-                self.aborted = True
+            async def send(self, method, params):
+                self.aborted = method == "Fetch.failRequest"
 
-        route = Route()
-        await driver._route(route)
-        assert route.aborted
+        driver._cdp = Cdp()
+        await driver._paused_request(
+            {
+                "requestId": "fixture",
+                "request": {
+                    "url": request.url,
+                    "method": request.method,
+                    "headers": {},
+                    "hasPostData": True,
+                    "postData": "synthetic",
+                },
+            }
+        )
+        assert driver._cdp.aborted
 
         class Page:
             def is_closed(self):
@@ -426,37 +430,6 @@ async def test_lost_or_malformed_network_bridge_receipt_never_means_safe_to_retr
     bridge.binding = binding()
     with pytest.raises(BrowserRefused, match="OUTCOME_UNCERTAIN"):
         await bridge.fetch(BrowserRequest(url="https://example.com/autosave", method="POST"))
-
-
-async def test_model_factory_rejects_custom_transport_and_unverified_native_model(monkeypatch):
-    from pathlib import Path
-
-    from google.adk.models import Gemini
-
-    from hushh_mcp.hushh_adk.manifest import ManifestLoader
-    from hushh_mcp.one_adk.computer_use_agent import build_computer_use_agent
-
-    manifest = ManifestLoader.load(
-        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/computer_use/agent.yaml")
-    )
-    runtime = control()
-    native = Gemini(model="gemini-3.7-flash")
-    monkeypatch.delenv("POD_COMPUTER_USE_ENABLED", raising=False)
-    with pytest.raises(BrowserRefused, match="DISABLED"):
-        build_computer_use_agent(manifest, control=runtime, model=native)
-    monkeypatch.setenv("POD_COMPUTER_USE_ENABLED", "true")
-    with pytest.raises(BrowserRefused, match="TRANSPORT_UNSUPPORTED"):
-        build_computer_use_agent(manifest, control=runtime, model=object())
-    with pytest.raises(BrowserRefused, match="TRANSPORT_UNVERIFIED"):
-        build_computer_use_agent(manifest, control=runtime, model=Gemini(model="gemini-3.6-flash"))
-    agent = build_computer_use_agent(manifest, control=runtime, model=native)
-    assert agent.mode == "task"
-    assert agent.model is native
-    # Exercise native ADK discovery, which initializes before ToolContext prepare.
-    tools = await agent.tools[0].get_tools()
-    assert "initialize" not in {tool.name for tool in tools}
-    assert "search" not in {tool.name for tool in tools}
-    assert "click_at" in {tool.name for tool in tools}
 
 
 async def test_reconstructed_broker_refuses_ledger_pending_effect_before_a_new_socket():

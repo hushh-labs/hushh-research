@@ -15,31 +15,30 @@ import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from typing import Any, Literal
+from typing import Any, Literal, Unpack
 from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.action_directive_terms import (
+    MCP_ACTION_ID as MCP_ACTION_ID,
+)
+from hushh_mcp.services.action_directive_terms import (
+    ActionDirectiveAuthorityError as ActionDirectiveAuthorityError,
+)
+from hushh_mcp.services.action_directive_terms import (
+    BoundActionTerms as BoundActionTerms,
+)
+from hushh_mcp.services.action_directive_terms import (
+    BrowserLeaseQuery,
+    bound_term_params,
+    require_browser_task_lease,
+    require_private_review_binding,
+)
 
 ActionChannel = Literal["typed_chat", "voice", "command", "adk_chat", "pod_chat"]
-
-
-class ActionDirectiveAuthorityError(RuntimeError):
-    """A directive could not advance through its one-time authority state."""
-
-
-MCP_ACTION_ID = "connector.mcp.invoke"
-
-
-@dataclass(frozen=True)
-class BoundActionTerms:
-    """Fresh server-derived terms, never client-supplied digests or authority."""
-
-    action_contract: dict[str, Any] = field(repr=False)
-    slots: dict[str, Any] = field(repr=False)
-    resource_binding: dict[str, Any] = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -138,14 +137,7 @@ class ActionDirectiveStore:
         ).hexdigest()
 
     def _bound_term_params(self, action_id: str, terms: BoundActionTerms | None) -> dict:
-        if action_id == MCP_ACTION_ID and terms is None:
-            raise ActionDirectiveAuthorityError("MCP approval requires exact current terms.")
-        return {
-            "check_bound_terms": terms is not None,
-            "expected_contract": self._hmac(terms.action_contract) if terms else None,
-            "expected_slots": self._hmac(terms.slots) if terms else None,
-            "expected_binding": self._hmac(terms.resource_binding) if terms else None,
-        }
+        return bound_term_params(action_id, terms, self._hmac)
 
     def _document_transaction(self):
         connection = self._connection
@@ -655,16 +647,14 @@ class ActionDirectiveStore:
             if not trusted_activation_required or not resource_binding:
                 raise ActionDirectiveAuthorityError("ADK Chat requires exact reviewed terms.")
         elif channel == "pod_chat":
-            if (
-                action_id != MCP_ACTION_ID
-                or not session_id
-                or conversation_id
-                or adk_app_name is not None
-                or not trusted_activation_required
-                or not resource_binding
-                or resource_binding.get("kind") != "pod_mcp_review_v1"
-            ):
-                raise ActionDirectiveAuthorityError("Private MCP requires exact pod review terms.")
+            require_private_review_binding(
+                action_id,
+                session_id,
+                conversation_id,
+                adk_app_name,
+                trusted_activation_required,
+                resource_binding,
+            )
         elif adk_app_name is not None:
             raise ActionDirectiveAuthorityError("Unexpected ADK session authority.")
         if channel == "typed_chat" and (not conversation_id or session_id):
@@ -821,6 +811,9 @@ class ActionDirectiveStore:
         )
         if not (result.data or []):
             raise ActionDirectiveAuthorityError("confirmation receipt is invalid or already used")
+
+    async def require_consumed_browser(self, **query: Unpack[BrowserLeaseQuery]) -> None:
+        await require_browser_task_lease(query, self._hmac, self._execute)
 
     async def settle(
         self,

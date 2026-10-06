@@ -8,16 +8,53 @@ independent backstop. Installing Playwright on the core pod does not enable it.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Protocol
+import base64
+from typing import TYPE_CHECKING, Protocol, TypeVar, cast
 
 if TYPE_CHECKING:
-    from playwright.async_api import Browser, BrowserContext, Page, Playwright
+    from playwright.async_api import (
+        Browser,
+        BrowserContext,
+        CDPSession,
+        Page,
+        Playwright,
+        StorageState,
+    )
 
 from .contracts import BrowserAction, BrowserFrame, BrowserRefused, BrowserRequest, BrowserResponse
+from .session_state import RememberedState
+
+T = TypeVar("T")
+
+
+def _argument(value: T | None) -> T:
+    if value is None:
+        raise BrowserRefused("BROWSER_ACTION_INVALID")
+    return value
 
 
 class BrowserFetchPort(Protocol):
     async def fetch(self, request: BrowserRequest) -> BrowserResponse: ...
+
+
+def fulfill_headers(headers: tuple[tuple[str, str], ...]) -> dict[str, str]:
+    """Pinned Chromium splits newline-delimited Set-Cookie into separate headers.
+
+    Never comma-join cookies (Expires contains commas). Original header values
+    cannot contain CR/LF. Ambiguous singleton headers are refused.
+    """
+    result: dict[str, str] = {}
+    for name, value in headers:
+        name = name.lower()
+        if not name or any(c in name + value for c in "\r\n"):
+            raise BrowserRefused("BROWSER_RESPONSE_HEADERS_REFUSED")
+        if name in result:
+            if name in {"location", "content-length", "content-type"}:
+                raise BrowserRefused("BROWSER_RESPONSE_HEADERS_REFUSED")
+            result[name] += ("\n" if name == "set-cookie" else ", ") + value
+        else:
+            result[name] = value
+    return result
 
 
 class SandboxedPlaywrightExecutor:
@@ -31,38 +68,75 @@ class SandboxedPlaywrightExecutor:
         self._page: Page | None = None
         self._uncertain = False
         self._closed = False
+        self._cdp: CDPSession | None = None
 
-    async def _route(self, route) -> None:
-        request = route.request
+    async def _paused_request(self, event: dict) -> None:
+        """Chromium Fetch intercepts every redirect hop; Playwright route does not.
+
+        This internal executor port exposes no CDP commands to the agent. Cloud
+        deny-egress remains the independent backstop for unsupported targets.
+        """
+        request_id = event["requestId"]
+        request = event["request"]
+        cdp = self._cdp
+        if cdp is None or self._closed:
+            return
         try:
-            headers = tuple(
-                (name, value)
-                for name, value in (await request.all_headers()).items()
-                if name.lower()
-                not in {
-                    "host",
-                    "connection",
-                    "content-length",
-                    "accept-encoding",
-                }
-            )
+            body = b""
+            if request.get("hasPostData"):
+                entries = request.get("postDataEntries")
+                if entries and all("bytes" in entry for entry in entries):
+                    body = b"".join(
+                        base64.b64decode(entry["bytes"], validate=True) for entry in entries
+                    )
+                elif "postData" in request:
+                    body = request["postData"].encode()
+                else:
+                    raise BrowserRefused("BROWSER_REQUEST_BODY_UNAVAILABLE")
             response = await self._network.fetch(
                 BrowserRequest(
-                    url=request.url,
-                    method=request.method,
-                    headers=headers,
-                    body=request.post_data_buffer or b"",
+                    url=request["url"],
+                    method=request["method"],
+                    body=body,
+                    headers=tuple(
+                        (name, str(value))
+                        for name, value in request["headers"].items()
+                        if name.lower()
+                        not in {"host", "connection", "content-length", "accept-encoding"}
+                    ),
                 )
             )
-            await route.fulfill(
-                status=response.status, headers=dict(response.headers), body=response.body
+            # Validate original headers, then preserve the multimap in CDP.
+            fulfill_headers(response.headers)
+            headers = response.headers + (
+                (
+                    "content-security-policy",
+                    "frame-src 'none'; child-src 'none'; worker-src 'none'; object-src 'none'",
+                ),
+            )
+            # Separate CDP targets are not yet qualified. Do not let a document
+            # create unbrokered frame/worker targets; cloud deny-egress is still
+            # required independently. Existing site CSP remains conjunctive.
+            await cdp.send(
+                "Fetch.fulfillRequest",
+                {
+                    "requestId": request_id,
+                    "responseCode": response.status,
+                    "responseHeaders": [{"name": name, "value": value} for name, value in headers],
+                    "body": base64.b64encode(response.body).decode(),
+                },
             )
         except Exception as exc:
             if isinstance(exc, BrowserRefused) and exc.code == "BROWSER_OUTCOME_UNCERTAIN":
                 self._uncertain = True
-            # Never route.continue_(), route.fetch() or fall back to a direct
-            # connection. Do not log URLs, page contents or credential headers.
-            await route.abort("blockedbyclient")
+            if self._cdp is not None:
+                try:
+                    await self._cdp.send(
+                        "Fetch.failRequest",
+                        {"requestId": request_id, "errorReason": "BlockedByClient"},
+                    )
+                except Exception:
+                    pass  # closure cannot justify retry or expose a private error
 
     async def initialize(self) -> None:
         if self._closed:
@@ -87,9 +161,13 @@ class SandboxedPlaywrightExecutor:
                 service_workers="block",
                 accept_downloads=False,
             )
-            await self._context.route("**/*", self._route)
             await self._context.route_web_socket("**/*", lambda ws: ws.close())
             self._page = await self._context.new_page()
+            self._cdp = await self._context.new_cdp_session(self._page)
+            self._cdp.on("Fetch.requestPaused", self._paused_request)
+            await self._cdp.send(
+                "Fetch.enable", {"patterns": [{"urlPattern": "*", "requestStage": "Request"}]}
+            )
             self._context.on("page", lambda page: page.close())
             self._page.set_default_timeout(10000)
             self._page.set_default_navigation_timeout(15000)
@@ -108,24 +186,24 @@ class SandboxedPlaywrightExecutor:
         try:
             match action.operation:
                 case "navigate":
-                    await page.goto(action.url, wait_until="domcontentloaded")
+                    await page.goto(_argument(action.url), wait_until="domcontentloaded")
                 case "click":
-                    await page.mouse.click(action.x, action.y)
+                    await page.mouse.click(_argument(action.x), _argument(action.y))
                 case "hover":
-                    await page.mouse.move(action.x, action.y)
+                    await page.mouse.move(_argument(action.x), _argument(action.y))
                 case "type":
-                    await page.mouse.click(action.x, action.y)
+                    await page.mouse.click(_argument(action.x), _argument(action.y))
                     if action.clear_before_typing:
                         await page.keyboard.press("ControlOrMeta+A")
                         await page.keyboard.press("Backspace")
-                    await page.keyboard.insert_text(action.text)
+                    await page.keyboard.insert_text(_argument(action.text))
                     if action.press_enter:
                         await page.keyboard.press("Enter")
                 case "scroll":
                     if action.magnitude is None or action.direction is None:
                         raise BrowserRefused("BROWSER_ACTION_INVALID")
                     if action.x is not None:
-                        await page.mouse.move(action.x, action.y)
+                        await page.mouse.move(action.x, _argument(action.y))
                     x, y = {
                         "up": (0, -action.magnitude),
                         "down": (0, action.magnitude),
@@ -140,10 +218,14 @@ class SandboxedPlaywrightExecutor:
                 case "keys":
                     await page.keyboard.press("+".join(action.keys))
                 case "drag":
-                    await page.mouse.move(action.x, action.y)
+                    await page.mouse.move(_argument(action.x), _argument(action.y))
                     await page.mouse.down()
                     try:
-                        await page.mouse.move(action.destination_x, action.destination_y, steps=5)
+                        await page.mouse.move(
+                            _argument(action.destination_x),
+                            _argument(action.destination_y),
+                            steps=5,
+                        )
                     finally:
                         await page.mouse.up()
                 case "observe":
@@ -168,6 +250,7 @@ class SandboxedPlaywrightExecutor:
     async def close(self) -> None:
         self._closed = True
         browser, playwright = self._browser, self._playwright
+        self._cdp = None
         self._browser = self._context = self._page = self._playwright = None
         try:
             if browser is not None:
@@ -175,3 +258,29 @@ class SandboxedPlaywrightExecutor:
         finally:
             if playwright is not None:
                 await playwright.stop()
+
+    async def export_session(self, approved_origins: frozenset[str]) -> RememberedState:
+        import time
+
+        from .session_state import persistent_state
+
+        if self._context is None or self._closed:
+            raise BrowserRefused("BROWSER_NOT_INITIALIZED")
+        # No path, IndexedDB, profile, passkey or cache export.
+        return persistent_state(
+            dict(await self._context.storage_state()), approved_origins, now=time.time()
+        )
+
+    async def import_session(
+        self, state: RememberedState, approved_origins: frozenset[str]
+    ) -> None:
+        if self._context is None or self._closed:
+            raise BrowserRefused("BROWSER_NOT_INITIALIZED")
+        if not isinstance(state, RememberedState):
+            raise BrowserRefused("BROWSER_SESSION_STATE_REFUSED")
+        state = state.for_origins(approved_origins)
+        # Existing page may contain another account's storage: never merge state.
+        # set_storage_state replaces the supported state on pinned Playwright.
+        await self._context.set_storage_state(
+            storage_state=cast("StorageState", state.model_dump(mode="json"))
+        )

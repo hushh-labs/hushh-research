@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Awaitable, Callable
 from typing import Literal
+from urllib.parse import urlsplit
 
 from google.adk.tools.computer_use.base_computer import (
     BaseComputer,
@@ -13,14 +15,29 @@ from google.adk.tools.computer_use.base_computer import (
 
 from .contracts import BrowserAction, BrowserRefused, Operation
 from .control import BrowserControl
+from .origin import public_origin
 
 
 class PodComputer(BaseComputer):
-    def __init__(self, control: BrowserControl, *, width: int = 1280, height: int = 720) -> None:
+    def __init__(
+        self,
+        control: BrowserControl,
+        *,
+        processing_check: Callable[[], Awaitable[dict]],
+        allowed_origins: frozenset[str],
+        width: int = 1280,
+        height: int = 720,
+    ) -> None:
         if (width, height) != (1280, 720):
             raise BrowserRefused("BROWSER_VIEWPORT_UNSUPPORTED")
         self._control = control
         self._size = (width, height)
+        self._processing_check = processing_check
+        if not 1 <= len(allowed_origins) <= 20 or any(
+            public_origin(origin) != origin for origin in allowed_origins
+        ):
+            raise BrowserRefused("BROWSER_PROCESSING_ORIGINS_INVALID")
+        self._allowed_origins = allowed_origins
 
     async def initialize(self) -> None:
         # ADK initializes BEFORE prepare(tool_context). No authority may be
@@ -35,6 +52,9 @@ class PodComputer(BaseComputer):
         return ComputerEnvironment.ENVIRONMENT_BROWSER
 
     async def _act(self, operation: Operation, **values) -> ComputerState:
+        epoch = await self._control.require_model_observation()
+        await self._processing_check()
+        await self._control.require_model_observation(expected_epoch=epoch)
         try:
             action = BrowserAction(
                 operation=operation,
@@ -45,9 +65,21 @@ class PodComputer(BaseComputer):
         except ValueError:
             raise BrowserRefused("BROWSER_ACTION_INVALID") from None
         frame = await self._control.execute(action)
+        await self._control.require_model_observation()
+        await self._processing_check()
+        await self._control.require_model_observation(expected_epoch=epoch)
         if (frame.width, frame.height) != self._size:
             raise BrowserRefused("BROWSER_VIEWPORT_CHANGED")
-        return ComputerState(screenshot=frame.png, url=frame.url)
+        # OAuth callbacks can carry credentials in query/fragment/path. The
+        # executor keeps its URL private; the provider receives origin only.
+        if frame.url == "about:blank":
+            origin = "about:blank"  # Empty initial page contains no website state.
+        else:
+            parsed = urlsplit(frame.url)
+            origin = public_origin(f"{parsed.scheme}://{parsed.netloc}")
+            if origin not in self._allowed_origins:
+                raise BrowserRefused("BROWSER_SCREEN_PROCESSING_REFUSED")
+        return ComputerState(screenshot=frame.png, url=origin)
 
     async def open_web_browser(self) -> ComputerState:
         return await self.current_state()
