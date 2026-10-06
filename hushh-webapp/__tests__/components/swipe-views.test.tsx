@@ -200,6 +200,39 @@ describe("SwipeViews", () => {
     expect(embla.options?.watchResize).toBe(false);
   });
 
+  it("reports the incoming target before compositor travel when captured bounds are stale", () => {
+    let target = -400;
+    embla.selectedIndex = 1;
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -400, -800],
+      limit: { min: -784, max: 0 },
+      target: { get: () => target },
+      offsetLocation: { get: () => -400 },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const onSelectionChange = vi.fn();
+    render(
+      <SwipeViews
+        tabSetId="stale-release"
+        activeValue="second"
+        options={[...OPTIONS, { value: "third", label: "Third" }]}
+        onSelectionChange={onSelectionChange}
+      >
+        <div>First</div>
+        <div>Second</div>
+        <div>Third</div>
+      </SwipeViews>,
+    );
+    target = 0;
+    embla.selectedIndex = 0;
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("first");
+    target = -800;
+    embla.selectedIndex = 1; // A stale Counter cannot represent the third snap.
+    act(() => embla.listeners.get("select")?.());
+    expect(onSelectionChange).toHaveBeenLastCalledWith("third");
+  });
+
   it("repairs a terminal WebKit snap residual without changing a live in-range drag", () => {
     const vector = () => {
       let value = 0;

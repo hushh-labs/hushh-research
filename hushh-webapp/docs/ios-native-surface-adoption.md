@@ -1,6 +1,6 @@
 # iOS Native Controls and Liquid Glass
 
-Implementation owner: frontend/native shell. Reviewed against source on 2026-10-05.
+Implementation owner: frontend/native shell. Reviewed against source on 2026-10-06.
 This is a component inventory and bounded adoption reference, not a claim that every
 candidate is implemented or released.
 
@@ -166,11 +166,29 @@ families below are iPhone iOS 26 Debug-only, explicitly rehearsed with
 `--hushh-native-chat-chrome`. Release, older iOS, Android, web and unqualified
 iPad retain existing controls. Do not remove a fallback based on compilation.
 
+Physical iPhone evidence at `91b4d6187` (2026-10-06): attach-only navigation,
+Search, native Back/overlay retirement/background-resume, Profile photo preview
+and pull-to-close, bidirectional History dragging, and Mail paging with the
+software keyboard passed after normal reviewer unlock. These checks retained
+one identified Capacitor host and the unlocked session; they do not establish
+literal document identity, visual acceptance or frame pacing. The native
+Cloud/Puppy selector was not admitted during its dedicated check; the accessible
+DOM fallback remained. History was observed natively, but its complete native
+Open/Close handoff remains unqualified because that journey stopped at selector
+admission. No new Release or iPad family was enabled.
+
+The same head passed canonical core and both native CI builds. Exact-head CI's
+browser pack exposed one Mail selection-order regression (449 other cases
+passed). Its correction uses Embla's incoming target only when captured bounds
+are stale; settlement still uses rendered position. The nearest unit fails on
+the old code, and the unchanged WebKit drag contract passes with the correction.
+The corrected combined head requires its own core and exact-head CI proof.
+
 | Family | State / operation owner | Candidate and retained behavior | Evidence and rollback |
 | --- | --- | --- | --- |
-| Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Lease regressions; prior device proof is historical. Disable capability to retain `NativeShellBack` DOM control. |
-| History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Current bridge/gesture contracts; current device handoff unverified. Disable family capability; same authored DOM actions remain. |
-| Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Admission/drag contracts; current physical acceptance unverified. Disable `close` capability. |
+| Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |
+| History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Current bridge/gesture contracts and device drawer proof; complete native handoff unverified. Disable family capability; same authored DOM actions remain. |
+| Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Current device photo preview/pull-to-close passed; native Close admission and visual acceptance remain unverified. Disable `close` capability. |
 | More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger, owned UIKit action sheet. Rich labels, desktop dropdown and unauthored menus retained. | Compiled adapter; popup privacy/dismissal device proof outstanding. Remove explicit `nativePresentation` opt-in or capability. |
 | Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Lease contract; accessible segment geometry and physical acceptance outstanding. Disable `agent-surface` capability. |
 | Finite/date wheel sheets | Caller validates and commits value | Bounded adapter with transient draft, Done/Cancel; no production consumer yet. Duration rails, forms and complex multiselect remain React. | Native compile and ordered-choice contracts, not adoption proof. Capabilities stay Debug-only; no product operation depends on them. |

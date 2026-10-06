@@ -319,6 +319,24 @@ function resolveSelectedIndex(api: EmblaCarouselType, optionsLength: number): nu
   if ((!engine || boundsMatch) && selected >= 0 && selected < optionsLength) {
     return selected;
   }
+  // `select` precedes compositor travel. With repaired snaps but stale
+  // captured bounds, the rendered offset still belongs to the outgoing pane;
+  // reporting it would undo the incoming selection. Embla's target already
+  // identifies the selected snap, including a snap beyond its stale Counter.
+  const target = engine?.target?.get?.();
+  if (
+    typeof width === "number" &&
+    Number.isFinite(width) &&
+    width > 0 &&
+    typeof target === "number" &&
+    Number.isFinite(target) &&
+    optionsLength > 0
+  ) {
+    return Math.min(
+      Math.max(Math.round(-target / width), 0),
+      optionsLength - 1,
+    );
+  }
   return resolveVisualIndex(api, optionsLength);
 }
 
