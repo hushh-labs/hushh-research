@@ -6,9 +6,6 @@ import type { ComponentType } from "react";
 import type { LucideIcon } from "@/components/icons";
 import { Info } from "@/components/icons";
 import {
-  Download,
-} from "@/components/icons";
-import {
   ConsentAgentIcon,
   EmergencyRowIcon,
   FinanceAgentIcon,
@@ -86,11 +83,10 @@ import {
   ConnectionsService,
   type ConnectionRequest,
 } from "@/lib/services/connections-service";
-import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
-import { ApiService } from "@/lib/services/api-service";
-import { approveAgentUpdate } from "@/lib/one/agent-update-approval";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
-import { updateActivityLabel, type AgentUpdateStatus } from "@/lib/feed/agent-update-status";
+import { useAgentUpdateFeedCard } from "@/lib/feed/agent-update-feed-card";
+import type { AgentUpdateStatus } from "@/lib/feed/agent-update-status";
 
 /**
  * Subset of SettingsRow's icon-well tones (that type is not exported). Feed
@@ -408,11 +404,14 @@ export function useFeedActionables(): UseFeedActionablesResult {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
-  const { update: agentUpdate, deploymentTarget: agentDeploymentTarget } = useAgentDeploymentFollow({
-    enabled: Boolean(userId),
+  const agentFollow = useAgentDeploymentFollow({ enabled: Boolean(userId), userId });
+  const agentUpdateCard = useAgentUpdateFeedCard({
     userId,
+    update: agentFollow.update,
+    deploymentTarget: agentFollow.deploymentTarget,
+    availableVersion: agentFollow.status?.availableRelease?.version ?? null,
+    onResolved: notifyFeedActionResolved,
   });
-  const updateActionBusyRef = useRef(false);
   const [dismissedSmsEmergencyIds, setDismissedSmsEmergencyIds] = useState<
     Set<string>
   >(() => new Set());
@@ -835,61 +834,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     if (!userId) return [];
     const items: FeedActionable[] = [];
 
-    // Software updates are owner-approved mutations. Keep one calm card in the
-    // existing Feed queue; the API binds approval to this pod incarnation and
-    // exact release, so a stale tab cannot choose an arbitrary image.
-    const updateActivity = updateActivityLabel(agentUpdate);
-    if (updateActivity || (agentUpdate.available === true && agentUpdate.offerable && agentUpdate.releaseId)) {
-      const releaseId = agentUpdate.releaseId;
-      const approve = async () => {
-        if (updateActionBusyRef.current || !releaseId || updateActivity || !agentUpdate.offerable) return;
-        updateActionBusyRef.current = true;
-        try {
-          const approval = await approveAgentUpdate({
-            deploymentTarget: agentDeploymentTarget,
-            releaseId,
-            idempotencyKey:
-              typeof crypto !== "undefined" && "randomUUID" in crypto
-                ? crypto.randomUUID()
-                : `${userId}:${releaseId}`,
-          });
-          if (approval === "scheduled") notifyFeedActionResolved();
-        } finally {
-          updateActionBusyRef.current = false;
-        }
-      };
-      const defer = async () => {
-        if (updateActionBusyRef.current || !releaseId || updateActivity || !agentUpdate.offerable) return;
-        updateActionBusyRef.current = true;
-        try {
-          await ApiService.deferPersonalAgentUpdate({ releaseId });
-          notifyFeedActionResolved();
-        } finally {
-          updateActionBusyRef.current = false;
-        }
-      };
-      items.push({
-        id: `personal-agent-update:${releaseId ?? "recovery"}`,
-        icon: Download,
-        iconTone: "blue",
-        title: updateActivity ?? "An update is ready",
-        description: updateActivity
-          ? agentUpdate.failed || agentUpdate.presentationState === "blocked"
-            ? agentUpdate.error || "Open Software updates to check recovery."
-            : "Keep using Settings to follow this update. Completion will be verified."
-          : agentUpdate.summary || "Keeps your private agent current.",
-        updateProgress: updateActivity ? agentUpdate : undefined,
-        href: updateActivity ? ROUTES.PROFILE_SOFTWARE_UPDATES : undefined,
-        actions: updateActivity
-          ? []
-          : [
-              { key: "approve", label: "Update now", tone: "primary", run: approve },
-              { key: "defer", label: "Later", tone: "ghost", run: defer },
-            ],
-        sortAt: firstSeenAt(`personal-agent-update:${releaseId}`),
-        displayTimestamp: null,
-      });
-    }
+    if (agentUpdateCard) items.push({ ...agentUpdateCard, sortAt: firstSeenAt(agentUpdateCard.id) });
 
     for (const payment of sentPayments) {
       items.push({
@@ -1481,8 +1426,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
     // streaming debate's frequent ticks would rebuild every row each render.
   }, [
     appTaskState.tasks,
-    agentUpdate,
-    agentDeploymentTarget,
+    agentUpdateCard,
     consentDecision.allow,
     declineConsentRequest,
     markConsentSettled,
@@ -1504,7 +1448,6 @@ export function useFeedActionables(): UseFeedActionablesResult {
     user,
     userId,
     vaultOwnerToken,
-    updateActionBusyRef,
   ]);
 
   const loading =

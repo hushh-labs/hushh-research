@@ -117,9 +117,9 @@ export function ByocCloudSetupPage() {
   const { start: startAzureSignIn } = azureSignIn;
   // The live stage record of the background setup job. Fetched on mount (a
   // person can leave and come back mid-job) and polled every 2s while running.
-  // The popup finished and the hub started the job: read it now, not in 2s.
+  // A setup's popup finished and the hub started the job: read it now, not in 2s.
   const [setupPollNonce, setSetupPollNonce] = useState(0);
-  useAzureSetupStartedSignal(() => setSetupPollNonce((value) => value + 1));
+  useAzureSetupStartedSignal(() => setSetupPollNonce((value) => value + 1), "setup");
   // Where the agent lives is read once on mount; a job this page watched run
   // to recorded re-reads it, or the screen stays on "still in progress".
   const [agentStatusNonce, setAgentStatusNonce] = useState(0);

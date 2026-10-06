@@ -22,7 +22,11 @@ import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
-import { agentUpdateApprovalToast, approveAgentUpdate } from "@/lib/one/agent-update-approval";
+import {
+  agentUpdateApprovalToast,
+  approveAgentUpdate,
+  openAzureUpdateSignInPopup,
+} from "@/lib/one/agent-update-approval";
 import {
   aiSelectionRefusalMessage,
   clearAgentAiSelection,
@@ -177,13 +181,17 @@ function OwnerOpenAiKeyCard({
     }
   };
 
-  // The existing owner-approved update path, exactly as Settings uses it.
+  // The owner-approved update path Settings uses. An Azure agent's Microsoft
+  // sign-in opens in a popup this click opens before any await (popup blockers
+  // need the gesture), so the person stays on this card; only a blocked popup
+  // falls back to sending this tab to Microsoft.
   const approveUpdate = async () => {
     const ownerIsCurrent = captureOwnerGuard();
     if (!ownerIsCurrent() || busy || readiness?.kind !== "needs_update" || !readiness.update.releaseId) return;
     const { releaseId, deploymentTarget } = readiness.update;
+    const popup = openAzureUpdateSignInPopup(deploymentTarget);
     setBusy("updating");
-    const request = approveAgentUpdate({ deploymentTarget, releaseId, idempotencyKey: crypto.randomUUID() });
+    const request = approveAgentUpdate({ deploymentTarget, releaseId, idempotencyKey: crypto.randomUUID(), popup });
     toast.promise(request, agentUpdateApprovalToast(deploymentTarget));
     try {
       await request;

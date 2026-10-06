@@ -3,15 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
-import { AgentUpdateProgress } from "@/components/agent/agent-update-progress";
-import { AzureUpdateSignInPrompt } from "@/components/profile/azure-update-sign-in-prompt";
+import { AgentUpdateActivity } from "@/components/profile/agent-update-activity";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { ROUTES } from "@/lib/navigation/routes";
-import { agentUpdateApprovalToast, approveAgentUpdate } from "@/lib/one/agent-update-approval";
+import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
+import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -69,6 +69,7 @@ export function AgentSettingsPanel({
 }) {
   const router = useRouter();
   const { status, update, refresh } = useAgentDeploymentFollow({ userId });
+  const azureUpdate = useAzureUpdateProgress({ onSettled: refresh });
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const mounted = useRef(true);
@@ -137,14 +138,12 @@ export function AgentSettingsPanel({
       return;
     busyRef.current = true;
     setBusy(true);
-    // An Azure approval is recorded, then the browser leaves for Microsoft.
+    // An Azure approval is recorded, then Microsoft signs in beside this pane;
+    // called inside the click, so the popup keeps the gesture blockers require.
     const request: Promise<void> =
       action === "approve"
-        ? approveAgentUpdate({
-            deploymentTarget: status?.deploymentTarget,
-            releaseId: update.releaseId,
-            idempotencyKey: crypto.randomUUID(),
-          }).then(() => undefined)
+        ? azureUpdate.approve({ agent: status, releaseId: update.releaseId, idempotencyKey: crypto.randomUUID() })
+            .then(() => undefined)
         : ApiService.deferPersonalAgentUpdate({
             releaseId: update.releaseId,
           }).then(() => undefined);
@@ -385,8 +384,7 @@ export function AgentSettingsPanel({
         ) : null}
       </SettingsGroup>
 
-      {isPod && awaitingMicrosoft ? <AzureUpdateSignInPrompt /> : null}
-      {isPod && !awaitingMicrosoft ? <AgentUpdateProgress update={update} /> : null}
+      {isPod ? <AgentUpdateActivity update={update} awaitingMicrosoft={awaitingMicrosoft} follow={azureUpdate} /> : null}
 
       {release && update.available ? (
         <details className="text-sm">

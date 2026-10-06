@@ -60,6 +60,7 @@ vi.mock("@/components/app-ui/page-sections", () => ({
 import { ByocCloudSetupPage } from "@/components/connections/byoc-cloud-setup-page";
 import { ApiService } from "@/lib/services/api-service";
 import { AzureByocError } from "@/lib/services/azure-byoc-contract";
+import { announceAzureSetupStarted } from "@/lib/one/azure-sign-in";
 
 const SIGN_IN = "https://login.microsoftonline.com/tenant/oauth2/v2.0/authorize?state=s";
 const SUBSCRIPTION = "00000000-0000-0000-0000-000000000000";
@@ -98,6 +99,18 @@ describe("Connect Azure on the cloud step", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     vi.restoreAllMocks();
+  });
+
+  it("re-reads the job on a setup hand-back and leaves an update's hand-back to the tab following it", async () => {
+    render(<ByocCloudSetupPage />);
+    await waitFor(() => expect(ApiService.getByocSetupStatus).toHaveBeenCalled());
+    await new Promise((settle) => setTimeout(settle, 50));
+    const readsBefore = vi.mocked(ApiService.getByocSetupStatus).mock.calls.length;
+    // Unanswered, the update's popup keeps its own progress instead of closing on nothing.
+    await expect(announceAzureSetupStarted({ upgradeJobId: "job-2", timeoutMs: 1200 })).resolves.toBe(false);
+    expect(ApiService.getByocSetupStatus).toHaveBeenCalledTimes(readsBefore);
+    await expect(announceAzureSetupStarted({ timeoutMs: 2000 })).resolves.toBe(true);
+    await waitFor(() => expect(vi.mocked(ApiService.getByocSetupStatus).mock.calls.length).toBeGreaterThan(readsBefore));
   });
 
   it("keeps the Google path unchanged while Azure is not admitted on this build", async () => {

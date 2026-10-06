@@ -50,30 +50,40 @@ const POPUP_NAME = "hussh-azure-sign-in";
 const POPUP_WIDTH = 520;
 const POPUP_HEIGHT = 720;
 
-type AzureSignInMessage = { type: "azure-setup-started" } | { type: "azure-setup-ack" };
+type AzureSignInMessage =
+  | { type: "azure-setup-started"; kind?: "upgrade"; jobId?: string }
+  | { type: "azure-setup-ack" };
+
+/** What the opening tab learns when the popup hands back: which sign-in, and its job. */
+export type AzureSignInStarted = { kind: AzureSignInKind; jobId: string | null };
 
 /**
  * Opened synchronously inside the tap, before the hub is asked for the address,
  * so a popup blocker sees a user gesture. `null` means blocked: the sign-in
  * then continues in this tab, exactly as before.
  */
-function openSignInPopup(): Window | null {
+export function openSignInPopup(): Window | null {
   if (typeof window === "undefined") return null;
   const left = Math.max(0, window.screenX + (window.outerWidth - POPUP_WIDTH) / 2);
   const top = Math.max(0, window.screenY + (window.outerHeight - POPUP_HEIGHT) / 2);
   const features = `popup,width=${POPUP_WIDTH},height=${POPUP_HEIGHT},left=${left},top=${top}`;
   try {
-    return window.open("about:blank", POPUP_NAME, features);
+    // jsdom and some embedded browsers return undefined rather than null.
+    return window.open("about:blank", POPUP_NAME, features) ?? null;
   } catch {
     return null;
   }
 }
 
+/**
+ * Where the sign-in went: `"popup"` keeps this tab in place, `"tab"` means this
+ * tab is leaving for Microsoft (no popup, or it was closed before the hub answered).
+ */
 export async function startAzureSignIn(
   kind: AzureSignInKind,
   subscriptionId?: string,
   popup: Window | null = null,
-): Promise<void> {
+): Promise<"popup" | "tab"> {
   if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
   const begun =
     kind === "upgrade"
@@ -82,9 +92,10 @@ export async function startAzureSignIn(
   if (popup && !popup.closed) {
     popup.location.assign(begun.authorizationUrl);
     popup.focus();
-    return;
+    return "popup";
   }
   assignWindowLocation(begun.authorizationUrl);
+  return "tab";
 }
 
 function signInChannel(): BroadcastChannel | null {
@@ -104,13 +115,22 @@ export const ANNOUNCE_WAIT_MS = 8000;
  * The return page, finished, tells the tab that opened the sign-in, repeating until
  * that tab acknowledges. Resolves `true` on the acknowledgement, so the popup can
  * close; `false` when no tab answered within `timeoutMs`.
+ *
+ * An update names its job (`upgradeJobId`), so the opening tab follows that job's
+ * record and never an earlier setup's or attempt's.
  */
-export function announceAzureSetupStarted(timeoutMs = ANNOUNCE_WAIT_MS): Promise<boolean> {
+export function announceAzureSetupStarted({
+  timeoutMs = ANNOUNCE_WAIT_MS,
+  upgradeJobId,
+}: { timeoutMs?: number; upgradeJobId?: string } = {}): Promise<boolean> {
   const channel = signInChannel();
   if (!channel) return Promise.resolve(false);
+  const message: AzureSignInMessage =
+    upgradeJobId === undefined
+      ? { type: "azure-setup-started" }
+      : { type: "azure-setup-started", kind: "upgrade", jobId: upgradeJobId };
   return new Promise((resolve) => {
-    const announce = () =>
-      channel.postMessage({ type: "azure-setup-started" } satisfies AzureSignInMessage);
+    const announce = () => channel.postMessage(message);
     const done = (acked: boolean) => {
       clearTimeout(timer);
       clearInterval(repeat);
@@ -151,8 +171,17 @@ export function returnToOpener(): void {
   window.close();
 }
 
-/** The opening tab hears the popup finish, acknowledges, and refreshes its own view. */
-export function useAzureSetupStartedSignal(onStarted: () => void): void {
+/**
+ * The opening tab hears the popup finish, acknowledges, and refreshes its own view.
+ *
+ * `only` limits it to one kind of sign-in. A hand-back of another kind is neither
+ * acted on nor acknowledged: the popup closes on an acknowledgement, so a tab that
+ * answered for a sign-in it does not follow would leave that sign-in followed nowhere.
+ */
+export function useAzureSetupStartedSignal(
+  onStarted: (started: AzureSignInStarted) => void,
+  only?: AzureSignInKind,
+): void {
   const latest = useRef(onStarted);
   useEffect(() => {
     latest.current = onStarted;
@@ -162,12 +191,17 @@ export function useAzureSetupStartedSignal(onStarted: () => void): void {
     if (!channel) return;
     channel.onmessage = (event: MessageEvent<AzureSignInMessage>) => {
       if (event.data?.type !== "azure-setup-started") return;
+      const started: AzureSignInStarted =
+        event.data.kind === "upgrade"
+          ? { kind: "upgrade", jobId: event.data.jobId ?? null }
+          : { kind: "setup", jobId: null };
+      if (only && started.kind !== only) return;
       // Acknowledge every repeat (the popup closes on the first it hears) but act once.
       channel.postMessage({ type: "azure-setup-ack" } satisfies AzureSignInMessage);
-      latest.current();
+      latest.current(started);
     };
     return () => channel.close();
-  }, []);
+  }, [only]);
 }
 
 const BEGIN_FALLBACK: Record<AzureSignInKind, string> = {
@@ -209,9 +243,11 @@ export function azureRetryKind(
     : "setup";
 }
 
-const POPUP_WATCH_MS = 500;
+export const POPUP_WATCH_MS = 500;
 export const POPUP_CLOSED_NOTICE =
   "The Microsoft window closed before setup started. Nothing in your subscription changed.";
+export const UPDATE_POPUP_CLOSED_NOTICE =
+  "The Microsoft window closed before the update started. Your agent keeps its current version.";
 
 /**
  * Shared UI state for a button that starts the Microsoft sign-in.
@@ -235,7 +271,7 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
   // A popup closed before setup started (the person closed it, or Microsoft stopped
   // them on its own page) leaves this tab waiting forever unless it notices.
   const watchPopup = useCallback(
-    (popup: Window) => {
+    (popup: Window, kind: AzureSignInKind) => {
       stopWatching();
       const channel = signInChannel();
       let handedOff = false;
@@ -248,7 +284,7 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
         if (!popup.closed && !handedOff) return;
         stopWatching();
         channel?.close();
-        if (!handedOff) setNotice(POPUP_CLOSED_NOTICE);
+        if (!handedOff) setNotice(kind === "upgrade" ? UPDATE_POPUP_CLOSED_NOTICE : POPUP_CLOSED_NOTICE);
       }, POPUP_WATCH_MS);
     },
     [stopWatching],
@@ -261,12 +297,12 @@ export function useAzureSignIn({ inPlace = false }: { inPlace?: boolean } = {}) 
       setStarting(true);
       setError(null);
       setNotice(null);
-      // Setup signs in beside the app; the popup must open before the first await.
-      const popup =
-        kind === "setup" && !inPlace && isAzureSignInAvailable() ? openSignInPopup() : null;
+      // Setup and updates sign in beside the app, so the person stays where they
+      // are; the popup must open before the first await.
+      const popup = !inPlace && isAzureSignInAvailable() ? openSignInPopup() : null;
       try {
-        await startAzureSignIn(kind, subscriptionId, popup);
-        if (popup && !popup.closed) watchPopup(popup);
+        const where = await startAzureSignIn(kind, subscriptionId, popup);
+        if (popup && where === "popup") watchPopup(popup, kind);
       } catch (cause) {
         popup?.close();
         setError(azureSignInErrorMessage(cause, kind));

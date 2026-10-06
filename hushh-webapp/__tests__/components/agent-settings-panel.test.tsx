@@ -196,10 +196,14 @@ describe("owner hosting and software settings", () => {
       },
       { ...NO_UPDATE, available: true, releaseId: "rel_exact" },
     );
+    // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
     render(<AgentSettingsPanel userId="owner" kind="software-updates" />);
 
     fireEvent.click(screen.getByRole("button", { name: "Update now" }));
     await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(signIn));
+    expect(open).toHaveBeenCalledOnce();
+    open.mockRestore();
     expect(mocks.approve).toHaveBeenCalledWith({
       releaseId: "rel_exact",
       idempotencyKey: "azure-update.rel_exact",
@@ -225,8 +229,12 @@ describe("owner hosting and software settings", () => {
     expect(await screen.findByText("Approved. Waiting for your Microsoft sign-in")).toBeTruthy();
     expect(screen.queryByRole("status", { name: /Software update/ })).toBeNull();
     expect(screen.queryByRole("button", { name: "Update now" })).toBeNull();
+    // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
     fireEvent.click(screen.getByRole("button", { name: "Continue to Microsoft sign-in" }));
     await waitFor(() => expect(mocks.assign).toHaveBeenCalledWith(signIn));
+    expect(open).toHaveBeenCalledOnce();
+    open.mockRestore();
     expect(mocks.approve).not.toHaveBeenCalled();
   });
 

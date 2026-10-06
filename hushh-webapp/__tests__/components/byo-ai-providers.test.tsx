@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => ({
   record: vi.fn(),
   remove: vi.fn(),
   approve: vi.fn(),
+  openPopup: vi.fn(),
   apiFetch: vi.fn(),
   push: vi.fn(),
   toastSuccess: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock("@/lib/one/ai-selection-vault", () => ({
 }));
 vi.mock("@/lib/one/agent-update-approval", () => ({
   approveAgentUpdate: mocks.approve,
+  openAzureUpdateSignInPopup: mocks.openPopup,
   agentUpdateApprovalToast: () => ({ loading: "", success: "", error: "" }),
 }));
 
@@ -117,6 +119,25 @@ describe("OpenAiKeyCard", () => {
     await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(
       expect.objectContaining({ releaseId: "rel_fixture", deploymentTarget: "user_gcp" }),
     ));
+  });
+
+  it("approves an Azure agent's update in a popup opened by the click, so the person stays on the card", async () => {
+    mocks.loadAgentAiState.mockResolvedValue({
+      readiness: { kind: "needs_update", update: { releaseId: "rel_fixture", deploymentTarget: "user_azure", installable: true, working: false } },
+      selection: null,
+    });
+    const popup = { closed: false };
+    mocks.openPopup.mockReturnValue(popup);
+    mocks.approve.mockResolvedValue("signing_in_popup");
+    renderCard();
+    fireEvent.click(await screen.findByRole("button", { name: "Update your agent" }));
+    // Opened inside the click, before the approval's first await: blockers need the gesture.
+    expect(mocks.openPopup).toHaveBeenCalledWith("user_azure");
+    expect(mocks.openPopup.mock.invocationCallOrder[0]).toBeLessThan(mocks.approve.mock.invocationCallOrder[0]);
+    await waitFor(() => expect(mocks.approve).toHaveBeenCalledWith(
+      expect.objectContaining({ releaseId: "rel_fixture", deploymentTarget: "user_azure", popup }),
+    ));
+    expect(mocks.push).not.toHaveBeenCalled();
   });
 
   it("asks the agent first, then records the accepted selection in the Vault", async () => {

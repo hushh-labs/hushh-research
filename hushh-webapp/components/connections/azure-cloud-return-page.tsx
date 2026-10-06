@@ -38,15 +38,17 @@ import type {
  * The code is exchanged exactly once (the in-memory promise survives a Strict
  * Mode double effect) and only for the Hussh account that started it. The
  * hub's answer decides the screen: setup goes to the cloud step's live
- * checklist, an update shows its own progress here, and an account with more
- * than one subscription picks one and signs in again for it.
+ * checklist, an update is handed back to the tab that approved it (the profile
+ * pane or the Feed follow it there), and an account with more than one
+ * subscription picks one and signs in again for it. An update shows its own
+ * progress here only when this page is not a popup, or no tab answered.
  */
 
 type ReturnView =
   | { kind: "completing" }
   | { kind: "continuing"; authorizationUrl: string }
   | { kind: "redirecting" }
-  | { kind: "handed_off" }
+  | { kind: "handed_off"; update: boolean }
   | {
       kind: "needs_subscription";
       subscriptions: AzureSubscription[];
@@ -180,28 +182,29 @@ function ReturnError({
   );
 }
 
-export function AzureCloudReturnPage() {
+/**
+ * Setup progress lives on the cloud step, which polls the same job record; an
+ * update's lives where the person approved it. In the popup, the tab that
+ * opened it shows that progress: tell it (an update names its job), then close.
+ * `keptHere`: no other tab took this sign-in over, so what follows stays here.
+ */
+function useReturnHandBack(view: ReturnView) {
   const router = useRouter();
-  const view = useAzureCompletion();
-  // This page may itself be the sign-in popup: every restart stays in this window.
-  const signIn = useAzureSignIn({ inPlace: true });
-  const { start } = signIn;
-
-  // Setup progress lives on the cloud step, which polls the same job record. In
-  // the popup, the tab that opened it shows that progress: tell it, then close.
-  // With no tab listening (the same-tab flow), go to the cloud step here.
   const [handedOff, setHandedOff] = useState(false);
-  const [unanswered, setUnanswered] = useState(false);
+  const [keptHere, setKeptHere] = useState(false);
   // Announced once per sign-in: a re-render must not start a second announcement.
   const announced = useRef<Promise<boolean> | null>(null);
+  const upgradeJobId = view.kind === "upgrading" ? view.jobId : undefined;
   useEffect(() => {
-    if (view.kind !== "redirecting") return;
-    // In the person's own tab (the popup was blocked) there is no other tab to tell.
+    if (view.kind !== "redirecting" && upgradeJobId === undefined) return;
+    // In the person's own tab (the popup was blocked) there is no other tab to
+    // tell: setup goes to the cloud step, an update shows its progress here.
     if (!isSignInPopup()) {
-      router.replace(ROUTES.ONE_SETUP_CLOUD);
+      if (upgradeJobId === undefined) router.replace(ROUTES.ONE_SETUP_CLOUD);
+      else setKeptHere(true);
       return;
     }
-    announced.current ??= announceAzureSetupStarted();
+    announced.current ??= announceAzureSetupStarted({ upgradeJobId });
     let current = true;
     void announced.current.then((acked) => {
       if (!current) return;
@@ -210,15 +213,26 @@ export function AzureCloudReturnPage() {
         window.close();
         return;
       }
-      // A popup whose tab did not answer offers the way back instead of turning into
-      // a second, popup-sized copy of the app.
-      setUnanswered(true);
+      // A popup whose tab did not answer: setup offers the way back instead of a
+      // second, popup-sized copy of the app; an update, which nothing else is
+      // following, shows its progress here.
+      setKeptHere(true);
     });
     return () => {
       current = false;
     };
-  }, [view.kind, router]);
-  const shown: ReturnView = handedOff ? { kind: "handed_off" } : view;
+  }, [view.kind, upgradeJobId, router]);
+  return { handedOff, keptHere, upgradeJobId };
+}
+
+export function AzureCloudReturnPage() {
+  const view = useAzureCompletion();
+  // This page may itself be the sign-in popup: every restart stays in this window.
+  const signIn = useAzureSignIn({ inPlace: true });
+  const { start } = signIn;
+
+  const { handedOff, keptHere, upgradeJobId } = useReturnHandBack(view);
+  const shown: ReturnView = handedOff ? { kind: "handed_off", update: upgradeJobId !== undefined } : view;
 
   // Identified: the Azure sign-in in the person's own directory, in this same
   // window (the popup when there is one). Microsoft usually completes it unasked.
@@ -234,14 +248,18 @@ export function AzureCloudReturnPage() {
   return (
     <AppPageShell as="main" width="reading">
       <AppPageHeaderRegion>
-        <PageHeader title={TITLES[shown.kind]} accent="neutral" />
+        <PageHeader
+          title={shown.kind === "handed_off" && shown.update ? TITLES.upgrading : TITLES[shown.kind]}
+          accent="neutral"
+        />
       </AppPageHeaderRegion>
       <AppPageContentRegion className="space-y-6">
         {shown.kind === "handed_off" ? (
           <p className="text-sm text-muted-foreground" data-testid="azure-return-handed-off">
-            Your agent is being set up. You can close this window and follow along in Hussh.
+            {shown.update ? "Your agent is being updated." : "Your agent is being set up."} You can
+            close this window and follow along in Hussh.
           </p>
-        ) : unanswered ? (
+        ) : keptHere && view.kind === "redirecting" ? (
           <AzureReturnHandoff />
         ) : view.kind === "continuing" ? (
           <HushhLoader label="Finding your Azure subscriptions…" variant="inline" />
@@ -255,11 +273,15 @@ export function AzureCloudReturnPage() {
             onContinue={(subscriptionId) => start("setup", subscriptionId)}
           />
         ) : view.kind === "upgrading" ? (
-          <AzureUpgradeProgress
-            jobId={view.jobId}
-            onRetry={() => start("upgrade")}
-            retrying={signIn.starting}
-          />
+          keptHere ? (
+            <AzureUpgradeProgress
+              jobId={view.jobId}
+              onRetry={() => start("upgrade")}
+              retrying={signIn.starting}
+            />
+          ) : (
+            <HushhLoader label="Finishing Microsoft sign-in…" variant="inline" />
+          )
         ) : view.kind === "error" ? (
           <ReturnError
             message={view.message}

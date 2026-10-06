@@ -3,12 +3,17 @@ import {
   AzureSignInUnavailableError,
   azureSignInErrorMessage,
   isAzureSignInAvailable,
+  openSignInPopup,
   startAzureSignIn,
 } from "@/lib/one/azure-sign-in";
 import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 
-export type AgentUpdateApproval = "scheduled" | "signing_in";
+/**
+ * `signing_in_popup`: the Microsoft sign-in continues in a popup and this tab
+ * stays where the person is. `signing_in`: this tab is leaving for Microsoft.
+ */
+export type AgentUpdateApproval = "scheduled" | "signing_in" | "signing_in_popup";
 
 /** The hub's bound on `idempotencyKey` (`UpgradeApprovalRequest`). */
 const MAX_IDEMPOTENCY_KEY_LENGTH = 128;
@@ -67,6 +72,33 @@ async function recordAzureApproval(releaseId: string): Promise<void> {
   }
 }
 
+async function approveAzureUpdate(
+  releaseId: string,
+  popup: Window | null,
+): Promise<AgentUpdateApproval> {
+  try {
+    // Never record an approval this device cannot carry on to Microsoft.
+    if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
+    await recordAzureApproval(releaseId);
+    const where = await startAzureSignIn("upgrade", undefined, popup);
+    return where === "popup" ? "signing_in_popup" : "signing_in";
+  } catch (cause) {
+    // A refused approval or sign-in must not leave an empty window behind.
+    popup?.close();
+    throw cause;
+  }
+}
+
+/**
+ * The Microsoft sign-in window for approving an Azure agent's update, opened
+ * by the click handler before its first await (popup blockers need the user
+ * gesture). `null` for any other home, on the mobile shells, or when blocked.
+ */
+export function openAzureUpdateSignInPopup(deploymentTarget: unknown): Window | null {
+  if (ownerCloudProvider(deploymentTarget) !== "azure" || !isAzureSignInAvailable()) return null;
+  return openSignInPopup();
+}
+
 /**
  * Approve the offered agent update the way the agent's home requires.
  *
@@ -75,20 +107,21 @@ async function recordAzureApproval(releaseId: string): Promise<void> {
  * schedules uses the caller's `idempotencyKey`. An Azure agent cannot be
  * changed by Hussh's standing access (see/restart only), so after the approval
  * is recorded, under its per-release key, the person's own Microsoft sign-in
- * authorizes that one update and the browser leaves for Microsoft.
+ * authorizes that one update: in `popup` (from `openAzureUpdateSignInPopup`)
+ * when the click opened one, so the person stays where they are, otherwise in
+ * this tab, which leaves for Microsoft.
  */
 export async function approveAgentUpdate(input: {
   deploymentTarget: string | null | undefined;
   releaseId: string;
   idempotencyKey: string;
+  popup?: Window | null;
 }): Promise<AgentUpdateApproval> {
+  const popup = input.popup ?? null;
   if (ownerCloudProvider(input.deploymentTarget) === "azure") {
-    // Never record an approval this device cannot carry on to Microsoft.
-    if (!isAzureSignInAvailable()) throw new AzureSignInUnavailableError();
-    await recordAzureApproval(input.releaseId);
-    await startAzureSignIn("upgrade");
-    return "signing_in";
+    return approveAzureUpdate(input.releaseId, popup);
   }
+  popup?.close();
   await ApiService.approvePersonalAgentUpdate({
     releaseId: input.releaseId,
     idempotencyKey: input.idempotencyKey,

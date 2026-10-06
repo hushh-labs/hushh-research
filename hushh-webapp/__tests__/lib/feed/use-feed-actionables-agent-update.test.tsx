@@ -187,6 +187,8 @@ describe("useFeedActionables software update approval", () => {
     upgrade = vi
       .spyOn(ApiService, "beginAzureByocUpgrade")
       .mockResolvedValue({ authorizationUrl: SIGN_IN });
+    // A blocked popup: the sign-in continues in this tab (the popup path has its own tests).
+    vi.spyOn(window, "open").mockReturnValue(null);
   });
 
   afterEach(() => {
