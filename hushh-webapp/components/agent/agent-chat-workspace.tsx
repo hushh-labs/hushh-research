@@ -79,6 +79,7 @@ import { AgentTtsQueue, markdownToSpeechText } from "@/lib/agent/agent-voice-tts
 import {
   AGENT_VOICE_SETTINGS_CHANGED_EVENT,
   isAgentGeminiVoiceEnabled,
+  isVoiceWakePhrase,
   readAgentVoiceSettings,
   type AgentGeminiTtsVoice,
 } from "@/lib/agent/agent-voice-settings";
@@ -2420,6 +2421,12 @@ export function AgentChatWorkspace({
     event.preventDefault();
     if (!canSend || typedSubmitInFlightRef.current) return;
 
+    if (isVoiceWakePhrase(input) && agentVoiceEnabled) {
+      setInput("");
+      await handleToggleVoice();
+      return;
+    }
+
     typedSubmitInFlightRef.current = true;
     try {
       await runAgentTurn(input, { source: "typed" });
@@ -2762,12 +2769,17 @@ export function AgentChatWorkspace({
   };
   const handleWelcomePromptSelect = useCallback((prompt: string) => {
     if (isChatLoading || isStreaming) return;
+    if (isVoiceWakePhrase(prompt) && agentVoiceEnabled) {
+      setInput("");
+      void handleToggleVoice();
+      return;
+    }
     setInput("");
     void runAgentTurn(prompt, { source: "typed" });
     // runAgentTurn is a stable closure invoked imperatively; excluding it keeps
     // this callback from re-creating on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isChatLoading, isStreaming]);
+  }, [agentVoiceEnabled, isChatLoading, isStreaming]);
   const swipeStartYRef = useRef<number | null>(null);
   const handleHeaderPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!onMinimize || event.pointerType === "mouse") return;
