@@ -9,6 +9,7 @@ type WriteParams = { userId: string; vaultKey: string; vaultOwnerToken: string }
  *
  * Shared by the Career screen and Agent One's careers.apply chat action, so
  * both send exactly the same fields and both leave a receipt in PKM. The
+ * receipt id is issued by hussh when the owner confirms, never made up here. The
  * receipt write is best effort: a failed write never turns a sent application
  * into a reported failure (receiptSaved says which happened).
  */
@@ -18,17 +19,23 @@ export async function applyWithSavedResume(params: {
   write: WriteParams;
 }): Promise<{ result: CareerApplicationResult; receipt: CareerApplicationReceipt; receiptSaved: boolean }> {
   const { role, resume, write } = params;
-  const receiptId = crypto.randomUUID();
   const { first, last } = splitName(resume.name);
   const link = (needle: string) => resume.links.find((l) => l.url.toLowerCase().includes(needle))?.url;
   const resumeText = resumeToText(resume);
+  const links = { linkedin: link("linkedin.com"), github: link("github.com") };
+  // hussh issues and keeps the consent receipt (careers.hushh.ai), and the
+  // application is refused without it.
+  const receiptId = await CareerService.issueConsentReceipt({
+    role,
+    shared: { name: resume.name, location: resume.location, resume_chars: resumeText.length, ...links },
+  });
   const result = await CareerService.applyToRole({
     role,
     firstName: first,
     lastName: last,
     location: resume.location,
     resumeText,
-    links: { linkedin: link("linkedin.com"), github: link("github.com") },
+    links,
     consentReceiptId: receiptId,
   });
   const receipt: CareerApplicationReceipt = {

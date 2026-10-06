@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const listRoles = vi.fn();
 const applyToRole = vi.fn();
+const issueConsentReceipt = vi.fn();
 const load = vi.fn();
 const recordApplication = vi.fn();
 let unlocked = true;
@@ -13,7 +14,11 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), message: vi.fn(), error: vi.fn() } }));
 vi.mock("@/lib/services/career-service", () => ({
-  CareerService: { listRoles: () => listRoles(), applyToRole: (p: unknown) => applyToRole(p) },
+  CareerService: {
+    listRoles: () => listRoles(),
+    applyToRole: (p: unknown) => applyToRole(p),
+    issueConsentReceipt: (p: unknown) => issueConsentReceipt(p),
+  },
 }));
 vi.mock("@/lib/services/career-pkm-service", () => ({
   CareerPkmService: { load: (p: unknown) => load(p), recordApplication: (p: unknown) => recordApplication(p) },
@@ -51,6 +56,7 @@ beforeEach(() => {
   unlocked = true;
   listRoles.mockReset().mockResolvedValue([ROLE]);
   applyToRole.mockReset().mockResolvedValue({ reference: "HR-1", statusLink: "https://s", emailed: true });
+  issueConsentReceipt.mockReset().mockResolvedValue("cr_server_issued");
   load.mockReset().mockResolvedValue({ resume: RESUME, applications: [] });
   recordApplication.mockReset().mockResolvedValue(undefined);
 });
@@ -72,6 +78,23 @@ describe("careers from Agent One chat", () => {
     );
     expect(recordApplication).toHaveBeenCalledTimes(1);
     expect(result.summary).toContain("HR-1");
+  });
+
+  it("applies with the receipt hussh issued, not one made on the device", async () => {
+    render(<GlobalCareerActionHandlers />);
+    await run("careers.apply", { slug: "agent-engineer", family: "vacancy" });
+    expect(issueConsentReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({ shared: expect.objectContaining({ name: "Ada Lovelace" }) }),
+    );
+    expect(applyToRole).toHaveBeenCalledWith(expect.objectContaining({ consentReceiptId: "cr_server_issued" }));
+  });
+
+  it("sends nothing when hussh cannot record the confirmation", async () => {
+    issueConsentReceipt.mockRejectedValue(new Error("We couldn't record your confirmation. Nothing was sent."));
+    render(<GlobalCareerActionHandlers />);
+    const result = await run("careers.apply", { slug: "agent-engineer", family: "vacancy" });
+    expect(result.status).toBe("failed");
+    expect(applyToRole).not.toHaveBeenCalled();
   });
 
   it("refuses a role the portal does not list, and sends nothing", async () => {
