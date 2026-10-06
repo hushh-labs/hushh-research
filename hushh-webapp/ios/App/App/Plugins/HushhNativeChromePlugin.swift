@@ -278,7 +278,8 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     private var document: String?
     private var retiredDocuments = Set<String>()
     private var observers = [NSObjectProtocol]()
-    private var keyboardVisible = false
+    private(set) var keyboardVisible = false
+    private var keyboardHidePending = false
     // Reuse the existing monotonic document/retirement fence. A prior page's
     // delayed appearance must not repaint the current document.
     private var canvasState = HushhNativeChromeState()
@@ -288,11 +289,25 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self else { return }
             for name in [UIApplication.willResignActiveNotification,
                          HushhSessionPrivacyShield.presentationDidChange,
-                         UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification] {
+                         UIResponder.keyboardWillShowNotification, UIResponder.keyboardWillHideNotification,
+                         UIResponder.keyboardDidHideNotification] {
                 self.observers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] note in
                     guard let self else { return }
-                    if note.name == UIResponder.keyboardWillShowNotification { self.keyboardVisible = true }
-                    if note.name == UIResponder.keyboardWillHideNotification { self.keyboardVisible = false }
+                    if note.name == UIResponder.keyboardWillShowNotification {
+                        self.keyboardVisible = true
+                        self.keyboardHidePending = false
+                    }
+                    if note.name == UIResponder.keyboardWillHideNotification {
+                        // WillHide still has an animating keyboard and stale web
+                        // geometry. Keep the fence until UIKit's completion.
+                        self.keyboardVisible = true
+                        self.keyboardHidePending = true
+                    }
+                    if note.name == UIResponder.keyboardDidHideNotification {
+                        guard self.keyboardHidePending else { return }
+                        self.keyboardHidePending = false
+                        self.keyboardVisible = false
+                    }
                     // Synchronously remove every owned control beneath privacy/IME.
                     self.invalidatePresentation()
                 })

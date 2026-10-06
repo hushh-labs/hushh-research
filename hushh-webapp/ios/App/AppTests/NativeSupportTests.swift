@@ -4,6 +4,32 @@ import SwiftUI
 
 final class NativeSupportTests: XCTestCase {
     @MainActor
+    func testNativeChromeKeepsKeyboardFenceUntilCurrentDismissalCompletes() {
+        let plugin = HushhNativeChromePlugin()
+        plugin.load()
+        let ready = expectation(description: "Native lifecycle observers registered")
+        DispatchQueue.main.async { ready.fulfill() }
+        wait(for: [ready], timeout: 1)
+        let notifications = NotificationCenter.default
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible, "The closing keyboard still owns presentation until completion")
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+        // Reopening interrupts an older dismissal. Its late completion cannot
+        // admit controls beneath the newly visible keyboard.
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardWillShowNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertTrue(plugin.keyboardVisible)
+        notifications.post(name: UIResponder.keyboardWillHideNotification, object: nil)
+        notifications.post(name: UIResponder.keyboardDidHideNotification, object: nil)
+        XCTAssertFalse(plugin.keyboardVisible)
+    }
+
+    @MainActor
     func testHiddenSegmentedPickerReportsItsReservedGeometryBeforeInteraction() throws {
         guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass family requires iOS 26") }
         let measured = expectation(description: "Actual SwiftUI geometry equals the reserved slot")

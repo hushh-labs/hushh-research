@@ -242,6 +242,16 @@ Puppy conversation is tested through its authored empty state; the chrome check
 does not create a conversation. Full selector/keyboard completion and current
 combined-head device acceptance remain separate gates.
 
+That full physical sequence subsequently passed History/Profile reopening and
+Cloud/Puppy value projection, then failed native return after keyboard dismissal.
+The keyboard fence previously released at `keyboardWillHide`, before animation
+and web geometry completed. Chrome now remains retired until UIKit's
+[keyboard dismissal completion](https://developer.apple.com/documentation/uikit/uiresponder/keyboarddidhidenotification),
+with an interrupted-dismissal guard. The actual notification regression fails
+on the old release point; all 35 native-support simulator checks pass with the
+correction. The corrected physical journey and final-head gates are still
+required; this event-order fix alone is not device acceptance.
+
 The combined branch also repairs early tab reversal at the shared pager: a
 rounded visible pane no longer hides its different pending destination. Both
 tap and controlled-route regressions fail on the old admission check. The
