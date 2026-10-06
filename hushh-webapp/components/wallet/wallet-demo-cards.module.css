@@ -1,0 +1,33 @@
+.face [data-testid="wallet-card-face"] {
+  background-image: var(--demo-finish);
+}
+
+.face [data-testid="wallet-card-face"]::before {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  content: "";
+  pointer-events: none;
+  background: repeating-linear-gradient(115deg, transparent 0 3px, rgb(255 255 255 / 2%) 3px 4px);
+}
+
+.platinum {
+  --demo-finish: linear-gradient(125deg, #172334 0%, #39495b 42%, #1d2b3e 62%, #142033 100%);
+}
+
+.gold {
+  --demo-finish: linear-gradient(125deg, #33291b 0%, #655035 42%, #3f3221 62%, #241f19 100%);
+}
+
+.graphite {
+  --demo-finish: linear-gradient(125deg, #12141b 0%, #353844 42%, #20232c 62%, #12141b 100%);
+}
+
+.details {
+  padding: 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 1.25rem;
+  background: var(--card);
+  color: var(--card-foreground);
+}

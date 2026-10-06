@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { WalletAddCollection } from "@/components/wallet/wallet-add-collection";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
@@ -80,4 +80,38 @@ describe("Wallet Add collection", () => {
     expect(stack).toHaveAttribute("data-expanded", "true");
     clock.mockRestore();
   });
+  it("opens the active demo and updates matching details when selecting a different card", () => {
+    const onSelect = vi.fn();
+    const onRemove = vi.fn();
+    const onAdd = vi.fn();
+    render(<WalletAddCollection {...props} cards={[]} onSelect={onSelect} onRemove={onRemove} onAdd={onAdd} />);
+    expect(screen.queryByTestId("wallet-demo-details")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Everyday - Demo" }));
+    let details = within(screen.getByRole("region", { name: "Demo card details" }));
+    expect(details.getByText("Everyday card")).toBeTruthy();
+    expect(details.getByText("0000 0000 0000 4242")).toBeTruthy();
+    expect(details.getByText("Alex Sample")).toBeTruthy();
+    expect(details.getByText("12/30")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View all 3 cards" }));
+    fireEvent.click(screen.getByRole("button", { name: "Travel - Demo" }));
+    details = within(screen.getByRole("region", { name: "Demo card details" }));
+    expect(details.getByText("Travel card")).toBeTruthy();
+    expect(details.getByText("0000 0000 0000 4444")).toBeTruthy();
+    expect(details.getByText("Mastercard")).toBeTruthy();
+    expect(details.getByText("09/30")).toBeTruthy();
+    expect(details.queryByText("Everyday card")).toBeNull();
+    expect(screen.getByTestId("wallet-preview-stack")).toHaveAttribute("data-expanded", "false");
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
+  });
+
+  it("keeps a saved card masked even when its ID matches a demo", () => {
+    render(<WalletAddCollection {...props} cards={[{ ...cards[0]!, cardId: "demo-0" }]} />);
+    expect(screen.getByTestId("wallet-card-face")).toHaveAttribute("data-revealed", "false");
+    expect(document.querySelector("[data-demo-card]")).toBeNull();
+    expect(document.body.textContent).not.toContain("0000 0000 0000 4242");
+    expect(screen.queryByTestId("wallet-demo-details")).toBeNull();
+  });
+
 });
