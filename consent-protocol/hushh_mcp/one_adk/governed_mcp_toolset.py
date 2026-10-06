@@ -12,8 +12,10 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import os
 import re
+import warnings
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -44,6 +46,7 @@ from hushh_mcp.services.external_connector_credentials_service import (
 )
 from hushh_mcp.services.external_connector_curated_oauth import (
     CuratedConnectorOAuthError,
+    CuratedNotConnectedError,
     curated_free_read_tools,
     curated_policy_hash,
     is_curated_oauth_connector,
@@ -59,9 +62,26 @@ from hushh_mcp.services.external_mcp_client import (
     _list_session_tools,
     _normalize_and_cap,
     model_facing_schema,
-    schema_validator,
+    schema_is_valid,
 )
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
+
+logger = logging.getLogger(__name__)
+
+# ADK announces this flag on every connector discovery. We rely on it knowingly:
+# it is what turns a provider error into a tool result instead of a failed turn.
+# One line per discovery buried real warnings in the UAT logs.
+warnings.filterwarnings(
+    "ignore",
+    message=r"\[EXPERIMENTAL\] feature FeatureName\._MCP_GRACEFUL_ERROR_HANDLING",
+    category=UserWarning,
+)
+
+# Provider tools the reviewed allowlist dropped, last logged per connector, so a
+# provider that renames, adds or removes a tool is noticed once instead of every
+# turn. Process memory only; bounded.
+_LOGGED_DROPPED_TOOLS: dict[str, tuple[str, ...]] = {}
+_LOGGED_DROPPED_TOOLS_LIMIT = 256
 
 
 def mcp_call_timeout_seconds() -> float:
@@ -77,6 +97,21 @@ def mcp_call_timeout_seconds() -> float:
     except ValueError:
         return 20.0
     return value if 0 < value <= 60 else 20.0
+
+
+def mcp_discovery_timeout_seconds() -> float:
+    """Budget for one connector's discovery within a turn.
+
+    One slow provider must not hold up every other connector, or the turn. The
+    value never exceeds the per-step call budget; a malformed value falls back
+    to the default rather than disabling the bound.
+    """
+    ceiling = mcp_call_timeout_seconds()
+    try:
+        value = float(os.getenv("MCP_DISCOVERY_TIMEOUT_SECONDS", ""))
+    except ValueError:
+        return min(8.0, ceiling)
+    return value if 0 < value <= ceiling else min(8.0, ceiling)
 
 
 @dataclass(frozen=True)
@@ -215,8 +250,27 @@ def _curated_tool_allowlist(connector: Any) -> CatalogPolicy | None:
             return None
         names = frozenset(item for item in allowed if isinstance(item, str))
 
+    connector_id = str(getattr(connector, "connector_id", ""))
+
     def admitted(catalog: list[dict[str, Any]]) -> list[dict[str, Any]]:
-        return [item for item in catalog if item.get("name") in names]
+        offered = [item for item in catalog if item.get("name") in names]
+        dropped = tuple(
+            sorted(str(item.get("name"))[:80] for item in catalog if item.get("name") not in names)
+        )
+        if _LOGGED_DROPPED_TOOLS.get(connector_id) != dropped:
+            if len(_LOGGED_DROPPED_TOOLS) >= _LOGGED_DROPPED_TOOLS_LIMIT:
+                _LOGGED_DROPPED_TOOLS.pop(next(iter(_LOGGED_DROPPED_TOOLS)))
+            _LOGGED_DROPPED_TOOLS[connector_id] = dropped
+            # Tool names are the provider's public identifiers, never user data.
+            logger.info(
+                "mcp_catalog_filtered connector=%s offered=%d dropped=%d missing=%s dropped_names=%s",
+                connector_id,
+                len(offered),
+                len(dropped),
+                sorted(names - {str(item.get("name")) for item in catalog})[:40],
+                list(dropped)[:60],
+            )
+        return offered
 
     return admitted
 
@@ -238,6 +292,8 @@ async def _resolve_curated_connection(owner: str, connector: Any) -> ResolvedMcp
         row, secret = await adapter.current_credential(
             connector_id=connector.connector_id, user_id=owner, connector=connector
         )
+    except CuratedNotConnectedError:
+        raise ExternalMcpError("Connect this service first.", code="MCP_NOT_CONNECTED") from None
     except CuratedConnectorOAuthError as error:
         code = "MCP_CREDENTIAL_EXPIRED" if error.status_code == 401 else "MCP_CONNECTION_CHANGED"
         raise ExternalMcpError("Reconnect this service.", code=code) from None
@@ -441,7 +497,7 @@ def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
         ) from None
     # Never validates under a guessed dialect, and never fetches a reference.
     try:
-        valid = schema_validator(schema).is_valid(arguments)
+        valid = schema_is_valid(schema, arguments)
     except (RecursionError, Unresolvable, ArithmeticError, re.error):
         # A reference that does not resolve inside the schema, or a schema that
         # recurses without end: refused as a schema problem, not a crash.

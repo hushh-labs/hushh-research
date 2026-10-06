@@ -6,10 +6,14 @@ resolver; providers without native admission retain their existing adapters.
 """
 
 import asyncio
+import hashlib
 import json
+import logging
 import time
 from copy import copy
+from typing import Any
 
+from google.adk.tools import FunctionTool
 from google.adk.tools.base_toolset import BaseToolset
 from google.adk.tools.tool_context import ToolContext
 
@@ -17,6 +21,7 @@ from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.agui_turn_timing import record_connector_discovery
 from hushh_mcp.one_adk.governed_mcp_toolset import (
     mcp_call_timeout_seconds,
+    mcp_discovery_timeout_seconds,
     native_registration_admitted,
 )
 from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
@@ -25,8 +30,75 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
-from hushh_mcp.services.external_mcp_client import ExternalMcpError
+from hushh_mcp.services.external_mcp_client import ExternalMcpAuthError, ExternalMcpError
 from hushh_mcp.services.mcp_connector_probe import probe_mcp_server
+
+logger = logging.getLogger(__name__)
+
+# Why a connector offered no tools this turn. Quiet means the person never
+# connected it or the turn itself is unusable: nothing is wrong with the service.
+_QUIET_CODES = frozenset({"MCP_NOT_CONNECTED", "MCP_TURN_UNAVAILABLE", "MCP_OWNER_MISMATCH"})
+_RECONNECT_CODES = frozenset(
+    {"MCP_CREDENTIAL_EXPIRED", "MCP_CREDENTIAL_INVALID", "MCP_CONNECTION_CHANGED"}
+)
+_REASON_QUIET = "quiet"
+_REASON_RECONNECT = "reconnect"
+_REASON_UNAVAILABLE = "unavailable"
+
+
+def _still_current(toolset: Any, tools: Any) -> bool:
+    """True while every listed tool still belongs to the toolset's current catalog epoch.
+
+    A refresh bumps the epoch and invalidates the listed tools, so a changed catalog is
+    never served from here. A toolset or tool without an epoch is never reused.
+    """
+    epoch = getattr(toolset, "catalog_epoch", None)
+    return (
+        bool(tools)
+        and epoch is not None
+        and all(getattr(tool, "epoch", None) == epoch for tool in tools)
+    )
+
+
+def _unavailable_reason(error: BaseException) -> str:
+    if isinstance(error, ExternalMcpError):
+        if error.code in _QUIET_CODES:
+            return _REASON_QUIET
+        if isinstance(error, ExternalMcpAuthError) or error.code in _RECONNECT_CODES:
+            return _REASON_RECONNECT
+    return _REASON_UNAVAILABLE
+
+
+def _unavailable_connector_tool(connector_id: str, display_name: str, reason: str) -> FunctionTool:
+    """A visible stand-in for a connected app that cannot be used right now.
+
+    Without it the app's tools simply vanish and the model quietly answers with
+    whichever other app is left (a HubSpot request ended up in Attio). The tool
+    sends nothing; it only tells the model, and so the person, what is wrong.
+    """
+    digest = hashlib.sha256(connector_id.encode()).hexdigest()[:12]
+    problem = "needs to be reconnected" if reason == _REASON_RECONNECT else "is not responding"
+    advice = (
+        "Ask the person to reconnect it in Connectors."
+        if reason == _REASON_RECONNECT
+        else "Ask the person to try again in a moment."
+    )
+
+    async def unavailable(tool_context: ToolContext) -> dict:
+        return {
+            "status": "unavailable",
+            "connector": display_name,
+            "reason": reason,
+            "message": f"This app {problem}. Nothing was sent. {advice}",
+        }
+
+    unavailable.__name__ = f"connector_unavailable_{digest}"
+    unavailable.__doc__ = (
+        f"Connected app: {json.dumps(display_name)} is connected but {problem} right now. "
+        "Call this when the person asks for that app, and tell them what it returns. "
+        "Never use a different app in its place."
+    )
+    return FunctionTool(unavailable)
 
 
 async def inspect_private_connectors(tool_context: ToolContext) -> dict:
@@ -144,51 +216,104 @@ class RegisteredMcpToolset(BaseToolset):
         if context.state.get("hussh:conversation_id") != scope.conversation_id:
             raise ExternalMcpError("Connector turn changed.", code="MCP_TURN_UNAVAILABLE")
         scope.track_catalog_view(self)
-        async with asyncio.timeout(mcp_call_timeout_seconds()):
-            definitions = await get_external_connector_registry_service().list_active_connectors(
-                user_id=None if scope.has_vault_configurations else context.user_id
-            )
-            admitted = [
-                (item.connector_id, item.display_name)
-                for item in definitions
-                if native_registration_admitted(item, context.user_id)
-                and (not scope.has_vault_configurations or item.owner_user_id is None)
-            ]
-            if scope.has_vault_configurations:
-                admitted.extend(scope.vault_catalog(context.user_id))
-            if len(admitted) > 32:
-                raise ExternalMcpError("Connector limit reached.", code="MCP_TURN_LIMIT")
-            semaphore = asyncio.Semaphore(4)
+        budget = mcp_call_timeout_seconds()
+        try:
+            async with asyncio.timeout(budget):
+                definitions = (
+                    await get_external_connector_registry_service().list_active_connectors(
+                        user_id=None if scope.has_vault_configurations else context.user_id
+                    )
+                )
+        except Exception:
+            # The registry is slow or down. The turn still runs without connector
+            # tools, instead of failing every other thing One can do.
+            logger.warning("mcp_registry_unavailable")
+            return []
+        admitted = [
+            (item.connector_id, item.display_name)
+            for item in definitions
+            if native_registration_admitted(item, context.user_id)
+            and (not scope.has_vault_configurations or item.owner_user_id is None)
+        ]
+        if scope.has_vault_configurations:
+            admitted.extend(scope.vault_catalog(context.user_id))
+        if len(admitted) > 32:
+            raise ExternalMcpError("Connector limit reached.", code="MCP_TURN_LIMIT")
+        semaphore = asyncio.Semaphore(4)
+        per_connector = mcp_discovery_timeout_seconds()
 
-            async def discover(definition):
-                connector_id, display_name = definition
+        def note_unavailable(connector_id, display_name, reason):
+            scope.unavailable_connectors[connector_id] = reason
+            if reason == _REASON_QUIET:
+                return []
+            return [_unavailable_connector_tool(connector_id, display_name, reason)]
+
+        async def discover(definition):
+            connector_id, display_name = definition
+            known = scope.unavailable_connectors.get(connector_id)
+            if known is not None:
+                # Failed earlier this turn: do not wait on it for every step.
+                return note_unavailable(connector_id, display_name, known)
+            held = scope.catalog_tools.get(connector_id)
+            if held is not None and _still_current(*held):
+                # Listed earlier this turn and nothing has refreshed it since. Each model
+                # step used to re-list every connector (a handshake and a tools/list apiece,
+                # seconds on a tool-using turn); every call still revalidates its connection.
+                tools = held[1]
+            else:
                 async with semaphore:
                     try:
-                        toolset = await scope.acquire(
-                            context, connector_id, authorize_call=review_or_resume_call
-                        )
-                        tools = await toolset.get_tools(context)
-                        labeled_tools = []
-                        for tool in tools:
-                            # ADK may return the same tool object on repeated
-                            # discovery. Do not accumulate labels or change a
-                            # provider tool retained by another catalog view.
-                            labeled_tool = copy(tool)
-                            labeled_tool.description = (
-                                f"Connected app: {json.dumps(display_name)}. "
-                                f"{tool.description or ''}"
+                        async with asyncio.timeout(per_connector):
+                            toolset = await scope.acquire(
+                                context, connector_id, authorize_call=review_or_resume_call
                             )
-                            labeled_tools.append(labeled_tool)
-                        return labeled_tools
-                    except Exception:
-                        # A disconnected/revoked provider must not disable other
-                        # connectors. Provider diagnostics may include private
-                        # details; Settings remains the owning status surface.
-                        return []
+                            tools = await toolset.get_tools(context)
+                    except Exception as error:
+                        # A disconnected, revoked or slow provider must not disable
+                        # the other connectors or the turn. Never log a message or
+                        # body: provider diagnostics can include private details.
+                        reason = _unavailable_reason(error)
+                        if reason != _REASON_QUIET:
+                            logger.warning(
+                                "mcp_connector_unavailable connector=%s reason=%s type=%s code=%s",
+                                connector_id,
+                                reason,
+                                type(error).__name__,
+                                getattr(error, "code", None),
+                            )
+                        return note_unavailable(connector_id, display_name, reason)
+                if tools:
+                    scope.catalog_tools[connector_id] = (toolset, tools)
+            labeled_tools = []
+            for tool in tools:
+                # ADK may return the same tool object on repeated
+                # discovery. Do not accumulate labels or change a
+                # provider tool retained by another catalog view.
+                labeled_tool = copy(tool)
+                labeled_tool.description = (
+                    f"Connected app: {json.dumps(display_name)}. {tool.description or ''}"
+                )
+                labeled_tools.append(labeled_tool)
+            return labeled_tools
 
-            async with asyncio.TaskGroup() as group:
-                tasks = [group.create_task(discover(item)) for item in admitted]
-        tools = [tool for task in tasks for tool in task.result()]
+        tasks = [asyncio.ensure_future(discover(item)) for item in admitted]
+        try:
+            if tasks:
+                await asyncio.wait(tasks, timeout=budget)
+        finally:
+            # A lapsed budget or a cancelled turn must not leave work running.
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        results = []
+        for (connector_id, display_name), task in zip(admitted, tasks, strict=True):
+            if task.cancelled() or task.exception() is not None:
+                logger.warning("mcp_connector_unavailable connector=%s reason=budget", connector_id)
+                results.append(note_unavailable(connector_id, display_name, _REASON_UNAVAILABLE))
+            else:
+                results.append(task.result())
+        tools = [tool for result in results for tool in result]
         if len(tools) > 500 or len({tool.name for tool in tools}) != len(tools):
             raise ExternalMcpError("Connector catalog limit reached.", code="MCP_CATALOG_CHANGED")
         return tools

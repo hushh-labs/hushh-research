@@ -1,72 +1,61 @@
 "use client";
 
-import type { ReceiptListItem, ReceiptListResponse } from "@/lib/services/gmail-receipts-service";
-import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import type {
+  GmailLiveReceiptScanCoverage,
+  ReceiptListItem,
+  ReceiptListResponse,
+} from "@/lib/services/gmail-receipts-service";
 
-const STORAGE_KEY = "kai_gmail_receipts_cache_v1";
-const CACHE_VERSION = 1;
 const RECEIPTS_CACHE_TTL_MS = 5 * 60 * 1000;
 
 interface CachedReceiptEntry extends ReceiptListResponse {
+  next_cursor?: string | null;
   fetched_at: number;
+  receipt_scan_reached_limit: boolean;
 }
 
-interface PersistedReceiptCache {
-  version: number;
-  entries: Record<string, CachedReceiptEntry>;
-}
-
+// Live Gmail receipt DTOs are owner-scoped, vault-gated information. Keep the
+// warm cache in process memory only. In particular, do not hydrate the retired
+// sessionStorage receipt cache: it contains legacy rows whose identities cannot
+// be resolved by the authoritative live detail endpoint.
 const receiptCache = new Map<string, CachedReceiptEntry>();
-let hydrated = false;
 
 function normalizeUserId(userId: string | null | undefined): string {
   return String(userId || "").trim();
 }
 
+function normalizeAccountKey(accountKey: string | null | undefined): string {
+  return (
+    String(accountKey || "legacy")
+      .trim()
+      .toLowerCase() || "legacy"
+  );
+}
+
+function ownerAccountKey(
+  userId: string | null | undefined,
+  accountKey?: string | null,
+): string {
+  const owner = normalizeUserId(userId);
+  return owner ? `${owner}\u0000${normalizeAccountKey(accountKey)}` : "";
+}
+
 function receiptCacheKey(item: ReceiptListItem): string {
-  return String(item.id || item.gmail_message_id || "").trim();
+  // The backend source handle is the authoritative account-bound identity.
+  // Compatibility fields remain only for hydrating older read-only entries.
+  return String(
+    item.source_id ||
+      item.gmail_message_id ||
+      item.receipt_key ||
+      item.id ||
+      "",
+  ).trim();
 }
 
-function hydrateCache(): void {
-  if (hydrated) return;
-  hydrated = true;
-
-  const raw = getSessionItem(STORAGE_KEY);
-  if (!raw) return;
-
-  try {
-    const parsed = JSON.parse(raw) as Partial<PersistedReceiptCache>;
-    if (parsed.version !== CACHE_VERSION || !parsed.entries || typeof parsed.entries !== "object") {
-      return;
-    }
-
-    for (const [userId, value] of Object.entries(parsed.entries)) {
-      const normalizedUserId = normalizeUserId(userId);
-      if (!normalizedUserId || !value || typeof value !== "object") continue;
-      receiptCache.set(normalizedUserId, {
-        items: Array.isArray(value.items) ? value.items : [],
-        page: Number.isFinite(value.page) ? Math.max(1, Number(value.page)) : 1,
-        per_page: Number.isFinite(value.per_page) ? Math.max(1, Number(value.per_page)) : 20,
-        total: Number.isFinite(value.total) ? Math.max(0, Number(value.total)) : 0,
-        has_more: Boolean(value.has_more),
-        fetched_at:
-          Number.isFinite(value.fetched_at) && Number(value.fetched_at) > 0
-            ? Number(value.fetched_at)
-            : 0,
-      });
-    }
-  } catch {
-    // Ignore malformed cache and continue with empty in-memory state.
-  }
-}
-
-function persistCache(): void {
-  setSessionItem(
-    STORAGE_KEY,
-    JSON.stringify({
-      version: CACHE_VERSION,
-      entries: Object.fromEntries(receiptCache.entries()),
-    } satisfies PersistedReceiptCache)
+function isAuthoritativeLiveReceipt(item: ReceiptListItem): boolean {
+  return (
+    item.source_kind === "gmail_live" &&
+    Boolean(String(item.source_id || "").trim())
   );
 }
 
@@ -76,15 +65,26 @@ export function mergeCachedReceiptItems(params: {
   mode: "replace" | "prepend_refresh" | "append";
 }): ReceiptListItem[] {
   const seen = new Set<string>();
+  const incomingByKey = new Map(
+    params.incoming
+      .filter(isAuthoritativeLiveReceipt)
+      .map((item) => [receiptCacheKey(item), item] as const),
+  );
   const ordered =
     params.mode === "append"
-      ? [...params.existing, ...params.incoming]
+      ? [
+          ...params.existing.map((item) =>
+            incomingByKey.get(receiptCacheKey(item)) || item,
+          ),
+          ...params.incoming,
+        ]
       : params.mode === "prepend_refresh"
         ? [...params.incoming, ...params.existing]
         : [...params.incoming];
 
   const merged: ReceiptListItem[] = [];
   for (const item of ordered) {
+    if (!isAuthoritativeLiveReceipt(item)) continue;
     const key = receiptCacheKey(item);
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -94,46 +94,84 @@ export function mergeCachedReceiptItems(params: {
 }
 
 export function getCachedGmailReceipts(
-  userId: string | null | undefined
+  userId: string | null | undefined,
+  accountKey?: string | null,
 ): CachedReceiptEntry | null {
-  hydrateCache();
-  const normalizedUserId = normalizeUserId(userId);
-  if (!normalizedUserId) return null;
-  return receiptCache.get(normalizedUserId) || null;
+  const cacheKey = ownerAccountKey(userId, accountKey);
+  if (!cacheKey) return null;
+  return receiptCache.get(cacheKey) || null;
 }
 
 export function isCachedGmailReceiptsFresh(
   userId: string | null | undefined,
-  ttlMs = RECEIPTS_CACHE_TTL_MS
+  accountKey?: string | null,
+  ttlMs = RECEIPTS_CACHE_TTL_MS,
 ): boolean {
-  const cached = getCachedGmailReceipts(userId);
+  const cached = getCachedGmailReceipts(userId, accountKey);
   if (!cached?.fetched_at) return false;
   return Date.now() - cached.fetched_at <= ttlMs;
 }
 
 export function primeCachedGmailReceipts(params: {
   userId: string;
-  response: ReceiptListResponse;
+  accountKey?: string | null;
+  response: ReceiptListResponse & {
+    coverage?: GmailLiveReceiptScanCoverage;
+    next_cursor?: string | null;
+  };
   fetchedAt?: number;
 }): void {
-  hydrateCache();
-  const normalizedUserId = normalizeUserId(params.userId);
-  if (!normalizedUserId) return;
+  const cacheKey = ownerAccountKey(params.userId, params.accountKey);
+  if (!cacheKey) return;
 
-  receiptCache.set(normalizedUserId, {
+  const items = params.response.items.filter(isAuthoritativeLiveReceipt);
+
+  receiptCache.set(cacheKey, {
     ...params.response,
+    items,
+    total: items.length,
+    has_more:
+      items.length === params.response.items.length && params.response.has_more,
+    receipt_scan_reached_limit:
+      params.response.coverage?.reached_limit === true,
     fetched_at:
       typeof params.fetchedAt === "number" && Number.isFinite(params.fetchedAt)
         ? params.fetchedAt
         : Date.now(),
   });
-  persistCache();
 }
 
-export function clearCachedGmailReceipts(userId: string | null | undefined): void {
-  hydrateCache();
+export function upsertCachedGmailReceipt(params: {
+  userId: string;
+  accountKey?: string | null;
+  item: ReceiptListItem;
+}): void {
+  const cacheKey = ownerAccountKey(params.userId, params.accountKey);
+  const cached = cacheKey ? receiptCache.get(cacheKey) : null;
+  if (!cached || !isAuthoritativeLiveReceipt(params.item)) return;
+  const sourceKey = receiptCacheKey(params.item);
+  if (!cached.items.some((item) => receiptCacheKey(item) === sourceKey)) return;
+  receiptCache.set(cacheKey, {
+    ...cached,
+    items: mergeCachedReceiptItems({
+      existing: cached.items,
+      incoming: [params.item],
+      mode: "append",
+    }),
+  });
+}
+
+export function clearCachedGmailReceipts(
+  userId: string | null | undefined,
+): void {
   const normalizedUserId = normalizeUserId(userId);
   if (!normalizedUserId) return;
-  receiptCache.delete(normalizedUserId);
-  persistCache();
+  for (const key of receiptCache.keys()) {
+    if (
+      key === normalizedUserId ||
+      key.startsWith(`${normalizedUserId}\u0000`)
+    ) {
+      receiptCache.delete(key);
+    }
+  }
 }

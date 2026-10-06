@@ -11,6 +11,7 @@ tests/test_configure_external_mcp_connector.py
 tests/services/test_external_connector_curated_oauth.py
 tests/services/test_external_connector_oauth_dispatch.py
 tests/services/test_curated_connector_manifest.py
+tests/services/test_curated_registry_drift.py
 tests/test_uat_connector_rollout_contract.py
 tests/services/test_external_connector_registry_ownership.py
 tests/services/test_external_connector_dev_overlay.py
@@ -101,6 +102,8 @@ tests/test_encrypted_blob_bounds.py
 tests/test_data_model_audit_script.py
 tests/test_data_model_audit_postgres.py
 tests/test_gmail_receipt_cache_cutover.py
+tests/services/test_gmail_receipt_live_service.py
+tests/test_gmail_receipt_live_routes.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
@@ -524,6 +527,9 @@ tests/test_one_output_privacy.py
 # named, delimited document and history restores it as a chip, not message text.
 tests/test_one_text_attachments.py
 tests/test_governed_mcp_toolset.py
+tests/test_external_mcp_schema_dialects.py
+tests/test_external_mcp_client_failure_logging.py
+tests/test_external_mcp_schema_evaluation_budget.py
 tests/test_one_turn_location.py
 # Owner standing style: closed schema, template-only prompt section, no authority.
 tests/test_one_owner_style.py
@@ -539,6 +545,7 @@ tests/test_registered_mcp_toolset.py
 # A review ledger outage reads as "review unavailable", never a declined approval;
 # OAuth sign-in admits metadata a real (streaming) transport has not yet read.
 tests/test_mcp_resume_receipt.py
+tests/test_one_run_errors.py
 tests/one_adk/test_mcp_oauth_connection.py
 # Returning to a chat restores its Activity rows and connect card from the turn's
 # own encrypted events, projecting only tool ids, outcome enums and opaque ids.

@@ -160,6 +160,12 @@ describe("observability route map", () => {
   });
 
   it("normalizes known API endpoint templates", () => {
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/scan")).toBe(
+      "/api/kai/gmail/receipts/scan",
+    );
+    expect(normalizeApiPathToTemplate("/api/kai/gmail/receipts/detail")).toBe(
+      "/api/kai/gmail/receipts/detail",
+    );
     expect(
       normalizeApiPathToTemplate("/api/kai/market/insights/baseline/user_123"),
     ).toBe("/api/kai/market/insights/baseline/{user_id}");

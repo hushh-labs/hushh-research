@@ -4,7 +4,9 @@
 A provider is described once, in `config/curated_connectors/<id>.json`. This
 script does the operator steps around it:
 
-    status   <id>                     read-only: manifest, secrets, and the registry row
+    status   <id>                     read-only: manifest and secrets
+    verify   [<id>] --env uat         read-only: does each live registry row still equal its
+                                      manifest? (all providers when no id is given)
     register <id> --env uat [...]     register a public OAuth client (dynamic client
                                       registration) for a `tokenEndpointAuth: none`
                                       provider, and store its client id
@@ -474,6 +476,47 @@ def cmd_status(args: argparse.Namespace) -> dict[str, Any]:
     return report
 
 
+async def cmd_verify(args: argparse.Namespace) -> dict[str, Any]:
+    """Compare every live registry row with its reviewed manifest. Reads only.
+
+    A row that differs hides its connector and fails sign-in closed, which is
+    how Notion and Attio disappeared on UAT. Exit status is the caller's choice
+    (`--strict`); the report always lists exactly which fields differ.
+    """
+    from hushh_mcp.services.curated_connector_manifest import all_manifests, registry_row_drift
+    from hushh_mcp.services.external_connector_registry_service import (
+        get_external_connector_registry_service,
+    )
+
+    manifests = all_manifests()
+    if args.connector_id:
+        manifests = {args.connector_id: require_manifest(args.connector_id)}
+    registry = get_external_connector_registry_service()
+    connectors: dict[str, Any] = {}
+    for connector_id, manifest in sorted(manifests.items()):
+        if args.env not in manifest.redirect_uris:
+            # Not offered in this environment, so there is nothing to compare.
+            connectors[connector_id] = {"status": "not_in_environment"}
+            continue
+        # The stored row itself: the development overlay would answer from the manifest.
+        row = await registry._get_connector_row(connector_id, include_inactive=True)
+        drift = registry_row_drift(manifest, row, args.env)
+        connectors[connector_id] = {"status": "drift" if drift else "ok", "fields": drift}
+    problems = sorted(name for name, item in connectors.items() if item["status"] == "drift")
+    return {
+        "environment": args.env,
+        "ok": not problems,
+        "drifted": problems,
+        "connectors": connectors,
+        "fix": (
+            f"python3 scripts/ops/provision_curated_connector.py apply <id> --env {args.env}"
+            " --operator <you>"
+            if problems
+            else None
+        ),
+    }
+
+
 def cmd_apply(args: argparse.Namespace) -> dict[str, Any]:
     manifest = require_manifest(args.connector_id)
     from scripts.ops import configure_external_mcp_connector as cli
@@ -488,11 +531,14 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawTextHelpFormatter
     )
     sub = parser.add_subparsers(dest="command", required=True)
-    for name in ("status", "register", "apply"):
+    for name in ("status", "register", "apply", "verify"):
         command = sub.add_parser(name)
-        command.add_argument("connector_id")
+        command.add_argument("connector_id", nargs="?" if name == "verify" else None)
         command.add_argument("--env", default="uat")
         command.add_argument("--project", default=None)
+    sub.choices["verify"].add_argument(
+        "--strict", action="store_true", help="exit 2 when any row differs from its manifest"
+    )
     register = sub.choices["register"]
     register.add_argument(
         "--dry-run", action="store_true", help="show the exact request; send nothing"
@@ -514,12 +560,16 @@ def main(argv: list[str] | None = None) -> int:
             result = asyncio.run(cmd_register(args))
         elif args.command == "status":
             result = cmd_status(args)
+        elif args.command == "verify":
+            result = asyncio.run(cmd_verify(args))
         else:
             result = cmd_apply(args)
     except (ProvisionError, CuratedConnectorManifestError) as error:
         print(json.dumps({"status": "error", "message": str(error)}), file=sys.stderr)
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
+    if args.command == "verify" and getattr(args, "strict", False) and not result["ok"]:
+        return 2
     return 0
 
 

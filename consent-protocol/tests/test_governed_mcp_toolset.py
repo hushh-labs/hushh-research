@@ -2040,3 +2040,60 @@ def test_arguments_for_an_undeclared_dialect_fail_closed():
     with pytest.raises(ExternalMcpError) as caught:
         validated_mcp_arguments({"type": "object", "$schema": "https://unknown.invalid/s"}, {})
     assert caught.value.code == "MCP_SCHEMA_INVALID"
+
+
+async def test_curated_not_connected_is_distinct_from_a_connection_that_stopped_working(
+    monkeypatch,
+):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+    from hushh_mcp.services import external_connector_oauth_service as oauth_module
+    from hushh_mcp.services.external_connector_curated_oauth import (
+        CuratedConnectorOAuthError,
+        CuratedNotConnectedError,
+    )
+
+    connector = SimpleNamespace(connector_id="hubspot")
+    failure = {"error": CuratedNotConnectedError()}
+
+    async def current_credential(**_kwargs):
+        raise failure["error"]
+
+    adapter = SimpleNamespace(current_credential=current_credential)
+    monkeypatch.setattr(
+        oauth_module,
+        "get_external_connector_oauth_service",
+        lambda: SimpleNamespace(curated=lambda: adapter),
+    )
+    with pytest.raises(ExternalMcpError) as caught:
+        await module._resolve_curated_connection("owner", connector)
+    assert caught.value.code == "MCP_NOT_CONNECTED"
+    # The error type changes nothing for any other caller: same code, same status.
+    assert str(failure["error"]) == "reconnect_required"
+    assert failure["error"].status_code == 401
+
+    failure["error"] = CuratedConnectorOAuthError("reconnect_required", status_code=401)
+    with pytest.raises(ExternalMcpError) as caught:
+        await module._resolve_curated_connection("owner", connector)
+    assert caught.value.code == "MCP_CREDENTIAL_EXPIRED"
+
+
+def test_allowlist_drops_are_logged_once_per_change(caplog):
+    import logging
+
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    module._LOGGED_DROPPED_TOOLS.clear()
+    connector = SimpleNamespace(
+        connector_id="synthetic",
+        capability_policy={"tools": ["keep", "gone"]},
+    )
+    policy = module._curated_tool_allowlist(connector)
+    catalog = [{"name": "keep"}, {"name": "surprise"}]
+    with caplog.at_level(logging.INFO, logger=module.logger.name):
+        assert policy(list(catalog)) == [{"name": "keep"}]
+        policy(list(catalog))
+        policy([{"name": "keep"}])
+    lines = [r.getMessage() for r in caplog.records if "mcp_catalog_filtered" in r.getMessage()]
+    assert len(lines) == 2
+    assert "dropped_names=['surprise']" in lines[0]
+    assert "missing=['gone']" in lines[0]

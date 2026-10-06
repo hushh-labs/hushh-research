@@ -385,6 +385,44 @@ would sit on the drift list above. It is declared, and scoped, as catalog search
   across in-app navigation. Synthetic contract tests prove the safety boundary;
   they do not establish classification accuracy on a live mailbox.
 
+### Declared: live Gmail receipt read-through
+
+- Owning agent: the Email specialist child `agent_email_receipt_extractor`.
+  The backend owns Gmail transport and authorization; this existing manifest-owned
+  child alone decides `is_receipt`, `event_type`, and which supplied evidence
+  candidates support the normalized receipt fields.
+- Manifest path: `consent-protocol/hushh_mcp/agents/email/agent.yaml`.
+- Structured output: `EMAIL_LIVE_RECEIPT_EXTRACTOR_SCHEMA` in
+  `consent-protocol/hushh_mcp/agents/email/runtime.py`. It returns receipt and
+  event decisions, confidence, nullable merchant/order/amount/currency fields,
+  and an evidence ID for every selected semantic value. The public read-through
+  DTO adds only provider facts and normalized transport fields such as the
+  account-bound `source_id`, Gmail message/thread IDs, sender, date, subject,
+  preview, and reviewed canonical merchant domain.
+- Validator: `gmail_live_receipts_service.py` supplies bounded, untrusted email
+  evidence and a reviewed sender-domain merchant candidate. Deterministic code
+  may validate exact evidence IDs, normalize representation, and reject an
+  unsupported or conflicting value; it never substitutes its own merchant,
+  order, amount, currency, receipt decision, or event. Gmail `internalDate`, a
+  valid `Date` header, provider IDs, and sender-domain syntax remain transport
+  facts. Missing evidence stays null, and a model timeout or malformed output is
+  a typed unavailable/error result rather than a successful empty mailbox.
+- Authority and storage: scan and detail require the same Firebase owner and
+  current `vault.owner` capability, reuse the encrypted server-side Gmail
+  `gmail.readonly` grant, recheck the grant/account before publication, and emit
+  private no-store responses. The path is stateless apart from legitimate OAuth
+  token refresh; it never writes `kai_gmail_receipts`, receipt-memory artifacts,
+  or another receipt store.
+- Live eval before production promotion: use an authenticated, legitimately
+  unlocked UAT owner mailbox and prove a non-fixture scan response, a visible
+  Recent receipts row, and exact selected-source detail. Include positive and
+  negative receipt candidates, a technical Myntra sender, missing amount,
+  unknown merchant, distinct orders, fulfillment updates, and a refund. Record
+  only sanitized counts/status and never mailbox content or identifiers. Mocked
+  extraction and responsive fixtures prove contracts only; until this live gate
+  passes, browser/iOS/Android receipt readers remain demoted rollback code rather
+  than a parallel production authority.
+
 
 ### Declared: typed-chat message reactions
 

@@ -82,6 +82,16 @@ KAI_AUTH_EXPECTATIONS = [
     ),
     (
         "api/routes/kai/gmail.py",
+        '@router.post("/gmail/receipts/scan",',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/gmail.py",
+        '@router.post("/gmail/receipts/detail",',
+        "require_vault_owner_token",
+    ),
+    (
+        "api/routes/kai/gmail.py",
         '@router.post("/gmail/receipts-memory/preview")',
         "require_vault_owner_token",
     ),

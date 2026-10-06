@@ -23,12 +23,13 @@ import json
 import logging
 import re
 from collections.abc import Callable
+from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import unquote
 
-from jsonschema import Draft7Validator, Draft202012Validator
-from jsonschema.exceptions import SchemaError
+from jsonschema import Draft7Validator, Draft202012Validator, validators
+from jsonschema.exceptions import SchemaError, ValidationError
 from referencing import Registry
 
 from hushh_mcp.services.mcp_public_http import create_bounded_mcp_http_client, validate_mcp_endpoint
@@ -356,6 +357,110 @@ def schema_validator_class(schema: Any) -> Any | None:
     return _DIALECTS.get(dialect) if isinstance(dialect, str) else None
 
 
+# A provider's schema is evaluated against what a model sent, on the event loop of a
+# shared worker, and Python's `re` cannot be interrupted. Admission bounds the schema's
+# size, not what evaluating it costs, so evaluation is bounded separately and
+# deterministically (steps, never wall time): every sub-schema visit spends one step
+# from the budget of the current call, and a hostile or accidental pathological schema
+# ends the call as "too costly" instead of stalling the worker.
+_MAX_EVALUATION_STEPS = 20_000
+_MAX_PATTERN_LENGTH = 512
+_MAX_PATTERN_SUBJECT = 2_048
+# Exponential backtracking needs a repeated group whose body is itself repeated, and
+# a subject long enough to matter; a short string is always cheap.
+_NESTED_QUANTIFIER = re.compile(r"\((?:[^()\\]|\\.)*[*+](?:[^()\\]|\\.)*\)(?:[*+]|\{\d+,\d*\})")
+_BACKTRACKING_SUBJECT = 24
+_EVALUATION_BUDGET: ContextVar[list[int] | None] = ContextVar(
+    "mcp_schema_evaluation_budget", default=None
+)
+
+
+def _too_costly() -> ExternalMcpError:
+    return ExternalMcpError("Connector schema is too costly to evaluate.", code="MCP_SCHEMA_LIMIT")
+
+
+def _spend(steps: int = 1) -> None:
+    budget = _EVALUATION_BUDGET.get()
+    if budget is None:
+        return
+    budget[0] -= steps
+    if budget[0] < 0:
+        raise _too_costly()
+
+
+def _bounded_search(pattern: Any, subject: str) -> bool:
+    """`re.search` for a provider's pattern, refused when it could not be cheap."""
+    if (
+        not isinstance(pattern, str)
+        or len(pattern) > _MAX_PATTERN_LENGTH
+        or len(subject) > _MAX_PATTERN_SUBJECT
+        or (len(subject) > _BACKTRACKING_SUBJECT and _NESTED_QUANTIFIER.search(pattern))
+    ):
+        raise _too_costly()
+    _spend(1 + len(subject) // 64)
+    return re.search(pattern, subject) is not None
+
+
+def _pattern(validator, patrn, instance, schema):  # type: ignore[no-untyped-def]
+    if validator.is_type(instance, "string") and not _bounded_search(patrn, instance):
+        yield ValidationError(f"{instance!r} does not match {patrn!r}")
+
+
+def _pattern_properties(validator, pattern_properties, instance, schema):  # type: ignore[no-untyped-def]
+    if not validator.is_type(instance, "object"):
+        return
+    for pattern, subschema in pattern_properties.items():
+        for key, value in instance.items():
+            if _bounded_search(pattern, key):
+                yield from validator.descend(value, subschema, path=key, schema_path=pattern)
+
+
+def _counted(keyword: Callable[..., Any]) -> Callable[..., Any]:
+    def spend_then_evaluate(validator, value, instance, schema):  # type: ignore[no-untyped-def]
+        _spend(1)
+        return keyword(validator, value, instance, schema)
+
+    return spend_then_evaluate
+
+
+def _bounded_class(base: Any) -> Any:
+    """`base` with every keyword spending a step and patterns guarded.
+
+    Built with the library's own `extend`, never by subclassing: a subclass has its
+    `evolve` replaced by the library, and a sub-schema's class would then be
+    re-resolved from its own `$schema`, handing it the unbounded original.
+    """
+    keywords = {name: _counted(function) for name, function in base.VALIDATORS.items()}
+    keywords["pattern"] = _counted(_pattern)
+    keywords["patternProperties"] = _counted(_pattern_properties)
+    bounded = validators.extend(base, validators=keywords)
+    bounded.__name__ = f"Bounded{base.__name__}"
+    return bounded
+
+
+def _without_nested_dialects(node: Any, *, root: bool = True) -> Any:
+    """A copy with every non-root `$schema` declaration removed.
+
+    The library resolves the class of each sub-schema from its own `$schema`, so a
+    nested declaration would route that sub-schema to the unbounded validator.
+    A nested declaration may only repeat the root's dialect (admission), so it
+    carries no information. A property that is itself named `$schema` has a schema
+    object as its value, not a string, and is left alone.
+    """
+    if isinstance(node, dict):
+        return {
+            key: _without_nested_dialects(value, root=False)
+            for key, value in node.items()
+            if root or not (key == "$schema" and isinstance(value, str))
+        }
+    if isinstance(node, list):
+        return [_without_nested_dialects(item, root=False) for item in node]
+    return node
+
+
+_BOUNDED: dict[Any, Any] = {}
+
+
 def schema_validator(schema: Any) -> Any:
     """A validator for the schema's declared dialect that can never fetch a reference.
 
@@ -363,11 +468,29 @@ def schema_validator(schema: Any) -> Any:
     node the walk treats as data (an enum value, say), and the validator would then
     resolve whatever it holds. An empty registry means any reference that is not
     local to this schema fails instead of being retrieved over the network or from disk.
+
+    Evaluation cost is bounded too (see `schema_is_valid` for the per-call budget).
     """
     validator_class = schema_validator_class(schema)
     if validator_class is None:
         raise ExternalMcpError("Unsupported connector schema.", code="MCP_SCHEMA_INVALID")
-    return validator_class(schema, registry=Registry())
+    bounded = _BOUNDED.get(validator_class)
+    if bounded is None:
+        bounded = _BOUNDED[validator_class] = _bounded_class(validator_class)
+    return bounded(_without_nested_dialects(schema), registry=Registry())
+
+
+def schema_is_valid(schema: Any, instance: Any) -> bool:
+    """Whether `instance` satisfies the provider's schema, at a bounded cost.
+
+    Raises `ExternalMcpError` (MCP_SCHEMA_LIMIT) when evaluating would exceed the
+    step budget or needs a pattern that could not be cheap; the call is refused.
+    """
+    token = _EVALUATION_BUDGET.set([_MAX_EVALUATION_STEPS])
+    try:
+        return bool(schema_validator(schema).is_valid(instance))
+    finally:
+        _EVALUATION_BUDGET.reset(token)
 
 
 def validate_tool_schema(schema: Any) -> dict[str, Any]:

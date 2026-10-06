@@ -93,6 +93,22 @@ that has a valid manifest.
   dynamic-registration endpoint; a manifest or registry row that names a
   secret variable for a public client is rejected.
 
+## Keeping the registry in step with the manifests
+
+The runtime serves a connector only while its registry row equals the reviewed
+manifest (endpoints, scopes, client-variable names and the environment's redirect
+addresses). A manifest change that is merged but not re-applied therefore hides
+the connector and fails its sign-in closed. The UAT deploy reports this, and an
+operator can check it at any time:
+
+```sh
+python3 scripts/ops/provision_curated_connector.py verify --env uat
+python3 scripts/ops/provision_curated_connector.py verify hubspot --env uat --strict   # exit 2 on drift
+```
+
+`verify` only reads. It lists the differing field names, never their values. To
+fix a row, re-run `apply <id> --env uat --operator you@hushh.ai`.
+
 ## Registration-only bootstrap
 
 Some public providers require OAuth sign-in before their authenticated

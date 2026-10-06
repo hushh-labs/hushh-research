@@ -819,6 +819,39 @@ jobs:
           fi
           echo "tombstone_count=${tombstone_count}" >> "$GITHUB_OUTPUT"
 
+          # A curated connector whose registry row no longer equals its manifest is
+          # hidden by the runtime and fails sign-in closed (Notion and Attio on UAT).
+          # Report it here, where the database is already reachable. Report only: an
+          # unrelated deploy is not blocked, and applying a row stays an operator step.
+          if [ "${{ vars.CURATED_MCP_CONNECTORS_UAT }}" = "true" ]; then
+            if (cd consent-protocol && "${{ env.PROTOCOL_PYTHON }}" \
+                scripts/ops/provision_curated_connector.py verify --env uat) \
+                > /tmp/uat-curated-registry-verify.json 2>/tmp/uat-curated-registry-verify.err; then
+              python3 - <<'PY'
+          import json
+          import os
+
+          report = json.load(open("/tmp/uat-curated-registry-verify.json"))
+          lines = ["### Curated connector registry (UAT)", ""]
+          for name, item in sorted(report["connectors"].items()):
+              fields = ", ".join(item.get("fields", [])) or "-"
+              lines.append(f"- {name}: {item['status']} ({fields})")
+              if item["status"] == "drift":
+                  print(
+                      f"::warning title=Curated connector registry drift::{name} differs from its "
+                      f"manifest in: {fields}. It is hidden until re-applied: "
+                      f"python3 scripts/ops/provision_curated_connector.py apply {name} "
+                      "--env uat --operator <you>"
+                  )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write("\n".join(lines) + "\n")
+          PY
+            else
+              echo "::warning title=Curated connector registry check::could not run (see log)"
+              cat /tmp/uat-curated-registry-verify.err || true
+            fi
+          fi
+
           BOOTSTRAP_FOCUS_PROFILE=uat bash scripts/env/bootstrap_profiles.sh --strict
           bash scripts/env/use_profile.sh uat
 

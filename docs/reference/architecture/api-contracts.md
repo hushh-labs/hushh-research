@@ -541,6 +541,115 @@ still an authenticated write and follows the normal Firebase auth dependency.
 | GET | `/api/one/models/preference` | Firebase Bearer | Return the authenticated person's selected/effective model and the currently selectable catalog; a missing or busy preference read falls back to the deployment model. |
 | PUT | `/api/one/models/preference` | Firebase Bearer | Set or clear the authenticated person's model choice after catalog validation. |
 
+### Kai Gmail receipt read-through
+
+The supported receipt path is a stateless backend read-through over the
+authenticated owner's existing encrypted Gmail connection. It does not revive
+the retired receipt worker and does not write `kai_gmail_receipts` or
+`kai_receipt_memory_artifacts`. Both live routes require a Firebase bearer and
+`X-Hushh-Consent: Bearer <VAULT_OWNER>` for the same requested owner. The
+backend refreshes the existing `gmail.readonly` credential when necessary,
+captures the exact Gmail account/grant binding, and rechecks both vault access
+and that binding before returning information.
+
+| Method | Path | Auth | Description |
+| ------ | ---- | ---- | ----------- |
+| POST | `/api/kai/gmail/receipts/scan` | Firebase + `VAULT_OWNER` | Body `{user_id,page?,per_page?,cursor?}` with `page<=50` and `per_page<=6`. Search a bounded receipt-like Gmail page, fetch bounded content only for those candidates, run at most two manifest-owned Email receipt extractors concurrently, and return normalized live items plus honest page coverage. Receipt scans use owner-scoped expiring task leases; timeout, cancellation, and caller disconnect release the lane without changing Gmail connection state. A successful empty provider page is `200` with `items:[]`; provider, authorization, malformed-response, timeout, and extraction failures remain typed non-empty errors. |
+| POST | `/api/kai/gmail/receipts/detail` | Firebase + `VAULT_OWNER` | Body `{user_id,source_id}`. Verify the signed owner/account-bound source handle, re-fetch only that Gmail message, and return its current normalized item plus an optional bounded object labelled `email_excerpt` / `Email preview`; it is never represented as a full invoice. |
+| GET | `/api/kai/gmail/receipts/{user_id}` | Firebase + `VAULT_OWNER` | Compatibility read of owner-scoped legacy receipt rows only. The table remains read-only and is not a dependency or write target for live scan results. |
+
+Each live item carries stable `source_id`, `source_kind="gmail_live"`, Gmail
+message/thread IDs, nullable verified `merchant_name` and `merchant_domain`,
+sender evidence, nullable `order_id`, `amount`, and `currency`, receipt/email
+date, subject, preview, `classification_confidence`, and backend-authored
+`event_type` (`purchase`, `fulfillment`, `refund`, `cancellation`, or
+`unknown`). Unknown merchants and missing amounts remain visible with null
+fields. Raw Gmail messages remain distinct; exact merchant/order fulfillment
+grouping is presentation-only, while refunds and cancellations stay separate.
+An explicit paid/total value may precede `Paid` as well as follow a total label.
+Currency preserves a bare `$` as `$` rather than inferring USD; explicit currency
+codes remain authoritative. The receipt UI renders the preserved symbol directly.
+Automatic receipt scanning continues after matches through every available page
+within a fifty-page/six-candidate-per-page bound (300 messages), publishing each page
+incrementally. Reaching that bound is not proof of mailbox exhaustion.
+Receipt-only signed `next_cursor` continuations bind owner/account, page size,
+query and a fixed 365-day `window_start`/`window_end`. Send that cursor in the
+next scan body; it expires after two hours and never grants access by itself.
+Existing owner/vault/Gmail checks still apply to every request. Continuations
+perform one provider listing, not replay of earlier pages, and stay in the
+receipt-only memory cache/retry state. No legacy receipt storage is written.
+
+Accepted live items carry `category` (Shopping, Food, Travel, Transport,
+Software & Subscriptions, Cloud & Infra, Bills, Uncategorized) and
+`category_confidence`. Transitional clients may still send the former
+Subscription/Other values while an in-memory scan remains open. Uncategorized
+means a proven receipt without evidence for a more specific category. Only the dedicated receipt
+extractor assigns this field, with confidence >=0.85 and a verbatim 8–240
+character quote validated against its supplied subject/snippet/body excerpt.
+The quote stays inside extraction validation and is never logged. A bounded,
+URL-free subset may be returned only by the selected receipt detail route as
+`source_evidence`; scan rows do not expose it. Weak keywords, advertising and
+footer text do not establish a category.
+Presentation resolves verified merchant, then reliable category, then `Receipt`;
+the compact main row shows merchant/category and amount only. Other without a merchant is
+displayed as Receipt. Category icons never create merchant identities or enable
+order grouping. Local search uses all loaded rows; UI pagination has ten rows
+per page and does not scan Gmail. Missing totals display — in lists and Not
+available in details, never an invented zero.
+
+Receipt-only enrichment includes nullable `document_kind`, `transaction_date`
+(verbatim document date, distinct from Gmail received time), and `identifiers`
+(`kind`: order/invoice/receipt/pnr/payment, `value`). The dedicated extractor
+must quote source evidence for each field. Merchant precedence is explicit
+document brand, verified domain mapping, then corroborated sender display name;
+unverified domains never become logo URLs. Technical senders are not merchants.
+Presentation groups only same-owner, same-merchant records sharing a strong
+typed identifier, rejects conflicting order IDs even through a shared reference,
+and excludes refund/cancellation events. The representative is invoice/receipt/
+payment confirmation before order confirmation, booking, then fulfillment.
+Identifiers are unioned for display; source records remain unchanged and detail
+retrieval uses the representative's signed source ID.
+
+The same dedicated extractor keeps lifecycle and attention as separate axes.
+`status` may be paid, overdue, refunded, cancelled, trial, delivered,
+payment_failed, suspended, or renewal_due. `recurrence` is recurring, one_time,
+or unknown. `attention_state` is none, needs_attention, coming_up, or
+needs_review with a bounded reason, optional exact date and explicit
+`attention_is_prediction`. Non-none attention and non-unknown recurrence require
+exact source quotes; predictions are allowed only for quote-backed recurring
+renewal evidence and are labelled in presentation. The browser never derives
+these semantics from email text.
+
+Receipt MIME fallback supplements incomplete plain text with sanitized HTML.
+When no total candidate exists, at most one explicitly named invoice/receipt PDF
+per candidate may be read through the same Gmail authority/client/response budget.
+It is capped at 512 KiB with two receipt-only workers and an eight-second optional
+deadline. Existing ClamAV safety checks and the isolated document parser are
+reused without indexing or persistence. An unavailable scanner, invalid/encrypted
+PDF or parser timeout leaves the original receipt intact with missing fields.
+The model still establishes receipt evidence; a filename is not classification.
+PDF-derived passages are never labelled as the email preview. Scan coverage,
+owner/vault gates, total deadline and legacy read-only protections are unchanged.
+
+The scan response uses `returned_count`, `has_more`, and a `coverage` object
+(`listed_count`, `candidate_count`, `matched_count`, bounded page information,
+query scope, aggregate `rejection_counts`, and aggregate `evidence_counts`).
+Those counts expose only fixed receipt-signal categories—never sender, subject,
+message/order identifiers, amounts, or content. `has_more` becomes false at the
+fifty-page API bound; `reached_limit` then records that Gmail reported a provider
+remainder. It does not claim a mailbox-wide total from one bounded page.
+Both responses are private and no-store. Request bodies keep source handles out
+of URL/access-log paths, and application logs must contain neither tokens nor
+email content, sender/owner identifiers, order IDs, or amounts. The old
+`POST /api/kai/gmail/sync` remains retired; the existing Start Receipt Sync
+control invokes this bounded scan and stays on the landing view.
+
+The Email receipt extractor is the single semantic authority. Deterministic
+code discovers candidates and validates exact evidence references but cannot
+replace the agent's receipt, merchant, order, total, currency, or event choice.
+The browser and native clients do not provide a second production extraction
+path or a fallback around the backend contract.
+
 ### One Email KYC
 
 One mailbox intake is One-led and approval-gated. KYC workspace routes require

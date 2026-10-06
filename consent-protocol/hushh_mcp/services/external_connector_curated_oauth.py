@@ -99,6 +99,18 @@ class CuratedConnectorOAuthError(RuntimeError):
         self.status_code = status_code
 
 
+class CuratedNotConnectedError(CuratedConnectorOAuthError):
+    """No usable connection exists: never connected, or disconnected.
+
+    Same code and status as every other unusable state, so each existing caller
+    is unchanged. Chat discovery uses the type to stay quiet about a service the
+    person never connected, while still reporting one that stopped working.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("reconnect_required", status_code=401)
+
+
 class _StateCodec(Protocol):
     """The signed-state/PKCE methods `ExternalConnectorOAuthService` already
     provides -- shared, not reimplemented, so a state token from any
@@ -459,7 +471,7 @@ class ExternalConnectorCuratedOAuth:
             or row["status"] not in {"connected", "verifying"}
             or row["envelope_version"] != 2
         ):
-            raise CuratedConnectorOAuthError("reconnect_required", status_code=401)
+            raise CuratedNotConnectedError()
         connector, client_id, client_secret = await self._configuration(connector_id, connector)
         # Check the registry hasn't drifted from what was consented to BEFORE
         # any decrypt or provider call: an operator edit (endpoint, token
