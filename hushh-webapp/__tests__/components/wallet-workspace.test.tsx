@@ -219,13 +219,16 @@ describe("WalletWorkspace at scale", () => {
     vi.clearAllMocks();
   });
 
-  it("paginates 25 cards ten at a time with a Page x of y footer", async () => {
+  it("shows only four layers and exposes every card in View all", async () => {
     render(<WalletWorkspace />);
-    await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
-    expect(screen.getByTestId("one-wallet-list").querySelectorAll("li")).toHaveLength(10);
-    expect(screen.getByText("Page 1 of 3")).toBeTruthy();
-    fireEvent.click(screen.getByLabelText("Go to next page"));
-    expect(navigationMock.replace).toHaveBeenCalledWith("/one/wallet?page=2", { scroll: false });
+    const list = await screen.findByTestId("one-wallet-list");
+    expect(list.querySelectorAll("li:not([inert])")).toHaveLength(4);
+    expect(screen.getByText("+21 more")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View all cards" }));
+    expect(list.querySelectorAll("li:not([inert])")).toHaveLength(25);
+    fireEvent.click(screen.getByTestId("one-wallet-card-1024"));
+    expect(screen.getByTestId("one-wallet-card-1024")).toHaveAttribute("aria-pressed", "true");
+    expect(serviceMock.getCard).not.toHaveBeenCalled();
   });
 
   it("opens Add card with the nickname a chat offer handed over in memory", async () => {
@@ -297,23 +300,30 @@ describe("WalletWorkspace at scale", () => {
     expect(await screen.findByTestId("one-wallet-empty")).toBeTruthy();
   });
 
-  it("renders the requested page from the URL", async () => {
-    navigationMock.search = "page=3";
-    render(<WalletWorkspace />);
-    await waitFor(() => expect(screen.getByText("Page 3 of 3")).toBeTruthy());
-    expect(screen.getByTestId("one-wallet-list").querySelectorAll("li")).toHaveLength(5);
+  it("honors metadata search when browser history changes and on cold entry", async () => {
+    navigationMock.search = "q=amex";
+    const workspace = render(<WalletWorkspace />);
+    expect(await screen.findByRole("list", { name: "Card search results" })).toHaveTextContent("Travel Amex");
+    navigationMock.search = "q=Card+12";
+    workspace.rerender(<WalletWorkspace />);
+    await waitFor(() => expect(screen.getByRole("list", { name: "Card search results" })).toHaveTextContent("Card 12"));
+    navigationMock.search = "";
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-list");
+    expect(screen.queryByTestId("one-wallet-search")).toBeNull();
   });
 
   it("search narrows the list and reports no match", async () => {
     render(<WalletWorkspace />);
     await waitFor(() => expect(screen.getByTestId("one-wallet-list")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Search cards" }));
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "amex" } });
     });
     await waitFor(() =>
-      expect(screen.getByTestId("one-wallet-list").querySelectorAll("li")).toHaveLength(1),
+      expect(screen.getByRole("list", { name: "Card search results" }).querySelectorAll("li")).toHaveLength(1),
     );
-    expect(screen.getByText("Travel Amex")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Travel Amex.*ending/ })).toBeTruthy();
     await act(async () => {
       fireEvent.change(screen.getByTestId("one-wallet-search"), { target: { value: "nothing-here" } });
     });
@@ -363,6 +373,34 @@ describe("WalletWorkspace at scale", () => {
         expect.objectContaining({ cardId: "card_0" }),
       ),
     );
+  });
+
+  it("rejects a summary load that finishes after locking", async () => {
+    let finish!: (value: unknown) => void;
+    serviceMock.listCardSummaries.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const workspace = render(<WalletWorkspace />);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    vaultMock.locked = true;
+    workspace.rerender(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-locked");
+    await act(async () => finish(makeCards(3)));
+    expect(screen.queryByTestId("one-wallet-list")).toBeNull();
+  });
+
+  it("does not override a new selection when an earlier deletion finishes", async () => {
+    const cards = makeCards(3);
+    serviceMock.listCardSummaries.mockResolvedValueOnce(cards).mockResolvedValueOnce(cards.slice(1));
+    let finish!: () => void;
+    serviceMock.deleteCard.mockImplementationOnce(() => new Promise<void>((resolve) => { finish = resolve; }));
+    render(<WalletWorkspace />);
+    await screen.findByTestId("one-wallet-list");
+    fireEvent.click(screen.getByTestId("one-wallet-remove"));
+    fireEvent.click(await screen.findByTestId("one-wallet-remove-confirm-action"));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    fireEvent.click(screen.getByTestId("one-wallet-card-1002"));
+    await act(async () => finish());
+    await waitFor(() => expect(screen.queryByTestId("one-wallet-card-1000")).toBeNull());
+    expect(screen.getByTestId("one-wallet-card-1002")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("offers Unlock on a locked vault and never decrypts a card", async () => {

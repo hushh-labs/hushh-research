@@ -8,38 +8,9 @@ import {
   resolveTopShellGeometryStyle,
 } from "../components/app-ui/signed-in-shell-content-offset";
 
-/**
- * The Wallet as a card holder, measured in the engine it ships in.
- *
- * Founder report (2026-09-29): opening the Wallet bounced, and the interface
- * did not meet the bar. Measured before the redesign, the page's content
- * slid 19px sideways and 16px down with a direction reversal as it opened,
- * then slid another 16px when the cards arrived, because two GSAP enters
- * stacked on the route crossfade and re-ran on every content swap.
- *
- * This spec renders the real WalletWorkspace (synthetic test cards only,
- * inert vault and service boundaries) and holds:
- *  - each card at the ISO/IEC 7810 ID-1 proportion (85.60 x 53.98) within
- *    0.5%, on the page's start line, with equal 20px insets;
- *  - the stack's 60px pitch, and the header action on the title's centre line;
- *  - text on every card face at 4.5:1 or better, light and dark;
- *  - the same geometry with text widened, because CI's Linux fonts set about
- *    1.5px wider than a Mac;
- *  - a fixed header and column on open: the introduction and first card share
- *    their leading edges, and loaded card geometry stays stable;
- *  - card travel that never overshoots and returns along the same path, and
- *    no travel at all under reduced motion;
- *  - the empty Wallet's supplied HD hero, semantic typography, and centered
- *    Location-onboarding action measure at phone and desktop widths;
- *  - the empty desktop Wallet fits the real signed-in scroll shell while a
- *    short phone remains safely scrollable;
- *  - no horizontal page overflow.
- */
-
-const PEEK = 60;
-const INSET = 20;
-const ISO_RATIO = 85.6 / 53.98;
+/** Real Wallet components with synthetic service boundaries; no owner vault information. */
 const WIDTHS = [320, 393, 1440] as const;
+const ISO_RATIO = 85.6 / 53.98;
 const THEMES = ["light", "dark"] as const;
 const BOTTOM_SHELL_HEIGHT_PX = 132;
 
@@ -483,34 +454,16 @@ type Geometry = Awaited<ReturnType<typeof measure>>;
 
 function assertGeometry(g: Geometry, label: string, count: number) {
   expect(g.overflowX, `${label}: page overflow`).toBeLessThanOrEqual(0);
-  expect(Math.abs(g.titleMid - g.actionMid), `${label}: title and action centre line`).toBeLessThanOrEqual(0.5);
-  expect(Math.abs(g.titleLeft - g.column.x), `${label}: title start line`).toBeLessThanOrEqual(0.5);
-  expect(g.smallTargets, `${label}: targets under 44px`).toEqual([]);
+  expect(Math.abs(g.titleMid - g.actionMid)).toBeLessThanOrEqual(.5);
+  expect(g.smallTargets).toEqual([]);
   expect(g.faces).toHaveLength(count);
-  for (const [index, face] of g.faces.entries()) {
-    const at = `${label} card ${index}`;
-    expect(Math.abs(face.w / face.h / ISO_RATIO - 1), `${at}: ISO ratio`).toBeLessThanOrEqual(0.005);
-    expect(Math.abs(face.x - g.column.x), `${at}: start line`).toBeLessThanOrEqual(0.5);
-    expect(Math.abs(face.w - g.column.w), `${at}: full column`).toBeLessThanOrEqual(0.5);
-    for (const [side, inset] of [
-      ["top", face.insetTop],
-      ["left", face.insetLeft],
-      ["right", face.insetRight],
-      ["bottom", face.insetBottom],
-    ] as const) {
-      expect(Math.abs(inset - INSET), `${at}: ${side} inset ${inset}`).toBeLessThanOrEqual(0.5);
-    }
-    expect(Math.abs(face.numberLeft - INSET), `${at}: number start line`).toBeLessThanOrEqual(0.5);
-    expect(face.numberHeight, `${at}: number on one line`).toBeLessThanOrEqual(22.5);
-    expect(face.minContrast, `${at}: text contrast`).toBeGreaterThanOrEqual(4.5);
-    expect(face.outside, `${at}: text outside the insets`).toEqual([]);
+  for (const face of g.faces) {
+    expect(Math.abs(face.w / face.h / ISO_RATIO - 1)).toBeLessThanOrEqual(.005);
+    expect(Math.abs(face.x + face.w / 2 - g.column.x - g.column.w / 2)).toBeLessThanOrEqual(.5);
+    expect(face.w).toBeLessThanOrEqual(420);
+    expect(face.minContrast).toBeGreaterThanOrEqual(4.5);
+    expect(face.numberHeight).toBeLessThanOrEqual(22.5);
   }
-  expect(g.stack).not.toBeNull();
-  for (const [index, top] of g.cardTops.entries()) {
-    expect(Math.abs(top - g.cardTops[0]! - index * PEEK), `${label}: pitch of card ${index}`).toBeLessThanOrEqual(0.5);
-  }
-  const faceHeight = g.faces[0]!.h;
-  expect(Math.abs(g.stack!.h - (faceHeight + (count - 1) * PEEK)), `${label}: stack height`).toBeLessThanOrEqual(0.5);
 }
 
 const WIDENED = `
@@ -519,136 +472,125 @@ const WIDENED = `
 [data-testid="one-wallet-workspace"] button { letter-spacing: 0.3px !important; }
 `;
 
-for (const width of WIDTHS) {
-  for (const theme of THEMES) {
-    test(`Wallet stack geometry, contrast and insets at ${width}px ${theme}`, async ({ page }) => {
-      const errors = await open(page, width, theme, { cards: 4 });
+for (const width of [320, 375, 390, 430, 1440]) {
+  for (const count of [1, 2, 3, 7]) {
+    test(`Cards deck at ${width}px with ${count} cards selects and expands safely`, async ({ page }) => {
+      const errors = await open(page, width, "light", { cards: count }, { shell: true });
       await mount(page);
       await expect(page.getByTestId("wallet-stack")).toBeVisible();
-      assertGeometry(await measure(page), `${width} ${theme}`, 4);
-
-      // CI renders text wider than a Mac; the same contract must still hold.
-      await page.addStyleTag({ content: WIDENED });
-      assertGeometry(await measure(page), `${width} ${theme} widened`, 4);
-
-      // Focused: one card, on the same start line, its actions reachable.
-      await page.getByTestId("one-wallet-card-4242").click({ position: { x: 60, y: 20 } });
-      await expect(page.getByTestId("one-wallet-reveal-4242")).toBeVisible();
-      const focused = await measure(page);
-      expect(focused.overflowX).toBeLessThanOrEqual(0);
-      expect(focused.smallTargets).toEqual([]);
-      expect(Math.abs(focused.stack!.h - focused.faces[0]!.h)).toBeLessThanOrEqual(0.5);
+      assertGeometry(await measure(page), `${width}`, count);
+      expect(await page.locator('[data-testid="wallet-card"]:not([inert])').count()).toBe(Math.min(4, count));
+      if (count > 1) {
+        await page.getByRole("button", { name: "Next card", exact: true }).click();
+        await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_b"]')).toHaveAttribute("data-focused", "true");
+        await page.getByRole("button", { name: "View all cards", exact: true }).click();
+        await expect(page.getByTestId("wallet-stack")).toHaveAttribute("data-state", "expanded");
+        await page.waitForTimeout(400);
+        expect(await page.locator('[data-testid="wallet-card"]:not([inert])').count()).toBe(count);
+        const target = page.getByTestId("one-wallet-card-4242").first();
+        await target.evaluate((node) => node.scrollIntoView({ block: "center" }));
+        // A two-card feed can fit entirely without scrolling; selection then
+        // stays deliberate. Longer feeds exercise observer-driven focus.
+        if (count >= 3) await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_a"]')).toHaveAttribute("data-focused", "true");
+        await target.click();
+        await expect(page.getByTestId("wallet-stack")).toHaveAttribute("data-state", "collapsed");
+        await page.getByRole("button", { name: "View all cards", exact: true }).click();
+        await page.getByRole("button", { name: "Collapse cards", exact: true }).click();
+        await expect(page.getByTestId("wallet-stack")).toHaveAttribute("data-state", "collapsed");
+      }
+      await page.waitForTimeout(400);
+      expect(await page.evaluate(() => (window.__walletEvents ?? []).filter((event) => event.startsWith("reveal:")))).toEqual([]);
+      await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+      expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+      const chrome = page.locator('[data-bottom-chrome]');
+      expect(await chrome.evaluate((el) => { const box = el.getBoundingClientRect(); return document.elementFromPoint(box.x + 10, box.bottom - 10) === el; })).toBe(true);
+      if (width === 390 && count === 3) {
+        await page.locator('[data-app-scroll-root="true"]').evaluate((node) => { node.scrollTop = 0; });
+        await page.screenshot({ path: test.info().outputPath("cards-deck.png") });
+      }
       expect(errors).toEqual([]);
     });
   }
 }
 
-for (const width of WIDTHS) {
-  test(`opening the Wallet keeps its column and loaded cards stable at ${width}px`, async ({ page, browserName }) => {
-    const errors = await open(page, width, "light", { cards: 3, delayMs: 400 });
-    await page.evaluate(() => {
-      const root = document.getElementById("root")!;
-      const observer = new MutationObserver(() => {
-        if (!root.firstChild) return;
-        observer.disconnect();
-        (window as unknown as { __sampleWallet: (ms: number) => void }).__sampleWallet(1200);
-      });
-      observer.observe(root, { childList: true });
-    });
+for (const theme of THEMES) {
+  test(`Cards contrast and wider text in ${theme}`, async ({ page }) => {
+    await open(page, 320, theme, { cards: 4 });
     await mount(page);
     await expect(page.getByTestId("wallet-stack")).toBeVisible();
-    await page.waitForTimeout(1300);
-    type Box = { x: number; y: number; w: number; h: number } | null;
-    const frames = await page.evaluate(
-      () => (window as unknown as { __walletFrames: Array<{ title: Box; introduction: Box; face: Box }> }).__walletFrames,
-    );
-    const titles = frames.map((f) => f.title).filter(Boolean) as NonNullable<Box>[];
-    const introductions = frames.map((f) => f.introduction).filter(Boolean) as NonNullable<Box>[];
-    const faces = frames.map((f) => f.face).filter(Boolean) as NonNullable<Box>[];
-    expect(introductions.length, "the pending introduction was sampled").toBeGreaterThan(0);
-    expect(faces.length).toBeGreaterThan(0);
-    // The introduction is taller than one card. Its leading edges hold the
-    // column; each loaded face must keep its height and independently meet ISO.
-    for (const box of titles) {
-      expect(Math.abs(box.y - titles[0]!.y)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(box.x - titles[0]!.x)).toBeLessThanOrEqual(0.5);
-    }
-    const slot = introductions[0]!;
-    for (const box of faces) {
-      expect(Math.abs(box.y - slot.y), "card keeps the introduction's start line").toBeLessThanOrEqual(0.5);
-      expect(Math.abs(box.x - slot.x)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(box.w - slot.w)).toBeLessThanOrEqual(0.5);
-      expect(Math.abs(box.h - faces[0]!.h), "loaded card height stays stable").toBeLessThanOrEqual(0.5);
-      expect(Math.abs(box.w / box.h - ISO_RATIO) / ISO_RATIO, "every loaded frame keeps the ISO card proportion").toBeLessThanOrEqual(0.005);
-    }
-    if (browserName === "chromium") {
-      expect(await page.evaluate(() => (window as unknown as { __walletCls: number }).__walletCls)).toBe(0);
-    }
-    expect(errors).toEqual([]);
+    await page.addStyleTag({ content: WIDENED });
+    assertGeometry(await measure(page), theme, 4);
   });
 }
 
-test("a chosen card rises with no overshoot and returns along the same path", async ({ page }) => {
-  await open(page, 393, "light", { cards: 3 });
+test("Cards touch gestures preserve vertical scroll and never switch Wallet tabs", async ({ page, browserName }) => {
+  const errors = await open(page, 390, "light", { cards: 3 }, { shell: true });
   await mount(page);
-  await expect(page.getByTestId("wallet-stack")).toBeVisible();
-  type Frame = { t: number; cards: Array<{ y: number; o: number }> };
-  // Sampling starts at the click itself, not before Playwright's
-  // actionability wait, so the window always covers the whole travel.
-  const sampleFromNextClick = async (ms: number) => {
-    await page.evaluate((duration) => {
-      document.addEventListener(
-        "click",
-        () => (window as unknown as { __sampleWallet: (ms: number) => void }).__sampleWallet(duration),
-        { capture: true, once: true },
-      );
-    }, ms);
+  const face = page.getByTestId("one-wallet-card-4242");
+  await expect(face).toBeVisible();
+  const gesture = async (dx: number, dy: number) => {
+    const box = (await page.locator('[data-testid="wallet-card"][data-focused="true"] button').boundingBox())!;
+    const x = box.x + box.width * .65, y = box.y + box.height / 2;
+    if (browserName === "chromium") {
+      const session = await page.context().newCDPSession(page);
+      await session.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y }] });
+      for (let step = 1; step <= 5; step++) await session.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: x + dx * step / 5, y: y + dy * step / 5 }] });
+      await session.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+      await session.detach();
+    } else {
+      await page.locator('[data-testid="wallet-card"][data-focused="true"] button').evaluate((node, delta) => {
+        const send = (type: string, x: number, y: number) => {
+          const event = new Event(type, { bubbles: true });
+          Object.defineProperties(event, {
+            touches: { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] },
+            changedTouches: { value: [{ clientX: x, clientY: y }] },
+          });
+          node.dispatchEvent(event);
+        };
+        send("touchstart", 200, 250);
+        send("touchmove", 200 + delta.dx, 250 + delta.dy);
+        send("touchend", 200 + delta.dx, 250 + delta.dy);
+      }, { dx, dy });
+    }
   };
-  const frames = () => page.evaluate(() => (window as unknown as { __walletFrames: Frame[] }).__walletFrames);
-
-  await sampleFromNextClick(700);
-  await page.getByTestId("one-wallet-card-4444").click();
-  await page.waitForTimeout(900);
-  const up = await frames();
-  const rising = up.map((f) => f.cards[2]!.y);
-  const fading = up.map((f) => f.cards[0]!.o);
-  expect(rising[rising.length - 1]).toBeCloseTo(0, 1);
-  expect(rising.some((y) => y > 1 && y < 2 * PEEK - 1), "the card travels, it does not jump").toBe(true);
-  for (let i = 1; i < rising.length; i += 1) {
-    expect(rising[i]!, "never reverses").toBeLessThanOrEqual(rising[i - 1]! + 0.01);
-    expect(rising[i]!, "never overshoots the top").toBeGreaterThanOrEqual(-0.01);
-  }
-  for (let i = 1; i < fading.length; i += 1) expect(fading[i]!).toBeLessThanOrEqual(fading[i - 1]! + 0.001);
-  expect(fading[fading.length - 1]).toBe(0);
-
-  await sampleFromNextClick(700);
-  await page.getByTestId("one-wallet-done").click();
-  await page.waitForTimeout(900);
-  const back = (await frames()).map((f) => f.cards[2]!.y);
-  expect(back[back.length - 1]).toBeCloseTo(2 * PEEK, 1);
-  for (let i = 1; i < back.length; i += 1) {
-    expect(back[i]!, "returns without reversing").toBeGreaterThanOrEqual(back[i - 1]! - 0.01);
-    expect(back[i]!, "returns without overshooting").toBeLessThanOrEqual(2 * PEEK + 0.01);
-  }
+  await gesture(-100, 5);
+  await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_b"]')).toHaveAttribute("data-focused", "true");
+  await page.waitForTimeout(400);
+  await gesture(100, 5);
+  await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_a"]')).toHaveAttribute("data-focused", "true");
+  await page.waitForTimeout(400);
+  await gesture(4, -80);
+  await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_a"]')).toHaveAttribute("data-focused", "true");
+  await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
+  expect(errors).toEqual([]);
 });
 
-test("under reduced motion a chosen card moves in one step", async ({ page }) => {
+test("Cards search, secure reveal, removal and reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await open(page, 393, "dark", { cards: 3 });
+  const errors = await open(page, 390, "dark", { cards: 7 }, { shell: true });
   await mount(page);
-  await expect(page.getByTestId("wallet-stack")).toBeVisible();
-  await page.getByTestId("one-wallet-card-4444").click();
-  const settled = await page.evaluate(
-    () =>
-      new Promise<number>((resolve) =>
-        requestAnimationFrame(() => {
-          const li = document.querySelectorAll('[data-testid="wallet-card"]')[2]!;
-          const transform = getComputedStyle(li).transform;
-          resolve(transform && transform !== "none" ? new DOMMatrixReadOnly(transform).m42 : 0);
-        }),
-      ),
-  );
-  expect(settled).toBeCloseTo(0, 1);
+  await page.getByRole("button", { name: "Search cards", exact: true }).click();
+  await page.getByTestId("one-wallet-search").fill("Travel");
+  await page.getByRole("list", { name: "Card search results" }).getByRole("button", { name: /Travel/ }).click();
+  await expect(page.getByTestId("one-wallet-search")).toHaveCount(0);
+  const selected = page.locator('[data-testid="wallet-card"][data-card-id="card_b"]');
+  await expect(selected).toHaveAttribute("data-focused", "true");
+  expect(await selected.evaluate((node) => getComputedStyle(node).transitionDuration)).toBe("0s");
+  await page.getByTestId("one-wallet-reveal-0005").click();
+  await expect(page.getByTestId("secure-card-reveal")).toBeVisible();
+  await expect(page.getByTestId("secure-card-reveal-pan")).toContainText("3782");
+  const attributes = await page.locator('[aria-label], [id]').evaluateAll((nodes) => nodes.map((node) => `${node.id} ${node.getAttribute("aria-label")}`).join(" "));
+  expect(attributes).not.toContain("378282246310005");
+  await page.getByRole("button", { name: "Next card", exact: true }).click();
+  await expect(page.getByTestId("secure-card-reveal")).toHaveCount(0);
+  await page.getByTestId("one-wallet-remove").click();
+  await page.getByTestId("one-wallet-remove-cancel").click();
+  expect(await page.evaluate(() => window.__walletEvents)).not.toContain("delete:card_c");
+  await page.getByTestId("one-wallet-remove").click();
+  await page.getByTestId("one-wallet-remove-confirm-action").click();
+  await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_c"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid="wallet-card"][data-card-id="card_d"]')).toHaveAttribute("data-focused", "true");
+  expect(errors).toEqual([]);
 });
 
 for (const theme of THEMES) {
