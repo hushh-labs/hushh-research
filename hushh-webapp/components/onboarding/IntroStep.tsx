@@ -12,7 +12,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
     if (!previewReady)
       return {
         status: "blocked" as const,
-        summary: "Explore the three introduction screens before signing in.",
+        summary: "Explore the four introduction screens before signing in.",
       };
     if (!onLogin)
       return {

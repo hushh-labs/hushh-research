@@ -76,6 +76,14 @@ _REASON_RECONNECT = "reconnect"
 _REASON_UNAVAILABLE = "unavailable"
 
 
+# Per-connector and per-turn bounds on what reaches the model. A provider (or a person's
+# own server) can advertise any number of tools with any amount of text; one of them must
+# cost that connector its place, never every other connector or the whole turn.
+_MAX_TOOLS_PER_CONNECTOR = 200
+_MAX_TOOLS_PER_TURN = 500
+_MAX_DESCRIPTION_CHARS = 2_000
+
+
 def _still_current(toolset: Any, tools: Any) -> bool:
     """True while every listed tool still belongs to the toolset's current catalog epoch.
 
@@ -347,7 +355,8 @@ class RegisteredMcpToolset(BaseToolset):
                 # provider tool retained by another catalog view.
                 labeled_tool = copy(tool)
                 labeled_tool.description = (
-                    f"Connected app: {json.dumps(display_name)}. {tool.description or ''}"
+                    f"Connected app: {json.dumps(display_name)}. "
+                    f"{(tool.description or '')[:_MAX_DESCRIPTION_CHARS]}"
                 )
                 if _requires_review_card(toolset, tool):
                     labeled_tool.description += REVIEW_CARD_NOTE
@@ -371,7 +380,25 @@ class RegisteredMcpToolset(BaseToolset):
                 results.append(note_unavailable(connector_id, display_name, _REASON_UNAVAILABLE))
             else:
                 results.append(task.result())
-        tools = [tool for result in results for tool in result]
-        if len(tools) > 500 or len({tool.name for tool in tools}) != len(tools):
-            raise ExternalMcpError("Connector catalog limit reached.", code="MCP_CATALOG_CHANGED")
+        tools: list[Any] = []
+        seen: set[str] = set()
+        for (connector_id, display_name), result in zip(admitted, results, strict=True):
+            names = [tool.name for tool in result]
+            if (
+                len(result) > _MAX_TOOLS_PER_CONNECTOR
+                or len(set(names)) != len(names)
+                or not seen.isdisjoint(names)
+                or len(tools) + len(result) > _MAX_TOOLS_PER_TURN
+            ):
+                # Too many tools, a name that collides with another's, or no room left
+                # this turn: this one connector steps aside; everything else carries on.
+                logger.warning(
+                    "mcp_connector_unavailable connector=%s reason=catalog.limit tools=%d",
+                    connector_id,
+                    len(result),
+                )
+                result = note_unavailable(connector_id, display_name, _REASON_UNAVAILABLE)
+                names = [tool.name for tool in result]
+            tools.extend(result)
+            seen.update(names)
         return tools

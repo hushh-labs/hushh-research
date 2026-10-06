@@ -719,13 +719,36 @@
     },
     {
       "circle_args": [],
-      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name. Use the name exactly as the person said or spelled it; a spelled word stays in every correction until they change it. If it answers spelled_word_missing for a word they changed, or for a different circle, call it again with that word in release_spelled_words.",
+      "description": "Create an empty circle with the given name (kind family, friends, or other). Creating a circle sends no invitations and shares no location; adding people is a separate action. Reports already_exists when the person already owns one by that name. Use the name exactly as the person said or spelled it. When correcting a name you proposed, even after cancelling its card, change only what they asked: the letters they spell replace the word they correct and go in spelled_words, and each other changed word goes in changed_words; a word they spelled stays until they change it. If it answers name_changed or spelled_word_missing for a change they did ask for, call it again with that change declared (changed_words or release_spelled_words).",
       "firebase_plane": false,
       "gateway_action_id": "location.create_circle",
       "name": "create_circle",
       "parameters": {
         "additionalProperties": false,
         "properties": {
+          "changed_words": {
+            "description": "When correcting a name you proposed, even after cancelling its card: each word you changed, added or removed that they did not spell \u2014 old as on the card (empty if added), new as in name (empty if removed). A word neither listed here nor spelled stays exactly as on the card.",
+            "items": {
+              "additionalProperties": false,
+              "description": "One word a correction changes: ``old`` as on the waiting card, ``new`` as\nit becomes. An empty ``old`` is an added word, an empty ``new`` a removed one.",
+              "properties": {
+                "new": {
+                  "default": "",
+                  "title": "New",
+                  "type": "string"
+                },
+                "old": {
+                  "default": "",
+                  "title": "Old",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "maxItems": 8,
+            "title": "Changed Words",
+            "type": "array"
+          },
           "kind": {
             "default": "other",
             "enum": [

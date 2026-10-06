@@ -84,6 +84,7 @@ import type {
   ServerFrame,
   UiDirectiveFrame,
 } from "@/lib/one-voice/protocol";
+import { NAME_EDIT_FEATURE } from "@/lib/one-voice/protocol";
 import {
   VOICE_UNAVAILABLE_MESSAGE,
   canAutoReconnect,
@@ -97,6 +98,7 @@ import {
   useVoiceSessionStore,
 } from "@/lib/one-voice/session-store";
 import type {
+  NameEditOutcome,
   VoiceError,
   VoiceSessionController,
   VoiceSessionEvent,
@@ -122,6 +124,8 @@ export interface VoiceLiveClientLike {
   sendAppContext(context: AppContextInput): void;
   /** Optional so older test doubles keep compiling; the real client has it. */
   mailDeliveryResult?(deliveryRef: string, actionId: string): boolean;
+  /** Optional like mailDeliveryResult; sent only to a relay listing `name_edit`. */
+  nameEditSubmit?(pendingActionId: string, name: string, operationId: string): boolean;
   pendingShown(pendingActionId: string): boolean;
   confirm(
     pendingActionId: string,
@@ -464,7 +468,22 @@ type LiveSession = {
   confirmingPendingId: string | null;
   awaitingTypedRequestId: string | null;
   awaitingTypedRequestDeadlineAt: number | null;
+  /** Typed name edits awaiting their `name_edit.result`, by operation id. */
+  nameEdits: Map<string, NameEditWaiter>;
 };
+
+type NameEditWaiter = {
+  resolve: (outcome: NameEditOutcome) => void;
+  timer: ReturnType<typeof setTimeout>;
+};
+
+/** How long a typed name edit waits for the relay before the editor may retry. */
+export const NAME_EDIT_TIMEOUT_MS = 15_000;
+const NAME_EDIT_NOT_SENT = "That didn't go through. Please try again.";
+
+function nameEditRefusal(reasonCode: string, message: string): NameEditOutcome {
+  return { status: "rejected", reasonCode, message, pendingActionId: null };
+}
 
 type DirectiveContext = {
   pathname: string | null;
@@ -703,6 +722,12 @@ export function VoiceSessionProvider({
     session.directiveTimers.clear();
     if (session.pendingShownTimer !== null) clearTimeout(session.pendingShownTimer);
     session.pendingShownTimer = null;
+    // An edit the relay never answered is not an answer; the editor stays open.
+    for (const waiter of session.nameEdits.values()) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(nameEditRefusal("session_ended", NAME_EDIT_NOT_SENT));
+    }
+    session.nameEdits.clear();
     for (const unsubscribe of session.unsubscribes.splice(0)) {
       try {
         unsubscribe();
@@ -1174,6 +1199,20 @@ export function VoiceSessionProvider({
         case "client_step.request":
           requestClientStep(session, frame);
           return;
+        case "name_edit.result": {
+          // Only the submission this session made; anything else is dropped.
+          const waiter = session.nameEdits.get(frame.operation_id);
+          if (!waiter) return;
+          session.nameEdits.delete(frame.operation_id);
+          clearTimeout(waiter.timer);
+          waiter.resolve({
+            status: frame.status === "accepted" ? "accepted" : "rejected",
+            reasonCode: frame.reason_code ?? null,
+            message: frame.message ?? null,
+            pendingActionId: frame.pending_action_id ?? null,
+          });
+          return;
+        }
         default:
           return;
       }
@@ -1356,6 +1395,7 @@ export function VoiceSessionProvider({
         confirmingPendingId: null,
         awaitingTypedRequestId: null,
         awaitingTypedRequestDeadlineAt: null,
+        nameEdits: new Map(),
       };
       const clientOptions: OneLiveClientOptions = {
         ticket: async () => {
@@ -2062,6 +2102,26 @@ export function VoiceSessionProvider({
     session.client.mailDeliveryResult?.(deliveryRef, actionId);
   }, []);
 
+  const submitNameEdit = useCallback(
+    (pendingActionId: string, name: string): Promise<NameEditOutcome> => {
+      const session = sessionRef.current;
+      // A relay that never listed the frame would answer it with a protocol error.
+      if (!session || session.tornDown || !session.features.has(NAME_EDIT_FEATURE))
+        return Promise.resolve(nameEditRefusal("unavailable", NAME_EDIT_NOT_SENT));
+      const operationId = crypto.randomUUID();
+      if (!session.client.nameEditSubmit?.(pendingActionId, name, operationId))
+        return Promise.resolve(nameEditRefusal("not_sent", NAME_EDIT_NOT_SENT));
+      return new Promise<NameEditOutcome>((resolve) => {
+        const timer = setTimeout(() => {
+          session.nameEdits.delete(operationId);
+          resolve(nameEditRefusal("timeout", NAME_EDIT_NOT_SENT));
+        }, NAME_EDIT_TIMEOUT_MS);
+        session.nameEdits.set(operationId, { resolve, timer });
+      });
+    },
+    [],
+  );
+
   const cancelPending = useCallback(() => {
     const session = sessionRef.current;
     const current = readState();
@@ -2124,6 +2184,7 @@ export function VoiceSessionProvider({
       reportClientStep,
       setActiveMail,
       reportMailDelivery,
+      submitNameEdit,
     }),
     [
       enabled,
@@ -2142,6 +2203,7 @@ export function VoiceSessionProvider({
       reportClientStep,
       setActiveMail,
       reportMailDelivery,
+      submitNameEdit,
     ],
   );
 

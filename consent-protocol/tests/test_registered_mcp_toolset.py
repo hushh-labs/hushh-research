@@ -477,20 +477,82 @@ async def test_connector_bound_rejects_without_partial_discovery(registry):
         scope.acquire.assert_not_awaited()
 
 
-async def test_duplicate_tool_identity_is_not_silently_overwritten(registry):
+def _listing(*names, epoch=None):
+    return [SimpleNamespace(name=name, description="Read", epoch=epoch) for name in names]
+
+
+def _per_connector(listings):
+    """acquire() returning a toolset whose listing depends on the connector."""
+
+    async def acquire(_context, connector_id, **_kwargs):
+        return SimpleNamespace(get_tools=AsyncMock(return_value=listings[connector_id]))
+
+    return AsyncMock(side_effect=acquire)
+
+
+async def test_a_connector_with_duplicate_tool_names_steps_aside_not_the_turn(registry):
+    registry.list_active_connectors.return_value = [definition("dup"), definition("fine")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {"dup": _listing("same", "same"), "fine": _listing("mcp_fine")}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert "mcp_fine" in names and "same" not in names
+    assert sum(name.startswith("connector_unavailable_") for name in names) == 1
+
+
+async def test_an_oversized_connector_does_not_fail_the_turn(registry, caplog):
+    registry.list_active_connectors.return_value = [definition("huge"), definition("fine")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {
+                "huge": _listing(*[f"mcp_h{i}" for i in range(201)]),
+                "fine": _listing("mcp_fine"),
+            }
+        )
+        with caplog.at_level("WARNING", logger=module.logger.name):
+            discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert "mcp_fine" in names and not any(name.startswith("mcp_h") for name in names)
+    assert "reason=catalog.limit tools=201" in caplog.text
+
+
+async def test_a_name_that_collides_across_connectors_costs_the_later_one_only(registry):
+    registry.list_active_connectors.return_value = [definition("first"), definition("second")]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {"first": _listing("mcp_shared", "mcp_a"), "second": _listing("mcp_shared", "mcp_b")}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert {"mcp_shared", "mcp_a"} <= set(names) and "mcp_b" not in names
+
+
+async def test_the_turn_wide_tool_limit_stops_admitting_connectors_without_failing(registry):
+    registry.list_active_connectors.return_value = [definition(f"c{i}") for i in range(3)]
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = _per_connector(
+            {f"c{i}": _listing(*[f"mcp_{i}_{n}" for n in range(200)]) for i in range(3)}
+        )
+        discovered = await module.RegisteredMcpToolset().get_tools(context())
+    names = [tool.name for tool in discovered]
+    assert len(names) <= 500
+    assert sum(name.startswith("mcp_0_") for name in names) == 200
+    assert sum(name.startswith("mcp_1_") for name in names) == 200
+    assert not any(name.startswith("mcp_2_") for name in names)  # no room left, not an error
+
+
+async def test_a_provider_description_is_capped_before_it_reaches_the_model(registry):
+    registry.list_active_connectors.return_value = [definition("verbose")]
+    huge = SimpleNamespace(name="mcp_v", description="x" * 500_000)
     async with mcp_turn_scope("thread") as scope:
         scope.acquire = AsyncMock(
-            return_value=SimpleNamespace(
-                get_tools=AsyncMock(
-                    return_value=[
-                        SimpleNamespace(name="same", description="Read"),
-                        SimpleNamespace(name="same", description="Read"),
-                    ]
-                )
-            )
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[huge]))
         )
-        with pytest.raises(ExternalMcpError, match="catalog"):
-            await module.RegisteredMcpToolset().get_tools(context())
+        (tool,) = await module.RegisteredMcpToolset().get_tools(context())
+    assert len(tool.description) < 2_200
+    assert huge.description == "x" * 500_000  # the shared provider tool is never edited
 
 
 async def test_registry_failure_degrades_without_exposing_diagnostics(registry, caplog):

@@ -133,7 +133,7 @@ export const usePathname = () => "/one/wallet";
 export const useSearchParams = () => params;
 
 // Auth and vault.
-const user = { uid: "fixture-owner" };
+const user = { uid: "fixture-owner", getIdToken: async () => "fixture-token" };
 export const useAuth = () => ({ user, loading: false });
 export const useVault = () => ({
   vaultKey: scenario().locked ? null : "fixture-vault-key",
@@ -149,3 +149,17 @@ export function VaultUnlockDialog({ open, title }: { open: boolean; title?: stri
 
 export const trackEvent = () => undefined;
 export const NativeTestBeacon = () => null;
+
+export class ConsentCenterService {
+  static async listEntries({ surface, page }: { surface: string; page: number }) {
+    return { user_id: "fixture-owner", page, has_more: false, items: [{
+      kind: surface === "pending" ? "incoming_request" : "active_grant", status: surface === "pending" ? "pending" : "active", action: "request", counterpart_type: "person",
+      id: `fixture-${surface}`, request_id: `fixture-${surface}`,
+      scope: surface === "pending" ? "attr.wallet.secrets.*" : "attr.wallet.summary.*",
+      counterpart_label: surface === "pending" ? "Sample requester" : "Sample recipient",
+      expires_at: "2030-01-01T00:00:00Z",
+    }] };
+  }
+}
+
+export const useConsentActions = () => ({ handleApprove: async () => record("approve"), handleDeny: async () => record("deny"), handleRevoke: async () => record("revoke") });

@@ -42,10 +42,11 @@ _CURRENT_HANDLE: ContextVar[str | None] = ContextVar("mcp_pending_handle", defau
 
 _HANDLE_PREFIX = "one_secret_ref:"
 _HANDLE_PATTERN = re.compile(r"one_secret_ref:[A-Za-z0-9_-]{32}")
-# A review is useless once its directive has expired; the grace covers a decision
-# made on the last second. The cap keeps a missing or far-future expiry bounded.
+# A review is useless once its directive has expired, so the record lives exactly as
+# long. (A grace past the directive's expiry bought nothing: the ledger refuses an
+# expired directive however long the record is kept.) The cap keeps a missing or
+# far-future expiry bounded.
 _MAX_LIFETIME = timedelta(minutes=20)
-_EXPIRY_GRACE = timedelta(seconds=60)
 _EXPIRED = "Connector review expired. Review again."
 
 
@@ -82,7 +83,7 @@ def _expires_at(review: dict | None) -> datetime:
         issued_until = datetime.fromisoformat(str((review or {}).get("expiresAt")))
         if issued_until.tzinfo is None:
             return cap
-        return min(cap, issued_until + _EXPIRY_GRACE)
+        return min(cap, issued_until)
     except ValueError:
         return cap
 
@@ -244,13 +245,12 @@ async def pending_call_details(session: Session, handle: str) -> dict:
                 aad=_aad(session.user_id, session.id, handle),
             )
         )
-    except (
-        ChatKeyUnavailableError,
-        ChatKeyMismatchError,
-        LegacyChatCiphertextError,
-        ValueError,
-    ):
-        # Wrong or absent chat key, or a record that does not open.
+    except ChatKeyUnavailableError:
+        # A locked vault is not an expired review: let the chat-key refusal reach the
+        # person ("unlock and try again") instead of telling them to start over.
+        raise
+    except (ChatKeyMismatchError, LegacyChatCiphertextError, ValueError):
+        # A different key than the one that sealed it, or a record that does not open.
         raise review_refusal("pending_record_unreadable", _EXPIRED) from None
     if (
         not isinstance(pending, dict)

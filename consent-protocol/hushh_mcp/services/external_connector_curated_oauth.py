@@ -558,6 +558,7 @@ class ExternalConnectorCuratedOAuth:
                 generation=row["connection_generation"],
                 client_id=client_id,
             )
+        refreshed: dict[str, Any] | None = None
         try:
             token = await self._post(
                 connector.oauth_token_url,
@@ -588,6 +589,10 @@ class ExternalConnectorCuratedOAuth:
             await self.lifecycle.settle_refresh(
                 **common, lease_id=lease_id, rejected=str(error) == "grant_rejected"
             )
+            if str(error) == "connection_changed" and refreshed is not None:
+                # The person disconnected while the provider was rotating the token. The
+                # new pair was never stored, so nothing here can ever revoke it later.
+                await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
             raise
         except BaseException:
             # Cancellation (the chat turn's deadline) or a storage failure: never
@@ -600,10 +605,40 @@ class ExternalConnectorCuratedOAuth:
             or updated["connection_generation"] != common["generation"]
             or updated["status"] not in {"connected", "verifying"}
         ):
+            await self._revoke_unstored(connector_id, client_id, client_secret, refreshed)
             raise CuratedConnectorOAuthError("connection_changed", status_code=409)
         return updated, self.credentials.open_credential(
             user_id=user_id, connector_id=connector_id, row=updated
         )
+
+    async def _revoke_unstored(
+        self,
+        connector_id: str,
+        client_id: str,
+        client_secret: str | None,
+        refreshed: dict[str, Any],
+    ) -> None:
+        """Best-effort release of a rotated token this process obtained but cannot keep.
+
+        Never raises and never logs a token: the refresh result is already being refused.
+        """
+        manifest = get_manifest(connector_id)
+        token = refreshed.get("refreshToken") or refreshed.get("accessToken")
+        if manifest is None or manifest.revocation_url is None or not isinstance(token, str):
+            return
+        try:
+            await self._revoke(
+                url=manifest.revocation_url,
+                data={
+                    "token": token,
+                    "token_type_hint": (
+                        "refresh_token" if refreshed.get("refreshToken") else "access_token"
+                    ),
+                    **self._client_auth(client_id, client_secret),
+                },
+            )
+        except Exception:  # noqa: BLE001 - the caller is already failing on purpose
+            logger.warning("curated_connector_oauth.unstored_revoke_failed")
 
     async def _persist_refresh(self, common: dict[str, Any], lease_id: str, envelope: dict) -> None:
         """Store the rotated credential. The provider has already spent the old
@@ -706,9 +741,18 @@ class ExternalConnectorCuratedOAuth:
             credential = self.credentials.open_credential(
                 user_id=user_id, connector_id=connector_id, row=old
             )
-            _, client_id, client_secret = await self._configuration(connector_id)
-            if credential.get("oauthClientId") != client_id:
+            # Not `_configuration`: that refuses a deactivated or drifted registry row,
+            # and an operator deactivating a provider must not stop a person's own
+            # grant being revoked. The client is the reviewed manifest's, from the
+            # environment, and the credential must be bound to it.
+            client_id = getenv(manifest.client_id_env, "").strip() if manifest else ""
+            client_secret = (
+                getenv(manifest.client_secret_env or "", "").strip() if manifest else ""
+            ) or None
+            if not client_id or credential.get("oauthClientId") != client_id:
                 raise CuratedConnectorOAuthError("revocation_identity_unverified", status_code=409)
+            if manifest is not None and not manifest.is_public_client and not client_secret:
+                raise CuratedConnectorOAuthError("connector_unavailable", status_code=503)
             refresh = credential.get("refreshToken")
             token = refresh or credential.get("accessToken")
             if isinstance(token, str) and token:

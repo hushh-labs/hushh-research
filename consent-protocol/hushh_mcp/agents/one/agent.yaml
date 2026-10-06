@@ -442,4 +442,6 @@ capabilities:
       ("k a y r a", "double l", "B zero seven"), use exactly those letters
       and digits for that word and keep the rest of the name as they gave
       it. The company is Hussh, spelled with two s's; use that spelling
-      only when they mean the company.
+      only when they mean the company. If a word of a name is unclear, or
+      they say a name is wrong without giving the fix, ask them to spell
+      just that word instead of guessing again.

@@ -1,5 +1,7 @@
 "use client";
 
+import { WalletSharing } from "@/components/wallet/wallet-sharing";
+
 /**
  * Wallet workspace - the /one/wallet owner surface for the reserved
  * wallet PKM domain. Everything decrypts on this device under the
@@ -25,7 +27,7 @@ import {
   type ReactNode,
 } from "react";
 import Image from "next/image";
-import { WALLET_HERO_SRC, WALLET_HERO_PREVIEW } from "@/lib/wallet/wallet-artwork";
+import { WALLET_HERO_SRC } from "@/lib/wallet/wallet-artwork";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import {
@@ -37,7 +39,6 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   PageTitle,
-  PageSubtitle,
   TYPOGRAPHY_CLASSNAMES,
 } from "@/components/app-ui/typography";
 import { Lock, Plus, Search } from "@/components/icons";
@@ -132,14 +133,15 @@ function StateMessage({ title, body }: { title: string; body: string }) {
 function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loading: boolean }) {
   return (
     <section
-      className="flex w-full flex-col items-center py-4 text-center"
+      className="flex w-full flex-col items-center justify-center py-6 text-center"
+      style={{ minHeight: "calc(100svh - var(--app-top-shell-height, 64px) - var(--app-bottom-shell-height, 132px) - 32px)" }}
       aria-labelledby="one-wallet-empty-title"
       data-testid={loading ? "one-wallet-loading" : "one-wallet-empty"}
       aria-busy={loading}
     >
       <div
         className="relative aspect-[698/894] w-auto"
-        style={{ height: "clamp(5rem, calc(100svh - 34rem), 17rem)" }}
+        style={{ height: "clamp(9rem, calc(100svh - 27rem), 17rem)" }}
         aria-hidden="true"
         data-testid="one-wallet-empty-art"
       >
@@ -151,8 +153,7 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
             unoptimized
             loading="eager"
             fetchPriority="high"
-            placeholder="blur"
-            blurDataURL={WALLET_HERO_PREVIEW}
+            decoding="sync"
             alt=""
             width={1214}
             height={1295}
@@ -174,9 +175,6 @@ function WalletIntroduction({ onConnect, loading }: { onConnect: () => void; loa
         <span className="block lg:inline">All your cards.</span>{" "}
         <span className="block lg:inline">In one place.</span>
       </PageTitle>
-      <PageSubtitle className="mt-2 max-w-[20rem] text-balance">
-        Cards you add are encrypted on this device and kept in your vault.
-      </PageSubtitle>
       <div className="mx-auto mt-5 w-full max-w-[244px]">
         <Button
           size="prominent"
@@ -636,9 +634,9 @@ export function WalletWorkspace() {
             </div>
           ) : null}
 
-          {showSearch ? <div className="mx-auto flex w-full max-w-[420px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
+          {showSearch ? <div className="mx-auto flex w-full max-w-[820px] justify-end"><Button variant="ghost" size="compact" aria-label={searchOpen ? "Close card search" : "Search cards"} onClick={() => { dispatch({ type: "unfocus" }); if (searchOpen) updateSearch(""); setSearchOpen(!searchOpen); }}><Search aria-hidden="true" className="size-4" />{searchOpen ? "Close" : "Search"}</Button></div> : null}
           {showSearch && searchOpen ? (
-            <div className="relative mx-auto w-full max-w-[420px]">
+            <div className="relative mx-auto w-full max-w-[820px]">
               <Search
                 aria-hidden="true"
                 className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -660,7 +658,7 @@ export function WalletWorkspace() {
             </p>
           ) : null}
 
-          {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[420px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
+          {hasCards && searchOpen && deferredQuery ? <ul className="mx-auto w-full max-w-[820px] space-y-2" aria-label="Card search results">{filteredCards.map((card) => <li key={card.cardId}><Button variant="secondary" size="standard" className="w-full justify-start" onClick={() => selectCard(card.cardId)}>{card.nickname || cardNetworkLabel(card.brand)} · {cardNetworkLabel(card.brand)} ending {card.last4}</Button></li>)}</ul> : null}
           {ready && !(searchOpen && deferredQuery) ? (
             <WalletCardBrowser
               key={renderedOwnerId}
@@ -680,8 +678,9 @@ export function WalletWorkspace() {
           </div>
           <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]">
           {ready ? (
-            <div className="mx-auto w-full max-w-[420px] py-4">
+            <div className="mx-auto w-full max-w-[820px] py-4">
               <SecureCardAddForm
+                scanEnabled
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}
@@ -731,7 +730,9 @@ export function WalletWorkspace() {
             </div>
           ) : null}
           </div>
-          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing" />
+          <div className="space-y-3.5 px-[var(--page-inline-gutter-standard)]" data-testid="one-wallet-sharing">
+            {ready && activeTab === "sharing" ? <WalletSharing key={renderedOwnerId} /> : null}
+          </div>
           </SwipeViews>
           </div>
           </>}

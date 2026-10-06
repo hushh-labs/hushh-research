@@ -3,7 +3,8 @@
 The executor is where the hallucination contract becomes mechanical:
 
 * unknown tool → ``rejected/unknown_tool``;
-* arguments that do not parse → ``rejected/invalid_arguments``;
+* arguments that do not parse → ``rejected/invalid_arguments``; for a
+  ``confirm_*`` tool the open card that proposal was correcting is retired too;
 * a person/circle id not confirmed in this conversation → ``rejected/*_not_confirmed``;
 * a ``confirm_*`` policy → a pending row and ``confirmation_required``; the
   handler runs only after :meth:`ToolExecutor.execute_pending`.
@@ -274,10 +275,12 @@ class ToolExecutor:
                     "Call get_circle_details with no argument to read the circle on screen, "
                     "then use its circle_id."
                 )
-            return ToolCallOutcome(
-                result=Rejected(reason_code="invalid_arguments", spoken_facts=facts),
-                spec=spec,
-            )
+            invalid = Rejected(reason_code="invalid_arguments", spoken_facts=facts)
+            if spec.policy.needs_confirmation:
+                return await self._refuse_correction(
+                    ctx, spec, args or {}, invalid, phase="arguments", failed=frozenset(missing)
+                )
+            return ToolCallOutcome(result=invalid, spec=spec)
         problem = self._entity_problem(spec, ctx, parsed)
         if problem is not None:
             return ToolCallOutcome(result=problem, spec=spec, parsed=parsed)
@@ -393,15 +396,19 @@ class ToolExecutor:
                         spec.name,
                         type(exc).__name__,
                     )
-                    return ToolCallOutcome(
-                        result=Rejected(
-                            reason_code="prepare_failed",
-                            spoken_facts=[
-                                "I couldn't check what that would do right now, so I "
-                                "haven't prepared it. Nothing was changed."
-                            ],
-                        ),
-                        spec=spec,
+                    unprepared = Rejected(
+                        reason_code="prepare_failed",
+                        spoken_facts=[
+                            "I couldn't check what that would do right now, so I "
+                            "haven't prepared it. Nothing was changed."
+                        ],
+                    )
+                    return await self._refuse_correction(
+                        ctx,
+                        spec,
+                        args or {},
+                        unprepared,
+                        phase="prepare",
                         parsed=parsed,
                         superseded=superseded,
                     )
@@ -709,6 +716,65 @@ class ToolExecutor:
             logger.warning("one_voice.pending.storage_failed phase=retire tool=%s", spec.name)
             return retired, False
         return retired, True
+
+    async def _refuse_correction(
+        self,
+        ctx: ToolContext,
+        spec: ToolSpec,
+        raw_args: dict[str, Any],
+        default: Rejected,
+        *,
+        phase: Literal["arguments", "prepare"],
+        parsed: Any = None,
+        superseded: list[PendingAction] | None = None,
+        failed: frozenset[str] = frozenset(),
+    ) -> ToolCallOutcome:
+        """Refuse a confirm-tier proposal that could not be read or prepared.
+
+        It was aimed at the open card of its own correction key just as a
+        well-formed correction is, so that card is retired with the refusal: a
+        yes must not reach what the person was correcting. If it cannot be
+        retired, nothing is asked over it (fail closed). The answer is the
+        tool's own ``on_invalid_correction`` refusal when it gives one, else
+        ``default``. ``raw_args`` go only to that hook, never to a log, with
+        ``failed``: the names of the top-level arguments that failed validation.
+        """
+        retired, complete = await self._retire_corrected(ctx, spec)
+        if retired:
+            # The next yes answers this refusal's question, never a card the
+            # model cancelled earlier: a re-proposal is asked fresh.
+            self._recent_cancels.pop(ctx.conversation_id, None)
+            logger.info(
+                "one_voice.pending.retired phase=%s tool=%s count=%d",
+                phase,
+                spec.name,
+                len(retired),
+            )
+        cancelled = [*(superseded or []), *retired]
+        if not complete:
+            return ToolCallOutcome(
+                result=_storage_unavailable(
+                    "I couldn't prepare that right now. Nothing was changed. "
+                    "Please try again in a moment."
+                ),
+                spec=spec,
+                parsed=parsed,
+                superseded=cancelled,
+            )
+        result = default
+        if spec.on_invalid_correction is not None:
+            try:
+                specific = spec.on_invalid_correction(dict(raw_args), failed)
+            except Exception as exc:  # noqa: BLE001 - a broken hook keeps the generic refusal
+                logger.warning(
+                    "one_voice.tool.refusal_failed tool=%s error=%s",
+                    spec.name,
+                    type(exc).__name__,
+                )
+                specific = None
+            if isinstance(specific, Rejected):
+                result = specific
+        return ToolCallOutcome(result=result, spec=spec, parsed=parsed, superseded=cancelled)
 
     async def _resolve_failed(
         self,

@@ -153,6 +153,44 @@ describe("turn ownership", () => {
     expect(state.pendingAction?.pending_action_id).toBe(oldCard.pending_action_id);
   });
 
+  it("keeps the card an Edit name sends after One read the old one back", () => {
+    // The relay's frames, in order, for a name typed once Live completed the
+    // input turn and the read-back: the replacement rides the turn open now.
+    const circle = { tool: "create_circle", gateway_action_id: "location.create_circle", entities: [], receipt_token: undefined };
+    const oldCard = pendingActionFrame({ ...circle, pending_action_id: "11111111-0000-4000-8000-0000000000e1", turn_id: "input" });
+    const newCard = pendingActionFrame({ ...circle, pending_action_id: "11111111-0000-4000-8000-0000000000e2", turn_id: "open" });
+    let state = run([
+      server(input("input", "Create Hush Garage V4")),
+      server(oldCard),
+      server({ type: "state", state: "confirming", turn_id: "input" }),
+      server({ type: "turn", state: "model_end", turn_id: "input" }),
+      server(output("read-back", "Should I create Hush Garage V4?")),
+      server({ type: "turn", state: "model_end", turn_id: "read-back" }),
+      server({ type: "state", state: "listening" }),
+      server({ type: "pending_action.resolved", pending_action_id: oldCard.pending_action_id, status: "cancelled", result_public: null }),
+      server(newCard),
+      server({ type: "state", state: "confirming", turn_id: "open" }),
+      server({ type: "name_edit.result", operation_id: "op-edit-1", status: "accepted", reason_code: null, message: null, pending_action_id: newCard.pending_action_id }),
+    ], connected());
+    expect(state.pendingAction?.pending_action_id).toBe(newCard.pending_action_id);
+    expect(hasOpenPendingAction(state)).toBe(true);
+    expect(state.phase).toBe("confirming");
+
+    // One asks about it and its turn ends: the card stays, and its own
+    // resolution still lands.
+    state = run([
+      server(output("open", "Should I create HUSSH GARAGE V04?")),
+      server({ type: "turn", state: "model_end", turn_id: "open" }),
+      server({ type: "state", state: "listening" }),
+    ], state);
+    expect(state.pendingAction?.pending_action_id).toBe(newCard.pending_action_id);
+    expect(hasOpenPendingAction(state)).toBe(true);
+    state = run([
+      server({ type: "pending_action.resolved", pending_action_id: newCard.pending_action_id, status: "executed", result_public: { status: "created" } }),
+    ], state);
+    expect(state.pendingAction?.resolvedStatus).toBe("executed");
+  });
+
   it("does not give an unowned result the answer slot after completion", () => {
     const state = run([
       server(input("a", "First question")),
@@ -955,6 +993,162 @@ describe("reduceVoiceSession: transcript", () => {
     expect(state.transcript).toHaveLength(200);
     const ids = state.transcript.map((item) => item.id);
     expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  // Frames copied verbatim from the relay (test_relay_protocol.py) for two
+  // provider shapes behind the UAT doubled lines (2026-10-06): cumulative
+  // hypotheses (B) and a finished chunk restating the line with a leading
+  // space (F). The relay merges the chunks; the reducer applies its frames.
+  it("relay frames for cumulative hypotheses and a restated final show one line each", () => {
+    const hypotheses = run(
+      [
+        server({ type: "transcript.input", text: "Hello", final: false, turn_id: "fffcd9870ab1", segment_id: "ed774565d20f", seq: 1, kind: "cumulative" }),
+        server({ type: "transcript.input", text: "Hello there", final: false, turn_id: "fffcd9870ab1", segment_id: "ed774565d20f", seq: 2, kind: "cumulative" }),
+        server({ type: "transcript.input", text: "Hello there", final: true, turn_id: "fffcd9870ab1", segment_id: "ed774565d20f", seq: 3, kind: "final" }),
+      ],
+      connected(),
+    );
+    expect(lines(hypotheses)).toEqual([["you", "Hello there"]]);
+    const restated = run(
+      [
+        server({ type: "transcript.input", text: "Create it", final: true, turn_id: "221ceb27e9f1", segment_id: "69ecdea15ba6", seq: 1, kind: "final" }),
+        server({ type: "transcript.output", text: "Shall I", final: false, turn_id: "221ceb27e9f1", segment_id: "a1a86d74bbfb", seq: 1, kind: "cumulative" }),
+        server({ type: "transcript.output", text: "Shall I create it?", final: false, turn_id: "221ceb27e9f1", segment_id: "a1a86d74bbfb", seq: 2, kind: "cumulative" }),
+        server({ type: "transcript.output", text: "Shall I create it?", final: true, turn_id: "221ceb27e9f1", segment_id: "a1a86d74bbfb", seq: 3, kind: "final" }),
+        server({ type: "turn", state: "model_end", turn_id: "221ceb27e9f1" }),
+      ],
+      connected(),
+    );
+    expect(lines(restated)).toEqual([
+      ["you", "Create it"],
+      ["one", "Shall I create it?"],
+    ]);
+  });
+
+  // Contract only: the frames below are hand-built to pin how the reducer
+  // applies segment_id/seq/kind (partial appends, cumulative replaces, final
+  // replaces and freezes, a seq at or below the row's last is ignored). They
+  // are not what the relay emits for any provider sequence; the relay's own
+  // merge is tested in test_relay_protocol.py.
+  const seg = (
+    role: "you" | "one",
+    text: string,
+    kind: "partial" | "cumulative" | "final",
+    seq: number,
+    segment_id = "s1",
+    turn_id = "t1",
+  ) =>
+    server({
+      type: role === "you" ? "transcript.input" : "transcript.output",
+      text,
+      final: kind === "final",
+      turn_id,
+      segment_id,
+      seq,
+      kind,
+    });
+
+  it("contract only: a cumulative frame equal to its row, then its final, shows once", () => {
+    const hearing = run(
+      [seg("you", "Hello", "cumulative", 1), seg("you", "Hello", "cumulative", 2)],
+      connected(),
+    );
+    expect(lines(hearing)).toEqual([["you", "Hello"]]);
+    const settled = run([seg("you", "Hello", "final", 3)], hearing);
+    expect(lines(settled)).toEqual([["you", "Hello"]]);
+    expect(settled.transcript[0]?.final).toBe(true);
+  });
+
+  it("contract only: a leading-space cumulative line and its final stay one row", () => {
+    const state = run(
+      [
+        seg("one", " Shall I", "cumulative", 1),
+        seg("one", " Shall I create it?", "cumulative", 2),
+        seg("one", " Shall I create it?", "final", 3),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", " Shall I create it?"]]);
+  });
+
+  it("contract only: spelled letters keep the repeated S", () => {
+    const deltas = run(
+      ["H", "U", "S", "S", "H"].map((letter, index) =>
+        seg("you", letter, "partial", index + 1),
+      ),
+      connected(),
+    );
+    expect(lines(deltas)).toEqual([["you", "HUSSH"]]);
+    const whole = run(
+      [seg("you", "H U S S", "cumulative", 1), seg("you", "H U S S H", "final", 2)],
+      connected(),
+    );
+    expect(lines(whole)).toEqual([["you", "H U S S H"]]);
+  });
+
+  it("contract only: a frame applied twice at the same seq changes its row once", () => {
+    const state = run(
+      [
+        seg("you", "Hel", "partial", 1),
+        seg("you", "lo", "partial", 2),
+        seg("you", "lo", "partial", 2),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["you", "Hello"]]);
+  });
+
+  it("contract only: a frame older than the row's last seq is ignored", () => {
+    const state = run(
+      [seg("you", "Hello there", "cumulative", 3), seg("you", "Hello", "cumulative", 2)],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["you", "Hello there"]]);
+  });
+
+  it("contract only: a final freezes its row and a new segment is a new row", () => {
+    const state = run(
+      [
+        seg("one", "Creating it.", "final", 1),
+        seg("one", "Creating it. Again", "cumulative", 2),
+        seg("one", "Done.", "cumulative", 1, "s2"),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([
+      ["one", "Creating it."],
+      ["one", "Done."],
+    ]);
+    expect(state.transcript.map((item) => item.id)).toEqual(["one:s1", "one:s2"]);
+  });
+
+  it("negative control: a frame missing any contract field takes the legacy merge", () => {
+    const partialFields = (text: string, final: boolean) =>
+      server({
+        type: "transcript.output",
+        text,
+        final,
+        turn_id: "t1",
+        segment_id: "s1",
+      });
+    const state = run(
+      [
+        partialFields(" Shall I create", false),
+        partialFields(" HUSSH GARAGE V04?", false),
+        partialFields("Shall I create HUSSH GARAGE V04?", true),
+      ],
+      connected(),
+    );
+    expect(lines(state)).toEqual([["one", "Shall I create HUSSH GARAGE V04?"]]);
+    expect(state.transcript[0]?.id).toBe("one:t1:0");
+    const doubled = run(
+      [
+        server({ type: "transcript.input", text: "S", final: false, turn_id: "t1", seq: 1 }),
+        server({ type: "transcript.input", text: "S", final: false, turn_id: "t1", seq: 1 }),
+      ],
+      connected(),
+    );
+    expect(lines(doubled)).toEqual([["you", "SS"]]);
   });
 
   it("property: no transcript frame ever produces a success-looking phase or receipt", () => {

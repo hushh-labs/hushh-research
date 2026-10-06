@@ -82,6 +82,11 @@ def test_rule_four_answers_a_waiting_card_with_its_id_not_a_new_proposal():
     # UAT 2026-10-02: a restated detail was read as a correction and re-asked.
     assert "it is not a correction, so never cancel it and propose the same thing again" in rule
     assert "repeats_cancelled means you cancelled this exact proposal" in rule
+    # UAT 2026-10-06: the head re-proposed and re-asked with no answer between.
+    assert (
+        "say so and wait. After you ask, wait for their answer: never propose again or "
+        'repeat the question on your own. "No", "stop"'
+    ) in rule
 
 
 def test_rule_four_confirms_first_when_a_yes_also_asks_for_more():
@@ -161,6 +166,11 @@ def test_authored_policy_from_agent_yaml_is_present():
     assert (
         "The company is Hussh, spelled with two s's; use that spelling only when they mean "
         "the company."
+    ) in flat
+    # UAT 2026-10-06: an unclear word was guessed again instead of spelled.
+    assert (
+        "If a word of a name is unclear, or they say a name is wrong without giving the fix, "
+        "ask them to spell just that word instead of guessing again."
     ) in flat
 
 

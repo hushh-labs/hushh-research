@@ -154,7 +154,8 @@ async def test_pending_call_needs_the_owners_key_to_open_or_store(monkeypatch):
         open = seal
 
     monkeypatch.setattr(mcp_pending_call, "ChatCipher", Locked)
-    with pytest.raises(ActionDirectiveAuthorityError):
+    # A locked vault is not an expired review: the chat-key refusal reaches the person.
+    with pytest.raises(ChatKeyUnavailableError):
         await pending_call_details(session(), handle)
     with pytest.raises(PendingCallStorageError):
         await capture_pending_call(context(), tool_name=TOOL, arguments={"q": "private"})
@@ -173,7 +174,9 @@ async def test_pending_call_lapses_with_its_review(shared_pending_store):
     await capture_pending_call(context(), tool_name=TOOL, arguments={}, review=review)
     (row,) = shared_pending_store.rows.values()
     remaining = row["expires_at"] - datetime.now(timezone.utc)
-    assert timedelta(minutes=5) < remaining <= timedelta(minutes=6)
+    # Exactly the review's own lifetime: the ledger refuses an expired directive, so a
+    # longer-lived record would only keep sealed arguments that can never be used.
+    assert timedelta(minutes=4, seconds=50) < remaining <= timedelta(minutes=5)
 
 
 @pytest.mark.parametrize(

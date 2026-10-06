@@ -120,11 +120,12 @@ describe("/circle/join landing", () => {
     expect(mockReplace).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "Explore One" })).toHaveAttribute("href", "/?invite=one");
   });
-  it("lets a guest explore three screens before signing in with the same code", async () => {
+  it("lets a guest explore four screens before signing in with the same code", async () => {
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
-    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "2");
+    expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "3");
     fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
     expect(await screen.findByRole("heading", { name: "Family Circle", level: 2 })).toBeInTheDocument();
     expect(screen.getByText("Invited by Alex")).toBeInTheDocument();
@@ -138,6 +139,7 @@ describe("/circle/join landing", () => {
   it("keeps an unavailable invitation recoverable without claiming membership", async () => {
     mockPublicPreview.mockRejectedValueOnce(new ApiError("expired", 404));
     render(<CircleJoinPage />);
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
     fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
     expect(await screen.findByText(/This invitation is unavailable/)).toBeInTheDocument();
@@ -151,6 +153,7 @@ describe("/circle/join landing", () => {
     mockPublicPreview.mockRejectedValueOnce(new ApiError("Too many requests", 429));
     render(<CircleJoinPage />);
     expect(screen.queryByRole("button", { name: "Sign in" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
     fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
     expect(await screen.findByText(/Preview is temporarily unavailable/)).toBeInTheDocument();
@@ -165,6 +168,7 @@ describe("/circle/join landing", () => {
     searchParams = new URLSearchParams();
     render(<CircleJoinPage />);
     expect(screen.getByTestId("guest-preview")).toHaveAttribute("data-preview-step", "1");
+    fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
     fireEvent.click(screen.getByRole("button", { name: "Meet your agents" }));
     fireEvent.click(screen.getByRole("button", { name: "See what’s next" }));
     expect(await screen.findByText(/missing its code/)).toBeInTheDocument();

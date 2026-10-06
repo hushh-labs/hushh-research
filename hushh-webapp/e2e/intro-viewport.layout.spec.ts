@@ -15,7 +15,7 @@ const viewports = [
 
 for (const dark of [false, true]) {
   for (const viewport of viewports) {
-    test(`three-screen intro ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fits`, async ({ page }, testInfo) => {
+    test(`four-screen intro ${dark ? "dark" : "light"} ${viewport.width}x${viewport.height} fits`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
       await page.addInitScript((theme) => localStorage.setItem("theme", theme), dark ? "dark" : "light");
       await page.emulateMedia({ reducedMotion: "reduce" });
@@ -25,9 +25,9 @@ for (const dark of [false, true]) {
       await expect(preview).toBeVisible({ timeout: 30000 });
       await page.addStyleTag({ content: `:root { --app-safe-area-top-effective: ${viewport.top}px !important; --app-safe-area-bottom-effective: ${viewport.bottom}px !important; }` });
       await page.evaluate(() => document.fonts.ready);
-      for (let step = 1; step <= 3; step++) {
+      for (let step = 1; step <= 4; step++) {
         await expect(preview).toHaveAttribute("data-preview-step", String(step));
-        const cta = preview.getByRole("button", { name: step === 1 ? "Meet your agents" : step === 2 ? "See what’s next" : "Create your One", exact: true });
+        const cta = preview.getByRole("button", { name: step === 1 ? "Create your One" : step === 2 ? "Meet your agents" : step === 3 ? "See what’s next" : "Create your One", exact: true });
         const result = await preview.evaluate((element) => {
           const root = document.querySelector<HTMLElement>("[data-app-scroll-root]")!;
           return { x: root.scrollWidth - root.clientWidth, y: root.scrollHeight - root.clientHeight, top: element.getBoundingClientRect().top };
@@ -38,7 +38,7 @@ for (const dark of [false, true]) {
         await cta.scrollIntoViewIfNeeded();
         await expect(cta).toBeInViewport();
         await page.screenshot({ path: testInfo.outputPath(`intro-${step}.png`) });
-        if (step < 3) await cta.click();
+        if (step < 4) await cta.click();
       }
     });
   }
