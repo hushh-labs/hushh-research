@@ -655,8 +655,12 @@ final class AppUITests: XCTestCase {
             assertSameHost()
         }
         assertNativeTargets()
-        let historySurface = web.descendants(matching: .any).matching(NSPredicate(
+        let historyDialogLabel = web.descendants(matching: .any).matching(NSPredicate(
             format: "label == %@", "Agent chat history")).firstMatch
+        // WebKit need not project a named DOM container as an AX element.
+        // Opening is proved by the public heading and the owned native Close,
+        // not by assuming that optional container label survives the bridge.
+        let historyHeading = web.staticTexts["Chats"].firstMatch
         let close = app.buttons.matching(NSPredicate(
             format: "identifier == %@ AND label == %@", "chat-history-toggle", "Close chat history")).firstMatch
         addTeardownBlock {
@@ -667,9 +671,13 @@ final class AppUITests: XCTestCase {
             let cloud = segment("one")
             if cloud.exists && cloud.isHittable && !cloud.isSelected { cloud.tap() }
         }
+        XCTAssertFalse(historyHeading.exists, "History must be closed before its opener is tested")
         history.tap()
-        XCTAssertTrue(historySurface.waitForExistence(timeout: 10), "The authored History dialog did not appear")
-        XCTAssertTrue(close.waitForExistence(timeout: 10) && close.isHittable, "Native History did not hand off to its owned Close")
+        let nativeCloseAppeared = close.waitForExistence(timeout: 10)
+        let chatsHeadingVisible = web.staticTexts["Chats"].firstMatch.exists
+        print("NATIVE_HISTORY_ACTION_RESULT native_close=\(nativeCloseAppeared) dialog_label=\(historyDialogLabel.exists) chats_heading=\(chatsHeadingVisible)")
+        XCTAssertTrue(historyHeading.waitForExistence(timeout: 10) && historyHeading.isHittable, "The authored History drawer did not appear")
+        XCTAssertTrue(nativeCloseAppeared && close.isHittable, "Native History did not hand off to its owned Close")
         let isolatedHistory = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             !history.exists || !history.isHittable
         }, object: history)
@@ -678,7 +686,7 @@ final class AppUITests: XCTestCase {
         XCTAssertEqual(app.buttons.matching(identifier: "chat-history-toggle").count, 1, "Close handoff duplicated the control")
         XCTAssertGreaterThanOrEqual(close.frame.width, 44)
         XCTAssertGreaterThanOrEqual(close.frame.height, 44)
-        XCTAssertFalse(historySurface.buttons.matching(NSPredicate(
+        XCTAssertFalse(web.buttons.matching(NSPredicate(
             format: "label == %@ AND identifier != %@", "Close chat history", "chat-history-toggle")).firstMatch.exists,
             "DOM and native Close must not both be accessible")
         awaitAbsent(selector, "Native selector remained accessible under history")
@@ -687,8 +695,10 @@ final class AppUITests: XCTestCase {
         awaitAbsent(close, "History did not dismiss")
         // Native/gesture return must not pin a focused DOM hamburger. No
         // unrelated blur tap may be used to make the handoff pass.
-        XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable)
-        XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
+        XCTAssertTrue(history.waitForExistence(timeout: 10) && history.isHittable,
+                      "Native History did not return without a second blur")
+        XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable,
+                      "Native selector did not return after History dismissal")
         assertNativeTargets()
         for _ in 0..<2 {
             let openProfile = web.buttons["Open Profile"].firstMatch
@@ -709,9 +719,18 @@ final class AppUITests: XCTestCase {
             XCTAssertTrue(selector.waitForExistence(timeout: 10) && selector.isHittable)
             assertSameHost()
         }
+        print("NATIVE_CHROME_REOPEN history=true profile_cycles=2")
         segment("puppy").tap()
         let puppyComposer = web.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "Message Puppy One")).firstMatch
-        XCTAssertTrue(puppyComposer.waitForExistence(timeout: 15), "Native selector did not enter the authored Puppy surface")
+        // A reviewer with no Puppy conversations has an authored empty state,
+        // not a composer. Creating a conversation just to satisfy this chrome
+        // check would mutate the account and substitute a different journey.
+        let puppyStart = web.buttons["Start a Puppy chat"].firstMatch
+        let puppySurface = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            puppyComposer.exists || puppyStart.exists
+        }, object: app)
+        XCTAssertEqual(XCTWaiter.wait(for: [puppySurface], timeout: 15), .completed,
+                       "Native selector did not enter the authored Puppy surface")
         let puppySelected = XCTNSPredicateExpectation(predicate: NSPredicate(format: "selected == true"), object: segment("puppy"))
         XCTAssertEqual(XCTWaiter.wait(for: [puppySelected], timeout: 10), .completed, "React selection was not projected back to Picker")
         assertSameHost()

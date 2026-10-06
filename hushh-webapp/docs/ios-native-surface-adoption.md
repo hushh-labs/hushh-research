@@ -230,6 +230,29 @@ or overflow assertions. This test/documentation correction does not change the
 installed product bundle. Full-head CI, visual/accessibility qualification and
 three Release performance runs remain required before native-family promotion.
 
+The `2335e69f0` production-targeted Debug iPhone candidate passed normal
+reviewer unlock using verified software-keyboard entry. Its dedicated native
+check admitted both system selector segments (44 by 49 points), opened History,
+returned its native opener without another blur, and retained native Profile
+Close over two consecutive openings. WebKit omitted the named dialog container
+from its accessibility projection even though the public Chats heading and owned
+native Close were present. The check now uses those actual interaction targets
+and independently checks for duplicate web Close controls. A reviewer with no
+Puppy conversation is tested through its authored empty state; the chrome check
+does not create a conversation. Full selector/keyboard completion and current
+combined-head device acceptance remain separate gates.
+
+The combined branch also repairs early tab reversal at the shared pager: a
+rounded visible pane no longer hides its different pending destination. Both
+tap and controlled-route regressions fail on the old admission check. The
+unchanged Wallet browser journey then exposed native focus scrolling of its
+hidden-overflow viewport during travel, independent of Embla's correct target.
+The shared viewport uses non-scrolling CSS clipping where supported, retaining
+hidden-overflow compatibility on older engines. The unchanged draft/return
+journey passes three Chromium and three WebKit runs; the WebKit page-scroll,
+swipe and reduced-motion checks also pass. Temporary numeric probes were
+removed. These browser results do not replace physical gesture/frame evidence.
+
 At `6f8663c9b`, canonical core passed in 787 seconds and the separately installed
 iPhone candidate passed normal unlock plus all five warm regression journeys.
 The dedicated check admitted native History after releasing authored fallback
