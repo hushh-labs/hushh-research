@@ -179,8 +179,11 @@ The source audit identifies two concrete consumers, not a global button rewrite:
   `onOpenChange` and focus-return contract. Credential/security panels stay DOM.
 - [LocationImmersiveMap](../components/one-location/location-immersive-map.tsx):
   its stationary 56-point exit invokes the existing `closeMap` owner. It is used
-  by Location, its map route and check-in. Verify its navigation fallback does
-  not discard the warm vault before native admission. Do not bundle Locate:
+  by Location, its map route and check-in. Close now retains client navigation;
+  delayed settlement and unmount cannot trigger a hard reload. Only the owning
+  transition's cancellation or rejection permits an explicit retry, never replay.
+  Focused regressions cover these boundaries; fresh physical warm-vault proof
+  remains required before native admission. Do not bundle Locate:
   that callback can update an already-consented location share.
 
 These controls are **not implemented or enabled natively**. The bridge now has
