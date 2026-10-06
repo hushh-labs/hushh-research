@@ -34,6 +34,7 @@ def test_send_person_ref_threads_authenticated_sender_and_never_accepts_a_peer_u
         content="hello",
         recipient_user_id=None,
         recipient_person_ref="11111111-1111-4111-8111-111111111111",
+        reply_to_message_id=None,
     )
 
 
@@ -91,3 +92,36 @@ def test_direct_message_sse_event_is_metadata_only():
         "at": "2026-01-01T00:00:00Z",
         "deepLink": None,
     }
+
+
+def test_message_actions_keep_participant_identity_server_side():
+    service = MagicMock()
+    service.edit_message.return_value = {"message": {"id": "message-1"}}
+    service.delete_message.return_value = {"scope": "everyone", "message": {"id": "message-1"}}
+    service.react_to_message.return_value = {"message": {"id": "message-1"}}
+    conversation_id = "11111111-1111-4111-8111-111111111111"
+    message_id = "22222222-2222-4222-8222-222222222222"
+    with patch("api.routes.one.messages._service", return_value=service):
+        client = _client()
+        edited = client.patch(
+            f"/api/one/messages/conversations/{conversation_id}/messages/{message_id}",
+            json={"content": "edited"},
+        )
+        deleted = client.delete(
+            f"/api/one/messages/conversations/{conversation_id}/messages/{message_id}?scope=everyone"
+        )
+        reacted = client.put(
+            f"/api/one/messages/conversations/{conversation_id}/messages/{message_id}/reaction",
+            json={"emoji": "😀"},
+        )
+
+    assert edited.status_code == deleted.status_code == reacted.status_code == 200
+    service.edit_message.assert_called_once_with(
+        "viewer-user", conversation_id, message_id, content="edited"
+    )
+    service.delete_message.assert_called_once_with(
+        "viewer-user", conversation_id, message_id, scope="everyone"
+    )
+    service.react_to_message.assert_called_once_with(
+        "viewer-user", conversation_id, message_id, emoji="😀"
+    )

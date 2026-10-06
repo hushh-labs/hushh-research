@@ -806,13 +806,14 @@
       "id": "direct_message_encrypted_content",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread-count/read-receipt updates, and transactionally committed recipient doorbells from the Direct Messages service."
+      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service."
     },
     {
       "data_class": "personal_metadata",
       "exact_tables": [
         "conversations",
-        "direct_message_blocks"
+        "direct_message_blocks",
+        "direct_message_reactions"
       ],
       "id": "direct_message_relationship_state",
       "lifecycle_status": "current",
@@ -5966,7 +5967,7 @@
     "action_gateway": "f1345cd5c40ee9acc3e4bd30e393a4d6604f061364653ce48dcd1c07c34b9788",
     "agent_registry": "d5b9f001a88245b6b0a643a59e045280e6da0af2692ba79958882300a4d6bab1",
     "cache_manifest": "ccd08c267d6ae66e4d2d3e04cdbded3bf447a7adc3d963a08d3e81bc9890351d",
-    "data_plane": "7346e15f32e4b1a2aaffbe1335e6f8a342636438d3fc313c7c4fed987974855c",
+    "data_plane": "7b01c32aa1634cd345e2618f09731dd0b55376b57ddf8ad11bfe7f2ce6ba47ac",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "3dc81d307ef8cf9932ca3f80c2d54915515161968d0303feccea401e8afebce9",
     "route_index": "61997dcd9594becaf7fa952f7988767b948d853733883bfa2859cd8e055c6513",

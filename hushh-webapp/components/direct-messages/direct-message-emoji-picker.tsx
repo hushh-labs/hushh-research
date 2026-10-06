@@ -7,6 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 import styles from "./direct-message-emoji-picker.module.css";
 
@@ -205,11 +206,17 @@ function readRecentEmojis(): string[] {
 type DirectMessageEmojiPickerProps = {
   disabled?: boolean;
   onEmojiSelect: (emoji: string) => void;
+  label?: string;
+  triggerClassName?: string;
+  compact?: boolean;
 };
 
 export function DirectMessageEmojiPicker({
   disabled = false,
   onEmojiSelect,
+  label = "Choose emoji",
+  triggerClassName,
+  compact = false,
 }: DirectMessageEmojiPickerProps) {
   const [open, setOpen] = useState(false);
   const [activeCategory, setActiveCategory] = useState(DEFAULT_CATEGORY.id);
@@ -263,9 +270,10 @@ export function DirectMessageEmojiPicker({
       <PopoverTrigger asChild>
         <button
           type="button"
-          className={styles.trigger}
-          aria-label="Choose emoji"
+          className={cn(styles.trigger, triggerClassName)}
+          aria-label={label}
           aria-expanded={open}
+          data-compact={compact || undefined}
           disabled={disabled}
         >
           <span aria-hidden="true">☺</span>

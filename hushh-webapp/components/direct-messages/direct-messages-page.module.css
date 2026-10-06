@@ -425,7 +425,8 @@ article[data-message-role="user"] .messageActions {
 }
 
 .messageFeedItem:hover .messageActions,
-.messageFeedItem:focus-within .messageActions {
+.messageFeedItem:focus-within .messageActions,
+article[data-actions-visible="true"] .messageActions {
   opacity: 1;
   pointer-events: auto;
 }
@@ -452,79 +453,131 @@ article[data-message-role="user"] .messageActions {
   outline-offset: 1px;
 }
 
-.reactionPicker,
-.messageMenu {
-  position: absolute;
-  z-index: 3;
-  right: 0;
-  bottom: calc(100% + 0.375rem);
-  display: flex;
-  border: 1px solid color-mix(in oklab, var(--foreground) 8%, transparent);
-  border-radius: 0.875rem;
-  background: var(--one-chat-menu, var(--one-chat-raised));
-  box-shadow: 0 10px 24px rgb(0 0 0 / 0.12);
-}
-
-article[data-message-role="peer"] .reactionPicker,
-article[data-message-role="peer"] .messageMenu {
-  right: auto;
-  left: 0;
-}
-
-.reactionPicker {
-  gap: 0.125rem;
-  padding: 0.25rem;
-}
-
-.reactionPicker button {
-  display: inline-grid;
-  width: 1.875rem;
-  height: 1.875rem;
-  padding: 0;
-  place-items: center;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-  font-size: 0.875rem;
-}
-
-.reactionPicker button:hover,
-.reactionPicker button:focus-visible {
-  background: var(--one-chat-field);
-  outline: none;
-}
-
 .messageMenu {
   width: max-content;
   min-width: 10.75rem;
-  flex-direction: column;
-  padding: 0.25rem;
 }
 
-.messageMenu button {
-  display: flex;
-  min-height: 2rem;
-  align-items: center;
-  gap: 0.5rem;
+@media (max-width: 32rem) {
+  /* Keep both reveal-on-tap controls inside the scroller's horizontal
+   * viewport. The menu itself is portalled, but the two visible triggers are
+   * intentionally anchored beside their bubble. */
+  .messageCluster {
+    max-width: calc(100% - 4.5rem);
+  }
+}
+
+.replyPreview {
+  display: grid;
+  gap: 0.125rem;
+  min-width: 11rem;
+  margin: -0.125rem -0.25rem 0.45rem;
   padding: 0.375rem 0.5rem;
+  border-left: 0.1875rem solid color-mix(in oklab, currentColor 55%, transparent);
+  border-radius: 0.25rem;
+  background: color-mix(in oklab, currentColor 9%, transparent);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.replyPreview span {
+  font-weight: 700;
+}
+
+.replyPreview p {
+  overflow: hidden;
+  margin: 0;
+  opacity: 0.78;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deletedMessage {
+  color: color-mix(in oklab, currentColor 76%, transparent);
+  font-style: italic;
+}
+
+.editedLabel {
+  display: block;
+  margin-top: 0.25rem;
+  opacity: 0.7;
+  font-size: 0.625rem;
+  text-align: right;
+}
+
+.messageEditForm {
+  display: grid;
+  min-width: min(14rem, 62vw);
+  gap: 0.375rem;
+}
+
+.messageEditInput {
+  min-height: 3.75rem;
+  resize: vertical;
   border: 0;
   border-radius: 0.5rem;
-  background: transparent;
+  background: color-mix(in oklab, var(--one-chat-raised) 94%, transparent);
   color: var(--foreground);
-  cursor: pointer;
-  font-size: 0.75rem;
-  text-align: left;
-}
-
-.messageMenu button:hover,
-.messageMenu button:focus-visible {
-  background: var(--one-chat-field);
+  padding: 0.5rem;
+  font: inherit;
   outline: none;
 }
 
-.messageMenu .destructiveMessageAction {
-  color: var(--destructive);
+.messageEditInput:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--app-accent) 48%, transparent);
+}
+
+.messageEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.375rem;
+}
+
+.messageEditActions button {
+  min-height: 1.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in oklab, currentColor 14%, transparent);
+  color: inherit;
+  cursor: pointer;
+  padding: 0.25rem 0.625rem;
+  font: inherit;
+  font-size: 0.75rem;
+}
+
+.messageEditActions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.messageReactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+article[data-message-role="user"] .messageReactions {
+  justify-content: flex-end;
+}
+
+.reactionChip {
+  display: inline-flex;
+  min-height: 1.5rem;
+  align-items: center;
+  gap: 0.1875rem;
+  border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+  border-radius: 999px;
+  background: var(--one-chat-raised);
+  color: var(--foreground);
+  cursor: pointer;
+  padding: 0.125rem 0.4375rem;
+  font-size: 0.75rem;
+}
+
+.reactionChip[data-reacted-by-viewer="true"] {
+  border-color: color-mix(in oklab, var(--app-accent) 55%, transparent);
+  background: color-mix(in oklab, var(--app-accent) 12%, var(--one-chat-raised));
 }
 
 .composer {
@@ -539,6 +592,47 @@ article[data-message-role="peer"] .messageMenu {
   border: 0;
   background: transparent;
   box-shadow: none;
+  flex-wrap: wrap;
+}
+
+.composerReplyPreview {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: -0.125rem 0 0.125rem;
+  padding: 0.375rem 0.25rem 0.375rem 0.625rem;
+  border-left: 0.1875rem solid var(--app-accent);
+  background: color-mix(in oklab, var(--app-accent) 8%, transparent);
+  color: var(--foreground);
+  font-size: 0.75rem;
+}
+
+.composerReplyPreview div {
+  display: grid;
+  min-width: 0;
+  gap: 0.0625rem;
+}
+
+.composerReplyPreview span {
+  overflow: hidden;
+  color: var(--muted-foreground);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.composerReplyPreview button {
+  display: inline-grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  font-size: 1.25rem;
 }
 
 .composerInput {

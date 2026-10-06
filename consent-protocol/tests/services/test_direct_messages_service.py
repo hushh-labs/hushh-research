@@ -216,6 +216,105 @@ def test_active_connection_query_also_requires_no_direct_message_block(monkeypat
     assert captured["params"] == {"sender_user_id": "alice", "recipient_user_id": "bob"}
 
 
+def _action_message(*, sender_user_id="alice", deleted_for_everyone_at=None):
+    return {
+        **_message(),
+        "sender_user_id": sender_user_id,
+        "edited_at": None,
+        "reply_to_message_id": None,
+        "deleted_for_sender_at": None,
+        "deleted_for_recipient_at": None,
+        "deleted_for_everyone_at": deleted_for_everyone_at,
+        "participant_a_user_id": "alice",
+        "participant_b_user_id": "bob",
+        "reactions": [],
+    }
+
+
+def test_sender_only_actions_reject_a_participant_who_did_not_send_the_message(monkeypatch):
+    service = _service()
+    monkeypatch.setattr(
+        service,
+        "_message_action_row",
+        lambda *_args: _action_message(sender_user_id="bob"),
+    )
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda *_args, **_kwargs: pytest.fail("unauthorized action reached a database write"),
+    )
+
+    with pytest.raises(DirectMessagesError) as caught:
+        service.edit_message("alice", _CONVERSATION_ID, _MESSAGE_ID, content="edited")
+
+    assert caught.value.code == "DIRECT_MESSAGE_ACTION_FORBIDDEN"
+
+
+def test_edit_reencrypts_and_reaction_is_persisted_for_the_authenticated_participant(monkeypatch):
+    cipher = _Cipher()
+    service = _service(cipher)
+    action_row = _action_message()
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(service, "_message_action_row", lambda *_args: action_row)
+
+    def execute_one(sql, params=None):
+        calls.append((sql, params or {}))
+        if "UPDATE messages" in sql:
+            return {"id": _MESSAGE_ID}
+        if "INSERT INTO direct_message_reactions" in sql:
+            return {"message_id": _MESSAGE_ID}
+        return None
+
+    monkeypatch.setattr(service, "_execute_one", execute_one)
+
+    edited = service.edit_message("alice", _CONVERSATION_ID, _MESSAGE_ID, content="updated")
+    reacted = service.react_to_message("alice", _CONVERSATION_ID, _MESSAGE_ID, emoji="👍")
+
+    assert cipher.sealed == [
+        (
+            "updated",
+            {
+                "conversation_id": _CONVERSATION_ID,
+                "message_id": _MESSAGE_ID,
+                "sender_user_id": "alice",
+            },
+        )
+    ]
+    assert edited["message"]["content"] == "decrypted text"
+    assert reacted["message"]["content"] == "decrypted text"
+    edit_params = next(params for sql, params in calls if "UPDATE messages" in sql)
+    reaction_params = next(
+        params for sql, params in calls if "INSERT INTO direct_message_reactions" in sql
+    )
+    assert edit_params["content_ciphertext"] == "opaque-ciphertext"
+    assert "content" not in edit_params
+    assert reaction_params == {
+        "message_id": _MESSAGE_ID,
+        "viewer_user_id": "alice",
+        "emoji": "👍",
+    }
+
+
+def test_delete_for_me_uses_the_viewers_participant_visibility_field(monkeypatch):
+    service = _service()
+    calls: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        service,
+        "_message_action_row",
+        lambda *_args: _action_message(sender_user_id="alice"),
+    )
+    monkeypatch.setattr(
+        service,
+        "_execute_one",
+        lambda sql, params=None: calls.append((sql, params or {})) or {"id": _MESSAGE_ID},
+    )
+
+    result = service.delete_message("bob", _CONVERSATION_ID, _MESSAGE_ID, scope="me")
+
+    assert result == {"scope": "me", "message": None}
+    assert "SET deleted_for_recipient_at = NOW()" in calls[0][0]
+
+
 def test_block_requires_an_existing_relationship_and_persists_a_directed_row(monkeypatch):
     service = _service()
     monkeypatch.setattr(service, "_message_relationship_exists", lambda *_args: True)

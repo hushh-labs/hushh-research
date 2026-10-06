@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -31,3 +32,30 @@ def test_direct_message_migration_has_a_non_destructive_rollback_guard():
         / "264_direct_messages.rollback.sql"
     ).read_text(encoding="utf-8")
     assert "Cannot rollback direct messages while message history exists" in rollback
+
+
+def test_direct_message_actions_preserve_encrypted_bodies_and_participant_boundaries():
+    root = Path(__file__).resolve().parents[1]
+    migration_name = "282_direct_message_actions.sql"
+    migration = (root / "db" / "migrations" / migration_name).read_text(encoding="utf-8")
+    rollback = (
+        root / "db" / "migrations" / "rollback" / "282_direct_message_actions.rollback.sql"
+    ).read_text(encoding="utf-8")
+    manifest = json.loads((root / "db" / "release_migration_manifest.json").read_text())
+    normalized = migration.lower()
+
+    assert "reply_to_message_id" in normalized
+    assert "deleted_for_everyone_at" in normalized
+    assert "create table if not exists public.direct_message_reactions" in normalized
+    assert "enable row level security" in normalized
+    assert (
+        "revoke all privileges on table public.direct_message_reactions from public" in normalized
+    )
+    assert "direct_message_reaction_forbidden" in normalized
+    assert "remove_direct_message_feed_event" in normalized
+    assert "perform public.install_account_deletion_write_guards();" in normalized
+    assert migration_name in manifest["ordered_migrations"]
+    assert manifest["rollback_migrations"][migration_name] == (
+        "rollback/282_direct_message_actions.rollback.sql"
+    )
+    assert "drop table if exists public.direct_message_reactions" in rollback.lower()

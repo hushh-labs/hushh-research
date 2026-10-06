@@ -253,14 +253,15 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "conversations",
-        "direct_message_blocks"
+        "direct_message_blocks",
+        "direct_message_reactions"
       ],
       "primary_access_path": "Firebase-authenticated Direct Messages service and /api/one/messages routes. Conversation creation and message insertion lock and verify only the canonical active connections pair; they never infer eligibility from Circle membership, trusted_connections, or a connection origin. Read paths remain participant-scoped after a connection ends.",
-      "retention_policy": "Conversation-pair and directed block metadata remain while both accounts exist. Ending a connection does not delete a conversation; it changes the write gate to read-only. A directed block remains until its blocker explicitly removes it or either account is deleted, including through a later reconnection.",
-      "deletion_behavior": "Actor-profile foreign keys cascade conversation and directed block rows on account deletion; message rows cascade from a deleted conversation. AccountService also removes the participant graph explicitly so no relationship history is retained for an erased account.",
+      "retention_policy": "Conversation-pair, directed block, and participant reaction metadata remain while both accounts exist. Ending a connection does not delete a conversation; it changes the write gate to read-only. A directed block remains until its blocker explicitly removes it or either account is deleted, including through a later reconnection.",
+      "deletion_behavior": "Actor-profile foreign keys cascade conversation, directed block, and reaction rows on account deletion; message rows cascade from a deleted conversation and their reactions cascade with them. AccountService also removes the participant graph explicitly so no relationship history is retained for an erased account.",
       "trust_boundary": "Only canonical participant IDs, opaque UUIDs and timestamps are plaintext. RLS is default-deny with no client-table policies; authenticated routes/service enforce participant reads, block ownership and response shaping. The database trigger locks the canonical connection row and rejects new writes after revocation or either directed block, while history remains readable through the participant API.",
       "plaintext_posture": "relationship_metadata_only",
-      "expected_row_growth": "low_per_unique_participant_pair_and_directed_block"
+      "expected_row_growth": "low_per_unique_participant_pair_block_and_message_reaction"
     },
     {
       "id": "direct_message_encrypted_content",
@@ -270,9 +271,9 @@
       "exact_tables": [
         "messages"
       ],
-      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread-count/read-receipt updates, and transactionally committed recipient doorbells from the Direct Messages service.",
+      "primary_access_path": "Participant-scoped conversation history, latest-message inbox projection, unread/read-receipt updates, sender-only edit and global delete actions, same-conversation replies, and transactionally committed recipient doorbells from the Direct Messages service.",
       "retention_policy": "Retain encrypted message history while its participant accounts exist. Disconnect and block preserve history but prohibit new message envelopes; no automatic disconnect deletion occurs.",
-      "deletion_behavior": "Delete with the parent conversation or either actor account through foreign-key cascades and AccountService account-erasure cleanup. Never delete history merely because a connection is removed or blocked.",
+      "deletion_behavior": "Delete with the parent conversation or either actor account through foreign-key cascades and AccountService account-erasure cleanup. A person can hide a message only from their own history; a sender can tombstone it for both participants. Never delete history merely because a connection is removed or blocked.",
       "trust_boundary": "Each text body is an AES-256-GCM envelope under server-managed DIRECT_MESSAGE_ENCRYPTION_KEY_V1. content_ciphertext contains the GCM tag and AAD binds direct-message-v1, conversation id, message id and sender id; plaintext is never stored. The transactional one_user_state_changed doorbell carries only opaque ids, time and a deep link\u00e2\u20ac\u201dnever content, cipher fields, sender identity or an unread count. This is encrypted-at-rest server-readable messaging, not client-key end-to-end encryption.",
       "plaintext_posture": "ciphertext_and_minimal_message_metadata",
       "expected_row_growth": "high_per_participant_conversation"
