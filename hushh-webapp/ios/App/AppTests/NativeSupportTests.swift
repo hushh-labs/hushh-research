@@ -392,6 +392,7 @@ final class NativeSupportTests: XCTestCase {
     func testNativeUiFlowConfigurationRequiresExplicitTestMode() {
         let ordinaryLaunch = NativeTestConfiguration(arguments: [
             "App",
+            "--hushh-vault-layout-diagnostics",
             "-UITestRunUiFlows", "true",
             "-UITestUiFlowRunId", "ios-run-1",
         ])
@@ -403,6 +404,9 @@ final class NativeSupportTests: XCTestCase {
         ])
 
         XCTAssertFalse(ordinaryLaunch.enabled)
+        XCTAssertFalse(ordinaryLaunch.autoReviewerLogin)
+        XCTAssertNil(ordinaryLaunch.vaultPassphrase)
+        XCTAssertNil(ordinaryLaunch.expectedUserId)
         XCTAssertFalse(ordinaryLaunch.runUiFlows)
         XCTAssertNil(ordinaryLaunch.uiFlowRunId)
         XCTAssertTrue(testLaunch.enabled)

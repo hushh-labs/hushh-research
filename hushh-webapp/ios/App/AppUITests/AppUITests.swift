@@ -55,6 +55,17 @@ final class AppUITests: XCTestCase {
             format: "label CONTAINS %@", "Vault opened, but we could not complete access setup. Please try again."
         )).firstMatch.exists
         print("VAULT_GATE_NOTICE unlock_count=\(web.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).count) access_setup_failure=\(accessSetupFailure)")
+        if unlock.exists {
+            // Credential-free clipping diagnosis: public geometry only, no
+            // screenshots, field values, account text or accessibility dump.
+            let entry = web.secureTextFields.matching(NSPredicate(
+                format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
+            )).firstMatch
+            for (name, element) in [("window", app), ("web", web), ("keyboard", app.keyboards.firstMatch), ("entry", entry), ("unlock", unlock)] {
+                let bounds = element.exists ? element.frame : .zero
+                print("VAULT_GATE_GEOMETRY control=\(name) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded())) hittable=\(element.exists && element.isHittable)")
+            }
+        }
         print("NATIVE_AUTOMATION_ADMISSION_CONFIRMED")
     }
 
@@ -103,6 +114,131 @@ final class AppUITests: XCTestCase {
         perfTapNav(app, label: "Chat")
         XCTAssertTrue(composer.waitForExistence(timeout: 15) && composer.isHittable, "Protected Chat was not admitted")
         print("VAULT_UNLOCK_VERIFIED protected_chat=true")
+    }
+
+    func testLocalSessionVaultPublicLayoutWithKeyboard() throws {
+        guard ProcessInfo.processInfo.environment["HUSHH_RUN_LOCAL_SESSION_SMOKE"] == "true" else {
+            throw XCTSkip("Opt-in credential-free vault layout check")
+        }
+        let app = XCUIApplication()
+        guard [.runningForeground, .runningBackground, .runningBackgroundSuspended].contains(app.state) else {
+            XCTFail("VAULT_LAYOUT_REQUIRES_RUNNING_APP"); return
+        }
+        app.activate()
+        let web = app.webViews.matching(identifier: "native-webview").firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 15), "VAULT_LAYOUT_HOST_UNAVAILABLE")
+        let entry = web.secureTextFields.matching(NSPredicate(
+            format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase"
+        )).firstMatch
+        XCTAssertTrue(entry.waitForExistence(timeout: 30) && entry.isHittable, "VAULT_LAYOUT_ENTRY_CLIPPED")
+        let probe = app.buttons["native-vault-layout"]
+        func geometry() -> [String: NSNumber]? {
+            guard probe.exists, let json = probe.value as? String,
+                  let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
+                  packet["presentCount"]?.intValue == 1 else { return nil }
+            return packet
+        }
+        func settledGeometry(after sequence: Int, matchingHeight: Double? = nil) -> [String: NSNumber]? {
+            var latestSequence = sequence
+            var previous: [String: NSNumber]?
+            var settled: [String: NSNumber]?
+            let ready = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                guard let packet = geometry(), let next = packet["sequence"]?.intValue, next > latestSequence,
+                      ["innerHeight", "visualTop", "visualScale", "cssInset", "scrollTopEdge", "scrollBottomEdge", "scrollTop", "nativeGuideHeight", "nativeBottomSafeArea"].allSatisfy({ packet[$0] != nil }) else { return false }
+                if let matchingHeight, abs((packet["innerHeight"]?.doubleValue ?? -1) - matchingHeight) > 1 { return false }
+                latestSequence = next
+                let comparable = packet.filter { $0.key != "sequence" }
+                if let previous, NSDictionary(dictionary: comparable).isEqual(to: previous) {
+                    settled = packet
+                    return true
+                }
+                previous = comparable
+                return false
+            }, object: probe)
+            XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 10), .completed, "VAULT_LAYOUT_PUBLIC_GEOMETRY_STALLED")
+            return settled
+        }
+        func report(_ stage: String, packet: [String: NSNumber]?) {
+            if let packet, let data = try? JSONSerialization.data(withJSONObject: packet, options: [.sortedKeys]),
+               let json = String(data: data, encoding: .utf8) {
+                print("VAULT_CSS_GEOMETRY stage=\(stage) packet=\(json)")
+            }
+            for (name, element) in [("entry", entry), ("unlock", web.buttons["Unlock"].firstMatch),
+                                    ("recovery", web.buttons["Recovery key"].firstMatch),
+                                    ("signout", web.buttons["Sign out"].firstMatch),
+                                    ("keyboard", app.keyboards.firstMatch)] {
+                let bounds = element.exists ? element.frame : .zero
+                print("VAULT_LAYOUT stage=\(stage) control=\(name) x=\(Int(bounds.minX.rounded())) y=\(Int(bounds.minY.rounded())) width=\(Int(bounds.width.rounded())) height=\(Int(bounds.height.rounded())) hittable=\(element.exists && element.isHittable)")
+            }
+            for (name, label) in [("unlock", "Unlock"), ("recovery", "Recovery key"), ("signout", "Sign out")] {
+                let matches = web.buttons.matching(NSPredicate(format: "label == %@", label)).allElementsBoundByIndex
+                print("VAULT_LAYOUT_REACHABILITY stage=\(stage) control=\(name) count=\(matches.count) hittable=\(matches.contains { $0.isHittable })")
+            }
+        }
+        let rest = settledGeometry(after: 0)
+        report("rest", packet: rest)
+        entry.tap()
+        // A connected hardware keyboard is a valid tablet state. Do not
+        // confuse its absent software keyboard with a clipped vault form.
+        _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
+        let focused = settledGeometry(after: rest?["sequence"]?.intValue ?? 0)
+        report("focused", packet: focused)
+        // Never submit Unlock or read/change the credential. Close only the
+        // system's keyboard control when it is available (iPad); this keeps
+        // the existing owner, vault and document untouched.
+        let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
+        if hide.exists && hide.isHittable { hide.tap() }
+        let beforeScroll = settledGeometry(after: focused?["sequence"]?.intValue ?? 0)
+        let signOut = web.buttons.matching(NSPredicate(format: "label == %@", "Sign out"))
+        if !signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }) {
+            // Scroll inside the credential column, not the native host or a
+            // background route. Do not invoke any recovery/account operation.
+            guard let packet = beforeScroll, let top = packet["scrollTopEdge"]?.doubleValue,
+                  let bottom = packet["scrollBottomEdge"]?.doubleValue,
+                  let height = packet["innerHeight"]?.doubleValue,
+                  bottom > top, height > 0 else { XCTFail("VAULT_LAYOUT_SCROLLPORT_UNKNOWN"); return }
+            XCTAssertEqual(packet["visualScale"]?.doubleValue ?? -1, 1, accuracy: 0.01, "VAULT_LAYOUT_SCROLL_SCALE_UNKNOWN")
+            XCTAssertEqual(packet["visualTop"]?.doubleValue ?? -1, 0, accuracy: 1, "VAULT_LAYOUT_SCROLL_OFFSET_UNKNOWN")
+            XCTAssertEqual(height, web.frame.height, accuracy: 1, "VAULT_LAYOUT_SCROLL_COORDINATES_UNKNOWN")
+            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.8) / height))
+            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.2) / height))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        report("scrolled", packet: settledGeometry(after: beforeScroll?["sequence"]?.intValue ?? 0))
+        XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_RECOVERY_ESCAPE_UNREACHABLE")
+        let originalOrientation = XCUIDevice.shared.orientation
+        defer { XCUIDevice.shared.orientation = originalOrientation }
+        var sequence = geometry()?["sequence"]?.intValue ?? 0
+        for (stage, orientation) in [("portrait", UIDeviceOrientation.portrait), ("landscape", UIDeviceOrientation.landscapeLeft)] {
+            XCUIDevice.shared.orientation = orientation
+            let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                let frame = web.frame
+                return frame.width > 0 && frame.height > 0 &&
+                    (orientation.isLandscape ? frame.width > frame.height : frame.height > frame.width)
+            }, object: web)
+            guard XCTWaiter.wait(for: [rotated], timeout: 10) == .completed else {
+                XCTFail("VAULT_LAYOUT_ROTATION_NOT_APPLIED"); return
+            }
+            let packet = settledGeometry(after: sequence, matchingHeight: web.frame.height)
+            sequence = packet?["sequence"]?.intValue ?? sequence
+            report(stage, packet: packet)
+            XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_ROTATED_ENTRY_CLIPPED")
+            XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_ROTATED_ESCAPE_UNREACHABLE")
+            XCTAssertTrue(packet?["recoveryInside"]?.boolValue == true && packet?["recoveryHits"]?.boolValue == true,
+                          "VAULT_LAYOUT_ROTATED_RECOVERY_CLIPPED")
+        }
+        // Resume the same installed document through the normal privacy path.
+        // No relaunch, reset, credential input or account operation is allowed.
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "VAULT_LAYOUT_RESUME_ENTRY_MISSING")
+        let resumed = settledGeometry(after: sequence, matchingHeight: web.frame.height)
+        report("resumed", packet: resumed)
+        XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_RESUME_ENTRY_CLIPPED")
+        XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_RESUME_ESCAPE_UNREACHABLE")
+        XCTAssertTrue(resumed?["recoveryInside"]?.boolValue == true && resumed?["recoveryHits"]?.boolValue == true,
+                      "VAULT_LAYOUT_RESUME_RECOVERY_CLIPPED")
     }
 
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {

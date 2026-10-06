@@ -722,6 +722,102 @@ final class NativeTestStatusLabel: UIButton {
     }
 }
 
+#if DEBUG
+/// Attach-only layout evidence, separate from reviewer bootstrap and its
+/// persistent status store. Opt-in snapshots contain public geometry only.
+final class NativeVaultLayoutProbe {
+    private let label = NativeTestStatusLabel(frame: .zero, showOverlay: false)
+    private var timer: Timer?
+    private var inFlight = false
+    private var sequence = 0
+    private weak var webView: WKWebView?
+
+    init(host: UIView, webView: WKWebView) {
+        self.webView = webView
+        label.accessibilityIdentifier = "native-vault-layout"
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.update(status: "{}")
+        host.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: host.leadingAnchor),
+            label.topAnchor.constraint(equalTo: host.safeAreaLayoutGuide.topAnchor),
+            label.widthAnchor.constraint(equalToConstant: 1),
+            label.heightAnchor.constraint(equalToConstant: 1),
+        ])
+        timer = Timer.scheduledTimer(withTimeInterval: 0.35, repeats: true) { [weak self] _ in self?.sample() }
+    }
+
+    deinit {
+        timer?.invalidate()
+        label.removeFromSuperview()
+    }
+
+    private func sample() {
+        guard UIApplication.shared.applicationState == .active, !inFlight, let webView else { return }
+        inFlight = true
+        webView.evaluateJavaScript(Self.script) { [weak self, weak webView] result, _ in
+            guard let self else { return }
+            self.inFlight = false
+            guard UIApplication.shared.applicationState == .active,
+                  let webView, let values = result as? [String: Any] else { return }
+            // Whitelist numeric/bool geometry. Never propagate unexpected JS
+            // fields, text, credentials, provider bodies or a DOM hierarchy.
+            let keys = Set(["presentCount", "innerHeight", "visualHeight", "visualTop", "visualScale",
+                            "cssInset", "kbOpen", "kbResizes", "surfaceTop", "surfaceMaxHeight",
+                            "scrollTopEdge", "scrollBottomEdge", "clientHeight", "scrollHeight", "scrollTop",
+                            "overflowAuto", "recoveryTop", "recoveryBottom", "recoveryInside", "recoveryHits"])
+            var payload = [String: Any]()
+            for (key, value) in values where keys.contains(key) {
+                guard let number = value as? NSNumber,
+                      number.doubleValue.isFinite, abs(number.doubleValue) <= 100_000 else { continue }
+                payload[key] = number
+            }
+            self.sequence += 1
+            payload["sequence"] = self.sequence
+            // Read UIKit's current docked-keyboard layout guide independently
+            // of the Capacitor height event consumed by CSS. A hardware/floating
+            // keyboard need not reserve a full-width inset.
+            payload["nativeGuideHeight"] = webView.keyboardLayoutGuide.layoutFrame.height
+            payload["nativeBottomSafeArea"] = webView.safeAreaInsets.bottom
+            guard let data = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+                  let json = String(data: data, encoding: .utf8) else { return }
+            self.label.update(status: json)
+        }
+    }
+
+    private static let script = """
+    (() => {
+      const surfaces = document.querySelectorAll('[data-vault-unlock-surface]');
+      const root = document.documentElement;
+      const finite = value => { const n = Number.parseFloat(value); return Number.isFinite(n) ? n : undefined; };
+      const result = {
+        presentCount: surfaces.length, innerHeight, visualHeight: visualViewport?.height,
+        visualTop: visualViewport?.offsetTop, visualScale: visualViewport?.scale,
+        cssInset: finite(getComputedStyle(root).getPropertyValue('--kb-height')),
+        kbOpen: root.classList.contains('kb-open'), kbResizes: root.classList.contains('kb-resizes')
+      };
+      const surface = surfaces.length === 1 ? surfaces[0] : null;
+      const scroll = surface?.querySelector('[data-vault-flow-content]');
+      const recovery = scroll?.querySelector('[data-testid="vault-use-recovery-key-escape"]');
+      if (surface && scroll) {
+        const s = scroll.getBoundingClientRect();
+        Object.assign(result, { surfaceTop: surface.getBoundingClientRect().top,
+          surfaceMaxHeight: finite(getComputedStyle(surface).maxHeight), scrollTopEdge: s.top, scrollBottomEdge: s.bottom,
+          clientHeight: scroll.clientHeight, scrollHeight: scroll.scrollHeight, scrollTop: scroll.scrollTop,
+          overflowAuto: getComputedStyle(scroll).overflowY === 'auto' });
+        if (recovery) {
+          const r = recovery.getBoundingClientRect();
+          Object.assign(result, { recoveryTop: r.top, recoveryBottom: r.bottom,
+            recoveryInside: r.top >= s.top && r.bottom <= s.bottom,
+            recoveryHits: recovery.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)) });
+        }
+      }
+      return Object.fromEntries(Object.entries(result).filter(([, value]) => value !== undefined));
+    })()
+    """
+}
+#endif
+
 enum NativeTestStatusStore {
     private static let fileName = "native-test-status.txt"
     private static let uiReportFileName = "native-ui-interaction-report.json"

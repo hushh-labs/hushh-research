@@ -389,6 +389,36 @@ On iPad, whole-value entry reached the expected mask length
 but protected Chat was not admitted. No rejected credential is retried to turn
 that result green. The iPad fallback still requires protected route-family proof.
 
+The 2026-10-06 tablet vault investigation reproduced an older installed
+runtime's unreachable Recovery key/Sign out controls even though their native
+frames lay inside the window. That runtime did not expose simultaneous CSS
+bounds, so its cause is unconfirmed. A freshly prepared production-targeted
+Debug product from `49e0807f6` plus the reviewed layout-probe working changes
+passed attach-only rest/focus, portrait/landscape and background/resume checks.
+Recovery and Sign out were DOM-hit-testable and accessibility-hittable after
+each transition. Installation is cold preparation, not session-continuity
+proof or evidence of a vault-layout fix; no product CSS or keyboard producer
+was changed in this investigation. The physical tablet did not expose a
+software keyboard, so that keyboard state remains unqualified.
+
+The nearest boot-layout fixture now mounts the actual VaultUnlockDialog and
+VaultFlow, replacing only synthetic information/operation boundaries. Six
+focused Chromium/WebKit checks passed, covering handoff and both tablet
+orientations with enlarged text and a 320px keyboard inset. The landscape case
+must overflow and permit real wheel scrolling before Recovery can be clicked;
+an overflow-hidden negative control must not scroll. Two paint frames after
+the fixture's deliberate style restoration synchronize that control in WebKit.
+Synthetic inset proof does not establish physical software-keyboard behavior.
+
+Opt-in Debug-only `--hushh-vault-layout-diagnostics` provides bounded numeric
+geometry and boolean hit results through `native-vault-layout`. It admits no
+reviewer bootstrap, account reset, credential read, authentication bypass or
+persistent report. The probe is inactive outside the foreground and absent in
+Release. Current source inventory and these vault checks do not qualify new
+SwiftUI families on iPad or prove the complete protected route inventory.
+Retire the probe flag for ordinary runs; revert the bounded verification
+commit independently without changing vault or routing authority.
+
 Four functional source-map entries have no complete native-inventory fixture:
 selected-query `/one/messages` and the three `/ria/clients/[userId]` detail
 templates. Their owning `frontend-native-surface-map` workflow must establish
