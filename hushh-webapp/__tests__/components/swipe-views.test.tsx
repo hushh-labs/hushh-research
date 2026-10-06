@@ -286,6 +286,53 @@ describe("SwipeViews", () => {
     expect(embla.scrollTo).toHaveBeenCalledWith(1);
   });
 
+  it.each(["tap", "route"] as const)(
+    "retargets an early outgoing animation when the %s selects its still-visible pane",
+    (selectionSource) => {
+      let target = 0;
+      let rendered = 0;
+      embla.engine = {
+        slideRects: [{ width: 400 }, { width: 400 }],
+        scrollSnaps: [0, -400],
+        limit: { min: -400, max: 0 },
+        target: { get: () => target, set: (next: number) => { target = next; } },
+        offsetLocation: { get: () => rendered },
+        animation: { start: vi.fn() },
+      } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+      const onSelectionChange = vi.fn();
+      const onSelectionCommit = vi.fn();
+      const panels = [<div key="first">Cards</div>, <div key="second">Add</div>];
+      const view = render(
+        <SwipeViews tabSetId="reverse-early" activeValue={selectionSource === "tap" ? "first" : "second"}
+          options={OPTIONS} onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+          {panels}
+        </SwipeViews>,
+      );
+      // Cards is still the rounded visual pane, but the compositor is heading
+      // toward Add. A return to Cards must cancel that pending destination.
+      target = -400;
+      rendered = -40;
+      embla.selectedIndex = 1;
+      embla.scrollTo.mockClear();
+      if (selectionSource === "tap") {
+        act(() => requestTopShellTabSelection("reverse-early", "first"));
+      } else {
+        view.rerender(
+          <SwipeViews tabSetId="reverse-early" activeValue="first" options={OPTIONS}
+            onSelectionChange={onSelectionChange} onSelectionCommit={onSelectionCommit}>
+            {panels}
+          </SwipeViews>,
+        );
+      }
+      expect(embla.scrollTo).toHaveBeenCalledWith(0);
+      expect(Math.abs(target)).toBe(0);
+      rendered = target;
+      act(() => embla.listeners.get("settle")?.());
+      expect(onSelectionChange).not.toHaveBeenCalled();
+      expect(onSelectionCommit).toHaveBeenLastCalledWith("first");
+    },
+  );
+
   it("keeps the shared tab progress attached to the pane through snap settle", () => {
     const view = render(
       <SwipeViews tabSetId="continuous" activeValue="first" options={OPTIONS}>
@@ -424,12 +471,13 @@ describe("SwipeViews", () => {
     const onSelectionChange = vi.fn();
     const options = [...OPTIONS, { value: "third", label: "Sharing" }];
     const rendered = { get: () => 0 };
+    let target = 0;
     embla.engine = {
       slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
       scrollSnaps: [0, -400, -800],
       limit: { min: -800, max: 0 },
       offsetLocation: rendered,
-      target: { get: () => -400, set: vi.fn() },
+      target: { get: () => target, set: (next: number) => { target = next; } },
     } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
     render(
       <SwipeViews tabSetId="memory-select" activeValue="first" options={options} onSelectionChange={onSelectionChange}>
@@ -437,6 +485,7 @@ describe("SwipeViews", () => {
       </SwipeViews>,
     );
 
+    target = -400;
     embla.selectedIndex = 1;
     embla.listeners.get("select")?.();
     expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith("second");

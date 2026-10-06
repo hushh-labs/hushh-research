@@ -306,6 +306,23 @@ function resolveVisualIndex(
   return api.selectedScrollSnap();
 }
 
+/** A rounded visual pane may still be leaving for a different pending snap. */
+function isSelectionTargeted(
+  api: EmblaCarouselType,
+  index: number,
+  optionsLength: number,
+): boolean {
+  if (resolveVisualIndex(api, optionsLength) !== index) return false;
+  const engine = api.internalEngine?.();
+  const width = engine?.slideRects?.[0]?.width;
+  const target = engine?.target?.get?.();
+  if (typeof width === "number" && Number.isFinite(width) && width > 0 &&
+      typeof target === "number" && Number.isFinite(target)) {
+    return Math.abs(target + index * width) <= 1;
+  }
+  return api.selectedScrollSnap() === index;
+}
+
 /** Embla's selection changes before the outgoing pane has finished moving. */
 function resolveSelectedIndex(api: EmblaCarouselType, optionsLength: number): number {
   const engine = api.internalEngine?.();
@@ -813,9 +830,7 @@ export function SwipeViews({
   useEffect(() => {
     if (!emblaApi) return;
     const targetIdx = options.findIndex((opt) => opt.value === activeValue);
-    const visualIdx = resolveVisualIndex(emblaApi, options.length);
-
-    if (targetIdx !== -1 && targetIdx !== visualIdx) {
+    if (targetIdx !== -1 && !isSelectionTargeted(emblaApi, targetIdx, options.length)) {
       scrollToSelection(emblaApi, targetIdx);
     } else if (!isDraggingRef.current && !hasMovedSincePointerDownRef.current) {
       setTopShellTabSwipeState(tabSetId, Math.max(0, targetIdx), false);
@@ -931,7 +946,7 @@ export function SwipeViews({
       );
       if (
         targetIndex < 0 ||
-        targetIndex === resolveVisualIndex(emblaApi, options.length)
+        isSelectionTargeted(emblaApi, targetIndex, options.length)
       )
         return;
       // A top-tab press starts the compositor motion immediately. Waiting for
@@ -1025,7 +1040,9 @@ export function SwipeViews({
       }
       data-no-auto-fade="true"
       className={cn(
-        "w-full min-h-0 overflow-hidden",
+        // Hidden overflow still scrolls when a field gains focus mid-flight,
+        // creating a second horizontal offset outside Embla's ownership.
+        "w-full min-h-0 overflow-hidden supports-[overflow:clip]:overflow-clip",
         // Only the release beat eases. Growing has to be instant or the
         // incoming pane is the one that gets clipped instead.
         heightMode === "active" &&
