@@ -35,6 +35,7 @@ type Props = {
   focusRef: RefObject<HTMLElement | null>;
   ref?: Ref<NativeChatChromeHandle>;
 } & ({ kind: "close"; onActivate: () => void; label: string } |
+  { kind: "profile-back"; onActivate: () => void; label: string } |
   { kind: "history"; onActivate: () => void; expanded?: boolean;
   /** Omission or any nonzero count retains the authored notification/badge DOM. Never bridged. */
   pendingAttention?: number } |
@@ -58,7 +59,7 @@ export function NativeChatChrome(props: Props) {
   // Only the current authored History layer may own Close. Anonymous/nested
   // overlays and the active drag still block it; Close is not globally exempt.
   const preference = kind === "appearance" || kind === "accent";
-  const owningLayer = props.kind === "close" || preference ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
+  const owningLayer = props.kind === "close" || props.kind === "profile-back" || preference ? "profile-pane" : props.kind === "history" && props.expanded ? "chat-history" : undefined;
   const overlay = useNativeShellOverlayBlocked(owningLayer);
   const suppressed = useSessionChromeSuppressed();
   const surface = useVoiceSurfaceMetadata();
@@ -254,7 +255,7 @@ export function NativeChatChrome(props: Props) {
           void active?.choose(event, () => lease.current === active && current.current.epoch === active.projection.ownerEpoch &&
             current.current.context === active.context && isCurrentNativeControlAppearance(active.projection, foreground) && canAct(), () => {
             const callback = current.current.props;
-            if (callback.kind === "history" || callback.kind === "close") callback.onActivate();
+            if (callback.kind === "history" || callback.kind === "close" || callback.kind === "profile-back") callback.onActivate();
             else if (callback.kind === "agent-surface") { if (event.value === "one" || event.value === "puppy") callback.onValueChange(event.value); }
             else if (callback.kind === "appearance") { if (event.value === "light" || event.value === "dark" || event.value === "system") callback.onValueChange(event.value); }
             else if (callback.kind === "accent") { if (event.value === "blue" || event.value === "gold") callback.onValueChange(event.value); }
@@ -412,7 +413,7 @@ export function NativeChatChrome(props: Props) {
         }
         if (kind === "agent-surface" && value === undefined) { setHidden(false); return; }
         const control: ChromeControl & { label: string } =
-          props.kind === "close" ? { kind: "close", label: props.label } :
+          props.kind === "close" || props.kind === "profile-back" ? { kind: props.kind, label: props.label } :
           props.kind === "history" ? { kind: "history", expanded, label: "Chat history" } :
           props.kind === "agent-surface" ? { kind: "agent-surface", value: props.value, label: "Agent" } :
           props.kind === "appearance" ? { kind: "appearance", value: props.value, label: "Appearance" } :

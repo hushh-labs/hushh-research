@@ -372,7 +372,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             var families = [String]()
             if self?.backAdmitted == true {
                 families.append("back")
-                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "more", "selection", "date", "appearance", "accent"] }
+                if self?.chatControlsAdmitted == true { families += ["history", "agent-surface", "close", "profile-back", "more", "selection", "date", "appearance", "accent"] }
             }
             call.resolve(["contractVersion": HushhNativeControlAppearance.contractVersion,
                           "families": families, "canvasAppearance": true, "independentControls": true,
@@ -678,6 +678,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
             (kind == "agent-surface" && controlId == "chat-agent-surface") ||
             (kind == "more" && controlId == "stationary-more") || (kind == "selection" && controlId == "bounded-selection") ||
             (kind == "date" && controlId == "bounded-date") || (kind == "close" && controlId == "profile-close") ||
+            (kind == "profile-back" && controlId == "profile-back") ||
             (kind == "appearance" && controlId == "profile-appearance") || (kind == "accent" && controlId == "profile-accent"))
     }
     private func slot(_ id: String) -> ChromeSlot {
@@ -688,7 +689,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func symbol(_ kind: String, expanded: Bool) -> String {
         switch kind {
-        case "back": return "chevron.backward"
+        case "back", "profile-back": return "chevron.backward"
         case "close": return "xmark"
         case "history": return expanded ? "xmark" : "line.3.horizontal"
         case "more": return "ellipsis"
@@ -790,7 +791,7 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
     }
     private func identity(_ call: CAPPluginCall) -> HushhNativeChromeState.Identity? {
         guard let controlId = call.getString("controlId"),
-              ["top-shell-back", "chat-history-toggle", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
+              ["top-shell-back", "profile-back", "chat-history-toggle", "chat-agent-surface", "stationary-more", "bounded-selection", "bounded-date", "profile-close", "profile-appearance", "profile-accent"].contains(controlId),
               let document = call.getString("documentId"), !document.isEmpty, document.count <= 128,
               let owner = call.getString("ownerEpoch"), !owner.isEmpty, owner.count <= 128,
               let revision = call.getInt("revision"), revision >= 0,

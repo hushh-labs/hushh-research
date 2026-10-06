@@ -165,6 +165,7 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
   const previewScrimRef = useRef<HTMLDivElement>(null);
   const previewOffset = useRef<number | null>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
   const titleRef = useRef<HTMLHeadingElement>(null);
   const [stationaryKey, setStationaryKey] = useState<string | null>(null);
   const attachPanel = useCallback((node: HTMLDivElement | null) => {
@@ -330,16 +331,26 @@ export const ProfilePane = memo(function ProfilePane({ open, owner, onOpenChange
         <SheetHeader className="shrink-0 border-b border-border/60 pb-4 pl-[max(var(--page-inline-gutter-standard),calc(1rem+env(safe-area-inset-left)))] pr-[max(5rem,calc(var(--page-inline-gutter-standard)+4rem))] pt-[calc(1rem+env(safe-area-inset-top))] text-left">
           <div className="flex min-w-0 items-center gap-2">
             {canGoBack ? (
-              <button
-                type="button"
-                aria-label="Back in Profile"
-                onClick={() =>
-                  popProfilePaneLocation(pathname, searchParams)
-                }
-                className="-ml-4 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+              <NativeChatChrome
+                kind="profile-back"
+                owner={owner ?? null}
+                label="Back in Profile"
+                focusRef={backRef}
+                context={`${pathname}:${profilePaneLocationKey(location)}`}
+                eligible={open && stationaryKey === presentationKey}
+                onActivate={() => popProfilePaneLocation(pathname, searchParams)}
+                className="-ml-4 flex size-11 shrink-0 items-center justify-center"
               >
-                <ArrowLeft className="h-5 w-5" />
-              </button>
+                <button
+                  ref={backRef}
+                  type="button"
+                  aria-label="Back in Profile"
+                  onClick={() => popProfilePaneLocation(pathname, searchParams)}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                >
+                  <ArrowLeft className="h-5 w-5" />
+                </button>
+              </NativeChatChrome>
             ) : null}
             <SheetTitle ref={titleRef} tabIndex={-1} className="truncate outline-none font-[family-name:var(--font-app-display)] text-[22px] font-bold leading-[27px] tracking-normal">
               {title}

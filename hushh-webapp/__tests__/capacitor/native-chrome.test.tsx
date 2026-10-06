@@ -57,7 +57,7 @@ describe("native chrome presentation lease", () => {
     bridge.restoreFocus.mockReset().mockImplementation(async (value) => ({ ...value, restored: true }));
     bridge.retire.mockReset().mockImplementation(async (value) => ({ ...value, phase: "retired" }));
     bridge.confirmChoice.mockReset().mockResolvedValue({ valid: true });
-    await Promise.all(["top-shell-back", "chat-history-toggle", "chat-agent-surface", "profile-close", "stationary-more", "bounded-selection", "bounded-date", "profile-appearance", "profile-accent"].map((controlId) =>
+    await Promise.all(["top-shell-back", "profile-back", "chat-history-toggle", "chat-agent-surface", "profile-close", "stationary-more", "bounded-selection", "bounded-date", "profile-appearance", "profile-accent"].map((controlId) =>
       retireNativeChrome("owner-a", undefined, controlId as ChromeProjection["controlId"])));
   });
   afterEach(async () => { cleanup(); await act(async () => { await Promise.resolve(); }); vi.restoreAllMocks(); });
@@ -586,6 +586,45 @@ describe("native chrome presentation lease", () => {
       x: 2, y: 60, width: 44, height: 44, top: 60, left: 2, right: 46, bottom: 104, toJSON: () => ({}),
     });
   }
+
+  it("binds Profile Back to its layer and rejects pending or old-stack choices beneath a newer overlay", async () => {
+    measureSlot();
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["back", "profile-back", "close"], independentControls: true });
+    const back = vi.fn();
+    function ProfileBackHarness({ blocked = false, context = "account" }: { blocked?: boolean; context?: string }) {
+      useNativeNavigationBlocked(true, "profile-pane");
+      useNativeNavigationBlocked(blocked);
+      const focusRef = useRef<HTMLButtonElement>(null);
+      return <NativeChatChrome kind="profile-back" label="Back in Profile" owner="owner-a" context={context}
+        eligible focusRef={focusRef} className="profile-back-slot" onActivate={back}>
+        <button ref={focusRef}>Back in Profile</button>
+      </NativeChatChrome>;
+    }
+    const view = render(<ProfileBackHarness />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledOnce());
+    const old = bridge.prepare.mock.calls[0][0];
+    expect(old.controlId).toBe("profile-back");
+    // Close and route Back must not route a choice to the Profile stack.
+    for (const controlId of ["profile-close", "top-shell-back"]) {
+      act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, controlId, sequence: 1, privacyGeneration: 0 }));
+    }
+    expect(bridge.confirmChoice).not.toHaveBeenCalled();
+    const approval = deferred<{ valid: boolean }>();
+    bridge.confirmChoice.mockReturnValueOnce(approval.promise);
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 1, privacyGeneration: 0 }));
+    await waitFor(() => expect(bridge.confirmChoice).toHaveBeenCalledOnce());
+    view.rerender(<ProfileBackHarness blocked />);
+    await act(async () => approval.resolve({ valid: true }));
+    expect(back).not.toHaveBeenCalled();
+    await waitFor(() => expect(view.getByRole("button", { name: "Back in Profile" })).toBeVisible());
+    view.rerender(<ProfileBackHarness context="security" />);
+    await waitFor(() => expect(bridge.activate).toHaveBeenCalledTimes(2));
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...old, sequence: 2, privacyGeneration: 0 }));
+    expect(bridge.confirmChoice).toHaveBeenCalledOnce();
+    const current = bridge.prepare.mock.calls.at(-1)![0];
+    act(() => bridge.callbacks.get("choiceRequested")?.({ ...current, sequence: 1, privacyGeneration: 0 }));
+    await waitFor(() => expect(back).toHaveBeenCalledOnce());
+  });
 
   it("admits History Close only after settlement and never bypasses a newer overlay", async () => {
     measureSlot();

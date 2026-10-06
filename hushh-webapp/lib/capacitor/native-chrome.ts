@@ -6,11 +6,11 @@ import type { NativeControlAppearance } from "@/lib/capacitor/native-control-app
 
 // Presentation only. No route, UID, token, credential or content body crosses this bridge.
 export type ChromeFrame = { x: number; y: number; width: number; height: number };
-export type ChromeControlId = "top-shell-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
-export type ChromeFamily = "back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
+export type ChromeControlId = "top-shell-back" | "profile-back" | "chat-history-toggle" | "chat-agent-surface" | "stationary-more" | "bounded-selection" | "bounded-date" | "profile-close" | "profile-appearance" | "profile-accent";
+export type ChromeFamily = "back" | "profile-back" | "history" | "agent-surface" | "more" | "selection" | "date" | "close" | "appearance" | "accent";
 export type ChromeAgentSurface = "one" | "puppy";
 export type ChromeOption = { value: string; label: string; disabled?: boolean };
-export type ChromeControl = { kind: "back" | "close" } | { kind: "history"; expanded?: boolean } |
+export type ChromeControl = { kind: "back" | "profile-back" | "close" } | { kind: "history"; expanded?: boolean } |
   { kind: "agent-surface"; value: ChromeAgentSurface } |
   { kind: "appearance"; value: "light" | "dark" | "system" } |
   { kind: "accent"; value: "blue" | "gold" } |
@@ -107,6 +107,7 @@ export async function syncNativeCanvasAppearance(): Promise<boolean> {
 // not persisted; the native document fence handles a WebView reload.
 const outstanding = new Map<ChromeControlId, ChromeIdentity>();
 export function chromeControlId(kind: ChromeFamily): ChromeControlId {
+  if (kind === "profile-back") return "profile-back";
   if (kind === "history") return "chat-history-toggle";
   if (kind === "agent-surface") return "chat-agent-surface";
   if (kind === "appearance") return "profile-appearance";
