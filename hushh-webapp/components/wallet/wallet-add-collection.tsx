@@ -5,22 +5,19 @@ import { Plus } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { TYPOGRAPHY_CLASSNAMES } from "@/components/app-ui/typography";
 import { WalletCardFace } from "@/components/wallet/wallet-card-face";
+import { WALLET_DEMO_CARDS, WalletDemoCardFace, WalletDemoCardDetails } from "@/components/wallet/wallet-demo-cards";
 import { cardNetworkLabel } from "@/components/wallet/card-network-mark";
 import type { WalletCardSummary } from "@/lib/services/wallet-service";
 
 
-/** Sample summaries are presentation-only and never enter workspace state or storage. */
-const PREVIEW_CARDS: WalletCardSummary[] = ["Everyday", "Travel", "Rewards"].map((name, index) => ({
-  cardId: `demo-${index}`, nickname: `${name} - Demo`, brand: index === 1 ? "mastercard" : "visa",
-  last4: "", expiryMonth: 12, expiryYear: 2030, issuingRegion: "Sample card", createdAt: "",
-}));
 function EmptyCardPreview() {
   const [selected, setSelected] = useState<string | null>(null);
   return (
     <figure className="space-y-3" data-testid="wallet-add-preview">
-      <WalletAddCollection cards={PREVIEW_CARDS} selectedCardId={selected} onSelect={setSelected}
+      <WalletAddCollection cards={WALLET_DEMO_CARDS} selectedCardId={selected} onSelect={setSelected}
         onAdd={() => {}} onRemove={() => {}} busyCardId={null} preview />
-      <figcaption className="text-center text-xs text-muted-foreground">Demo cards. Tap a card or swipe up to explore your future collection.</figcaption>
+      {selected ? <WalletDemoCardDetails cardId={selected} /> : null}
+      <figcaption className="text-center text-xs text-muted-foreground">Demo cards. Tap a card to see its sample details. Swipe up to explore the stack.</figcaption>
     </figure>
   );
 }
@@ -141,11 +138,12 @@ export function WalletAddCollection({ cards, selectedCardId, onSelect, onAdd, on
                       aria-pressed={active}
                       onClick={(event) => {
                         if (event.detail > 0 && Date.now() < suppressClickUntil.current) return;
-                        if (active) setExpanded(!isExpanded);
+                        if (preview) { onSelect(card.cardId); setExpanded(false); }
+                        else if (active) setExpanded(!isExpanded);
                         else { onSelect(card.cardId); setExpanded(false); }
                       }}
                       className="block origin-bottom w-full rounded-[3.72cqw] text-left outline-none focus-visible:ring-[3px] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background">
-                      <WalletCardFace summary={card} collection />
+                      {preview ? <WalletDemoCardFace summary={card} /> : <WalletCardFace summary={card} collection />}
                     </button>
                   </li>
                 );

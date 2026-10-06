@@ -79,3 +79,16 @@ never sent to the model (`consent-protocol/docs/reference/personal-knowledge-mod
 
 A rename must also cover string literals passed as ids: `_load_product_agent_manifest("wallet")`
 and the LlmAgent `name="wallet"` were the two the first pass missed and they crashed boot.
+
+
+## Demo collection
+
+An empty Wallet collection contains three labelled sample cards. Selecting a
+sample brings it to the front and displays its matching sample number,
+cardholder, network, and expiry beneath the stack. View all and vertical swipes
+retain the existing collection motion; reduced-motion preferences are respected.
+
+The metallic faces and details use fixed presentation records only. They never
+enter the encrypted Wallet store, request card secrets, or call saved-card
+selection/removal handlers. Real cards remain masked even if their identifier
+matches a demo record. Demo status is explicit, never inferred from an ID.

@@ -827,3 +827,47 @@ test("the empty Wallet remains reachable in a short phone shell", async ({ page 
   expect(measured.actionBottom).toBeLessThanOrEqual(measured.chromeTop + 1);
   expect(errors).toEqual([]);
 });
+
+
+for (const width of [320, 430]) {
+  test(`Premium demo selection shows matching details at ${width}px`, async ({ page }) => {
+    const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
+    await mount(page);
+    const next = page.getByRole("button", { name: "Continue", exact: true });
+    if (await next.count()) await next.click();
+    if (!(await page.getByTestId("wallet-add-preview").isVisible())) {
+      await page.getByRole("tab", { name: "Add", exact: true }).click();
+    }
+    const preview = page.getByTestId("wallet-add-preview");
+    await expect(preview).toBeVisible();
+    await preview.getByRole("button", { name: "Everyday - Demo", exact: true }).click();
+    const details = page.getByRole("region", { name: "Demo card details" });
+    await expect(details.getByText("0000 0000 0000 4242", { exact: true })).toBeVisible();
+    await preview.getByRole("button", { name: "View all 3 cards" }).click();
+    await preview.getByRole("button", { name: "Travel - Demo", exact: true }).click();
+    await expect(details.getByText("Travel card", { exact: true })).toBeVisible();
+    await expect(details.getByText("0000 0000 0000 4444", { exact: true })).toBeVisible();
+    await expect(details.getByText("09/30", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("wallet-preview-stack")).toHaveAttribute("data-expanded", "false");
+    const face = page.getByTestId("wallet-preview-layer-demo-1").getByTestId("wallet-card-face");
+    await expect.poll(() => face.evaluate((el) => el.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running").length)).toBe(0);
+    const geometry = await face.evaluate((el) => {
+      const faceRect = el.getBoundingClientRect();
+      const number = el.querySelector('[data-slot="wallet-card-number"]')!;
+      const bounds = number.getBoundingClientRect();
+      return { faceRight: faceRect.right, numberRight: bounds.right, overflow: number.scrollWidth - number.clientWidth,
+        finish: getComputedStyle(el).backgroundImage };
+    });
+    expect(geometry.finish).toContain("linear-gradient");
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    expect(geometry.numberRight).toBeLessThan(geometry.faceRight);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await expect.poll(() => page.getByTestId("wallet-preview-layer-demo-1").evaluate((el) => getComputedStyle(el).transitionDuration)).toBe("0s");
+    await preview.getByRole("button", { name: "View all 3 cards" }).click();
+    await preview.getByRole("button", { name: "Rewards - Demo", exact: true }).click();
+    await expect(details.getByText("Rewards card", { exact: true })).toBeVisible();
+    await page.screenshot({ path: test.info().outputPath("premium-demo-details.png") });
+    expect(errors).toEqual([]);
+  });
+}
