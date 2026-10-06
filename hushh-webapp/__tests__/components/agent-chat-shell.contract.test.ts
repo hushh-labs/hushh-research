@@ -187,7 +187,9 @@ describe("private-agent chat shell contract", () => {
     // The top-right profile control stays, with the canonical avatar source.
     expect(workspace).toContain("useEffectiveAvatarUrl");
     expect(workspace).toContain('data-testid="profile-open-button"');
-    expect(workspace).toContain('onClick={() => requestProfilePaneOpen("tap")}');
+    // Closing the pane returns to this explicit opener, rather than a guessed
+    // DOM target. The focused Profile admission test covers stale-owner return.
+    expect(workspace).toContain('requestProfilePaneOpen("tap", event.currentTarget)');
     expect(workspace).toContain("<AvatarImage src={userAvatarUrl}");
     // No avatar beside individual user bubbles (founder direction, 2026-09-29).
     expect(workspace).not.toContain('data-testid="agent-chat-self-avatar"');
