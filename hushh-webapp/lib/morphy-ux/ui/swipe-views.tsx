@@ -546,11 +546,20 @@ export function SwipeViews({
       });
     };
 
+    // Transforms can change scrollHeight without changing the observed layout
+    // box. Reconcile after the final frame so collapsed stacks leave no tail.
+    activeNode.addEventListener("transitionend", measure);
+    activeNode.addEventListener("animationend", measure);
+    const removeMotionListeners = () => {
+      activeNode.removeEventListener("transitionend", measure);
+      activeNode.removeEventListener("animationend", measure);
+    };
     measure();
 
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", measure, { passive: true });
       return () => {
+        removeMotionListeners();
         if (frame) window.cancelAnimationFrame(frame);
         window.removeEventListener("resize", measure);
       };
@@ -559,6 +568,7 @@ export function SwipeViews({
     const observer = new ResizeObserver(measure);
     observer.observe(activeNode);
     return () => {
+      removeMotionListeners();
       if (frame) window.cancelAnimationFrame(frame);
       observer.disconnect();
     };

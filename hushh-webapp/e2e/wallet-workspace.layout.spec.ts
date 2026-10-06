@@ -827,3 +827,38 @@ test("the empty Wallet remains reachable in a short phone shell", async ({ page 
   expect(measured.actionBottom).toBeLessThanOrEqual(measured.chromeTop + 1);
   expect(errors).toEqual([]);
 });
+
+test("collapsed collection releases expanded scroll space", async ({ page }) => {
+  await open(page, 390, "light", { cards: 0 }, { height: 844, shell: true });
+  await mount(page);
+  const next = page.getByRole("button", { name: "Continue", exact: true });
+  if (await next.count()) await next.click();
+  const preview = page.getByTestId("wallet-add-preview");
+  if (!(await preview.isVisible())) {
+    await page.getByRole("tab", { name: "Add", exact: true }).click();
+  }
+  await expect(preview).toBeVisible();
+  const pager = page.locator('[data-swipe-views-root="true"]');
+  const settleCards = async () => {
+    await expect.poll(() => preview.evaluate((element) =>
+      element.getAnimations({ subtree: true })
+        .filter((animation) => animation.playState === "running").length,
+    )).toBe(0);
+  };
+  await settleCards();
+  const height = await pager.evaluate((element) => element.getBoundingClientRect().height);
+  await preview.getByRole("button", { name: "View all 3 cards" }).click();
+  await settleCards();
+  await expect.poll(() => pager.evaluate((element) => element.getBoundingClientRect().height))
+    .toBeGreaterThan(height + 100);
+  await preview.getByRole("button", { name: "Collapse cards", exact: true }).click();
+  await expect(page.getByTestId("wallet-preview-stack")).toHaveAttribute("data-expanded", "false");
+  await settleCards();
+  await expect.poll(() => pager.evaluate((element) => element.getBoundingClientRect().height))
+    .toBeLessThanOrEqual(height + 1);
+  await expect.poll(() => preview.evaluate((element) => {
+    const panel = element.closest('[role="tabpanel"]')!;
+    const root = element.closest('[data-swipe-views-root="true"]')!;
+    return Math.abs(root.getBoundingClientRect().height - panel.getBoundingClientRect().height);
+  })).toBeLessThan(1);
+});
