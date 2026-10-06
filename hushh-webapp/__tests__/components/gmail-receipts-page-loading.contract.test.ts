@@ -21,12 +21,13 @@ describe("Gmail workspace background loading contract", () => {
     expect(source).not.toContain("if (loadingStatus) return");
   });
 
-  it("uses a warm memory cache only as a temporary paint before authoritative revalidation", () => {
+  it("renders the owner/account memory cache on open without starting a scan", () => {
     expect(source).toContain(
       "getCachedGmailReceipts(user.uid, receiptAccountKey)",
     );
+    expect(source).toContain("cachedGmailReceiptDisplayItems(cached)");
     expect(source).toContain("setReceiptListReady(true)");
-    expect(source).toContain("void loadReceipts(1)");
+    expect(source).not.toContain("every mount still performs");
     expect(source).toContain("setLoadingReceipts(true)");
     expect(source).not.toContain("preserveCachedItems");
     expect(source).not.toContain("silent:");
@@ -43,7 +44,7 @@ describe("Gmail workspace background loading contract", () => {
       "showReceiptPlaceholders ? <ReceiptListSkeleton /> : null",
     );
     expect(source).toContain("setReceiptListReady(false)");
-    expect(source).toContain("(!receiptListReady || loadingReceipts)");
+    expect(source).toContain("(loadingReceipts ||");
   });
 
   it("uses only the backend live scan as the receipt refresh authority", () => {
@@ -51,9 +52,7 @@ describe("Gmail workspace background loading contract", () => {
     expect(source).toContain(
       "receiptSyncAvailable && (receiptScanInProgress || loadingReceipts)",
     );
-    expect(source).toContain(
-      "if (!isConnected || receiptScanInProgress || loadingReceipts)",
-    );
+    expect(source).toContain("receiptScanAbortRef.current && receiptScanPromiseRef.current");
     expect(source).not.toContain("prepareDeviceReceiptSync");
     expect(source).not.toContain("beginDeviceReceiptSyncAuthorization");
   });

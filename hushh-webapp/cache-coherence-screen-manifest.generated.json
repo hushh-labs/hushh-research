@@ -322,7 +322,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fconnected-systems",
+      "reviewer_fixture": "/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1659,7 +1659,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnected-systems",
+      "reviewer_fixture": "/one/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4976,7 +4976,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+      "reviewer_fixture": "/one/setup/connected-systems",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6513,5 +6513,5 @@
       ]
     }
   ],
-  "content_sha256": "4ef9c974bebcfb7482306c55f005baf1f48a897c87dead9f6aa58c101e45fde4"
+  "content_sha256": "55de406afb9b8737bfdfee9d9393b14d1244896a50ae281ab23ee76851f064ed"
 }

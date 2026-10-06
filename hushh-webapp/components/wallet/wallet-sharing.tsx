@@ -116,14 +116,20 @@ export function WalletSharing() {
     } finally { busyRef.current = false; setBusy(false); }
   };
 
+  const category = filter === "summary" ? "card summary" : filter === "details" ? "full card details" : "Wallet";
+  const categoryDescription = filter === "summary"
+    ? "Summary permissions include network, last four digits, expiry, nickname and issuing region. Full card numbers are excluded."
+    : filter === "details"
+      ? "Full-detail permissions include sensitive card information. Each approval needs explicit review and an unlocked Wallet."
+      : "All Wallet summary and full-detail requests and permissions are shown below.";
   const matches = (entry: ConsentCenterEntry) =>
     (filter === "all" || walletSharingKind(entry) === filter) &&
     (entry.counterpart_label || "Requester").toLowerCase().includes(query.trim().toLowerCase());
   const renderGroup = (title: string, entries: ConsentCenterEntry[], active: boolean) => (
     <section className="space-y-3" aria-label={title}>
-      <h3 className="text-xl font-semibold">{title} <span className="ml-1 text-sm font-normal text-muted-foreground">{current && !current.error ? entries.length : "—"}</span></h3>
+      <h3 className="text-xl font-semibold">{filter === "all" ? title : active ? `Shared ${category}` : `${filter === "summary" ? "Card summary" : "Full card details"} requests`} <span className="ml-1 text-sm font-normal text-muted-foreground">{current && !current.error ? entries.length : "—"}</span></h3>
       <div className={styles.group}>
-        {!current || current.error ? <div className={styles.empty}><ShieldCheck aria-hidden="true" className="size-6 shrink-0 text-muted-foreground" /><p className="text-sm text-muted-foreground">{current?.error ? "Access status unavailable. Retry to load this section." : active ? "Checking existing access…" : "Checking incoming requests…"}</p></div> : entries.length ? entries.map((entry) => {
+        {!current || current.error ? <div className={styles.empty}><ShieldCheck aria-hidden="true" className="size-6 shrink-0 text-muted-foreground" /><p className="text-sm text-muted-foreground">{current?.error ? `Could not load ${category} ${active ? "permissions" : "requests"}. Retry to check current access.` : `Checking ${category} ${active ? "permissions" : "requests"}…`}</p></div> : entries.length ? entries.map((entry) => {
           const details = walletSharingKind(entry) === "details";
           const name = entry.counterpart_label || "Requester";
           return <div key={entry.request_id || entry.id} className={styles.row}>
@@ -139,7 +145,7 @@ export function WalletSharing() {
             }}>{active ? "Manage" : "Review"}<ArrowUpRight aria-hidden="true" className="size-4" /></Button>
           </div>;
         }) : <div className={styles.empty}><div className={styles.cards} aria-hidden="true"><i /><i /><i><ShieldCheck /></i></div><div className="space-y-1">
-          <p className="text-sm font-medium">{query || filter !== "all" ? "No matching permissions" : active ? "No active Wallet sharing" : current?.incompleteRequests ? "Some requests are still arriving" : "No Wallet requests"}</p>
+          <p className="text-sm font-medium">{query ? "No matching recipients" : filter !== "all" ? `No ${category} ${active ? "permissions" : "requests"}` : active ? "No active Wallet sharing" : current?.incompleteRequests ? "Some requests are still arriving" : "No Wallet requests"}</p>
           <p className="text-sm text-muted-foreground">{active ? "People with approved Wallet access will appear here." : "Review requests here before deciding what to share."}</p>
         </div></div>}
       </div>
@@ -168,7 +174,8 @@ export function WalletSharing() {
       <label className="block text-sm"><span className="sr-only">Search recipients</span><input type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder="Search by name" className={styles.duration} /></label>
       <div className="flex flex-wrap gap-2" role="group" aria-label="Filter permissions">{(["all", "summary", "details"] as const).map(value => <Button key={value} size="compact" variant={filter === value ? "secondary" : "ghost"} className={styles.filter} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value === "all" ? "All access" : value === "summary" ? "Summaries" : "Full details"}</Button>)}</div>
     </section>
-    {!current ? <p role="status" className="text-sm text-muted-foreground">Checking Wallet sharing...</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">We couldn&apos;t check Wallet access. Try again to see the current status.</p><Button variant="secondary" size="compact" onClick={() => setRevision((value) => value + 1)}>Try again</Button></div> : null}
+    <div className="rounded-2xl border border-border bg-card p-4" aria-live="polite" aria-atomic="true" data-testid="wallet-sharing-filter-summary"><p className="text-sm font-semibold">{filter === "summary" ? "Card summaries" : filter === "details" ? "Full card details" : "All Wallet access"}</p><p className="mt-1 text-sm leading-relaxed text-muted-foreground">{categoryDescription}</p></div>
+    {!current ? <p role="status" className="text-sm text-muted-foreground">{`Checking ${category} sharing…`}</p> : current.error ? <div role="alert" className="space-y-3 rounded-2xl border border-border p-5"><p className="text-sm">We couldn&apos;t check Wallet access. Try again to see the current status.</p><Button variant="secondary" size="compact" onClick={() => setRevision((value) => value + 1)}>Try again</Button></div> : null}
     {renderGroup("Requests", current && !current.error ? current.requests.filter(matches) : [], false)}
     {renderGroup("Shared with", current && !current.error ? current.grants.filter(matches) : [], true)}
     <details className={styles.help}><summary>How sharing works</summary><ol><li>Someone requests Wallet access.</li><li>You review what they need and choose how long to share.</li><li>Approve or decline. Manage approved access here and revoke it at any time.</li></ol><p>Revoking stops future access. It cannot remove information someone already received.</p></details>

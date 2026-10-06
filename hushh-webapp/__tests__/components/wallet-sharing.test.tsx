@@ -116,4 +116,19 @@ describe("Wallet Sharing", () => {
     expect(screen.queryByText("Sam")).toBeNull();
   });
 
+  it("changes category content while permissions are still loading", () => {
+    vi.mocked(loadWalletSharing).mockImplementation(() => new Promise(() => {}));
+    render(<WalletSharing />);
+    const summary = screen.getByTestId("wallet-sharing-filter-summary");
+    expect(summary).toHaveTextContent("All Wallet access");
+    fireEvent.click(screen.getByRole("button", { name: "Summaries", exact: true }));
+    expect(summary).toHaveTextContent("Full card numbers are excluded");
+    expect(screen.getByRole("heading", { name: /Card summary requests/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Full details", exact: true }));
+    expect(summary).toHaveTextContent("Each approval needs explicit review");
+    expect(screen.getByRole("heading", { name: /Full card details requests/ })).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "All access", exact: true }));
+    expect(summary).toHaveTextContent("All Wallet access");
+  });
+
 });

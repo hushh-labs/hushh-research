@@ -56,8 +56,10 @@ import {
   hasMatchingReceiptMemoryProvenance,
 } from "@/lib/profile/gmail-receipt-memory-pkm";
 import {
+  cachedGmailReceiptDisplayItems,
   clearCachedGmailReceipts,
   getCachedGmailReceipts,
+  isCachedGmailReceiptScanResumable,
   mergeCachedReceiptItems,
   primeCachedGmailReceipts,
   upsertCachedGmailReceipt,
@@ -75,6 +77,7 @@ import {
 import {
   GmailReceiptsService,
   isReceiptScanInProgressError,
+  isRetryableReceiptScanPageError,
   type ReceiptListItem,
 } from "@/lib/services/gmail-receipts-service";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
@@ -89,6 +92,7 @@ import {
 const GMAIL_OAUTH_POPUP_TIMEOUT_MS = 2 * 60 * 1000;
 const RECEIPT_SCAN_MAX_PAGES = 50;
 const RECEIPT_SCAN_ACTIVE_RETRIES = 2;
+const RECEIPT_SCAN_PAGE_RETRIES = 1;
 const RECEIPT_SCAN_ACTIVE_RETRY_MS = 750;
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import {
@@ -380,6 +384,7 @@ export default function GmailReceiptsPage({
   const receiptReadsClosedRef = useRef(false);
   const receiptLoadSequenceRef = useRef(0);
   const receiptScanAbortRef = useRef<AbortController | null>(null);
+  const receiptScanPromiseRef = useRef<Promise<boolean | null> | null>(null);
   const receiptScanCursorsRef = useRef(new Map<number, string>());
   const receiptAccountKeyRef = useRef<string | null>(null);
   const displayedReceiptScopeRef = useRef<string | null>(null);
@@ -396,6 +401,9 @@ export default function GmailReceiptsPage({
     const previousAccess = sealedReceiptAccessRef.current;
     if (gmailOwnerIdRef.current !== owner || previousAccess.ownerToken !== vaultOwnerToken || previousAccess.isUnlocked !== isVaultUnlocked) {
       receiptLoadSequenceRef.current += 1;
+      receiptScanAbortRef.current?.abort();
+      receiptScanAbortRef.current = null;
+      receiptScanPromiseRef.current = null;
       if (gmailOwnerIdRef.current !== owner) receiptReadsClosedRef.current = false;
     }
     gmailOwnerIdRef.current = owner;
@@ -456,14 +464,13 @@ export default function GmailReceiptsPage({
   const hasSealedReceiptAccess = Boolean(vaultOwnerToken && isVaultUnlocked);
   const hasStoredReceipts = receipts.length > 0;
 
-  const loadReceipts = useCallback(
-    async (nextPage: number) => {
+  const runReceiptScan = useCallback(
+    async (nextPage: number): Promise<boolean | null> => {
       if (!user?.uid || !vaultOwnerToken || !isVaultUnlocked || receiptReadsClosedRef.current) return null;
       const startPage = Math.max(
         1,
         Math.min(RECEIPT_SCAN_MAX_PAGES, Math.trunc(nextPage)),
       );
-      receiptScanAbortRef.current?.abort();
       const controller = new AbortController();
       receiptScanAbortRef.current = controller;
       const loadSequence = receiptLoadSequenceRef.current + 1;
@@ -486,14 +493,31 @@ export default function GmailReceiptsPage({
       };
       setLoadingReceipts(true);
       let requestedPage = startPage;
-      if (startPage === 1) receiptScanCursorsRef.current.clear();
-      else {
+      // One scan pass reads pages 1..N under one signed continuation window.
+      // `passItems` are the rows this pass has read; `previousItems` are rows
+      // already on screen that it has not re-read yet. They stay visible
+      // until the pass completes, then the pass result replaces them exactly.
+      let passItems: ReceiptListItem[];
+      let previousItems: ReceiptListItem[] | null;
+      let scanStartedAt: number;
+      if (startPage === 1) {
+        receiptScanCursorsRef.current.clear();
+        passItems = [];
+        previousItems = receiptsRef.current.length ? receiptsRef.current : null;
+        scanStartedAt = Date.now();
+      } else {
         const cached = getCachedGmailReceipts(loadOwnerId, loadAccountKey);
         if (cached?.page === startPage - 1 && cached.next_cursor) {
           receiptScanCursorsRef.current.set(startPage, cached.next_cursor);
         }
+        passItems = cached ? cached.items : receiptsRef.current;
+        previousItems = cached?.previous_items?.length
+          ? cached.previous_items
+          : null;
+        scanStartedAt = cached?.scan_started_at ?? Date.now();
       }
       let activeScanRetries = 0;
+      let pageRetries = 0;
       try {
         const idToken = await user.getIdToken();
         if (!isCurrentLoad()) return null;
@@ -532,23 +556,47 @@ export default function GmailReceiptsPage({
               await waitForReceiptScanRetry(controller.signal);
               continue;
             }
+            // A transient page failure (a concurrent connection-row update or
+            // one unverifiable model answer) is read once more with the same
+            // signed cursor; the retried page is validated in full again.
+            if (
+              isRetryableReceiptScanPageError(error) &&
+              pageRetries < RECEIPT_SCAN_PAGE_RETRIES &&
+              !controller.signal.aborted &&
+              isCurrentLoad()
+            ) {
+              pageRetries += 1;
+              await waitForReceiptScanRetry(controller.signal);
+              continue;
+            }
             throw error;
           }
+          pageRetries = 0;
           if (!isCurrentLoad()) return null;
 
           if (response.next_cursor) receiptScanCursorsRef.current.set(response.page + 1, response.next_cursor);
 
-          const previousItems = receiptsRef.current;
-          const nextItems =
+          passItems =
             requestedPage > 1
               ? mergeCachedReceiptItems({
-                  existing: previousItems,
+                  existing: passItems,
                   incoming: response.items,
                   mode: "append",
                 })
               : response.items;
           const nextLoadedPage = response.page;
           const nextHasMore = response.has_more;
+          const shouldContinueScan =
+            nextHasMore &&
+            nextLoadedPage < response.coverage.max_pages;
+          if (!shouldContinueScan) previousItems = null;
+          const nextItems = previousItems
+            ? mergeCachedReceiptItems({
+                existing: previousItems,
+                incoming: passItems,
+                mode: "prepend_refresh",
+              })
+            : passItems;
           const nextTotal = nextItems.length;
 
           receiptsRef.current = nextItems;
@@ -564,16 +612,15 @@ export default function GmailReceiptsPage({
             accountKey: loadAccountKey,
             response: {
               ...response,
-              items: nextItems,
+              items: passItems,
               page: nextLoadedPage,
-              total: nextTotal,
+              total: passItems.length,
               has_more: nextHasMore,
             },
+            scanStartedAt,
+            previousItems,
           });
 
-          const shouldContinueScan =
-            nextHasMore &&
-            nextLoadedPage < response.coverage.max_pages;
           if (!shouldContinueScan) return true;
           requestedPage = nextLoadedPage + 1;
         }
@@ -590,19 +637,39 @@ export default function GmailReceiptsPage({
         );
         return false;
       } finally {
-        if (receiptScanAbortRef.current === controller) {
+        const ownsScanState = receiptScanAbortRef.current === controller;
+        if (ownsScanState) {
           receiptScanAbortRef.current = null;
+          receiptScanPromiseRef.current = null;
         }
         if (isCurrentLoad() && startPage === 1) {
           setReceiptListReady(true);
         }
-        if (isCurrentLoad()) {
+        // Nothing restarts a stopped scan automatically any more, so the scan
+        // that still owns the indicator always clears it.
+        if (isCurrentLoad() || ownsScanState) {
           setLoadingReceipts(false);
           setReceiptScanProgress(null);
         }
       }
     },
     [isVaultUnlocked, user, vaultOwnerToken],
+  );
+
+  // A scan starts only from an explicit action (Start sync, Load older
+  // receipts, Try again, or the setup view's first read). It keeps running
+  // across Mail tabs, and a repeated action joins the running scan instead of
+  // aborting it or starting another provider scan.
+  const loadReceipts = useCallback(
+    (nextPage: number): Promise<boolean | null> => {
+      if (receiptScanAbortRef.current && receiptScanPromiseRef.current) {
+        return receiptScanPromiseRef.current;
+      }
+      const scan = runReceiptScan(nextPage);
+      if (receiptScanAbortRef.current) receiptScanPromiseRef.current = scan;
+      return scan;
+    },
+    [runReceiptScan],
   );
 
   useEffect(
@@ -640,6 +707,7 @@ export default function GmailReceiptsPage({
     receiptLoadSequenceRef.current += 1;
     receiptScanAbortRef.current?.abort();
     receiptScanAbortRef.current = null;
+    receiptScanPromiseRef.current = null;
     receiptsRef.current = [];
     setReceipts([]);
     setPage(1);
@@ -647,17 +715,12 @@ export default function GmailReceiptsPage({
     setTotal(0);
     setReceiptScanReachedLimit(false);
     setLoadingReceipts(false);
+    setReceiptScanInProgress(false);
+    setReceiptScanProgress(null);
     setReceiptListReady(false);
     setReceiptListError(null);
     setReceiptSyncFeedback(null);
   }, [receiptAccountKey, user?.uid]);
-
-  useEffect(() => {
-    if (receiptsWorkspaceActive && user?.uid) return;
-    receiptLoadSequenceRef.current += 1;
-    receiptScanAbortRef.current?.abort();
-    receiptScanAbortRef.current = null;
-  }, [receiptsWorkspaceActive, user?.uid]);
 
   const loadReceiptDetail = useCallback(
     async (sourceId: string, signal: AbortSignal) => {
@@ -684,6 +747,20 @@ export default function GmailReceiptsPage({
           );
         }
       };
+      // A scanned row already carries this owner/account's validated
+      // extraction and its source passages, so opening it reuses that answer
+      // instead of re-reading and re-classifying the message.
+      const scanned = receiptsRef.current.find(
+        (receipt) => String(receipt.source_id || "").trim() === sourceId,
+      );
+      if (scanned && Array.isArray(scanned.source_evidence)) {
+        ensureCurrent();
+        return {
+          item: scanned,
+          email_excerpt: null,
+          source_evidence: scanned.source_evidence,
+        };
+      }
       const idToken = await user.getIdToken();
       ensureCurrent();
       const detail = await GmailReceiptsService.getReceiptDetail({
@@ -707,6 +784,8 @@ export default function GmailReceiptsPage({
       const ownerId = user?.uid;
       const sourceId = String(item.source_id || "").trim();
       if (!ownerId || !sourceId) return;
+      // A detail opened from the scanned row is that row; nothing to merge.
+      if (receiptsRef.current.includes(item)) return;
       if (
         !receiptsRef.current.some(
           (receipt) => String(receipt.source_id || "").trim() === sourceId,
@@ -762,27 +841,37 @@ export default function GmailReceiptsPage({
       return;
     }
 
+    // A running user-started scan already publishes each page it reads.
+    if (receiptScanAbortRef.current) return;
+
+    // Opening, revisiting or remounting Receipts never starts a Gmail scan:
+    // it shows this owner/account's last scanned rows from process memory.
+    // A scan starts only from Start sync, Load older receipts or Try again.
     const cached = getCachedGmailReceipts(user.uid, receiptAccountKey);
     if (cached) {
-      setReceipts(cached.items);
+      const cachedItems = cachedGmailReceiptDisplayItems(cached);
+      receiptsRef.current = cachedItems;
+      setReceipts(cachedItems);
       setPage(cached.page);
       setHasMore(cached.has_more);
-      setTotal(cached.total);
+      setTotal(cachedItems.length);
       setReceiptScanReachedLimit(cached.receipt_scan_reached_limit);
       setReceiptListReady(true);
-      // A warm in-memory page is only a temporary paint; every mount still
-      // performs an authoritative backend read-through before enabling paging.
-      void loadReceipts(1);
       return;
     }
 
-    setReceiptListReady(false);
-    void loadReceipts(1);
+    // Setup has no Receipts tab to return to, so its first view still reads
+    // the newly connected mailbox once.
+    if (journeyVariant === "onboarding") {
+      setReceiptListReady(false);
+      void loadReceipts(1);
+    }
   }, [
     canLoad,
     gmail.loadingStatus,
     gmail.presentation.isConnected,
     hasSealedReceiptAccess,
+    journeyVariant,
     loadReceipts,
     loading,
     receiptAccountKey,
@@ -799,12 +888,15 @@ export default function GmailReceiptsPage({
     gmail.status?.receipt_storage_mode === "legacy_read_only";
   const receiptSyncAvailable = Boolean(isConnected && hasSealedReceiptAccess);
   const oauthCompletionPending = gmail.oauthCompletionPending;
+  // Known rows are never covered: the skeleton appears only while a scan is
+  // actually reading with nothing to show yet (or setup's first read).
   const showReceiptPlaceholders =
     isConnected &&
     hasSealedReceiptAccess &&
     !loadingStatus &&
     receipts.length === 0 &&
-    (!receiptListReady || loadingReceipts);
+    (loadingReceipts ||
+      (!receiptListReady && journeyVariant === "onboarding"));
   const connectorState = gmail.presentation.state;
   const latestSyncText = gmail.presentation.latestSyncText;
   const latestSyncBadge = gmail.presentation.latestSyncBadge;
@@ -1330,7 +1422,8 @@ export default function GmailReceiptsPage({
 
   const handleSyncNow = useCallback(async () => {
     if (!user?.uid || !receiptSyncAvailable || receiptReadsClosedRef.current) return;
-    if (!isConnected || receiptScanInProgress || loadingReceipts) return;
+    // The ref closes the double-click window before React re-renders.
+    if (!isConnected || receiptScanInProgress || loadingReceipts || receiptScanAbortRef.current) return;
     const owner = user.uid;
     const accountKey = receiptAccountKeyRef.current;
     const ownerToken = vaultOwnerToken;
@@ -1345,7 +1438,15 @@ export default function GmailReceiptsPage({
         message: "Looking through your recent purchases…",
         tone: "neutral",
       });
-      const loaded = await loadReceipts(1);
+      // An interrupted pass continues from its signed cursor instead of
+      // re-reading the pages it already finished; otherwise a new pass starts.
+      const cached = getCachedGmailReceipts(user.uid, receiptAccountKey);
+      const loaded = await loadReceipts(
+        isCachedGmailReceiptScanResumable(cached) &&
+          cached.page < RECEIPT_SCAN_MAX_PAGES
+          ? cached.page + 1
+          : 1,
+      );
       if (loaded === null || !isCurrent()) return;
       if (!loaded) throw new Error("Receipt scan did not complete.");
       setReceiptSyncFeedback({
@@ -1365,6 +1466,7 @@ export default function GmailReceiptsPage({
     isConnected,
     loadReceipts,
     loadingReceipts,
+    receiptAccountKey,
     receiptScanInProgress,
     receiptSyncAvailable,
     user?.uid,
@@ -2230,7 +2332,9 @@ export default function GmailReceiptsPage({
           !hasMore &&
           !loadingStatus ? (
             <SurfaceInset className="px-4 py-4 text-sm text-muted-foreground">
-              {receiptScanReachedLimit
+              {!receiptListReady
+                ? "Start sync to find receipts in your Mail."
+                : receiptScanReachedLimit
                 ? `No receipts were found within the ${RECEIPT_SCAN_MAX_PAGES} Mail pages checked.`
                 : gmail.syncRun?.synced_count
                   ? "Your receipts are still finishing up. Please try again in a moment."

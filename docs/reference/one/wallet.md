@@ -164,3 +164,6 @@ placeholder, centered with its title and Continue action. Stacked cards hide
 their separate detail links while pinned and remeasure after expansion settles;
 the card itself remains the details action. Sharing uses a labelled illustrative
 card instead of the header counters; real access remains in the lists below.
+
+Sharing filters update their explanatory content and scoped loading/empty
+states immediately, then filter real records when available.
