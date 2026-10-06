@@ -154,6 +154,31 @@ def registered_redirect_uris(connector: ExternalMcpConnectorDefinition) -> tuple
     return _runtime_redirect_uris(connector)
 
 
+async def post_revocation(*, url: str, data: dict[str, str]) -> None:
+    """One RFC 7009 request. Any 2xx is success; the body is never read or logged.
+
+    Shared by disconnect and by account deletion, so both reach a provider the same
+    bounded, public-HTTPS-only way.
+    """
+    try:
+        validate_mcp_endpoint(url)
+        async with (
+            asyncio.timeout(10),
+            create_public_mcp_http_client(
+                timeout=httpx.Timeout(8), max_response_bytes=RESPONSE_LIMIT
+            ) as client,
+        ):
+            async with client.stream(
+                "POST", url, data=data, headers={"Accept": "application/json"}
+            ) as response:
+                async for _ in response.aiter_bytes():
+                    pass  # drained within the response cap, never retained
+                if not 200 <= response.status_code < 300:
+                    raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
+    except (httpx.HTTPError, McpResponseLimitError, TimeoutError, UnsafeMcpEndpoint):
+        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503) from None
+
+
 def is_curated_oauth_connector(connector: ExternalMcpConnectorDefinition | None) -> bool:
     """True for a connector this adapter can serve: operator-owned (never a
     private per-user row -- those never reach this admission path at all),
@@ -615,24 +640,7 @@ class ExternalConnectorCuratedOAuth:
         )
 
     async def _revoke(self, *, url: str, data: dict[str, str]) -> None:
-        """One RFC 7009 request. Any 2xx is success; the body is never read or logged."""
-        try:
-            validate_mcp_endpoint(url)
-            async with (
-                asyncio.timeout(10),
-                create_public_mcp_http_client(
-                    timeout=httpx.Timeout(8), max_response_bytes=RESPONSE_LIMIT
-                ) as client,
-            ):
-                async with client.stream(
-                    "POST", url, data=data, headers={"Accept": "application/json"}
-                ) as response:
-                    async for _ in response.aiter_bytes():
-                        pass  # drained within the response cap, never retained
-                    if not 200 <= response.status_code < 300:
-                        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
-        except (httpx.HTTPError, McpResponseLimitError, TimeoutError, UnsafeMcpEndpoint):
-            raise CuratedConnectorOAuthError("provider_unavailable", status_code=503) from None
+        await post_revocation(url=url, data=data)
 
     async def disconnect(self, *, connector_id: str, user_id: str) -> dict[str, str]:
         old = await self.lifecycle.disconnect(user_id=user_id, connector_id=connector_id)
