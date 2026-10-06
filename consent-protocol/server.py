@@ -1026,6 +1026,12 @@ async def startup_consent_revocation_worker() -> None:
         )
 
 
+from hushh_mcp.services import fleet_sweep_lock  # noqa: E402
+
+# At import, FIRST at shutdown: both sweeps' turns go back within the graceful window.
+app.router.on_shutdown.insert(0, fleet_sweep_lock.release_held_turns)
+
+
 @app.on_event("startup")
 async def startup_personal_agent_reconcile_worker() -> None:
     """Retry personal-agent provisions that stalled. Nothing did this before.
@@ -1054,17 +1060,13 @@ async def startup_personal_agent_reconcile_worker() -> None:
     re-reads every pass, so it can be stopped without a redeploy.
     """
     if pod_mode():
-        # A control-plane singleton. A fleet of pods each retrying provisions would
-        # race one another over shared rows.
+        # Pods never sweep (they would race over shared rows); hubs share one fleet turn.
         logger.info("startup.personal_agent_reconcile_skipped reason=pod_mode")
         return
     try:
         from datetime import datetime, timezone
 
-        from hushh_mcp.services.personal_agent_reconcile_worker import (
-            StalledAgent,
-            start_personal_agent_reconcile_loop,
-        )
+        from hushh_mcp.services import personal_agent_reconcile_worker as reconcile_worker
         from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
         from hushh_mcp.services.pod_standby_sync import sweep_due_standbys
 
@@ -1120,7 +1122,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
                         continue
                 kept.append(row)
             return [
-                StalledAgent(
+                reconcile_worker.StalledAgent(
                     user_id=str(row.get("user_id") or ""),
                     hushh_id=str(row.get("hushh_id") or ""),
                     status=str(row.get("status") or ""),
@@ -1391,7 +1393,7 @@ async def startup_personal_agent_reconcile_worker() -> None:
                 code = (result or {}).get("error_code") or (result or {}).get("error")
                 raise RuntimeError(f"account erasure incomplete: {code or 'unknown'}")
 
-        task = start_personal_agent_reconcile_loop(
+        task = reconcile_worker.start_personal_agent_reconcile_loop(
             fetch_stalled=fetch_stalled,
             retry=retry,
             fetch_idle=fetch_idle,
@@ -1403,12 +1405,13 @@ async def startup_personal_agent_reconcile_worker() -> None:
             owner_exists=owner_exists,
             erase_orphan=erase_orphan,
             sync_standbys=sweep_due_standbys,
+            sweep_lock=fleet_sweep_lock.PERSONAL_AGENT_RECONCILE,
         )
         if task is None:
             logger.info("startup.personal_agent_reconcile_off flag=disabled")
             return
         _track_startup_background_task(task)
-        logger.info("startup.personal_agent_reconcile_registered interval_s=300")
+        logger.info("startup.personal_agent_reconcile_registered interval_s=300 fleet_lock=on")
     except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
         logger.warning("startup.personal_agent_reconcile_failed reason=%s", type(exc).__name__)
 
@@ -1443,21 +1446,18 @@ async def startup_pod_liveness_worker() -> None:
     redeploy.
     """
     if pod_mode():
-        # A control-plane singleton, for the same reason the reconcile sweep is:
-        # a fleet of pods each probing the fleet would race over shared rows.
+        # Pods never sweep; hubs share one fleet turn: one probe per interval, fleet-wide.
         logger.info("startup.pod_liveness_skipped reason=pod_mode")
         return
     try:
         from hushh_mcp.services import pod_liveness_adapters  # noqa: PLC0415
-        from hushh_mcp.services.pod_liveness_worker import (  # noqa: PLC0415
-            start_liveness_loop,
-        )
+        from hushh_mcp.services.pod_liveness_worker import start_liveness_loop  # noqa: PLC0415
 
-        task = asyncio.create_task(
-            start_liveness_loop(**pod_liveness_adapters.build_liveness_seams())
-        )
+        seams = pod_liveness_adapters.build_liveness_seams()
+        loop = start_liveness_loop(**seams, sweep_lock=fleet_sweep_lock.POD_LIVENESS)
+        task = asyncio.create_task(loop)
         _track_startup_background_task(task)
-        logger.info("startup.pod_liveness_registered interval_s=120 heal=flag_gated")
+        logger.info("startup.pod_liveness_registered interval_s=120 heal=flag_gated fleet_lock=on")
     except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
         logger.warning("startup.pod_liveness_failed reason=%s", type(exc).__name__)
 

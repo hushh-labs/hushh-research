@@ -863,16 +863,16 @@ env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
 deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
 
 # Dev hub uses UAT-sized resources; owner pods retain their own limits.
-# Five demand-scaled instances give consent SSE and pod heartbeats headroom
-# (2026-09-30 incident). Normal pools budget 40 connections with one worker per
-# instance; dedicated locks and deployment overlap require additional headroom.
+# Max instances stays at the lane's declared value. The 2026-09-30 raise from 3 to
+# 5 meant a rollout ran 10 instances side by side, and dev Cloud SQL reached 99 of
+# its 100 connections on 2026-10-01 and 2026-10-02. See
+# consent-protocol/tests/test_database_connection_ceiling.py.
 # Only legacy template defaults change; explicit overrides stay authoritative.
 # BEGIN DEV HUB CAPACITY DEFAULTS
 if [[ "${_DEPLOY_ENV}" == "dev" ]]; then
   [[ "${_CLOUD_RUN_MEMORY}" != "1Gi" ]] || _CLOUD_RUN_MEMORY="4Gi"
   [[ "${_CLOUD_RUN_CPU}" != "1" ]] || _CLOUD_RUN_CPU="2"
   [[ "${_CLOUD_RUN_CONCURRENCY}" != "80" ]] || _CLOUD_RUN_CONCURRENCY="20"
-  [[ "${_CLOUD_RUN_MAX_INSTANCES}" != "3" ]] || _CLOUD_RUN_MAX_INSTANCES="5"
 fi
 # END DEV HUB CAPACITY DEFAULTS
 

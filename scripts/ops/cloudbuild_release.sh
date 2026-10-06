@@ -371,8 +371,8 @@ if [[ "$DEPLOY_BACKEND" == "true" ]]; then
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET"
     SUBS="${SUBS}##_HUSHH_PROD_PHONE_TEST_ENABLED=true"
   else
-    # UAT runs a smaller pool and an app-review overlay; see deploy-uat.yml.
-    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=3"
+    # UAT: smaller SQLAlchemy pool, app-review overlay (deploy-uat.yml); asyncpg 4 = 3 LISTENs + 1.
+    SUBS="${SUBS}##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4"
     SUBS="${SUBS}##_DB_SQLALCHEMY_POOL_SIZE=2##_DB_SQLALCHEMY_MAX_OVERFLOW=0"
     SUBS="${SUBS}##_CLOUD_RUN_MIN_INSTANCES=1##_CLOUD_RUN_MAX_INSTANCES=3"
     SUBS="${SUBS}##_APP_REVIEW_MODE=true"

@@ -46,6 +46,7 @@ from hushh_mcp.runtime_settings import (
     pod_autoheal_enabled,
     pod_warm_stale_seconds,
 )
+from hushh_mcp.services.fleet_sweep_lock import FleetSweepLock, fleet_turn
 from hushh_mcp.services.pod_liveness_service import PodLivenessDecision, evaluate
 
 logger = logging.getLogger(__name__)
@@ -200,18 +201,33 @@ async def start_liveness_loop(
     heal_pod: HealPod,
     record_state: RecordState,
     interval_seconds: int = 120,
+    sweep_lock: Optional[FleetSweepLock] = None,
 ) -> None:
-    """Run :func:`run_liveness_pass` forever, re-reading both flags every pass."""
+    """Run :func:`run_liveness_pass` forever, re-reading both flags every pass.
+
+    Every hub process runs this loop. ``sweep_lock`` makes each pass a fleet turn:
+    only the process holding it passes, and it keeps the turn through its sleep, so
+    the fleet probes once per interval rather than once per process (see
+    ``fleet_sweep_lock``). Without one (a test, a lone process) every tick passes.
+    """
     while True:
-        if personal_agent_enabled() and personal_agent_reconcile_enabled():
-            try:
-                summary = await run_liveness_pass(
-                    fetch_candidates=fetch_candidates,
-                    probe_pod=probe_pod,
-                    heal_pod=heal_pod,
-                    record_state=record_state,
-                )
-                logger.info("pod_liveness.pass %s", summary)
-            except Exception as exc:  # noqa: BLE001 - a failed pass must not end the loop
-                logger.warning("pod_liveness.pass_failed %s", type(exc).__name__)
-        await asyncio.sleep(interval_seconds)
+        if not (personal_agent_enabled() and personal_agent_reconcile_enabled()):
+            # Off means no pass AND no lock: a disabled sweep never opens a connection.
+            await asyncio.sleep(interval_seconds)
+            continue
+        async with fleet_turn(sweep_lock) as mine:
+            if mine:
+                try:
+                    summary = await run_liveness_pass(
+                        fetch_candidates=fetch_candidates,
+                        probe_pod=probe_pod,
+                        heal_pod=heal_pod,
+                        record_state=record_state,
+                    )
+                    logger.info("pod_liveness.pass %s", summary)
+                except Exception as exc:  # noqa: BLE001 - a failed pass must not end the loop
+                    logger.warning("pod_liveness.pass_failed %s", type(exc).__name__)
+            # Inside the turn on purpose: the holder sleeping with the lock still held
+            # is what spaces the fleet's passes an interval apart. A refused turn has
+            # already closed its connection, so it holds nothing while it waits.
+            await asyncio.sleep(interval_seconds)

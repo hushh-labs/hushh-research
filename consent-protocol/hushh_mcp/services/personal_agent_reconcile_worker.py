@@ -102,6 +102,7 @@ from hushh_mcp.runtime_settings import (
     personal_agent_upgrade_sweep_enabled,
     pod_idle_reap_hours,
 )
+from hushh_mcp.services.fleet_sweep_lock import FleetSweepLock, fleet_turn
 from hushh_mcp.services.personal_agent_provisioning_service import (
     FEED_EVENT_PROVISIONING,
     FEED_EVENT_REAPED,
@@ -380,11 +381,9 @@ class PersonalAgentReconcileWorker:
         self._erase_orphan = erase_orphan
         self._orphan_confirm_after = orphan_confirm_after
         self._clock = clock
-        #: user_id -> the instant this worker first saw the owner absent. Worker
-        #: local on purpose: the loop runs in every gunicorn worker, and a shared
-        #: record would need a schema change for a sweep that must stay boring.
-        #: The cost is that two workers can each erase the same orphan; erasure
-        #: is idempotent, so the second one counts a no-op, not damage.
+        #: user_id -> when this worker first saw the owner absent (local; shared needs a schema
+        #: change). ``_reconcile_loop`` clears it when the fleet turn returns after a gap: that
+        #: delays an erasure, never hastens one. Erasure is idempotent, so redoing one is a no-op.
         self._absent_first_seen: dict[str, datetime] = {}
 
     async def scan_and_reconcile(self) -> ReconcileReport:
@@ -488,10 +487,6 @@ class PersonalAgentReconcileWorker:
                 failed += 1
                 logger.exception("[%s] personal_agent.reap_failed", _LABEL)
         return reaped, failed
-
-    # ---------------------------------------------------------------------------
-    # Background loop
-    # ---------------------------------------------------------------------------
 
     async def _upgrade_stale(self) -> tuple[int, int]:
         """Move at most one batch of stale pods onto the current image.
@@ -669,20 +664,29 @@ async def _reconcile_loop(
     worker: PersonalAgentReconcileWorker,
     interval_seconds: float,
     sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
+    sweep_lock: Optional[FleetSweepLock] = None,
 ) -> None:
     """Run the fleet-hygiene sweep, then any standby sync sweep, until cancelled."""
     logger.info("[%s] Reconcile loop started (interval=%ss)", _LABEL, interval_seconds)
+    passed_last_tick = False
     while True:
-        try:
-            report = await worker.scan_and_reconcile()
-            if sync_standbys is not None and not report.skipped:
-                await sync_standbys()
-        except asyncio.CancelledError:
-            logger.info("[%s] Reconcile loop cancelled", _LABEL)
-            return
-        except Exception:
-            logger.exception("[%s] Unhandled error in reconcile loop", _LABEL)
-        await asyncio.sleep(interval_seconds)
+        # Only the turn holder passes; it sleeps in the turn (fleet_sweep_lock). Off: no lock.
+        on = personal_agent_enabled() and personal_agent_reconcile_enabled()
+        async with fleet_turn(sweep_lock if on else None) as mine:
+            if mine and not passed_last_tick:
+                # Turn regained after a gap: other holders saw any return; restart the clock.
+                worker._absent_first_seen.clear()
+            passed_last_tick = mine and on
+            try:
+                report = await worker.scan_and_reconcile() if mine else None
+                if report is not None and sync_standbys is not None and not report.skipped:
+                    await sync_standbys()
+            except asyncio.CancelledError:
+                logger.info("[%s] Reconcile loop cancelled", _LABEL)
+                return
+            except Exception:
+                logger.exception("[%s] Unhandled error in reconcile loop", _LABEL)
+            await asyncio.sleep(interval_seconds)
 
 
 def start_personal_agent_reconcile_loop(
@@ -698,21 +702,16 @@ def start_personal_agent_reconcile_loop(
     owner_exists: Optional[Callable[[str], Awaitable[Optional[bool]]]] = None,
     erase_orphan: Optional[Callable[[str], Awaitable[None]]] = None,
     sync_standbys: Optional[Callable[[], Awaitable[object]]] = None,
+    sweep_lock: Optional[FleetSweepLock] = None,
 ) -> asyncio.Task | None:
-    """
-    Schedule the reconcile worker as a background asyncio Task.
+    """Schedule the reconcile worker as a background asyncio Task, cancellable at shutdown.
 
-    Returns ``None`` -- creating no task at all -- while either kill-switch is
-    off, which is the default. That is the ship-dark guarantee at the outer edge:
-    with the flags unset, nothing is scheduled, no callable is ever invoked, and
-    no timer runs. The same check repeats inside every pass, so a flag flipped off
-    later also stops a loop that is already running. Returns the Task so callers
-    can cancel it on shutdown.
-    """
+    Returns ``None``, scheduling nothing and invoking no callable, while either kill-switch
+    is off (the default): the ship-dark guarantee at the outer edge. Every pass re-checks,
+    so a flag flipped off later stops a running loop. ``sweep_lock`` is passed only if given."""
     if not (personal_agent_enabled() and personal_agent_reconcile_enabled()):
         logger.info("[%s] not scheduled: reconcile sweep is disabled", _LABEL)
         return None
-
     worker = PersonalAgentReconcileWorker(
         fetch_stalled=fetch_stalled,
         retry=retry,
@@ -724,7 +723,8 @@ def start_personal_agent_reconcile_loop(
         owner_exists=owner_exists,
         erase_orphan=erase_orphan,
     )
+    locked = {} if sweep_lock is None else {"sweep_lock": sweep_lock}
     return asyncio.create_task(
-        _reconcile_loop(worker, interval_seconds, sync_standbys),
+        _reconcile_loop(worker, interval_seconds, sync_standbys, **locked),
         name="personal-agent-reconcile-worker",
     )
