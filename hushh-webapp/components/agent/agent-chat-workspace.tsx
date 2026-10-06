@@ -8541,6 +8541,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               className="relative z-[540] flex h-11 w-11 shrink-0 items-center justify-center">
             <ShellActionSurface
               variant="icon"
+              id="one-chat-history-trigger"
               ref={historyDrawerFallbackRef}
               onClick={(event) => {
                 historyDrawerTriggerRef.current = event.currentTarget;
