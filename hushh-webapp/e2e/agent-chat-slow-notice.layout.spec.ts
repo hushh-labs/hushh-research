@@ -16,7 +16,7 @@ import { awaitProductFont, productFontStyle, stripAppFontFaces } from "./fixture
 let script: string;
 let css: string;
 
-const STATES = ["slow", "connecting", "busy", "unavailable"] as const;
+const STATES = ["slow", "waking", "connecting", "busy", "unavailable"] as const;
 const HALF_PX = 0.5;
 const SAFE_TOP = 59;
 const SAFE_BOTTOM = 34;

@@ -55,6 +55,8 @@ import {
 } from "@/lib/agent/agui-structured-experiences";
 import { ownerStyleRequestField, type OwnerStyleSettings } from "@/lib/agent/owner-style-settings";
 import { ownerAiRunErrorMessage } from "@/lib/agent/owner-ai-turn-errors";
+import { ownerPodTurnErrorMessage } from "@/lib/agent/owner-pod-turn-errors";
+import { wakingChatTransport } from "@/lib/agent/one-chat-transport";
 
 export type AgentChatMessage = {
   id: string;
@@ -970,18 +972,10 @@ const AUTHORED_RETRYABLE_RUN_ERRORS: Record<string, string> = {
 };
 
 export function formatAgentChatErrorMessage(message: string, code?: string): string {
-  // Direct discovery can refuse before a chat request exists. Preserve its
-  // typed boundary (or exact SDK message), never arbitrary transport details.
-  const connectionCode = code || message.trim();
-  if (connectionCode === "ENDPOINT_UNAVAILABLE:POD_DIRECT_NOT_READY") {
-    return "Your private agent connection is not ready. Open Hosting in Settings to reconnect, then try again.";
-  }
-  if (/^(ENDPOINT_UNAVAILABLE|BINDING_UNAVAILABLE|POD_CHALLENGE_REFUSED|POD_ADMISSION_REFUSED):[A-Z0-9_]+$/.test(connectionCode)) {
-    return "Your private agent connection could not be established. Check Hosting in Settings, then try again.";
-  }
-  if (code === "POD_CHAT_BUSY") return "Your private agent is finishing active work. Try again shortly.";
-  if (code === "POD_CHAT_RECOVERY_FAILED") return "This answer could not be saved safely. Reconnect to your private agent before continuing.";
-  if (code === "POD_CHAT_AUTHORITY_UNAVAILABLE" || connectionCode === "POD_APP_ROUTE_REFUSED") return "This action is not available through your private agent yet.";
+  // The direct path can refuse before a chat request exists. Its typed boundary
+  // (or exact SDK message) maps to fixed copy, never to transport details.
+  const ownerPodMessage = ownerPodTurnErrorMessage(message, code);
+  if (ownerPodMessage) return ownerPodMessage;
   // Chat history is sealed with a key derived from the vault. These refusals are
   // recoverable, so say how; the raw server text is never shown.
   const chatKeyCode = code && code in CHAT_KEY_REFUSAL_MESSAGES
@@ -1227,7 +1221,7 @@ export async function streamAgentChat(input: {
   }
   const chatKey = Object.values(chatKeyHeaders)[0] ?? "";
   const liveness = createAgentStreamLiveness(
-    (init) => ApiService.agentChatRequest("/api/one/agent-chat", init ?? {}, true,
+    (init) => wakingChatTransport(init, () => handlers.onStreamHealth?.({ kind: "waking" }),
       (hushhId) => {
         if (!mcpSessionCurrent()) return;
         lastPodConversation = {
