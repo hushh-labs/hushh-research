@@ -45,6 +45,7 @@ from hushh_mcp.services.compute_backend import (
     BackendStatus,
     PodBootFailedError,
     PodSpec,
+    is_owner_cloud_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,7 @@ def _label_value(raw: Any, default: str = "") -> str:
 
 # -- the ingress axis ---------------------------------------------------------------------
 #
-# `PodSpec.ingress` names WHO may dial one person's pod. `hub` is every pod today:
+# `PodSpec.ingress` names WHO may dial one person's pod. `hub` is the default render:
 # internal ingress and exactly one invoker, the hub. `direct` opens the pod to its
 # owner's app and device: public ingress, an `allUsers` invoker binding and a request
 # timeout long enough for a local model. It is refused outside the dev lane, read from
@@ -97,18 +98,18 @@ DIRECT_INGRESS_REQUEST_TIMEOUT_SECONDS = 3600
 
 
 class PodIngressRefused(ValueError):
-    """`PodSpec.ingress = direct` was asked for outside the dev lane."""
+    """`PodSpec.ingress = direct` was asked for on the managed tier outside the dev lane."""
 
 
 def pod_ingress_mode(spec: PodSpec) -> str:
-    """`hub` or `direct` for this spec; `direct` only on the dev lane, else refused."""
+    """`hub` or `direct`; own-cloud targets may be direct on any lane, managed only on dev."""
     requested = str(getattr(spec, "ingress", None) or INGRESS_HUB).strip().lower()
     if requested == INGRESS_HUB:
         return INGRESS_HUB
     if requested != INGRESS_DIRECT:
         raise PodIngressRefused(f"unknown pod ingress axis: {requested!r}")
     lane = _deploy_env_label()
-    if lane != "dev":
+    if lane != "dev" and not is_owner_cloud_target(getattr(spec, "deployment_target", None)):
         raise PodIngressRefused(
             f"direct ingress is a dev-lane pilot; this deployment reports lane {lane!r}"
         )
@@ -524,12 +525,10 @@ class GcpBackend:
                     "hussh-env": _deploy_env_label(),
                     "hussh-purpose": _label_value(_env("HUSSH_POD_PURPOSE"), _POD_PURPOSE_DEFAULT),
                 },
-                # Ingress: "internal" everywhere unless a dev environment explicitly
-                # widens it to observe a running pod, or THIS person's pod is on the
-                # direct axis (`PodSpec.ingress = direct`: public ingress, so the
-                # owner's app and device dial it themselves). Invoker authz is a
-                # separate decision -- see `_execute` and the _ingress comment in
-                # __init__.
+                # Ingress: "internal" everywhere unless a dev environment widens it to
+                # observe a running pod, or THIS person's pod is on the direct axis
+                # (`PodSpec.ingress = direct`: public ingress, dialled by the owner's app
+                # and device). Invoker authz is separate -- see `_execute` and __init__.
                 "annotations": {
                     "run.googleapis.com/ingress": (
                         "all" if pod_ingress_mode(spec) == INGRESS_DIRECT else self._ingress

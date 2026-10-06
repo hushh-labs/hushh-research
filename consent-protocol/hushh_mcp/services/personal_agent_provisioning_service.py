@@ -72,6 +72,7 @@ from hushh_mcp.services.compute_backend import (
     adoption_expectations,
 )
 from hushh_mcp.services.orphan_erase_backoff import error_fields
+from hushh_mcp.services.owner_direct_ingress import ingress_for_provision, ingress_for_update
 from hushh_mcp.services.personal_agent_feed import (
     _FEED_EVENT_TYPES as _FEED_EVENT_TYPES,
 )
@@ -909,10 +910,10 @@ class PersonalAgentProvisioningService:
                 # Empty when deferred. No backend reads this field -- the pod holds its
                 # own key -- so an absent one changes nothing about what gets rendered.
                 pod_pubkey=pod_key.public_key_b64 if pod_key else "",
-                # Both default to None, which means "this deployment's default" and is
-                # exactly what every existing caller already got.
+                # Both default to None: "this deployment's default", as before.
                 deployment_target=deployment_target,
                 model_credential_mode=model_credential_mode,
+                ingress=ingress_for_provision(deployment_target, observed),
                 # WHICH cloud, not merely which kind. Without these the target was
                 # per-person while the destination stayed a process-wide env var.
                 **spec_coordinates(cloud),
@@ -1716,9 +1717,8 @@ class PersonalAgentProvisioningService:
             # falls through to the deployment default, which is what every pod gets
             # today.
             resource_tier=row.get("liveness_mode"),
-            # Direct ingress is an owner-pod property, not an image default. An
-            # approved software update must retain the existing ingress axis.
-            ingress="direct" if metadata.get("ingress") == "direct" else None,
+            # Ingress is an owner-pod property: an approved update retains it.
+            ingress=ingress_for_update(metadata),
         )
         backend = self._backend_for(spec)
         if resume_files_queue_operation is not None:

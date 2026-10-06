@@ -1,11 +1,12 @@
 """Admit a pod whose ingress is public by construction to owner-direct chat.
 
-An owner cloud that can only serve through provider-managed public ingress records
-``ingress: "external"``. Its owner talks to the pod directly, and the hub publishes
-that endpoint only after ``directReadiness`` is recorded. For a private-by-default
-host, opening ingress and verifying it is an operator step (``internal`` to
-``direct``, dev-pod-first-light runbook). An ``external`` host has nothing to open,
-so the hub runs the same checks itself on a live beat:
+Every owner cloud whose pod is public by construction records ``ingress: "external"``:
+Azure always, and a Google own-cloud pod built on the direct axis (Cloud Run ingress
+``all`` with an ``allUsers`` invoker, ``owner_direct_ingress``). Its owner talks to the
+pod directly, and the hub publishes that endpoint only after ``directReadiness`` is
+recorded. Only a hub-only (``internal``) pod still needs the operator step to widen
+(dev-pod-first-light runbook). An ``external`` pod has nothing to open, so the hub
+runs the same checks itself on a live beat, whatever the provider:
 
 - the row is the owner's provisioned pod with its key recorded, which the hub
   pulled from this exact URL, so the address is proven to serve this pod;

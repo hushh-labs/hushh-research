@@ -200,12 +200,19 @@ direct-ready record absent. An update keeps the ingress axis; recheck the route
 wall and recovery before treating the new image as accepted. Puppy access
 still requires the owner's explicit per-device choice in Trusted devices.
 
-A pod whose ingress is public by construction records `ingress: external` (Azure
-Container Apps). There is nothing to open, so the hub runs the same checks on a
-live beat (`pod_external_ingress_admission`): key recorded from that URL,
-machine-route wall refusing an unidentified caller, and the app origin's preflight
-allowed. One compare-and-set then writes `direct` together with the readiness
-receipt. `internal` is never promoted this way; it stays the operator step above.
+A pod whose ingress is public by construction records `ingress: external`: Azure
+Container Apps always, and a NEW Google own-cloud (`user_gcp`) agent, which is
+created with Cloud Run ingress `all` and an `allUsers` invoker behind the in-pod
+wall on any lane (`owner_direct_ingress`; the managed `gcp` tier stays dev-only).
+There is nothing to open, so the hub runs the same checks on a live beat
+(`pod_external_ingress_admission`): key recorded from that URL, machine-route wall
+refusing an unidentified caller, and the app origin's preflight allowed. One
+compare-and-set then writes `direct` together with the readiness receipt.
+`internal` is never promoted this way, and a heal or update never widens an
+existing `internal` agent; it stays the operator step above. If an organisation
+policy refuses `allUsers`, the row records `internal` with
+`directIngressBlocker.code = ORG_POLICY_REFUSES_PUBLIC_INVOKER` and the agent stays
+hub-reachable; change the policy, then use the operator step. Never work around it.
 
 ### Model project ownership
 

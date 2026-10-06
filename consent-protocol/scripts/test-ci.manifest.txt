@@ -771,6 +771,7 @@ tests/test_pod_parity_probe.py
 tests/test_pod_pkm_resolver.py
 tests/test_pod_reconcile.py
 tests/test_pod_relay.py
+tests/test_pod_relay_refuses_own_cloud.py
 tests/test_pod_resource_tier_is_per_person.py
 tests/test_pod_service_account_id_fits_google.py
 tests/test_pod_spec_deployment_axes.py
@@ -924,6 +925,9 @@ tests/test_personal_agent_never_hosted_erasure_postgres.py
 # Public-by-construction ingress admitted to owner-direct chat on a beat (2026-10-05)
 tests/test_pod_external_ingress_admission.py
 tests/test_pod_external_ingress_admission_postgres.py
+# Google own-cloud agents start public behind the wall, admitted the same way (2026-10-06)
+tests/test_owner_direct_ingress.py
+tests/test_pod_wall_refuses_every_route.py
 tests/test_owner_cloud_attach.py
 tests/test_azure_openai_tool_wire.py
 

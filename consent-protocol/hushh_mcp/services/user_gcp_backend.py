@@ -30,16 +30,20 @@ from hushh_mcp.services.compute_backend import (
 )
 from hushh_mcp.services.gcp_backend import (
     A2A_ADDRESS_BASE,
-    INGRESS_DIRECT,
     GcpBackend,
     _env,
     _flag,
-    _ingress_metadata,
     _liveness_mode,
     _min_instances_for,
     _rendered_min_scale,
     _service_name,
-    pod_ingress_mode,
+)
+from hushh_mcp.services.owner_direct_ingress import (
+    bind_owner_direct_ingress,
+    observed_ingress,
+    recorded_ingress,
+    rendered_cloud_run_ingress,
+    update_ingress_record,
 )
 
 logger = logging.getLogger(__name__)
@@ -593,7 +597,7 @@ class UserGcpBackend:
                     # is recorded separately below so the provenance is legible.
                     "image": f"{self._user_region}-docker.pkg.dev/{project}/one-pod/consent-protocol-pod",
                     "source_image": self._image or "<slim-pod-image>",
-                    "ingress": "internal",
+                    "ingress": rendered_cloud_run_ingress(spec),
                     "service_account": pod_sa,
                     "purpose": "the sovereign per-user pod (slim image), pulled from your own repo",
                 },
@@ -805,7 +809,7 @@ class UserGcpBackend:
                 "project": self._user_project,
                 "region": spec.region or self._user_region,
                 "service": name,
-                "ingress": "internal",
+                "ingress": recorded_ingress(spec),
                 "bootstrap": "pending",
                 "keyless": True,
                 # Same tier resolution the renderer will apply, so the row records the
@@ -962,15 +966,9 @@ class UserGcpBackend:
                 name,
                 f"serviceAccount:{files_env['POD_FILES_WORKER_SERVICE_ACCOUNT']}",
             )
-        if pod_ingress_mode(spec) == INGRESS_DIRECT:
-            # Inherited from the managed renderer's direct axis: the owner's app and
-            # device dial this pod themselves, so it is invokable by anyone and the
-            # pod's own ingress policy is the lock. Dev lane only, by `pod_ingress_mode`.
-            await asyncio.to_thread(
-                client.grant_public_invoker, name, direct_ingress_axis=INGRESS_DIRECT
-            )
-            spec.emit_stage("public_invoker_bound")
-
+        # Public by construction on the direct axis, the in-pod wall as the lock;
+        # recorded `external` until heartbeat admission verifies it (owner_direct_ingress).
+        ingress_record = await bind_owner_direct_ingress(client, name, spec)
         url = client.service_url(svc)
         return BackendHandle(
             external_agent_id=name,
@@ -983,7 +981,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
-                "ingress": _ingress_metadata(spec, "internal"),
+                **ingress_record,
                 # The pod runs the user's OWN digest-pinned copy; record THAT, not hushh's
                 # source, so the registry row does not misreport the running image. The
                 # source and digest are kept alongside for provenance.
@@ -1754,7 +1752,7 @@ class UserGcpBackend:
                 "region": spec.region or self._user_region,
                 "service": name,
                 "url": url or "",
-                "ingress": _ingress_metadata(spec, "internal"),
+                **update_ingress_record(spec),
                 "image": self._user_pod_image_ref(spec, image_digest),
                 "source_image": spec.upgrade_target_image or self._image,
                 "image_digest": image_digest,
@@ -1864,7 +1862,7 @@ class UserGcpBackend:
                 "region": self._user_region,
                 "service": name,
                 "url": url or "",
-                "ingress": "internal",
+                "ingress": observed_ingress(svc),
                 "adopted": True,
                 # WHICH account this pod runs as -- the same field _execute_live records
                 # (verify_pod_identity binds the asserted HusshID to this on the BYOC
