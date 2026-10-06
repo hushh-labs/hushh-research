@@ -404,11 +404,29 @@ software keyboard, so that keyboard state remains unqualified.
 The nearest boot-layout fixture now mounts the actual VaultUnlockDialog and
 VaultFlow, replacing only synthetic information/operation boundaries. Six
 focused Chromium/WebKit checks passed, covering handoff and both tablet
-orientations with enlarged text and a 320px keyboard inset. The landscape case
+orientations with enlarged rem-based supporting copy and a 320px keyboard inset. The landscape case
 must overflow and permit real wheel scrolling before Recovery can be clicked;
 an overflow-hidden negative control must not scroll. Two paint frames after
 the fixture's deliberate style restoration synchronize that control in WebKit.
 Synthetic inset proof does not establish physical software-keyboard behavior.
+
+The same dialog now remains mounted through 507px split-window sizing and
+639/640px responsive-inset transitions, then returns to its original tablet
+viewport. Six Chromium/WebKit checks pass with measured supporting-text growth
+and keyboard inset 0 → 320 → 0 at each size. Pixel-sized headings do not grow
+in this fixture; this is not complete Dynamic Type acceptance.
+
+An independently characterized keyboard-producer defect treated a shorter iOS
+window as keyboard absorption. With a stale 1194px baseline, an 834px window and
+320px plugin overlap, it incorrectly published zero inset. The shared manager
+now subtracts viewport absorption only on Android and preserves the existing
+iOS plugin-reported overlap under `resize:"none"`. Both pre-resize orientation
+and scene-resize regressions fail on the old calculation; all seven manager
+checks pass, retaining Android full/partial absorption. Vault CSS, native
+scrolling and privacy authority are unchanged. This corrects a demonstrated
+under-avoidance defect, not the unconfirmed cause of the older physical clipping.
+The iPad plugin's own overlap reporting and physical software-keyboard states
+still require device verification.
 
 Opt-in Debug-only `--hushh-vault-layout-diagnostics` provides bounded numeric
 geometry and boolean hit results through `native-vault-layout`. It admits no

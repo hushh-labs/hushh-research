@@ -468,18 +468,26 @@ for (const viewport of [{ width: 834, height: 1194 }, { width: 1194, height: 834
     const content = page.locator("[data-vault-flow-content]");
     await expect(content).toHaveAttribute("data-vault-flow-step", "unlock");
     await settleIdle(page);
-    // A large system text size and a docked keyboard make a capped form scroll.
-    // Remove the keyboard again without recreating the document or the dialog.
-    for (const keyboard of [0, 320, 0]) {
+    const surface = await page.locator("[data-vault-unlock-surface]").elementHandle();
+    const supportingText = content.locator("[data-vault-flow-header] p").first();
+    const originalTextSize = await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    // Resize the same dialog through full tablet and split-window widths,
+    // including both sides of its responsive inset breakpoint. Rem-based
+    // supporting copy grows; pixel-sized headings are not Dynamic Type proof.
+    const sizes = [viewport, { width: 507, height: 834 }, { width: 639, height: 834 }, { width: 640, height: 834 }, viewport];
+    for (const { width, height, keyboard } of sizes.flatMap((size) => [0, 320, 0].map((keyboard) => ({ ...size, keyboard })))) {
+      await page.setViewportSize({ width, height });
       await page.evaluate((height) => {
         document.documentElement.style.setProperty("--kb-height", `${height}px`);
         document.documentElement.style.fontSize = "20px";
       }, keyboard);
+      expect(await surface!.evaluate((node) => node.isConnected)).toBe(true);
+      expect(await supportingText.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize))).toBeGreaterThan(originalTextSize);
       const recovery = page.getByRole("button", { name: "Recovery key", exact: true });
       await content.evaluate((node) => { node.scrollTop = 0; });
       const scroll = await content.boundingBox();
       const overflows = await content.evaluate((node) => node.scrollHeight > node.clientHeight);
-      if (keyboard === 320 && viewport.height === 834) expect(overflows).toBe(true);
+      if (keyboard === 320 && height === 834) expect(overflows).toBe(true);
       await page.mouse.move(scroll!.x + scroll!.width / 2, scroll!.y + scroll!.height / 2);
       if (overflows) {
         // Negative control: programmatic reveal would pass overflow:hidden.
