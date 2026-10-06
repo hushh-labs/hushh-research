@@ -82,11 +82,18 @@ final class AppUITests: XCTestCase {
         var receiptSequence = -1
         func reportReceipt(_ stage: String) {
             guard publicReceipt.exists else { return }
+            guard let currentJSON = publicReceipt.value as? String,
+                  let currentData = currentJSON.data(using: .utf8),
+                  let current = try? JSONSerialization.jsonObject(with: currentData) as? [String: NSNumber],
+                  let currentSequence = current["sequence"]?.intValue else {
+                XCTFail("VAULT_PUBLIC_RECEIPT_UNAVAILABLE"); return
+            }
+            let stageSequence = max(receiptSequence, currentSequence)
             var observation: [String: NSNumber]?
             let fresh = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 guard let json = publicReceipt.value as? String, let data = json.data(using: .utf8),
                       let packet = try? JSONSerialization.jsonObject(with: data) as? [String: NSNumber],
-                      let sequence = packet["sequence"]?.intValue, sequence > receiptSequence,
+                      let sequence = packet["sequence"]?.intValue, sequence > stageSequence,
                       packet["unlockClicks"] != nil, packet["unlockAccepted"] != nil else { return false }
                 receiptSequence = sequence
                 observation = packet
@@ -1632,11 +1639,13 @@ final class AppUITests: XCTestCase {
                 openAgent("Finance")
                 let setupQuestion = web.staticTexts["How long will this stay invested?"].firstMatch
                 let setupContinue = web.buttons["Continue finance setup"].firstMatch
+                let setupIntro = web.staticTexts["Access your finances in one place."].firstMatch
                 let destination = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-                    tab("Portfolio").exists || setupQuestion.exists || setupContinue.exists
+                    tab("Portfolio").exists || setupQuestion.exists || setupContinue.exists || setupIntro.exists
                 }, object: web)
                 XCTAssertEqual(XCTWaiter.wait(for: [destination], timeout: 15), .completed, "WORKSPACE_FINANCE_DESTINATION_UNOBSERVED")
-                let setup = setupQuestion.exists || setupContinue.exists
+                let setup = setupQuestion.exists || setupContinue.exists || setupIntro.exists
+                print("WORKSPACE_FINANCE_INTRO visible=\(setupIntro.exists)")
                 print("WORKSPACE_FINANCE_ADMISSION setup=\(setup) workspace=\(tab("Portfolio").exists)")
                 XCTAssertFalse(setup, "WORKSPACE_FINANCE_SETUP_REQUIRED")
                 select("Portfolio"); select("Analysis"); select("Market")
