@@ -456,9 +456,35 @@ reaches each one through a typed capability in
 - **Azure is dev-only end to end:** setup and attach need the parked dev
   migrations 947, 948 and 951 to 953, and agent-to-hub calls need
   `POD_HUB_IDENTITY_AUTH_ENABLED`.
-- **Re-create after Azure deletes the environment:** the gone reason
-  `environment_deleted` is typed, but the person-facing re-create flow is not
-  wired (setup refuses a person whose agent record is already provisioned).
+- **Re-create after Azure deletes the environment (built 2026-10-06, not yet
+  proven live):** Microsoft deletes a Container Apps environment idle for more
+  than 90 days ("Azure Container Apps environments", *Policies*, Microsoft Learn,
+  page dated 2026-02-26). The page does not say whether an app scaled to zero
+  counts as active, and our agent scales to zero, so treat every Azure agent as
+  exposed. The hosting card reads `GET /api/one/runtime/byoc/azure/hosting`
+  (`api/routes/one/byoc_azure_rebuild.py`): agent and environment both 404 is
+  `hosting_reclaimed`; both 403 is `hosting_unconfirmed`, because the observer's
+  grants are scoped to the environment and the agent and may be deleted with them
+  (not measured). Both offer one action, a rebuild under the person's own
+  sign-in (`rebuild/begin`, state kind `rebuild`). The rebuild
+  (`consent-protocol/hushh_mcp/services/azure_hosting_rebuild.py`) first reads,
+  read-only, the bound resource group, the environment and agent, the identity
+  (its principal must equal the recorded one when one was recorded; rows that
+  never recorded `runtime_principal_id` skip that check), the vault with its key and signing
+  secret, and the storage account with its container. It proceeds only when the
+  environment alone is gone, then reruns setup with the group's own nonce and the
+  applier in adopt mode, which reads and keeps every custody resource and never
+  writes one. Then one fenced write (the fresh row snapshot plus the Azure tenant,
+  subscription and resource group) flips the row to `needs_reinit` and RESTORES
+  `user_cloud_authorized_at`, because the owner has just signed in for this group.
+  It deliberately does not reuse `mark_needs_reinit`, which clears that column.
+  A cleared column leaves `UserCloud.blocks_provisioning` True, so `upgrade_pod`
+  refuses every later update (`PersonalAgentCloudNotAuthorizedError`). It then
+  adopts the new agent through `adopt_orphan` (same identity, approved digest, key
+  pulled from the new address). Not proven live: whether the observer reads 404 or
+  403 after a real idle deletion, and the full rebuild in a real subscription.
+  `pod_wake`'s confirmed-gone check cannot resolve an Azure backend: its spec
+  carries no Azure coordinates.
 - **Full teardown** under a sign-in is not built; erasure crypto-erases the agent,
   revokes access and the receipt names the resource group to delete. Account
   deletion stays refused while that resource group exists.

@@ -257,6 +257,7 @@ def _replace(
     logger.info(
         "user_azure_backend.upgraded revision=%s waited_seconds=%.0f", revision, clock() - began
     )
+    backend.prune_superseded_images(arm, observation.app, previous=previous, expected=target)
     return _with_metadata(
         handle, upgraded=True, source_image=spec.upgrade_target_image, previous_image=previous
     )

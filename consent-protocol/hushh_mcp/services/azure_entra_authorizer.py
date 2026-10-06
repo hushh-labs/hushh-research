@@ -57,8 +57,9 @@ _CHALLENGE_TENANT = re.compile(
     r"authorization_uri=\"https://login\.(?:windows\.net|microsoftonline\.com)/([0-9a-fA-F-]{36})\""
 )
 
-AuthorizationKind = Literal["setup", "upgrade", "discover"]
-_KINDS: tuple[str, ...] = ("setup", "upgrade", "discover")
+#: ``rebuild``: re-create the hosting space Azure removed, adopting what survived.
+AuthorizationKind = Literal["setup", "upgrade", "discover", "rebuild"]
+_KINDS: tuple[str, ...] = ("setup", "upgrade", "discover", "rebuild")
 
 
 class AzureAuthorizeError(Exception):

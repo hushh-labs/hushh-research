@@ -11507,7 +11507,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/services/api-service.ts",
       "symbol": null,
-      "value": 6053
+      "value": 6062
     },
     {
       "detail": "module exceeds the advisory operon budget",

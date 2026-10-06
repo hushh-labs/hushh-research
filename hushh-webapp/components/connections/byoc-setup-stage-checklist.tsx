@@ -1,6 +1,25 @@
 import type { ReactNode } from "react";
 
+import { azureFreeTrialNotice } from "@/lib/one/azure-subscription-offer";
 import type { SetupJobProgress, SetupStage } from "@/lib/one/cloud-setup-stages";
+
+/**
+ * The one plain line for an Azure free trial, read from the setup record, or
+ * nothing. Shown while setup runs and on the connected state after it.
+ */
+export function AzureFreeTrialNote({
+  stages,
+}: {
+  stages: SetupJobProgress["stages"] | null | undefined;
+}) {
+  const notice = azureFreeTrialNotice(stages);
+  if (!notice) return null;
+  return (
+    <p className="text-sm" role="note" data-testid="azure-free-trial-note">
+      {notice}
+    </p>
+  );
+}
 
 /**
  * The live checklist of a background cloud job. It owns the screen while the
@@ -50,6 +69,7 @@ export function SetupStageChecklist({
           );
         })}
       </ul>
+      <AzureFreeTrialNote stages={job.stages} />
       <p className="text-xs text-[var(--app-text-secondary)]">{footnote}</p>
     </div>
   );

@@ -18,7 +18,8 @@ import { assignWindowLocation } from "@/lib/utils/browser-navigation";
  * Microsoft redirect lands on `/one/setup/cloud/azure/return`.
  */
 
-export type AzureSignInKind = "setup" | "upgrade";
+/** `rebuild`: re-create the hosting space Microsoft removed, adopting what survived. */
+export type AzureSignInKind = "setup" | "upgrade" | "rebuild";
 
 /** The return leg is a web route; the mobile shells have no way back to it yet. */
 export class AzureSignInUnavailableError extends Error {
@@ -88,7 +89,9 @@ export async function startAzureSignIn(
   const begun =
     kind === "upgrade"
       ? await ApiService.beginAzureByocUpgrade()
-      : await ApiService.beginAzureByocAuthorize(subscriptionId ? { subscriptionId } : {});
+      : kind === "rebuild"
+        ? await ApiService.beginAzureByocRebuild()
+        : await ApiService.beginAzureByocAuthorize(subscriptionId ? { subscriptionId } : {});
   if (popup && !popup.closed) {
     popup.location.assign(begun.authorizationUrl);
     popup.focus();
@@ -209,6 +212,8 @@ const BEGIN_FALLBACK: Record<AzureSignInKind, string> = {
     "We could not start the Microsoft sign-in. Nothing in your subscription changed; try again in a moment.",
   upgrade:
     "We could not start the update sign-in. Your agent keeps its current version; try again in a moment.",
+  rebuild:
+    "We could not start the Microsoft sign-in. Your memory and keys are untouched; try again in a moment.",
 };
 
 /** One plain sentence for any failure on the way to, or back from, Microsoft. */

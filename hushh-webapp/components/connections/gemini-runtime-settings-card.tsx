@@ -12,12 +12,9 @@ import {
 } from "@/lib/auth/session-owner";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
-import {
-  CardTitle,
-  FormLabel,
-  HelperText,
-} from "@/components/app-ui/typography";
+import { CardTitle, FormLabel, HelperText } from "@/components/app-ui/typography";
 import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { GeminiFreeTierNote } from "@/components/connections/gemini-free-tier-note";
 import { Badge } from "@/components/ui/badge";
 import { Input, INPUT_CLASSNAME } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -858,6 +855,7 @@ function OwnerRuntimeSettingsCard({
                 </option>
               </select>
             </FormLabel>
+            <GeminiFreeTierNote transport={transport} />
             {transport === "vertex_api_key" ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 <Input

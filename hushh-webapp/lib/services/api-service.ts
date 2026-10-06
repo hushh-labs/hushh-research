@@ -1778,13 +1778,22 @@ export class ApiService {
     return AzureByoc.parseAzureAuthorizationStart(await ApiService.postAzureByoc("upgrade/begin", {}, "AZURE_UPGRADE_BEGIN_FAILED"));
   }
 
-  private static async postAzureByoc(path: AzureByoc.AzureByocPath, body: Record<string, string>, failure: AzureByoc.AzureByocFailure): Promise<unknown> {
+  /** The owner-approved rebuild of an Azure hosting space Microsoft removed. */
+  static async beginAzureByocRebuild(): Promise<AzureByoc.AzureAuthorizationStart> {
+    return AzureByoc.parseAzureAuthorizationStart(await ApiService.postAzureByoc("rebuild/begin", {}, "AZURE_REBUILD_BEGIN_FAILED"));
+  }
+
+  /** What the hub's standing read says about this owner's Azure hosting space. */
+  static async getAzureHosting(options?: { signal?: AbortSignal }): Promise<AzureByoc.AzureHosting> {
+    return AzureByoc.parseAzureHosting(await ApiService.postAzureByoc("hosting", null, "AZURE_HOSTING_UNAVAILABLE", options?.signal));
+  }
+
+  /** One Azure route; a null body is a GET. */
+  private static async postAzureByoc(path: AzureByoc.AzureByocPath, body: Record<string, string> | null, failure: AzureByoc.AzureByocFailure, signal?: AbortSignal): Promise<unknown> {
     const token = await ApiService.getFirebaseToken();
-    const response = await apiFetch(`/api/one/runtime/byoc/azure/${path}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify(body),
-    });
+    const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    const response = await apiFetch(`/api/one/runtime/byoc/azure/${path}`, body === null ? { method: "GET", headers: auth, signal }
+      : { method: "POST", headers: { "Content-Type": "application/json", ...auth }, body: JSON.stringify(body) });
     return AzureByoc.readAzureByocResponse(response, failure);
   }
 

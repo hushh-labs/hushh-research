@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { AgentUpdateActivity } from "@/components/profile/agent-update-activity";
+import { AzureHostingNotice } from "@/components/profile/azure-hosting-notice";
 import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { readUpdateStatus, releaseLabel, updateActivityLabel } from "@/lib/feed/agent-update-status";
@@ -12,6 +13,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { agentUpdateApprovalToast } from "@/lib/one/agent-update-approval";
 import { AZURE_UPDATE_AWAITING_LABEL, useAzureUpdateAwaitingSignIn } from "@/lib/one/azure-update-sign-in";
 import { useAzureUpdateProgress } from "@/lib/one/use-azure-update-progress";
+import { ownerCloudProvider } from "@/lib/one/owner-cloud";
 import { ApiService } from "@/lib/services/api-service";
 import {
   snapshotValidatedAuthSessionOwner,
@@ -269,6 +271,9 @@ export function AgentSettingsPanel({
             />
           ) : null}
         </SettingsGroup>
+        {mode === "byoc" && ownerCloudProvider(status?.deploymentTarget) === "azure" ? (
+          <AzureHostingNotice onRebuilt={refresh} />
+        ) : null}
 
         <SettingsGroup
           title="Hosting choices"

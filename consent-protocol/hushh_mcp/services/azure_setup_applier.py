@@ -10,7 +10,10 @@ The plan says WHAT; this module says how each step is safely repeated:
 * provider registration waits for ``Registered``;
 * an ``optional`` (model) refusal is a typed outcome: the remaining stages are
   rebuilt without the model and the agent serves the owner's own key instead;
-* a step that still carries a ``${placeholder}`` is never sent.
+* a step that still carries a ``${placeholder}`` is never sent;
+* in ``adopt`` mode (the rebuild after Azure removed the hosting space) the custody
+  resources (identity, vault, key, secret, storage account, container) are read and
+  kept, never written: a missing one refuses rather than minting a new key or identity.
 
 Values created along the way (principal ids, the key version, the image digest)
 are captured into ``values`` and substituted into later steps. The signing secret's
@@ -41,6 +44,10 @@ _PLACEHOLDER = re.compile(r"\$\{([A-Za-z]+)\}")
 _PRINCIPAL_SETTLE_DELAYS: tuple[float, ...] = (3.0, 6.0, 10.0, 15.0, 20.0, 30.0)
 _PROVIDER_POLL_SECONDS = 5.0
 _PROVIDER_POLL_LIMIT = 60
+#: Stages whose resources hold the agent's identity, keys and memory.
+CUSTODY_STAGES: frozenset[str] = frozenset(
+    {"creating_identity", "creating_key_vault", "creating_storage"}
+)
 
 
 class AzureSetupRefused(RuntimeError):
@@ -104,11 +111,13 @@ class SetupApplier:
         advance: Callable[[str], None],
         sleep: Callable[[float], None] = time.sleep,
         image_source_credentials: Optional[Callable[[], dict[str, str]]] = None,
+        adopt: bool = False,
     ) -> None:
         self._arm = arm
         self._advance = advance
         self._sleep = sleep
         self._image_credentials = image_source_credentials
+        self._adopt = adopt
 
     def apply(
         self,
@@ -133,7 +142,9 @@ class SetupApplier:
     def _apply_step(self, step: ArmStep, result: ApplyResult) -> bool:
         """Apply one step. False means an optional step was refused (typed outcome)."""
         try:
-            if step.kind == "role_assignment":
+            if self._adopt and step.kind == "resource" and step.stage in CUSTODY_STAGES:
+                self._keep(step, result.values)
+            elif step.kind == "role_assignment":
                 self._assign(step, result.values)
             elif step.kind == "action":
                 self._act(step, result.values)
@@ -146,6 +157,18 @@ class SetupApplier:
             logger.info("azure_setup.model_unavailable code=%s", exc.code)
             return False
         return True
+
+    def _keep(self, step: ArmStep, values: dict[str, str]) -> None:
+        """Adopt mode: read a custody resource and keep it; never create or rewrite it."""
+        existing = self._arm.get_or_none(step.path, api_version=API_VERSIONS[step.api], op="adopt")
+        if existing is None:
+            raise AzureSetupRefused(
+                "Part of your agent's storage or keys is no longer in your Azure "
+                "subscription, so it cannot be rebuilt without starting a new agent. "
+                "Nothing was created.",
+                code="REBUILD_CUSTODY_MISSING",
+            )
+        _capture(step, existing, values)
 
     def _put(self, step: ArmStep, values: dict[str, str]) -> None:
         api = API_VERSIONS[step.api]
@@ -195,4 +218,4 @@ class SetupApplier:
                 self._sleep(delay)
 
 
-__all__ = ["ApplyResult", "AzureSetupRefused", "SetupApplier", "resolve"]
+__all__ = ["CUSTODY_STAGES", "ApplyResult", "AzureSetupRefused", "SetupApplier", "resolve"]

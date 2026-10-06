@@ -656,14 +656,19 @@ tests/test_compute_backend_contract.py
 tests/test_compute_backend_parity.py
 tests/test_consent_audit_chain.py
 tests/test_consent_audit_key_separation.py
+tests/test_consent_audit_signing_explicit.py
 tests/test_consent_signing_dev_rollout_contract.py
 tests/test_consent_token_asymmetric.py
+tests/test_database_connection_ceiling.py
 tests/test_dco_signoff_is_unmissable.py
 tests/test_debug_route_is_local_only.py
 tests/test_deprovision_routes_by_the_row.py
 tests/test_dev_migration_lane.py
 tests/test_dev_simulation_guard.py
 tests/test_firebase_auth_contract.py
+tests/test_fleet_sweep_lock.py
+tests/test_fleet_sweep_lock_postgres.py
+tests/test_fleet_sweep_lock_wiring.py
 tests/test_gcp_backend.py
 tests/test_gcp_backend_cost_labels.py
 tests/test_gcp_backend_cpu_allocation.py
@@ -850,6 +855,8 @@ tests/test_user_azure_backend.py
 tests/test_user_cloud_azure_coordinates.py
 tests/test_azure_registry_migration.py
 tests/test_azure_setup_job.py
+tests/test_azure_hosting_rebuild.py
+tests/test_azure_hosting_rebuild_routes.py
 tests/test_byoc_azure_routes.py
 tests/test_azure_agent_upgrade_handoff.py
 tests/test_azure_upgrade_admission.py
@@ -927,3 +934,10 @@ tests/test_puppy_tool_result_dates.py
 # Azure update answers on the revision verdict; typed outcomes, plain setup copy (2026-10-05)
 tests/test_azure_upgrade_waits_for_ready.py
 tests/test_byoc_setup_copy_hides_exception_class.py
+
+# Azure free trial named on the setup record; registry keeps current + previous image (2026-10-06)
+tests/test_azure_subscription_offer.py
+tests/test_azure_registry_prune.py
+
+# Pod cost meter prices cold starts at the boosted CPU Google bills (2026-10-06)
+tests/test_measure_pod_cost_counts_startup_boost.py

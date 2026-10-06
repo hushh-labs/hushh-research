@@ -296,6 +296,7 @@ async def _start_setup(
 ) -> AzureAuthorizeCompleteResponse:
     from hushh_mcp.services.azure_setup_job import run_azure_setup_job
     from hushh_mcp.services.azure_setup_plan import group_id, resource_group_name
+    from hushh_mcp.services.azure_subscription_offer import note_subscription_offer
     from hushh_mcp.services.compute_backend import BACKEND_USER_AZURE, PodSpec
 
     source = await _source_image()
@@ -325,6 +326,7 @@ async def _start_setup(
                 spec=spec,
                 source_image=source,
                 on_recorded=lambda: _finish_recorded_setup(user_id),
+                note_offer=note_subscription_offer,
             )
         )
         logger.info("azure_setup_job.accepted user=%s job=%s", user_id, job_id)
@@ -355,6 +357,11 @@ async def complete_azure_authorize(
         raise _pass_through(exc) from exc
     if selection.kind == "upgrade":
         return await _start_upgrade(firebase_uid, token)
+    if selection.kind == "rebuild":
+        from api.routes.one.byoc_azure_rebuild import start_rebuild
+
+        rebuilt: AzureAuthorizeCompleteResponse = await start_rebuild(firebase_uid, token)
+        return rebuilt
     subscription, ask = await _choose_subscription(token, selection.subscription_id)
     if ask is not None or subscription is None:
         return ask or AzureAuthorizeCompleteResponse(status="needs_subscription", subscriptions=[])
@@ -464,5 +471,10 @@ async def _start_upgrade(
         )
     return AzureAuthorizeCompleteResponse(status="upgrade_started", jobId=job_id)
 
+
+# Mounted here so the hosting card's read and its rebuild need no new app wiring.
+from api.routes.one.byoc_azure_rebuild import router as _rebuild_router  # noqa: E402
+
+router.include_router(_rebuild_router)
 
 __all__ = ["router"]

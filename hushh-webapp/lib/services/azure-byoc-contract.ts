@@ -6,6 +6,8 @@
  *   POST byoc/azure/authorize/begin    {subscriptionId?} -> {authorizationUrl}
  *   POST byoc/azure/authorize/complete {code, state}     -> AzureAuthorizeCompletion
  *   POST byoc/azure/upgrade/begin      {}                -> {authorizationUrl}
+ *   POST byoc/azure/rebuild/begin      {}                -> {authorizationUrl}
+ *   GET  byoc/azure/hosting                              -> AzureHosting
  *
  * Setup and update progress are read from the existing
  * `GET byoc/setup/status` record; nothing here duplicates it.
@@ -55,10 +57,17 @@ export type AzureAuthorizeCompletion =
 export type AzureByocFailure =
   | "AZURE_AUTHORIZE_BEGIN_FAILED"
   | "AZURE_AUTHORIZE_COMPLETE_FAILED"
-  | "AZURE_UPGRADE_BEGIN_FAILED";
+  | "AZURE_UPGRADE_BEGIN_FAILED"
+  | "AZURE_REBUILD_BEGIN_FAILED"
+  | "AZURE_HOSTING_UNAVAILABLE";
 
-/** The three routes, relative to `/api/one/runtime/byoc/azure/`. */
-export type AzureByocPath = "authorize/begin" | "authorize/complete" | "upgrade/begin";
+/** The routes, relative to `/api/one/runtime/byoc/azure/`; `hosting` is the one GET. */
+export type AzureByocPath =
+  | "authorize/begin"
+  | "authorize/complete"
+  | "upgrade/begin"
+  | "rebuild/begin"
+  | "hosting";
 
 export type AzureByocErrorCode = AzureByocFailure | "AZURE_RESPONSE_INVALID";
 
@@ -193,6 +202,60 @@ export function parseAzureAuthorizeCompletion(payload: unknown): AzureAuthorizeC
     return reason ? { status, subscriptions, reason } : { status, subscriptions };
   }
   throw invalidResponse();
+}
+
+/**
+ * What the hub's standing read says about an Azure agent's hosting space.
+ * `hosting_reclaimed`: Microsoft removed it (its 90-day idle policy);
+ * `hosting_unconfirmed`: Hussh can no longer read it, which that removal can also
+ * cause. Both offer the one owner-approved rebuild. A rebuild in flight passes
+ * through other states (`agent_removed` before the agent exists, `agent_unreadable`
+ * before its grant applies), so `rebuild` is carried in every state; outside the two
+ * rebuildable ones it never offers a retry.
+ */
+export type AzureHostingState =
+  | "present"
+  | "hosting_reclaimed"
+  | "hosting_unconfirmed"
+  | "agent_removed"
+  | "agent_unreadable"
+  | "unknown"
+  | "not_azure";
+
+const HOSTING_STATES: readonly AzureHostingState[] = [
+  "present",
+  "hosting_reclaimed",
+  "hosting_unconfirmed",
+  "agent_removed",
+  "agent_unreadable",
+  "unknown",
+  "not_azure",
+];
+
+export type AzureHosting = {
+  state: AzureHostingState;
+  rebuildable: boolean;
+  /** `retryable: false` means the owner's own check just found the agent present. */
+  rebuild: { status: "running" | "failed"; message: string | null; retryable: boolean } | null;
+};
+
+function parseRebuildProgress(value: unknown): AzureHosting["rebuild"] {
+  if (!isRecord(value)) return null;
+  if (value.status !== "running" && value.status !== "failed") return null;
+  const raw = typeof value.message === "string" ? value.message.trim() : "";
+  const message = raw && raw.length <= MAX_SERVER_MESSAGE_LENGTH ? raw : null;
+  return { status: value.status, message, retryable: value.retryable !== false };
+}
+
+/** An unrecognised state reads as `unknown`; with no rebuild, the card renders nothing. */
+export function parseAzureHosting(payload: unknown): AzureHosting {
+  if (!isRecord(payload)) throw invalidResponse();
+  const state = HOSTING_STATES.find((known) => known === payload.state) ?? "unknown";
+  const rebuildable =
+    payload.rebuildable === true && (state === "hosting_reclaimed" || state === "hosting_unconfirmed");
+  const progress = parseRebuildProgress(payload.rebuild);
+  const rebuild = progress && !rebuildable ? { ...progress, retryable: false } : progress;
+  return { state, rebuildable, rebuild };
 }
 
 const SUBSCRIPTION_ID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i;

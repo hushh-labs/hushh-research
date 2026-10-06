@@ -116,6 +116,25 @@ def bound_nonce(arm: ArmClient, *, subscription_id: str, hushh_id: str) -> str:
     return str(existing["tags"][NONCE_TAG])
 
 
+def setup_nonce(arm: ArmClient, *, subscription_id: str, spec: PodSpec, adopt: bool) -> str:
+    """The group's nonce. A rebuild (``adopt``) first proves only the hosting is gone.
+
+    Read-only either way. The rebuild's survey (``azure_hosting_rebuild``) refuses a
+    missing group, identity, vault, key, secret, storage account or container, so a
+    rebuild can never fall through to minting a new nonce, and with it new names.
+    """
+    if not adopt:
+        return bound_nonce(arm, subscription_id=subscription_id, hushh_id=spec.hushh_id)
+    from hushh_mcp.services.azure_hosting_rebuild import survey_custody  # noqa: PLC0415
+
+    return survey_custody(
+        arm,
+        subscription_id=subscription_id,
+        hushh_id=spec.hushh_id,
+        recorded_principal=spec.expected_runtime_principal or "",
+    ).nonce
+
+
 def plan_factory(
     spec: PodSpec, *, source_registry: str, source_repository: str, incarnation: str
 ) -> Callable[[PlanInputs], SetupPlan]:
@@ -204,17 +223,20 @@ def run_agent_setup(
     image_credentials: Optional[Callable[[], dict[str, str]]] = None,
     http: Any = None,
     sleep: Callable[[float], None] = time.sleep,
+    adopt: bool = False,
 ) -> AzureSetupResult:
     """Every setup stage before and including ``proving``. Synchronous.
 
     ``image_credentials`` defaults to the configured image reader
     (``azure_image_source``): minted at the import call, never the hub's own token.
+    ``adopt`` is the rebuild after Azure removed the hosting space: same nonce, custody
+    read and kept (``SetupApplier(adopt=True)``), only hosting and agent created.
     """
     registry, repository, digest = parse_source_image(source_image)
     if image_credentials is None:
         image_credentials = import_credentials(registry)
     arm = arm or ArmClient(access_token, sleep=sleep)
-    nonce = bound_nonce(arm, subscription_id=subscription_id, hushh_id=spec.hushh_id)
+    nonce = setup_nonce(arm, subscription_id=subscription_id, spec=spec, adopt=adopt)
     principal = hussh_principal_id or federation.app_token(tenant_id).object_id
     if not principal:
         raise AzureSetupRefused(
@@ -234,7 +256,7 @@ def run_agent_setup(
     )
     values = {"husshPrincipalId": principal, "imageDigest": digest}
     applier = SetupApplier(
-        arm, advance=advance, sleep=sleep, image_source_credentials=image_credentials
+        arm, advance=advance, sleep=sleep, image_source_credentials=image_credentials, adopt=adopt
     )
     try:
         result = applier.apply(plan_for(inputs), values=values, plan_for=plan_for)
@@ -277,4 +299,5 @@ __all__ = [
     "plan_factory",
     "prove",
     "run_agent_setup",
+    "setup_nonce",
 ]

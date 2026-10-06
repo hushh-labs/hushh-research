@@ -46,6 +46,7 @@ from hushh_mcp.services.azure_agent_observation import (
 )
 from hushh_mcp.services.azure_arm_client import API_VERSIONS, ArmClient
 from hushh_mcp.services.azure_container_app_renderer import INCARNATION_TAG
+from hushh_mcp.services.azure_registry_prune import RegistryPruneHook
 from hushh_mcp.services.azure_setup_plan import (
     NONCE_TAG,
     PlanInputs,
@@ -151,7 +152,7 @@ def verified_handle(
     )
 
 
-class UserAzureBackend:
+class UserAzureBackend(RegistryPruneHook):
     """One person's agent in their own subscription. Constructed per person, per call."""
 
     backend_id = BACKEND_USER_AZURE

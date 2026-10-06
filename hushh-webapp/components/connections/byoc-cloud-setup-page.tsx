@@ -12,7 +12,7 @@ import { PageHeader } from "@/components/app-ui/page-sections";
 import { GoogleCloudLogo } from "@/components/brand/google-cloud-logo";
 import { MicrosoftAzureLogo } from "@/components/brand/microsoft-azure-logo";
 import { ByocSetupFailedCard } from "@/components/connections/byoc-setup-failed-card";
-import { SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
+import { AzureFreeTrialNote, SetupStageChecklist } from "@/components/connections/byoc-setup-stage-checklist";
 import {
   HostingChoiceCards,
   type HostingChoice,
@@ -562,8 +562,7 @@ export function ByocCloudSetupPage() {
             Checking your agent home…
           </p>
         ) : connectedBefore ? (
-          // The revisit state: their cloud is already recorded and proven.
-          // An assigned pod cannot be moved by repeating first-time setup.
+          // Revisit: the cloud is recorded and proven; first-time setup cannot move an assigned pod.
           <div
             className="space-y-2 rounded-2xl border border-[var(--app-border)] p-4"
             data-testid="byoc-cloud-connected"
@@ -574,6 +573,7 @@ export function ByocCloudSetupPage() {
             <p className="text-sm text-[var(--app-text-secondary)]">
               {existing.rationale || "Your private agent remains assigned to this project."}
             </p>
+            <AzureFreeTrialNote stages={job?.stages} />
           </div>
         ) : recordedReservedProject ? (
           <div

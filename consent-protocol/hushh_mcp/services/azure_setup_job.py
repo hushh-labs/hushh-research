@@ -158,10 +158,20 @@ async def run_azure_setup_job(
     setup: Callable[..., AzureSetupResult] = run_agent_setup,
     publish: Callable[..., Awaitable[None]] = record_proven_azure_cloud,
     on_recorded: Optional[Callable[[], Awaitable[None]]] = None,
+    note_offer: Optional[Callable[..., Awaitable[Any]]] = None,
 ) -> None:
+    """``note_offer`` (``azure_subscription_offer``) records a free trial; best effort."""
     jobs = repo or ByocSetupJobRepo()
 
     async def work() -> None:
+        if note_offer is not None:
+            await note_offer(
+                jobs,
+                user_id=user_id,
+                job_id=job_id,
+                access_token=access_token,
+                subscription_id=subscription_id,
+            )
         advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
         result = await asyncio.to_thread(
             setup,
@@ -219,6 +229,74 @@ async def run_azure_upgrade_job(
     await _guarded(jobs, user_id=user_id, job_id=job_id, work=work, unexpected=UPDATE_UNEXPECTED)
 
 
+#: The rebuild stopped on something unnamed; nothing in it can delete custody.
+REBUILD_UNEXPECTED = (
+    "Something unexpected stopped the rebuild. Your memory and keys are untouched; try again."
+)
+
+
+class _RebuildRecord:
+    """The setup-job record with every rebuild failure code under ``REBUILD_``.
+
+    The hosting card reads one record for setup, update and rebuild; the prefix is how
+    it shows a rebuild's own sentence and never an update's.
+    """
+
+    def __init__(self, jobs: Any) -> None:
+        self._jobs = jobs
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._jobs, name)
+
+    async def finish(self, *, error_code: Optional[str] = None, **fields: Any) -> None:
+        from hushh_mcp.services.azure_hosting_rebuild import REBUILD_CODE_PREFIX  # noqa: PLC0415
+
+        if error_code and not error_code.startswith(REBUILD_CODE_PREFIX):
+            error_code = REBUILD_CODE_PREFIX + error_code
+        await self._jobs.finish(error_code=error_code, **fields)
+
+
+async def run_azure_rebuild_job(
+    *,
+    user_id: str,
+    job_id: str,
+    access_token: str,
+    spec: PodSpec,
+    source_image: str,
+    publish: Callable[[], Awaitable[None]],
+    on_recorded: Optional[Callable[[], Awaitable[Any]]] = None,
+    repo: Optional[ByocSetupJobRepo] = None,
+    setup: Callable[..., AzureSetupResult] = run_agent_setup,
+) -> None:
+    """Rebuild after Azure removed the hosting space: setup in adopt mode, then adopt.
+
+    ``setup`` runs with ``adopt=True`` (``azure_hosting_rebuild``): it surveys first,
+    keeps the identity, vault and storage, and creates only the environment and agent.
+    ``publish`` hands the row to adoption; ``on_recorded`` adopts it.
+    """
+    jobs = _RebuildRecord(repo or ByocSetupJobRepo())
+
+    async def work() -> None:
+        advance = _stage_writer(jobs, user_id=user_id, job_id=job_id)
+        await asyncio.to_thread(
+            setup,
+            access_token=access_token,
+            tenant_id=str(spec.user_cloud_tenant_id or ""),
+            subscription_id=str(spec.user_cloud_subscription_id or ""),
+            location=str(spec.user_cloud_region or ""),
+            spec=spec,
+            source_image=source_image,
+            advance=advance,
+            adopt=True,
+        )
+        await publish()
+        if on_recorded is not None:
+            await on_recorded()
+        logger.info("azure_rebuild_job.recorded user=%s job=%s", user_id, job_id)
+
+    await _guarded(jobs, user_id=user_id, job_id=job_id, work=work, unexpected=REBUILD_UNEXPECTED)
+
+
 def _refuse_unfinished(outcome: dict) -> None:
     """Raise for an orchestrator outcome that must not read as a finished update.
 
@@ -237,10 +315,12 @@ def _refuse_unfinished(outcome: dict) -> None:
 
 
 __all__ = [
+    "REBUILD_UNEXPECTED",
     "SETUP_UNEXPECTED",
     "UPDATE_UNEXPECTED",
     "UPGRADE_FAILED",
     "arm_refusal",
+    "run_azure_rebuild_job",
     "run_azure_setup_job",
     "run_azure_upgrade_job",
 ]

@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   azureUpgrade: vi.fn(),
   setupStatus: vi.fn(),
   assign: vi.fn(),
+  azureHosting: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mocks.push }) }));
 vi.mock("@/lib/utils/browser-navigation", async (original) => ({
@@ -39,6 +40,7 @@ vi.mock("@/lib/services/api-service", () => ({
     reportPersonalAgentUpdateFailure: mocks.report,
     beginAzureByocUpgrade: mocks.azureUpgrade,
     getByocSetupStatus: mocks.setupStatus,
+    getAzureHosting: mocks.azureHosting,
   },
 }));
 vi.mock("@/lib/morphy-ux/morphy", async (original) => ({
@@ -68,6 +70,24 @@ beforeEach(() => {
 });
 
 describe("owner hosting and software settings", () => {
+  it("tells an Azure owner Microsoft removed the idle hosting space, with one rebuild", async () => {
+    status("byoc", { state: "active", deploymentTarget: "user_azure" });
+    mocks.azureHosting.mockResolvedValue({ state: "hosting_reclaimed", rebuildable: true, rebuild: null });
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(
+      await screen.findByText(
+        "Microsoft removed your agent’s hosting space after a long idle period. Your memory and keys are safe.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Rebuild it" })).toBeTruthy();
+  });
+
+  it("never reads Azure hosting for an agent in another cloud", () => {
+    status("byoc", { state: "active", deploymentTarget: "user_gcp" });
+    render(<AgentSettingsPanel userId="owner" kind="hosting" />);
+    expect(mocks.azureHosting).not.toHaveBeenCalled();
+  });
+
   it.each(["hosting", "software-updates"] as const)(
     "repairs a failed BYOC link from %s without claiming direct readiness",
     async (kind) => {

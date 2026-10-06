@@ -189,9 +189,9 @@ class GcpBackend:
         # This reversed on measured cost, not preference. A warm pod cannot be bought
         # at the 500m sizing the economics were modelled on -- Cloud Run refuses
         # fractional CPU when CPU is always allocated (see `_cpu_for_allocation`), so a
-        # warm pod is a full vCPU always on: ~$69.64/pod/month in us-central1, against
-        # ~$38.11 for the configuration that cannot be created. Defaulting every user
-        # to that is an 83% overrun on a number nobody chose.
+        # warm pod is a full vCPU always on, billed instance-based, per month in us-central1:
+        # 2,628,000 s x ($0.000018 + $0.000002) = $52.56 at list, $47.34 after the free tier
+        # (240,000 vCPU-s, 450,000 GiB-s); 82% over $28.91 for the 0.5 vCPU it cannot be.
         #
         # What economy costs instead is latency on wake, and that is the honest trade:
         # a cold pod answers slower, a warm pod answers now. The liveness evaluator
