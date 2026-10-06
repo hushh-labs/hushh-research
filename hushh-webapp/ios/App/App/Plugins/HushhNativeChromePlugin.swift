@@ -716,16 +716,11 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private func activateControl(_ controlId: String) {
-        guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation else {
-            traceAccent(controlId, "missing_slot"); return
-        }
-        guard slot.state.phase == "active", presentation.enabled else { traceAccent(controlId, "inactive"); return }
-        guard canPresent else { traceAccent(controlId, "presentation_blocked"); return }
-        guard geometryIsCurrent(slot) else { traceAccent(controlId, "geometry_changed"); return }
+        guard let slot = slots[controlId], let identity = slot.state.identity, let presentation = slot.presentation,
+              slot.state.phase == "active", presentation.enabled, canPresent, geometryIsCurrent(slot) else { return }
         guard ["more", "selection", "date", "accent"].contains(slot.kind) else { requestChoice(controlId); return }
-        guard slot.presenter == nil else { traceAccent(controlId, "presenter_busy"); return }
-        guard let parent = bridge?.viewController, let source = slot.hosting?.view else { traceAccent(controlId, "host_missing"); return }
-        guard parent.presentedViewController == nil else { traceAccent(controlId, "parent_busy"); return }
+        guard slot.presenter == nil, let parent = bridge?.viewController, let source = slot.hosting?.view,
+              parent.presentedViewController == nil else { return }
         let privacyGeneration = HushhSessionPrivacyShield.shared.snapshot().generation
         let choose: (String, Int) -> Void = { [weak self, weak slot] value, sequence in
             guard let self, let slot, slot.state.identity == identity, slot.state.updateSequence == sequence,
@@ -740,20 +735,11 @@ final class HushhNativeChromePlugin: CAPPlugin, CAPBridgedPlugin {
         } else if let value = HushhNativeChromePresenter.parseDate(presentation.value), let bounds = slot.dateBounds {
             presenter = .date(parent: parent, title: slot.label, value: value, bounds: bounds, theme: presentation.theme, sequence: slot.state.updateSequence, onChoice: choose)
         } else { return }
-        presenter.didRetire = { [weak self, weak slot, weak presenter] in
+        presenter.didRetire = { [weak slot, weak presenter] in
             if slot?.presenter === presenter { slot?.presenter = nil }
-            self?.traceAccent(controlId, "retired")
         }
         slot.presenter = presenter
-        traceAccent(controlId, "present_requested")
         presenter.present()
-    }
-    private func traceAccent(_ controlId: String, _ code: String) {
-        #if DEBUG
-        guard controlId == "profile-accent", ProcessInfo.processInfo.arguments.contains("--hushh-native-chrome-diagnostics") else { return }
-        // Static stage codes only: no owner, document, value, label or payload.
-        print("NATIVE_ACCENT_TRACE code=\(code)")
-        #endif
     }
     private func acceptDocument(_ next: String) {
         guard document != next else { return }

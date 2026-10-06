@@ -740,13 +740,19 @@ pass. Production-targeted static assets, signed Debug build-for-testing, strict
 codesign and actual bundled-asset verification pass; unsigned Release compilation
 also passes. These are build/source checks, not physical UX acceptance.
 
-The app and matching attach-only runner were installed on the iPhone 16e. Initial
-launch was blocked by the device lock. After the device was unlocked, credential-free
-XCTest admission and the normal reviewer vault unlock passed. The warm preferences
-journey reached Light/Dark/System and the existing accent choices, then failed when
-the reopened Accent menu's Cancel was unavailable. This is an unresolved presentation
-or query boundary, not physical acceptance; diagnostics contain only static stages
-and public control counts. Temporary raw test diagnostics were removed.
+The production-targeted Debug candidate and matching attach-only runner were
+installed on the iPhone 16e. Credential-free XCTest admission and normal reviewer
+vault unlock passed. The warm preferences journey passed Light/Dark/System, both
+accents, two outside-cancellation/reopen cycles, panel retirement/reopening and
+return to unlocked Chat with one identified Capacitor host. The original Cancel
+failure was a test assumption: iOS 26 anchored action sheets deliberately omit
+that button and cancel on an outside tap, as documented in
+[Apple's presentation guidance](https://developer.apple.com/videos/play/wwdc2025/284/).
+The test now verifies the actual cancellation outcome, unchanged preference and
+interactive segment/trigger restoration, not an obsolete button. Warm entry uses
+the existing Profile state and authored Back actions; it does not reset the app.
+Raw diagnostics and temporary admission tracing were removed. The physical iPad
+remains transport-unavailable (CoreDevice 4016); simulator results do not qualify it.
 Appearance/Accent remain explicitly opt-in Debug iPhone families; full accessibility,
 visual and Release performance admission remain outstanding. No merge, deployment
 or distribution is implied.
