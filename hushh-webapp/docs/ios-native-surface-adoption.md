@@ -63,6 +63,11 @@ another navigation stack, WebView, session, or information store.
   remain on the accepted DOM controls until physical acceptance is complete.
   Pending History review badges retain DOM presentation. Choices invoke the
   existing drawer and agent-surface handlers, never a native router.
+  The shared Profile stack now has its own `profile-back` lease, separate from
+  shell Back and Profile Close. Every nested Profile pane invokes the existing
+  `popProfilePaneLocation` action; entry, dragging, overlays and focus still use
+  the Profile owner. Older wrappers do not advertise the additive family and
+  retain the authored Back. Contract version 2 is unchanged.
   The selector uses cloud/machine symbols with spoken names, not repeated text
   labels. Wrapper capabilities are discovered once per document and prewarmed
   independently of route/auth readiness. Only that immutable metadata is cached;
@@ -93,8 +98,11 @@ another navigation stack, WebView, session, or information store.
   native restoration waits for settlement and acknowledged layout. Release/iPad
   enablement and physical acceptance remain separate gates.
 
-  Other bounded public candidates include Location's activity range, RIA tier
-  filter and rows-per-page. They are assessed, not adopted. Record-derived
+  Other bounded public candidates include Location link duration, RIA tier
+  filter and rows-per-page. Location's activity-range control is currently
+  disabled, not a reachable adoption target. These controls are assessed, not
+  adopted: scrolling stationarity, simultaneous selector identities and their
+  authored bounds must be resolved first. Record-derived
   statement pickers, vault method handles and complex multiselect stay React;
   the single-value presentation contract is not an array-value multiselect.
 - [AgentDock](../components/agent/agent-dock.tsx) retains one material Agent Bar
@@ -335,6 +343,7 @@ Earlier core/device results do not certify this newly combined candidate.
 | Back | Shared shell's authored Back handler | Existing bounded SwiftUI button; in-place appearance/enabled updates | Current device interaction, overlay and resume checks passed; visual/accessibility/performance admission remains incomplete. Disable capability to retain `NativeShellBack` DOM control. |
 | History Open/Close | Chat workspace + existing drawer owner | One identity; geometry change retires Open and installs Close in the drawer slot. List, drafts and transcript remain React. | Repeated native Open/Close/return and keyboard restoration passed on the Debug iPhone candidate above; visual/accessibility/performance qualification remains open. Disable family capability; same authored DOM actions remain. |
 | Profile Close | Controlled `ProfilePane` + Sheet | Named-layer Close after entry settlement; retires during drag/nested overlays. URL stack and photos remain React. | Two native Close cycles, photo preview and pull-to-close passed on that candidate; visual/accessibility/performance qualification remains open. Disable `close` capability. |
+| Profile Back | Existing URL-backed `popProfilePaneLocation` | Independent named-layer lease throughout the nested Profile stack; no second router | Focused stale-choice/overlay regression passes and fails when the separate identity is removed. The new Debug iPhone candidate passed account/preferences/security/vault/support Back and return with one accessible 44-point control and one identified host. Visual/accessibility/performance promotion remains open. Disable `profile-back` capability; same DOM action remains. |
 | More / public short menus | Explicit `ActionMenu` callbacks | SwiftUI trigger and owned UIKit action-sheet adapter; no eligible product consumer yet. Scrolling People's Add, rich labels, desktop dropdown and unauthored menus retain React. | Compiled adapter, not adoption; popup privacy/dismissal device proof outstanding. Capabilities remain Debug-only. |
 | Cloud/Puppy | Chat's existing agent-surface handler | Existing finite segmented Picker, ordered current-value updates | Native choice and value-return checks passed on that candidate, with 44-by-49-point accessibility frames; full visual/accessibility/performance qualification remains open. Disable `agent-surface` capability. |
 | Appearance / Accent | Existing `setTheme` / `writeAccent` | Public icon Picker / owned short menu, independent IDs; scroll and animation retirement | Focused public-value and lifecycle contracts pass. Current candidate requires iPhone proof; Release/iPad stay DOM. Disable the two capabilities to retain web operations. |
@@ -345,6 +354,45 @@ Earlier core/device results do not certify this newly combined candidate.
 Every existing feature consumer inherits a shared family below; no page-level
 native router or global primitive replacement is introduced. New adoption must
 add its explicit owner, public projection, evidence and rollback here.
+
+### Route Coverage and Device Admission
+
+The current surface map contains 145 page entries: 75 standard, 47 redirects,
+17 hidden and 6 flow layouts. This is source coverage, not 145 native screens or
+145 passing device journeys. The authored native inventory separately classifies
+125 routes: 101 native-required and 24 excluded. Finance Portfolio aliases now expect the query-tabbed workspace;
+RIA Profile expects its actual Advisor marker and canonical destination. Localhost
+CRM destinations are web-only because Capacitor export rejects them. Callback,
+token, role-dependent and fixture-dependent paths require their own valid entry
+conditions; an empty/error screen is not proof that holdings or client details loaded.
+
+Warm XCUI now includes the Profile account/preferences/security/vault/support
+stack, Connect/Finance/Consent/Wallet tab and Back selection, Memory's Saved → Add
+→ Sharing sequence and the existing Mail/software-keyboard check. These attach
+to the normal session through visible navigation without sign-out, reset or
+cold-route substitution. Vault methods are viewed, not changed. Counts and
+whitelisted stage markers are the only retained diagnostics. A single identified
+host and unchanged draft do not by themselves prove literal document identity.
+
+On 2026-10-06 the physical iPad recovered normal pairing, accepted the signed
+product/runner and passed credential-free XCTest admission. Its normal reviewer
+unlock and protected warm journeys are not yet verified. All new SwiftUI families
+remain excluded there; installation and runner admission do not qualify them.
+The iPhone candidate passed the Profile stack and Connect selection/return. Its
+Finance journey stopped before the expected tabs; subsequent navigation and
+Memory did not establish coverage. These failures remain failures, not silently
+skipped acceptance. On iPad, whole-value entry reached the expected mask length
+but protected Chat was not admitted. No rejected credential is retried to turn
+that result green. The iPad fallback still requires protected route-family proof.
+
+Four functional source-map entries have no complete native-inventory fixture:
+selected-query `/one/messages` and the three `/ria/clients/[userId]` detail
+templates. Their owning `frontend-native-surface-map` workflow must establish
+current-selection readiness for Messages and build-selected, role-authorized
+RIA fixtures before adding accepted journeys. A template, arbitrary identifier
+or mock conversation is not a working device fixture. RIA error-state precedence
+also needs correction before a retained entity can count as loaded. Token and
+callback entries likewise do not become native destinations by inference.
 
 ### Shared Geometry and Motion
 

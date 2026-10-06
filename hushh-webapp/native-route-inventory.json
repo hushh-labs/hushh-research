@@ -1,8 +1,8 @@
 {
   "generated_at": "2026-09-20",
   "total_routes": 125,
-  "native_required_routes": 104,
-  "excluded_routes": 21,
+  "native_required_routes": 101,
+  "excluded_routes": 24,
   "routes": [
     {
       "route": "/",
@@ -42,19 +42,8 @@
     },
     {
       "route": "/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ],
-      "legacyAlias": true
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
     },
     {
       "route": "/consents",
@@ -137,8 +126,8 @@
       "classification": "native-required-functional",
       "legacyAlias": true,
       "initialRoute": "/login?redirect=%2Fkai%2Fdashboard",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -208,8 +197,8 @@
       "route": "/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -364,17 +353,8 @@
     },
     {
       "route": "/one/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM is restricted to localhost; CAPACITOR_BUILD rejects this surface with notFound()."
     },
     {
       "route": "/one/consent",
@@ -529,8 +509,8 @@
       "route": "/one/kai/portfolio",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
-      "expectedMarker": "native-route-kai-portfolio",
-      "expectedRoute": "/one/kai/portfolio",
+      "expectedMarker": "native-route-kai-home",
+      "expectedRoute": "/one/kai?tab=portfolio",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -996,8 +976,8 @@
       "route": "/one/profile/regulatory",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/regulatory",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [
@@ -1107,17 +1087,8 @@
     },
     {
       "route": "/one/setup/connected-systems",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
-      "expectedMarker": "native-route-connected-systems",
-      "expectedRoute": "/one/connected-systems",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
+      "classification": "excluded-web-only",
+      "reason": "Local CRM setup is restricted to loopback development; its layout rejects CAPACITOR_BUILD with notFound() before rendering the client."
     },
     {
       "route": "/one/setup/connections",
@@ -1395,8 +1366,8 @@
       "route": "/ria/profile",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fria%2Fprofile",
-      "expectedMarker": "native-route-profile",
-      "expectedRoute": "/one/profile/regulatory",
+      "expectedMarker": "ria-profile-page",
+      "expectedRoute": "/ria/profile",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

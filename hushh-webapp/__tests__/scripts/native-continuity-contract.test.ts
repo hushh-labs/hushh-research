@@ -464,20 +464,17 @@ describe("native cold-audit and continuity contract", () => {
     });
   });
 
-  it("audits resolved Connected Systems setup through the canonical workspace handoff", () => {
+  it("excludes localhost-only CRM destinations from native launch expectations", () => {
     const inventory = JSON.parse(source("native-route-inventory.json")) as {
-      routes: Array<{ route: string; expectedMarker?: string; expectedRoute?: string }>;
+      routes: Array<{ route: string; classification: string; initialRoute?: string; expectedMarker?: string; expectedRoute?: string }>;
     };
-    const routes = source("lib/navigation/routes.ts");
-    const route = inventory.routes.find(
-      (entry) => entry.route === "/one/setup/connected-systems",
-    );
-
-    expect(routes).toContain('"connected-systems": ROUTES.CONNECTED_SYSTEMS');
-    expect(route).toMatchObject({
-      expectedMarker: "native-route-connected-systems",
-      expectedRoute: "/one/connected-systems",
-    });
+    for (const path of ["/connected-systems", "/one/connected-systems", "/one/setup/connected-systems"]) {
+      const route = inventory.routes.find((entry) => entry.route === path);
+      expect(route?.classification).toBe("excluded-web-only");
+      expect(route?.initialRoute).toBeUndefined();
+      expect(route?.expectedMarker).toBeUndefined();
+      expect(route?.expectedRoute).toBeUndefined();
+    }
   });
 
   it("keeps Android cold audits debug-only, isolated, and terminally cleaned up", () => {
