@@ -192,33 +192,55 @@ final class AppUITests: XCTestCase {
         _ = app.keyboards.firstMatch.waitForExistence(timeout: 3)
         let focused = settledGeometry(after: rest?["sequence"]?.intValue ?? 0)
         report("focused", packet: focused)
-        // Never submit Unlock or read/change the credential. Close only the
-        // system's keyboard control when it is available (iPad); this keeps
-        // the existing owner, vault and document untouched.
+        let signOut = web.buttons.matching(NSPredicate(format: "label == %@", "Sign out"))
+        func escapeReachable(_ packet: [String: NSNumber]?) -> Bool {
+            guard let packet, packet["recoveryInside"]?.boolValue == true,
+                  packet["recoveryHits"]?.boolValue == true,
+                  let top = packet["scrollTopEdge"]?.doubleValue,
+                  let bottom = packet["scrollBottomEdge"]?.doubleValue else { return false }
+            return signOut.allElementsBoundByIndex.contains { element in
+                element.isHittable && element.frame.minY >= web.frame.minY + top - 1 &&
+                    element.frame.maxY <= web.frame.minY + bottom + 1
+            }
+        }
+        func revealEscape(_ stage: String, after sequence: Int) -> [String: NSNumber]? {
+            let beforeScroll = settledGeometry(after: sequence, matchingHeight: web.frame.height)
+            if !escapeReachable(beforeScroll) {
+                // Scroll inside the credential column, not the native host or a
+                // background route. Do not invoke any recovery/account operation.
+                guard let packet = beforeScroll, let top = packet["scrollTopEdge"]?.doubleValue,
+                      let bottom = packet["scrollBottomEdge"]?.doubleValue,
+                      let height = packet["innerHeight"]?.doubleValue,
+                      bottom > top, height > 0 else { XCTFail("VAULT_LAYOUT_SCROLLPORT_UNKNOWN"); return nil }
+                XCTAssertEqual(packet["visualScale"]?.doubleValue ?? -1, 1, accuracy: 0.01, "VAULT_LAYOUT_SCROLL_SCALE_UNKNOWN")
+                XCTAssertEqual(packet["visualTop"]?.doubleValue ?? -1, 0, accuracy: 1, "VAULT_LAYOUT_SCROLL_OFFSET_UNKNOWN")
+                XCTAssertEqual(height, web.frame.height, accuracy: 1, "VAULT_LAYOUT_SCROLL_COORDINATES_UNKNOWN")
+                guard abs((packet["visualScale"]?.doubleValue ?? -1) - 1) <= 0.01,
+                      abs(packet["visualTop"]?.doubleValue ?? -1) <= 1,
+                      abs(height - web.frame.height) <= 1 else { return nil }
+                let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.8) / height))
+                let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.2) / height))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
+            let packet = settledGeometry(after: beforeScroll?["sequence"]?.intValue ?? sequence)
+            report(stage, packet: packet)
+            XCTAssertTrue(escapeReachable(packet), "VAULT_LAYOUT_RECOVERY_ESCAPE_UNREACHABLE")
+            return packet
+        }
+        // Prove reachability while the observed keyboard is still present.
+        // Accessibility can claim Sign out is tappable outside a DOM scroller.
+        guard let revealed = revealEscape("scrolled", after: focused?["sequence"]?.intValue ?? 0) else { return }
+        // Never submit Unlock or read/change the credential. Hide only the
+        // system keyboard when available, after its avoidance has been checked.
         let hide = app.keyboards.buttons["Hide keyboard"].firstMatch
         if hide.exists && hide.isHittable { hide.tap() }
-        let beforeScroll = settledGeometry(after: focused?["sequence"]?.intValue ?? 0)
-        let signOut = web.buttons.matching(NSPredicate(format: "label == %@", "Sign out"))
-        if !signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }) {
-            // Scroll inside the credential column, not the native host or a
-            // background route. Do not invoke any recovery/account operation.
-            guard let packet = beforeScroll, let top = packet["scrollTopEdge"]?.doubleValue,
-                  let bottom = packet["scrollBottomEdge"]?.doubleValue,
-                  let height = packet["innerHeight"]?.doubleValue,
-                  bottom > top, height > 0 else { XCTFail("VAULT_LAYOUT_SCROLLPORT_UNKNOWN"); return }
-            XCTAssertEqual(packet["visualScale"]?.doubleValue ?? -1, 1, accuracy: 0.01, "VAULT_LAYOUT_SCROLL_SCALE_UNKNOWN")
-            XCTAssertEqual(packet["visualTop"]?.doubleValue ?? -1, 0, accuracy: 1, "VAULT_LAYOUT_SCROLL_OFFSET_UNKNOWN")
-            XCTAssertEqual(height, web.frame.height, accuracy: 1, "VAULT_LAYOUT_SCROLL_COORDINATES_UNKNOWN")
-            let start = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.8) / height))
-            let end = web.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: (top + (bottom - top) * 0.2) / height))
-            start.press(forDuration: 0.05, thenDragTo: end)
-        }
-        report("scrolled", packet: settledGeometry(after: beforeScroll?["sequence"]?.intValue ?? 0))
-        XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_RECOVERY_ESCAPE_UNREACHABLE")
         let originalOrientation = XCUIDevice.shared.orientation
         defer { XCUIDevice.shared.orientation = originalOrientation }
-        var sequence = geometry()?["sequence"]?.intValue ?? 0
-        for (stage, orientation) in [("portrait", UIDeviceOrientation.portrait), ("landscape", UIDeviceOrientation.landscapeLeft)] {
+        var sequence = revealed["sequence"]?.intValue ?? 0
+        // The product's iPhone Info.plist admits portrait only; iPad admits both.
+        let orientations: [(String, UIDeviceOrientation)] = UIDevice.current.userInterfaceIdiom == .pad
+            ? [("portrait", .portrait), ("landscape", .landscapeLeft)] : [("portrait", .portrait)]
+        for (stage, orientation) in orientations {
             XCUIDevice.shared.orientation = orientation
             let rotated = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
                 let frame = web.frame
@@ -228,27 +250,20 @@ final class AppUITests: XCTestCase {
             guard XCTWaiter.wait(for: [rotated], timeout: 10) == .completed else {
                 XCTFail("VAULT_LAYOUT_ROTATION_NOT_APPLIED"); return
             }
-            let packet = settledGeometry(after: sequence, matchingHeight: web.frame.height)
-            sequence = packet?["sequence"]?.intValue ?? sequence
-            report(stage, packet: packet)
+            guard let packet = revealEscape(stage, after: sequence) else { return }
+            sequence = packet["sequence"]?.intValue ?? sequence
             XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_ROTATED_ENTRY_CLIPPED")
             assertFieldHitRegions()
-            XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_ROTATED_ESCAPE_UNREACHABLE")
-            XCTAssertTrue(packet?["recoveryInside"]?.boolValue == true && packet?["recoveryHits"]?.boolValue == true,
-                          "VAULT_LAYOUT_ROTATED_RECOVERY_CLIPPED")
         }
         // Resume the same installed document through the normal privacy path.
         // No relaunch, reset, credential input or account operation is allowed.
         XCUIDevice.shared.press(.home)
         app.activate()
         XCTAssertTrue(entry.waitForExistence(timeout: 10), "VAULT_LAYOUT_RESUME_ENTRY_MISSING")
-        let resumed = settledGeometry(after: sequence, matchingHeight: web.frame.height)
-        report("resumed", packet: resumed)
+        let resumed = revealEscape("resumed", after: sequence)
         XCTAssertTrue(entry.isHittable, "VAULT_LAYOUT_RESUME_ENTRY_CLIPPED")
         assertFieldHitRegions()
-        XCTAssertTrue(signOut.allElementsBoundByIndex.contains(where: { $0.isHittable }), "VAULT_LAYOUT_RESUME_ESCAPE_UNREACHABLE")
-        XCTAssertTrue(resumed?["recoveryInside"]?.boolValue == true && resumed?["recoveryHits"]?.boolValue == true,
-                      "VAULT_LAYOUT_RESUME_RECOVERY_CLIPPED")
+        XCTAssertNotNil(resumed)
     }
 
     func testLocalSessionChatDrawerDoesNotReplaceThePage() throws {

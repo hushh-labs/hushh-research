@@ -470,6 +470,14 @@ SwiftUI families on iPad or prove the complete protected route inventory.
 Retire the probe flag for ordinary runs; revert the bounded verification
 commit independently without changing vault or routing authority.
 
+The physical vault check uses actual scrollport containment and Recovery's DOM
+hit result before relying on Sign out's accessibility hittability. When needed,
+it reveals the escape row inside that scroller while the observed keyboard is
+still present, then rechecks after rotation and resume. Unknown coordinate
+geometry fails before a drag. iPad retains both supported orientations; iPhone
+is checked in its authored portrait-only orientation. An absent software keyboard
+remains an unexercised condition, not keyboard acceptance.
+
 Four functional source-map entries have no complete native-inventory fixture:
 selected-query `/one/messages` and the three `/ria/clients/[userId]` detail
 templates. Their owning `frontend-native-surface-map` workflow must establish
