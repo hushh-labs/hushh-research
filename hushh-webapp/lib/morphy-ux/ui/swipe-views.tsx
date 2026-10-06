@@ -535,7 +535,9 @@ export function SwipeViews({
       if (frame) window.cancelAnimationFrame(frame);
       frame = window.requestAnimationFrame(() => {
         frame = 0;
-        const measured = Math.ceil(activeNode.scrollHeight);
+        // The panel's in-flow box owns height. Transformed descendants can leave
+        // stale scrollable overflow in WebKit after collapsing a card stack.
+        const measured = activeNode.offsetHeight;
         const floor = heightFloorRef.current;
         const nextHeight =
           floor === null ? measured : Math.max(measured, floor);
@@ -546,8 +548,8 @@ export function SwipeViews({
       });
     };
 
-    // Transforms can change scrollHeight without changing the observed layout
-    // box. Reconcile after the final frame so collapsed stacks leave no tail.
+    // Reconcile the final layout after descendant motion as well as resize.
+    // Painted overflow must never become the pager's reserved height.
     activeNode.addEventListener("transitionend", measure);
     activeNode.addEventListener("animationend", measure);
     const removeMotionListeners = () => {

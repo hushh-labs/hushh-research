@@ -534,7 +534,7 @@ describe("SwipeViews", () => {
     });
 
     it.each(["transitionend", "animationend"])(
-      "remeasures collapsed child overflow after %s without a resize",
+      "uses collapsed layout height despite stale transformed overflow after %s",
       (eventName) => {
         const view = render(
           <SwipeViews tabSetId="motion-height" activeValue="first" options={OPTIONS} heightMode="active">
@@ -545,11 +545,12 @@ describe("SwipeViews", () => {
         const child = screen.getByTestId("animated-content");
         const panel = child.closest('[role="tabpanel"]')!;
         const root = view.container.querySelector('[data-swipe-views-root="true"]')!;
-        let scrollHeight = 900;
-        Object.defineProperty(panel, "scrollHeight", { get: () => scrollHeight });
+        let layoutHeight = 900;
+        Object.defineProperty(panel, "offsetHeight", { get: () => layoutHeight });
+        Object.defineProperty(panel, "scrollHeight", { get: () => 900 });
         act(() => child.dispatchEvent(new Event(eventName, { bubbles: true })));
         expect(root).toHaveStyle({ height: "900px" });
-        scrollHeight = 600;
+        layoutHeight = 600;
         act(() => child.dispatchEvent(new Event(eventName, { bubbles: true })));
         expect(root).toHaveStyle({ height: "600px" });
       },
