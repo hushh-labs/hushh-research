@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import hmac
 import json
+import logging
 import secrets
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -23,11 +24,16 @@ from sqlalchemy import text
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.runtime_settings import get_core_security_settings
 
+logger = logging.getLogger(__name__)
+
 ActionChannel = Literal["typed_chat", "voice", "command", "adk_chat"]
 
 
 class ActionDirectiveAuthorityError(RuntimeError):
     """A directive could not advance through its one-time authority state."""
+
+    # Closed, private-data-free code for logs; never changes who may proceed.
+    reason: str | None = None
 
 
 MCP_ACTION_ID = "connector.mcp.invoke"
@@ -630,6 +636,41 @@ class ActionDirectiveStore:
             {"user": user_id, "command": command_id},
         )
 
+    async def _refusal_reason(
+        self, *, directive_id: str, user_id: str, expected_state: str
+    ) -> str | None:
+        """Why an ADK Chat confirm/consume matched nothing, for the log only.
+
+        Read after the atomic update already refused, so it grants nothing and
+        cannot change the outcome. Logs a closed reason code and the directive
+        state, never ids, terms, receipts or arguments. Any failure here is
+        ignored and the caller raises its usual error, unchanged.
+        """
+        try:
+            result = await self._execute(
+                """
+                SELECT state, expires_at <= clock_timestamp() AS expired
+                FROM one_action_directive_ledger
+                WHERE directive_id = :directive_id AND user_id = :user_id
+                """,
+                {"directive_id": directive_id, "user_id": user_id},
+            )
+            rows = result.data or []
+            if not rows:
+                reason, state = "directive_unknown", "none"
+            else:
+                state = str(rows[0].get("state"))
+                if state != expected_state:
+                    reason = "directive_not_open"
+                elif rows[0].get("expired"):
+                    reason = "directive_expired"
+                else:
+                    reason = "binding_mismatch"
+        except Exception:  # noqa: BLE001 - diagnostics must never alter the refusal
+            return None
+        logger.warning("one.action_directive_refused reason=%s state=%s", reason, state)
+        return reason
+
     async def issue(
         self,
         *,
@@ -746,7 +787,12 @@ class ActionDirectiveStore:
         )
         rows = result.data or []
         if not rows:
-            raise ActionDirectiveAuthorityError("directive is stale, mismatched, or already used")
+            error = ActionDirectiveAuthorityError("directive is stale, mismatched, or already used")
+            if adk_app_name is not None:
+                error.reason = await self._refusal_reason(
+                    directive_id=directive_id, user_id=user_id, expected_state="issued"
+                )
+            raise error
         return ActionConfirmationReceipt(
             directive_id,
             receipt,
@@ -802,7 +848,12 @@ class ActionDirectiveStore:
             },
         )
         if not (result.data or []):
-            raise ActionDirectiveAuthorityError("confirmation receipt is invalid or already used")
+            error = ActionDirectiveAuthorityError("confirmation receipt is invalid or already used")
+            if adk_app_name is not None:
+                error.reason = await self._refusal_reason(
+                    directive_id=directive_id, user_id=user_id, expected_state="confirmed"
+                )
+            raise error
 
     async def settle(
         self,
@@ -906,6 +957,32 @@ class ActionDirectiveStore:
               AND state IN ('issued', 'confirmed', 'consumed')
             """,
             {"user_id": user_id, "conversation_id": conversation_id},
+        )
+
+    async def cancel_unconfirmed_adk_chat(
+        self, *, user_id: str, session_id: str, action_id: str
+    ) -> None:
+        """Disarm one owner's unanswered ADK Chat reviews when a new turn starts.
+
+        Same issued -> cancelled transition and reason as the typed-chat path
+        above, scoped to this owner, this encrypted session and one action.
+        Only 'issued': a 'confirmed' directive was explicitly approved on its
+        card and its resume may still be in flight, so a later typed message
+        must not silently drop that approved write.
+        """
+        await self._execute(
+            """
+            UPDATE one_action_directive_ledger
+            SET state = 'cancelled', settlement_status = 'cancelled',
+                settlement_reason_code = 'superseded_by_new_turn', settled_at = NOW()
+            WHERE user_id = :user_id
+              AND channel = 'adk_chat'
+              AND adk_app_name = 'hussh_one'
+              AND session_id = :session_id
+              AND action_id = :action_id
+              AND state = 'issued'
+            """,
+            {"user_id": user_id, "session_id": session_id, "action_id": action_id},
         )
 
     async def cancel_typed(

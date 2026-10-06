@@ -91,6 +91,79 @@ async def test_discovery_does_not_mutate_or_repeat_labels_on_sdk_tools(registry)
     assert shared_tool.description == "Find files"
 
 
+def _review_toolset(tools, *, free_read=()):
+    """A native toolset that decides review with the real governed rule."""
+    from hushh_mcp.one_adk.governed_mcp_toolset import mcp_review_outcome
+
+    return SimpleNamespace(
+        get_tools=AsyncMock(return_value=tools),
+        review_outcome=lambda tool_id, descriptor: mcp_review_outcome(
+            "reviewed_writes", descriptor, free_read=tool_id in free_read
+        ),
+    )
+
+
+async def test_review_required_tool_carries_the_app_note_and_free_read_does_not(registry):
+    write = SimpleNamespace(
+        name="mcp_write",
+        description="Create or update CRM records",
+        descriptor={"name": "manage", "annotations": {"readOnlyHint": False}},
+    )
+    read = SimpleNamespace(
+        name="mcp_read",
+        description="Search CRM records",
+        descriptor={"name": "search", "annotations": {"readOnlyHint": True}},
+    )
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(
+            return_value=_review_toolset([write, read], free_read={"mcp_read"})
+        )
+        discovered = {
+            item.name: item for item in await module.RegisteredMcpToolset().get_tools(context())
+        }
+    assert discovered["mcp_write"].description.startswith('Connected app: "Synthetic connector". ')
+    assert "Create or update CRM records" in discovered["mcp_write"].description
+    assert discovered["mcp_write"].description.endswith(module.REVIEW_CARD_NOTE)
+    assert "only approval" in module.REVIEW_CARD_NOTE
+    assert discovered["mcp_read"].description == (
+        'Connected app: "Synthetic connector". Search CRM records'
+    )
+    # The shared provider tools are never edited.
+    assert write.description == "Create or update CRM records"
+    assert read.description == "Search CRM records"
+
+
+async def test_review_note_is_not_duplicated_across_discoveries(registry):
+    write = SimpleNamespace(
+        name="mcp_write", description="Create records", descriptor={"name": "manage"}
+    )
+    native = _review_toolset([write])
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+    assert first[0].description == second[0].description
+    assert first[0].description.count(module.REVIEW_CARD_NOTE) == 1
+    assert write.description == "Create records"
+
+
+async def test_review_note_fails_closed_to_no_note(registry):
+    unknown = SimpleNamespace(name="mcp_x", description="Plain", descriptor={"name": "x"})
+    no_descriptor = SimpleNamespace(name="mcp_y", description="Plain")
+    broken = SimpleNamespace(
+        get_tools=AsyncMock(return_value=[unknown]),
+        review_outcome=Mock(side_effect=RuntimeError("synthetic")),
+    )
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=broken)
+        found = await module.RegisteredMcpToolset().get_tools(context())
+        assert found[0].description == 'Connected app: "Synthetic connector". Plain'
+        scope.acquire = AsyncMock(return_value=_review_toolset([no_descriptor]))
+        found = await module.RegisteredMcpToolset().get_tools(context())
+        assert found[0].description == 'Connected app: "Synthetic connector". Plain'
+
+
 @pytest.mark.parametrize("kind", ["missing", "owner", "surface", "thread"])
 async def test_invalid_context_never_queries_registry(registry, kind):
     candidate = context()
@@ -343,6 +416,8 @@ async def test_vault_connector_joins_native_discovery_review_refresh_and_disable
         assert len(tools) == 2
         assert {tool.descriptor["name"] for tool in tools} == {"search", "summarize"}
         assert all(tool.name.startswith("mcp_") for tool in tools)
+        # The person's own connector never pauses for the card, so no card note.
+        assert all(module.REVIEW_CARD_NOTE not in tool.description for tool in tools)
         # Founder, 2026-09-27: the person's own connector runs without review.
         first = await tools[0].run_async(args={}, tool_context=candidate)
         assert first["status"] == "ok" and first["review"] == "own_connector"
@@ -590,3 +665,26 @@ async def test_a_listing_is_never_carried_into_another_turn(registry):
             scope.acquire = AsyncMock(return_value=toolset)
             await view.get_tools(context())
     assert toolset.get_tools.await_count == 2
+
+
+async def test_a_reused_listing_still_carries_the_review_note_exactly_once(registry):
+    """The review-card note and the once-per-turn listing must compose."""
+    write = SimpleNamespace(
+        name="mcp_write",
+        description="Create records",
+        descriptor={"name": "manage", "annotations": {"readOnlyHint": False}},
+        epoch=3,
+    )
+    native = _review_toolset([write])
+    native.catalog_epoch = 3
+    view = module.RegisteredMcpToolset()
+    async with mcp_turn_scope("thread") as scope:
+        scope.acquire = AsyncMock(return_value=native)
+        first = await view.get_tools(context())
+        second = await view.get_tools(context())
+        third = await view.get_tools(context())
+        assert native.get_tools.await_count == 1
+    for listing in (first, second, third):
+        assert listing[0].description.count(module.REVIEW_CARD_NOTE) == 1
+        assert listing[0].description.endswith(module.REVIEW_CARD_NOTE)
+    assert write.description == "Create records"

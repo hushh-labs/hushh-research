@@ -4,6 +4,7 @@ mocked lifecycle/credentials, no live HubSpot grants."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -1277,3 +1278,191 @@ def test_pinned_free_reads_are_all_in_the_committed_tool_allowlist():
 def test_an_unlisted_provider_has_no_free_reads():
     assert oauth.curated_free_read_tools("no_such_provider") == frozenset()
     assert oauth.curated_free_read_tools("") == frozenset()
+
+
+# --- provider token revocation on disconnect --------------------------------------
+
+REVOKE_URL = "https://mcp.notion.com/token"
+
+
+@pytest.fixture
+def revoking(service, connector, monkeypatch):
+    """A public-client provider (Notion) that declares a revocation endpoint."""
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    manifest = replace(get_manifest("notion"), revocation_url=REVOKE_URL)
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: manifest)
+    service._configuration = AsyncMock(return_value=(connector, "client-1", None))
+    service.lifecycle.disconnect = AsyncMock(
+        return_value={
+            "credential_ciphertext": "blob",
+            "connection_generation": 5,
+            "envelope_version": 2,
+        }
+    )
+    service.credentials.open_credential = Mock(
+        return_value={
+            "accessToken": "access-1",
+            "refreshToken": "refresh-1",
+            "oauthClientId": "client-1",
+        }
+    )
+    return service
+
+
+def _revocation_requests(monkeypatch, status=200):
+    seen: list[httpx.Request] = []
+
+    def handler(request):
+        seen.append(request)
+        return httpx.Response(status)
+
+    _install_transport(monkeypatch, handler)
+    return seen
+
+
+@pytest.mark.asyncio
+async def test_disconnect_revokes_the_refresh_token_at_a_declared_endpoint(revoking, monkeypatch):
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "revoked"
+    (request,) = seen
+    assert str(request.url) == REVOKE_URL and request.method == "POST"
+    body = dict(item.split("=", 1) for item in request.content.decode().split("&"))
+    assert body == {
+        "token": "refresh-1",
+        "token_type_hint": "refresh_token",
+        "client_id": "client-1",
+    }
+    # A revoked token clears the durable reconnect fence; nothing else does.
+    revoking.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1", connector_id="notion", generation=6, outcome="revoked"
+    )
+
+
+@pytest.mark.asyncio
+async def test_disconnect_falls_back_to_the_access_token_without_a_refresh_token(
+    revoking, monkeypatch
+):
+    revoking.credentials.open_credential = Mock(
+        return_value={"accessToken": "access-1", "oauthClientId": "client-1"}
+    )
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "revoked"
+    assert b"token=access-1" in seen[0].content
+    assert b"token_type_hint=access_token" in seen[0].content
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [400, 401, 429, 500, 503])
+async def test_a_provider_refusal_is_recorded_as_failed_and_the_local_scrub_stands(
+    revoking, monkeypatch, status
+):
+    _revocation_requests(monkeypatch, status=status)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result == {"status": "revoked", "connectorId": "notion", "revocationOutcome": "failed"}
+    revoking.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1", connector_id="notion", generation=6, outcome="failed"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_network_failure_is_recorded_as_failed(revoking, monkeypatch):
+    def handler(request):
+        raise httpx.ConnectError("down")
+
+    _install_transport(monkeypatch, handler)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+
+
+@pytest.mark.asyncio
+async def test_a_stalled_provider_is_cut_off_and_recorded_as_failed(revoking, monkeypatch):
+    class Stalled(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.sleep(30)
+            yield b""
+
+    def handler(request):
+        return httpx.Response(200, stream=Stalled())
+
+    _install_transport(monkeypatch, handler)
+    real_timeout = asyncio.timeout
+    monkeypatch.setattr(oauth.asyncio, "timeout", lambda _seconds: real_timeout(0.1))
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "case", ["legacy_envelope", "client_changed", "undecryptable", "configuration_drifted"]
+)
+async def test_an_unverifiable_credential_is_never_presented_to_the_provider(
+    revoking, monkeypatch, case
+):
+    seen = _revocation_requests(monkeypatch)
+    if case == "legacy_envelope":
+        revoking.lifecycle.disconnect.return_value["envelope_version"] = 1
+    elif case == "client_changed":
+        revoking.credentials.open_credential = Mock(
+            return_value={"refreshToken": "refresh-1", "oauthClientId": "another-client"}
+        )
+    elif case == "undecryptable":
+        from hushh_mcp.services.external_connector_credentials_service import (
+            ExternalConnectorCredentialError,
+        )
+
+        revoking.credentials.open_credential = Mock(
+            side_effect=ExternalConnectorCredentialError("synthetic")
+        )
+    else:
+        revoking._configuration = AsyncMock(
+            side_effect=oauth.CuratedConnectorOAuthError("connector_configuration_invalid")
+        )
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_non_public_revocation_endpoint_is_refused(revoking, monkeypatch):
+    from hushh_mcp.services.curated_connector_manifest import get_manifest
+
+    internal = replace(get_manifest("notion"), revocation_url="https://127.0.0.1/revoke")
+    monkeypatch.setattr(oauth, "get_manifest", lambda connector_id: internal)
+    seen = _revocation_requests(monkeypatch)
+    result = await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert result["revocationOutcome"] == "failed"
+    assert seen == []
+
+
+@pytest.mark.asyncio
+async def test_a_confidential_client_sends_its_secret_with_the_revocation(
+    revoking, connector, monkeypatch
+):
+    revoking._configuration = AsyncMock(return_value=(connector, "client-1", "secret-1"))
+    seen = _revocation_requests(monkeypatch)
+    await revoking.disconnect(connector_id="notion", user_id="u1")
+    assert b"client_secret=secret-1" in seen[0].content
+
+
+@pytest.mark.asyncio
+async def test_a_provider_without_a_declared_endpoint_keeps_the_unavailable_outcome(
+    service, monkeypatch
+):
+    """HubSpot and Attio publish no revocation endpoint: nothing is sent anywhere."""
+    seen = _revocation_requests(monkeypatch)
+    service.lifecycle.disconnect = AsyncMock(
+        return_value={"credential_ciphertext": "blob", "connection_generation": 5}
+    )
+    result = await service.disconnect(connector_id="hubspot", user_id="u1")
+    assert result["revocationOutcome"] == "unavailable"
+    assert seen == []
+    service.lifecycle.record_revocation.assert_awaited_once_with(
+        user_id="u1",
+        connector_id="hubspot",
+        generation=6,
+        outcome="unavailable",
+        release_fence=True,
+    )

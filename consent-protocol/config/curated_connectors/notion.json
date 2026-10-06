@@ -8,6 +8,7 @@
     "authorizeUrl": "https://mcp.notion.com/authorize",
     "tokenUrl": "https://mcp.notion.com/token",
     "registrationUrl": "https://mcp.notion.com/register",
+    "revocationUrl": "https://mcp.notion.com/token",
     "scopes": ["default"],
     "tokenEndpointAuth": "none",
     "clientIdEnv": "NOTION_OAUTH_CLIENT_ID"

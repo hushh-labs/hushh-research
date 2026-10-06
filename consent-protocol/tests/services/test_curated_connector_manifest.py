@@ -851,3 +851,29 @@ async def test_a_manifest_derived_row_is_served_and_a_drifted_field_is_refused(
     service.registry.get_connector = AsyncMock(return_value=_ROW_DRIFTS[field](row))
     with pytest.raises(oauth.CuratedConnectorOAuthError, match="connector_configuration_invalid"):
         await service._configuration(connector_id)
+
+
+# --- provider token revocation (RFC 7009), only where the provider advertises it ---
+
+
+def test_only_a_provider_that_advertises_revocation_declares_it():
+    assert MANIFESTS["notion"].revocation_url == "https://mcp.notion.com/token"
+    # HubSpot and Attio publish no revocation endpoint in their OAuth metadata.
+    assert MANIFESTS["hubspot"].revocation_url is None
+    assert MANIFESTS["attio"].revocation_url is None
+
+
+def test_revocation_url_is_optional_and_not_part_of_the_registry_pin(raw):
+    baseline = parse_manifest(raw)
+    raw["oauth"]["revocationUrl"] = "https://mcp.hubspot.com/oauth/v3/revoke"
+    declared = parse_manifest(raw)
+    assert declared.revocation_url == "https://mcp.hubspot.com/oauth/v3/revoke"
+    # The registry row is never compared with it, so adding one forces nobody to reconnect.
+    assert declared.pin() == baseline.pin()
+
+
+@pytest.mark.parametrize("value", ["http://mcp.hubspot.com/revoke", "ftp://x.test/r", "not a url"])
+def test_a_revocation_url_must_be_https(raw, value):
+    raw["oauth"]["revocationUrl"] = value
+    with pytest.raises(CuratedConnectorManifestError, match="revocationUrl"):
+        parse_manifest(raw)

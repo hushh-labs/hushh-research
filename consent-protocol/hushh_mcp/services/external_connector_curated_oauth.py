@@ -19,10 +19,13 @@ Deliberately narrower than Drive in two ways:
   connection, is where that would live) and a stale refresh token can only
   be detected by the provider rejecting it (`invalid_grant`), not by an
   identity mismatch.
-- No provider revocation URL. HubSpot's descriptor declares none. Disconnect
-  only scrubs the local credential; the outcome is always "unavailable",
-  matching `capability_policy` growing an `oauthRevokeUrl` field later if a
-  connector ever needs a real revoke call.
+- Provider revocation only where the provider advertises an endpoint. A manifest
+  may name `oauth.revocationUrl` (RFC 7009; Notion does in its OAuth metadata).
+  Disconnect always scrubs the local credential first; then, if an endpoint is
+  declared, it makes one bounded revoke call and records `revoked` or `failed`.
+  A provider with no declared endpoint (HubSpot and Attio publish none) keeps the
+  outcome "unavailable": the grant stays valid at the provider until the person
+  removes it there.
 """
 
 from __future__ import annotations
@@ -611,19 +614,82 @@ class ExternalConnectorCuratedOAuth:
             policy_hash=curated_policy_hash(connector),
         )
 
+    async def _revoke(self, *, url: str, data: dict[str, str]) -> None:
+        """One RFC 7009 request. Any 2xx is success; the body is never read or logged."""
+        try:
+            validate_mcp_endpoint(url)
+            async with (
+                asyncio.timeout(10),
+                create_public_mcp_http_client(
+                    timeout=httpx.Timeout(8), max_response_bytes=RESPONSE_LIMIT
+                ) as client,
+            ):
+                async with client.stream(
+                    "POST", url, data=data, headers={"Accept": "application/json"}
+                ) as response:
+                    async for _ in response.aiter_bytes():
+                        pass  # drained within the response cap, never retained
+                    if not 200 <= response.status_code < 300:
+                        raise CuratedConnectorOAuthError("provider_unavailable", status_code=503)
+        except (httpx.HTTPError, McpResponseLimitError, TimeoutError, UnsafeMcpEndpoint):
+            raise CuratedConnectorOAuthError("provider_unavailable", status_code=503) from None
+
     async def disconnect(self, *, connector_id: str, user_id: str) -> dict[str, str]:
         old = await self.lifecycle.disconnect(user_id=user_id, connector_id=connector_id)
-        # No provider revoke URL exists for this adapter's connectors in v1
-        # (see module docstring) -- local scrub is the whole disconnect.
-        outcome = "unavailable" if old.get("credential_ciphertext") else "not_attempted"
-        if old.get("credential_ciphertext"):
+        if not old.get("credential_ciphertext"):
+            return {
+                "status": "revoked",
+                "connectorId": connector_id,
+                "revocationOutcome": "not_attempted",
+            }
+        manifest = get_manifest(connector_id)
+        revocation_url = manifest.revocation_url if manifest is not None else None
+        generation = old["connection_generation"] + 1
+        if revocation_url is None:
+            # The provider declares no revocation endpoint (see the module
+            # docstring): the local scrub is the whole disconnect, and no
+            # revocation exists to wait on, so do not hold the reconnect fence.
             await self.lifecycle.record_revocation(
                 user_id=user_id,
                 connector_id=connector_id,
-                generation=old["connection_generation"] + 1,
-                outcome=outcome,
-                # No provider revoke exists to wait on, so do not hold the
-                # reconnect fence that a real revocation attempt would clear.
+                generation=generation,
+                outcome="unavailable",
                 release_fence=True,
             )
+            return {
+                "status": "revoked",
+                "connectorId": connector_id,
+                "revocationOutcome": "unavailable",
+            }
+        outcome = "failed"
+        try:
+            # A row sealed before envelope v2 has no verified OAuth client binding;
+            # never present such a credential to a provider endpoint.
+            if old.get("envelope_version") != 2:
+                raise CuratedConnectorOAuthError("revocation_identity_unverified", status_code=409)
+            credential = self.credentials.open_credential(
+                user_id=user_id, connector_id=connector_id, row=old
+            )
+            _, client_id, client_secret = await self._configuration(connector_id)
+            if credential.get("oauthClientId") != client_id:
+                raise CuratedConnectorOAuthError("revocation_identity_unverified", status_code=409)
+            refresh = credential.get("refreshToken")
+            token = refresh or credential.get("accessToken")
+            if isinstance(token, str) and token:
+                await self._revoke(
+                    url=revocation_url,
+                    data={
+                        "token": token,
+                        "token_type_hint": "refresh_token" if refresh else "access_token",
+                        **self._client_auth(client_id, client_secret),
+                    },
+                )
+                outcome = "revoked"
+        except (CuratedConnectorOAuthError, ExternalConnectorCredentialError):
+            outcome = "failed"
+        # The durable reconnect fence is held for a failed attempt and cleared by
+        # a revoked one, exactly as for Drive.
+        await self.lifecycle.record_revocation(
+            user_id=user_id, connector_id=connector_id, generation=generation, outcome=outcome
+        )
         return {"status": "revoked", "connectorId": connector_id, "revocationOutcome": outcome}

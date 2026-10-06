@@ -1,3 +1,4 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -399,3 +400,42 @@ async def test_unstorable_review_shows_no_card_and_dispatches_nothing(monkeypatc
         "retryable": False,
     }
     assert "call" not in context.actions.requested_tool_confirmations
+
+
+async def test_supersede_is_scoped_to_owner_conversation_and_the_mcp_action():
+    store = SimpleNamespace(cancel_unconfirmed_adk_chat=AsyncMock())
+    await approval.supersede_unanswered_reviews("owner", "thread", store=store)
+    store.cancel_unconfirmed_adk_chat.assert_awaited_once_with(
+        user_id="owner", session_id="thread", action_id=approval.MCP_ACTION_ID
+    )
+
+
+@pytest.mark.parametrize("owner,thread", [("", "thread"), ("owner", "")])
+async def test_supersede_without_an_exact_scope_touches_nothing(owner, thread):
+    store = SimpleNamespace(cancel_unconfirmed_adk_chat=AsyncMock())
+    await approval.supersede_unanswered_reviews(owner, thread, store=store)
+    store.cancel_unconfirmed_adk_chat.assert_not_awaited()
+
+
+async def test_supersede_fails_quietly(caplog):
+    failing = SimpleNamespace(
+        cancel_unconfirmed_adk_chat=AsyncMock(side_effect=ActionDirectiveAuthorityError("secret"))
+    )
+    with caplog.at_level("WARNING"):
+        await approval.supersede_unanswered_reviews("owner", "thread", store=failing)
+    assert "secret" not in caplog.text and "owner" not in caplog.text
+
+
+async def test_supersede_is_never_abandoned_on_a_timeout():
+    # A cancel left queued behind a busy database would run after the new turn
+    # issued its review and disarm it. The turn therefore waits for the cancel.
+    finished = []
+
+    async def slow(**_):
+        await asyncio.sleep(0.05)
+        finished.append(True)
+
+    await approval.supersede_unanswered_reviews(
+        "owner", "thread", store=SimpleNamespace(cancel_unconfirmed_adk_chat=slow)
+    )
+    assert finished == [True]

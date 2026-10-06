@@ -183,11 +183,12 @@ const CONNECTOR_LOGOS: Record<string, string> = {
   plaid: "plaid",
   attio: "attio",
   hubspot: "hubspot",
+  notion: "notion",
 };
 
 // Single-colour black marks disappear on the dark theme, so they invert there.
 // (Official files are used unmodified: see public/icons/connectors/README.md.)
-const MONOCHROME_LOGOS = new Set(["plaid", "attio"]);
+const MONOCHROME_LOGOS = new Set(["plaid", "attio", "notion"]);
 
 /**
  * Profile's leading glyph: the connector's own mark, bare, in the same 28px

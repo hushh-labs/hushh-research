@@ -21,11 +21,14 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     validated_mcp_arguments,
 )
 from hushh_mcp.one_adk.mcp_call_approval import McpCallApproval
-from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
+from hushh_mcp.one_adk.mcp_pending_call import (
+    pending_call_details,
+    restore_pending_call,
+    review_refusal,
+)
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope, validate_mcp_turn_configurations
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
-    ActionDirectiveAuthorityError,
     ActionDirectiveStore,
 )
 from hushh_mcp.services.external_connector_registry_service import (
@@ -248,7 +251,7 @@ async def confirm_review(
             configuration=configuration,
         )
         if directive_id != pending["directiveId"] or arguments != pending["arguments"]:
-            raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
+            raise review_refusal("pending_terms_changed", "Pending call changed. Review again.")
     ledger = ActionDirectiveStore()
     async with review_tool(
         token=token,
@@ -281,7 +284,7 @@ async def prepare_pending_review(
         session_id=conversation_id,
     )
     if session is None:
-        raise ActionDirectiveAuthorityError("Conversation unavailable.")
+        raise review_refusal("conversation_unavailable", "Conversation unavailable.")
     pending = await pending_call_details(session, pending_handle)
     await restore_pending_call(session, pending_handle)  # Require both native call identities.
     review = pending.get("review")
@@ -290,7 +293,7 @@ async def prepare_pending_review(
         or review.get("connectorId") != connector_id
         or pending["tool_name"] != tool_name
     ):
-        raise ActionDirectiveAuthorityError("Pending call changed. Review again.")
+        raise review_refusal("binding_mismatch", "Pending call changed. Review again.")
     async with review_tool(
         token=token,
         connector_id=connector_id,
@@ -299,7 +302,7 @@ async def prepare_pending_review(
         configuration=configuration,
     ) as (context, tool):
         if tool.revision != review.get("catalogRevision"):
-            raise ActionDirectiveAuthorityError("Connector tools changed. Review again.")
+            raise review_refusal("catalog_changed", "Connector tools changed. Review again.")
         approval = current_approval(context, tool, pending["arguments"])
         return {
             "directiveId": review["directiveId"],

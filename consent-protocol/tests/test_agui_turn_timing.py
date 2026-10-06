@@ -924,3 +924,65 @@ async def test_first_model_call_is_split_into_session_and_request_build(monkeypa
     # Outside a turn the recorders are inert rather than failing a build.
     agui_turn_timing.record_instruction_build(5.0)
     agui_turn_timing.timed_one_before_agent(object())
+
+
+def _supersede_probe(monkeypatch, *, fail: bool = False):
+    calls: list[tuple[str, str]] = []
+
+    async def supersede(owner_id, conversation_id):
+        calls.append((owner_id, conversation_id))
+        if fail:
+            raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(agui_turn_timing, "supersede_unanswered_reviews", supersede)
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(_normal_script()))
+    return calls
+
+
+async def test_a_new_typed_turn_supersedes_unanswered_connector_reviews(monkeypatch):
+    calls = _supersede_probe(monkeypatch)
+    events = [event async for event in _agent().run(_owner_input())]
+    assert calls == [(USER_ID, THREAD_ID)]
+    assert events[-1].type == "RUN_FINISHED"
+
+
+async def test_a_resume_or_tool_result_never_supersedes_a_review(monkeypatch):
+    from ag_ui.core import ResumeEntry, ToolMessage
+
+    calls = _supersede_probe(monkeypatch)
+    resumed = _owner_input()
+    resumed.resume = [ResumeEntry(interrupt_id="call-1", status="resolved", payload={})]
+    answered = _owner_input()
+    answered.messages = [
+        *answered.messages,
+        ToolMessage(id="t-1", role="tool", tool_call_id="call-1", content="{}"),
+    ]
+    for run in (resumed, answered):
+        await _drain_run(_agent(), run)
+    assert calls == []
+
+
+async def test_turn_start_never_supersedes_for_other_heads_or_anonymous_owners(monkeypatch):
+    calls = _supersede_probe(monkeypatch)
+    await _drain_run(_agent(HEAD_INTRO), _owner_input())
+    anonymous = _owner_input()
+    anonymous.state = {"hussh:user_id": "anonymous:abc"}
+    await _drain_run(_agent(), anonymous)
+    assert calls == []
+
+
+async def test_a_failed_supersede_never_breaks_the_turn(monkeypatch):
+    from hushh_mcp.one_adk import mcp_call_approval
+
+    class FailingStore:
+        async def cancel_unconfirmed_adk_chat(self, **_):
+            raise RuntimeError("synthetic")
+
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(_normal_script()))
+    monkeypatch.setattr(mcp_call_approval, "ActionDirectiveStore", FailingStore)
+    events = await _drain_run(_agent(), _owner_input())
+    assert events[-1].type == "RUN_FINISHED"
+
+
+async def _drain_run(agent: TimedADKAgent, run: RunAgentInput) -> list[BaseEvent]:
+    return [event async for event in agent.run(run)]

@@ -8,7 +8,7 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import type { AgentChatStreamHandlers } from "@/lib/services/agent-chat-client";
 import type { McpCallPreview } from "@/lib/agent/mcp-call-review";
-import { serverNow } from "@/lib/agent/server-clock";
+import { hasServerClockOffset, serverNow } from "@/lib/agent/server-clock";
 import { ReviewArguments } from "@/components/agent/mcp-call-review-values";
 
 export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>[0] & {
@@ -17,6 +17,8 @@ export type McpChatReview = Parameters<NonNullable<AgentChatStreamHandlers["onMc
 };
 type Phase = "loading" | "ready" | "busy" | "unavailable" | "unknown";
 export type McpReviewActivityOutcome = "unavailable" | "expired" | "unknown";
+// Why an unavailable review is gone: time ran out, or a newer turn / session took over.
+type GoneReason = "expired" | "replaced";
 
 // A real approval lives minutes; a far-future value would only be noise.
 const COUNTDOWN_MAX_SECONDS = 3600;
@@ -33,19 +35,24 @@ function countdownFor(expiresAt: string, now: number): { label: string; urgent: 
 }
 
 /** A transient authority-bearing review, deliberately excluded from chat history. */
-export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivityOutcome }: {
+export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivityOutcome, onActionableChange }: {
   review: McpChatReview;
   vaultOwnerToken: string;
   onDismiss: () => void;
   /** Safe UI status only; it never contains provider output, arguments, or a receipt. */
   onActivityOutcome?: (outcome: McpReviewActivityOutcome) => void;
+  /** True only while Allow once / Cancel can actually be pressed. */
+  onActionableChange?: (actionable: boolean) => void;
 }) {
   const [preview, setPreview] = useState<McpCallPreview | null>(null);
   const [phase, setPhase] = useState<Phase>("loading");
-  const [expired, setExpired] = useState(false);
+  const [gone, setGone] = useState<GoneReason | null>(null);
   const [now, setNow] = useState(() => serverNow());
   const lifetime = useRef<AbortController | null>(null);
   const attempted = useRef(false);
+  // Set only once the resume has been handed to the chat. Before that nothing was sent,
+  // so "could not verify the outcome" would be untrue.
+  const dispatched = useRef(false);
   const reportedOutcome = useRef<McpReviewActivityOutcome | null>(null);
   const outcomeListener = useRef(onActivityOutcome);
   useEffect(() => {
@@ -61,30 +68,36 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
     const controller = new AbortController();
     lifetime.current = controller;
     setPreview(null);
-    setExpired(false);
+    setGone(null);
     if (attempted.current) {
-      setPhase("unknown");
+      setPhase(dispatched.current ? "unknown" : "unavailable");
       return () => controller.abort();
     }
     setPhase("loading");
     const remainingNow = () => Date.parse(review.reference.expiresAt) - serverNow();
     const remaining = remainingNow();
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const expire = () => {
+    const expire = (reason: GoneReason = "expired") => {
       controller.abort();
       setPreview(null);
-      // Time ran out before a decision: say so, rather than a generic failure.
+      // Say why it is gone, rather than a generic failure or a wrong "expired".
       if (!attempted.current) {
-        setExpired(true);
-        reportOutcome("expired");
+        setGone(reason);
+        reportOutcome(reason === "expired" ? "expired" : "unavailable");
       } else {
         // A confirmation may already have reached the server. Never imply that
         // the provider did not receive it when the page's acknowledgement dies.
         reportOutcome("unknown");
       }
-      setPhase(attempted.current ? "unknown" : "unavailable");
+      setPhase(attempted.current && dispatched.current ? "unknown" : "unavailable");
     };
-    if (remaining <= 0 || !review.isCurrent()) {
+    if (!review.isCurrent()) {
+      expire("replaced");
+      return () => controller.abort();
+    }
+    // Until a response has taught us the server's clock, a device clock that runs
+    // ahead would expire this card without ever asking the server: fetch first.
+    if (remaining <= 0 && hasServerClockOffset()) {
       expire();
       return () => controller.abort();
     }
@@ -93,13 +106,18 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
       clearTimeout(timeout);
       timeout = setTimeout(expire, Math.min(Math.max(remainingNow(), 0), 2_147_483_647));
     };
-    arm();
+    if (remaining > 0) arm();
     void (async () => ExternalConnectorService.reviewMcpCall({
       configuration: await review.loadConfiguration?.(),
       vaultOwnerToken, chatKey: review.chatKey, conversationId: review.conversationId,
       reference: review.reference, signal: controller.signal, isEffectCurrent: review.isCurrent,
     }))().then((value) => {
       if (controller.signal.aborted || !review.isCurrent()) return;
+      // The response has aligned the clock, so this is now a fair expiry check.
+      if (remainingNow() <= 0) {
+        expire();
+        return;
+      }
       arm();
       setNow(serverNow());
       setPreview(value);
@@ -112,6 +130,17 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
     });
     return () => { clearTimeout(timeout); controller.abort(); };
   }, [reportOutcome, review, vaultOwnerToken]);
+
+  // The chat points a typed "yes" back at this card only while it can be used; a
+  // dead card (unavailable, unknown, busy) has no buttons to point at.
+  const actionableChange = useRef(onActionableChange);
+  useEffect(() => {
+    actionableChange.current = onActionableChange;
+  });
+  useEffect(() => {
+    actionableChange.current?.(phase === "ready");
+    return () => actionableChange.current?.(false);
+  }, [phase]);
 
   // Tick only while the person can still act, so the card never re-renders idly.
   const ticking = phase === "loading" || phase === "ready";
@@ -140,6 +169,7 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
       }) : null;
       if (controller.signal.aborted || !review.isCurrent()) throw new Error("Review no longer active.");
       resumeStarted = true;
+      dispatched.current = true;
       await review.resume(approval, controller.signal);
     })();
     morphyToast.promise(operation, {
@@ -168,7 +198,8 @@ export function McpCallReviewCard({ review, vaultOwnerToken, onDismiss, onActivi
       <SurfaceCardContent className="space-y-3">
         <p className="text-sm text-muted-foreground">
           {phase === "unknown" ? "We could not verify the outcome. Check the connector before trying again. This call will not be retried automatically."
-            : phase === "unavailable" && expired ? "This review expired and is no longer available. Ask One to prepare it again."
+            : phase === "unavailable" && gone === "expired" ? "This review expired. Ask One to prepare it again."
+            : phase === "unavailable" && gone === "replaced" ? "This review was replaced. Ask One again."
             : phase === "unavailable" ? "This review is no longer available. Unlock or reconnect if needed, then ask One to prepare it again."
               : phase === "busy" ? "Waiting for the connector step to settle."
                 : phase === "loading" ? "Checking the exact call for your review…"

@@ -112,6 +112,8 @@ import {
   type McpChatReview,
   type McpReviewActivityOutcome,
 } from "@/components/agent/mcp-call-review-card";
+import { isBareReviewReply } from "@/lib/agent/mcp-review-typed-reply";
+import { serverNow } from "@/lib/agent/server-clock";
 import { FirstConnectInsightsCard } from "@/components/agent/first-connect-insights-card";
 import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
@@ -2769,6 +2771,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   } | null>(null);
   const [appActionBusy, setAppActionBusy] = useState(false);
   const [pendingMcpReviews, setPendingMcpReviews] = useState<McpChatReview[]>([]);
+  // runAgentTurn and enqueuePrompt close over a render's state; this keeps their
+  // view of the review card current.
+  const pendingMcpReviewsRef = useRef(pendingMcpReviews);
+  pendingMcpReviewsRef.current = pendingMcpReviews;
+  // Directive ids of review cards whose Allow once / Cancel can be pressed now.
+  const actionableMcpReviewsRef = useRef(new Set<string>());
   const [specialistBusy, setSpecialistBusy] = useState(false);
   const [specialistBusyItemId, setSpecialistBusyItemId] = useState<
     string | null
@@ -5464,6 +5472,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     };
   }, [resumeMemorySaveJob, user?.uid, vaultKey]);
 
+  /**
+   * A bare "yes"/"no" typed while a review card is still actionable. Typed text
+   * never approves a connector call, and a new turn would silently delete the
+   * card, so point back at the card instead. Returns true when it handled the
+   * message (nothing is sent, nothing is cleared).
+   */
+  const interceptBareReviewReply = (text: string): boolean => {
+    const review = pendingMcpReviewsRef.current[0];
+    if (!review || !isBareReviewReply(text)) return false;
+    // A card that is loading, busy or dead has no buttons to point at.
+    if (!actionableMcpReviewsRef.current.has(review.reference.directiveId)) return false;
+    if (!review.isCurrent() || !(Date.parse(review.reference.expiresAt) > serverNow())) return false;
+    appendMessage({
+      id: `msg-${Date.now()}-review-reply`,
+      role: "assistant",
+      text: "Use Allow once or Cancel on the review card.",
+      ...stampNow(),
+      status: "done",
+      renderAsPlainAssistantMessage: true,
+    });
+    return true;
+  };
+
   const runAgentTurn = async (
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
@@ -5501,12 +5532,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
       return;
     }
+    // Backstop for turns that reach here after queueing: see enqueuePrompt.
+    if (
+      options.source === "typed" && !options.queuedPrompts && attachments.length === 0 &&
+      !options.personSelectionHandle && interceptBareReviewReply(text)
+    ) return;
     // A person starting a new turn owns the workspace. Invalidate any ambient
     // initial-history restoration so a late warmup cannot replace this turn.
     historyRestoreEpochRef.current += 1;
     // A new user turn supersedes any unconfirmed proposal. Never let a stale
     // action card remain armed after the person asks for something else.
     setPendingAppAction(null);
+    pendingMcpReviewsRef.current = [];
     setPendingMcpReviews([]);
 
     const userId = user.uid;
@@ -7099,6 +7136,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const text = textInput.trim();
     const attachments = options.attachments ?? [];
     if (!text && attachments.length === 0) return;
+    // Before it can queue behind, or join, the turn that raised the card.
+    if (attachments.length === 0 && !personSelectionHandle && interceptBareReviewReply(text)) return;
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
@@ -9340,6 +9379,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   }}
                   onDismiss={() => setPendingMcpReviews((current) => current.filter((item) =>
                     item.reference.directiveId !== review.reference.directiveId))}
+                  onActionableChange={(actionable) => {
+                    const ids = actionableMcpReviewsRef.current;
+                    if (actionable) ids.add(review.reference.directiveId);
+                    else ids.delete(review.reference.directiveId);
+                  }}
                 />
               ))}
 

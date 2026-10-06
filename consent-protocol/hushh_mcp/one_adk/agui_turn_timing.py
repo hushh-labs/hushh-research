@@ -46,6 +46,7 @@ from hushh_mcp.one_adk.drive_result_privacy import (
     redact_drive_wire_event,
 )
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+from hushh_mcp.one_adk.mcp_call_approval import supersede_unanswered_reviews
 from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import consume_turn_configurations, mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import (
@@ -569,10 +570,18 @@ class TimedADKAgent(ADKAgent):
         confirmations = ConfirmationWireProjection()
         summary_replays = ThoughtSummaryReplayFilter()
         try:
+            # Judged on the request as received: translating a resume below
+            # rewrites its messages.
+            new_user_turn = self.head == HEAD_ONE and _is_new_user_turn(input)
             if self.head == HEAD_ONE:
                 input = resume_as_confirmation_results(input)
                 private_call_ids.update(governed_call_ids(input.messages))
             state = input.state if isinstance(input.state, dict) else {}
+            if new_user_turn:
+                owner = str(state.get("hussh:user_id") or "")
+                if owner and not owner.startswith(_ANONYMOUS_OWNER_PREFIX):
+                    # Before the run, so a review this turn issues is never touched.
+                    await supersede_unanswered_reviews(owner, str(input.thread_id or ""))
             configurations = consume_turn_configurations(
                 state,
                 owner_id=str(state.get("hussh:user_id") or ""),
@@ -767,6 +776,14 @@ def _is_resume(input: RunAgentInput) -> bool:
         return True
     messages = input.messages or []
     return bool(messages) and getattr(messages[-1], "role", None) == "tool"
+
+
+def _is_new_user_turn(input: RunAgentInput) -> bool:
+    """A typed message, not a resume or tool result answering a paused call."""
+    if _is_resume(input):
+        return False
+    messages = input.messages or []
+    return bool(messages) and getattr(messages[-1], "role", None) == "user"
 
 
 def _queued_notice(key: queued_input.RunKey | None, *, settled: bool) -> CustomEvent | None:

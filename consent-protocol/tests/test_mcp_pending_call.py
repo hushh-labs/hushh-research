@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -217,3 +218,58 @@ async def test_storage_failure_never_exposes_sql_or_values(monkeypatch):
             context(), tool_name=TOOL, arguments={"q": "PRIVATE_REVIEW_ARGUMENT"}
         )
     assert str(caught.value) == "Connector review is temporarily unavailable."
+
+
+def _refusal_logs(caplog):
+    return [
+        record.getMessage()
+        for record in caplog.records
+        if record.name == mcp_pending_call.logger.name
+    ]
+
+
+async def test_missing_pending_record_logs_a_reason_and_nothing_private(
+    caplog, shared_pending_store
+):
+    handle = await capture_pending_call(
+        context(), tool_name=TOOL, arguments={"q": "private-argument-value"}
+    )
+    shared_pending_store.rows.clear()  # the record is gone: past its lifetime or removed
+    with caplog.at_level(logging.WARNING, logger=mcp_pending_call.logger.name):
+        with pytest.raises(ActionDirectiveAuthorityError) as refused:
+            await restore_pending_call(
+                Session(id="thread", user_id="owner", app_name="hussh_one"), handle
+            )
+    assert str(refused.value) == "Connector review expired. Review again."
+    assert refused.value.reason == "pending_handle_missing"
+    assert _refusal_logs(caplog) == ["one.mcp_review_refused reason=pending.handle.missing"]
+    assert handle not in caplog.text and "private-argument-value" not in caplog.text
+
+
+@pytest.mark.parametrize(
+    "owner,thread,app,reason",
+    [
+        ("other", "thread", "hussh_one", "pending_handle_missing"),
+        ("owner", "other", "hussh_one", "pending_handle_missing"),
+        ("owner", "thread", "x", "binding_mismatch"),
+    ],
+)
+async def test_pending_binding_mismatch_logs_its_reason(caplog, owner, thread, app, reason):
+    handle = await capture_pending_call(
+        context(), tool_name=TOOL, arguments={"q": "private-argument-value"}
+    )
+    with caplog.at_level(logging.WARNING, logger=mcp_pending_call.logger.name):
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await restore_pending_call(Session(id=thread, user_id=owner, app_name=app), handle)
+    assert _refusal_logs(caplog) == [f"one.mcp_review_refused reason={reason.replace('_', '.')}"]
+    assert "private-argument-value" not in caplog.text and handle not in caplog.text
+
+
+async def test_unreadable_pending_record_logs_its_reason(caplog, monkeypatch):
+    handle = await capture_pending_call(context(), tool_name=TOOL, arguments={})
+    monkeypatch.setattr(mcp_pending_call, "ChatCipher", lambda: static_chat_cipher(OTHER_CHAT_KEY))
+    with caplog.at_level(logging.WARNING, logger=mcp_pending_call.logger.name):
+        with pytest.raises(ActionDirectiveAuthorityError) as refused:
+            await pending_call_details(session(), handle)
+    assert refused.value.reason == "pending_record_unreadable"
+    assert _refusal_logs(caplog) == ["one.mcp_review_refused reason=pending.record.unreadable"]

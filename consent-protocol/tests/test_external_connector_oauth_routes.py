@@ -1396,3 +1396,40 @@ def test_unknown_deactivated_connector_still_scrubs_legacy_credentials(route_cli
     credentials.disconnect.assert_awaited_once_with(
         user_id="verified-owner", connector_id="unknown"
     )
+
+
+async def test_review_409_keeps_its_response_and_logs_a_reason(caplog):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    async def refuse(**_):
+        raise ActionDirectiveAuthorityError("private-detail-in-message")
+
+    with caplog.at_level("WARNING", logger=routes.logger.name):
+        with pytest.raises(HTTPException) as refused:
+            await routes._mcp_review_response(refuse, arguments={"q": "private-argument"})
+    assert refused.value.status_code == 409
+    assert refused.value.detail == "This review changed or expired. Review the call again."
+    assert [r.getMessage() for r in caplog.records] == [
+        "one.mcp_review_refused reason=authority_refused"
+    ]
+    assert "private-detail-in-message" not in caplog.text
+    assert "private-argument" not in caplog.text
+
+
+async def test_review_409_with_a_known_reason_is_not_logged_twice(caplog):
+    from fastapi import HTTPException
+
+    from hushh_mcp.one_adk.mcp_pending_call import review_refusal
+
+    async def refuse(**_):
+        raise review_refusal("pending_handle_missing", "Connector review expired. Review again.")
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(HTTPException) as refused:
+            await routes._mcp_review_response(refuse)
+    assert refused.value.status_code == 409
+    assert [r.getMessage() for r in caplog.records] == [
+        "one.mcp_review_refused reason=pending.handle.missing"
+    ]

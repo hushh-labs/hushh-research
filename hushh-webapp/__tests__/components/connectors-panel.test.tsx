@@ -386,14 +386,39 @@ describe("supported connector catalog", () => {
       expect(readme).toContain("simple-icons@16.34.0");
     });
 
-    it("does not invent a logo for a connector that has no mark here", async () => {
+    it("shows Notion's mark, inverted on the dark theme", async () => {
       state.overview.mockResolvedValue({
         connectors: [row("notion", "Notion"), catalogItem],
         features: { connections_panel_v2: true, curated_mcp_connectors: true },
       });
       const { container } = render(panel());
       expect(await screen.findByText("Example Docs")).toBeInTheDocument();
-      expect(container.querySelector('img[src="/icons/connectors/notion.svg"]')).toBeNull();
+      const notion = container.querySelector('img[src="/icons/connectors/notion.svg"]');
+      expect(notion).not.toBeNull();
+      // Single-colour black: it would vanish on the dark theme without the inversion.
+      expect(notion).toHaveClass("dark:invert");
+    });
+
+    it("keeps the Notion mark exactly as recorded, and says where it came from", () => {
+      const dir = join(process.cwd(), "public/icons/connectors");
+      const svg = readFileSync(join(dir, "notion.svg"), "utf8").replaceAll("\r\n", "\n");
+      expect(createHash("sha256").update(svg).digest("hex")).toBe(
+        "b17d2a2b592a06252efef522d5205f0c7a958f748d40df1011ed081417e42f85",
+      );
+      // The README must not present it as an official Notion file.
+      const readme = readFileSync(join(dir, "README.md"), "utf8");
+      expect(readme).toContain("NOT an official Notion file");
+      expect(readme).toContain("simple-icons@16.34.0");
+    });
+
+    it("does not invent a logo for a connector that has no mark here", async () => {
+      state.overview.mockResolvedValue({
+        connectors: [row("example_unlisted", "Example Unlisted"), catalogItem],
+        features: { connections_panel_v2: true, curated_mcp_connectors: true },
+      });
+      const { container } = render(panel());
+      expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+      expect(container.querySelector('img[src="/icons/connectors/example_unlisted.svg"]')).toBeNull();
     });
   });
 

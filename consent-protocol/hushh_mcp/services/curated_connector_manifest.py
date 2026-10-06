@@ -81,6 +81,7 @@ _OAUTH_KEYS = frozenset(
         "authorizeUrl",
         "tokenUrl",
         "registrationUrl",
+        "revocationUrl",
         "scopes",
         "tokenEndpointAuth",
         "clientIdEnv",
@@ -110,6 +111,10 @@ class CuratedConnectorManifest:
     tool_allowlist: tuple[str, ...]
     free_read_tools: frozenset[str]
     redirect_uris: dict[str, tuple[str, ...]]
+    # RFC 7009 token revocation, only where the provider advertises one. Not part of
+    # `pin()`: it is read from the reviewed manifest at disconnect, never from the
+    # operator-writable registry row.
+    revocation_url: str | None = None
 
     @property
     def is_public_client(self) -> bool:
@@ -297,6 +302,10 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
             "A confidential client must not declare oauth.registrationUrl."
         )
 
+    revocation_url: str | None = _text(oauth.get("revocationUrl")) or None
+    if revocation_url is not None:
+        revocation_url = _https(revocation_url, "oauth.revocationUrl")
+
     tools = raw.get("tools")
     if not isinstance(tools, dict):
         raise CuratedConnectorManifestError("tools block is required.")
@@ -341,6 +350,7 @@ def parse_manifest(raw: Any) -> CuratedConnectorManifest:
         tool_allowlist=allowlist,
         free_read_tools=frozenset(free_read),
         redirect_uris=redirect_uris,
+        revocation_url=revocation_url,
     )
 
 

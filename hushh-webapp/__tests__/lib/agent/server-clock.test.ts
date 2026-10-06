@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { observeServerDate, resetServerClock, serverNow } from "@/lib/agent/server-clock";
+import { hasServerClockOffset, observeServerDate, resetServerClock, serverNow } from "@/lib/agent/server-clock";
 
 describe("server clock", () => {
   const deviceNow = Date.parse("2026-01-01T12:00:00Z");
@@ -39,5 +39,14 @@ describe("server clock", () => {
     observeServerDate("not a date", deviceNow);
     observeServerDate("Thu, 01 Jan 2020 00:00:00 GMT", deviceNow);
     expect(serverNow()).toBe(deviceNow);
+    expect(hasServerClockOffset()).toBe(false);
+  });
+
+  it("reports whether a server date has been learned", () => {
+    expect(hasServerClockOffset()).toBe(false);
+    observeServerDate("Thu, 01 Jan 2026 12:00:00 GMT", deviceNow);
+    expect(hasServerClockOffset()).toBe(true);
+    resetServerClock();
+    expect(hasServerClockOffset()).toBe(false);
   });
 });

@@ -10,6 +10,7 @@ and held only until the review expires (see mcp_pending_call).
 from __future__ import annotations
 
 import json
+import logging
 import re
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -26,6 +27,7 @@ from hushh_mcp.one_adk.mcp_pending_call import (
     PendingCallStorageError,
     capture_pending_call,
     pending_call_details,
+    review_refusal,
 )
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
@@ -36,6 +38,8 @@ from hushh_mcp.services.action_directive_ledger import (
     BoundActionTerms,
     IssuedActionDirective,
 )
+
+logger = logging.getLogger(__name__)
 
 STATE_MCP_APPROVAL = "temp:hussh:mcp_approval"
 
@@ -124,17 +128,40 @@ def admit_resume_receipt(forwarded: dict, *, owner_id: str, conversation_id: str
     return store_request_secret(json.dumps({**value, "owner": owner_id, "thread": conversation_id}))
 
 
+async def supersede_unanswered_reviews(
+    owner_id: str, conversation_id: str, *, store: ActionDirectiveStore | None = None
+) -> None:
+    """Disarm this conversation's connector reviews nobody has approved yet.
+
+    Call only for a new typed turn, never a resume, and never when a review is
+    issued: one model turn may legitimately raise several reviews at once. The
+    card is already gone from the client; this keeps the server in agreement.
+    It is awaited to completion, never abandoned on a timeout: a query that is
+    still queued behind a busy database would otherwise run late and cancel a
+    review the new turn has just issued. A failure never breaks a turn; it
+    leaves the directives to their own expiry.
+    """
+    if not owner_id or not conversation_id:
+        return
+    try:
+        await (store or ActionDirectiveStore()).cancel_unconfirmed_adk_chat(
+            user_id=owner_id, session_id=conversation_id, action_id=MCP_ACTION_ID
+        )
+    except Exception:  # noqa: BLE001 - expiry still bounds an undisarmed review
+        logger.warning("one.mcp_review_supersede_failed")
+
+
 async def consume_resume_receipt(
     context, binding, tool_name, revision, arguments, *, require_pending=False
 ):
     """Native tool approval port for a current authenticated browser resume."""
     reference = context.state.get(STATE_MCP_APPROVAL)
     if not isinstance(reference, str) or not reference.startswith("one_secret_ref:"):
-        raise ActionDirectiveAuthorityError("Connector review is required.")
+        raise review_refusal("approval_reference_missing", "Connector review is required.")
     try:
         value = json.loads(resolve_request_secret(reference))
     except (TypeError, ValueError):
-        raise ActionDirectiveAuthorityError("Connector review expired.") from None
+        raise review_refusal("approval_reference_missing", "Connector review expired.") from None
     if not isinstance(value, dict) or any(
         (
             value.get("owner") != context.user_id,
@@ -144,7 +171,7 @@ async def consume_resume_receipt(
             value.get("toolName") != mcp_tool_name(binding.connector_id, tool_name),
         )
     ):
-        raise ActionDirectiveAuthorityError("Connector review changed.")
+        raise review_refusal("binding_mismatch", "Connector review changed.")
     if require_pending or value.get("pendingHandle"):
         pending = await pending_call_details(
             Session(
@@ -164,7 +191,7 @@ async def consume_resume_receipt(
             or review.get("connectorId") != binding.connector_id
             or review.get("catalogRevision") != revision
         ):
-            raise ActionDirectiveAuthorityError("Pending connector call changed.")
+            raise review_refusal("pending_call_changed", "Pending connector call changed.")
     authorize = receipt_authorizer(
         ActionDirectiveStore(), directive_id=value["directiveId"], receipt=value["receipt"]
     )

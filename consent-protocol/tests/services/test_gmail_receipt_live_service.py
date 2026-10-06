@@ -66,6 +66,50 @@ async def test_document_merchant_is_quote_bound_not_registry_only():
     assert item["amount"] == 20
 
 
+async def test_unverified_optional_merchant_does_not_abort_receipt_page():
+    service = _service(
+        [
+            _message(
+                "unverified-merchant",
+                subject="Your shopping order receipt",
+                sender="ship-confirm <notifications@unmapped.example>",
+                body="Your shopping order receipt. Amount Paid USD 20.00",
+            ),
+            _message(
+                "verified-merchant",
+                subject="Your Apple order receipt",
+                sender="Apple <orders@apple.com>",
+                body="Your Apple order receipt. Amount Paid USD 30.00",
+            ),
+        ]
+    )
+
+    async def extract(payload, _user, _token):
+        model = _model_for(payload)
+        if payload["subject"] == "Your shopping order receipt":
+            return {
+                **model,
+                "merchant_name": "ship-confirm",
+                "merchant_evidence_id": "merchant:sender_name",
+                "merchant_evidence": "ship-confirm",
+                "category": "Shopping",
+                "category_confidence": 0.95,
+                "category_evidence": "shopping order receipt",
+            }
+        return model
+
+    service._extractor = extract
+    result = await _scan(service)
+
+    assert len(result["items"]) == 2
+    items = {item["gmail_message_id"]: item for item in result["items"]}
+    assert items["unverified-merchant"]["merchant_name"] is None
+    assert items["unverified-merchant"]["merchant_domain"] is None
+    assert items["unverified-merchant"]["category"] == "Shopping"
+    assert items["unverified-merchant"]["amount"] == 20
+    assert items["verified-merchant"]["merchant_name"] == "Apple"
+
+
 async def test_receipt_html_supplements_plain_without_total():
     message = _message(
         "html-total",

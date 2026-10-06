@@ -18,6 +18,14 @@ connected products; they are not Hussh capability icons.
   per that package's data, which cites https://www.hubspot.com/style-guide). Replace it with
   the official file from HubSpot's Brandfolder when one is available. Whether Hushh may show
   HubSpot's mark is a decision recorded outside this repository.
+- Notion: NOT an official Notion file. Notion's own brand assets are behind a sign-in, so this is
+  the Notion mark from the Simple Icons set (CC0 1.0), simple-icons@16.34.0, icons/notion.svg,
+  retrieved 2026-10-06:
+  https://cdn.jsdelivr.net/npm/simple-icons@16.34.0/icons/notion.svg
+  Unmodified. It is single-colour black (that package lists hex 000000, source https://www.notion.so),
+  so the dark theme inverts it with CSS, as for Plaid and Attio. Replace it with the official file
+  when one is available. Whether Hushh may show Notion's mark is a decision recorded outside this
+  repository.
 
 Google sources are linked from https://workspace.google.com/products/drive/;
 the Plaid source is linked from https://plaid.com/; the Attio source is linked from

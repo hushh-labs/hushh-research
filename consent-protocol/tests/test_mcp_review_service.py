@@ -1,5 +1,6 @@
 """Browser review prepares authority; only the native Chat tool executes."""
 
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -387,6 +388,43 @@ async def test_pending_confirmation_rejects_mismatched_call(pending_harness, fai
     h.ledger.confirm.assert_not_called()
     h.ledger.issue.assert_not_called()
     h.tool.run_async.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("failure", "reason"),
+    [
+        # Another owner has no record under their own id: it is simply absent.
+        ("owner", "pending_handle_missing"),
+        ("call", "pending_call_not_in_session"),
+        ("catalog", "catalog_changed"),
+        ("arguments", "pending_terms_changed"),
+        ("directive", "pending_terms_changed"),
+    ],
+)
+async def test_refused_pending_review_logs_a_reason_and_no_private_value(
+    pending_harness, caplog, failure, reason
+):
+    h = pending_harness
+    directive = h.directive
+    if failure == "owner":
+        h.sessions.get_session.return_value.user_id = "other"
+    elif failure == "call":
+        h.sessions.get_session.return_value.events = []
+    elif failure == "catalog":
+        h.tool.revision = "rev2"
+    elif failure == "arguments":
+        h.request["arguments"] = {"q": "changed-private-value"}
+    else:
+        directive = "dir_" + "f" * 32
+    with caplog.at_level(logging.WARNING):
+        with pytest.raises(ActionDirectiveAuthorityError) as refused:
+            await module.confirm_review(**h.request, directive_id=directive, confirmed=True)
+    assert refused.value.reason == reason
+    assert [r.getMessage() for r in caplog.records] == [
+        f"one.mcp_review_refused reason={reason.replace('_', '.')}"
+    ]
+    for private in ("synthetic query", "changed-private-value", h.handle, directive, "owner"):
+        assert private not in caplog.text
 
 
 @pytest.mark.parametrize(

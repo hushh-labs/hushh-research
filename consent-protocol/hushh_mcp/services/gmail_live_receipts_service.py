@@ -760,26 +760,22 @@ def _validated_projection(
         and isinstance(merchant_evidence_id, str)
         and merchant_evidence_id in {"merchant:document", "merchant:sender_name"}
     )
-    if merchant_name is not None and (
-        not quoted_merchant
-        and (
-            not isinstance(merchant_name, str)
-            or not verified_merchant
-            or merchant_evidence_id != verified_merchant["id"]
-            or merchant_name != verified_merchant["name"]
-        )
-    ):
-        raise GmailApiError(
-            "Receipt merchant could not be verified from the sender domain.",
-            status_code=502,
-            code="GMAIL_RECEIPT_EXTRACTION_UNVERIFIED",
-        )
-    if merchant_name is None and merchant_evidence_id is not None:
-        raise GmailApiError(
-            "Receipt extraction returned inconsistent merchant evidence.",
-            status_code=502,
-            code="GMAIL_RECEIPT_EXTRACTION_INVALID",
-        )
+    registry_merchant = (
+        isinstance(merchant_name, str)
+        and bool(verified_merchant)
+        and merchant_evidence_id == verified_merchant["id"]
+        and merchant_name == verified_merchant["name"]
+    )
+    if not quoted_merchant and not registry_merchant:
+        # Merchant identity is optional. Fail closed on only this field so an
+        # unsupported model claim cannot suppress an otherwise verified real
+        # receipt; the UI will use the evidence-backed category or Receipt.
+        if merchant_name is not None or merchant_evidence_id is not None:
+            _logger.info("live_receipt_optional_field_rejected field=merchant")
+        merchant_name = None
+        merchant_evidence_id = None
+        merchant_quote = None
+        quoted_merchant = False
 
     order_id = model.get("order_id")
     order = _selected(evidence["order_candidates"], model.get("order_evidence_id"))

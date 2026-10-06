@@ -49,6 +49,22 @@ _EXPIRY_GRACE = timedelta(seconds=60)
 _EXPIRED = "Connector review expired. Review again."
 
 
+def review_refusal(reason: str, message: str) -> ActionDirectiveAuthorityError:
+    """Build the usual refusal and log why, so a bare 409 can be told apart.
+
+    `reason` is a fixed code from this codebase, never derived from a handle,
+    argument, token, email or provider text. The status, body and the checks
+    that raise are unchanged; the code is only a log field and an attribute.
+    """
+    # Dotted, not snake_case: the log redactor masks any 24-128 character token of
+    # letters, digits, `_` and `-` as a possible identifier, which would hide the very
+    # reason this line exists to give. The attribute below keeps the code unchanged.
+    logger.warning("one.mcp_review_refused reason=%s", reason.replace("_", "."))
+    error = ActionDirectiveAuthorityError(message)
+    error.reason = reason
+    return error
+
+
 class PendingCallStorageError(ActionDirectiveAuthorityError):
     """The pending call could not be sealed or stored; nothing was dispatched."""
 
@@ -91,13 +107,15 @@ async def pending_resume_scope(approval_reference: Any):
         if not isinstance(approval_reference, str) or not approval_reference.startswith(
             _HANDLE_PREFIX
         ):
-            raise ActionDirectiveAuthorityError(_EXPIRED)
+            raise review_refusal("approval_reference_invalid", _EXPIRED)
         try:
             approval = json.loads(resolve_request_secret(approval_reference))
         except (TypeError, ValueError):
-            raise ActionDirectiveAuthorityError(_EXPIRED) from None
+            # Held in this request's memory only; absent means the request itself
+            # lost it, never another instance (the pending call is shared storage).
+            raise review_refusal("approval_reference_missing", _EXPIRED) from None
         if not isinstance(approval, dict):
-            raise ActionDirectiveAuthorityError(_EXPIRED)
+            raise review_refusal("approval_reference_invalid", _EXPIRED)
         handle = approval.get("pendingHandle")
     token = _CURRENT_HANDLE.set(handle)
     try:
@@ -183,7 +201,7 @@ async def capture_pending_call(
 async def pending_call_details(session: Session, handle: str) -> dict:
     """Open a stored record under the authenticated session's identity."""
     if not isinstance(handle, str) or _HANDLE_PATTERN.fullmatch(handle) is None:
-        raise ActionDirectiveAuthorityError(_EXPIRED)
+        raise review_refusal("pending_handle_invalid", _EXPIRED)
     result = await _execute(
         """SELECT payload_ciphertext, payload_iv, payload_tag
            FROM one_mcp_pending_calls
@@ -193,7 +211,8 @@ async def pending_call_details(session: Session, handle: str) -> dict:
         {"user": session.user_id, "session": session.id, "handle": handle},
     )
     if not result.data:
-        raise ActionDirectiveAuthorityError(_EXPIRED)
+        # Past its lifetime, or not this owner's or conversation's.
+        raise review_refusal("pending_handle_missing", _EXPIRED)
     try:
         pending = json.loads(
             ChatCipher().open(
@@ -209,7 +228,8 @@ async def pending_call_details(session: Session, handle: str) -> dict:
         LegacyChatCiphertextError,
         ValueError,
     ):
-        raise ActionDirectiveAuthorityError(_EXPIRED) from None
+        # Wrong or absent chat key, or a record that does not open.
+        raise review_refusal("pending_record_unreadable", _EXPIRED) from None
     if (
         not isinstance(pending, dict)
         or pending.get("kind") != "mcp_pending_call"
@@ -220,7 +240,7 @@ async def pending_call_details(session: Session, handle: str) -> dict:
         or not isinstance(pending.get("tool_name"), str)
         or not isinstance(pending.get("arguments"), dict)
     ):
-        raise ActionDirectiveAuthorityError("Connector review context changed.")
+        raise review_refusal("binding_mismatch", "Connector review context changed.")
     return pending
 
 
@@ -248,12 +268,14 @@ async def restore_pending_call(session: Session, handle: str) -> Session:
             ):
                 nested.append(original)
     if len(direct) != 1 or len(nested) != 1:
-        raise ActionDirectiveAuthorityError("Pending connector call changed. Review again.")
+        raise review_refusal(
+            "pending_call_not_in_session", "Pending connector call changed. Review again."
+        )
     # Never silently overwrite a different live call. Durable redaction uses
     # {}; already-restored copies must agree exactly with the captured request.
     arguments = pending["arguments"]
     if any(value not in ({}, arguments) for value in (direct[0].args, nested[0].get("args"))):
-        raise ActionDirectiveAuthorityError("Pending connector arguments changed.")
+        raise review_refusal("pending_arguments_changed", "Pending connector arguments changed.")
     direct[0].args = deepcopy(arguments)
     nested[0]["args"] = deepcopy(arguments)
     return projected

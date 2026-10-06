@@ -11,6 +11,7 @@ action -- both go through the same connect path so "connect from chat" and
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any, Literal, Optional, cast
 from urllib.parse import urlencode, urlsplit
 from uuid import UUID
@@ -55,6 +56,8 @@ from hushh_mcp.services.external_connector_registry_service import (
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from hushh_mcp.services.mcp_public_http import UnsafeMcpEndpoint
+
+logger = logging.getLogger(__name__)
 
 
 class PrivateConnectorRoute(APIRoute):
@@ -350,7 +353,10 @@ async def _mcp_review_response(operation, **kwargs):
         # The review reads the owner's person-key conversation. Without that key
         # it refuses (403 via the app handler); it is never a retryable outage.
         raise
-    except ActionDirectiveAuthorityError:
+    except ActionDirectiveAuthorityError as error:
+        # Sites that know why already logged it; this keeps every 409 diagnosable.
+        if error.reason is None:
+            logger.warning("one.mcp_review_refused reason=authority_refused")
         raise HTTPException(
             status_code=409, detail="This review changed or expired. Review the call again."
         ) from None

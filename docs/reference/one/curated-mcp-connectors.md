@@ -93,6 +93,26 @@ that has a valid manifest.
   dynamic-registration endpoint; a manifest or registry row that names a
   secret variable for a public client is rejected.
 
+## Disconnect and provider revocation
+
+Disconnecting always scrubs the local credential first. If the provider publishes
+a token revocation endpoint (RFC 7009) in its OAuth metadata, the manifest may
+name it as `oauth.revocationUrl`, and disconnect then makes one bounded revoke
+call (10 s) with the refresh token, or the access token when there is no refresh
+token, and records `revoked` or `failed`. The call is made only for a verified
+credential bound to the current OAuth client, to a public HTTPS endpoint, and the
+response body is never read or logged.
+
+| Provider | Endpoint advertised | Outcome |
+| --- | --- | --- |
+| Notion | `https://mcp.notion.com/token` | `revoked` / `failed` |
+| HubSpot | none published | `unavailable` |
+| Attio | none published | `unavailable` |
+
+For `unavailable`, the grant stays valid at the provider until the person
+removes it in that provider's own settings. Add `revocationUrl` to a manifest only
+when the provider publishes the endpoint; do not guess one.
+
 ## Keeping the registry in step with the manifests
 
 The runtime serves a connector only while its registry row equals the reviewed
