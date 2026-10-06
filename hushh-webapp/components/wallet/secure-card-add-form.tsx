@@ -20,6 +20,9 @@ import { detectBrand, validateCardForRegion } from "@/lib/wallet/card-validation
 import { COUNTRY_PHONE_OPTIONS } from "@/lib/constants/country-phone-options";
 import type { WalletCardInput } from "@/lib/services/wallet-service";
 
+import { WalletCardScanner } from "./wallet-card-scanner";
+import styles from "./secure-card-add-form.module.css";
+
 const ERROR_COPY: Record<string, string> = {
   pan_length_invalid: "That card number does not look complete.",
   pan_checksum_invalid: "That card number fails its checksum. Check for a typo.",
@@ -38,6 +41,7 @@ export interface SecureCardAddFormProps {
   onSubmit: (card: WalletCardInput) => Promise<void>;
   onCancel?: () => void;
   compact?: boolean;
+  scanEnabled?: boolean;
   /** Mask entered details when a mounted draft is in an inactive tab. */
   active?: boolean;
   /**
@@ -52,7 +56,8 @@ export interface SecureCardAddFormProps {
   initialPan?: string;
 }
 
-export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+export function SecureCardAddForm({ onSubmit, onCancel, compact, scanEnabled = false, active = true, initialNickname, initialPan }: SecureCardAddFormProps) {
+  const [scanning, setScanning] = useState(false);
   const [nickname, setNickname] = useState(initialNickname ?? "");
   const [cardholderName, setCardholderName] = useState("");
   const [pan, setPan] = useState(initialPan ?? "");
@@ -80,6 +85,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
   };
 
   const handleSubmit = async () => {
+    if (scanning || submitting || !active) return;
     const { month, year } = parseExpiry();
     const card: WalletCardInput = {
       nickname,
@@ -122,26 +128,41 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
   return (
     <div
       className={cn(
-        "flex flex-col gap-4 rounded-[var(--app-radius-lg)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4",
+        scanEnabled ? styles.form : "flex flex-col gap-4 rounded-[var(--app-radius-lg)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4",
         compact ? "w-full max-w-md" : "w-full",
       )}
       data-testid="secure-card-add-form"
     >
+      {scanEnabled ? <>
+        <div className={styles.heading}><h2 className={TYPOGRAPHY_CLASSNAMES.majorSectionTitle}>Add your card</h2><p>Scan a card or enter its details below.</p></div>
+        <WalletCardScanner active={active} disabled={submitting} onBusyChange={setScanning} onRead={(fields) => {
+          setPan(fields.pan);
+          if (fields.expiry) setExpiry((current) => current || fields.expiry!);
+          if (fields.cardholderName) setCardholderName((current) => current || fields.cardholderName!);
+          setErrors([]);
+        }} />
+        <div className={styles.divider}>or enter manually</div>
+      </> : null}
+      <fieldset disabled={scanning || submitting} className={scanEnabled ? styles.fields : "contents"}>
       <p className={TYPOGRAPHY_CLASSNAMES.helperText}>
         Encrypted on this device. Never enters chat.
       </p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
-          <Label htmlFor="card-nickname">Nickname</Label>
-          <Input
-            id="card-nickname"
-            value={nickname}
-            onChange={(event) => setNickname(event.target.value)}
-            placeholder="Everyday Visa"
-            maxLength={60}
-          />
-        </div>
-        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+      <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
+        <Label htmlFor="card-number">Card number{brand ? ` · ${cardNetworkLabel(brand)}` : ""}</Label>
+        <Input
+          id="card-number"
+          dir="ltr"
+          value={pan}
+          onChange={(event) => setPan(event.target.value.replace(/\D/g, "").slice(0, 19))}
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="XXXX XXXX XXXX XXXX"
+          maxLength={32}
+          data-testid="secure-card-pan-input"
+        />
+      </div>
+      <div className={scanEnabled ? styles.fields : "grid gap-4 sm:grid-cols-2"}>
+        <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
           <Label htmlFor="card-holder">Name on card</Label>
           <Input
             id="card-holder"
@@ -151,22 +172,19 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             maxLength={80}
           />
         </div>
+        <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
+          <Label htmlFor="card-nickname">Nickname</Label>
+          <Input
+            id="card-nickname"
+            value={nickname}
+            onChange={(event) => setNickname(event.target.value)}
+            placeholder="Everyday Visa"
+            maxLength={60}
+          />
+        </div>
       </div>
-      <div className="flex flex-col gap-[var(--app-form-field-gap)]">
-        <Label htmlFor="card-number">Card number{brand ? ` · ${cardNetworkLabel(brand)}` : ""}</Label>
-        <Input
-          id="card-number"
-          value={pan}
-          onChange={(event) => setPan(event.target.value)}
-          inputMode="numeric"
-          autoComplete="off"
-          placeholder="1234 5678 9012 3456"
-          maxLength={23}
-          data-testid="secure-card-pan-input"
-        />
-      </div>
-      <div className="grid gap-4 sm:grid-cols-3">
-        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+      <div className={scanEnabled ? styles.fields : "grid gap-4 sm:grid-cols-3"}>
+        <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
           <Label htmlFor="card-expiry">Expiry (MM/YY)</Label>
           <Input
             id="card-expiry"
@@ -178,7 +196,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             maxLength={7}
           />
         </div>
-        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+        <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
           <Label htmlFor="card-cvv">CVV</Label>
           <Input
             id="card-cvv"
@@ -190,7 +208,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
             maxLength={4}
           />
         </div>
-        <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+        <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
           <div className="flex items-center justify-between">
             <Label htmlFor="card-pin">PIN (optional)</Label>
             <button
@@ -216,7 +234,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
           />
         </div>
       </div>
-      <div className="flex flex-col gap-[var(--app-form-field-gap)]">
+      <div className={scanEnabled ? styles.field : "flex flex-col gap-[var(--app-form-field-gap)]"}>
         <Label htmlFor="card-region">Issuing region</Label>
         <div className="relative">
           <select
@@ -239,6 +257,7 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
           />
         </div>
       </div>
+      </fieldset>
       {errors.length > 0 ? (
         <ul className="flex flex-col gap-1 text-sm text-destructive" data-testid="secure-card-errors">
           {errors.map((code) => (
@@ -250,9 +269,9 @@ export function SecureCardAddForm({ onSubmit, onCancel, compact, active = true, 
         <p className="text-sm text-destructive">{submitError}</p>
       ) : null}
       <FlowActionGroup
-        stacked={compact}
+        stacked={compact || scanEnabled}
         primary={
-          <Button size="prominent" onClick={handleSubmit} disabled={submitting} data-testid="secure-card-save">
+          <Button size="prominent" onClick={handleSubmit} disabled={submitting || scanning || !active} data-testid="secure-card-save">
             {submitting ? "Encrypting…" : "Save card"}
           </Button>
         }

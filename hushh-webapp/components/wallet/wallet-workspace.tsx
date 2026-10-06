@@ -682,6 +682,7 @@ export function WalletWorkspace() {
           {ready ? (
             <div className="mx-auto w-full max-w-[420px] py-4">
               <SecureCardAddForm
+                scanEnabled
                 key={`${renderedOwnerId}:${filing?.secretId ?? "new"}:${offerNickname ?? ""}:${formRevision}`}
                 active={activeTab === "add"}
                 initialNickname={offerNickname ?? undefined}

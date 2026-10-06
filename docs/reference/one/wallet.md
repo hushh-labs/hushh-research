@@ -119,3 +119,19 @@ Show card details action owns decryption, and leaving Cards or selecting All
 clears any revealed values.
 
 The card thumbnail bar hides on downward page scrolling and returns on upward scrolling. Stopping alone does not reveal it; keyboard focus keeps its controls available.
+
+### Add: photo-assisted entry
+
+The Wallet Add tab keeps all fields on one screen. Scan card uses the native camera
+or browser capture picker; Choose photo uses the device photo picker. Both prefill
+an editable draft, never submit it. Existing manually entered name/expiry values
+are preserved. CVV, PIN, issuing region and nickname remain manual.
+
+Recognition runs locally with Tesseract.js. Worker, WASM and English language
+assets are copied from locked npm dependencies by `hushh-webapp/scripts/prepare-wallet-ocr.mjs`
+from Next config before development/build/export. Generated assets are ignored; no CDN, image
+upload or OCR-result persistence is used. Native capture disables cropping and
+gallery saving. Leaving Add, cancelling, or unmounting aborts the scan; the owned supervisor and nested OCR worker
+are terminated after completion, failure or a 60-second timeout. Unsupported/ambiguous photos fall back to manual
+entry. Existing validation and explicit encrypted WalletService submission remain
+the sole save path. Native camera and bundled worker execution require device QA.

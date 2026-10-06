@@ -98,3 +98,6 @@ DerivedData/
 /www/
 /dist/
 !/dist/.gitkeep
+
+# Generated from pinned OCR dependencies at Next startup/build.
+/public/vendor/wallet-ocr/
