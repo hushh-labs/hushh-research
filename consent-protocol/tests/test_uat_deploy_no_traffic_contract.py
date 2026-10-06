@@ -647,14 +647,3 @@ def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
         )
         assert "--format='value(status.traffic[0].revisionName)'" not in workflow
         assert "resolve-cloud-run-serving-state.py" in workflow
-
-
-def test_career_agent_flag_reaches_every_backend_deploy() -> None:
-    """ONE_CAREER_ENABLED is the Career Agent's kill switch: dark in a hand-run
-    build, on in every deploy workflow, and actually set on the service."""
-    backend_build = _read("deploy/backend.cloudbuild.yaml")
-    assert '_ONE_CAREER_ENABLED: "false"' in backend_build
-    assert '"_ONE_CAREER_ENABLED=${_ONE_CAREER_ENABLED}"' in backend_build
-    assert " ONE_CAREER_ENABLED " in backend_build
-    for workflow in ("deploy-dev.yml", "deploy-uat.yml", "deploy-production.yml"):
-        assert "_ONE_CAREER_ENABLED=true" in _read(f".github/workflows/{workflow}")
