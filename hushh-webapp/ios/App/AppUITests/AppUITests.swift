@@ -1949,8 +1949,12 @@ final class AppUITests: XCTestCase {
                     }
                 }) else { return }
                 select("Cards")
-                let cardsHeading = web.staticTexts["Your cards"].firstMatch
-                guard walletPaneReady({ cardsHeading.exists && cardsHeading.isHittable },
+                let cardsActions = ["All cards", "Add your first card", "Add another card"].map { web.buttons[$0].firstMatch }
+                for _ in 0..<4 {
+                    if cardsActions.contains(where: { $0.exists && $0.isHittable }) { break }
+                    web.swipeUp()
+                }
+                guard walletPaneReady({ cardsActions.contains(where: { $0.exists && $0.isHittable }) },
                                       failure: "WORKSPACE_WALLET_CARDS_BODY_UNOBSERVED") else { return }
                 XCTAssertFalse(addHeading.exists && addHeading.isHittable,
                                "WORKSPACE_WALLET_INACTIVE_ADD_HITTABLE")

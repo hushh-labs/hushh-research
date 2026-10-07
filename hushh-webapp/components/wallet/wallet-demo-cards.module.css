@@ -66,4 +66,12 @@
 .htmlArtwork {
   border-radius: inherit;
   overflow: hidden;
+  /* The parent card owns selection, swipes and keyboard focus. */
+  pointer-events: none;
+}
+.artworkHitSurface {
+  /* Keep hit testing in the parent document, including wheel input. */
+  position: absolute;
+  inset: 0;
+  z-index: 1;
 }

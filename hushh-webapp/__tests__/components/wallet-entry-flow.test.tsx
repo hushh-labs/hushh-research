@@ -105,7 +105,7 @@ describe("Wallet visit introduction", () => {
     expect(screen.queryByRole("tab", { name: "Cards" })).toBeNull();
     await enter();
     expect(screen.getByTestId("wallet-preview-collection")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open Travel, ending 4444" }));
+    fireEvent.click(screen.getByRole("button", { name: "Travel", exact: true }));
     expect(serviceMock.addCard).not.toHaveBeenCalled();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
     expect(serviceMock.deleteCard).not.toHaveBeenCalled();
@@ -141,7 +141,7 @@ describe("Wallet visit introduction", () => {
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
     expect(screen.getByTestId("wallet-add-layer-1000")).toBeTruthy();
     expect(serviceMock.getCard).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Open Card 0, ending 1000" }));
+    fireEvent.click(screen.getByRole("button", { name: "Card 0, Visa ending in 1000", exact: true }));
     expect(screen.getByRole("button", { name: "Show card details" })).toBeTruthy();
   });
   it("returns a saved real card to Cards without mixing in demos", async () => {
@@ -157,7 +157,8 @@ describe("Wallet visit introduction", () => {
     fireEvent.click(screen.getByTestId("secure-card-save"));
     await waitFor(() => expect(screen.getByRole("tab", { name: "Cards" })).toHaveAttribute("aria-selected", "true"));
     await screen.findByTestId("wallet-selected-card");
-    expect(screen.getByRole("button", { name: "Open New card, ending 4242" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("wallet-selected-card")).toHaveTextContent("New card");
+    expect(screen.getByTestId("one-wallet-reveal-4242")).toBeEnabled();
     expect(screen.queryByTestId("wallet-preview-collection")).toBeNull();
   });
   it("removes the form and card details when the vault locks", async () => {

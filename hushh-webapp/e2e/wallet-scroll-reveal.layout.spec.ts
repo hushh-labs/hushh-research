@@ -198,6 +198,10 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
+    if (["/wallet/agent-one-card-profile.html", "/wallet/agent-one-card-referral.html", "/wallet/agent-one-card-nws.html"].includes(assetPath)) {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "text/html" });
+      return;
+    }
     await route.abort();
   });
   const fixture = shell ? shellMarkup() : '<div id="root"></div>';
@@ -223,14 +227,6 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await mount(page);
   const stack = page.getByTestId("wallet-preview-stack");
   await expect(stack).toBeVisible();
-  const dockHost = page.getByTestId("wallet-card-dock-host");
-  await expect.poll(async () => (await dockHost.boundingBox())?.height ?? 999).toBeLessThanOrEqual(56);
-  await expect(dockHost).toHaveCSS("background-color", "rgb(255, 255, 255)");
-  await expect.poll(() => dockHost.evaluate(host => {
-    const bounds = host.getBoundingClientRect();
-    const bar = host.querySelector("nav")!.getBoundingClientRect();
-    return bounds.left <= bar.left && bounds.right >= bar.right && bounds.bottom > bar.bottom;
-  })).toBe(true);
   const layers = stack.locator("li");
   await expect.poll(async () => {
     const boxes = await layers.evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().top));
@@ -243,8 +239,8 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(page.getByText("Swipe left to see card controls")).toBeVisible();
   await expect.poll(async () => {
     const face = await layers.first().locator('[data-demo-card]').boundingBox();
-    const dock = await dockHost.boundingBox();
-    return Boolean(face && dock && face.y + face.height < dock.y);
+    const chrome = await page.locator("[data-bottom-chrome]").boundingBox();
+    return Boolean(face && chrome && face.y + face.height <= chrome.y);
   }).toBe(true);
   await page.screenshot({ path: test.info().outputPath("wallet-lower-stack.png") });
   await expect.poll(() => page.locator('[data-swipe-views-root="true"]').evaluate(el => Math.abs(el.getBoundingClientRect().height - document.querySelector('#top-shell-wallet-panel-cards')!.getBoundingClientRect().height))).toBeLessThan(1);
@@ -255,9 +251,6 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
     root.scrollTop += stack.getBoundingClientRect().top - root.getBoundingClientRect().top + 350;
   });
   await expect(stack).toHaveAttribute("data-unfolded", "true");
-  await expect(page.getByTestId("wallet-card-switcher")).toBeHidden();
-  await page.locator("[data-app-scroll-root]").evaluate(root => { root.scrollTop -= 10; });
-  await expect(page.getByTestId("wallet-card-switcher")).toBeVisible();
   await expect.poll(() => layers.evaluateAll(nodes => {
     const boxes = nodes.map(n => n.getBoundingClientRect());
     return boxes.slice(1).every((box,i) => box.top >= boxes[i].bottom + 15);
@@ -265,6 +258,7 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   const card = layers.nth(1);
   await card.scrollIntoViewIfNeeded();
   const face = card.locator('[data-demo-card]').first();
+  await expect(face.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
   const box = await face.boundingBox();
   if (!box) throw new Error("Card bounds missing");
   await page.mouse.move(box.x + box.width - 25, box.y + 80);
@@ -275,7 +269,13 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await expect(page.getByRole("tab", { name:"Cards", exact:true })).toHaveAttribute("aria-selected","true");
   await card.getByRole("button", { name:"Back to card", exact:true }).click();
   await expect(card.locator('[data-controls-open="false"]')).toBeVisible();
-  await page.mouse.move(box.x + box.width / 2, box.y + 80);
+  // Clicking the revealed action may scroll its card. Wait for settlement and
+  // use the current face rather than the pre-swipe viewport coordinates.
+  await card.scrollIntoViewIfNeeded();
+  await expect.poll(() => card.evaluate(element => element.getAnimations({ subtree: true }).filter(animation => animation.playState === "running").length)).toBe(0);
+  const returned = await card.locator('[data-controls-open="false"]').boundingBox();
+  if (!returned) throw new Error("Returned card bounds missing");
+  await page.mouse.move(returned.x + returned.width / 2, returned.y + returned.height / 2);
   await page.mouse.wheel(170, 0);
   await expect(card.locator('[data-controls-open="true"]')).toBeVisible();
   await page.mouse.wheel(-220, 0);
@@ -285,7 +285,7 @@ test(`Wallet scroll reveals lower cards and a left swipe opens the touched card 
   await card.getByRole("button", { name:"View card details", exact:true }).click();
   await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
   await page.getByRole("button", { name:"All cards", exact:true }).click();
-  await expect(page.getByTestId("wallet-card-switcher")).toBeVisible();
+  await expect(stack).toBeInViewport();
 });
 
 }

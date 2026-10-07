@@ -199,6 +199,10 @@ async function open(
       await route.fulfill({ body: walletHero, contentType: "image/webp" });
       return;
     }
+    if (["/wallet/agent-one-card-profile.html", "/wallet/agent-one-card-referral.html", "/wallet/agent-one-card-nws.html"].includes(assetPath)) {
+      await route.fulfill({ body: fs.readFileSync(path.join(process.cwd(), "public", assetPath)), contentType: "text/html" });
+      return;
+    }
     await route.abort();
   });
   const fixture = shell ? shellMarkup() : '<div id="root"></div>';
@@ -394,49 +398,50 @@ for (const width of [320, 390, 1024]) {
     const errors = await open(page, width, "light", { cards: 0 }, { height: 844, shell: true });
     await mount(page, false);
     await page.getByRole("button", { name: "Continue", exact: true }).click();
-    const dock = page.getByTestId("wallet-card-switcher");
-    await expect(dock).toBeVisible();
     await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
     await expect(page.getByTestId("wallet-preview-stack")).toHaveAttribute("data-unfolded", "false");
-    const geometry = () => dock.evaluate((element) => ({
-      bottom: element.getBoundingClientRect().bottom,
-      top: element.getBoundingClientRect().top,
-      chrome: document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
-      overflow: document.documentElement.scrollWidth - window.innerWidth,
-    }));
-    let bounds = await geometry();
-    expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
-    expect(bounds.top).toBeGreaterThan(0);
-    expect(bounds.overflow).toBeLessThanOrEqual(1);
+    const firstCard = page.getByTestId("wallet-preview-stack").getByRole("button", { name: "Everyday", exact: true });
+    await expect(firstCard).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(1);
     await page.screenshot({ path: testInfo.outputPath("cards-overview.png") });
-    await dock.getByRole("button", { name: "Open Travel, ending 4444" }).click();
+    // Click the artwork itself, not a label or an invisible navigation control.
+    await expect(firstCard.locator("iframe").contentFrame().locator("body")).not.toBeEmpty();
+    await firstCard.getByTestId("wallet-card-face").click();
     await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "card");
+    await expect(page.getByTestId("wallet-demo-details")).toContainText("Everyday card");
+    await page.getByRole("button", { name: "Next card", exact: true }).click();
     await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
     await expect(page.getByTestId("wallet-demo-activity")).toContainText("₹8,640.00");
-    await expect(dock.getByRole("button", { name: "Open Travel, ending 4444" })).toHaveAttribute("aria-pressed", "true");
     await page.screenshot({ path: testInfo.outputPath("cards-detail.png") });
     await page.getByRole("button", { name: "Payment", exact: true }).first().click();
     await expect(page.getByRole("dialog")).toContainText("No money moves and no payment is scheduled");
     await page.getByRole("button", { name: "Got it", exact: true }).click();
     await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop = 0; });
-    await dock.getByRole("button", { name: "All (3)", exact: true }).click();
+    await page.getByRole("button", { name: "All cards", exact: true }).click();
     await expect(page.getByTestId("wallet-card-browser")).toHaveAttribute("data-mode", "all");
     await expect.poll(() => page.getByTestId("wallet-card-browser").evaluate((element) =>
       element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length,
     )).toBe(0);
-    await page.locator('[data-app-scroll-root]').evaluate((element) => { element.scrollTop = 0; });
-    await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
-    await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "false");
-    // Finish the programmatic return-to-overview before testing user scroll direction.
-    await page.waitForTimeout(400);
-    await page.locator('[data-app-scroll-root]').evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "true");
-    bounds = await geometry();
+    const add = page.getByRole("button", { name: "Add your first card", exact: true });
+    // Native bottom chrome overlays the viewport; scroll past it, not merely
+    // into the browser's full-height rectangle.
+    await page.mouse.move(width / 2, 400);
+    await page.mouse.wheel(0, 5000);
+    await expect.poll(() => add.evaluate((element) =>
+      element.getBoundingClientRect().bottom - document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+    )).toBeLessThanOrEqual(0);
+    await expect(add).toBeInViewport({ ratio: 1 });
+    const bounds = await add.evaluate((element) => ({
+      bottom: element.getBoundingClientRect().bottom,
+      chrome: document.querySelector('[data-bottom-chrome]')!.getBoundingClientRect().top,
+      overflow: document.documentElement.scrollWidth - innerWidth,
+    }));
     expect(bounds.bottom).toBeLessThanOrEqual(bounds.chrome);
-    await page.locator("[data-app-scroll-root]").evaluate((element) => { element.scrollTop -= 20; });
-    await dock.getByRole("button", { name: "Add a card", exact: true }).click();
+    expect(bounds.overflow).toBeLessThanOrEqual(1);
+    await add.click();
     await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
-    await expect(dock).not.toBeVisible();
+    await expect(page.getByTestId("wallet-card-browser")).not.toBeInViewport();
+    await expect(page.getByTestId("secure-card-add-form")).toBeInViewport();
     expect(errors).toEqual([]);
   });
 }
@@ -446,44 +451,12 @@ test("video card browser supports reduced motion and dark mode", async ({ page }
   await open(page, 390, "dark", { cards: 0 }, { height: 844, shell: true });
   await mount(page, false);
   await page.getByRole("button", { name: "Continue", exact: true }).click();
-  const dock = page.getByTestId("wallet-card-switcher");
-  await dock.getByRole("button", { name: "Open Everyday, ending 4242" }).click();
-  const face = page.locator('[data-testid="wallet-selected-card"] [data-swipe-views-horizontal-scroll]');
-  await face.evaluate((element) => {
-    const start = new Event("touchstart", { bubbles: true });
-    Object.defineProperty(start, "touches", { value: [{ clientX: 280, clientY: 180 }] });
-    element.dispatchEvent(start);
-    const end = new Event("touchend", { bubbles: true });
-    Object.defineProperty(end, "changedTouches", { value: [{ clientX: 100, clientY: 190 }] });
-    element.dispatchEvent(end);
-  });
+  await page.getByTestId("wallet-preview-stack").getByRole("button", { name: "Everyday", exact: true }).getByTestId("wallet-card-face").click();
+  await page.getByRole("button", { name: "Next card", exact: true }).click();
   await expect(page.getByTestId("wallet-demo-details")).toContainText("Travel card");
   await expect(page.getByRole("tab", { name: "Cards", exact: true })).toHaveAttribute("aria-selected", "true");
   const moving = await page.getByTestId("wallet-selected-card").evaluate((element) => element.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running" && !((animation.effect as KeyframeEffect)?.target as Element | null)?.closest("[data-wallet-swipe-hint]")).length);
   expect(moving).toBe(0);
-});
-
-test("card thumbnail bar stays hidden after scrolling down and returns on scrolling up", async ({ page }) => {
-  await open(page, 390, "light", { cards: 0 }, { height: 844, shell: true });
-  await mount(page, false);
-  await page.getByRole("button", { name: "Continue", exact: true }).click();
-  const dock = page.getByTestId("wallet-card-switcher");
-  await expect(dock).toBeVisible();
-  const root = page.locator("[data-app-scroll-root]");
-  await root.evaluate(async (element) => {
-    for (let step = 0; step < 8; step++) {
-      element.scrollTop += 8;
-      await new Promise((resolve) => setTimeout(resolve, 40));
-    }
-  });
-  await expect(page.getByTestId("wallet-card-dock-host")).toHaveAttribute("data-scrolling-down", "true");
-  await expect(dock).toBeHidden();
-  await page.waitForTimeout(250);
-  await expect(dock).toBeHidden();
-  await root.evaluate((element) => { element.scrollTop -= 20; });
-  await expect(dock).toBeVisible();
-  await dock.getByRole("button", { name: "Add a card", exact: true }).click();
-  await expect(page.getByRole("tab", { name: "Add", exact: true })).toHaveAttribute("aria-selected", "true");
 });
 
 for (const width of [320, 393, 1440]) {
