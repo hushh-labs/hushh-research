@@ -38,7 +38,6 @@ import {
   AgentTabLabel,
   BodyText,
   CaptionText,
-  CardTitle,
   RowDescription,
   MediumRowLabel,
 } from "@/components/app-ui/typography";
@@ -483,78 +482,38 @@ function CircleStory() {
 }
 
 function AgentStory() {
-  const { index, setIndex, motionEnabled, cycling, interactionProps } =
-    usePreviewCycle(CAPABILITIES.length);
+  const motionEnabled = usePreviewMotionPreference();
   const illustrationRef = useRef<HTMLDivElement>(null);
-  const selected = CAPABILITIES[index] ?? CAPABILITIES[0];
-  useIllustrationMotion(
-    illustrationRef,
-    selected?.id ?? "agents",
-    motionEnabled,
-  );
-  if (!selected) return null;
-  const copy = getCapabilitySetupCopy(selected.id);
+  useIllustrationMotion(illustrationRef, "agents", motionEnabled);
   return (
     <div
       ref={illustrationRef}
       className={styles.agentStory}
-      data-agent-tour={cycling ? "running" : "stopped"}
-      {...interactionProps}
+      data-agent-tour="static"
     >
-      <div className={styles.agents} aria-label="Explore One’s agents">
-        {CAPABILITIES.map((capability, position) => (
-          <button
+      <div className={styles.agentCardList} aria-label="One’s private agents">
+        {CAPABILITIES.map((capability) => {
+          const copy = getCapabilitySetupCopy(capability.id);
+          return (
+          <div
             key={capability.id}
-            type="button"
-            className={[styles.agent, "press-scale"].join(" ")}
-            aria-pressed={index === position}
-            onClick={() => setIndex(position)}
-            onFocus={() => setIndex(position)}
-            onPointerEnter={(event) => {
-              if (event.pointerType === "mouse") setIndex(position);
-            }}
+            className={styles.agentItem}
           >
-            <span
-              className={styles.agentContents}
-              data-preview-intro
-              data-agent-selected={index === position}
-            >
+            <span className={styles.agentIcon} aria-hidden="true">
               <AgentSectionIcon
                 id={"preview-" + capability.id}
                 icon={capability.icon}
                 tone={capability.tone}
-                size="roster-dashboard"
+                size="setup"
                 treatment="profile"
-                profileStyle={
-                  PALETTE[
-                    capability.id as keyof typeof PALETTE
-                  ] as CSSProperties
-                }
               />
-              <AgentTabLabel data-tone="primary">
-                {capability.title}
-              </AgentTabLabel>
             </span>
-          </button>
-        ))}
+            <span className={styles.agentName}>{capability.title}</span>
+            <span className={styles.agentDesc}>{copy?.introPremise || copy?.setupBlurb || capability.description}</span>
+          </div>
+          );
+        })}
       </div>
-      <div
-        className={styles.agentExplanation}
-        aria-live={cycling ? "off" : "polite"}
-      >
-        <div key={selected.id} data-preview-reveal>
-          <CardTitle>{selected.title}</CardTitle>
-          <RowDescription>
-            {copy?.introPremise ||
-              copy?.setupBlurb ||
-              selected.previewLabel ||
-              selected.description}
-          </RowDescription>
-        </div>
-      </div>
-      <CaptionText className={styles.agentHint}>
-        Tap an agent to explore
-      </CaptionText>
     </div>
   );
 }
@@ -742,9 +701,9 @@ export function GuestPreview({
     step === 0
       ? "One"
       : step === 1
-        ? "Your people, closer."
+        ? "Eight private agents working together to make your life easier."
         : step === 2
-          ? "A little help. Every day."
+          ? "Your people, closer."
           : "Just ask One.";
 
   useEffect(() => {
@@ -836,9 +795,9 @@ export function GuestPreview({
               </h1>
               <BodyText className={styles.subtitle}>
                 {step === 1
-                  ? "Circles for every part of your life."
+                  ? "What you tell one agent helps the others, and you stay in control of all of it."
                   : step === 2
-                    ? "Your private agents, together in One."
+                    ? "Circles for every part of your life."
                     : "Talk or type. Let One help you."}
               </BodyText>
             </div>
@@ -849,9 +808,9 @@ export function GuestPreview({
               aria-label={title}
             >
               {step === 1 ? (
-                <CircleStory />
-              ) : step === 2 ? (
                 <AgentStory />
+              ) : step === 2 ? (
+                <CircleStory />
               ) : (
                 <div
                   className={styles.invitation}
@@ -899,7 +858,7 @@ export function GuestPreview({
 
           <footer className={styles.footer}>
             <nav className={styles.progress} aria-label="Preview screens">
-              {["Welcome", "Circles", "Agents", "Get started"].map((label, index) => (
+              {["Welcome", "Agents", "Circles", "Get started"].map((label, index) => (
                 <button
                   key={label}
                   type="button"
@@ -923,7 +882,7 @@ export function GuestPreview({
               {step === 1
                 ? "Meet your agents"
                 : step === 2
-                  ? "See what’s next"
+                ? "See what’s next"
                   : invitation?.kind === "circle"
                     ? "Join this Circle"
                     : invitation
