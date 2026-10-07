@@ -43,11 +43,13 @@ import {
   Mic,
   MoreVertical,
   Pencil,
+  PhoneCall,
   Quote,
   RefreshCw,
   Search,
   Send,
   Trash2,
+  X,
 } from "@/components/icons";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -256,6 +258,8 @@ export function DirectMessagesPage() {
   const timestampRevealTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const messageTouchStart = useRef<{ x: number; y: number } | null>(null);
   const [showMessageTimes, setShowMessageTimes] = useState(false);
+  const [messageSearchOpen, setMessageSearchOpen] = useState(false);
+  const [messageSearchQuery, setMessageSearchQuery] = useState("");
   const activeConversationId = thread.conversation?.id ?? null;
 
   useEffect(() => {
@@ -267,6 +271,8 @@ export function DirectMessagesPage() {
 
   useEffect(() => {
     setShowMessageTimes(false);
+    setMessageSearchOpen(false);
+    setMessageSearchQuery("");
     if (timestampRevealTimer.current) {
       clearTimeout(timestampRevealTimer.current);
       timestampRevealTimer.current = null;
@@ -608,7 +614,16 @@ export function DirectMessagesPage() {
 
   const selectedLabel =
     thread.peerDisplayName || thread.conversation?.peerDisplayName || "Conversation";
-  const visibleMessages = messages;
+  const normalizedMessageSearch = messageSearchQuery.trim().toLocaleLowerCase();
+  const visibleMessages = normalizedMessageSearch
+    ? messages.filter((message) =>
+        [message.content, message.replyTo?.content]
+          .filter(Boolean)
+          .join(" ")
+          .toLocaleLowerCase()
+          .includes(normalizedMessageSearch),
+      )
+    : messages;
   const normalizedInboxSearch = inboxSearch.trim().toLocaleLowerCase();
   const visibleConversations = normalizedInboxSearch
     ? inboxItems.filter((conversation) =>
@@ -953,6 +968,7 @@ export function DirectMessagesPage() {
             {visibleConversations.map((conversation) => {
               const active =
                 activeConversationId === conversation.id ||
+                requestedConversationId === conversation.id ||
                 (Boolean(requestedPersonRef) &&
                   requestedPersonRef === conversation.peerPersonRef);
               const lastMessageAt =
@@ -1025,6 +1041,52 @@ export function DirectMessagesPage() {
                       <h2 title={selectedLabel}>{selectedLabel}</h2>
                     </div>
                   </div>
+                  <div className={styles.threadHeaderActions}>
+                    {messageSearchOpen ? (
+                      <label className={styles.threadSearchField}>
+                        <Search className="h-4 w-4" aria-hidden="true" />
+                        <span className="sr-only">Search messages</span>
+                        <input
+                          autoFocus
+                          type="search"
+                          value={messageSearchQuery}
+                          onChange={(event) => setMessageSearchQuery(event.target.value)}
+                          placeholder="Search messages"
+                          aria-label="Search messages"
+                        />
+                        <button
+                          type="button"
+                          className={styles.threadSearchClear}
+                          aria-label="Close message search"
+                          onClick={() => {
+                            setMessageSearchOpen(false);
+                            setMessageSearchQuery("");
+                          }}
+                        >
+                          <X className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </label>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.headerAction}
+                        aria-label="Search messages"
+                        title="Search messages"
+                        onClick={() => setMessageSearchOpen(true)}
+                      >
+                        <Search className="h-4 w-4" aria-hidden="true" />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.headerAction}
+                      aria-label="Start voice call"
+                      title="Open voice chat"
+                      onClick={openOneVoiceChat}
+                    >
+                      <PhoneCall className="h-4 w-4" aria-hidden="true" />
+                    </button>
+                  </div>
                 </div>
               </header>
 
@@ -1062,6 +1124,12 @@ export function DirectMessagesPage() {
                   >
                     {loadingOlder ? "Loading…" : "Load older messages"}
                   </Button>
+                ) : null}
+                {normalizedMessageSearch && messages.length > 0 && visibleMessages.length === 0 ? (
+                  <div className={styles.emptyThread} role="status">
+                    <Search className="h-7 w-7" aria-hidden="true" />
+                    <p>No messages match “{messageSearchQuery.trim()}”.</p>
+                  </div>
                 ) : null}
                 {!loadingThread && messages.length === 0 && thread.disconnectedNotice ? (
                   <div className={styles.emptyThread} role="status">

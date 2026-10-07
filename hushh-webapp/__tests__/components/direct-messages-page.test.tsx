@@ -252,6 +252,48 @@ describe("DirectMessagesPage", () => {
     });
   });
 
+  it("searches the open thread and keeps voice access in the header", async () => {
+    mocks.getConversationMessages.mockResolvedValue({
+      conversation: mocks.conversation,
+      items: [
+        {
+          id: "message-search-match",
+          conversationId: "conversation-1",
+          senderIsViewer: false,
+          content: "Budget review tomorrow",
+          createdAt: "2026-10-06T10:01:00.000Z",
+          readAt: null,
+          reactions: [],
+        },
+        {
+          id: "message-search-miss",
+          conversationId: "conversation-1",
+          senderIsViewer: true,
+          content: "See you then",
+          createdAt: "2026-10-06T10:02:00.000Z",
+          readAt: null,
+          reactions: [],
+        },
+      ],
+      canSend: true,
+      disconnectedNotice: null,
+      nextBefore: null,
+    });
+
+    renderConnectionThread();
+
+    expect(await screen.findByText("Budget review tomorrow")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "Search messages" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search messages" }), {
+      target: { value: "budget" },
+    });
+    expect(screen.getByText("Budget review tomorrow")).toBeVisible();
+    expect(screen.queryByText("See you then")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start voice call" }));
+    expect(mocks.router.push).toHaveBeenCalledWith(ROUTES.HOME);
+  });
+
   it("offers the full emoji picker and opens One chat for voice", async () => {
     renderConnectionThread();
 

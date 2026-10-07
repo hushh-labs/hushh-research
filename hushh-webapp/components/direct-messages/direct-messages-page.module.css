@@ -234,6 +234,7 @@
   width: 100%;
   min-height: 3.5rem;
   align-items: center;
+  justify-content: space-between;
   gap: 0.5rem;
   margin-inline: auto;
   padding: 0.5rem var(--app-bottom-shell-inline-inset, 0.75rem);
@@ -249,6 +250,8 @@
   place-items: center;
   border: 0;
   border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
   cursor: pointer;
 }
 
@@ -265,8 +268,11 @@
 }
 
 .backButton:hover,
-.backButton:focus-visible {
+.backButton:focus-visible,
+.headerAction:hover,
+.headerAction:focus-visible {
   background: color-mix(in oklab, var(--app-accent) 12%, transparent);
+  color: var(--foreground);
   outline: none;
 }
 
@@ -300,6 +306,69 @@
   margin: 0;
   font-size: 0.71875rem;
   line-height: 1.15;
+}
+
+.threadHeaderActions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
+.threadSearchField {
+  display: flex;
+  min-width: min(16rem, 42vw);
+  height: 2rem;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0 0.375rem 0 0.625rem;
+  border: 1px solid color-mix(in oklab, var(--foreground) 10%, transparent);
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--one-chat-raised) 92%, transparent);
+  color: var(--muted-foreground);
+}
+
+.threadSearchField:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 42%, transparent);
+  outline: 2px solid color-mix(in oklab, var(--app-accent) 18%, transparent);
+  outline-offset: 1px;
+}
+
+.threadSearchField input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.8125rem;
+}
+
+.threadSearchField input::placeholder {
+  color: var(--muted-foreground);
+}
+
+.threadSearchClear {
+  display: inline-grid;
+  width: 1.625rem;
+  height: 1.625rem;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+
+.threadSearchClear:hover,
+.threadSearchClear:focus-visible {
+  background: color-mix(in oklab, var(--foreground) 8%, transparent);
+  color: var(--foreground);
+  outline: none;
 }
 
 .messageList {
@@ -890,23 +959,6 @@ article[data-message-role="user"] .messageActionError {
   margin-inline: auto;
 }
 
-/* Messages owns the right side of the desktop split view. The persistent
- * shell is mounted above the route tree, so scope its desktop placement via
- * the route marker instead of adding a second footer inside the page. Mobile
- * keeps the shared shell centered across the single-column conversation. */
-@media (min-width: 768px) {
-  :global(body:has([data-direct-message-page="true"]))
-    [data-app-bottom-shell]
-    [data-bottom-shell-motion-stack] {
-    width: min(
-      var(--app-bottom-shell-max-width, 40rem),
-      calc(100% - 2 * var(--app-bottom-shell-inline-inset, 1rem))
-    );
-    max-width: none;
-    margin-inline: auto 0;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .conversationRow,
   .sendButton,
@@ -940,6 +992,15 @@ article[data-message-role="user"] .messageActionError {
 
   .threadHeaderContent {
     padding-inline: 0.625rem 0.875rem;
+  }
+
+  .threadHeaderActions {
+    gap: 0.125rem;
+  }
+
+  .threadSearchField {
+    min-width: 0;
+    width: min(12rem, 52vw);
   }
 
   .backButton {
