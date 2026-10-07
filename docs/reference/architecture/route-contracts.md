@@ -109,6 +109,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/calendar`
 - `/one/gmail`
 - `/one/email`
+- `/one/referrals`
 - `/one/kyc`
 - `/one/marketplace`
 - `/marketplace`

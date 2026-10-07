@@ -152,7 +152,6 @@ import {
   SupportService,
   type SupportMessageKind,
 } from "@/lib/services/support-service";
-import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
@@ -4024,13 +4023,6 @@ function ProfilePageContent() {
         content: gmailActionsContent,
       });
     }
-  } else if (!routeBlockedByVault && activePanel === "referrals") {
-    profileStackEntries.push({
-      key: "panel:referrals",
-      title: PROFILE_LABELS.referrals,
-      description: "Your link and referrals.",
-      content: <ReferralsPanel />,
-    });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",
@@ -4130,13 +4122,8 @@ function ProfilePageContent() {
                 voiceControlId="profile_referrals"
                 voiceActionId="route.profile_referrals_panel"
                 voiceLabel={PROFILE_LABELS.referrals}
-                voicePurpose="Opens your referral link and referral status."
-                onClick={() =>
-                  updateProfileView(
-                    { panel: "referrals", detail: null },
-                    "push",
-                  )
-                }
+                voicePurpose="Opens the Referrals dashboard, standings, and rewards."
+                onClick={() => router.push(ROUTES.ONE_REFERRALS)}
               />
               <SettingsRow
                 icon={MessageCircleQuestion}

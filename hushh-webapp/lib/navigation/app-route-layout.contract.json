@@ -690,6 +690,42 @@
     }
   },
   {
+    "route": "/one/referrals",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/referrals/referral-dashboard-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.referrals",
+      "purpose": "Help the person read their referral link, points, standings, and reward progress through the dashboard's own controls.",
+      "screen": "one_referrals",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/calendar",
     "mode": "standard",
     "shellVerification": {
@@ -3473,39 +3509,28 @@
   },
   {
     "route": "/one/profile/referrals",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/profile/profile-workspace-page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "PageHeader",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect; Referrals is now a dedicated dashboard at /one/referrals.",
     "voicePlaybook": {
-      "playbookId": "route.profile.support",
-      "purpose": "Help the person understand and use the support screen through its generated controls.",
-      "screen": "profile_referrals_panel",
-      "entryCue": "You can say \u201cOpen Support Panel\u201d to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_referrals_panel",
-      "happyPathActionIds": [
-        "route.profile_referrals_panel"
-      ],
+      "playbookId": "route.profile.referrals",
+      "purpose": "Redirect a legacy Referrals bookmark to the dashboard without retaining a profile panel surface.",
+      "screen": "one_referrals",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
-        "failed": "Acknowledge the failure without claiming completion.",
+        "failed": "Return to Referrals and retain a safe retry.",
         "timeout": "Retain the goal and offer one safe retry.",
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/profile/referrals",
-      "returnPolicy": "stay",
+      "nextRoute": "/one/referrals",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

@@ -115,10 +115,11 @@
       ],
       "reachability": {
         "routes": [
-          "/one/profile/referrals"
+          "/one/profile/referrals",
+          "/one/referrals"
         ],
         "screens": [
-          "profile_referrals_panel"
+          "one_referrals"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [

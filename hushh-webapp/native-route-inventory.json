@@ -1,7 +1,7 @@
 {
   "generated_at": "2026-08-27",
-  "total_routes": 119,
-  "native_required_routes": 103,
+  "total_routes": 120,
+  "native_required_routes": 104,
   "excluded_routes": 16,
   "routes": [
     {
@@ -417,6 +417,21 @@
       "initialRoute": "/login?redirect=%2Fone%2Femail",
       "expectedMarker": "native-route-email-agent",
       "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
+      "route": "/one/referrals",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Freferrals",
+      "expectedMarker": "native-route-one-referrals",
+      "expectedRoute": "/one/referrals",
       "autoReviewerLogin": true,
       "expectedAuth": "authenticated",
       "allowedDataStates": [

@@ -4308,45 +4308,41 @@
     {
       "route_pattern": "/one/profile/referrals",
       "page_file": "app/one/profile/referrals/page.tsx",
-      "route_mode": "standard",
-      "orchestration_class": "interactive",
-      "instruction_id": "route.profile.support",
-      "context_policy": "publish",
+      "route_mode": "redirect",
+      "orchestration_class": "transitional",
+      "instruction_id": "route.profile.referrals",
+      "context_policy": "suppress",
       "voice_playbook": {
-        "playbook_id": "route.profile.support",
-        "purpose": "Help the person understand and use the support screen through its generated controls.",
-        "screen": "profile_referrals_panel",
-        "entry_cue": "You can say “Open Support Panel” to use the primary control on this screen.",
-        "proactivity": "on_entry",
-        "primary_action_id": "route.profile_referrals_panel",
-        "happy_path_action_ids": [
-          "route.profile_referrals_panel"
-        ],
+        "playbook_id": "route.profile.referrals",
+        "purpose": "Redirect a legacy Referrals bookmark to the dashboard without retaining a profile panel surface.",
+        "screen": "one_referrals",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
         "required_inputs": [],
         "recoveries": {
           "blocked": "Explain the current guard and retain the goal.",
           "cancelled": "Respect the cancellation and retain a safe next step.",
-          "failed": "Acknowledge the failure without claiming completion.",
+          "failed": "Return to Referrals and retain a safe retry.",
           "timeout": "Retain the goal and offer one safe retry.",
           "callback_error": "Return to the verified callback recovery path without claiming success.",
           "route_mismatch": "Use the verified current route and its generated actions only."
         },
         "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-        "next_route": "/one/profile/referrals",
-        "return_policy": "stay",
+        "next_route": "/one/referrals",
+        "return_policy": "navigate",
         "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
       },
       "interaction_layer_policy": {
         "allowed_families": []
       },
-      "canonical_screen": "profile_referrals_panel",
+      "canonical_screen": "one_referrals",
       "voice_contract_file": null,
-      "action_ids": [
-        "route.profile_referrals_panel"
-      ],
-      "action_coverage": "inherited",
+      "action_ids": [],
+      "action_coverage": "none",
       "delegation_policy": {
-        "mode": "no_delegation",
+        "mode": "block_delegation",
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
@@ -4797,6 +4793,49 @@
       },
       "trust_boundary": "none",
       "native_surface_id": null
+    },
+    {
+      "route_pattern": "/one/referrals",
+      "page_file": "app/one/referrals/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "context_only",
+      "instruction_id": "route.one.referrals",
+      "context_policy": "minimal",
+      "voice_playbook": {
+        "playbook_id": "route.one.referrals",
+        "purpose": "Help the person read their referral link, points, standings, and reward progress through the dashboard's own controls.",
+        "screen": "one_referrals",
+        "entry_cue": "",
+        "proactivity": "ambient",
+        "primary_action_id": null,
+        "happy_path_action_ids": [],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+        "next_route": null,
+        "return_policy": "stay",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_referrals",
+      "voice_contract_file": null,
+      "action_ids": [],
+      "action_coverage": "none",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "none",
+      "native_surface_id": "native-route-one-referrals"
     },
     {
       "route_pattern": "/one/setup",

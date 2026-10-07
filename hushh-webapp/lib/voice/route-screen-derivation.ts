@@ -285,6 +285,9 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "gmail", subview: null };
   }
+  if (normalizedPath === ROUTES.ONE_REFERRALS) {
+    return { screen: "one_referrals", subview: null };
+  }
   if (normalizedPath === ROUTES.PKM || normalizedPath === ROUTES.LEGACY_PKM) {
     return { screen: "pkm", subview: query.get("tab") || null };
   }
@@ -341,7 +344,9 @@ export function deriveVoiceRouteScreen(
       return { screen: "connected_systems", subview: tab || "legacy" };
     }
     if (panel === "referrals") {
-      return { screen: "profile_referrals_panel", subview: tab || null };
+      // The nested Referrals panel is retired; both routes now resolve to
+      // the dedicated dashboard's own screen.
+      return { screen: "one_referrals", subview: null };
     }
     if (panel === "support") {
       return { screen: "profile_support_panel", subview: tab || null };
@@ -373,7 +378,7 @@ export function deriveVoiceRouteScreen(
       return { screen: "connected_systems", subview: "legacy" };
     }
     if (panel === "referrals") {
-      return { screen: "profile_referrals_panel", subview: null };
+      return { screen: "one_referrals", subview: null };
     }
     if (panel === "support") {
       return {

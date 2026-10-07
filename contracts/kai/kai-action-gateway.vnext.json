@@ -11314,10 +11314,11 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/profile/referrals"
+          "/one/profile/referrals",
+          "/one/referrals"
         ],
         "screens": [
-          "profile_referrals_panel"
+          "one_referrals"
         ],
         "hidden_navigable": true,
         "navigation_prerequisites": [
@@ -11376,7 +11377,7 @@
             "failure_behavior": "stop",
             "settlement_target": {
               "route": "/one/profile/referrals",
-              "screen": "profile_referrals_panel"
+              "screen": "one_referrals"
             }
           }
         ],
