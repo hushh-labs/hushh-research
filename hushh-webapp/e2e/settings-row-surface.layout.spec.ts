@@ -380,7 +380,12 @@ for (const width of [320, 393, 834, 1440]) {
           })).toBe(true);
         }
       }
-      for (const wallet of walletGroups) expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
+      for (const wallet of walletGroups) {
+        expect(await wallet.locator("[data-row-layout]").count()).toBe(5);
+        const descriptions = await wallet.locator('[data-slot="settings-row-description"]').allTextContents();
+        expect(descriptions).toHaveLength(5);
+        expect(descriptions.every((text) => text.trim().length > 0)).toBe(true);
+      }
     }
     await verifyBoundedConsumers();
     // Enlarged text makes two-line support copy grow rather than disappear.
@@ -393,6 +398,12 @@ for (const width of [320, 393, 834, 1440]) {
     expect(await description.evaluate((node) => getComputedStyle(node).fontSize)).toBe("24px");
     expect(await description.evaluate((node) => getComputedStyle(node).lineHeight)).toBe("32px");
     expect(await description.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
+    for (const wallet of walletGroups) {
+      expect(await wallet.locator('[data-slot="settings-row-description"]').first().evaluate((node) => {
+        const style = getComputedStyle(node);
+        return { fontSize: style.fontSize, lineHeight: style.lineHeight };
+      })).toEqual({ fontSize: "24px", lineHeight: "32px" });
+    }
     for (const row of await rows.all()) {
       expect(await row.evaluate((node) => {
         const bounds = node.getBoundingClientRect();
