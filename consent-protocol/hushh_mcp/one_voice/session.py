@@ -66,7 +66,11 @@ from hushh_mcp.one_voice.tools.executor import (
 )
 from hushh_mcp.one_voice.tools.mail_compose import ComposeResult, MailComposeRuntime
 from hushh_mcp.one_voice.tools.session import OPENABLE_SCREENS
-from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_owner_send_action
+from hushh_mcp.services.gmail_delivery_service import (
+    GmailDeliveryError,
+    get_gmail_delivery_service,
+    get_owner_send_action,
+)
 from hushh_mcp.services.gmail_reply_source_service import open_reply_source_ref
 
 logger = logging.getLogger(__name__)
@@ -447,6 +451,7 @@ class VoiceSession:
         # Set from the auth frame before any tool runs; UTC until then.
         self._client_timezone = "UTC"
         self._mail_review_supported = False
+        self._restored_mail_review: dict[str, Any] | None = None
         self._mail_input_generation = 0
         self._mail_input_active = False
         self._mail_approval_input: ContextVar[tuple[int, bool] | None] = ContextVar(
@@ -906,6 +911,20 @@ class VoiceSession:
             approval_input=self._mail_approval_input.get,
         )
         self.ctx.services["mail_delivery_status"] = self._mail_delivery_status
+        if self._mail_review_supported:
+            try:
+                delivery = self.ctx.services.get("gmail_delivery") or get_gmail_delivery_service()
+                payload = await delivery.get_prepared_review(
+                    user_id=auth.user_id, conversation_id=self.claims.conversation_id
+                )
+                if isinstance(payload, dict):
+                    restored = await self.ctx.services["mail_compose"].restore_prepared_review(
+                        self.ctx, payload
+                    )
+                    if restored:
+                        self._restored_mail_review = payload
+            except Exception as exc:  # noqa: BLE001 - resume fails closed
+                logger.info("one_voice.mail_review.restore_failed error=%s", type(exc).__name__)
         self._display_name = auth.display_name
         # Not guarded on purpose: a session that cannot say which cards are open
         # must not start, or a card shown in an earlier session could be
@@ -970,6 +989,19 @@ class VoiceSession:
         async with self.live_factory(self.config.model_id, live_config) as live:
             self.live = live
             await self._send(protocol.voice_state("listening"))
+            if self._restored_mail_review is not None:
+                payload = self._restored_mail_review
+                await self._inject_event(
+                    {
+                        "kind": "mail_review",
+                        "status": "review_ready",
+                        "draft_ref": payload.get("draft_ref"),
+                        "revision": payload.get("revision"),
+                        "spoken_facts": [
+                            "The reviewed email is still open. Ask me to send it when you are ready."
+                        ],
+                    }
+                )
             try:
                 async with asyncio.TaskGroup() as group:
                     group.create_task(self._pump_client())
@@ -1857,7 +1889,7 @@ class VoiceSession:
                     "draft_ref": step.get("draft_ref"),
                     "revision": step.get("revision"),
                     "spoken_facts": [
-                        "The email and sending account are open for review. Ask for send-specific approval before sending."
+                        "The email and sending account are open for review. Ask me to send it when you are ready."
                         if reviewed
                         else "The draft is open, but it needs the missing detail or sending prerequisite. Nothing was sent."
                         if draft_only

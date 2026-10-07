@@ -498,14 +498,23 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
 
     coverage = dict(outcome.get("coverage") or {})
     items = list(outcome.get("items") or [])
+    # Analysis questions are answered as a spoken digest. The rows contain
+    # third-party subjects/snippets and are useful for an explicit inbox browse,
+    # but rendering them for "sensitive/action/overdue/overview" requests turns
+    # a voice answer into an unnecessary mailbox dump.
+    analysis_mode = bool(coverage.get("analysis_requested"))
+    if analysis_mode:
+        items = []
     # Replace the offer with what this read actually put in front of the person.
     # Replaced, never merged: they are looking at the newest list, so that is the
     # only list a position can mean. A read that cannot name its rows clears the
     # offer rather than leaving positions pointing at a list that is gone.
     handback = outcome.get("offer") or {}
-    offered_ids = [
-        value for value in (handback.get("message_ids") or []) if isinstance(value, str) and value
-    ]
+    offered_ids = (
+        [value for value in (handback.get("message_ids") or []) if isinstance(value, str) and value]
+        if not analysis_mode
+        else []
+    )
     offer_revision: int | None = None
     if offered_ids:
         offer_revision = ctx.entities.offer_mail(
@@ -533,7 +542,7 @@ async def _read_mail(ctx: ToolContext, args: ReadMailInput) -> ToolResult:
         offer_revision=offer_revision,
         conversation_id=ctx.conversation_id,
         spoken_facts=_spoken(coverage),
-        ui_refresh=["mail"],
+        ui_refresh=[] if analysis_mode else ["mail"],
     )
 
 

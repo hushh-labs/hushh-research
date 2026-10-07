@@ -310,6 +310,71 @@ class ToolExecutor:
         problem = self._entity_problem(spec, ctx, parsed)
         if problem is not None:
             return ToolCallOutcome(result=problem, spec=spec, parsed=parsed)
+        if spec.direct_after_review:
+            # A reviewed-mail follow-up is an explicit owner instruction, so it
+            # must not create a second confirmation card.  Keep the tool's
+            # confirm_voice policy for gateway/audit compatibility, but run the
+            # same prepare hook and exact snapshot fence before the handler.
+            if spec.prepare is None:
+                return ToolCallOutcome(
+                    result=Rejected(
+                        reason_code="review_unavailable",
+                        spoken_facts=["I couldn't verify the reviewed action."],
+                    ),
+                    spec=spec,
+                    parsed=parsed,
+                )
+            proof = await self.prove_actor(ctx, spec)
+            if proof != "ok":
+                return ToolCallOutcome(
+                    result=ToolResult(
+                        status=FIREBASE_PROOF_REQUIRED,
+                        reason_code=f"firebase_proof_{proof}",
+                        needs="confirmation",
+                        spoken_facts=[
+                            "I need you to tap Send on the reviewed email to prove it's you."
+                        ],
+                    ),
+                    spec=spec,
+                    parsed=parsed,
+                )
+            prepare_started = time.monotonic()
+            try:
+                prepared = await spec.prepare(ctx, parsed)
+            except Exception as exc:  # noqa: BLE001 - fail closed for direct effects
+                logger.warning(
+                    "one_voice.tool.prepare_failed tool=%s error=%s",
+                    spec.name,
+                    type(exc).__name__,
+                )
+                prepared = Rejected(
+                    reason_code="prepare_failed",
+                    spoken_facts=[
+                        "I couldn't verify that reviewed email right now. Nothing was sent."
+                    ],
+                )
+            timings["prepare"] = _elapsed_ms(prepare_started)
+            if isinstance(prepared, ToolResult):
+                return ToolCallOutcome(result=prepared, spec=spec, parsed=parsed)
+            previous_prepared = ctx.prepared
+            ctx.prepared = {**dict(prepared.snapshot), "_direct_review_send": True}
+            handler_started = time.monotonic()
+            try:
+                result = await spec.handler(ctx, parsed)
+                timings["handler"] = _elapsed_ms(handler_started)
+            except Exception as exc:  # noqa: BLE001 - a broken tool must not end the session
+                logger.warning(
+                    "one_voice.tool.failed tool=%s error=%s", spec.name, type(exc).__name__
+                )
+                result = Rejected(
+                    reason_code="execution_failed",
+                    spoken_facts=["I couldn't send that reviewed email. Nothing was changed."],
+                )
+            finally:
+                ctx.prepared = previous_prepared
+            if spec.ui_refresh and result.status not in {"rejected", "unsupported"}:
+                result.ui_refresh = sorted(set(result.ui_refresh) | set(spec.ui_refresh))
+            return ToolCallOutcome(result=result, spec=spec, parsed=parsed)
         superseded: list[PendingAction] = []
         lookup_kind = LOOKUP_TOOLS.get(spec.name)
         if lookup_kind is not None:

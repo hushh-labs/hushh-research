@@ -4,11 +4,11 @@ This service intentionally stores only action metadata and HMACs.  It never
 creates Gmail-native drafts, never persists a plaintext email envelope, and
 never accepts a sender address or a caller-provided OAuth token.
 
-The one persisted envelope is a scheduled send's: it must outlive the session
-that approved it, so it is stored as AES-GCM ciphertext bound to its owner and
-action, and is opened only by the send that fires it. Historical scheduled
-sends retain their canonical envelope HMAC. New immediate reviews additionally
-bind the sending grant and any reviewed recipient sources.
+The persisted envelopes are AES-GCM ciphertext bound to their owner and action:
+scheduled sends outlive the session that approved them, and immediate reviewed
+drafts can survive a voice reconnect without exposing their body or addresses.
+Historical scheduled sends retain their canonical envelope HMAC. New immediate
+reviews additionally bind the sending grant and any reviewed recipient sources.
 """
 
 from __future__ import annotations
@@ -79,6 +79,12 @@ _SCHEDULE_SEALED_MAX_CHARS = 256 * 1024
 _SCHEDULE_IDEMPOTENCY_PREFIX = "one-voice-schedule-mail-v2"
 _SCHEDULE_DISPLAY_MAX_CHARS = 120
 _SCHEDULED_LIST_MAX = 25
+# Immediate reviewed drafts may outlive a websocket reconnect.  Their payload
+# is encrypted with a separate purpose/key and is only recoverable by the same
+# owner and conversation; plaintext never enters the ledger or model context.
+_REVIEW_PAYLOAD_INFO = b"gmail-owner-review-payload-v1"
+_REVIEW_PAYLOAD_PREFIX = "rp1."
+_REVIEW_PAYLOAD_MAX_CHARS = 256 * 1024
 # A cancel renames its row's idempotency key, so the same email to the same
 # person for the same time can be scheduled again once it was cancelled.
 _SCHEDULE_CANCELLED_KEY_MARK = ":cancelled:"
@@ -733,6 +739,122 @@ class GmailDeliveryService:
             "outcome_unknown": _text(row.get("state")) == "outcome_unknown",
         }
 
+    @staticmethod
+    def _review_payload_key() -> bytes:
+        secret = get_core_security_settings().app_signing_key
+        if not secret:
+            raise ValueError("review payload key is unavailable")
+        return HKDF(algorithm=SHA256(), length=32, salt=None, info=_REVIEW_PAYLOAD_INFO).derive(
+            secret.encode("utf-8")
+        )
+
+    @staticmethod
+    def _review_payload_aad(*, user_id: str, action_id: str) -> bytes:
+        if not _text(user_id) or not _text(action_id):
+            raise ValueError("review payload binding is incomplete")
+        return json.dumps(
+            {"purpose": _REVIEW_PAYLOAD_INFO.decode("ascii"), "user": user_id, "action": action_id},
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+
+    def seal_review_payload(self, *, user_id: str, action_id: str, payload: dict[str, Any]) -> str:
+        """Seal the minimum reviewed envelope needed to restore voice state."""
+        if not isinstance(payload, dict) or payload.get("conversation_id") is None:
+            raise ValueError("review payload shape is invalid")
+        encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+        if len(encoded) > _REVIEW_PAYLOAD_MAX_CHARS:
+            raise ValueError("review payload is too large")
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(self._review_payload_key()).encrypt(
+            nonce,
+            encoded.encode("utf-8"),
+            self._review_payload_aad(user_id=user_id, action_id=action_id),
+        )
+        packed = base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii").rstrip("=")
+        return _REVIEW_PAYLOAD_PREFIX + packed
+
+    def open_review_payload(self, *, user_id: str, action_id: str, sealed: str) -> dict[str, Any]:
+        try:
+            if not isinstance(sealed, str) or not sealed.startswith(_REVIEW_PAYLOAD_PREFIX):
+                raise ValueError("sealed")
+            token = sealed[len(_REVIEW_PAYLOAD_PREFIX) :]
+            if len(sealed) > _REVIEW_PAYLOAD_MAX_CHARS:
+                raise ValueError("sealed")
+            packed = base64.b64decode(
+                token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
+            )
+            if len(packed) < 12 + 16 + 2:
+                raise ValueError("sealed")
+            value = json.loads(
+                AESGCM(self._review_payload_key()).decrypt(
+                    packed[:12],
+                    packed[12:],
+                    self._review_payload_aad(user_id=user_id, action_id=action_id),
+                )
+            )
+            if not isinstance(value, dict) or not isinstance(value.get("conversation_id"), str):
+                raise ValueError("payload")
+            return value
+        except (ValueError, TypeError, KeyError, InvalidTag, binascii.Error, json.JSONDecodeError):
+            raise ValueError("sealed") from None
+
+    async def _persist_review_payload(
+        self, *, user_id: str, action_id: str, payload: dict[str, Any], conn: Any | None = None
+    ) -> None:
+        sealed = self.seal_review_payload(user_id=user_id, action_id=action_id, payload=payload)
+        if conn is not None:
+            await conn.execute(
+                """UPDATE gmail_owner_send_actions SET payload_sealed = $3, updated_at = NOW()
+                   WHERE action_id = $1 AND user_id = $2 AND state = 'prepared' AND send_at IS NULL""",
+                action_id,
+                user_id,
+                sealed,
+            )
+            return
+        pool = await get_pool()
+        async with pool.acquire() as connection:
+            await connection.execute(
+                """UPDATE gmail_owner_send_actions SET payload_sealed = $3, updated_at = NOW()
+                   WHERE action_id = $1 AND user_id = $2 AND state = 'prepared' AND send_at IS NULL""",
+                action_id,
+                user_id,
+                sealed,
+            )
+
+    async def get_prepared_review(
+        self, *, user_id: str, conversation_id: str
+    ) -> dict[str, Any] | None:
+        """Return one still-prepared encrypted review for this resumed voice chat."""
+        if not _text(user_id) or not _text(conversation_id):
+            return None
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """SELECT action_id, state, expires_at, payload_sealed
+                   FROM gmail_owner_send_actions
+                   WHERE user_id = $1 AND state = 'prepared' AND send_at IS NULL
+                     AND expires_at > NOW() AND payload_sealed LIKE 'rp1.%'
+                   ORDER BY created_at DESC LIMIT 8""",
+                user_id,
+            )
+        for row in rows:
+            row_value = dict(row)
+            action_id = _text(row_value.get("action_id"))
+            try:
+                payload = self.open_review_payload(
+                    user_id=user_id, action_id=action_id, sealed=row_value.get("payload_sealed")
+                )
+            except ValueError:
+                continue
+            if payload.get("conversation_id") != conversation_id:
+                continue
+            payload["action_id"] = action_id
+            payload["state"] = _text(row_value.get("state"))
+            payload["expires_at"] = row_value.get("expires_at")
+            return payload
+        return None
+
     async def draft_from_instruction(
         self,
         *,
@@ -829,6 +951,7 @@ class GmailDeliveryService:
         draft_payload: dict[str, Any],
         idempotency_key: str,
         reply_context: GmailReplyContext | None = None,
+        review_payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         draft = normalize_draft(draft_payload)
         idempotency_key = _text(idempotency_key)
@@ -890,7 +1013,7 @@ class GmailDeliveryService:
                 await conn.execute(
                     """
                     UPDATE gmail_owner_send_actions
-                    SET state = 'expired', updated_at = NOW()
+                    SET state = 'expired', payload_sealed = NULL, updated_at = NOW()
                     WHERE user_id = $1 AND state = 'prepared' AND expires_at <= NOW()
                       AND send_at IS NULL
                     """,
@@ -926,7 +1049,23 @@ class GmailDeliveryService:
                             grant_binding=grant_binding,
                             source_account_label=source_account_label,
                         )
-                    return self._with_sender_review(result, user_id=user_id, review=sender_review)
+                    result = self._with_sender_review(result, user_id=user_id, review=sender_review)
+                    if review_payload is not None:
+                        await self._persist_review_payload(
+                            user_id=user_id,
+                            action_id=_text(row.get("action_id")),
+                            payload={
+                                **review_payload,
+                                "action_id": _text(row.get("action_id")),
+                                "sender_token": result["sender_token"],
+                                "sender_label": result["sender_label"],
+                                "expires_at": result["expires_at"].isoformat()
+                                if isinstance(result.get("expires_at"), datetime)
+                                else result.get("expires_at"),
+                            },
+                            conn=conn,
+                        )
+                    return result
                 await conn.execute(
                     """
                     INSERT INTO gmail_owner_send_actions (
@@ -959,7 +1098,29 @@ class GmailDeliveryService:
                 grant_binding=grant_binding,
                 source_account_label=source_account_label,
             )
-        return self._with_sender_review(result, user_id=user_id, review=sender_review)
+        result = self._with_sender_review(result, user_id=user_id, review=sender_review)
+        if review_payload is not None:
+            try:
+                await self._persist_review_payload(
+                    user_id=user_id,
+                    action_id=action_id,
+                    payload={
+                        **review_payload,
+                        "action_id": action_id,
+                        "sender_token": result["sender_token"],
+                        "sender_label": result["sender_label"],
+                        "expires_at": result["expires_at"].isoformat()
+                        if isinstance(result.get("expires_at"), datetime)
+                        else result.get("expires_at"),
+                    },
+                )
+            except Exception as exc:  # noqa: BLE001 - never leave an unresumable card
+                logger.warning("gmail.review.seal_failed error=%s", type(exc).__name__)
+                await self.cancel_prepared(user_id=user_id, action_id=action_id)
+                raise GmailDeliveryError(
+                    "REVIEW_SEAL_FAILED", "The email review could not be secured.", status_code=500
+                ) from None
+        return result
 
     async def execute(
         self,
@@ -1339,7 +1500,7 @@ class GmailDeliveryService:
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
                 """UPDATE gmail_owner_send_actions
-                   SET state = 'cancelled', updated_at = NOW()
+                   SET state = 'cancelled', payload_sealed = NULL, updated_at = NOW()
                    WHERE action_id = $1 AND user_id = $2
                      AND state = 'prepared' AND send_at IS NULL
                      AND sent_at IS NULL AND gmail_message_id IS NULL
@@ -1376,6 +1537,7 @@ class GmailDeliveryService:
                 """
                 UPDATE gmail_owner_send_actions
                 SET state = $2,
+                    payload_sealed = CASE WHEN send_at IS NULL THEN NULL ELSE payload_sealed END,
                     safe_error_code = $3,
                     gmail_message_id = COALESCE($4, gmail_message_id),
                     gmail_thread_id = COALESCE($5, gmail_thread_id),

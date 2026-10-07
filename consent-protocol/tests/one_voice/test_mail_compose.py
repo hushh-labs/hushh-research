@@ -81,6 +81,57 @@ async def test_send_it_binds_the_single_active_reviewed_draft(compose):
 
 
 @pytest.mark.asyncio
+async def test_prepared_review_can_be_restored_after_reconnect(compose):
+    runtime, ctx, _delivery = compose
+    expires = datetime.now(timezone.utc) + timedelta(minutes=5)
+    payload = {
+        "conversation_id": ctx.conversation_id,
+        "draft_ref": "r" * 24,
+        "revision": 1,
+        "draft": {"to": "friend@example.com", "cc": "", "bcc": "", "subject": "", "body": "Hi"},
+        "sources": [{"kind": "address", "role": "to", "address": "friend@example.com"}],
+        "action_id": "a" * 36,
+        "sender_token": "private",
+        "sender_label": "owner@example.com",
+        "expires_at": expires.isoformat(),
+    }
+    assert await runtime.restore_prepared_review(ctx, payload)
+    task = runtime.tasks[payload["draft_ref"]]
+    assert task.state == "review_ready"
+    assert task.rendered is True
+    assert task.prepared["action_id"] == payload["action_id"]
+    assert task.draft["to"] == "friend@example.com"
+
+
+@pytest.mark.asyncio
+async def test_reconnect_restores_prepared_review_and_reuses_action(compose):
+    runtime, ctx, delivery = compose
+    payload = {
+        "draft_ref": "r" * 24,
+        "revision": 1,
+        "draft": {"to": "friend@example.com", "subject": "", "body": "Hi"},
+        "sources": [],
+        "action_id": "a" * 36,
+        "sender_token": "private",
+        "sender_label": "owner@example.com",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(),
+    }
+
+    assert await runtime.restore_prepared_review(ctx, payload)
+    task = runtime.tasks[payload["draft_ref"]]
+    assert task.state == "review_ready"
+    assert task.rendered is True
+    prepared = runtime.prepare_send(None, None)
+    assert prepared.snapshot["draft_ref"] == payload["draft_ref"]
+    assert prepared.snapshot["action_id"] == payload["action_id"]
+
+    ctx.prepared = prepared.snapshot
+    sent = await runtime.send(ctx, None, None)
+    assert sent.status == "sent"
+    delivery.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_render_ack_and_exact_revision_are_required(compose):
     runtime, ctx, delivery = compose
     result = await runtime.create(ctx, {"to": "friend@example.com", "subject": "", "body": "Hi"})

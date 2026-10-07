@@ -772,6 +772,11 @@ class ToolSpec:
     firebase_plane: bool = False
     # For confirm_* tools: how the pending card summarizes the action.
     summarize: Callable[[ToolContext, Any], str] | None = None
+    # A reviewed effect may be executed directly when the owner explicitly
+    # asks for it after the review card was rendered.  The policy stays
+    # ``confirm_voice`` so the gateway contract and audit tier remain intact;
+    # the executor still runs the tool's prepare hook and exact binding fence.
+    direct_after_review: bool = False
     # For confirm_* tools whose effect depends on live state: computes the
     # exact prepared effect before the card is shown. Returning a ToolResult
     # instead of a Prepared answers the call without a card (nothing to do,

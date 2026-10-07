@@ -611,9 +611,9 @@ def test_declared_tools_fail_closed_instead_of_fake_success():
 def test_controlled_compose_edit_status_cancel_and_reviewed_send():
     """Exercise the supported draft lifecycle through the real executor.
 
-    The final tap executes exactly once against the in-memory ledger.  This is
-    the deterministic side-effect gate used before any live-model scorecard;
-    selection-only hits cannot make this pass.
+    An explicit voice follow-up sends exactly once against the in-memory
+    ledger. This is the deterministic side-effect gate used before any
+    live-model scorecard; selection-only hits cannot make this pass.
     """
     import asyncio
 
@@ -670,17 +670,7 @@ def test_controlled_compose_edit_status_cancel_and_reviewed_send():
             "send_reviewed_mail",
             {"draft_ref": fresh_ref, "revision": fresh_revision},
         )
-        assert review["status"] == "confirmation_required"
-        pending_id = review["pending_action_id"]
-        row = await world["pending"].get(user_id=OWNER, pending_action_id=pending_id)
-        assert row is not None and row.tier == "voice"
-        row = await world["pending"].confirm(
-            user_id=OWNER,
-            pending_action_id=pending_id,
-            source="voice",
-        )
-        executed = await world["executor"].execute_pending(world["ctx"], row)
-        assert executed.result.status == "sent"
+        assert review["status"] == "sent"
         assert len(delivery.provider_calls) == 1
         assert delivery.rows[fresh_action]["state"] == "sent"
 

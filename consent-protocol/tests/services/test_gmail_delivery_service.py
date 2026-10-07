@@ -133,6 +133,34 @@ def test_normalized_delivery_envelope_rejects_header_injection_and_deduplicates(
         )
 
 
+def test_review_payload_is_owner_and_action_bound(monkeypatch):
+    monkeypatch.setattr(
+        "hushh_mcp.services.gmail_delivery_service.get_core_security_settings",
+        lambda: SimpleNamespace(app_signing_key="review-payload-test-signing-key"),
+    )
+    service = GmailDeliveryService()
+    payload = {
+        "conversation_id": "conversation",
+        "draft_ref": "draft-ref",
+        "revision": 1,
+        "draft": {"to": "friend@example.com", "subject": "", "body": "Hi"},
+        "sources": [],
+        "action_id": "action",
+        "sender_token": "sealed-sender",
+        "sender_label": "owner@example.com",
+        "expires_at": "2030-01-01T00:00:00+00:00",
+    }
+    sealed = service.seal_review_payload(user_id="owner", action_id="action", payload=payload)
+    assert sealed.startswith("rp1.")
+    assert (
+        service.open_review_payload(user_id="owner", action_id="action", sealed=sealed) == payload
+    )
+    with pytest.raises(ValueError):
+        service.open_review_payload(user_id="other", action_id="action", sealed=sealed)
+    with pytest.raises(ValueError):
+        service.open_review_payload(user_id="owner", action_id="other", sealed=sealed)
+
+
 class _Transaction:
     async def __aenter__(self):
         return self
