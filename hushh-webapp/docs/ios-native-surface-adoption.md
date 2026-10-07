@@ -1212,6 +1212,15 @@ text, unchanged readable descriptions and actual action/busy-state checks.
 Content-sized mixed controls and record lists are unaffected. This CSS/browser
 proof does not inherit physical acceptance from the earlier installed product.
 
+Independent review then identifies title-only Profile/Legal rows as a separate
+alignment boundary. Rendering the actual `ProfileLegalRows` in the existing
+fixture fails title/icon/chevron centering on the unguarded alignment change.
+Both alignment classes now require actual supporting copy; title-only rows keep
+their original centering. The same eight browser cases additionally require two
+real Legal rows, centered titles/icons/chevrons, enlarged computed text and both
+authored callbacks. No global description clamp or empty supporting text is
+introduced to manufacture symmetry.
+
 The latest Circle layout from main is normally merged at `97bd81e7`; the four
 incoming files leave the native and Wallet fixes unchanged. Its core passes in
 232s and all 65 focused Circle tests pass. The subsequent nearest native,

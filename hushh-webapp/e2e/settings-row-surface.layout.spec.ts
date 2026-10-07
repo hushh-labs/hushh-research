@@ -358,6 +358,7 @@ for (const width of [320, 393, 834, 1440]) {
     const walletGroups = ["active", "paused"].map((status) => page.getByTestId(`consumer-wallet-${status}`)
       .getByTestId("settings-group").filter({ hasText: "Sharing controls" }));
     const voiceGroup = page.getByTestId("voice-control-domains");
+    const titleOnlyGroup = page.getByTestId("uniform-title-only-navigation");
     const mailGroups = ["connected", "reconnect", "unavailable", "busy", "connected-busy"].map((state) =>
       page.getByTestId(`consumer-mail-${state}`).getByTestId("mail-actions-group"));
     const boundedGroups = [
@@ -367,6 +368,21 @@ for (const width of [320, 393, 834, 1440]) {
       ...mailGroups,
     ];
     async function verifyBoundedConsumers() {
+      const titleOnlyRows = titleOnlyGroup.locator("[data-row-layout]");
+      expect(await titleOnlyRows.count()).toBe(2);
+      expect(await titleOnlyGroup.locator('[data-slot="settings-row-description"]').count()).toBe(0);
+      for (const row of await titleOnlyRows.all()) {
+        expect(await contract(row)).toEqual([]);
+        expect(await row.evaluate((node) => {
+          const center = (selector: string) => {
+            const box = node.querySelector(selector)!.getBoundingClientRect();
+            return box.top + box.height / 2;
+          };
+          const title = center('[data-slot="settings-row-title"]');
+          return Math.abs(title - center('[data-slot="settings-row-icon"]')) <= 1 &&
+            Math.abs(title - center('[data-slot="settings-row-chevron"]')) <= 1;
+        }), "title-only rows retain centered title, icon and chevron").toBe(true);
+      }
       for (const source of boundedGroups) {
         const siblings = source.locator("[data-row-layout]");
         const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
@@ -411,12 +427,15 @@ for (const width of [320, 393, 834, 1440]) {
     }
     await verifyBoundedConsumers();
     // Enlarged text makes two-line support copy grow rather than disappear.
-    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"], [data-testid^="consumer-wallet-"], [data-testid="voice-control-domains"], [data-testid="mail-actions-group"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"], [data-testid^="consumer-wallet-"], [data-testid="voice-control-domains"], [data-testid="mail-actions-group"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-label-compact-size: 24px; --type-row-label-compact-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
     await verifyBoundedConsumers();
     expect(spread(await measure())).toBeLessThanOrEqual(1);
     expect((await measure())[0]!).toBeGreaterThan(originalHeight);
     for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
     const description = group.locator('[data-slot="settings-row-description"]').last();
+    expect(await titleOnlyGroup.locator('[data-slot="settings-row-title"]').evaluateAll((nodes) =>
+      nodes.length === 2 && nodes.every((node) => getComputedStyle(node).fontSize === "24px" &&
+        getComputedStyle(node).lineHeight === "32px"))).toBe(true);
     expect(await description.evaluate((node) => getComputedStyle(node).fontSize)).toBe("24px");
     expect(await description.evaluate((node) => getComputedStyle(node).lineHeight)).toBe("32px");
     expect(await description.evaluate((node) => node.scrollHeight <= node.clientHeight + 1)).toBe(true);
@@ -449,6 +468,11 @@ for (const width of [320, 393, 834, 1440]) {
     await clearEvents(page);
     await clickAt(page, rows.first(), "trailing");
     expect(await events(page)).toEqual(["uniform:account"]);
+    for (const document of ["privacy", "terms"]) {
+      await clearEvents(page);
+      await clickAt(page, titleOnlyGroup.getByTestId(`profile-legal-${document}-row`), "trailing");
+      expect(await events(page)).toEqual([`legal:${document}`]);
+    }
     await clearEvents(page);
     await group.getByRole("switch", { name: "Synthetic security switch" }).click();
     expect(await events(page)).toEqual(["uniform:switch"]);

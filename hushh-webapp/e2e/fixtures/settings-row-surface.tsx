@@ -32,6 +32,7 @@ import { PortfolioImportView } from "../../components/kai/views/portfolio-import
 import { WalletCardManage } from "../../components/wallet-card/wallet-card-manage";
 import { MailActionsGroup } from "../../components/profile/mail-actions-group";
 import { VoiceControlDomainsGroup } from "../../components/profile/voice-control-domains-group";
+import { ProfileLegalRows } from "../../components/profile/profile-legal-section";
 import type { WalletCardRecord } from "../../lib/services/wallet-card-service";
 import type { ConsentScopeItem } from "../../lib/consent/consent-scope-items";
 
@@ -365,6 +366,9 @@ function Fixture() {
       <DetailTarget />
       <UniformNavigation />
       <UniformNavigation uniform={false} />
+      <SettingsGroup rowSizing="uniform" density="compact" testId="uniform-title-only-navigation">
+        <ProfileLegalRows onOpen={(document) => record(`legal:${document}`)} />
+      </SettingsGroup>
       <section data-testid="consumer-finance-sources">
         <PortfolioSourceSwitcher activeSource="statement" availableSources={["statement", "plaid"]}
           onSourceChange={async () => undefined} onManageConnections={() => record("finance:connect")}
