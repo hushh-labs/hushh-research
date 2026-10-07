@@ -1006,6 +1006,13 @@ async def _approved_request(bulk, sharing, count):
         revision=review["revision"],
         review_digest=review["reviewDigest"],
     )
+    with bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""UPDATE drive_request_payment_orders
+            SET status='paid',paid_at=clock_timestamp()
+            WHERE request_id=:request"""),
+            {"request": request["requestId"]},
+        )
     delivery = DriveSharingService(
         oauth=SimpleNamespace(lifecycle=SimpleNamespace(db=sharing.db)),
         store=DriveSuggestionStore(db=sharing.db),
@@ -1506,6 +1513,13 @@ async def test_stop_keeps_inflight_result_and_finishes_origin_request(request_bu
 @pytest.mark.asyncio
 async def test_request_freezes_all_525_matches_for_only_b(request_bulk, sharing):
     request = await _request(sharing)
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status,paid_at)
+              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+            {"request": request["requestId"]},
+        )
     search = await _complete_shared_drive_search(
         request_bulk, sharing, request_id=request["requestId"]
     )
@@ -1620,6 +1634,13 @@ async def test_progressive_batch_claims_keep_search_running_and_aggregate_delive
 ):
     request = await _request(sharing)
     request_id = request["requestId"]
+    with request_bulk.db.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO drive_request_payment_orders
+              (request_id,user_id,requester_user_id,status,paid_at)
+              VALUES (:request,'owner','recipient','paid',clock_timestamp())"""),
+            {"request": request_id},
+        )
     search = _search(request_bulk, request_id=request_id, count=50)
     with request_bulk.db.engine.begin() as connection:
         later = [

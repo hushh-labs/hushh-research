@@ -10,6 +10,8 @@ export interface DriveRequestPayment {
   amountCents: 0 | 1000;
   currency: "usd";
   reconciliationRequired?: boolean;
+  paymentLinkExpired?: boolean;
+  checkoutExpiresAt?: string | null;
 }
 
 const CHECKOUT_HOSTS = new Set(["checkout.stripe.com", "checkout.stripe.dev"]);
@@ -49,6 +51,10 @@ export class DriveRequestPaymentService {
       value.amountCents !== (value.status === "not_required" ? 0 : 1000) ||
       value.currency !== "usd"
       || (value.reconciliationRequired !== undefined && typeof value.reconciliationRequired !== "boolean")
+      || (value.paymentLinkExpired !== undefined && typeof value.paymentLinkExpired !== "boolean")
+      || (value.checkoutExpiresAt !== undefined
+        && value.checkoutExpiresAt !== null
+        && typeof value.checkoutExpiresAt !== "string")
     ) {
       throw new Error("Invalid payment response");
     }
