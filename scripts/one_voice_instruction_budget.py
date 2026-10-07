@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -30,6 +31,9 @@ def measure() -> dict[str, int]:
         screen_ids=list(OPENABLE_SCREENS),
         screen_id="one_home",
         display_name=None,
+        # Wednesday is the longest weekday in the rendered clock. Pinning it
+        # keeps the budget stable across the week while measuring the maximum.
+        now=datetime(2026, 10, 7, 12, 0, tzinfo=UTC),
     )
     schema = json.dumps(declarations, ensure_ascii=False, separators=(",", ":"))
     return {

@@ -80,6 +80,21 @@ class ExternalConnectorOAuthService:
             db=self.db, registry=self._registry, credentials=self._credentials, state_codec=self
         )
 
+    def instagram(self):
+        from hushh_mcp.services.external_connector_instagram_oauth import (
+            ExternalConnectorInstagramOAuth,
+        )
+        from hushh_mcp.services.external_connector_lifecycle_store import (
+            ExternalConnectorLifecycleStore,
+        )
+
+        return ExternalConnectorInstagramOAuth(
+            registry=self._registry,
+            credentials=self._credentials,
+            state_codec=self,
+            lifecycle=ExternalConnectorLifecycleStore(self.db),
+        )
+
     def curated(self):
         # Operator-registered connectors (HubSpot, ...) sharing this same
         # signed-state/PKCE codec and registry/credentials -- generic over
@@ -138,6 +153,10 @@ class ExternalConnectorOAuthService:
     ) -> dict[str, Any]:
         if connector_id == "google_drive":
             return await self.drive().start(
+                user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
+            )
+        if connector_id == "instagram":
+            return await self.instagram().start(
                 user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
             )
         operator_connector = await self._registry.get_connector(connector_id)
@@ -204,8 +223,8 @@ class ExternalConnectorOAuthService:
     ) -> dict[str, Any]:
         """Finish an in-session popup sign-in with Firebase identity only.
 
-        Only Drive and operator-owned curated attempts may complete without the
-        Vault Owner token: both adapters atomically claim the unexpired attempt
+        Only reviewed provider adapters may complete without the Vault Owner
+        token: they atomically claim the unexpired attempt
         for `expected_user_id` and seal credentials server-side. Every other
         connector, including the legacy generic exchange, stays vault-only.
         """
@@ -219,6 +238,10 @@ class ExternalConnectorOAuthService:
         connector_id = _clean(rows[0]["connector_id"]) if rows else ""
         if connector_id == "google_drive":
             return await self.drive().complete(
+                state=state, code=code, expected_user_id=expected_user_id
+            )
+        if connector_id == "instagram":
+            return await self.instagram().complete(
                 state=state, code=code, expected_user_id=expected_user_id
             )
         if connector_id and _is_operator_owned(await self._registry.get_connector(connector_id)):
@@ -239,6 +262,10 @@ class ExternalConnectorOAuthService:
         row = rows[0] if rows else None
         if row and row["connector_id"] == "google_drive":
             return await self.drive().complete(
+                state=state, code=code, expected_user_id=expected_user_id
+            )
+        if row and row["connector_id"] == "instagram":
+            return await self.instagram().complete(
                 state=state, code=code, expected_user_id=expected_user_id
             )
         if row:

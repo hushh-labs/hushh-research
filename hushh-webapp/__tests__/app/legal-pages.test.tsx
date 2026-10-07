@@ -87,6 +87,29 @@ describe("Privacy Policy and Terms of Use pages", () => {
     );
   });
 
+  it("explains Instagram permissions, display-only embeds, and grant deletion", () => {
+    const section = LEGAL_DOCUMENTS.privacy.sections.find(
+      (item) => item.id === "your-connectors",
+    );
+    expect(section).toBeTruthy();
+    const privacy = plainText({
+      ...LEGAL_DOCUMENTS.privacy,
+      sections: [section!],
+    });
+    for (const scope of [
+      "instagram_business_basic",
+      "instagram_business_content_publish",
+      "instagram_business_manage_comments",
+      "instagram_business_manage_messages",
+      "instagram_business_manage_insights",
+    ]) {
+      expect(privacy).toContain(scope);
+    }
+    expect(privacy).toContain("display only");
+    expect(privacy).toContain("Disconnecting Instagram in Profile, Connectors deletes the stored grant");
+    expect(privacy).toContain("Deleting your One account also deletes the connector grant");
+  });
+
   it("describe One as a private agent, with Kai as one feature among many", () => {
     const privacyIds = LEGAL_DOCUMENTS.privacy.sections.map((s) => s.id);
     for (const id of [

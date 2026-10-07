@@ -30,6 +30,10 @@ from hushh_mcp.services.external_connector_google_oauth import (
     DriveOAuthError,
     ExternalConnectorGoogleOAuth,
 )
+from hushh_mcp.services.external_connector_instagram_oembed_budget import (
+    InstagramOEmbedBudget,
+    InstagramOEmbedBudgetUnavailable,
+)
 from hushh_mcp.services.external_connector_lifecycle_store import (
     ConnectorLifecycleError,
     ExternalConnectorLifecycleStore,
@@ -379,6 +383,77 @@ async def test_secret_rotation_and_disconnect_advance_authority_generation(lifec
     assert not await lifecycle.mark_verified(
         user_id="owner", connector_id="api-key", generation=2, version=2, policy_hash="late-policy"
     )
+
+
+@pytest.mark.asyncio
+async def test_instagram_publication_claim_is_owner_generation_bound_and_durable(lifecycle):
+    # Replay the production migration in this fixture's isolated schema. The
+    # source explicitly names public; changing only that schema qualifier here
+    # keeps the real SQL and constraint behavior while avoiding shared state.
+    schema = sql(lifecycle, "SELECT current_schema()").scalar_one()
+    migration = (MIGRATIONS / "284_instagram_publication_claims.sql").read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".'))
+    sql(
+        lifecycle,
+        """INSERT INTO external_mcp_connectors
+        (connector_id, display_name, mcp_endpoint, auth_style, created_by)
+        VALUES ('instagram', 'Instagram', 'https://graph.instagram.com/v25.0', 'oauth', 'test')""",
+    )
+    sql(
+        lifecycle,
+        """INSERT INTO user_external_connector_connections
+        (user_id, connector_id, status, connection_generation, credential_version,
+         validation_state)
+        VALUES ('owner', 'instagram', 'connected', 5, 2, 'verified')""",
+    )
+
+    claim = lifecycle.claim_instagram_publication
+    assert not await claim("intruder", "456", 5, "123")
+    assert not await claim("owner", "456", 4, "123")
+    results = await asyncio.gather(*(claim("owner", "456", 5, "123") for _ in range(8)))
+    assert results.count(True) == 1
+    assert results.count(False) == 7
+    assert sql(lifecycle, "SELECT count(*) FROM instagram_publication_claims").scalar_one() == 1
+
+    # A rollback must preserve the one-use fence after an uncertain provider
+    # response. The recorded container cannot be submitted again.
+    rollback = (MIGRATIONS / "rollback/284_instagram_publication_claims.rollback.sql").read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(rollback.replace("public.", f'"{schema}".'))
+    assert not await claim("owner", "456", 5, "123")
+    sql(
+        lifecycle,
+        """UPDATE user_external_connector_connections
+           SET status='revoked', connection_generation=6
+           WHERE user_id='owner' AND connector_id='instagram'""",
+    )
+    assert not await claim("owner", "456", 6, "456")
+
+
+@pytest.mark.asyncio
+async def test_instagram_oembed_budget_is_atomic_across_postgres_connections(lifecycle):
+    schema = sql(lifecycle, "SELECT current_schema()").scalar_one()
+    migration = (MIGRATIONS / "285_instagram_oembed_request_budgets.sql").read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(migration.replace("public.", f'"{schema}".'))
+
+    budget = InstagramOEmbedBudget(db=lifecycle.db)
+    admitted = await asyncio.gather(*(budget.reserve() for _ in range(24)))
+    assert admitted.count(True) == 12
+    assert admitted.count(False) == 12
+    assert (
+        sql(lifecycle, "SELECT request_count FROM instagram_oembed_request_budgets").scalar_one()
+        == 12
+    )
+
+    rollback = (
+        MIGRATIONS / "rollback/285_instagram_oembed_request_budgets.rollback.sql"
+    ).read_text()
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql(rollback.replace("public.", f'"{schema}".'))
+    with pytest.raises(InstagramOEmbedBudgetUnavailable):
+        await budget.reserve()
 
 
 @pytest.mark.parametrize("permanent", [False, True])

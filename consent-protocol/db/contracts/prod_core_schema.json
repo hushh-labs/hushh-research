@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 282,
+  "expected_migration_version": 285,
   "migration_version_policy": "exact",
   "required_functions": [
     "block_gmail_receipt_cache_writes",
@@ -1258,6 +1258,18 @@
       "disconnected_at",
       "created_at",
       "updated_at"
+    ],
+    "instagram_oembed_request_budgets": [
+      "bucket_start",
+      "request_count"
+    ],
+    "instagram_publication_claims": [
+      "owner_user_id",
+      "connector_id",
+      "instagram_account_id",
+      "connection_generation",
+      "container_id",
+      "claimed_at"
     ],
     "investor_profiles": [
       "id",

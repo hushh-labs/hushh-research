@@ -55,6 +55,7 @@ It does not own:
 | ---- | -------- |
 | Build a new agent or operon | [reference/agent-development.md](./reference/agent-development.md) |
 | Publish against the developer API / MCP | [reference/developer-api.md](./reference/developer-api.md) |
+| Configure and use the Instagram connector | [reference/instagram-connector.md](./reference/instagram-connector.md) |
 | Understand data encryption and storage | [reference/personal-knowledge-model.md](./reference/personal-knowledge-model.md) |
 | Browse every backend reference doc | [reference/README.md](./reference/README.md) |
 | Configure app-review mode for a store submission | [app-review-mode-config.md](./app-review-mode-config.md) |

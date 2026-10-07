@@ -6,12 +6,14 @@ from unittest.mock import AsyncMock, Mock
 from urllib.parse import parse_qs, urlparse
 from uuid import UUID
 
+import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes import external_connectors as routes
+from hushh_mcp.services import external_connector_instagram_oembed as instagram_oembed
 from hushh_mcp.services import external_connector_oauth_service as generic_oauth
 from hushh_mcp.services.external_connector_curated_oauth import CuratedConnectorOAuthError
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
@@ -1311,6 +1313,7 @@ def test_inactive_curated_connector_is_reprojected_for_owner_recovery(route_clie
         "curatedOAuth": True,
         "catalogCard": True,
         "catalogState": "unavailable",
+        "managedOAuth": False,
     }
     registry.list_curated_connectors.assert_awaited_once_with(include_inactive=True)
 
@@ -1459,3 +1462,235 @@ async def test_a_review_failure_leaves_a_cause_without_leaking_its_message(caplo
         "one.mcp_review_failed code=mcp.connector.unavailable status=503",
     ]
     assert "PRIVATE_SQL_FRAGMENT" not in caplog.text
+
+
+def test_instagram_media_and_disconnect_require_vault_owner_and_never_accept_body_owner(
+    route_client,
+):
+    client, app, _ = route_client
+    service = routes.get_external_connector_oauth_service()
+    instagram = SimpleNamespace(
+        owned_media=AsyncMock(return_value={"posts": [], "nextCursor": None}),
+        disconnect=AsyncMock(
+            return_value={
+                "connectorId": "instagram",
+                "status": "revoked",
+                "revocationOutcome": "unavailable",
+            }
+        ),
+    )
+    service.instagram = lambda: instagram
+    assert client.get("/api/connectors/instagram/media").status_code == 401
+    assert client.post("/api/connectors/instagram/disconnect").status_code == 401
+    instagram.owned_media.assert_not_awaited()
+    instagram.disconnect.assert_not_awaited()
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    response = client.get("/api/connectors/instagram/media?limit=10&after=next_page")
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    instagram.owned_media.assert_awaited_once_with(
+        user_id="real-owner", limit=10, after="next_page"
+    )
+    assert client.get("/api/connectors/instagram/media?limit=51").status_code == 422
+    instagram.owned_media.assert_awaited_once()
+
+    disconnected = client.post(
+        "/api/connectors/instagram/disconnect", json={"userId": "other-owner"}
+    )
+    assert disconnected.status_code == 200
+    assert disconnected.headers["cache-control"] == "no-store"
+    instagram.disconnect.assert_awaited_once_with(user_id="real-owner")
+
+
+def test_instagram_publish_route_binds_owner_and_rejects_body_identity(route_client, monkeypatch):
+    client, app, _ = route_client
+    capabilities = SimpleNamespace(publish_container=AsyncMock(return_value={"mediaId": "789"}))
+    monkeypatch.setattr(routes, "_instagram_capabilities", lambda: capabilities)
+    path = "/api/connectors/instagram/media/publish"
+    body = {"containerHandle": "synthetic-signed-handle", "confirmed": True}
+    assert client.post(path, json=body).status_code == 401
+    capabilities.publish_container.assert_not_awaited()
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    assert client.post(path, json={**body, "userId": "other-owner"}).status_code == 422
+    capabilities.publish_container.assert_not_awaited()
+    response = client.post(path, json=body)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    capabilities.publish_container.assert_awaited_once_with(
+        user_id="real-owner", handle="synthetic-signed-handle", confirmed=True
+    )
+
+
+@pytest.mark.parametrize(
+    ("path", "method", "url_field", "service_field"),
+    [
+        (
+            "/api/connectors/instagram/media/story-image-container",
+            "create_story_image_container",
+            "imageUrl",
+            "image_url",
+        ),
+        (
+            "/api/connectors/instagram/media/story-video-container",
+            "create_story_video_container",
+            "videoUrl",
+            "video_url",
+        ),
+    ],
+)
+def test_instagram_story_container_routes_bind_owner_and_require_confirmation(
+    route_client, monkeypatch, path, method, url_field, service_field
+):
+    client, app, _ = route_client
+    capability = AsyncMock(return_value={"containerHandle": "signed-story", "kind": "story"})
+    monkeypatch.setattr(
+        routes, "_instagram_capabilities", lambda: SimpleNamespace(**{method: capability})
+    )
+    body = {url_field: "https://media.example.test/story-file", "confirmed": True}
+    assert client.post(path, json=body).status_code == 401
+    capability.assert_not_awaited()
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    assert client.post(path, json={url_field: body[url_field]}).status_code == 422
+    assert client.post(path, json={**body, "userId": "other-owner"}).status_code == 422
+    capability.assert_not_awaited()
+    response = client.post(path, json=body)
+    assert response.status_code == 200
+    assert response.json() == {"containerHandle": "signed-story", "kind": "story"}
+    capability.assert_awaited_once_with(
+        user_id="real-owner", **{service_field: body[url_field]}, confirmed=True
+    )
+
+
+def test_instagram_oembed_route_requires_owner_and_returns_display_html(route_client, monkeypatch):
+    client, app, _ = route_client
+    path = "/api/connectors/instagram/oembed"
+    post_url = "https://instagram.com/p/ABC123/?igsh=tracking"
+    html = '<blockquote class="instagram-media">Public post</blockquote>'
+    seen = []
+
+    def provider(request):
+        seen.append(request)
+        return httpx.Response(
+            200, json={"provider_name": "Instagram", "type": "rich", "html": html}
+        )
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        instagram_oembed.httpx,
+        "AsyncClient",
+        lambda **_: real_client(transport=httpx.MockTransport(provider)),
+    )
+    reserve = Mock(return_value=True)
+    monkeypatch.setenv("RATE_LIMIT_STORAGE_URI", "redis://shared.example:6379/0")
+    monkeypatch.setattr(routes.limiter, "enabled", True)
+    monkeypatch.setattr(routes, "consume_shared_rate_limit_budget", reserve)
+
+    assert client.get(path, params={"url": post_url}).status_code == 401
+    reserve.assert_not_called()
+    assert seen == []
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    response = client.get(path, params={"url": post_url})
+    assert response.status_code == 200
+    assert response.json() == {"html": html}
+    reserve.assert_called_once_with(limit_value="4/minute", scope="instagram_oembed_app", key="all")
+    assert len(seen) == 1
+    assert seen[0].url.params["url"] == "https://www.instagram.com/p/ABC123/"
+
+
+def test_instagram_oembed_route_rejects_invalid_url_without_leaking_it(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    reserve = Mock(return_value=True)
+    monkeypatch.setenv("RATE_LIMIT_STORAGE_URI", "redis://shared.example:6379/0")
+    monkeypatch.setattr(routes, "consume_shared_rate_limit_budget", reserve)
+    monkeypatch.setattr(
+        instagram_oembed.httpx,
+        "AsyncClient",
+        lambda **_: (_ for _ in ()).throw(AssertionError("provider must not be called")),
+    )
+    value = "https://www.instagram.com.evil.test/p/ABC123/?secret=PRIVATE_SENTINEL"
+    response = client.get("/api/connectors/instagram/oembed", params={"url": value})
+    assert response.status_code == 400
+    assert response.json() == {"detail": "invalid_post_url"}
+    assert "PRIVATE_SENTINEL" not in response.text
+    reserve.assert_not_called()
+
+
+def test_instagram_oembed_route_fails_closed_on_quota_and_missing_redis(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    monkeypatch.setattr(
+        instagram_oembed.httpx,
+        "AsyncClient",
+        lambda **_: (_ for _ in ()).throw(AssertionError("provider must not be called")),
+    )
+    path = "/api/connectors/instagram/oembed"
+    params = {"url": "https://www.instagram.com/reel/ABC123/"}
+
+    monkeypatch.setenv("RATE_LIMIT_STORAGE_URI", "redis://shared.example:6379/0")
+    monkeypatch.setattr(routes.limiter, "enabled", True)
+    reserve = Mock(return_value=False)
+    monkeypatch.setattr(routes, "consume_shared_rate_limit_budget", reserve)
+    response = client.get(path, params=params)
+    assert response.status_code == 429
+    assert response.json() == {"detail": "oembed_rate_limited"}
+    reserve.assert_called_once()
+
+    reserve.side_effect = RuntimeError("PRIVATE_REDIS_FAILURE")
+    response = client.get(path, params=params)
+    assert response.status_code == 503
+    assert response.json() == {"detail": "oembed_quota_unavailable"}
+    assert "PRIVATE_REDIS_FAILURE" not in response.text
+
+    monkeypatch.setattr(routes.limiter, "enabled", False)
+    reserve.reset_mock()
+    reserve.side_effect = None
+    response = client.get(path, params=params)
+    assert response.status_code == 503
+    assert response.json() == {"detail": "oembed_quota_unavailable"}
+    reserve.assert_not_called()
+
+    monkeypatch.setattr(routes.limiter, "enabled", True)
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI")
+    reserve.reset_mock()
+    reserve.side_effect = None
+    response = client.get(path, params=params)
+    assert response.status_code == 503
+    assert response.json() == {"detail": "oembed_quota_unavailable"}
+    reserve.assert_not_called()
+
+
+def test_instagram_oembed_route_uses_shared_postgres_budget_in_production(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "real-owner"}
+    monkeypatch.delenv("RATE_LIMIT_STORAGE_URI", raising=False)
+    monkeypatch.setattr(
+        routes,
+        "get_app_runtime_settings",
+        lambda: SimpleNamespace(environment="production"),
+    )
+    reserve = AsyncMock(return_value=False)
+    monkeypatch.setattr(routes, "InstagramOEmbedBudget", lambda: SimpleNamespace(reserve=reserve))
+    provider = Mock(side_effect=AssertionError("provider must not be called"))
+    monkeypatch.setattr(instagram_oembed.httpx, "AsyncClient", provider)
+    params = {"url": "https://www.instagram.com/p/ABC123/"}
+
+    limited = client.get("/api/connectors/instagram/oembed", params=params)
+    assert limited.status_code == 429
+    assert limited.json() == {"detail": "oembed_rate_limited"}
+    reserve.assert_awaited_once_with()
+    provider.assert_not_called()
+
+    reserve.reset_mock()
+    reserve.side_effect = RuntimeError("PRIVATE_DB_FAILURE")
+    unavailable = client.get("/api/connectors/instagram/oembed", params=params)
+    assert unavailable.status_code == 503
+    assert unavailable.json() == {"detail": "oembed_quota_unavailable"}
+    assert "PRIVATE_DB_FAILURE" not in unavailable.text
+    provider.assert_not_called()

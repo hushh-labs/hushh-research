@@ -1814,6 +1814,45 @@ client-key PKM or OAuth credential storage. Source metadata is owner/document/ge
 source IDs are owner-keyed HMAC fingerprints. Disconnect/account switch atomically deletes
 selected sources and sessions. This checkpoint stores no raw content, chunks or embeddings.
 
+### Instagram connector
+
+The first-party Instagram connector uses Business Login for Instagram and the
+existing owner-bound external-connector lifecycle. It is a Graph REST transport,
+not an MCP catalog. The connected account must be Instagram Business or
+Creator. The fixed HTTPS web return is
+`APP_FRONTEND_ORIGIN + /one/profile/connectors/oauth/return`. All capability
+routes are owner-bound, require the corresponding Meta scope, and return
+`no-store`. Every write requires `confirmed: true` after owner review.
+The separate public oEmbed route is owner-gated but uses tokenless Meta access;
+it does not require an Instagram connection or scope.
+
+| Route | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/connectors` | Vault Owner | Shows the Instagram `managedOAuth` catalog/status and redacted account label; availability requires exact operator registry pins and backend app credentials. |
+| `POST /api/connectors/instagram/connect/oauth/start` | Vault Owner | Accepts only the exact registered `redirectUri`, `flow=web`, and `profile=selected`; returns provider authorization URL and opaque attempt metadata. |
+| `POST /api/connectors/oauth/complete/web` | Matching Firebase owner of an unexpired Vault-authorized attempt | Atomically claims signed state and one-time code, checks professional account and required scopes, and seals the long-lived Instagram token server-side. |
+| `GET /api/connectors/instagram/oembed` | Vault Owner; no Instagram grant | Accepts `url` for an HTTPS public Instagram `/p/` or `/reel/` post and optional `max_width` 320–658; returns only `{html}` for isolated front-end embedding. Tokenless, globally bounded across UAT Redis (4/minute) and production Postgres (12/minute), at most 976 requests per rolling hour combined; no ingestion/storage/analytics. Quota storage failure returns 503 before contacting Meta. |
+| `GET /api/connectors/instagram/media` | Vault Owner | Reads only the connected owner's media. Optional `limit` is 1–50 and `after` is an opaque paging cursor; returns `posts` and `nextCursor`, never a token. |
+| `GET /api/connectors/instagram/publishing-limit` | Vault Owner | Reads Meta's current publishing usage and quota. |
+| `POST /api/connectors/instagram/media/photo-container`, `/reel-container`, `/story-image-container`, `/story-video-container`, `/video-carousel-item`, `/carousel-container` | Vault Owner | Creates a bounded publishing container from publicly fetchable HTTPS media URLs or two to ten child handles; returns an owner-bound `containerHandle`. |
+| `GET /api/connectors/instagram/media/containers/{handle}` | Vault Owner | Reads processing status of that signed container. |
+| `POST /api/connectors/instagram/media/publish` | Vault Owner | Publishes a `FINISHED` photo, reel, Story, or carousel container and returns `mediaId`. |
+| `GET /api/connectors/instagram/media/{media_id}/comments` | Vault Owner | Reads comments on owned media with bounded pagination. |
+| `POST /api/connectors/instagram/comments/{comment_id}/reply`, `/hide`, `/delete` | Vault Owner | Changes a comment only after resolving its owning media to the connected account. |
+| `GET /api/connectors/instagram/insights/account`, `/insights/media/{media_id}` | Vault Owner | Reads one allowlisted account or owned-media metric; distinguishes unavailable from zero. |
+| `GET /api/connectors/instagram/tags` | Vault Owner | Lists media tagging the connected account; no arbitrary mention or hashtag search. |
+| `GET /api/connectors/instagram/messages/{recipient_id}` | Vault Owner | Reads up to 20 messages in an existing conversation. |
+| `POST /api/connectors/instagram/messages/{recipient_id}/send` | Vault Owner | Sends text only within 24 hours of a verified inbound message from that recipient. |
+| `POST /api/connectors/instagram/disconnect` | Vault Owner | Scrubs the local grant and fences in-flight work. Provider token revocation is unavailable. |
+
+The Instagram Login path cannot perform hashtag search, product tagging, or
+partnership ads. A linked Facebook Page does not extend this path; those
+features need a separately implemented Facebook Login path and Meta approval.
+Arbitrary public Instagram post URLs are not valid owner-data read inputs;
+the oEmbed route provides a display-only public preview. The exact
+operator setup, request fields, current capability limits, and Meta access gates live
+in the [backend Instagram connector reference](../../../consent-protocol/docs/reference/instagram-connector.md).
+
 ### Curated OAuth MCP connector rollout
 
 HubSpot is the first curated OAuth MCP connector. Its initial contract is
