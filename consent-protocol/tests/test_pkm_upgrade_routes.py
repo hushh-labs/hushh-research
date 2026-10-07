@@ -4,12 +4,24 @@ import asyncio
 import hashlib
 import threading
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import pkm, pkm_routes_shared
+
+
+@pytest.fixture
+def shared_owner_placement(monkeypatch):
+    """Exercise the real hub guard with an explicitly Shared route-test owner."""
+    from hushh_mcp.services import owner_placement_guard
+
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", placement)
+    return placement
 
 
 @pytest.mark.asyncio
@@ -760,7 +772,7 @@ def test_store_domain_rejects_stale_sharing_impact(monkeypatch):
 
 @pytest.mark.parametrize("failed, expected_status", [(True, 503), (False, 200)])
 def test_memory_proposal_failure_is_not_a_successful_empty_review(
-    monkeypatch, failed, expected_status
+    monkeypatch, shared_owner_placement, failed, expected_status
 ):
     class PreviewService:
         async def generate_structure_preview(self, **_kwargs):
@@ -796,7 +808,9 @@ def test_memory_proposal_failure_is_not_a_successful_empty_review(
         assert response.json()["preview_cards"] == []
 
 
-def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
+def test_memory_proposals_are_enriched_with_current_sharing_impact(
+    monkeypatch, shared_owner_placement
+):
     calls = []
     impacts = []
 
@@ -902,7 +916,9 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
     assert unset_environment_response.status_code == 404
 
 
-def test_memory_proposals_deduplicate_same_scope_sharing_impact(monkeypatch):
+def test_memory_proposals_deduplicate_same_scope_sharing_impact(
+    monkeypatch, shared_owner_placement
+):
     class _FakeAgentLabService:
         async def generate_structure_preview(self, **_kwargs):
             card = {

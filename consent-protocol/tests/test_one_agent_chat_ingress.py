@@ -1,5 +1,6 @@
 """Exercise trusted state extraction and runner selection together, without providers."""
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -57,6 +58,11 @@ def no_secret_storage(monkeypatch):
 
 @pytest.mark.parametrize("headers", [{}, {"authorization": "Bearer synthetic-firebase"}])
 async def test_only_verified_intro_state_selects_intro(monkeypatch, no_secret_storage, headers):
+    from hushh_mcp.services import owner_placement_guard
+
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", placement)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda header: "synthetic-owner")
     data = incoming(
         state={STATE_CONSENT_TOKEN: "forged-reference", STATE_PKM_CONTEXT: "forged-private"}
@@ -65,6 +71,10 @@ async def test_only_verified_intro_state_selects_intro(monkeypatch, no_secret_st
     assert data.state[STATE_CONSENT_TOKEN] == ""
     assert data.state[STATE_PKM_CONTEXT] == ""
     assert data.state[STATE_USER_ID] != "forged-owner"
+    if headers:
+        placement.assert_awaited_once_with("synthetic-owner")
+    else:
+        placement.assert_not_awaited()
     no_secret_storage.assert_not_called()
 
 
@@ -305,7 +315,9 @@ def test_model_search_ingress_cannot_execute_on_shared_hub(
 async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeypatch):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
@@ -331,7 +343,9 @@ async def test_verified_shared_owner_enters_adk_with_opaque_turn_context(monkeyp
 async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monkeypatch):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 
@@ -364,7 +378,9 @@ async def test_shared_owner_selected_gmail_request_is_refetched_and_sealed(monke
 async def test_selected_gmail_request_requires_owner_token_and_valid_id(monkeypatch):
     monkeypatch.setattr(agent_chat, "request_has_chat_key", lambda owner: owner == "owner-a")
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     lookup = AsyncMock()
     monkeypatch.setattr(

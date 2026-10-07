@@ -371,7 +371,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
                 status_code=403,
                 detail={"message": CHAT_KEY_REQUIRED_DETAIL, "code": "CHAT_KEY_REQUIRED"},
             )
-        if input_data.thread_id and await _session_service.is_legacy_session(
+        if input_data.thread_id and await _shared_sessions().is_legacy_session(
             app_name=ONE_APP_NAME, user_id=user_id, session_id=input_data.thread_id
         ):
             raise HTTPException(
@@ -518,7 +518,7 @@ async def _admit_feed_attention(
 
     session = None
     if owner_id and input_data.thread_id:
-        session = await _session_service.get_session(
+        session = await _shared_sessions().get_session(
             app_name=ONE_APP_NAME, user_id=owner_id, session_id=input_data.thread_id
         )
     try:
@@ -542,7 +542,7 @@ async def _admit_consent_continuation(
         return {}
     session = None
     if owner_id and input_data.thread_id:
-        session = await _session_service.get_session(
+        session = await _shared_sessions().get_session(
             app_name=ONE_APP_NAME, user_id=owner_id, session_id=input_data.thread_id
         )
     session_state = dict(session.state) if session is not None else None
@@ -583,7 +583,22 @@ async def _admit_consent_continuation(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from None
 
 
-_session_service = EncryptedAdkSessionService()
+_session_service: EncryptedAdkSessionService | None = None
+
+
+def _shared_sessions() -> EncryptedAdkSessionService:
+    """Construct shared storage only when an admitted shared path uses it.
+
+    Pods import this route package for compatibility but inject their own session
+    repository in their runtime. The encrypted service still refuses an ambient
+    shared constructor in pod mode. Keep the module slot for scoped test adapters.
+    """
+    global _session_service
+    if _session_service is None:
+        _session_service = EncryptedAdkSessionService()
+    return _session_service
+
+
 _intro_session_service = InMemorySessionService()
 
 
@@ -611,7 +626,7 @@ _EXECUTION_TIMEOUT_SECONDS = 200
 def _one_head() -> TimedADKAgent:
     agent = build_authenticated_agui(
         build_one_text_agent(allow_workspace_tools=True, include_thought_summaries=True),
-        _session_service,
+        _shared_sessions(),
         app_name=ONE_APP_NAME,
         user_id_extractor=_user_id,
     )
@@ -660,7 +675,7 @@ async def _notify_detached_turn(owner_id: str, conversation_id: str) -> None:
     Runs from the turn's own background task, which still holds the chat key it
     received, so the sealed session can be read. The push carries no content.
     """
-    session = await _session_service.get_session(
+    session = await _shared_sessions().get_session(
         app_name=ONE_APP_NAME, user_id=owner_id, session_id=conversation_id
     )
     if session is None or not newest_turn_answered(session.events):
@@ -715,7 +730,7 @@ async def record_information_request_submission(
     The request ledger and this owner's conversation derive every display field.
     """
     owner = str(token["user_id"])
-    session = await _session_service.get_session(
+    session = await _shared_sessions().get_session(
         app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id
     )
     if session is None:
@@ -777,7 +792,7 @@ async def record_information_request_submission(
             "card": card,
         },
     )
-    persisted = await _session_service.append_event_once(
+    persisted = await _shared_sessions().append_event_once(
         app_name=ONE_APP_NAME, user_id=owner, session_id=conversation_id, event=event
     )
     persisted_metadata = _record(persisted.custom_metadata) or {}
@@ -797,13 +812,13 @@ async def list_conversations(
 ):
     if str(token["user_id"]) != user_id:
         raise HTTPException(status_code=403, detail="Conversation owner mismatch.")
-    response = await _session_service.list_sessions(app_name=ONE_APP_NAME, user_id=user_id)
+    response = await _shared_sessions().list_sessions(app_name=ONE_APP_NAME, user_id=user_id)
     sessions = sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True)[
         :limit
     ]
     await ensure_conversation_titles(
         sessions=sessions,
-        service=_session_service,
+        service=_shared_sessions(),
         owner=user_id,
         token=str(token.get("token") or ""),
     )
@@ -864,7 +879,7 @@ async def conversation_history(
     token: dict = Depends(require_vault_owner_chat_key),
 ):
     user_id = str(token["user_id"])
-    session = await _session_service.get_session(
+    session = await _shared_sessions().get_session(
         app_name=ONE_APP_NAME, user_id=user_id, session_id=conversation_id
     )
     if session is None:
@@ -906,7 +921,7 @@ async def information_request_conversation(
     """
     owner = str(token["user_id"])
     wanted = str(bundle_id)
-    response = await _session_service.list_sessions(app_name=ONE_APP_NAME, user_id=owner)
+    response = await _shared_sessions().list_sessions(app_name=ONE_APP_NAME, user_id=owner)
     for session in sorted(response.sessions, key=lambda item: item.last_update_time, reverse=True):
         for event in session.events:
             metadata = _record(event.custom_metadata) or {}
@@ -925,7 +940,7 @@ async def rename_conversation(
     payload: RenameConversation,
     token: dict = Depends(require_vault_owner_chat_key),
 ):
-    session = await _session_service.set_title(
+    session = await _shared_sessions().set_title(
         app_name=ONE_APP_NAME,
         user_id=str(token["user_id"]),
         session_id=conversation_id,
@@ -948,7 +963,7 @@ async def delete_conversation(
 ):
     # No plaintext and no Shared placement needed: an owner whose agent moved still
     # erases their own hub conversation row, matched by id.
-    deleted = await _session_service.delete_owned_session(
+    deleted = await _shared_sessions().delete_owned_session(
         app_name=ONE_APP_NAME, user_id=str(token["user_id"]), session_id=conversation_id
     )
     if not deleted:

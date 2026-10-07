@@ -14,6 +14,7 @@ from hushh_mcp.one_voice import actor_proof
 from hushh_mcp.one_voice.pending_actions import PendingAction
 from hushh_mcp.one_voice.tools import registry
 from hushh_mcp.one_voice.tools.base import ToolInput, ToolPolicy, ToolResult, ToolSpec
+from hushh_mcp.services import owner_placement_guard
 
 USER = "user-me"
 ROW = "11111111-1111-4111-8111-111111111111"
@@ -102,6 +103,13 @@ def app(monkeypatch):
         "user_id": USER,
         "token": "HCT:token",
     }
+
+    async def shared_owner(user_id: str) -> str:
+        assert user_id == USER
+        return "shared"
+
+    monkeypatch.setattr(owner_placement_guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", shared_owner)
     return application, store, proofs
 
 
@@ -160,5 +168,25 @@ def test_http_confirm_refuses_a_device_step_tool_and_leaves_the_card_tappable(ap
         "code": "SESSION_CONFIRM_REQUIRED",
         "tool": "trigger_save_my_soul",
     }
+    assert proofs == []
+    assert store.confirmed == [] and store.row.status == "pending"
+
+
+@pytest.mark.parametrize("mode,status", [("unknown", 503), ("unplaced", 409), ("byoc", 409)])
+def test_non_shared_confirm_refuses_before_actor_or_action_mutation(app, monkeypatch, mode, status):
+    application, store, proofs = app
+
+    async def observed_owner(user_id: str) -> str:
+        assert user_id == USER
+        return mode
+
+    monkeypatch.setattr(owner_placement_guard, "get_owner_hosting_mode", observed_owner)
+    response = TestClient(application).post(
+        f"/api/one/voice/pending-actions/{ROW}/confirm", json={"firebase_id_token": "fresh"}
+    )
+    assert response.status_code == status
+    assert response.json()["detail"]["code"] == (
+        "AGENT_HOSTING_UNAVAILABLE" if mode == "unknown" else "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    )
     assert proofs == []
     assert store.confirmed == [] and store.row.status == "pending"

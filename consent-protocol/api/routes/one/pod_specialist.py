@@ -103,6 +103,17 @@ class PodSpecialistReadRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+async def _require_shared_specialist_owner(owner_id: str) -> None:
+    """Placement remains authority after reader, token and registry awaits."""
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    mode = await get_owner_hosting_mode(owner_id)
+    if mode != "shared":
+        if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
+            raise HTTPException(404, detail="not found")
+        raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+
+
 async def _read_bound_mail(
     *, owner_id: str, asserted: str, payload: PodSpecialistReadRequest, check: Any, registry: Any
 ) -> dict:
@@ -144,6 +155,7 @@ async def _read_bound_mail(
             or current_uid != service_uid
         ):
             raise HTTPException(403, detail="scope is not valid for this read")
+        await _require_shared_specialist_owner(owner_id)
 
     await require_mail_access()
     try:
@@ -258,14 +270,7 @@ async def broker_specialist_read(
         # was the binding or the token.
         raise HTTPException(status_code=403, detail="scope is not valid for this read")
 
-    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
-
-    mode = await get_owner_hosting_mode(owner_id)
-    if mode != "shared":
-        # Old grants cannot reopen hub information custody after placement moves.
-        if mode in {"byoc", "pending", "unplaced", "hussh_pods"}:
-            raise HTTPException(404, detail="not found")
-        raise HTTPException(503, detail={"code": "AGENT_HOSTING_UNAVAILABLE"})
+    await _require_shared_specialist_owner(owner_id)
 
     if payload.email_read is not None and payload.email_read.operation not in {"nudges", "search"}:
         return await _read_bound_mail(
@@ -290,6 +295,7 @@ async def broker_specialist_read(
             or serving != asserted
         ):
             raise HTTPException(403, detail="scope is not valid for this read")
+        await _require_shared_specialist_owner(owner_id)
         return {"name": name, "state": projection}
 
     run_read = reader
@@ -316,6 +322,7 @@ async def broker_specialist_read(
         logger.warning("pod_specialist.read_failed name=%s %s", name, type(exc).__name__)
         raise HTTPException(status_code=502, detail="specialist read failed") from exc
 
+    await _require_shared_specialist_owner(owner_id)
     logger.info("pod_specialist.read pod=%s name=%s", asserted, name)
     return {"name": name, "state": projection}
 

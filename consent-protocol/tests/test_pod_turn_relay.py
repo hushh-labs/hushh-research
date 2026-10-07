@@ -28,6 +28,20 @@ from fastapi import HTTPException
 from api.routes.one import pod_relay
 from api.routes.one.pod_relay import PodTurnRelayRequest, relay_pod_turn
 
+
+@pytest.fixture
+def shared_compatibility(monkeypatch):
+    """Explicit legacy Shared helper contract; never an owner-cloud admission."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard as guard
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
 POD_URL = "https://one-pod-abc-uc.a.run.app"
 
 
@@ -134,14 +148,16 @@ async def _turn(**kwargs):
 # -- with whose authority ----------------------------------------------------------
 
 
-async def test_the_pod_is_called_with_a_pkm_read_grant_the_hub_minted():
+async def test_the_pod_is_called_with_a_pkm_read_grant_the_hub_minted(shared_compatibility):
     pod = _Pod()
     await _turn(session=pod)
 
     assert pod.calls[0]["headers"]["X-Consent-Token"] == "standing-pkm-read"
 
 
-async def test_hub_turn_refuses_puppy_before_minting_grants_or_contacting_a_pod():
+async def test_hub_turn_refuses_puppy_before_minting_grants_or_contacting_a_pod(
+    shared_compatibility,
+):
     pod = _Pod()
     with pytest.raises(HTTPException) as exc:
         await _turn(payload=PodTurnRelayRequest(message="hi", runtimeProvider="puppy"), session=pod)
@@ -159,7 +175,7 @@ async def test_a_caller_supplied_token_is_impossible_by_construction():
     assert not any("consent" in f or f.endswith("token") for f in fields)
 
 
-async def test_no_grant_means_no_turn():
+async def test_no_grant_means_no_turn(shared_compatibility):
     """A pod that cannot be authorized must not be asked to act anyway."""
 
     async def _broken(_user_id):
@@ -173,7 +189,7 @@ async def test_no_grant_means_no_turn():
     assert pod.calls == [], "the pod must never be reached without a grant"
 
 
-async def test_a_non_owner_is_refused_before_anything_else_happens():
+async def test_a_non_owner_is_refused_before_anything_else_happens(shared_compatibility):
     pod = _Pod()
     with pytest.raises(HTTPException) as exc:
         await _turn(audit=_Audit(denied=True), session=pod)
@@ -182,7 +198,7 @@ async def test_a_non_owner_is_refused_before_anything_else_happens():
     assert pod.calls == []
 
 
-async def test_the_ownership_check_is_audited_against_this_hushh_id():
+async def test_the_ownership_check_is_audited_against_this_hushh_id(shared_compatibility):
     audit = _Audit()
     await _turn(audit=audit, session=_Pod())
 
@@ -193,7 +209,7 @@ async def test_the_ownership_check_is_audited_against_this_hushh_id():
 # -- where the address comes from --------------------------------------------------
 
 
-async def test_the_address_comes_only_from_the_row_the_hub_wrote():
+async def test_the_address_comes_only_from_the_row_the_hub_wrote(shared_compatibility):
     pod = _Pod()
     await _turn(session=pod)
     assert pod.calls[0]["url"] == f"{POD_URL}/api/one/pod/turn"
@@ -203,7 +219,7 @@ async def test_the_address_comes_only_from_the_row_the_hub_wrote():
     "metadata",
     [None, {}, {"url": ""}, {"url": "http://evil.example"}, {"url": "ftp://x"}],
 )
-async def test_a_non_https_or_absent_address_is_never_dialled(metadata):
+async def test_a_non_https_or_absent_address_is_never_dialled(metadata, shared_compatibility):
     """`backend_metadata` is written by our own backend adapter, so anything that is
     not plainly an HTTPS origin means something upstream is wrong -- and the address
     is the one input that decides who we hand a request to."""
@@ -219,7 +235,7 @@ async def test_a_non_https_or_absent_address_is_never_dialled(metadata):
 # -- G14: which not-ready is this ---------------------------------------------------
 
 
-async def test_a_pod_without_an_address_reports_its_real_state():
+async def test_a_pod_without_an_address_reports_its_real_state(shared_compatibility):
     """A bare 409 rendered as an opaque error frame during the exact window between
     connecting an AI key and the agent being finished -- when a person is most
     likely to conclude the product is broken."""
@@ -230,7 +246,7 @@ async def test_a_pod_without_an_address_reports_its_real_state():
     assert exc.value.detail == {"code": "AGENT_NOT_READY", "status": "connecting"}
 
 
-async def test_an_unknown_state_still_carries_the_typed_code():
+async def test_an_unknown_state_still_carries_the_typed_code(shared_compatibility):
     """The client branches on the code; the status is extra information, never the
     thing that decides whether the UI can explain itself."""
     row = {"user_id": "u1", "backend_metadata": {}}
@@ -244,13 +260,13 @@ async def test_an_unknown_state_still_carries_the_typed_code():
 # -- what comes back ----------------------------------------------------------------
 
 
-async def test_the_pods_answer_is_returned_to_its_owner():
+async def test_the_pods_answer_is_returned_to_its_owner(shared_compatibility):
     result = await _turn(session=_Pod(payload={"text": "hello", "grounded": False}))
     assert result["text"] == "hello"
     assert result["hushhId"] == "hushh-abc"
 
 
-async def test_the_pods_own_refusal_keeps_its_status():
+async def test_the_pods_own_refusal_keeps_its_status(shared_compatibility):
     """A pod that says "this pod has no model access; connect an AI key first" (400)
     must not reach the person as a 500. Its answer is the useful one."""
     pod = _Pod(status=400, payload={"detail": "this pod has no model access"})
@@ -260,7 +276,7 @@ async def test_the_pods_own_refusal_keeps_its_status():
     assert exc.value.status_code == 400
 
 
-async def test_an_unreachable_pod_is_a_503_in_plain_language():
+async def test_an_unreachable_pod_is_a_503_in_plain_language(shared_compatibility):
     pod = _Pod(boom=ConnectionError("no route"))
     with pytest.raises(HTTPException) as exc:
         await _turn(session=pod)
@@ -271,7 +287,7 @@ async def test_an_unreachable_pod_is_a_503_in_plain_language():
 # -- the credential ------------------------------------------------------------------
 
 
-async def test_the_owners_key_reaches_the_pod():
+async def test_the_owners_key_reaches_the_pod(shared_compatibility):
     pod = _Pod()
     await _turn(
         payload=PodTurnRelayRequest(message="hi", runtimeCredential="AIza-owner-key"),
@@ -291,7 +307,7 @@ async def test_the_key_is_excluded_from_every_serialisation_of_the_request():
     assert payload.runtime_credential == "AIza-owner-key"
 
 
-async def test_a_turn_waits_longer_than_a_status_read():
+async def test_a_turn_waits_longer_than_a_status_read(shared_compatibility):
     """A person's question routinely takes tens of seconds. A 5s bound would report
     every genuine answer as "your agent is not answering right now"."""
     pod = _Pod()
@@ -358,7 +374,9 @@ async def _door_grants(_user_id):
     return {"token": "standing-location-view", "scope": "cap.location.live.view", "reused": True}
 
 
-async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
+async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(
+    monkeypatch, shared_compatibility
+):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
     pod = _Pod()
     await _turn(session=pod, door_grants=_door_grants)
@@ -373,7 +391,9 @@ async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
     }
 
 
-async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch, _standing_door_issuers):
+async def test_no_door_grant_is_couriered_when_the_flag_is_off(
+    monkeypatch, _standing_door_issuers, shared_compatibility
+):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: False)
     pod = _Pod()
     # A door issuer is provided but must never be consulted while the flag is off.
@@ -389,7 +409,9 @@ async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch, _sta
     assert [scope.value for _, scope in _standing_door_issuers] == ["cap.one.invoke"]
 
 
-async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
+async def test_a_door_mint_failure_degrades_the_read_not_the_turn(
+    monkeypatch, shared_compatibility
+):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
     pod = _Pod()
 
@@ -410,7 +432,7 @@ async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
     }
 
 
-async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch):
+async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch, shared_compatibility):
     """The two grants are distinct authorities. The pod's turn runs on pkm.read
     (the consent-token header); the door grant is a SEPARATE location-view scope
     in the body. A bug that reused one for the other would over- or under-grant."""
@@ -422,7 +444,9 @@ async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch):
 
 
 @pytest.mark.parametrize("redirect_status", [307, 308])
-async def test_redirect_cannot_become_an_authorized_turn(monkeypatch, redirect_status):
+async def test_redirect_cannot_become_an_authorized_turn(
+    monkeypatch, redirect_status, shared_compatibility
+):
     async def forbidden_authorization(**kwargs):
         pytest.fail("redirect reached directive authority")
 
@@ -442,7 +466,7 @@ async def test_redirect_cannot_become_an_authorized_turn(monkeypatch, redirect_s
 
 
 async def test_the_share_grant_is_couriered_for_the_location_proposal_path(
-    monkeypatch, _standing_door_issuers
+    monkeypatch, _standing_door_issuers, shared_compatibility
 ):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
     pod = _Pod()
@@ -459,7 +483,7 @@ async def test_the_share_grant_is_couriered_for_the_location_proposal_path(
 
 
 async def test_no_share_grant_is_minted_while_the_door_flag_is_off(
-    monkeypatch, _standing_door_issuers
+    monkeypatch, _standing_door_issuers, shared_compatibility
 ):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: False)
     pod = _Pod()
@@ -470,7 +494,9 @@ async def test_no_share_grant_is_minted_while_the_door_flag_is_off(
     ]
 
 
-async def test_a_share_mint_failure_degrades_the_proposal_not_the_turn(monkeypatch):
+async def test_a_share_mint_failure_degrades_the_proposal_not_the_turn(
+    monkeypatch, shared_compatibility
+):
     from hushh_mcp.constants import ConsentScope
     from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
 
@@ -488,3 +514,24 @@ async def test_a_share_mint_failure_degrades_the_proposal_not_the_turn(monkeypat
     grants = pod.calls[0]["json"]["dataDoorGrants"]
     assert "cap.location.live.share" not in grants
     assert grants["location"] == "standing-location-view"
+
+
+@pytest.mark.parametrize("mode", ["byoc", "pending", "unplaced", "hussh_pods", "unknown"])
+async def test_private_or_unknown_owner_never_mints_hub_data_door_grants(monkeypatch, mode):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import personal_agent_hosting as hosting
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
+
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+    mint = AsyncMock()
+    monkeypatch.setattr(PersonalAgentGrantService, "issue_or_reuse_standing_scope", mint)
+    door = AsyncMock()
+    if mode == "unknown":
+        with pytest.raises(HTTPException) as error:
+            await pod_relay.issue_pod_data_door_grants("u1", door_grants=door)
+        assert error.value.status_code == 503
+    else:
+        assert await pod_relay.issue_pod_data_door_grants("u1", door_grants=door) == {}
+    mint.assert_not_awaited()
+    door.assert_not_awaited()

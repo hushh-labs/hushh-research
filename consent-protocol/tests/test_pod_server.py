@@ -80,6 +80,30 @@ def test_pod_surface_stays_within_reviewed_routes():
     # Review authority-bearing additions explicitly. A route count can both
     # reject legitimate lifecycle endpoints and miss a forbidden replacement.
     allowed = {
+        "/api/one/pod/actions/gmail/proposals",
+        "/api/one/pod/actions/{proposal_id}/confirm",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/catalog",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/begin",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
+        "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/proposals",
+        "/api/one/pod/agent-chat/proposals/typed",
+        "/api/one/pod/agent-chat/proposals/{command_id}",
+        "/api/one/pod/agent-chat/proposals/{command_id}/settle",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
+        "/api/one/pod/browser/capability",
+        "/api/one/pod/browser/tasks",
+        "/api/one/pod/browser/tasks/{task_id}",
+        "/api/one/pod/browser/tasks/{task_id}/control",
+        "/api/one/pod/browser/tasks/{task_id}/frame",
+        "/api/one/pod/browser/tasks/{task_id}/input",
+        "/api/one/pod/browser/tasks/{task_id}/review",
+        "/api/one/pod/browser/tasks/{task_id}/session",
+        "/api/one/pod/connectors/{connector_id}",
+        "/api/one/pod/gmail/push",
         "/",
         "/.well-known/agent-card.json",
         "/api/app-config/review-mode",
@@ -370,6 +394,29 @@ def test_the_wall_sits_inside_observability_and_outside_the_routes():
 # Exact external reachability, independently pinned against ingress policy.
 OWNER_REACHABLE_PATHS = frozenset(
     {
+        "/api/one/pod/actions/gmail/proposals",
+        "/api/one/pod/actions/{proposal_id}/confirm",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/catalog",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/begin",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/cancel",
+        "/api/one/pod/agent-chat/connectors/{connector_id}/mcp/oauth/complete",
+        "/api/one/pod/agent-chat/feedback",
+        "/api/one/pod/agent-chat/proposals",
+        "/api/one/pod/agent-chat/proposals/typed",
+        "/api/one/pod/agent-chat/proposals/{command_id}",
+        "/api/one/pod/agent-chat/proposals/{command_id}/settle",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/queue/{client_message_id}",
+        "/api/one/pod/agent-chat/runs/{conversation_id}/stop",
+        "/api/one/pod/browser/capability",
+        "/api/one/pod/browser/tasks",
+        "/api/one/pod/browser/tasks/{task_id}",
+        "/api/one/pod/browser/tasks/{task_id}/control",
+        "/api/one/pod/browser/tasks/{task_id}/frame",
+        "/api/one/pod/browser/tasks/{task_id}/input",
+        "/api/one/pod/browser/tasks/{task_id}/review",
+        "/api/one/pod/browser/tasks/{task_id}/session",
+        "/api/one/pod/connectors/{connector_id}",
         "/health",
         "/health/ready",
         # Capabilities remain private; only liveness is public. Each command/Files route
@@ -419,20 +466,31 @@ OWNER_REACHABLE_PATHS = frozenset(
 
 # Queue identity is checked at this exact route, never by an owner session.
 QUEUE_REACHABLE_PATHS = frozenset({"/api/one/pod/files/worker"})
+# Exact Pub/Sub OIDC identity is enforced at the route; it gets no owner session.
+PROVIDER_REACHABLE_PATHS = frozenset({"/api/one/pod/gmail/push"})
 
 
 def _concrete(path: str) -> str:
-    """A template path as a real request would spell it."""
+    """Use valid scoped identifiers so strict ingress patterns are actually exercised."""
     import re
 
-    return re.sub(r"\{[^}]+\}", "sample", path)
+    values = {
+        "task_id": "browser_" + "0" * 32,
+        "command_id": "00000000-0000-4000-8000-000000000001",
+        "connector_id": "gmail"
+        if path.startswith("/api/one/pod/connectors/")
+        else "custom_" + "0" * 32,
+        "proposal_id": "gmod_" + "a" * 16,
+        "client_message_id": "message_123",
+    }
+    return re.sub(r"\{([^}]+)\}", lambda match: values.get(match[1], "sample"), path)
 
 
 def test_the_owner_reachable_surface_is_exactly_these_paths():
     from api.middlewares.pod_ingress import is_app_surface
 
     mounted = _paths()
-    expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS
+    expected = OWNER_REACHABLE_PATHS | QUEUE_REACHABLE_PATHS | PROVIDER_REACHABLE_PATHS
     assert expected <= mounted, (
         f"pinned as owner-reachable but not mounted: {sorted(expected - mounted)}"
     )

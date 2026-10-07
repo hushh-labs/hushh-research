@@ -132,7 +132,9 @@ async def test_chat_ingress_discards_client_pointer_and_keeps_only_ephemeral_con
         AsyncMock(return_value={"user_id": "owner", "token": "synthetic"}),
     )
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     run = _input()
     run.forwarded_props = {"driveSearchSelection": _selection(), "timezone": "UTC"}

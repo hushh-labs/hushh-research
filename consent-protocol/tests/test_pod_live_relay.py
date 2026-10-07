@@ -13,6 +13,19 @@ from api.routes.one import pod_live_relay as module
 
 
 @pytest.fixture
+def shared_compatibility(monkeypatch):
+    """Explicit legacy Shared helper contract; never an owner-cloud admission."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard as guard
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
+@pytest.fixture
 def dependencies(monkeypatch):
     row = {
         "status": "provisioned",
@@ -51,7 +64,9 @@ def dependencies(monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("state", ["suspended", "migrating", "provisioning", "unknown"])
-async def test_inactive_pod_never_mints_grant_or_connects(dependencies, monkeypatch, state):
+async def test_inactive_pod_never_mints_grant_or_connects(
+    dependencies, monkeypatch, state, shared_compatibility
+):
     row, _, grants, _, _ = dependencies
     row["status"] = state
     connector = Mock()
@@ -62,7 +77,7 @@ async def test_inactive_pod_never_mints_grant_or_connects(dependencies, monkeypa
 
 
 @pytest.mark.asyncio
-async def test_missing_iam_refuses_before_network(dependencies, monkeypatch):
+async def test_missing_iam_refuses_before_network(dependencies, monkeypatch, shared_compatibility):
     monkeypatch.setattr(module, "_identity_token", lambda _: None)
     connector = Mock()
     monkeypatch.setattr(module, "NoRedirectConnect", connector)
@@ -74,7 +89,9 @@ async def test_missing_iam_refuses_before_network(dependencies, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_admission_is_bound_to_current_target_and_revocable_scope(dependencies):
+async def test_admission_is_bound_to_current_target_and_revocable_scope(
+    dependencies, shared_compatibility
+):
     row, _, _, audit, validator = dependencies
     admitted = await module.admit_private_live("owner")
     audit.authorize_owner_read.assert_awaited_once()
@@ -91,7 +108,7 @@ async def test_admission_is_bound_to_current_target_and_revocable_scope(dependen
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("field,value", [("user_id", "foreign"), ("agent_id", "foreign")])
-async def test_wrong_token_binding_refused(dependencies, field, value):
+async def test_wrong_token_binding_refused(dependencies, field, value, shared_compatibility):
     _, _, _, _, validator = dependencies
     parsed = validator.return_value[2]
     setattr(parsed, field, value)
@@ -138,7 +155,9 @@ async def test_real_redirect_handshake_does_not_forward_credentials():
 
 
 @pytest.mark.asyncio
-async def test_admitted_hub_couriers_bootstrap_and_context_to_bound_pod(dependencies, monkeypatch):
+async def test_admitted_hub_couriers_bootstrap_and_context_to_bound_pod(
+    dependencies, monkeypatch, shared_compatibility
+):
     import asyncio
     import json
 
@@ -238,3 +257,30 @@ async def test_admitted_hub_couriers_bootstrap_and_context_to_bound_pod(dependen
     finally:
         relay.cancel()
         await asyncio.gather(relay, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,status",
+    [("byoc", 409), ("pending", 409), ("unplaced", 409), ("hussh_pods", 409), ("unknown", 503)],
+)
+async def test_private_or_unknown_voice_refuses_before_registry_grant_or_browser_content(
+    dependencies, monkeypatch, mode, status
+):
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    _, registry, grants, audit, _ = dependencies
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+    with pytest.raises(module.HTTPException) as error:
+        await module.admit_private_live("owner")
+    assert error.value.status_code == status
+    registry.get.assert_not_awaited()
+    grants.issue_or_reuse_standing_pkm_read.assert_not_awaited()
+    audit.authorize_owner_read.assert_not_awaited()
+    browser, connector = AsyncMock(), Mock()
+    monkeypatch.setattr(module, "NoRedirectConnect", connector)
+    await module.relay_private_live(browser, user_id="owner")
+    browser.receive_text.assert_not_awaited()
+    connector.assert_not_called()
+    assert await module.courier_admitted(browser, "owner") is False

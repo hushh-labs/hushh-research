@@ -410,7 +410,9 @@ async def test_agent_turn_is_refused_before_streaming_without_a_key(monkeypatch)
 
     # A thread id held by a platform-key conversation is refused, not overwritten.
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=True)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=True)),
     )
     with bound_request_chat_key("owner-1", PERSON_KEY):
         with pytest.raises(HTTPException) as retired:

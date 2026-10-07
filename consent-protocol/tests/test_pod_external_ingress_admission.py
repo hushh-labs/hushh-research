@@ -160,7 +160,9 @@ async def test_a_beat_offers_its_row_for_admission(monkeypatch):
             return row
 
     async def verified(_request, _authorization):
-        return type("V", (), {"hushh_id": "ha1_owner"})()
+        from hushh_mcp.services.pod_request_signing import VerifiedPod
+
+        return VerifiedPod("ha1_owner")  # unsigned legacy identity carries no revocation snapshot
 
     async def nothing(*_args, **_kwargs):
         return []
@@ -180,3 +182,4 @@ async def test_a_beat_offers_its_row_for_admission(monkeypatch):
     )
     assert result["recorded"] is True
     assert offered == [row]
+    assert "consentRevocations" not in result

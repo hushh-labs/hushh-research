@@ -22,6 +22,19 @@ import api.routes.one.pod_specialist as broker
 from hushh_mcp.services.pod_request_signing import VerifiedPod
 
 
+@pytest.fixture
+def shared_compatibility(monkeypatch):
+    """Explicit legacy Shared helper contract; never an owner-cloud admission."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard as guard
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
 class _Parsed:
     def __init__(self, user_id: str, scope: str):
         self.user_id = user_id
@@ -83,7 +96,7 @@ def _reader(seen):
 
 @pytest.mark.parametrize("failure", [None, "foreign_owner", "wrong_agent", "revoked_during_read"])
 async def test_command_context_requires_exact_scope_owner_and_continuing_grant(
-    flags_on, monkeypatch, failure
+    flags_on, monkeypatch, failure, shared_compatibility
 ):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
@@ -143,7 +156,9 @@ async def _call(monkeypatch, *, hushh_id, validator, registry, reader):
 
 
 @pytest.mark.asyncio
-async def test_a_read_happens_when_all_three_bindings_hold(flags_on, monkeypatch):
+async def test_a_read_happens_when_all_three_bindings_hold(
+    flags_on, monkeypatch, shared_compatibility
+):
     _identity(monkeypatch, "hushh-owner")
     seen: dict = {}
     result = await _call(
@@ -331,7 +346,7 @@ async def test_registry_failure_is_unavailable_and_never_reaches_reader(flags_on
 @pytest.mark.asyncio
 @pytest.mark.parametrize("pod_owner", ["hushh-owner", "foreign-owner"])
 async def test_calendar_options_reach_reader_only_after_owner_binding(
-    flags_on, monkeypatch, pod_owner
+    flags_on, monkeypatch, pod_owner, shared_compatibility
 ):
     from unittest.mock import AsyncMock
 
@@ -366,7 +381,9 @@ async def test_calendar_options_reach_reader_only_after_owner_binding(
 
 
 @pytest.mark.parametrize("foreign", [False, True])
-async def test_nav_read_requires_its_scope_and_serving_owner(flags_on, monkeypatch, foreign):
+async def test_nav_read_requires_its_scope_and_serving_owner(
+    flags_on, monkeypatch, foreign, shared_compatibility
+):
     from unittest.mock import AsyncMock
 
     from fastapi import HTTPException
@@ -402,7 +419,7 @@ async def test_nav_read_requires_its_scope_and_serving_owner(flags_on, monkeypat
     ],
 )
 async def test_scoped_broker_requires_live_owner_view_before_reader(
-    monkeypatch, flags_on, case, name, options_key, operation, scope
+    monkeypatch, flags_on, case, name, options_key, operation, scope, shared_compatibility
 ):
     from unittest.mock import AsyncMock
 
@@ -438,7 +455,7 @@ async def test_scoped_broker_requires_live_owner_view_before_reader(
 
 @pytest.mark.parametrize("change", [None, "revocation", "replacement", "erasure"])
 async def test_mail_metadata_rechecks_scope_and_incarnation_after_read(
-    flags_on, monkeypatch, change
+    flags_on, monkeypatch, change, shared_compatibility
 ):
     from unittest.mock import AsyncMock
 
@@ -491,3 +508,56 @@ async def test_mail_metadata_rechecks_scope_and_incarnation_after_read(
     else:
         assert (await call)["state"] == {"metadata": "synthetic"}
     reader.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "mode,status",
+    [("byoc", 404), ("pending", 404), ("unplaced", 404), ("hussh_pods", 404), ("unknown", 503)],
+)
+async def test_private_or_unknown_placement_never_reopens_specialist_reader(
+    flags_on, monkeypatch, mode, status
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    _identity(monkeypatch, "hushh-owner")
+    read = AsyncMock()
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+    with pytest.raises(broker.HTTPException) as error:
+        await _call(
+            monkeypatch,
+            hushh_id="hushh-owner",
+            validator=_validator(),
+            registry=_registry({"u-owner": "hushh-owner"}),
+            reader=read,
+        )
+    assert error.value.status_code == status
+    read.assert_not_called()
+
+
+@pytest.mark.parametrize("mode,status", [("byoc", 404), ("unknown", 503)])
+async def test_placement_move_during_specialist_read_never_returns_projection(
+    flags_on, monkeypatch, mode, status
+):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    _identity(monkeypatch, "hushh-owner")
+    placement = AsyncMock(return_value="shared")
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", placement)
+
+    async def read(name, *, owner_id):
+        placement.return_value = mode
+        return {"synthetic_owner_information": "must not leave after placement moves"}
+
+    with pytest.raises(broker.HTTPException) as error:
+        await _call(
+            monkeypatch,
+            hushh_id="hushh-owner",
+            validator=_validator(),
+            registry=_registry({"u-owner": "hushh-owner"}),
+            reader=read,
+        )
+    assert error.value.status_code == status

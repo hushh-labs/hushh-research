@@ -9,6 +9,19 @@ from api.routes.one import adk_live, relay_auth
 from api.utils import firebase_auth
 
 
+@pytest.fixture
+def shared_compatibility(monkeypatch):
+    """Explicit legacy Shared helper contract; never an owner-cloud admission."""
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services import owner_placement_guard as guard
+    from hushh_mcp.services import personal_agent_hosting as hosting
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(hosting, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
+
+
 async def test_absent_credential_preserves_explicit_anonymous_access(monkeypatch):
     verifier = Mock(side_effect=AssertionError("must not verify absent credentials"))
     monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", verifier)
@@ -53,23 +66,35 @@ async def test_auth_provider_outage_preserves_503_without_ticket(monkeypatch):
     mint.assert_not_called()
 
 
-async def test_unavailable_private_voice_does_not_mint_ticket(monkeypatch):
+@pytest.mark.parametrize(
+    "mode,status,code",
+    [
+        ("byoc", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("pending", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("unplaced", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("hussh_pods", 409, "AGENT_PRIVATE_RUNTIME_REQUIRED"),
+        ("unknown", 503, "AGENT_HOSTING_UNAVAILABLE"),
+    ],
+)
+async def test_private_or_unknown_voice_never_mints_hub_ticket(monkeypatch, mode, status, code):
     from api.routes.one import pod_live_relay
+    from hushh_mcp.services import owner_placement_guard as guard
 
-    monkeypatch.setattr(
-        pod_live_relay, "admit_private_live", AsyncMock(side_effect=PermissionError())
-    )
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value=mode))
+    admission = AsyncMock()
+    monkeypatch.setattr(pod_live_relay, "admit_private_live", admission)
     monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
     monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", lambda header: "synthetic-owner")
-    mint = Mock(side_effect=AssertionError("no shared personal session"))
+    mint = Mock()
     monkeypatch.setattr(adk_live, "issue_relay_ticket", mint)
     with pytest.raises(HTTPException) as failure:
         await adk_live.create_one_adk_relay_session.__wrapped__(
             request=None, authorization="Bearer synthetic"
         )
-    assert failure.value.status_code == 503
-    assert failure.value.detail["code"] == "AGENT_NOT_READY"
-    assert failure.value.detail["status"] == "unavailable"
+    assert failure.value.status_code == status
+    assert failure.value.detail["code"] == code
+    admission.assert_not_awaited()
     mint.assert_not_called()
 
 
@@ -97,30 +122,36 @@ async def test_public_onboarding_still_mints_its_anonymous_ticket(monkeypatch):
         (None, "signed_locked"),
     ],
 )
+@pytest.mark.parametrize(
+    "mode,code",
+    [("byoc", "AGENT_PRIVATE_RUNTIME_REQUIRED"), ("unknown", "AGENT_HOSTING_UNAVAILABLE")],
+)
 async def test_signed_ticket_never_reads_credentials_or_builds_shared_runner(
-    monkeypatch, uid, tier
+    monkeypatch, uid, tier, mode, code
 ):
+    from api.routes.one import pod_live_relay
+    from hushh_mcp.services import owner_placement_guard as guard
+
+    monkeypatch.setattr(guard, "pod_mode", lambda: False)
+    monkeypatch.setattr(guard, "get_owner_hosting_mode", AsyncMock(return_value=mode))
     monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
     monkeypatch.setattr(
         adk_live, "consume_relay_ticket_shared", AsyncMock(return_value=(True, uid, tier))
     )
-    bootstrap = AsyncMock(side_effect=AssertionError("must not read bootstrap"))
-    runner = Mock(side_effect=AssertionError("must not build shared runner"))
+    bootstrap = AsyncMock()
+    runner = Mock()
     monkeypatch.setattr(adk_live, "_receive_runtime_bootstrap", bootstrap)
     monkeypatch.setattr(adk_live, "build_one_live_runner", runner)
     socket = Mock(query_params={"relay_ticket": "synthetic-old-ticket"})
     socket.accept = AsyncMock()
     socket.close = AsyncMock()
-    from api.routes.one import pod_live_relay
-
     courier = AsyncMock()
     monkeypatch.setattr(pod_live_relay, "relay_private_live", courier)
     await adk_live.one_adk_live_relay(socket)
-    if uid:
-        courier.assert_awaited_once_with(socket, user_id=uid)
-    else:
-        courier.assert_not_awaited()
-        socket.close.assert_awaited_once_with(code=1008, reason=adk_live._PRIVATE_VOICE_UNAVAILABLE)
+    courier.assert_not_awaited()
+    socket.close.assert_awaited_once_with(
+        code=1008, reason=code if uid else adk_live._PRIVATE_VOICE_UNAVAILABLE
+    )
     bootstrap.assert_not_awaited()
     runner.assert_not_called()
 
@@ -311,24 +342,9 @@ async def test_public_context_and_provider_frames_complete_and_cancel_idle_input
     sessions.delete_session.assert_awaited_once()
 
 
-async def test_owner_with_current_pod_gets_pod_ticket(monkeypatch):
-    from api.routes.one import pod_live_relay
-
-    monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
-    monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", lambda header: "synthetic-owner")
-    admission = AsyncMock()
-    monkeypatch.setattr(pod_live_relay, "admit_private_live", admission)
-    mint = Mock(return_value=("synthetic-ticket", 200))
-    monkeypatch.setattr(adk_live, "issue_relay_ticket", mint)
-    result = await adk_live.create_one_adk_relay_session.__wrapped__(
-        request=None, authorization="Bearer synthetic"
-    )
-    admission.assert_awaited_once_with("synthetic-owner")
-    assert result.cell == "pod" and result.tier == "full"
-    mint.assert_called_once_with("synthetic-owner", "signed_locked")
-
-
-async def test_the_admission_refusal_says_why_on_a_line_that_actually_prints(monkeypatch, caplog):
+async def test_the_admission_refusal_says_why_on_a_line_that_actually_prints(
+    monkeypatch, caplog, shared_compatibility
+):
     """The refusal was silent for eleven consecutive dev releases.
 
     Admission swallowed its own exception, so no log anywhere said which

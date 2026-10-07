@@ -43,7 +43,9 @@ async def test_route_admits_location_only_as_an_opaque_turn_reference(monkeypatc
     monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
     monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     monkeypatch.setattr(agent_chat, "get_owner_hosting_mode", AsyncMock(return_value="shared"))
     headers = [(b"authorization", b"Bearer synthetic")]

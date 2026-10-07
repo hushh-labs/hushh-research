@@ -16,7 +16,9 @@ def owner_chat_key(monkeypatch):
     from api.routes.one import agent_chat
 
     monkeypatch.setattr(
-        agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+        agent_chat,
+        "_session_service",
+        SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
     )
     with bound_request_chat_key("owner"):
         yield

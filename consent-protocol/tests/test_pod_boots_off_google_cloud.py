@@ -26,6 +26,14 @@ _BACKEND = Path(__file__).resolve().parents[1]
 _IMPORT_POD = """
 import pod_server
 from api.routes.one import agent_chat
+assert agent_chat._session_service is None, "Shared session storage was built at pod import"
+try:
+    agent_chat._shared_sessions()
+except RuntimeError as exc:
+    assert str(exc) == "Private sessions require the injected owner repository."
+else:
+    raise AssertionError("A private pod constructed shared session storage")
+assert agent_chat._session_service is None, "Refusal published a shared session adapter"
 assert agent_chat._one_head.cache_info().currsize == 0, "One's head was built at import"
 assert agent_chat._intro_head.cache_info().currsize == 0, "the intro head was built at import"
 print("booted", pod_server.app.state.runtime_topology)

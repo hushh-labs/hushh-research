@@ -363,7 +363,7 @@ def test_live_bootstrap_receipt_requires_explicit_complete_owner_project_result(
         def __init__(self, **kwargs):
             pass
 
-        def apply(self, plan, *, dry_run, on_step):
+        def apply(self, plan, *, dry_run, on_step, notification_checkpoint=None):
             assert dry_run is False
             return outcome
 
@@ -478,7 +478,7 @@ def test_substrate_receipt_retains_intended_iam_obligations_after_partial_failur
 
     class Bootstrap:
         def __init__(self, **kwargs): ...
-        def apply(self, plan, *, dry_run, on_step=None):
+        def apply(self, plan, *, dry_run, on_step=None, notification_checkpoint=None):
             if state == "exception":
                 raise RuntimeError("synthetic-private-provider-error")
             return {

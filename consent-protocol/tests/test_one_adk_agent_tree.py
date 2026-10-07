@@ -1073,7 +1073,9 @@ class TestGmailEmailDraftDirective:
         monkeypatch.setattr(agent_chat, "require_vault_owner_token", vault)
         monkeypatch.setattr(agent_chat, "verify_firebase_bearer", lambda _: "owner")
         monkeypatch.setattr(
-            agent_chat._session_service, "is_legacy_session", AsyncMock(return_value=False)
+            agent_chat,
+            "_session_service",
+            SimpleNamespace(is_legacy_session=AsyncMock(return_value=False)),
         )
         bearer = b"Bearer HCT:synthetic" if unlocked else b"Bearer synthetic"
         request = Request({"type": "http", "headers": [(b"authorization", bearer)]})

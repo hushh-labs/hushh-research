@@ -157,11 +157,23 @@ class _Hub:
         return _R()
 
 
-async def test_the_client_reports_valid():
-    hub = _Hub(200, {"valid": True, "userId": "u1", "scope": "pkm.read"})
+async def test_the_client_reports_valid(monkeypatch):
+    monkeypatch.setenv("HUSSH_ID", "hushh-abc")
+    hub = _Hub(200, {"valid": True, "userId": "u1", "hushhId": "hushh-abc", "scope": "pkm.read"})
     verdict = await verify_consent("tok", client=hub)
     assert verdict.valid is True and verdict.available is True
-    assert verdict.user_id == "u1"
+    assert verdict.user_id == "u1" and verdict.hushh_id == "hushh-abc"
+
+
+@pytest.mark.parametrize("binding", [None, "", "hushh-other"])
+async def test_the_client_refuses_a_missing_or_foreign_incarnation(monkeypatch, binding):
+    monkeypatch.setenv("HUSSH_ID", "hushh-abc")
+    payload = {"valid": True, "userId": "u1", "scope": "pkm.read"}
+    if binding is not None:
+        payload["hushhId"] = binding
+    verdict = await verify_consent("tok", client=_Hub(200, payload))
+    assert not verdict.valid and not verdict.available
+    assert not verdict.should_refuse
 
 
 async def test_the_client_reports_a_clean_denial():
