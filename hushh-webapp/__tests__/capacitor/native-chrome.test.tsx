@@ -382,6 +382,48 @@ describe("native chrome presentation lease", () => {
     await waitFor(() => expect(view.getByRole("button", { name: "Accent fallback" })).toBeVisible());
     expect(onAccent).not.toHaveBeenCalled();
   });
+  it.each(["stationary", "transform", "geometry"] as const)("admits %s preference geometry without bypassing initial motion recovery", async (initial) => {
+    vi.useFakeTimers();
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "getAnimations");
+    const keyframeDescriptor = Object.getOwnPropertyDescriptor(globalThis, "KeyframeEffect");
+    class TransformEffect { getKeyframes() { return [{ transform: "translateX(10px)" }]; } }
+    Object.defineProperty(globalThis, "KeyframeEffect", { configurable: true, value: TransformEffect });
+    let moving = initial === "transform", geometryValid = initial !== "geometry";
+    Object.defineProperty(HTMLElement.prototype, "getAnimations", { configurable: true, value: () => moving
+      ? [{ playState: "running", effect: new TransformEffect() }] : [] });
+    bridge.getCapabilities.mockResolvedValue({ contractVersion: 2, families: ["appearance", "accent"], independentControls: true, inPlaceUpdates: true });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const appearance = this.dataset.nativeChromeSlot === "profile-appearance";
+      const x = appearance ? 2 : 150, width = appearance ? 132 : 44, y = geometryValid ? 60 : -1;
+      return { x, y, width, height: 44, top: y, left: x, right: x + width, bottom: y + 44, toJSON: () => ({}) };
+    });
+    try {
+      const view = render(<PreferenceHarness />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      if (initial === "stationary") {
+        expect(bridge.activate).toHaveBeenCalledTimes(2); // No 150ms artificial delay.
+      } else {
+        expect(bridge.prepare).not.toHaveBeenCalled();
+        if (initial === "transform") {
+          await act(async () => { await vi.advanceTimersByTimeAsync(350); });
+          expect(bridge.prepare).not.toHaveBeenCalled(); // A pre-listener transform is still running.
+        }
+        moving = false; geometryValid = true;
+        // No ResizeObserver or start/end notification: the existing settlement
+        // owner must recover initially clipped/unmeasurable geometry.
+        await act(async () => { await vi.advanceTimersByTimeAsync(150); });
+        expect(bridge.activate).toHaveBeenCalledTimes(2);
+      }
+      view.unmount();
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    } finally {
+      vi.useRealTimers();
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, "getAnimations", descriptor);
+      else Reflect.deleteProperty(HTMLElement.prototype, "getAnimations");
+      if (keyframeDescriptor) Object.defineProperty(globalThis, "KeyframeEffect", keyframeDescriptor);
+      else Reflect.deleteProperty(globalThis, "KeyframeEffect");
+    }
+  });
   it("exposes only allowlisted public rehearsal status with explicit Debug capability", async () => {
     const capability = { contractVersion: 2, families: ["agent-surface"], independentControls: true };
     bridge.getCapabilities.mockResolvedValue(capability);

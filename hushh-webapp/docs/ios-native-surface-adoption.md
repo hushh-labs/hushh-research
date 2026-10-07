@@ -999,3 +999,45 @@ are recorded under Route Coverage and Device Admission. Simulator results do not
 Appearance/Accent remain explicitly opt-in Debug iPhone families; full accessibility,
 visual and Release performance admission remain outstanding. No merge, deployment
 or distribution is implied.
+
+### Native continuity RCA and bounded row coverage — 2026-10-06
+
+At `48d03814d`, the production-backed Debug build, bundled assets, signature,
+plugin contracts, surface map, typecheck and design-system checks pass. Canonical
+core passes, including packed MCP initialization and integration. Three focused
+native support tests pass on the iPhone 16e. Normal reviewer unlock submits once;
+three attach-only warm journeys pass: Back/overlay/resume plus actual Consent
+query-tab handoffs, History/Cloud-Puppy/keyboard/Profile reopen, and the existing
+Account/Preferences/Security/Vault/Support stack. No session reset or new router
+is used. These are structural and interaction results, not universal visual proof.
+
+The Back route boundary previously removed its native hosting view before preparing
+the next one. Concealing the DOM fallback did not prove that native presentation
+remained visible. Additive contract-v2 Back replacement now retains the exact
+same-owner/document/frame host while expiring old action authority and requiring
+fresh activation. Geometry, owner, overlay, privacy and uncertain acknowledgements
+still require confirmed physical removal. Independent review caught revision
+allocation before the removal tombstone; construction now follows removal and
+the nearest test enforces the native monotonic admission fence.
+
+The opt-in Debug probe records only bounded host/removal/handoff/frame counts.
+The strengthened warm test requires a frame after replacement/activation and a
+physical-removal negative control under Profile. It does not measure rendered
+glass appearance or ancestor occlusion. The final strengthened candidate requires
+its own device run; earlier DOM visibility assertions are not substituted for it.
+
+Stationary public preferences avoid an unconditional 150ms mount delay only when
+animation inspection and initial geometry affirm admission. Pre-existing motion,
+missing inspection and rejected geometry retain the existing settlement/recovery
+path. All 54 nearest native-control tests pass; restoring the unconditional delay
+fails the new stationary regression. Actual Finance source and import components
+extend the existing uniform-row fixture: eight Chromium/WebKit checks pass at
+320/393/834/1440px, including enlarged readable text and full-row hit surfaces.
+Neither uniform sizing nor concise copy clips consent details or recovery warnings.
+
+The same candidate's physical iPad vault-layout test passes rest, focus, scroll,
+portrait/landscape and resume reachability. That run reports no software keyboard;
+it does not qualify docked software-keyboard, split-view or protected-session
+continuity. New SwiftUI families remain disabled on iPad and Release. Whole-app
+visual/accessibility acceptance, three Release frame-pacing runs and exact-head
+CI remain separate gates; this entry does not imply merge, deployment or distribution.

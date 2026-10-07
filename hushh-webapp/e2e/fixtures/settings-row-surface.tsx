@@ -27,6 +27,8 @@ import { ConsentScopeNestedList } from "../../components/consent/consent-scope-n
 import { ConsentScopeList } from "../../components/consent/consent-scope-list";
 import { Switch } from "../../components/ui/switch";
 import { MaterialRipple } from "../../lib/morphy-ux/material-ripple";
+import { PortfolioSourceSwitcher } from "../../components/kai/portfolio-source-switcher";
+import { PortfolioImportView } from "../../components/kai/views/portfolio-import-view";
 import type { ConsentScopeItem } from "../../lib/consent/consent-scope-items";
 
 declare global {
@@ -327,6 +329,13 @@ function Fixture() {
       <DetailTarget />
       <UniformNavigation />
       <UniformNavigation uniform={false} />
+      <section data-testid="consumer-finance-sources">
+        <PortfolioSourceSwitcher activeSource="statement" availableSources={["statement", "plaid"]}
+          onSourceChange={async () => undefined} onManageConnections={() => record("finance:connect")}
+          onImportStatement={() => record("finance:import")} />
+        <PortfolioImportView onFileSelect={() => undefined} onSkip={() => undefined}
+          onConnectPlaid={() => record("finance:connect")} onPreloadSchema={() => record("finance:sample")} />
+      </section>
     </main>
   );
 }

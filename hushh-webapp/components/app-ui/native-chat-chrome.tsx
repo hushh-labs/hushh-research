@@ -357,7 +357,11 @@ export function NativeChatChrome(props: Props) {
       ancestor.addEventListener("animationend", animation);
       ancestor.addEventListener("animationcancel", animation);
     }
-    move(); // Account for the owning pane/stack's first settlement, not just resize.
+    // A valid, already stationary slot does not need an artificial admission
+    // delay. Preserve recovery for unmeasurable geometry, unknown animation
+    // inspection and a transform that began before listeners were installed.
+    if (ancestors.some((ancestor) => typeof ancestor.getAnimations !== "function") ||
+        transformRunning() || !measureNativeChromeGeometry(node, kind)) move();
     return () => {
       window.clearTimeout(timer);
       moving.current = false;

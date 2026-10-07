@@ -728,6 +728,16 @@ final class AppUITests: XCTestCase {
         XCTAssertFalse(webView.buttons["Unlock"].exists, "Wallet lost the unlocked session")
         XCTAssertEqual(hosts.count, 1)
 
+        let probe = app.buttons["native-back-continuity"].firstMatch
+        func counters() -> [String: Int]? {
+            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
+                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
+                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
+            else { return nil }
+            return packet
+        }
+        guard let beforeOverlay = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
+
         let profile = app.buttons["Open Profile"].firstMatch
         XCTAssertTrue(profile.exists && profile.isHittable)
         XCTAssertGreaterThanOrEqual(profile.frame.width, 44)
@@ -738,6 +748,8 @@ final class AppUITests: XCTestCase {
         let overlayRetirement = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: back)
         XCTAssertEqual(XCTWaiter.wait(for: [overlayRetirement], timeout: 10), .completed,
                        "Native Back remained accessible under the Profile overlay")
+        XCTAssertGreaterThan(counters()?["removals"] ?? -1, beforeOverlay["removals", default: 0],
+                             "The measurement negative control did not observe physical removal")
         close.tap()
         XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable)
 
@@ -769,19 +781,12 @@ final class AppUITests: XCTestCase {
         XCTAssertTrue(consent.isHittable)
         consent.tap()
         XCTAssertTrue(back.waitForExistence(timeout: 10) && back.isHittable)
-        let probe = app.buttons["native-back-continuity"].firstMatch
-        func counters() -> [String: Int]? {
-            guard probe.exists, let json = probe.value as? String, let data = json.data(using: .utf8),
-                  let packet = try? JSONSerialization.jsonObject(with: data) as? [String: Int],
-                  Set(packet.keys) == Set(["installs", "removals", "replacements", "sampledFrames", "missingFrames"])
-            else { return nil }
-            return packet
-        }
         let measured = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             (counters()?["sampledFrames"] ?? 0) > 0
         }, object: probe)
         XCTAssertEqual(XCTWaiter.wait(for: [measured], timeout: 5), .completed, "NATIVE_BACK_MEASUREMENTS_UNAVAILABLE")
         let originalFrame = back.frame
+        var completedHandoffs = 0
         for name in ["Active", "History", "Connections", "Requests"] {
             let tab = webView.buttons.matching(NSPredicate(format: "label == %@", name)).firstMatch
             XCTAssertTrue(tab.waitForExistence(timeout: 10) && tab.isHittable)
@@ -795,13 +800,22 @@ final class AppUITests: XCTestCase {
                     after["sampledFrames", default: 0] > before["sampledFrames", default: 0]
             }, object: probe)
             XCTAssertEqual(XCTWaiter.wait(for: [replaced], timeout: 10), .completed, "NATIVE_BACK_REPLACEMENT_NOT_OBSERVED")
+            guard let activated = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
+            // A frame before replacement can advance the global sample count.
+            // Require another published frame after fresh native activation.
+            let displayed = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+                (counters()?["sampledFrames"] ?? -1) > activated["sampledFrames", default: 0]
+            }, object: probe)
+            XCTAssertEqual(XCTWaiter.wait(for: [displayed], timeout: 5), .completed, "NATIVE_BACK_POST_ACTIVATION_FRAME_UNOBSERVED")
             guard let after = counters() else { XCTFail("NATIVE_BACK_MEASUREMENTS_UNAVAILABLE"); return }
             XCTAssertEqual(after["installs"], before["installs"], "Route transition rebuilt the native host")
             XCTAssertEqual(after["removals"], before["removals"], "Route transition removed the native host")
             XCTAssertEqual(after["missingFrames"], before["missingFrames"], "Route transition hid or detached the native control")
             XCTAssertEqual(back.frame, originalFrame)
             XCTAssertFalse(domBack.exists, "Replacement exposed a duplicate DOM Back")
+            completedHandoffs += 1
         }
+        XCTAssertGreaterThan(completedHandoffs, 0, "No qualifying Back handoff was exercised")
         back.tap()
         XCTAssertTrue(wallet.waitForExistence(timeout: 15), "Fresh Back did not invoke the authored return handler")
         XCTAssertFalse(webView.buttons["Unlock"].exists)

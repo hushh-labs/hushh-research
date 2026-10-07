@@ -909,6 +909,7 @@ private final class NativeBackContinuityProbe: NSObject {
     private let target = FrameTarget()
     private var displayLink: CADisplayLink?
     private weak var control: UIView?
+    private var admittedFrame: CGRect?
     private var expected = false
     private var installs = 0, removals = 0, replacements = 0, sampledFrames = 0, missingFrames = 0
 
@@ -930,14 +931,14 @@ private final class NativeBackContinuityProbe: NSObject {
     }
     deinit { displayLink?.invalidate(); label.removeFromSuperview() }
 
-    func installed(_ view: UIView) { control = view; installs = min(installs + 1, 100_000); publish() }
+    func installed(_ view: UIView) { control = view; admittedFrame = view.frame; installs = min(installs + 1, 100_000); publish() }
     func activated() { expected = true; publish() }
     func replaced(_ view: UIView) {
         if control !== view { missingFrames = min(missingFrames + 1, 100_000) }
         replacements = min(replacements + 1, 100_000); publish()
     }
     func removed() {
-        expected = false; control = nil; removals = min(removals + 1, 100_000); publish()
+        expected = false; control = nil; admittedFrame = nil; removals = min(removals + 1, 100_000); publish()
     }
     private func sample() {
         let privacy = HushhSessionPrivacyShield.shared.snapshot()
@@ -945,7 +946,7 @@ private final class NativeBackContinuityProbe: NSObject {
         guard expected, privacy.appIsActive, !privacy.shielded else { return }
         sampledFrames = min(sampledFrames + 1, 100_000)
         if control?.window == nil || control?.superview == nil || control?.isHidden != false ||
-            control?.alpha != 1 || control?.bounds.size != CGSize(width: 44, height: 44) {
+            control?.alpha != 1 || control?.frame != admittedFrame || control?.bounds.size != CGSize(width: 44, height: 44) {
             missingFrames = min(missingFrames + 1, 100_000)
         }
         // Sampling never updates SwiftUI or the route; only this 1pt probe.

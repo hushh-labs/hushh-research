@@ -355,8 +355,31 @@ for (const width of [320, 393, 834, 1440]) {
     expect(spread(await measure())).toBeLessThanOrEqual(1);
     for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
     const originalHeight = (await measure())[0]!;
+    const sourceGroups = ["portfolio-source-add-group", "portfolio-import-source-options"].map((id) => page.getByTestId(id));
+    async function verifySources() {
+      for (const source of sourceGroups) {
+        const siblings = source.locator("[data-row-layout]");
+        const heights = await siblings.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().height));
+        expect(heights.length).toBeGreaterThan(1); // Real consumers, not an empty fixture.
+        expect(spread(heights)).toBeLessThanOrEqual(1);
+        for (const row of await siblings.all()) {
+          expect(await contract(row)).toEqual([]);
+          expect(await row.evaluate((node) => {
+            const bounds = node.getBoundingClientRect();
+            return [...node.querySelectorAll('[data-slot="settings-row-title"],[data-slot="settings-row-description"]')]
+              .every((text) => {
+                const box = text.getBoundingClientRect();
+                return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 &&
+                  box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && text.scrollHeight <= text.clientHeight + 1;
+              });
+          })).toBe(true);
+        }
+      }
+    }
+    await verifySources();
     // Enlarged text makes two-line support copy grow rather than disappear.
-    await page.addStyleTag({ content: '[data-testid$="navigation"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await page.addStyleTag({ content: '[data-testid$="navigation"], [data-testid="portfolio-source-add-group"], [data-testid="portfolio-import-source-options"] { max-width: 300px; --type-row-label-size: 24px; --type-row-label-line: 32px; --type-row-description-size: 24px; --type-row-description-line: 32px; }' });
+    await verifySources();
     expect(spread(await measure())).toBeLessThanOrEqual(1);
     expect((await measure())[0]!).toBeGreaterThan(originalHeight);
     for (const row of await rows.all()) expect(await contract(row)).toEqual([]);
