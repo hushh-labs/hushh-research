@@ -112,6 +112,51 @@ class MailComposeRuntime:
         self.approval_input = approval_input
         self.tasks: dict[str, ComposeDraft] = {}
 
+    def resolve_binding(
+        self,
+        ref: str | None,
+        revision: int | None,
+        *,
+        prepared: dict[str, Any] | None = None,
+    ) -> tuple[str, int] | Rejected:
+        """Resolve an omitted binding to the one active draft in this session.
+
+        Live voice often hears a follow-up such as "send it" after the review
+        event. The model may omit opaque refs that were carried by that event;
+        with exactly one live draft the server can bind it without guessing.
+        A prepared snapshot is preferred during confirmation execution, so a
+        later draft cannot borrow the approval.
+        """
+        snapshot = prepared if isinstance(prepared, dict) else {}
+        snapshot_ref = snapshot.get("draft_ref")
+        snapshot_revision = snapshot.get("revision")
+        if (
+            not ref
+            and type(snapshot_ref) is str
+            and snapshot_ref
+            and type(snapshot_revision) is int
+        ):
+            return snapshot_ref, snapshot_revision
+        if ref and type(revision) is int:
+            return ref, revision
+        if ref or revision is not None:
+            return _refusal(
+                "draft_binding_required",
+                "I need the current email draft review before sending.",
+            )
+        active = [
+            task
+            for task in self.tasks.values()
+            if task.state not in {"sent", "cancelled", "failed"}
+        ]
+        if len(active) == 1:
+            task = active[0]
+            return task.ref, task.revision
+        return _refusal(
+            "draft_unavailable",
+            "That draft is no longer available. Please prepare it again.",
+        )
+
     def current(self, ref: str, revision: int) -> ComposeDraft | Rejected:
         task = self.tasks.get(ref)
         if task is None:
@@ -510,7 +555,17 @@ class MailComposeRuntime:
                 },
             )
 
-    def prepare_send(self, ref: str, revision: int) -> Prepared | Rejected:
+    def prepare_send(
+        self,
+        ref: str | None,
+        revision: int | None,
+        *,
+        prepared: dict[str, Any] | None = None,
+    ) -> Prepared | Rejected:
+        binding = self.resolve_binding(ref, revision, prepared=prepared)
+        if isinstance(binding, Rejected):
+            return binding
+        ref, revision = binding
         task = self.current(ref, revision)
         if isinstance(task, Rejected):
             return task
@@ -536,6 +591,7 @@ class MailComposeRuntime:
             snapshot={
                 "draft_ref": ref,
                 "revision": revision,
+                "_canonical_args": {"draft_ref": ref, "revision": revision},
                 "action_id": task.prepared["action_id"],
                 **(
                     {"proposal_input_generation": self.input_generation()}
@@ -545,7 +601,16 @@ class MailComposeRuntime:
             },
         )
 
-    async def send(self, ctx: ToolContext, ref: str, revision: int) -> ToolResult:
+    async def send(
+        self,
+        ctx: ToolContext,
+        ref: str | None,
+        revision: int | None,
+    ) -> ToolResult:
+        binding = self.resolve_binding(ref, revision, prepared=ctx.prepared)
+        if isinstance(binding, Rejected):
+            return binding
+        ref, revision = binding
         # Admission belongs to the received confirmation, before any queue,
         # proof, ledger or task-lock await. Never recapture a later utterance.
         admitted = (
@@ -691,6 +756,14 @@ class DraftRefInput(ToolInput):
     revision: int = Field(ge=1, le=10000)
 
 
+class SendDraftInput(ToolInput):
+    # The review event normally supplies both opaque fields. They are optional
+    # for a natural follow-up such as "send it"; the runtime binds an omitted
+    # pair only when there is exactly one active draft in this session.
+    draft_ref: str = Field(default="", max_length=64)
+    revision: int | None = Field(default=None, ge=1, le=10000)
+
+
 class EditDraftInput(DraftRefInput):
     subject: str | None = Field(default=None, max_length=256)
     message: str | None = Field(default=None, max_length=4000)
@@ -718,7 +791,7 @@ async def _compose(ctx: ToolContext, args: ComposeInput) -> ToolResult:
     return await owner.create(ctx, draft, recipients=recipients)
 
 
-async def _prepare_send(ctx: ToolContext, args: DraftRefInput) -> Prepared | ToolResult:
+async def _prepare_send(ctx: ToolContext, args: SendDraftInput) -> Prepared | ToolResult:
     owner = runtime(ctx)
     return (
         owner.prepare_send(args.draft_ref, args.revision)
@@ -727,7 +800,7 @@ async def _prepare_send(ctx: ToolContext, args: DraftRefInput) -> Prepared | Too
     )
 
 
-async def _send(ctx: ToolContext, args: DraftRefInput) -> ToolResult:
+async def _send(ctx: ToolContext, args: SendDraftInput) -> ToolResult:
     owner = runtime(ctx)
     return (
         await owner.send(ctx, args.draft_ref, args.revision)
@@ -884,7 +957,7 @@ TOOLS: tuple[ToolSpec, ...] = (
         name="send_reviewed_mail",
         gateway_action_id="email.chat.turn",
         policy=ToolPolicy.confirm_voice,
-        input_model=DraftRefInput,
+        input_model=SendDraftInput,
         output_model=ComposeResult,
         description="Request final send approval for the exact rendered email draft/revision. Only confirmation of this send-specific review delivers it; identity or draft-open approval never sends.",
         handler=_send,

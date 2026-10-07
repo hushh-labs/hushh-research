@@ -65,6 +65,22 @@ async def ready(compose):
 
 
 @pytest.mark.asyncio
+async def test_send_it_binds_the_single_active_reviewed_draft(compose):
+    runtime, ctx, delivery = compose
+    ref, revision = await ready(compose)
+
+    prepared = runtime.prepare_send("", None)
+    assert prepared.snapshot["draft_ref"] == ref
+    assert prepared.snapshot["revision"] == revision
+    assert prepared.snapshot["_canonical_args"] == {"draft_ref": ref, "revision": revision}
+
+    ctx.prepared = prepared.snapshot
+    result = await runtime.send(ctx, "", None)
+    assert result.status == "sent"
+    delivery.execute.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_render_ack_and_exact_revision_are_required(compose):
     runtime, ctx, delivery = compose
     result = await runtime.create(ctx, {"to": "friend@example.com", "subject": "", "body": "Hi"})
