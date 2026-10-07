@@ -22,9 +22,12 @@ vi.mock("@/lib/vault/vault-context", async (importOriginal) => ({
 import {
   AGENT_PARTIAL_ANSWER_LOST_NOTICE,
   AgentBubble,
+  ChatAgentSubtitle,
   chatHeaderSubtitle,
   labelRestoredConnectorSteps,
   planLostTurnRetry,
+  retireRetriedResponsePresentation,
+  replaceAssistantResponse,
   restoredMessageTime,
   settleAssistantMessageError,
   settleMcpReviewActivity,
@@ -80,6 +83,25 @@ const connectAnswer: AgentChatMessage = {
 };
 
 describe("restoring a turn from history", () => {
+  it("keeps the current-action icon and label together during rapid tool changes", () => {
+    vi.useFakeTimers();
+    try {
+      const { rerender, container, unmount } = render(<ChatAgentSubtitle text="Checking Gmail…" working brand="gmail" />);
+      rerender(<ChatAgentSubtitle text="Reading Drive…" working brand="drive" />);
+      expect(screen.getByText("Checking Gmail…")).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="gmail"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="drive"]')).not.toBeInTheDocument();
+      rerender(<ChatAgentSubtitle text="Reading memory…" working icon="memory" />);
+      act(() => vi.advanceTimersByTime(90));
+      expect(screen.getByText("Reading memory…")).toBeInTheDocument();
+      expect(container.querySelector('[data-agent-activity-icon="memory"]')).toBeInTheDocument();
+      expect(container.querySelector('[data-connector-brand="gmail"]')).not.toBeInTheDocument();
+      unmount();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rehydrates the Activity rows and the connect card with the answer", () => {
     const [restored] = storedMessagesToAgentMessages([connectAnswer]);
     expect(restored?.text).toContain("Connect card above");
@@ -348,6 +370,40 @@ describe("a turn whose stream was lost", () => {
     id: "assistant-1", role: "assistant" as const, text: "Here are the first two steps",
     timestamp: "10:00", status: "streaming" as const,
   };
+
+  it("retires only the retried response's idle cards and never hides an in-flight operation", () => {
+    const retireSpecialist = vi.fn();
+    const retireEmailDraft = vi.fn();
+    const input = {
+      messageId: "answer-1", busy: false, specialistMessageId: "answer-1",
+      emailDraftMessageId: "answer-1", retireSpecialist, retireEmailDraft,
+    };
+    expect(retireRetriedResponsePresentation({ ...input, busy: true })).toBe(false);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: input.messageId, status: "outcome_unknown" }] })).toBe(false);
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: "other-answer", status: "sending" }] })).toBe(false);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, specialistMessageId: "other-answer", emailDraftMessageId: null })).toBe(true);
+    expect(retireSpecialist).not.toHaveBeenCalled();
+    expect(retireEmailDraft).not.toHaveBeenCalled();
+    expect(retireRetriedResponsePresentation({ ...input, emailDeliveries: [{ anchorMessageId: "other-answer", status: "outcome_unknown" }] })).toBe(true);
+    expect(retireSpecialist).toHaveBeenCalledOnce();
+    expect(retireEmailDraft).toHaveBeenCalledOnce();
+
+    const user = { ...streaming, id: "question", role: "user" as const };
+    const old = { ...streaming, id: "answer-1", structuredExperience: {
+      type: "one.workspace_connector_setup.v1" as const, provider: "calendar" as const, status: "connect_required" as const,
+    } };
+    const receipt = { ...streaming, id: "independent-receipt", text: "Request sent" };
+    const next = replaceAssistantResponse([user, old, receipt], old.id, streaming);
+    expect(next).toEqual([user, streaming, receipt]);
+    expect(next[0]).toBe(user);
+    expect(next[2]).toBe(receipt);
+    expect(next.filter(message => message.role === "user")).toHaveLength(1);
+    expect(next.some(message => message.structuredExperience)).toBe(false);
+  });
 
   it("keeps the partial answer and says the connection was lost below it", () => {
     const lost = new AgentChatStreamLostError(conversationId, 1_000);
