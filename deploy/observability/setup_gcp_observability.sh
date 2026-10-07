@@ -22,6 +22,7 @@ OBS_ALERT_EMAIL="${OBS_ALERT_EMAIL:-}"
 OBS_SCHEDULER_SA_NAME="${OBS_SCHEDULER_SA_NAME:-obs-scheduler-invoker}"
 OBS_SCHEDULER_SA_EMAIL="${OBS_SCHEDULER_SA_EMAIL:-${OBS_SCHEDULER_SA_NAME}@${PROJECT_ID}.iam.gserviceaccount.com}"
 DASHBOARD_ID="${DASHBOARD_ID:-hushh-observability-managed}"
+SQL_INSTANCE="${SQL_INSTANCE:-}"
 
 if [[ -z "${PROJECT_ID}" ]]; then
   echo "ERROR: PROJECT_ID is not set and no gcloud default project is configured."
@@ -350,28 +351,26 @@ main() {
   ensure_dataset analytics_staging
   ensure_dataset analytics_prod
 
-  upsert_log_metric "${LOG_METRICS_DIR}/obs_request_summary_count.json"
-  upsert_log_metric "${LOG_METRICS_DIR}/obs_unexpected_error_count.json"
-  upsert_log_metric "${LOG_METRICS_DIR}/obs_account_mail_failure_count.json"
-  upsert_log_metric "${LOG_METRICS_DIR}/obs_data_health_anomaly_count.json"
-
-  upsert_dashboard
-
-  local channels_json='[]'
-  if [[ -n "${OBS_ALERT_EMAIL}" ]]; then
-    local channel_name
-    channel_name="$(ensure_email_channel "${OBS_ALERT_EMAIL}")"
-    channels_json="$(jq -nc --arg c "${channel_name}" '[ $c ]')"
-    log "Using notification channel: ${channel_name}"
-  else
-    log "OBS_ALERT_EMAIL not set; alert policies will be created without notification channels (Cloud Console only)."
+  if [[ -z "${SQL_INSTANCE}" ]]; then
+    local cloudsql_attachment
+    cloudsql_attachment="$(gcloud run services describe "${BACKEND_SERVICE}" \
+      --project "${PROJECT_ID}" --region "${REGION}" --format=json \
+      | jq -r '.spec.template.metadata.annotations["run.googleapis.com/cloudsql-instances"] // empty')"
+    if [[ "${cloudsql_attachment}" != *,* && "${cloudsql_attachment}" == *:*:* ]]; then
+      SQL_INSTANCE="${cloudsql_attachment##*:}"
+    else
+      echo "ERROR: Set SQL_INSTANCE explicitly; expected one Cloud SQL attachment on ${BACKEND_SERVICE}." >&2
+      exit 1
+    fi
   fi
-
-  upsert_alert_policy "${ALERTS_DIR}/backend-5xx-policy.json.in" "${channels_json}"
-  upsert_alert_policy "${ALERTS_DIR}/backend-latency-policy.json.in" "${channels_json}"
-  upsert_alert_policy "${ALERTS_DIR}/unexpected-errors-policy.json.in" "${channels_json}"
-  upsert_alert_policy "${ALERTS_DIR}/account-mail-failures-policy.json.in" "${channels_json}"
-  upsert_alert_policy "${ALERTS_DIR}/data-health-anomaly-policy.json.in" "${channels_json}"
+  local email_args=()
+  if [[ -n "${OBS_ALERT_EMAIL}" ]]; then
+    email_args=(--email "${OBS_ALERT_EMAIL}")
+  fi
+  python3 "${SCRIPT_DIR}/reconcile_capacity.py" --apply \
+    --project "${PROJECT_ID}" --sql-instance "${SQL_INSTANCE}" \
+    --backend-service "${BACKEND_SERVICE}" --frontend-service "${FRONTEND_SERVICE}" \
+    "${email_args[@]}"
 
   ensure_scheduler_sa
   set_data_health_job

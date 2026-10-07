@@ -1,7 +1,7 @@
 {
   "displayName": "[Managed] Unexpected Error Spike",
   "documentation": {
-    "content": "Unexpected client/server errors from request.summary logs crossed threshold.",
+    "content": "Unexpected backend server errors from request.summary logs crossed threshold.",
     "mimeType": "text/markdown"
   },
   "combiner": "OR",

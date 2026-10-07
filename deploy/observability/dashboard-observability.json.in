@@ -50,7 +50,7 @@
         }
       },
       {
-        "title": "Backend P95 Latency (s)",
+        "title": "Short-read P95 Duration (ms)",
         "xyChart": {
           "dataSets": [
             {
@@ -58,13 +58,13 @@
               "legendTemplate": "p95",
               "timeSeriesQuery": {
                 "timeSeriesFilter": {
-                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/request_latencies\"",
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_short_read_duration_ms\"",
                   "aggregation": {
                     "alignmentPeriod": "300s",
                     "perSeriesAligner": "ALIGN_PERCENTILE_95"
                   }
                 },
-                "unitOverride": "s"
+                "unitOverride": "ms"
               }
             }
           ]
@@ -129,6 +129,132 @@
                     "crossSeriesReducer": "REDUCE_SUM"
                   }
                 }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Cloud SQL Connections (all databases)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloudsql_database\" AND resource.label.\"database_id\"=\"__PROJECT_ID__:__SQL_INSTANCE__\" AND metric.type=\"cloudsql.googleapis.com/database/postgresql/num_backends\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Pool Wait P95 (ms)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_wait_ms\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "ms"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Pool Acquire Timeouts",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND metric.type=\"logging.googleapis.com/user/obs_db_pool_acquire_timeout_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_DELTA",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend CPU P95 (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/cpu/utilizations\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "%"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Instances (active and idle)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/instance_count\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_MAX",
+                    "crossSeriesReducer": "REDUCE_SUM"
+                  }
+                },
+                "unitOverride": "1"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "title": "Backend Memory P95 (%)",
+        "xyChart": {
+          "dataSets": [
+            {
+              "plotType": "LINE",
+              "timeSeriesQuery": {
+                "timeSeriesFilter": {
+                  "filter": "resource.type=\"cloud_run_revision\" AND resource.label.\"service_name\"=\"__BACKEND_SERVICE__\" AND metric.type=\"run.googleapis.com/container/memory/utilizations\"",
+                  "aggregation": {
+                    "alignmentPeriod": "60s",
+                    "perSeriesAligner": "ALIGN_PERCENTILE_95",
+                    "crossSeriesReducer": "REDUCE_MAX"
+                  }
+                },
+                "unitOverride": "%"
               }
             }
           ]

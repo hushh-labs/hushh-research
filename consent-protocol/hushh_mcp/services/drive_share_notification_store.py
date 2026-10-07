@@ -52,9 +52,13 @@ class DriveShareNotificationStore(ExternalConnectorLifecycleStore):
                   SELECT 1 FROM drive_share_requests r
                   JOIN drive_request_payment_orders o ON o.request_id=r.request_id
                   WHERE r.request_id=:request AND r.recipient_user_id=:user
-                    AND r.payment_required=TRUE AND r.status='pending'
+                    AND r.payment_required=TRUE AND r.status IN ('pending','approved','partial')
                     AND r.expires_at>clock_timestamp()
-                    AND o.status IN ('awaiting_payment','checkout_open')
+                    AND (o.status='awaiting_payment' OR (
+                      o.status='checkout_open'
+                      AND (o.stripe_checkout_expires_at IS NULL
+                        OR o.stripe_checkout_expires_at>clock_timestamp())
+                    ))
                     AND o.reconciliation_required=FALSE
                 )"""),
                     {"request": request_id, "user": user_id},
