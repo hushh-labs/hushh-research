@@ -54,7 +54,8 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("useLocationCommand()");
     expect(agentBar).toContain('data-native-voice-control-id="one_voice_agent_bar_start"');
     expect(agentBar).toContain('data-agent-action="voice"');
-    expect(agentBar).toContain('active ? "Cancel voice command" : "Talk to One. Hold to speak, or tap to start."');
+    expect(agentBar).toContain('active ? "Cancel voice command" : unavailableLabel || "Talk to One. Hold to speak, or tap to start."');
+    expect(agentBar).toContain("disabled={Boolean(unavailableLabel) && !active}");
     expect(agentBar).toContain("onPointerDown=");
     expect(agentBar).toContain("onPointerUp=");
     expect(agentBar).toContain("onPointerCancel=");

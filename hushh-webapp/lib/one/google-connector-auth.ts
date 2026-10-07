@@ -1,10 +1,5 @@
-import { registerPlugin } from '@capacitor/core';
+import { GoogleConnectorAuth } from '@/lib/capacitor/google-connector-auth';
 import { AuthService } from '@/lib/services/auth-service';
-
-/** Public-client OAuth only. The provider code returns to this process, never the hub. */
-const GoogleConnectorAuth = registerPlugin<{
-  open(options: { authorizationUrl: string; redirectUri: string; expectedUserId: string; devEnabled: boolean }): Promise<{ redirectUrl: string }>;
-}>('GoogleConnectorAuth');
 
 export async function openGoogleConnectorAuth(authorizationUrl: string, redirectUri: string): Promise<string> {
   const expectedUserId = AuthService.getCurrentUser()?.uid;

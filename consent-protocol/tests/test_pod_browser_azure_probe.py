@@ -163,6 +163,49 @@ async def test_permissive_or_missing_readback_never_reaches_native_execution(pol
 
 
 @pytest.mark.asyncio
+async def test_refusal_diagnostics_never_export_provider_fields_or_private_values(
+    monkeypatch,
+):
+    def private_readback(value, _):
+        value["egressPolicy"] = {
+            "defaultAction": _AUTH_MARKER,
+            "trafficInspection": _AUTH_MARKER,
+            "hostRules": [{"pattern": _AUTH_MARKER}],
+            "rules": [{"headers": {"Authorization": _AUTH_MARKER}}],
+            _AUTH_MARKER: _AUTH_MARKER,
+        }
+        value["skipEgressProxy"] = _AUTH_MARKER
+        value["customerVnetConnectionName"] = _AUTH_MARKER
+        value["environment"] = {"PRIVATE": _AUTH_MARKER}
+
+    result = await run(NativeAPI(change=private_readback))
+    assert result.code == "AZURE_PROBE_EGRESS_REFUSED"
+    assert result.termination_confirmed and not result.private_bridge_verified
+    assert result.refusal_diagnostics is not None
+    assert result.refusal_diagnostics.http_status == 200
+    assert result.refusal_diagnostics.operation == "initial_policy_readback"
+    assert result.refusal_diagnostics.default_action == "unknown"
+    assert result.refusal_diagnostics.unknown_field_count == 1
+    assert _AUTH_MARKER not in result.model_dump_json()
+
+    # Negative control: copying an unrecognized provider enum into the export
+    # crosses this boundary even though the strict policy still refuses execution.
+    describe = probe._NativeClient.policy_refused
+
+    def unsafe_export(client, code, value):
+        try:
+            describe(client, code, value)
+        finally:
+            client.refusal_diagnostics = client.refusal_diagnostics.model_copy(
+                update={"default_action": value["egressPolicy"]["defaultAction"]}
+            )
+
+    monkeypatch.setattr(probe._NativeClient, "policy_refused", unsafe_export)
+    unsafe = await run(NativeAPI(change=private_readback))
+    assert _AUTH_MARKER in unsafe.model_dump_json(warnings=False)
+
+
+@pytest.mark.asyncio
 async def test_egress_regression_has_a_negative_control(monkeypatch):
     def change(value, _):
         value["egressPolicy"].update(defaultAction="Allow")

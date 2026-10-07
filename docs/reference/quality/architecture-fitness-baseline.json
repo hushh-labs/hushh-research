@@ -5,7 +5,7 @@
     "module_lines": 500
   },
   "doctrine": "docs/vision/bacterial-software-architecture.md",
-  "finding_count": 2208,
+  "finding_count": 2209,
   "findings": [
     {
       "detail": "class exceeds the advisory operon budget",
@@ -13127,7 +13127,7 @@
       "limit": 500,
       "path": "hushh-webapp/lib/agent/location-command-runtime.ts",
       "symbol": null,
-      "value": 1778
+      "value": 1781
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -13829,7 +13829,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/connections-drawer.layout.spec.ts",
       "symbol": null,
-      "value": 1325
+      "value": 1329
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -14468,7 +14468,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/document-share-review.layout.spec.ts",
       "symbol": null,
-      "value": 1113
+      "value": 1116
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -15404,7 +15404,7 @@
       "limit": 500,
       "path": "consent-protocol/tests/services/test_scheduled_mail_postgres.py",
       "symbol": null,
-      "value": 891
+      "value": 951
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16502,7 +16502,7 @@
       "limit": 500,
       "path": "hushh-webapp/__tests__/components/location-command-workflow.test.tsx",
       "symbol": null,
-      "value": 733
+      "value": 836
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -16934,7 +16934,7 @@
       "limit": 500,
       "path": "hushh-webapp/e2e/boot-surface.layout.spec.ts",
       "symbol": null,
-      "value": 699
+      "value": 710
     },
     {
       "detail": "module exceeds the advisory operon budget",
@@ -18229,6 +18229,15 @@
       "kind": "module_size",
       "limit": 500,
       "path": "consent-protocol/tests/test_circle_chat.py",
+      "symbol": null,
+      "value": 595
+    },
+    {
+      "detail": "module exceeds the advisory operon budget",
+      "key": "module_size|consent-protocol/tests/services/test_marketplace_investor_discovery.py||module exceeds the advisory operon budget",
+      "kind": "module_size",
+      "limit": 500,
+      "path": "consent-protocol/tests/services/test_marketplace_investor_discovery.py",
       "symbol": null,
       "value": 595
     },
@@ -19880,7 +19889,7 @@
       "value": 501
     }
   ],
-  "inspected_files": 6148,
+  "inspected_files": 6149,
   "review": {
     "account_service_deprovision_fix": "Reviewed 2026-10-06: 2793 to 2797, the account erasure deprovision built as the route builds it (registry + backend); a bare constructor raised TypeError since 2026-09-08.",
     "additional_reviewed_entries": [
@@ -19902,6 +19911,31 @@
       "reason": "One generated compatibility entry preserves verified serving workflow semantics; handwritten budgets and findings are unchanged.",
       "reviewed_lines": 1409,
       "source_revision": "1e0fca67dd09b70f5f704f2d5ad6f28086d5dd45"
+    },
+    "hosted_boundary_corrections_2026_10_07": {
+      "date": "2026-10-07",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "independent_review": "Read-only security review verified exact3 existing module spans; no new import/function findings or authority relaxation.",
+      "owners": [
+        "one-voice-governance: location command generation fence",
+        "quality-contracts: mounted command and real-PostgreSQL placement negatives"
+      ],
+      "reason": "Existing generation fence after awaited placement prevents canceled/locked command dispatch; nearest mounted race controls and real-PostgreSQL placement fixture preserve actual consent and send boundaries. No exclusions, budgets, finding set or future ratchet changed.",
+      "reviewed_values": {
+        "consent-protocol/tests/services/test_scheduled_mail_postgres.py": {
+          "previous": 891,
+          "reviewed": 951
+        },
+        "hushh-webapp/__tests__/components/location-command-workflow.test.tsx": {
+          "previous": 733,
+          "reviewed": 836
+        },
+        "hushh-webapp/lib/agent/location-command-runtime.ts": {
+          "previous": 1778,
+          "reviewed": 1781
+        }
+      },
+      "source_revision": "03e7bb9e35d7a7e37a83884ce9f66c2a494dfb8f"
     },
     "integrated_revision": "785019eb20f9e640e76a3185073488291e4cf9a1",
     "integration_2026_10_04": {
@@ -19975,7 +20009,47 @@
       "reviewed_lines": 1410,
       "source_revision": "b28b953d0e20a54007edbb05e84b21250632b2aa"
     },
-    "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f"
+    "main_revision": "f5ed2eb82fbe1163278c81a314a5dd132467f24f",
+    "replay_and_browser_regressions_2026_10_07": {
+      "date": "2026-10-07",
+      "evidence": "docs/reference/quality/adk-orchestration-docs-audit.md#reviewed-integration-debt",
+      "owners": [
+        "quality-contracts: real PostgreSQL public seed preservation and explicit browser service-boundary fixtures",
+        "frontend-architecture: measured canonical iOS splash continuity"
+      ],
+      "reason": "Four specifically reviewed module spans. Investor regressions use the actual replenisher SQL and preserve refreshed public records, explicit curation and exact24 seed admission. Browser aliases bind private-routing relative imports to existing explicit test boundaries. Boot continuity measures canonical native PNG ink and enforces the same tolerances across engines. Budgets, scanner, exclusions, function/import/dependency findings and future ratchet enforcement remain unchanged.",
+      "reviewed_values": {
+        "consent-protocol/tests/services/test_marketplace_investor_discovery.py": {
+          "previous": null,
+          "reviewed": 595
+        },
+        "hushh-webapp/e2e/boot-surface.layout.spec.ts": {
+          "previous": 699,
+          "reviewed": 710
+        },
+        "hushh-webapp/e2e/connections-drawer.layout.spec.ts": {
+          "previous": 1325,
+          "reviewed": 1329
+        },
+        "hushh-webapp/e2e/document-share-review.layout.spec.ts": {
+          "previous": 1113,
+          "reviewed": 1116
+        }
+      },
+      "source_revision": "590fdbb893c682383c00eeb504f64efbd2fc4265",
+      "source_sha256": {
+        "consent-protocol/tests/services/test_marketplace_investor_discovery.py": "e6abebea05826f550c654e9060aabe9b30200c0405b1f6df58dcf449a064bd50",
+        "hushh-webapp/e2e/boot-surface.layout.spec.ts": "01604f58054841985c9f4bb071212d9f56ceff709d6c7817f9be59a790168173",
+        "hushh-webapp/e2e/connections-drawer.layout.spec.ts": "6b6776822524270e8e822ac68783a325db354dc60625c3e380b3e20a23b506fe",
+        "hushh-webapp/e2e/document-share-review.layout.spec.ts": "bf444df5b67d99495604e5fc5874f097b411b7d594229dc568dd28c12c863e19"
+      },
+      "source_state": "Committed investor replay fix plus reviewed working-tree test/browser repairs; exact four finding sources pinned below.",
+      "verification": {
+        "browser": "Alias-only deltas retain assertion bodies. Four existing light/dark continuity checks pass across Chromium/WebKit; two old-production-CSS negative controls fail at unchanged pixel tolerances.",
+        "function_spans": "New investor helpers/tests span at most51 lines, below80; environment lookup and DSN adaptation occur only during the explicit disposable fixture.",
+        "investor": "Four existing service cases and two actual isolated-PostgreSQL cases pass using the CI-shaped DSN; original056, original057 and missing manual-reason guard negative controls fail."
+      }
+    }
   },
   "status": "advisory"
 }

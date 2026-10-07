@@ -153,6 +153,17 @@ triggers. Preserve this single deployment authority and existing owner resources
 
 ### Deployment duration and independent work
 
+Review on 2026-10-07: [dev run 37464072047](https://github.com/hushh-labs/hushh-research/actions/runs/37464072047)
+spent 14m21s in deployment; [UAT run 37554552503](https://github.com/hushh-labs/hushh-research/actions/runs/37554552503)
+spent 29m34s. These are different revisions and selected work, not a performance
+guarantee. [PR validation 37561159718](https://github.com/hushh-labs/hushh-research/actions/runs/37561159718)
+instead spent about 26 minutes retrying failing Drive browser fixtures. Correct
+the failed fixtures before changing CI policy. Required full-suite jobs already
+own duplicate targeted unit/static checks; separate browser, native, PKM,
+migration and recovery gates retain their distinct contracts. Inspect job and
+step durations rather than summing parallel lanes or equating PR validation
+with deployment.
+
 Measured on 2026-09-27, governed dev run `36332480677` took 21m39s for
 backend, frontend and a pod image. UAT run `36331605754` took 11m33s for
 frontend only; the recent full UAT run `36329957069` took 22m18s and also

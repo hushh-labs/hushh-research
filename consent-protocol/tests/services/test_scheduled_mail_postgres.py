@@ -44,6 +44,7 @@ from uuid import uuid4
 import httpx
 import pytest
 
+from db import db_client
 from hushh_mcp.services import gmail_delivery_service, gmail_drafts_service
 from hushh_mcp.services.account_service import AccountService
 from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, GmailDeliveryService
@@ -122,7 +123,35 @@ async def ledger(monkeypatch) -> AsyncIterator[Any]:
 
         monkeypatch.setattr(gmail_delivery_service, "get_pool", _pool)
         monkeypatch.setattr(gmail_drafts_service, "get_pool", _pool)
-        yield pool
+
+        # Placement is read by the synchronous control-plane client. Bind that
+        # real client to this same disposable database, with an explicit Shared
+        # choice for OWNER only; the other owner remains unplaced.
+        from sqlalchemy import create_engine
+
+        await pool.execute("ALTER TABLE vault_keys ADD COLUMN setup_capability_ids TEXT")
+        for name in (
+            "900_personal_agent_registry.sql",
+            "906_personal_agent_user_cloud.sql",
+            "909_byoc_setup_jobs.sql",
+            "955_one_hosting_choice.sql",
+        ):
+            await pool.execute((MIGRATIONS / "parked" / name).read_text())
+        await pool.execute(
+            "UPDATE vault_keys SET one_hosting_choice = 'shared',"
+            " one_hosting_choice_at = NOW() WHERE user_id = $1",
+            OWNER,
+        )
+        parts = urlsplit(_postgres_url())
+        database = await pool.fetchval("SELECT current_database()")
+        engine = create_engine(
+            urlunsplit(("postgresql+psycopg2", parts.netloc, "/" + database, parts.query, ""))
+        )
+        monkeypatch.setattr(db_client, "_db_client", db_client.DatabaseClient(engine))
+        try:
+            yield pool
+        finally:
+            engine.dispose()
 
 
 class _Gmail:
@@ -522,6 +551,37 @@ async def test_drain_sends_a_due_row_once_and_leaves_a_future_one(ledger, gmail_
     # A second run finds nothing: the sent row is never claimed again.
     again = await _drain(ledger, service)
     assert again["fired"] == 0 and len(gmail_http.posts) == 1
+
+
+@pytest.mark.parametrize("placement", ["unplaced", "unavailable"])
+async def test_drain_refuses_an_owner_without_verified_shared_placement(
+    ledger, gmail_http, placement
+):
+    from hushh_mcp.services.personal_agent_hosting import get_owner_hosting_mode
+
+    service = _service()
+    due = await service.schedule_send(
+        user_id=OTHER, payload=_payload(), send_at=_send_at(), recipient_display=NAME
+    )
+    await _make_due(ledger, due["action_id"])
+    before = await _row(ledger, due["action_id"])
+    if placement == "unavailable":
+        await ledger.execute("DROP TABLE personal_agent_registry")
+    assert await get_owner_hosting_mode(OTHER) == (
+        "unknown" if placement == "unavailable" else "unplaced"
+    )
+
+    result = await _drain(ledger, service)
+
+    assert result["fired"] == 0 and gmail_http.posts == []
+    row = await _row(ledger, due["action_id"])
+    if placement == "unavailable":
+        assert row["state"] == "scheduled" and row["attempt_count"] == 0
+        assert row["payload_sealed"] == before["payload_sealed"]
+    else:
+        assert row["state"] == "failed" and row["attempt_count"] == 0
+        assert row["safe_error_code"] == "private_runtime_required"
+        assert row["payload_sealed"] is None
 
 
 async def test_concurrent_drains_fire_a_due_row_once(ledger, gmail_http):

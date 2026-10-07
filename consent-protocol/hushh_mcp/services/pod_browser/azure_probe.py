@@ -105,6 +105,26 @@ class AzureCliCredential:
             raise BrowserRefused("AZURE_PROBE_AUTH_REFUSED") from None
 
 
+JSONType = Literal["absent", "null", "boolean", "number", "string", "array", "object"]
+PolicyField = Literal["defaultAction", "trafficInspection", "hostRules", "rules"]
+
+
+class AzurePolicyRefusalDiagnostics(StrictContract):
+    # Fixed provenance and enums only; unknown field names/values are never exported.
+    operation: Literal["initial_policy_readback", "post_execution_policy_readback"]
+    method: Literal["GET"] = "GET"
+    http_status: Literal[200] = 200
+    policy_type: JSONType
+    known_field_types: dict[PolicyField, JSONType]
+    unknown_field_count: int = Field(ge=0)
+    default_action: Literal["Allow", "Deny", "absent", "unknown"]
+    traffic_inspection: Literal["Full", "Partial", "None", "Legacy", "absent", "unknown"]
+    host_rule_count: int | None = Field(ge=0)
+    rule_count: int | None = Field(ge=0)
+    skip_egress_proxy: Literal["absent", "false", "true", "unknown"]
+    customer_vnet_connection_present: bool
+
+
 class AzureNativeQualification(StrictContract):
     probe_id: str = Field(pattern=r"^[a-f0-9]{32}$")
     sandbox_id: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_-]{1,128}$")
@@ -116,6 +136,7 @@ class AzureNativeQualification(StrictContract):
     private_bridge_verified: Literal[False] = False
     code: str = Field(pattern=r"^[A-Z0-9_]{1,128}$")
     failure_code: str | None = Field(default=None, pattern=r"^[A-Z0-9_]{1,128}$")
+    refusal_diagnostics: AzurePolicyRefusalDiagnostics | None = None
 
 
 class UnqualifiedAzureBrowserExecutor:
@@ -145,6 +166,21 @@ def _unique_object(pairs: list[tuple[str, object]]) -> dict:
     return result
 
 
+def _json_type(value: object, *, present: bool = True) -> JSONType:
+    if not present:
+        return "absent"
+    if value is None:
+        return "null"
+    return {
+        bool: "boolean",
+        int: "number",
+        float: "number",
+        str: "string",
+        list: "array",
+        dict: "object",
+    }[type(value)]
+
+
 class _NativeClient:
     def __init__(
         self, config: AzureProbeConfig, credential: AzureCredentialPort, client: httpx.AsyncClient
@@ -158,6 +194,8 @@ class _NativeClient:
         self.probe_id = uuid.uuid4().hex
         self.sandbox_id: str | None = None
         self.create_attempted = False
+        self.policy_read_count = 0
+        self.refusal_diagnostics: AzurePolicyRefusalDiagnostics | None = None
 
     async def request(
         self, method: str, suffix: str = "", *, body: dict | None = None, labels: bool = False
@@ -215,7 +253,47 @@ class _NativeClient:
             raise BrowserRefused("AZURE_PROBE_RESOURCE_BINDING_REFUSED")
         return value["id"]
 
+    def policy_refused(self, code: str, value: dict) -> None:
+        policy = value.get("egressPolicy")
+        fields = policy if isinstance(policy, dict) else {}
+        names = ("defaultAction", "trafficInspection", "hostRules", "rules")
+        default = fields.get("defaultAction")
+        inspection = fields.get("trafficInspection")
+        skip = value.get("skipEgressProxy")
+        self.refusal_diagnostics = AzurePolicyRefusalDiagnostics(
+            operation="initial_policy_readback"
+            if self.policy_read_count == 1
+            else "post_execution_policy_readback",
+            policy_type=_json_type(policy, present="egressPolicy" in value),
+            known_field_types={key: _json_type(fields[key]) for key in names if key in fields},
+            unknown_field_count=sum(key not in names for key in fields),
+            default_action=default
+            if isinstance(default, str) and default in ("Allow", "Deny")
+            else "absent"
+            if "defaultAction" not in fields
+            else "unknown",
+            traffic_inspection=inspection
+            if isinstance(inspection, str) and inspection in ("Full", "Partial", "None", "Legacy")
+            else "absent"
+            if "trafficInspection" not in fields
+            else "unknown",
+            host_rule_count=len(fields["hostRules"])
+            if isinstance(fields.get("hostRules"), list)
+            else None,
+            rule_count=len(fields["rules"]) if isinstance(fields.get("rules"), list) else None,
+            skip_egress_proxy="absent"
+            if "skipEgressProxy" not in value
+            else "false"
+            if skip is False
+            else "true"
+            if skip is True
+            else "unknown",
+            customer_vnet_connection_present="customerVnetConnectionName" in value,
+        )
+        raise BrowserRefused(code)
+
     def verify_policy(self, value: dict) -> None:
+        self.policy_read_count += 1
         if self.owned_id(value) != self.sandbox_id:
             raise BrowserRefused("AZURE_PROBE_RESOURCE_BINDING_REFUSED")
         policy = value.get("egressPolicy")
@@ -224,27 +302,41 @@ class _NativeClient:
             for key, item in policy.items()
             if key not in {"hostRules", "rules"} or item != []
         } != {"defaultAction": "Deny", "trafficInspection": "Full"}:
-            raise BrowserRefused("AZURE_PROBE_EGRESS_REFUSED")
+            self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
         lifecycle = value.get("lifecycle")
         if (
             lifecycle != {"autoSuspendPolicy": {"enabled": False}}
             or lifecycle["autoSuspendPolicy"]["enabled"] is not False
         ):
-            raise BrowserRefused("AZURE_PROBE_SUSPENSION_REFUSED")
+            self.policy_refused("AZURE_PROBE_SUSPENSION_REFUSED", value)
         # No inherited secrets, volumes, exposed ports or alternate networking.
         for name in ("environment", "ports", "connections", "volumes"):
             item = value.get(name, {} if name == "environment" else [])
             if type(item) is not (dict if name == "environment" else list) or item:
-                raise BrowserRefused("AZURE_PROBE_PRIVATE_RESOURCES_REFUSED")
+                self.policy_refused("AZURE_PROBE_PRIVATE_RESOURCES_REFUSED", value)
         if value.get("skipEgressProxy", False) is not False or value.get(
             "customerVnetConnectionName"
         ):
-            raise BrowserRefused("AZURE_PROBE_EGRESS_REFUSED")
+            self.policy_refused("AZURE_PROBE_EGRESS_REFUSED", value)
         if (
             value.get("sourcesRef") != {"diskImage": {"name": "ubuntu", "isPublic": True}}
             or value["sourcesRef"]["diskImage"]["isPublic"] is not True
         ):
-            raise BrowserRefused("AZURE_PROBE_IMAGE_REFUSED")
+            self.policy_refused("AZURE_PROBE_IMAGE_REFUSED", value)
+
+    def qualification_receipt(
+        self, *, policy_verified: bool, execution_verified: bool, termination: bool, code: str
+    ) -> AzureNativeQualification:
+        return AzureNativeQualification(
+            probe_id=self.probe_id,
+            sandbox_id=self.sandbox_id,
+            policy_verified=policy_verified,
+            synthetic_execution_verified=execution_verified,
+            termination_confirmed=termination,
+            code=code if termination else "AZURE_PROBE_STOP_UNCONFIRMED",
+            failure_code=code if not termination else None,
+            refusal_diagnostics=self.refusal_diagnostics,
+        )
 
     async def terminate(self) -> bool:
         if not self.create_attempted:
@@ -368,12 +460,9 @@ async def qualify_azure_sandbox(
             if not termination:
                 raise BrowserRefused("AZURE_PROBE_STOP_UNCONFIRMED")
             raise asyncio.CancelledError
-        return AzureNativeQualification(
-            probe_id=native.probe_id,
-            sandbox_id=native.sandbox_id,
+        return native.qualification_receipt(
             policy_verified=policy_verified,
-            synthetic_execution_verified=execution_verified,
-            termination_confirmed=termination,
-            code=code if termination else "AZURE_PROBE_STOP_UNCONFIRMED",
-            failure_code=code if not termination else None,
+            execution_verified=execution_verified,
+            termination=termination,
+            code=code,
         )

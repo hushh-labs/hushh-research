@@ -27,6 +27,8 @@ export function useVault() {
   return { isVaultUnlocked, getVaultOwnerToken: getToken };
 }
 export const ApiService = {
+  // These sharing assertions exercise an explicitly selected Shared owner.
+  getPersonalAgentStatus: async () => ({ hostingMode: "shared" }),
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
   apiFetch: (
     path: string,
@@ -55,6 +57,7 @@ export const ApiService = {
 // Popup identity is synthetic here; Firebase's same-user semantics have their
 // own unit tests and live consent remains a separate acceptance requirement.
 export const AuthService = {
+  getCurrentUser: () => ({ uid: "synthetic-owner" }),
   documentRequestIdentityToken: async (
     _uid: string,
     current: () => boolean,

@@ -12,6 +12,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const h = vi.hoisted(() => ({
   api: vi.fn(),
   pod: vi.fn(),
+  hosting: vi.fn(),
   permission: vi.fn(),
   requestPermission: vi.fn(),
   capture: vi.fn(),
@@ -28,6 +29,7 @@ const h = vi.hoisted(() => ({
   },
   router: { push: vi.fn(), replace: vi.fn() },
   pageAction: vi.fn(),
+  submitted: vi.fn(),
 }));
 vi.mock("@/lib/connections/gemini-runtime-configuration", () => ({
   resolveGeminiRuntimeConnection: async () => ({ mode: "managed" }),
@@ -68,10 +70,17 @@ vi.mock("@capacitor/core", async (load) => ({
 }));
 vi.mock("@capacitor/app", () => ({ App: {} }));
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: h.api, ownerPodRequest: h.pod },
+  ApiService: {
+    apiFetch: h.api,
+    ownerPodRequest: h.pod,
+    getPersonalAgentStatus: h.hosting,
+  },
 }));
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { getIdTokenWithRetry: async () => "synthetic-id-token" },
+  AuthService: {
+    getCurrentUser: () => h.user,
+    getIdTokenWithRetry: async () => "synthetic-id-token",
+  },
 }));
 vi.mock("@/lib/agent/one-system-action-executor", () => ({
   registerOneSystemActionExecutor: () => () => undefined,
@@ -225,7 +234,11 @@ function Controls() {
   return (
     <>
       <button
-        onClick={() => context.run(context.command.submit("Do my Location onboarding"))}
+        onClick={() => {
+          const pending = context.command.submit("Do my Location onboarding");
+          h.submitted(pending);
+          context.run(pending);
+        }}
       >
         Begin command
       </button>
@@ -285,11 +298,21 @@ function App() {
     </OneLocationInteractionSurfaceProvider>
   );
 }
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   vi.stubGlobal("crypto", webcrypto);
   window.history.replaceState({}, "", "/one/agents");
   h.vault.isVaultUnlocked = true;
+  // These workflow receipts exercise the explicit Shared compatibility path.
+  // Keep canonical placement selection active; private and unknown cases below
+  // must never send a command plan or checkpoint to the hub.
+  h.hosting.mockResolvedValue({ hostingMode: "shared" });
+  // Placement is lazy-loaded by the canonical selector, including from the
+  // real local-handler module imported by this mounted workflow fixture.
+  const { ApiService } = await vi.importActual<typeof import("@/lib/services/api-service")>(
+    "@/lib/services/api-service",
+  );
+  vi.spyOn(ApiService, "getPersonalAgentStatus").mockImplementation(h.hosting);
   completed = false;
   finalizer = null;
   calls.length = 0;
@@ -731,3 +754,83 @@ it("an uncertain writer response offers explicit task recovery without automatic
   expect(h.execute).not.toHaveBeenCalled();
   expect(screen.queryByText(/Location setup complete/)).not.toBeInTheDocument();
 });
+
+
+it.each(["unplaced", "pending_byoc", "hussh_pods", "unavailable"] as const)(
+  "refuses command content before hub or device work when placement is %s",
+  async (placement) => {
+    if (placement === "unavailable") {
+      h.hosting.mockRejectedValue(new Error("Synthetic placement unavailable"));
+    } else {
+      h.hosting.mockResolvedValue({
+        hostingMode: placement === "unplaced" ? undefined : placement,
+      });
+    }
+    render(<App />);
+    fireEvent.click(screen.getByText("Begin command"));
+    await waitFor(() => expect(h.hosting).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(screen.queryByText("Understanding your Location request…")).not.toBeInTheDocument(),
+    );
+    expect(h.api).not.toHaveBeenCalled();
+    expect(h.pod).not.toHaveBeenCalled();
+    expect(h.requestPermission).not.toHaveBeenCalled();
+    expect(h.capture).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.execute).not.toHaveBeenCalled();
+    expect(checkpoint.capsule).toBeNull();
+  },
+);
+
+it("keeps a refused private command on its transport without hub fallback or device effects", async () => {
+  h.hosting.mockResolvedValue({ hostingMode: "byoc" });
+  h.pod.mockResolvedValue(new Response(JSON.stringify({
+    detail: { code: "POD_DIRECT_NOT_READY" },
+  }), { status: 503 }));
+  render(<App />);
+  fireEvent.click(screen.getByText("Begin command"));
+  await screen.findByText("Your private pod connection is not ready yet.");
+  expect(h.pod).toHaveBeenCalledOnce();
+  expect(h.pod).toHaveBeenCalledWith("commands/assess", expect.any(Object));
+  // Grant preparation is metadata-only; no hub plan/checkpoint/effect follows.
+  expect(calls).toEqual([{ path: "/api/one/agent-chat/proposals/prepare", body: undefined }]);
+  expect(h.requestPermission).not.toHaveBeenCalled();
+  expect(h.capture).not.toHaveBeenCalled();
+  expect(h.save).not.toHaveBeenCalled();
+  expect(h.execute).not.toHaveBeenCalled();
+  expect(checkpoint.capsule).toBeNull();
+});
+
+
+it.each(["cancel", "lock_and_unlock"] as const)(
+  "rejects a late private placement response after %s without restarting the task",
+  async (change) => {
+    let release!: (value: { hostingMode: string }) => void;
+    const placement = new Promise<{ hostingMode: string }>((resolve) => { release = resolve; });
+    h.hosting.mockReturnValue(placement);
+    const mounted = render(<App />);
+    fireEvent.click(screen.getByText("Begin command"));
+    await waitFor(() => expect(h.hosting).toHaveBeenCalled());
+    expect(h.submitted).toHaveBeenCalledOnce();
+    const pending = h.submitted.mock.calls[0][0] as Promise<void>;
+    if (change === "cancel") {
+      fireEvent.click(screen.getByText("Stop task"));
+    } else {
+      h.vault.isVaultUnlocked = false;
+      mounted.rerender(<App />);
+      h.vault.isVaultUnlocked = true;
+      mounted.rerender(<App />);
+    }
+    await act(async () => {
+      release({ hostingMode: "byoc" });
+      await pending.catch(() => undefined);
+    });
+    expect(h.api).not.toHaveBeenCalled();
+    expect(h.pod).not.toHaveBeenCalled();
+    expect(h.requestPermission).not.toHaveBeenCalled();
+    expect(h.capture).not.toHaveBeenCalled();
+    expect(h.save).not.toHaveBeenCalled();
+    expect(h.execute).not.toHaveBeenCalled();
+    expect(checkpoint.capsule).toBeNull();
+  },
+);

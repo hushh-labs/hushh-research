@@ -2,12 +2,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   apiFetch: vi.fn(),
+  getPersonalAgentStatus: vi.fn(),
   trackEvent: vi.fn(),
   currentUserId: "owner" as string | null,
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
-  ApiService: { apiFetch: mocks.apiFetch },
+  ApiService: {
+    apiFetch: mocks.apiFetch,
+    getPersonalAgentStatus: mocks.getPersonalAgentStatus,
+  },
 }));
 vi.mock("@/lib/observability/client", () => ({
   trackEvent: mocks.trackEvent,
@@ -32,6 +36,8 @@ describe("native Gmail observability", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.currentUserId = "owner";
+    // Provider-observability cases run only after explicit Shared admission.
+    mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
   });
 
   it("does not accept a read-only native result for a send upgrade", async () => {
@@ -75,6 +81,7 @@ describe("native Gmail observability", () => {
       userId: "owner",
       includeGrantedScopes: false,
     });
+    await vi.waitFor(() => expect(mocks.apiFetch).toHaveBeenCalledTimes(1));
     mocks.currentUserId = "other-owner";
     resolveResponse(
       response({

@@ -404,9 +404,6 @@ def test_marketplace_public_sec_shortlist_persists_to_action_table(monkeypatch):
     asyncio.run(_run())
 
 
-_INVESTOR_POSTGRES_URL = os.getenv("ONE_COMMAND_TEST_DATABASE_URL", "")
-
-
 def _investor_seed_sql(filename: str) -> str:
     return (Path(__file__).resolve().parents[2] / "db" / "migrations" / filename).read_text(
         encoding="utf-8"
@@ -420,14 +417,16 @@ def _investor_seed_ciks(sql: str) -> set[str]:
 @pytest.fixture
 async def investor_replay_conn() -> AsyncIterator[asyncpg.Connection]:
     """Only this unique database is written or removed; no existing app rows."""
-    if not _INVESTOR_POSTGRES_URL:
+    postgres_url = os.getenv("ONE_COMMAND_TEST_DATABASE_URL", "")
+    if not postgres_url:
         pytest.skip("Requires explicit disposable PostgreSQL server")
+    postgres_url = postgres_url.replace("postgresql+psycopg2://", "postgresql://", 1)
     database = "codex_investor_replay_" + uuid.uuid4().hex
-    admin = await asyncpg.connect(_INVESTOR_POSTGRES_URL)
+    admin = await asyncpg.connect(postgres_url)
     conn = None
     try:
         await admin.execute(f'CREATE DATABASE "{database}"')
-        parts = urlsplit(_INVESTOR_POSTGRES_URL)
+        parts = urlsplit(postgres_url)
         url = urlunsplit((parts.scheme, parts.netloc, "/" + database, parts.query, ""))
         conn = await asyncpg.connect(url)
         yield conn

@@ -6,11 +6,12 @@ Canonical visual owner: [Quality and Design System Index](README.md).
 Runtime diagrams and contracts live in the [private-agent north star](../architecture/private-agent-north-star.md)
 and [private browser runtime](../../../consent-protocol/docs/reference/private-browser-runtime.md).
 
-## Decision — 2026-10-06
+## Decision — 2026-10-07
 
-**Hold the new dev release until integration and core CI pass. Keep Computer Use
-unavailable on both clouds.** The interrupted BYOC handoff has been resumed;
-local implementation and focused checks do not establish deployed acceptance.
+**Hold the new dev release until exact-SHA hosted CI passes. Isolated migration
+recovery passed; keep Computer Use unavailable on both clouds.** The interrupted
+BYOC handoff has been integrated; failed hosted checks are being corrected.
+Local implementation and focused checks do not establish deployed acceptance.
 Existing owners, selected hosting, trusted devices and encrypted information are
 preserved. No application merge to main, UAT/production deployment, stable
 publication or owner-pod installation occurred in this continuation.
@@ -19,7 +20,7 @@ publication or owner-pod installation occurred in this continuation.
 
 | Surface | Dated evidence | Boundary |
 | --- | --- | --- |
-| Working source | Implementation `41a50deb6`, local ADK integration `fdcfd9b2b`, final runtime/authority corrections `431992281` and `89d379c5d`. | Main `be8d4e014b34` and frozen local ADK `eb76e00af60a` are included. Concurrent commerce/PDF work and unrelated repositories remain preserved. Hosted exact-SHA validation is pending. |
+| Working source | Integrated candidate `03e7bb9e35d7`; replay preservation repair `590fdbb893c6`. | Main `be8d4e014b34` and frozen local ADK `eb76e00af60a` are included. Browser/native corrections require the next exact-SHA hosted run. Concurrent commerce/PDF work and unrelated repositories remain preserved. |
 | Dev backend | Readback at 2026-10-07 00:22 UTC: `consent-protocol-00143-mbc`, source `9a3d5f043469`, digest `sha256:9b868c12cf7776ab62ec0c5f759fd993fa675eddd7dbedfe8441d095dd8ad655`, 100% traffic. | Serving baseline predates this continuation. |
 | Dev frontend | Same readback: `hushh-webapp-00121-d9g`, source `9a3d5f043469`, digest `sha256:8174fc29ce435ff08b497a456079efad32318a05c6cebd61a0d5d352ed1e7e2b`, 100% traffic. | Native connector configuration and new browser UI are not inferred from this image. |
 | Owner pods | No owner service/image changed in this continuation. | Hub deployment, pod publication and exact owner-approved installation are separate receipts. |
@@ -29,7 +30,8 @@ The baseline's [hosted CI](https://github.com/hushh-labs/hushh-research/actions/
 and [governed deployment](https://github.com/hushh-labs/hushh-research/actions/runs/37464072047)
 passed. These receipts do not validate the newly integrated candidate. Previous ready
 revisions are recorded as metadata rollback candidates; their compatibility has
-not been rehearsed in this continuation.
+not been rehearsed in this continuation. [Candidate validation](https://github.com/hushh-labs/hushh-research/actions/runs/37561159718)
+failed; its receipt remains failure evidence, not release authorization.
 
 ## Files-led acceptance
 
@@ -52,9 +54,11 @@ not been rehearsed in this continuation.
   sandbox Chromium, broker bridge or denied-egress proof is qualified. Keep refusal.
 - **Azure:** Early Access enrollment is an obsolete blocker: SandboxGroups is now
   generally available. The new bounded dev probe created the native group,
-  qualified data-plane read access and created a synthetic sandbox. Its exact
-  egress-policy readback was refused before execution. Sandbox deletion and resource
-  group deletion were confirmed. No owner resource changed. The private task bridge,
+  qualified data-plane read access and created a synthetic sandbox. Its policy
+  reported Deny/Full but included two unqualified fields, so execution was refused.
+  The newer public schema includes additional authority-bearing policy sections;
+  ignoring unknown fields is unsafe. Sandbox, scoped-role and resource-group
+  deletion were confirmed. No owner resource changed. The private task bridge,
   Chromium, network isolation and lifecycle remain unqualified.
 - **Privacy:** credential entry suppresses model observations; handback requires a
   fresh observation. Remembered state is encrypted, origin bounded and capped at
@@ -66,8 +70,8 @@ not been rehearsed in this continuation.
 
 | Owner | Blocking evidence | Required resolution |
 | --- | --- | --- |
-| Backend / release | New dev image has no admitted predecessor. Dev backup exists; the isolated restoration/migration rehearsal is in progress. | Prove migration recovery before hub deployment; qualify the exact image pair before an owner-approved installation. |
-| Integration | Main/local ADK integration and local component checks are complete in isolation; generated owners agree. | Preservation-safe return to the original branch and exact-SHA hosted CI. |
+| Backend / release | The restored dev backup exposed destructive replay of public investor seeds. Repair `590fdbb893c6` passes retained-information and idempotent replay proof; six focused tests pass. The new image has no admitted predecessor. | Qualify the exact image pair before owner-approved installation. Historical checksum adoption in environments with accepted canonical receipts requires its own governed review. |
+| Integration / CI | Hosted fixtures, generated mirrors and native splash continuity required corrections; authority gates remain intact. | Preserve residual work, freeze the repaired candidate and obtain exact-SHA hosted success. |
 | Native / provider | Registered iOS client verified; dev public-client configuration and feed keys prepared. Android public-client PKCE is not provider qualified. | Supported Android registration/authorization and live iOS acceptance; no server client-secret fallback. |
 | Cloud / browser | GCP identity and Azure policy/private bridge gates fail or remain unverified. | Qualify each substrate independently. Keep Computer Use disabled until its isolation, privacy and lifecycle receipts pass. |
 | Dev acceptance | No new candidate deployment or owner installation receipt. | Main-owned dev workflow for the exact green branch SHA, terminal/readback proof, then exact owner-approved pod release and one acceptance window. |
@@ -80,34 +84,49 @@ Local evidence covers native sealing, owner/epoch fencing, Google grant races,
 exact connector review, route closure, notification checkpoints, browser takeover
 and Forget. The 150-check notification pack includes real PostgreSQL lifecycle
 and erasure checks. These fixtures do not establish provider or owner-cloud acceptance.
-All 181 Mermaid figures render; web-core, secret, governance and MCP package lanes
-passed before the final runtime correction. Integration now passes 380 checks.
+All 181 Mermaid figures rendered after the affected documentation corrections.
+Web-core, secret, governance and MCP package lanes passed
+locally. Integration passes 380 checks. These checks do not replace hosted CI.
 
-The first integrated backend run preserved a receipt of 124 failures and 15,847
-passes. Review found two runtime defects: eager Shared-store construction broke a
-fresh pod import, and a specialist could return information after owner placement
-changed during a read. Both are corrected through existing owners; independent
-negative controls fail against the old code. Remaining repairs declare fixture
-placement and injected session adapters explicitly, retain exact route inventories,
-and account for schema-proven erasure cascades. The final parallel backend run had
-16,009 passes and two authored-wording failures; restoring the protected phrases
-passes all 80 nearest instruction checks without raising the budget. Shared-database
-validation passes 373 cases after adding the real predecessor migration to a
-rotation fixture; 197 environment-dependent cases skipped. All 22,845 backend tests
-collect. The additional post-read consent/serving-incarnation fence passes 55 cases;
-eight old-code race controls fail. Hosted full CI remains the final authority.
-No test or authority gate is waived.
+Hosted failure review found an actual Location cancellation/lock race across a
+placement await; the existing generation fence now runs before dispatch. The
+nearest 17 checks pass and both old-source controls fail. Scheduled-mail tests now
+use the real isolated placement database: 16 PostgreSQL checks pass. Generated
+route/agent mirrors and the native Google bridge are corrected from their owners.
+Drive's 48 failing browser cases now pass in about 50 seconds; Connections' 14
+affected cases pass. The broad layout run passes 549 Chromium, 473 WebKit and
+112 mobile Chrome cases, with two native splash failures. The splash correction
+passes all 30 nearest two-engine checks, with two existing evidence-only skips;
+old CSS fails both continuity controls. Pixel tolerances remain unchanged.
 
-At `89d379c5d`, the unchanged [fitness scanner baseline](./architecture-fitness-baseline.json)
-measures 2,208 retained findings.
-Review attributed the captured 375 new/worsened findings to 192 incoming main,
-17 ADK, 103 BYOC additions and 63 integration growth. The two non-size issues
-were corrected at the Calendar admission and CLI initialization seams. Remaining
-size debt is reviewed explicitly, including local additions. The final correction
-adds three size findings and worsens 15: authority fixture growth and 15 lines of
-lazy runtime construction. Budgets remain 500/250/80; future new or worsened findings
-still fail. Owners are recorded in the baseline. Size review does not qualify cloud
-execution or a new image upgrade.
+CI performance is measured by stage. The earlier PR browser lane spent about
+26 minutes retrying broken Drive fixtures. The latest dev deployment job took
+14m21s; UAT took 29m34s for different work. Full-suite targeted checks are already
+deduplicated. The remaining roughly 12-second browser overlap does not justify
+new selector coordination in this release. No security, native, PKM, recovery or
+browser gate was removed. See the [dev timing review](../operations/dev-fast-lane.md#deployment-duration-and-independent-work).
+
+The restored dev backup passed two canonical migration runs and both schema
+guards at `590fdbb893c6`. Comparison preserved 230 retained tables, 53
+ciphertext/key projections and 25 key/PKM tables; existing orphan counts did not
+change and added constraints have no orphans. Only 955/956 were added to the
+ledger; all old receipts, including 944, remained unchanged. Replay changed no
+records or receipts. Normalization excludes only nine independently reviewed
+`updated_at` fields; every investor information field remains strict. This proves
+dev database recovery, not owner-image continuity or UAT/production readiness.
+The original failed conservation receipt remains evidence of the repaired defect.
+
+Earlier integration corrected eager Shared-store construction on pod import and
+late disclosure after owner placement changed. The post-read fence passes 55
+checks; eight old-source race controls fail. Failed receipts remain in the original
+evidence; no test or authority gate is waived.
+
+The [fitness baseline](./architecture-fitness-baseline.json) attributes incoming
+main, ADK and local debt separately. Hosted corrections add one reviewed module
+finding and update six existing module values for authority fixtures, relative
+fixture aliases and native splash measurement. Total retained findings are 2,209.
+Budgets remain 500/250/80; future new or worsened findings still fail. Debt owners
+remain recorded. Size review does not qualify cloud execution or an image upgrade.
 
 The new `2026.10-dev.8` descriptor has no admitted predecessor digests. The old
 image reuse pin was removed so the next governed build uses this source. Exact

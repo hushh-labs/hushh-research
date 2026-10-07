@@ -394,7 +394,10 @@ export class LocationCommandRuntime {
       message: "Understanding your Location request…",
     });
     try {
-      if (await ownerContentIsPrivate()) return await this.privateCommand.submit({ requestId, typedAction }).then(() => accepted?.());
+      const isPrivate = await ownerContentIsPrivate();
+      // Placement awaits cannot carry a canceled or locked command forward.
+      this.check(generation);
+      if (isPrivate) return await this.privateCommand.submit({ requestId, typedAction }).then(() => accepted?.());
       const proposed = await this.request<{
         plan?: LocationCommandPlan;
         checkpoint: CommandCheckpoint;

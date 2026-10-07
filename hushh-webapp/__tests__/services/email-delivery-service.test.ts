@@ -47,7 +47,7 @@ describe("EmailDeliveryService", () => {
     await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft: { ...draft, body: 'changed after review' } })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
     expect(ApiService.ownerPodRequest).toHaveBeenCalledTimes(1);
     vi.mocked(ApiService.ownerPodRequest).mockResolvedValueOnce(new Response(JSON.stringify({ proposalId: proposal, kind: 'gmail_mailbox', result: { status: 'sent', action: 'send_email', message_id: 'provider-receipt' } })));
-    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).resolves.toEqual({ messageId: 'provider-receipt', threadId: null, outcomeUnknown: false });
+    await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).resolves.toEqual({ actionId: proposal, messageId: 'provider-receipt', threadId: null, outcomeUnknown: false });
     expect(ApiService.ownerPodRequest).toHaveBeenLastCalledWith(`actions/${proposal}/confirm`, { method: 'POST' });
     await expect(EmailDeliveryService.send({ firebaseIdToken: 'token', vaultOwnerToken: 'owner-token', actionId: prepared.actionId, draft })).rejects.toMatchObject({ code: 'PRIVATE_EMAIL_REVIEW_REQUIRED' });
     expect(ApiService.apiFetch).not.toHaveBeenCalled();

@@ -20,6 +20,7 @@ flowchart TB
   end
 
   subgraph release["Environment deployment lanes"]
+    devdeploy["Deploy to Dev<br/>main-owned workflow + CI-green branch SHA"]
     green["Green main SHA"]
     smoke["Main Post-Merge Smoke<br/>deploy-authority on main"]
     uat["Deploy to UAT<br/>manual exact-SHA dispatch"]
@@ -29,6 +30,7 @@ flowchart TB
   feat --> pr --> prci
   prci --> freshness
   prci --> status
+  prci -->|"exact SHA passes CI Status Gate"| devdeploy
   freshness --> queue
   status --> queue
   queue --> queueci --> main --> smoke --> green
@@ -36,7 +38,11 @@ flowchart TB
   green --> prod
 ```
 
-This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
+This document describes CI and deployment authority. During implementation, run
+focused contract checks. Before an ordinary push, run the local core mirror once
+on the completed candidate; GitHub owns full web and browser validation. The
+dedicated pre-PR workflow retains its exhaustive local gate. Dev can deploy an
+exact CI-green branch SHA without merging application content to main.
 
 The canonical state-changing operator procedure is the
 [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).

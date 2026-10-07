@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }));
-vi.mock("@/lib/services/api-service", () => ({ ApiService: { apiFetch } }));
+const { agentChatRequest } = vi.hoisted(() => ({ agentChatRequest: vi.fn() }));
+vi.mock("@/lib/services/api-service", () => ({ ApiService: { agentChatRequest } }));
 
 import {
   AGENT_RESPONSE_REPORT_REASONS,
@@ -79,10 +79,10 @@ describe("AgentResponseReportButton", () => {
 });
 
 describe("setAgentChatFeedback report", () => {
-  beforeEach(() => apiFetch.mockReset());
+  beforeEach(() => agentChatRequest.mockReset());
 
   it("sends the report reason with a down rating on the existing feedback route", async () => {
-    apiFetch.mockResolvedValue(new Response("{}", { status: 200 }));
+    agentChatRequest.mockResolvedValue(new Response("{}", { status: 200 }));
     await setAgentChatFeedback({
       conversationId: "conv-1",
       messageId: "evt-2",
@@ -90,9 +90,13 @@ describe("setAgentChatFeedback report", () => {
       reportReason: "inaccurate",
       vaultOwnerToken: "token",
     });
-    const [path, init] = apiFetch.mock.calls[0];
+    const [path, init] = agentChatRequest.mock.calls[0];
     expect(path).toBe("/api/one/agent-chat/feedback");
     expect(init.method).toBe("PUT");
+    expect(init.headers).toEqual({
+      Authorization: "Bearer token",
+      "Content-Type": "application/json",
+    });
     expect(JSON.parse(init.body)).toEqual({
       conversation_id: "conv-1",
       message_id: "evt-2",
@@ -102,14 +106,14 @@ describe("setAgentChatFeedback report", () => {
   });
 
   it("leaves a plain rating's payload unchanged", async () => {
-    apiFetch.mockResolvedValue(new Response("{}", { status: 200 }));
+    agentChatRequest.mockResolvedValue(new Response("{}", { status: 200 }));
     await setAgentChatFeedback({
       conversationId: "conv-1",
       messageId: "evt-2",
       rating: "up",
       vaultOwnerToken: "token",
     });
-    expect(JSON.parse(apiFetch.mock.calls[0][1].body)).toEqual({
+    expect(JSON.parse(agentChatRequest.mock.calls[0][1].body)).toEqual({
       conversation_id: "conv-1",
       message_id: "evt-2",
       rating: "up",

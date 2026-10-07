@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   status: vi.fn(),
+  getPersonalAgentStatus: vi.fn(),
   startConnect: vi.fn(),
   startNativeConnect: vi.fn(),
   completeNativeConnect: vi.fn(),
@@ -52,6 +53,19 @@ vi.mock("@/lib/services/google-calendar-service", () => ({
   },
 }));
 
+// These Calendar cases exercise the explicitly selected Shared runtime.
+vi.mock("@/lib/services/api-service", () => ({
+  ApiService: { getPersonalAgentStatus: mocks.getPersonalAgentStatus },
+}));
+vi.mock("@/lib/services/auth-service", () => ({
+  AuthService: {
+    getCurrentUser: () => mocks.ownerId ? { uid: mocks.ownerId } : null,
+  },
+}));
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({ vaultKey: null, vaultOwnerToken: null }),
+}));
+
 vi.mock("sonner", () => ({ toast: { error: vi.fn(), success: vi.fn() } }));
 
 import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
@@ -62,6 +76,7 @@ describe("CalendarAgentPage", () => {
     vi.clearAllMocks();
     mocks.native = false;
     mocks.ownerId = "calendar-user";
+    mocks.getPersonalAgentStatus.mockResolvedValue({ hostingMode: "shared" });
     mocks.popupAttempt = "";
     mocks.getIdToken.mockResolvedValue("firebase-token");
     vi.spyOn(window, "open").mockImplementation(

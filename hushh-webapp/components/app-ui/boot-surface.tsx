@@ -40,7 +40,7 @@ import { HushhMark } from "@/lib/morphy-ux/ui/hushh-mark";
  * screen.
  *
  * Geometry: the mark is centred on the viewport, exactly where the iOS launch
- * screen draws it (`Splash.imageset`: a centred Hussh mark whose height is 14.75% of
+ * screen draws it (`Splash.imageset`: a centred Hussh mark whose height is 202/2732 of
  * the screen under aspect-fill), so the native splash hands over with no
  * visible change. The text block hangs below the mark at a fixed offset; a
  * longer or wider line grows downward and can never move the mark.

@@ -7765,13 +7765,9 @@ body[data-persona-surface="ria"] {
    lib/boot/boot-sequence.ts (show after 200 ms, at least 400 ms once shown,
    150 ms exit). Transform and opacity only; flat Morphy surface, no blur.
 
-   Mark geometry continues the iOS launch screen. Splash.imageset draws the
-   shushing face centred, its ink 403/2732 of the square image, and the
-   storyboard aspect-fills the screen, so on a phone the ink is 14.751% of
-   the screen height. Apple Color Emoji's ink is 0.96 of the font size and
-   sits 0.0267 of it above the line box centre (measured in WebKit and
-   Chromium), so the glyph is sized from the ink box and nudged down by that
-   amount to put the ink, not the line box, on the centre.
+   Mark geometry continues the current iOS Splash.imageset. Its centred
+   brand artwork is 202/2732 of the square image; LaunchScreen.storyboard
+   aspect-fills the screen. The transparent runtime mark keeps that height.
    ========================================================================== */
 /* --boot-spring is a critically damped spring (damping ratio 1, so it
    cannot overshoot or bounce): x(t) = 1 - (1 + 10t)e^(-10t), sampled. */
@@ -7816,7 +7812,10 @@ body[data-persona-surface="ria"] {
 
 /* Native shells: the launch surface is the splash's own colours and mark
    size, following the system appearance the splash was drawn in. */
-html.native-ios .boot-surface,
+html.native-ios .boot-surface {
+  --boot-mark-size: calc(100lvh * 202 / 2732);
+}
+
 html.native-android .boot-surface {
   --boot-mark-size: calc(100lvh * 403 / 2732);
 }

@@ -17,6 +17,7 @@ const tsPluginFiles = [
   "lib/capacitor/native-chrome.ts",
   "lib/capacitor/stream.ts",
   "lib/capacitor/oauth-return.ts",
+  "lib/capacitor/google-connector-auth.ts",
   "lib/capacitor/plaid-link.ts",
 ];
 

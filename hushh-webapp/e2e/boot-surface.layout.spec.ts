@@ -47,12 +47,30 @@ const LEGACY_LABELS: Record<(typeof STAGES)[number], string> = {
   setup: "Checking setup...",
   workspace: "Opening chat…",
 };
-// Splash.imageset: a 2732 px square, the ink box at x 1174..1558, y 1165..1567.
-const SPLASH = { size: 2732, left: 1174, top: 1165, width: 385, height: 403 };
+// The native asset is the continuity reference, independently of runtime CSS.
+async function inkBounds(png: Buffer) {
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const bg = [data[0], data[1], data[2]];
+  let minX = Infinity, minY = Infinity, maxX = -1, maxY = -1;
+  for (let y = 0; y < info.height; y++)
+    for (let x = 0; x < info.width; x++) {
+      const i = (y * info.width + x) * 3;
+      const d = Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]);
+      if (d > 24) {
+        minX = Math.min(minX, x); minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+      }
+    }
+  return { size: info.height, rasterWidth: info.width, left: minX, top: minY,
+    width: maxX - minX + 1, height: maxY - minY + 1 };
+}
+let SPLASH: Awaited<ReturnType<typeof inkBounds>>;
 const SHOT_DIR = process.env.BOOT_SURFACE_SHOT_DIR;
 
 test.beforeAll(async () => {
   const root = process.cwd();
+  SPLASH = await inkBounds(fs.readFileSync(path.join(root,
+    "ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany.png")));
   const { build } = await import("vite");
   const { Scanner } = await import("@tailwindcss/oxide");
   const scanner = new Scanner({});
@@ -118,10 +136,18 @@ async function open(page: Page, options: OpenOptions) {
     contentType: "text/html",
     body: `<!doctype html><html class="${[dark ? "dark" : "", native ? "native-ios" : ""].join(" ")}"><head><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>${css}</style></head><body><div id="root"></div></body></html>`,
   }));
+  const mark = fs.readFileSync(path.join(process.cwd(), "public/brand/hushh-mark.png"));
+  await page.route("**/brand/hushh-mark.png", (route) => route.fulfill({ contentType: "image/png", body: mark }));
+  await page.route("**/_next/image?**", (route) => new URL(route.request().url()).searchParams.get("url") === "/brand/hushh-mark.png"
+    ? route.fulfill({ contentType: "image/png", body: mark }) : route.continue());
   await page.goto(`http://localhost/boot-surface${stage ? `#stage=${stage}` : ""}`);
   await page.addScriptTag({ content: script });
   await awaitProductFont(page);
   await page.locator("[data-boot-surface]").waitFor({ state: "attached" });
+  await expect.poll(() => page.locator("[data-hushh-mark] img").evaluate((node) => {
+    const image = node as HTMLImageElement;
+    return image.complete && image.naturalWidth > 0;
+  })).toBe(true);
 }
 
 async function settleIdle(page: Page) {
@@ -611,7 +637,7 @@ test("offline and a hung stage hand the person a way forward", async ({ page, co
 });
 
 for (const dark of [false, true])
-  test(`iOS launch surface continues the splash (${dark ? "dark" : "light"})`, async ({ page, browserName }) => {
+  test(`iOS launch surface continues the splash (${dark ? "dark" : "light"})`, async ({ page }) => {
     await open(page, { width: 393, height: 852, dark, native: true, stage: "session" });
     await expect(page.locator("[data-boot-surface]")).toHaveAttribute("data-boot-phase", "launch");
     await expect(page.locator("[data-boot-line='current']")).toContainText(LINES.session);
@@ -625,41 +651,26 @@ for (const dark of [false, true])
     assertGrid(g, `ios launch ${dark ? "dark" : "light"}`, true);
     await shot(page, `ios-launch-session-393-${dark ? "dark" : "light"}`);
 
-    // The glyph's ink lands where the splash's ink is, so the hand-over from
-    // LaunchScreen.storyboard shows no change. Apple Color Emoji only ships on
-    // Apple platforms; elsewhere the box geometry above carries the contract.
-    if (process.platform !== "darwin" || browserName !== "webkit") return;
-    const scale = g.viewport.height / SPLASH.size; // aspect-fill of a square on a tall screen
+    // The canonical brand image continues the native splash on every engine.
+    const splash = dark ? await inkBounds(fs.readFileSync(path.join(process.cwd(),
+      "ios/App/App/Assets.xcassets/Splash.imageset/Default@3x~universal~anyany-dark.png"))) : SPLASH;
+    const scale = g.viewport.height / splash.size; // aspect-fill of a square on a tall screen
     const offsetX = (g.viewport.width - g.viewport.height) / 2;
     const expected = {
-      left: offsetX + SPLASH.left * scale,
-      top: SPLASH.top * scale,
-      width: SPLASH.width * scale,
-      height: SPLASH.height * scale,
+      left: offsetX + splash.left * scale,
+      top: splash.top * scale,
+      width: splash.width * scale,
+      height: splash.height * scale,
     };
-    const png = await page.screenshot({
-      animations: "disabled",
-      // Around the mark only: the title starts 32 pt below the ink (y 521).
-      clip: { x: 106, y: 336, width: 181, height: 170 },
-    });
-    const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    const bg = [data[0], data[1], data[2]];
-    let minX = Infinity, minY = Infinity, maxX = -1, maxY = -1;
-    for (let y = 0; y < info.height; y++)
-      for (let x = 0; x < info.width; x++) {
-        const i = (y * info.width + x) * 3;
-        const d = Math.abs(data[i] - bg[0]) + Math.abs(data[i + 1] - bg[1]) + Math.abs(data[i + 2] - bg[2]);
-        if (d > 24) {
-          minX = Math.min(minX, x); minY = Math.min(minY, y);
-          maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
-        }
-      }
-    const dpr = info.width / 181; // screenshot pixels per CSS pixel
+    const clip = { x: g.mark.left - 2, y: g.mark.top - 2, width: g.mark.width + 4, height: g.mark.height + 4 };
+    const png = await page.screenshot({ animations: "disabled", clip });
+    const bounds = await inkBounds(png);
+    const dpr = bounds.rasterWidth / clip.width; // screenshot pixels per CSS pixel
     const ink = {
-      left: 106 + minX / dpr,
-      top: 336 + minY / dpr,
-      width: (maxX - minX + 1) / dpr,
-      height: (maxY - minY + 1) / dpr,
+      left: clip.x + bounds.left / dpr,
+      top: clip.y + bounds.top / dpr,
+      width: bounds.width / dpr,
+      height: bounds.height / dpr,
     };
     test.info().annotations.push({
       type: "splash-ink",

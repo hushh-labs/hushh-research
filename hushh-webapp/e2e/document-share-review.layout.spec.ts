@@ -52,6 +52,9 @@ test.beforeAll(async () => {
           "@/lib/vault/vault-context",
           "@/lib/services/api-service",
           "@/lib/services/auth-service",
+          // Private connector routing imports the same boundaries relatively.
+          "./api-service",
+          "./auth-service",
           "@/lib/cache/cache-sync-service",
           "@/lib/connections/custom-connector-configuration",
           "next/link",
