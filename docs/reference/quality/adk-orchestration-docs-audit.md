@@ -19,7 +19,7 @@ publication or owner-pod installation occurred in this continuation.
 
 | Surface | Dated evidence | Boundary |
 | --- | --- | --- |
-| Working source | Implementation `41a50deb6`, main integration `5ee944079`, authority fixes `36de3069d`, local ADK integration `fdcfd9b2b`. | Frozen main `f103bc8bb898` and local ADK `eb76e00af60a` are included. Concurrent commerce/PDF work and unrelated repositories remain intact; canonical CI is pending. |
+| Working source | Implementation `41a50deb6`, local ADK integration `fdcfd9b2b`, final runtime/authority corrections `431992281` and `89d379c5d`. | Main `be8d4e014b34` and frozen local ADK `eb76e00af60a` are included. Concurrent commerce/PDF work and unrelated repositories remain preserved. Hosted exact-SHA validation is pending. |
 | Dev backend | Readback at 2026-10-07 00:22 UTC: `consent-protocol-00143-mbc`, source `9a3d5f043469`, digest `sha256:9b868c12cf7776ab62ec0c5f759fd993fa675eddd7dbedfe8441d095dd8ad655`, 100% traffic. | Serving baseline predates this continuation. |
 | Dev frontend | Same readback: `hushh-webapp-00121-d9g`, source `9a3d5f043469`, digest `sha256:8174fc29ce435ff08b497a456079efad32318a05c6cebd61a0d5d352ed1e7e2b`, 100% traffic. | Native connector configuration and new browser UI are not inferred from this image. |
 | Owner pods | No owner service/image changed in this continuation. | Hub deployment, pod publication and exact owner-approved installation are separate receipts. |
@@ -66,8 +66,8 @@ not been rehearsed in this continuation.
 
 | Owner | Blocking evidence | Required resolution |
 | --- | --- | --- |
-| Backend / release | Notification custody and multi-resource erasure corrections pass focused PostgreSQL checks; the combined candidate remains unverified. | Preserve exact receipts through integration and pass the complete release gates before deployment. |
-| Integration | Frozen main/local ADK integration is complete in isolation; generated owners agree. | One local core mirror, preservation-safe return to the original branch, and exact-SHA hosted CI. |
+| Backend / release | New dev image has no admitted predecessor. Dev backup exists; the isolated restoration/migration rehearsal is in progress. | Prove migration recovery before hub deployment; qualify the exact image pair before an owner-approved installation. |
+| Integration | Main/local ADK integration and local component checks are complete in isolation; generated owners agree. | Preservation-safe return to the original branch and exact-SHA hosted CI. |
 | Native / provider | Registered iOS client verified; dev public-client configuration and feed keys prepared. Android public-client PKCE is not provider qualified. | Supported Android registration/authorization and live iOS acceptance; no server client-secret fallback. |
 | Cloud / browser | GCP identity and Azure policy/private bridge gates fail or remain unverified. | Qualify each substrate independently. Keep Computer Use disabled until its isolation, privacy and lifecycle receipts pass. |
 | Dev acceptance | No new candidate deployment or owner installation receipt. | Main-owned dev workflow for the exact green branch SHA, terminal/readback proof, then exact owner-approved pod release and one acceptance window. |
@@ -76,37 +76,47 @@ not been rehearsed in this continuation.
 
 ### Reviewed integration debt
 
-Focused local checks cover native sealing, owner/epoch fencing, Google grant
-races, connector actions, route closure, notification checkpoints and browser
-control/session boundaries. Frontend typecheck and design checks pass; all 181
-Mermaid figures render. Check counts overlap and are not an end-to-end acceptance
-total. The earlier root docs gate included an unrelated ignored PR snapshot; the isolated
-candidate excludes it. Fresh combined documentation and governance checks are required.
+Local evidence covers native sealing, owner/epoch fencing, Google grant races,
+exact connector review, route closure, notification checkpoints, browser takeover
+and Forget. The 150-check notification pack includes real PostgreSQL lifecycle
+and erasure checks. These fixtures do not establish provider or owner-cloud acceptance.
+All 181 Mermaid figures render; web-core, secret, governance and MCP package lanes
+passed before the final runtime correction. Integration now passes 380 checks.
 
-The final notification/lifecycle check passed 150 tests, including real PostgreSQL
-standby removal, detached-custody retention and qualified erasure completion.
-The connector pack passed 587 tests before the last strict provider-status
-correction; its redirect/server-failure negative controls are checked separately.
-Neither result proves a deployed provider transition or owner-cloud cleanup.
+The first integrated backend run preserved a receipt of 124 failures and 15,847
+passes. Review found two runtime defects: eager Shared-store construction broke a
+fresh pod import, and a specialist could return information after owner placement
+changed during a read. Both are corrected through existing owners; independent
+negative controls fail against the old code. Remaining repairs declare fixture
+placement and injected session adapters explicitly, retain exact route inventories,
+and account for schema-proven erasure cascades. The final parallel backend run had
+16,009 passes and two authored-wording failures; restoring the protected phrases
+passes all 80 nearest instruction checks without raising the budget. Shared-database
+validation passes 373 cases after adding the real predecessor migration to a
+rotation fixture; 197 environment-dependent cases skipped. All 22,845 backend tests
+collect. The additional post-read consent/serving-incarnation fence passes 55 cases;
+eight old-code race controls fail. Hosted full CI remains the final authority.
+No test or authority gate is waived.
 
-The integrated route, mail-drain and workflow pack passed 172 checks; 192 MCP/pod
-connector checks and 41 mail-route checks passed. Frontend typecheck and the 45-check
-ADK UI pack passed. Main merge corrections preserve private pending-call authority,
-refuse non-object MCP arguments, guard new live receipt/resume/draft routes, and
-recheck placement before scheduled payload opening and provider dispatch. Calendar
-discovery now recognizes the exact guarded authentication wrappers without changing
-workflow semantics or bypassing compatibility. Counts overlap.
+At `89d379c5d`, the unchanged [fitness scanner baseline](./architecture-fitness-baseline.json)
+measures 2,208 retained findings.
+Review attributed the captured 375 new/worsened findings to 192 incoming main,
+17 ADK, 103 BYOC additions and 63 integration growth. The two non-size issues
+were corrected at the Calendar admission and CLI initialization seams. Remaining
+size debt is reviewed explicitly, including local additions. The final correction
+adds three size findings and worsens 15: authority fixture growth and 15 lines of
+lazy runtime construction. Budgets remain 500/250/80; future new or worsened findings
+still fail. Owners are recorded in the baseline. Size review does not qualify cloud
+execution or a new image upgrade.
 
-The prior combined core run reported 75 protocol and four integration failures.
-It is historical evidence of the interrupted handoff, not a result for the current
-candidate. The final dependency-complete source must pass the current gates;
-no tests, security checks or ratchet budgets are waived. The [fitness baseline](./architecture-fitness-baseline.json)
-remains measured debt, not a line-count target.
+The new `2026.10-dev.8` descriptor has no admitted predecessor digests. The old
+image reuse pin was removed so the next governed build uses this source. Exact
+old-image/new-image recovery proof is required before offering installation.
 
 The [One Wiki hosting section](https://wiki.hushh.ai/wiki/products/one#hosting-choices)
-was corrected and read back: Shared is explicit, detached accounts return to the
-chooser, existing setup/assignments are preserved, and cloud rollout remains
-qualified. Public prose contains no owner or operational credentials.
+was corrected and read back. The private ADK and private-agent records now carry
+the same placement and disabled-browser boundaries, with dated historical evidence
+preserved. All edited sections passed readback; operational details remain private.
 
 ## Historical receipts and boundaries
 
