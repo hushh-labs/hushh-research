@@ -1081,6 +1081,7 @@
         "one_referral_leaderboard_snapshots",
         "one_referral_milestone_entitlements",
         "one_referral_policies",
+        "one_referral_program_settings",
         "one_referral_relationships",
         "one_referral_reward_rounds",
         "one_referral_risk_reviews",
@@ -1093,17 +1094,6 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only. Migration 270 adds the gamification layer built on top of this graph: versioned program settings (points, milestones, streaks, flash windows, weekly schedule, prize catalogue) and the weekly reward round schedule slots. Migration 271 adds cumulative scoring: an append-only points ledger (one_referral_score_events), a durable worker queue enqueued atomically alongside each qualification transition (one_referral_scoring_jobs), a per-referrer streak-award watermark (one_referral_streak_state, recomputed from relationship qualification dates rather than stored incrementally), and published cumulative-ranking snapshots (one_referral_leaderboard_snapshots / _entries) the dashboard reads instead of a live aggregate query. Migration 272 adds circles and milestones: an interval history of each user's single active referral-contest team (one_referral_circle_selections, new and referral-owned -- it never writes to one_location_circles or one_location_circle_memberships), an append-only settled-once record of which team gets credit for each qualified relationship resolved at event time (one_referral_circle_contributions, COUNT(*) per circle_id is the team's raw cumulative score), lifetime once-only milestone entitlements (one_referral_milestone_entitlements), and a staff review/fulfillment foundation with no shipping or purchase capability (one_referral_fulfillment_records). Migration 273 adds one_referral_display_handles: an opt-in, self-chosen public alias distinct from actor_identity_cache.display_name, so a referrer who has not set one has no public leaderboard identity and is rendered as an anonymous placeholder rather than their real/account name. Migration 274 adds one_referral_weekly_awards: finalized weekly rank-1/2/3 prize awards, unique on (reward_round_id, award_slot) only -- deliberately never on user_id, because the program is cumulative with no weekly reset and a previous winner is expected to win again in a later round without earning anything new that week. cumulative_points_at_cutoff is a frozen snapshot written once at finalization; winning never writes back to one_referral_score_events, so a prize is never itself a point award, and re-running finalization for an already-finalized round is a no-op via ON CONFLICT DO NOTHING on that same unique pair."
-    },
-    {
-      "data_class": "workflow_state",
-      "exact_tables": [
-        "one_voice_conversations",
-        "one_voice_pending_actions"
-      ],
-      "id": "one_voice_live_runtime",
-      "lifecycle_status": "current",
-      "owner": "iam-consent-governance",
-      "primary_access_path": "hushh_mcp/one_voice ConversationStore and PendingActionStore used by the One Live Voice relay (WS /api/one/voice/live) and the pending-action HTTP twins (migration 222). Conversations hold the canonical-id entity context, the provider resumption handle, and per-session counters; pending actions are confirmation-gated voice mutations (voice or tap tier, hashed single-use receipt, one open per conversation, 120 s TTL)."
     },
     {
       "data_class": "personal_projection",
@@ -5309,11 +5299,11 @@
     "action_gateway": "ad1c14d11ad34a758103eb32781f0ee09d5fc4f21070f9d90faabef025b58703",
     "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
     "cache_manifest": "adfddbcbcfd2d0ff07275642e1e165bc671d7bd057a6840619cfb8407c8f0c5f",
-    "data_plane": "21ffe02aadae25180c00bdd4668075682b8f1ced9c43b04fb3d1b2257c9f4464",
+    "data_plane": "c82d71dd603eadb823eda0dba5ad81fa623a30434d3cdb048b3cb2f41bdf58d9",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "376cf3193426e923607c74d060cdfe4678e6661dc22042b25f34a36c89e5bbfa",
     "route_index": "93bea51ad478ab3a7ae03decc2e2bf46995d49808d40cb095d5271a419d2ab05",
-    "route_layout": "f563799530787882c7dca52aeba78fa65ef15371b30b7191067c12b703618c6c",
+    "route_layout": "098565601a3f4a6675a75a028c572f00c086b1cc1f1d35d34088c348bdc279ef",
     "surface_map": "022af07f9368380d65caf23bb562feb87a1f30a79527b20501c4aecec8fe47e6",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"

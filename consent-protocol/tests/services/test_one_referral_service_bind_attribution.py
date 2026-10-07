@@ -96,7 +96,10 @@ def test_self_referral_is_rejected_and_nothing_is_created():
         attribution=attribution, existing_relationship=False, predates_attribution=False
     )
 
-    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(one_referral_service, "_now", return_value=NOW),
+    ):
         result = one_referral_service.bind_attribution(ATTRIBUTION_ID, referrer_and_user)
 
     assert result == {"status": "self_referral"}
@@ -110,7 +113,10 @@ def test_an_account_that_predates_the_link_is_not_credited_as_a_new_referral():
     attribution = _pending_attribution(referrer_user_id="user_referrer")
     conn = _harness(attribution=attribution, existing_relationship=False, predates_attribution=True)
 
-    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(one_referral_service, "_now", return_value=NOW),
+    ):
         result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_existing")
 
     assert result == {"status": "existing_user"}
@@ -125,7 +131,10 @@ def test_a_new_user_who_did_not_predate_the_link_is_bound():
         attribution=attribution, existing_relationship=False, predates_attribution=False
     )
 
-    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(one_referral_service, "_now", return_value=NOW),
+    ):
         result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_brand_new")
 
     assert result == {"status": "bound"}
@@ -135,7 +144,33 @@ def test_a_user_already_referred_by_someone_else_cannot_be_credited_twice():
     attribution = _pending_attribution(referrer_user_id="user_second_referrer")
     conn = _harness(attribution=attribution, existing_relationship=True, predates_attribution=False)
 
-    with patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)):
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(one_referral_service, "_now", return_value=NOW),
+    ):
         result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_already_referred")
 
     assert result == {"status": "already_referred"}
+
+
+def test_an_attribution_past_its_expiry_is_rejected_as_expired():
+    """The expiry check this module performs: pin it against the controlled
+    clock rather than real wall-clock time, so it stays meaningful regardless
+    of when the suite runs."""
+    attribution = _pending_attribution(referrer_user_id="user_referrer")
+    conn = _harness(
+        attribution=attribution, existing_relationship=False, predates_attribution=False
+    )
+
+    with (
+        patch.object(one_referral_service, "get_db_connection", side_effect=lambda: _db(conn)),
+        patch.object(
+            one_referral_service, "_now", return_value=attribution.expires_at + timedelta(seconds=1)
+        ),
+    ):
+        result = one_referral_service.bind_attribution(ATTRIBUTION_ID, "user_brand_new")
+
+    assert result == {"status": "expired"}
+    calls = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("UPDATE one_referral_attributions" in sql for sql in calls)
+    assert not any("INSERT INTO one_referral_relationships" in sql for sql in calls)

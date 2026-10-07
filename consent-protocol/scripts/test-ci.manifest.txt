@@ -106,8 +106,10 @@ tests/services/test_connection_graph_service.py
 # the whole bar), the gamification foundation (program settings + weekly
 # reward round schedule, migration 270), cumulative scoring (base/flash/
 # streak points, the durable worker, leaderboard snapshots, migration 271),
-# and circles/milestones (team contest selection, event-time contribution
-# snapshots, lifetime entitlements, fulfillment foundation, migration 272).
+# circles/milestones (team contest selection, event-time contribution
+# snapshots, lifetime entitlements, fulfillment foundation, migration 272),
+# and the real milestone ladder + weekly cutoff that replace v1's
+# placeholders (migration 275).
 # Absent from this manifest means collect-only, not run.
 tests/services/test_one_referral_service_bind_attribution.py
 tests/services/test_one_referral_service_qualification.py
@@ -116,6 +118,7 @@ tests/test_one_referral_scoring_points.py
 tests/services/test_one_referral_scoring_service.py
 tests/test_referral_scoring_drain_routes.py
 tests/test_one_referral_scoring_milestones.py
+tests/test_one_referral_program_settings_v2_migration.py
 tests/services/test_one_referral_circle_service.py
 tests/services/test_one_referral_rewards_service.py
 tests/test_one_referral_handle.py

@@ -167,7 +167,8 @@
     "271_one_referral_cumulative_scoring.sql",
     "272_one_referral_circles_and_milestones.sql",
     "273_one_referral_display_handles.sql",
-    "274_one_referral_weekly_awards.sql"
+    "274_one_referral_weekly_awards.sql",
+    "275_one_referral_program_settings_v2.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -330,6 +331,7 @@
     "271_one_referral_cumulative_scoring.sql": "rollback/271_one_referral_cumulative_scoring.rollback.sql",
     "272_one_referral_circles_and_milestones.sql": "rollback/272_one_referral_circles_and_milestones.rollback.sql",
     "273_one_referral_display_handles.sql": "rollback/273_one_referral_display_handles.rollback.sql",
-    "274_one_referral_weekly_awards.sql": "rollback/274_one_referral_weekly_awards.rollback.sql"
+    "274_one_referral_weekly_awards.sql": "rollback/274_one_referral_weekly_awards.rollback.sql",
+    "275_one_referral_program_settings_v2.sql": "rollback/275_one_referral_program_settings_v2.rollback.sql"
   }
 }

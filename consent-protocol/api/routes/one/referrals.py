@@ -11,6 +11,7 @@ import asyncio
 import json
 import logging
 import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -18,6 +19,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from api.middleware import require_firebase_auth
 from api.referral_listener import get_referral_queue, release_referral_queue
+from hushh_mcp.operons.referral_scoring.weekly_cutoff import next_weekly_cutoff
 from hushh_mcp.services.one_referral_circle_service import (
     CircleSelectionError,
     get_active_circle_selection,
@@ -213,6 +215,31 @@ async def referral_circle_leaderboard(
 ):
     """Cumulative RAW qualified-referral count per contest team."""
     return {"teams": get_circle_leaderboard(limit=max(1, min(limit, 50)))}
+
+
+@router.get("/challenge")
+async def referral_weekly_challenge(_firebase_uid: str = Depends(require_firebase_auth)):
+    """The current seven-day challenge round's start and close.
+
+    A display computation only, derived from the active settings version's
+    `weekly_schedule` -- it never creates or reads a reward-round row. Returns
+    `active: false` with no window when the schedule is unset (v1's state) or
+    the active row cannot be found, so the dashboard can render a "not yet
+    scheduled" state instead of guessing at a deadline.
+    """
+    try:
+        settings = get_active_program_settings()
+    except ProgramSettingsUnavailable:
+        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
+    window = next_weekly_cutoff(datetime.now(timezone.utc), settings.weekly_schedule)
+    if window is None:
+        return {"active": False, "week_started_at": None, "cutoff_at": None, "timezone": None}
+    return {
+        "active": True,
+        "week_started_at": window.week_started_at.isoformat(),
+        "cutoff_at": window.cutoff_at.isoformat(),
+        "timezone": window.timezone,
+    }
 
 
 @router.get("/milestones")

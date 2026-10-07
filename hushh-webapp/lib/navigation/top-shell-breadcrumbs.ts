@@ -907,6 +907,17 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
+  if (pathname === ROUTES.ONE_REFERRALS) {
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    return {
+      backHref:
+        resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
+      width: "profile",
+      align: "center",
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Referrals" }],
+    };
+  }
+
   if (pathname === ROUTES.CALENDAR) {
     const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
     return {

@@ -52,6 +52,13 @@ export type BindResult = {
     | "existing_user";
 };
 
+export type WeeklyChallenge = {
+  active: boolean;
+  week_started_at: string | null;
+  cutoff_at: string | null;
+  timezone: string | null;
+};
+
 /** One row on the individual leaderboard. Never a real name -- `handle` is
  * either the person's own chosen alias or the anonymous placeholder. */
 export type LeaderboardEntry = {
@@ -230,6 +237,18 @@ export const ReferralService = {
         Authorization: `Bearer ${opts.idToken}`,
       },
       body: JSON.stringify({ handle: opts.handle }),
+    });
+  },
+
+  /** The current seven-day challenge round's start and close. `active` is
+   * false when the program's weekly schedule is unset. */
+  async getChallenge(opts: { idToken: string }): Promise<WeeklyChallenge> {
+    return apiJson<WeeklyChallenge>("/api/one/referrals/challenge", {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${opts.idToken}`,
+      },
     });
   },
 
