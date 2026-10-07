@@ -357,11 +357,7 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
-@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
-@pytest.mark.parametrize("wrong_scanner_child", [False, True])
-def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
-):
+def _release_probe_binaries(tmp_path: Path) -> Path:
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     for name, source in (("gcloud", FAKE_GCLOUD), ("bash", FAKE_BASH)):
@@ -380,6 +376,15 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         encoding="utf-8",
     )
     fake_seq.chmod(0o755)
+    return fake_bin
+
+
+@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
+@pytest.mark.parametrize("wrong_scanner_child", [False, True])
+def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
+    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
+):
+    fake_bin = _release_probe_binaries(tmp_path)
     original_document = _job("drive-work-drain-uat", None, "*/2 * * * *", "120s")
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(
