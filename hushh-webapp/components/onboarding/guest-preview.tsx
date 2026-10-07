@@ -7,6 +7,7 @@ import {
   type RefObject,
 } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   ArrowLeft,
   ArrowRight,
@@ -332,12 +333,13 @@ function AgentStory() {
 }
 
 function CircleControlStory() {
-  const shushingFace = String.fromCodePoint(0x1f92b);
   return (
     <div className={styles.circleControlStory}>
       <div className={styles.circleRadar} aria-label="Circles you control">
         <span className={styles.radarRing} /><span className={styles.radarRing} /><span className={styles.radarRing} /><span className={styles.radarLine} />
-        <div className={styles.radarCenter} aria-label="Hussh One">{shushingFace}</div>
+        <div className={styles.radarCenter} aria-label="Hussh One">
+          <Image src="/onboarding/shush-logo.svg" alt="Hussh One" width={512} height={512} priority />
+        </div>
         <div className={`${styles.circleChipExact} ${styles.familyChip}`}><span>&hearts;</span>Family</div>
         <div className={`${styles.circleChipExact} ${styles.friendsChip}`}><span>&clubs;</span>Friends</div>
         <div className={`${styles.circleChipExact} ${styles.financeChip}`}><span>&#9635;</span>Finance</div>

@@ -421,7 +421,8 @@
 .radarRing:nth-child(2) { inset: 10%; }
 .radarRing:nth-child(3) { inset: 0; border-style: dashed; }
 .radarLine { position: absolute; top: 17%; left: 30%; width: 2px; height: 36%; background: repeating-linear-gradient(to bottom, #8a1f4a 0 2px, transparent 2px 8px); transform: rotate(-30deg); transform-origin: bottom; }
-.radarCenter { position: absolute; inset: 38.5%; display: grid; place-items: center; border: 1px solid #dcdae6; border-radius: 50%; background: #fff; box-shadow: 0 16px 40px rgb(60 40 120 / 14%); font-size: clamp(3.5rem, 10vw, 5.6rem); }
+.radarCenter { position: absolute; inset: 38.5%; display: grid; place-items: center; overflow: hidden; border: 1px solid #dcdae6; border-radius: 50%; background: #fff; box-shadow: 0 16px 40px rgb(60 40 120 / 14%); }
+.radarCenter img { display: block; width: 82%; height: 82%; object-fit: contain; }
 .circleChipExact { position: absolute; display: inline-flex; align-items: center; gap: .625rem; padding: .5rem 1.25rem .5rem .5rem; border-radius: 999px; background: #fff; box-shadow: 0 6px 18px rgb(60 40 120 / 10%); color: #2e2e3a; font-weight: 600; white-space: nowrap; }
 .circleChipExact span { display: grid; width: 2.25rem; height: 2.25rem; place-items: center; border-radius: 50%; }
 .familyChip { top: 17%; left: 31%; border: 2px solid #8a1f4a; font-weight: 700; transform: translate(-50%, -50%); }
