@@ -188,8 +188,14 @@ describe("IntroStep voice contract", () => {
     expect(screen.getByRole("heading", { name: "Your people, closer." })).toBeInTheDocument();
     expect(document.querySelector("[data-hushh-mark]")).not.toBeNull();
     expect(
-      screen.getByRole("button", { name: "Screen 4: Get started" }),
+      screen.getByRole("button", { name: "Screen 3: Get started" }),
     ).toBeDisabled();
+    // Welcome has no dash: the three previews are the whole progress bar.
+    expect(screen.getAllByRole("button", { name: /^Screen \d/ })).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "Screen 1: Circles" })).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
     fireEvent.click(screen.getByRole("button", { name: "Previous screen" }));
     expect(screen.getByRole("heading", { name: "One", exact: true })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Create your One", exact: true }));
